@@ -1,0 +1,35 @@
+{
+  "name": "open-close-cycle",
+  "flowId": "open-close-cycle",
+  "description": "Repeatedly open and dismiss a target surface to capture deterministic repeated-cycle evidence.",
+  "platform": "ios",
+  "interactionDriver": "xcodebuildmcp",
+  "trigger": {
+    "kind": "tap",
+    "label": "Open a target surface from a stable home state."
+  },
+  "defaultIterations": 5,
+  "timelinePhases": {
+    "surface_open_requested": "intent",
+    "surface_opened": "navigation",
+    "surface_close_requested": "intent",
+    "surface_dismissed": "completion"
+  },
+  "metricEvents": {
+    "openRequested": "surface_open_requested",
+    "opened": "surface_opened",
+    "closeRequested": "surface_close_requested",
+    "dismissed": "surface_dismissed"
+  },
+  "budgets": {
+    "metric": "surface open-close cycle",
+    "pass": {
+      "failures": 0,
+      "timeouts": 0,
+      "cycleP50Ms": 1200,
+      "cycleP95Ms": 1800,
+      "openP50Ms": 700,
+      "closeP50Ms": 700
+    }
+  }
+}

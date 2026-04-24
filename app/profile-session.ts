@@ -1,0 +1,613 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useEffect, useSyncExternalStore } from 'react';
+import { Linking, NativeModules, Platform } from 'react-native';
+import * as ExpoLinking from 'expo-linking';
+
+export type ProfileSessionState = {
+  active: boolean;
+  scenario: string | null;
+  runId: string | null;
+  startedAt: number | null;
+};
+
+export type ProfileSessionCommand = {
+  id: string;
+  scenario?: string;
+  runId?: string;
+  command: string;
+  timestamp: number;
+};
+
+export type ProfileSignalKind = 'js' | 'memory' | 'network';
+export type ProfileEventPhase =
+  | 'intent'
+  | 'navigation'
+  | 'domain'
+  | 'query'
+  | 'network'
+  | 'render'
+  | 'native'
+  | 'visual'
+  | 'completion';
+export type ProfileEventStatus = 'started' | 'completed' | 'failed' | 'skipped' | 'observed';
+
+type ProfileEventMetadata = {
+  flowId?: string;
+  owner?: string;
+  phase?: ProfileEventPhase;
+  status?: ProfileEventStatus;
+  route?: string;
+  atMs?: number;
+  [key: string]: unknown;
+};
+
+type ProfileSignalMetadata = {
+  flowId?: string;
+  owner?: string;
+  route?: string;
+  [key: string]: unknown;
+};
+
+type StoredProfileEvent = {
+  scenario: string;
+  runId: string;
+  event: string;
+  timestamp: number;
+  [key: string]: unknown;
+};
+
+type StoredProfileSessionEntry = {
+  kind: 'start' | 'stop' | 'command';
+  scenario: string;
+  runId: string;
+  timestamp: number;
+  startedAt?: number;
+  stoppedAt?: number;
+  command?: string;
+  id?: string;
+};
+
+type StoredProfileSignals = Record<ProfileSignalKind, Record<string, unknown>>;
+
+const INITIAL_STATE: ProfileSessionState = {
+  active: false,
+  scenario: null,
+  runId: null,
+  startedAt: null,
+};
+
+const STORAGE_PREFIX = 'agent-scenario-loop';
+const PROFILE_EVENT_STORAGE_KEY = `${STORAGE_PREFIX}.profile-events.v1`;
+const PROFILE_SIGNAL_STORAGE_KEY = `${STORAGE_PREFIX}.profile-signals.v1`;
+const PROFILE_SESSION_STORAGE_KEY = `${STORAGE_PREFIX}.profile-session.v1`;
+const PROFILE_COMMAND_STORAGE_KEY = `${STORAGE_PREFIX}.profile-commands.v1`;
+const PROFILE_SESSION_ENTRIES_STORAGE_KEY = `${STORAGE_PREFIX}.profile-session-entries.v1`;
+const PROFILE_STORAGE_POLL_INTERVAL_MS = 350;
+const MAX_STORED_PROFILE_EVENTS = 300;
+const MAX_STORED_PROFILE_SESSION_ENTRIES = 120;
+
+let profileSessionState: ProfileSessionState = INITIAL_STATE;
+let profileStorageWriteChain = Promise.resolve();
+const listeners = new Set<() => void>();
+const profileCommandListeners = new Set<(command: ProfileSessionCommand) => void>();
+const profileCommandTargetHandlers = new Map<string, () => void>();
+const pendingProfileCommands: ProfileSessionCommand[] = [];
+
+function writeProfileLog(line: string) {
+  if (Platform.OS === 'ios') {
+    const profileLogger = (
+      NativeModules as typeof NativeModules & {
+        ProfileLogger?: { log?: (message: string) => void };
+      }
+    ).ProfileLogger;
+
+    if (typeof profileLogger?.log === 'function') {
+      try {
+        profileLogger.log(line);
+        return;
+      } catch {
+        // Fall back to JS logging if the native bridge is unavailable.
+      }
+    }
+  }
+
+  const nativeLoggingHook = (
+    globalThis as typeof globalThis & {
+      nativeLoggingHook?: ((message: string, level: number) => void) | undefined;
+    }
+  ).nativeLoggingHook;
+
+  if (typeof nativeLoggingHook === 'function') {
+    try {
+      nativeLoggingHook(line, 0);
+      return;
+    } catch {
+      // Fall back to console output if the native hook is unavailable.
+    }
+  }
+
+  console.info(line);
+}
+
+function buildLogLine(kind: 'profile-session' | 'profile-event', payload: Record<string, unknown>) {
+  return [
+    `[${kind}]`,
+    ...Object.entries(payload).map(([key, value]) => `${key}=${String(value)}`),
+  ].join(' ');
+}
+
+function notifyListeners() {
+  for (const listener of listeners) {
+    listener();
+  }
+}
+
+function queueProfileStorageMutation(mutation: () => Promise<void>) {
+  profileStorageWriteChain = profileStorageWriteChain.then(mutation).catch(() => {});
+}
+
+async function readStoredJson<Value>(key: string, fallback: Value): Promise<Value> {
+  try {
+    const value = await AsyncStorage.getItem(key);
+    if (!value) {
+      return fallback;
+    }
+
+    return JSON.parse(value) as Value;
+  } catch {
+    return fallback;
+  }
+}
+
+async function writeStoredJson(key: string, value: unknown) {
+  await AsyncStorage.setItem(key, JSON.stringify(value));
+}
+
+function appendStoredProfileSessionEntry(entry: StoredProfileSessionEntry) {
+  queueProfileStorageMutation(async () => {
+    const currentEntries = await readStoredJson<StoredProfileSessionEntry[]>(
+      PROFILE_SESSION_ENTRIES_STORAGE_KEY,
+      [],
+    );
+    const nextEntries = [...currentEntries, entry].slice(-MAX_STORED_PROFILE_SESSION_ENTRIES);
+    await writeStoredJson(PROFILE_SESSION_ENTRIES_STORAGE_KEY, nextEntries);
+  });
+}
+
+function appendStoredProfileEvent(event: StoredProfileEvent) {
+  queueProfileStorageMutation(async () => {
+    const currentEvents = await readStoredJson<StoredProfileEvent[]>(PROFILE_EVENT_STORAGE_KEY, []);
+    const nextEvents = [...currentEvents, event].slice(-MAX_STORED_PROFILE_EVENTS);
+    await writeStoredJson(PROFILE_EVENT_STORAGE_KEY, nextEvents);
+  });
+}
+
+function resetStoredProfileArtifacts() {
+  queueProfileStorageMutation(async () => {
+    await Promise.all([
+      AsyncStorage.removeItem(PROFILE_EVENT_STORAGE_KEY),
+      AsyncStorage.removeItem(PROFILE_SIGNAL_STORAGE_KEY),
+      AsyncStorage.removeItem(PROFILE_SESSION_ENTRIES_STORAGE_KEY),
+    ]);
+  });
+}
+
+function clearPendingProfileCommands() {
+  pendingProfileCommands.length = 0;
+  queueProfileStorageMutation(async () => {
+    await AsyncStorage.removeItem(PROFILE_COMMAND_STORAGE_KEY);
+  });
+}
+
+function setProfileSessionState(nextState: ProfileSessionState) {
+  profileSessionState = nextState;
+  queueProfileStorageMutation(async () => {
+    if (!nextState.active || !nextState.scenario || !nextState.runId) {
+      await AsyncStorage.removeItem(PROFILE_SESSION_STORAGE_KEY);
+      return;
+    }
+
+    await writeStoredJson(PROFILE_SESSION_STORAGE_KEY, nextState);
+  });
+  notifyListeners();
+}
+
+function logProfileSession(kind: 'start' | 'stop' | 'command', payload: Record<string, unknown>) {
+  writeProfileLog(buildLogLine('profile-session', { kind, ...payload }));
+
+  const scenario = typeof payload.scenario === 'string' ? payload.scenario : null;
+  const runId = typeof payload.runId === 'string' ? payload.runId : null;
+  if (!scenario || !runId) {
+    return;
+  }
+
+  const timestamp = Date.now();
+  const entry: StoredProfileSessionEntry = {
+    kind,
+    scenario,
+    runId,
+    timestamp,
+  };
+
+  if (kind === 'start' && typeof payload.startedAt === 'number') {
+    entry.startedAt = payload.startedAt;
+  }
+
+  if (kind === 'stop' && typeof payload.stoppedAt === 'number') {
+    entry.stoppedAt = payload.stoppedAt;
+  }
+
+  if (kind === 'command') {
+    if (typeof payload.command === 'string') {
+      entry.command = payload.command;
+    }
+    if (typeof payload.id === 'string') {
+      entry.id = payload.id;
+    }
+  }
+
+  appendStoredProfileSessionEntry(entry);
+}
+
+function getProfileSessionRoute(url: string): {
+  action: 'start' | 'stop' | 'command';
+  scenario?: string;
+  runId?: string;
+  command?: string;
+} | null {
+  const parsed = ExpoLinking.parse(url);
+  const segments = [parsed.hostname, parsed.path]
+    .filter((segment): segment is string => typeof segment === 'string' && segment.length > 0)
+    .flatMap((segment) => segment.split('/').filter(Boolean));
+
+  if (segments[0] !== 'profile-session') {
+    return null;
+  }
+
+  const action = segments[1];
+  if (action !== 'start' && action !== 'stop' && action !== 'command') {
+    return null;
+  }
+
+  const scenario =
+    typeof parsed.queryParams?.scenario === 'string' ? parsed.queryParams.scenario : undefined;
+  const runId =
+    typeof parsed.queryParams?.runId === 'string' ? parsed.queryParams.runId : undefined;
+  const command =
+    typeof parsed.queryParams?.command === 'string' ? parsed.queryParams.command : undefined;
+
+  return { action, scenario, runId, command };
+}
+
+function queuePendingProfileCommand(command: ProfileSessionCommand) {
+  pendingProfileCommands.push(command);
+  queueProfileStorageMutation(async () => {
+    await writeStoredJson(PROFILE_COMMAND_STORAGE_KEY, pendingProfileCommands);
+  });
+}
+
+function dispatchProfileCommandTarget(command: ProfileSessionCommand) {
+  if (!command.command.startsWith('activate-target:')) {
+    return false;
+  }
+
+  const targetId = command.command.slice('activate-target:'.length);
+  if (!targetId) {
+    return false;
+  }
+
+  const handler = profileCommandTargetHandlers.get(targetId);
+  if (!handler) {
+    return false;
+  }
+
+  handler();
+  return true;
+}
+
+function notifyProfileCommandListeners(command: ProfileSessionCommand) {
+  const targetDispatched = dispatchProfileCommandTarget(command);
+  if (profileCommandListeners.size === 0 && !targetDispatched) {
+    queuePendingProfileCommand(command);
+    return;
+  }
+
+  for (const listener of profileCommandListeners) {
+    listener(command);
+  }
+}
+
+function flushPendingProfileCommands(listener: (command: ProfileSessionCommand) => void) {
+  if (pendingProfileCommands.length === 0) {
+    return;
+  }
+
+  const queuedCommands = [...pendingProfileCommands];
+  clearPendingProfileCommands();
+
+  for (const command of queuedCommands) {
+    listener(command);
+  }
+}
+
+function startProfileSessionInternal(nextState: ProfileSessionState) {
+  clearPendingProfileCommands();
+  resetStoredProfileArtifacts();
+  setProfileSessionState(nextState);
+  logProfileSession('start', {
+    scenario: nextState.scenario ?? 'unknown',
+    runId: nextState.runId ?? 'unknown',
+    startedAt: nextState.startedAt ?? Date.now(),
+  });
+}
+
+function stopProfileSessionInternal() {
+  const previousState = profileSessionState;
+  clearPendingProfileCommands();
+  setProfileSessionState(INITIAL_STATE);
+  logProfileSession('stop', {
+    scenario: previousState.scenario ?? 'unknown',
+    runId: previousState.runId ?? 'unknown',
+    stoppedAt: Date.now(),
+  });
+}
+
+export function startProfileSession(params: { scenario: string; runId: string; startedAt?: number }) {
+  startProfileSessionInternal({
+    active: true,
+    scenario: params.scenario,
+    runId: params.runId,
+    startedAt: params.startedAt ?? Date.now(),
+  });
+}
+
+export function stopProfileSession() {
+  stopProfileSessionInternal();
+}
+
+export function applyProfileSessionUrl(url: string | null | undefined): boolean {
+  if (!url) {
+    return false;
+  }
+
+  const route = getProfileSessionRoute(url);
+  if (!route) {
+    return false;
+  }
+
+  if (route.action === 'command' && route.command) {
+    if (
+      route.scenario &&
+      route.runId &&
+      (!profileSessionState.active ||
+        profileSessionState.scenario !== route.scenario ||
+        profileSessionState.runId !== route.runId)
+    ) {
+      setProfileSessionState({
+        active: true,
+        scenario: route.scenario,
+        runId: route.runId,
+        startedAt: profileSessionState.startedAt ?? Date.now(),
+      });
+    }
+
+    const command = {
+      id: `${Date.now()}-${route.scenario ?? 'profile'}-${route.command}`,
+      scenario: route.scenario,
+      runId: route.runId,
+      command: route.command,
+      timestamp: Date.now(),
+    };
+    logProfileSession('command', command);
+    notifyProfileCommandListeners(command);
+    return true;
+  }
+
+  if (route.action === 'start' && route.scenario && route.runId) {
+    startProfileSession({
+      scenario: route.scenario,
+      runId: route.runId,
+    });
+    return true;
+  }
+
+  stopProfileSession();
+  return true;
+}
+
+export function emitProfileEvent(event: string, metadata?: ProfileEventMetadata) {
+  const session = profileSessionState;
+  if (!session.active || !session.scenario || !session.runId) {
+    return;
+  }
+
+  const timestamp = Date.now();
+  const atMs =
+    typeof metadata?.atMs === 'number' && Number.isFinite(metadata.atMs)
+      ? metadata.atMs
+      : typeof session.startedAt === 'number' && Number.isFinite(session.startedAt)
+        ? Math.max(0, timestamp - session.startedAt)
+        : undefined;
+
+  const eventPayload: StoredProfileEvent = {
+    scenario: session.scenario,
+    runId: session.runId,
+    event,
+    timestamp,
+    ...(atMs !== undefined ? { atMs } : {}),
+    ...(metadata ?? {}),
+  };
+
+  writeProfileLog(buildLogLine('profile-event', eventPayload));
+  appendStoredProfileEvent(eventPayload);
+}
+
+export function storeProfileSignal(
+  kind: ProfileSignalKind,
+  name: string,
+  value: unknown,
+  metadata?: ProfileSignalMetadata,
+): boolean {
+  const session = profileSessionState;
+  if (!session.active || !session.scenario || !session.runId || !name) {
+    return false;
+  }
+
+  queueProfileStorageMutation(async () => {
+    const currentSignals = await readStoredJson<StoredProfileSignals>(PROFILE_SIGNAL_STORAGE_KEY, {
+      js: {},
+      memory: {},
+      network: {},
+    });
+    const nextSignals: StoredProfileSignals = {
+      ...currentSignals,
+      [kind]: {
+        ...(currentSignals[kind] ?? {}),
+        [name]: {
+          scenario: session.scenario,
+          runId: session.runId,
+          capturedAt: Date.now(),
+          ...(metadata ?? {}),
+          value,
+        },
+      },
+    };
+    await writeStoredJson(PROFILE_SIGNAL_STORAGE_KEY, nextSignals);
+  });
+
+  return true;
+}
+
+export function useProfileSession() {
+  return useSyncExternalStore(
+    (listener) => {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
+    () => profileSessionState,
+    () => profileSessionState,
+  );
+}
+
+export function subscribeToProfileCommands(listener: (command: ProfileSessionCommand) => void) {
+  profileCommandListeners.add(listener);
+  flushPendingProfileCommands(listener);
+  return () => {
+    profileCommandListeners.delete(listener);
+  };
+}
+
+export function registerProfileCommandTargetHandler(targetId: string, handler: () => void) {
+  profileCommandTargetHandlers.set(targetId, handler);
+  return () => {
+    const currentHandler = profileCommandTargetHandlers.get(targetId);
+    if (currentHandler === handler) {
+      profileCommandTargetHandlers.delete(targetId);
+    }
+  };
+}
+
+export function useProfileSessionBootstrap() {
+  useEffect(() => {
+    let isMounted = true;
+
+    const syncStoredProfileState = async () => {
+      const [storedSession, storedCommands] = await Promise.all([
+        readStoredJson<ProfileSessionState | null>(PROFILE_SESSION_STORAGE_KEY, null),
+        readStoredJson<ProfileSessionCommand[]>(PROFILE_COMMAND_STORAGE_KEY, []),
+      ]);
+
+      if (
+        storedSession &&
+        storedSession.active &&
+        typeof storedSession.scenario === 'string' &&
+        typeof storedSession.runId === 'string'
+      ) {
+        const shouldStartFromStorage =
+          !profileSessionState.active ||
+          profileSessionState.scenario !== storedSession.scenario ||
+          profileSessionState.runId !== storedSession.runId;
+
+        if (shouldStartFromStorage) {
+          startProfileSessionInternal({
+            active: true,
+            scenario: storedSession.scenario,
+            runId: storedSession.runId,
+            startedAt:
+              typeof storedSession.startedAt === 'number' ? storedSession.startedAt : Date.now(),
+          });
+        }
+      } else if (profileSessionState.active) {
+        stopProfileSessionInternal();
+      }
+
+      if (!Array.isArray(storedCommands) || storedCommands.length === 0) {
+        return;
+      }
+
+      const activeSession =
+        storedSession &&
+        storedSession.active &&
+        typeof storedSession.scenario === 'string' &&
+        typeof storedSession.runId === 'string'
+          ? storedSession
+          : null;
+      if (!activeSession) {
+        return;
+      }
+
+      clearPendingProfileCommands();
+      for (const command of storedCommands) {
+        if (
+          !command ||
+          typeof command.id !== 'string' ||
+          typeof command.command !== 'string' ||
+          typeof command.timestamp !== 'number'
+        ) {
+          continue;
+        }
+
+        if (
+          command.scenario !== activeSession.scenario ||
+          command.runId !== activeSession.runId ||
+          (typeof activeSession.startedAt === 'number' && command.timestamp < activeSession.startedAt)
+        ) {
+          continue;
+        }
+
+        logProfileSession('command', command);
+        notifyProfileCommandListeners(command);
+      }
+    };
+
+    syncStoredProfileState()
+      .catch(() => {})
+      .finally(() => {
+        Linking.getInitialURL()
+          .then((url) => {
+            if (isMounted) {
+              applyProfileSessionUrl(url);
+            }
+          })
+          .catch(() => {});
+      });
+
+    const subscription = Linking.addEventListener('url', ({ url }) => {
+      applyProfileSessionUrl(url);
+    });
+
+    const storagePollInterval = setInterval(() => {
+      if (isMounted) {
+        syncStoredProfileState().catch(() => {});
+      }
+    }, PROFILE_STORAGE_POLL_INTERVAL_MS);
+
+    return () => {
+      isMounted = false;
+      subscription.remove();
+      clearInterval(storagePollInterval);
+    };
+  }, []);
+}

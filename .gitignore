@@ -1,0 +1,7 @@
+core/artifacts/
+artifacts/
+*.trace
+*.mp4
+*.png
+*.jpg
+*.jpeg

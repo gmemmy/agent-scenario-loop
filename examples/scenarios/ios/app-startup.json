@@ -1,0 +1,28 @@
+{
+  "name": "app-startup",
+  "flowId": "startup",
+  "description": "Cold-launch the app directly into an active profile session and measure time to the first usable screen.",
+  "type": "app-startup",
+  "platform": "ios",
+  "interactionDriver": "xcodebuildmcp",
+  "trigger": {
+    "kind": "cold-launch",
+    "label": "Launch the app from a terminated state."
+  },
+  "defaultIterations": 1,
+  "timelinePhases": {
+    "app_first_usable_screen": "visual"
+  },
+  "budgets": {
+    "metric": "startup first usable screen",
+    "pass": {
+      "failures": 0,
+      "timeouts": 0,
+      "cycleP50Ms": 8000,
+      "cycleP95Ms": 8000
+    }
+  },
+  "metricEvents": {
+    "opened": "app_first_usable_screen"
+  }
+}

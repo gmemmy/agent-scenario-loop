@@ -1,0 +1,13 @@
+{
+  "name": "agent-scenario-loop",
+  "version": "0.1.0",
+  "private": false,
+  "description": "Deterministic mobile scenario execution and profiling artifacts for agent-operated React Native apps.",
+  "license": "MIT",
+  "type": "commonjs",
+  "scripts": {
+    "profile:ios": "node runner/profile-ios.js",
+    "profile:ios:startup": "node runner/profile-ios.js --config core/config-template.json --scenario examples/scenarios/ios/app-startup.json",
+    "profile:ios:open-close": "node runner/profile-ios.js --config core/config-template.json --scenario examples/scenarios/ios/open-close-cycle.json"
+  }
+}

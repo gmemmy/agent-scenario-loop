@@ -1,0 +1,36 @@
+{
+  "projectName": "replace-me",
+  "app": {
+    "displayName": "Example App",
+    "scheme": "example-app",
+    "profileSessionScheme": "example-app",
+    "iosBundleId": "com.example.app",
+    "ios": {
+      "xcodeScheme": "Example App",
+      "launchConfiguration": "Debug",
+      "profileConfiguration": "Release"
+    }
+  },
+  "paths": {
+    "artifactRoot": "artifacts",
+    "iosArtifactsRoot": "artifacts/ios",
+    "scenarioRoot": "examples/scenarios/ios"
+  },
+  "drivers": {
+    "default": "xcodebuildmcp",
+    "supported": ["xcodebuildmcp"]
+  },
+  "versionControl": {
+    "commit": [
+      "core/**",
+      "runner/**",
+      "app/**",
+      "examples/scenarios/**",
+      "docs/**"
+    ],
+    "ignore": [
+      "artifacts/ios/**",
+      "raw simulator recordings, screenshots, and ephemeral profiler exports"
+    ]
+  }
+}
