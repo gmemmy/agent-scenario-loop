@@ -1,102 +1,87 @@
 # agent-scenario-loop
 
-`agent-scenario-loop` is an iOS-first, contract-first profiling substrate for agent-operated React Native teams.
+Driver-agnostic scenario orchestration and profiling evidence for React Native apps. iOS-first.
 
-It is not a generic test framework. V1 focuses on deterministic mobile scenario execution inputs, explicit truth events, and stable profiling artifacts.
+Agent device-control tools can tap, swipe, and screenshot, but none of them answer the question performance work actually asks: **did my change make this flow better?** `agent-scenario-loop` is the loop around those tools — deterministic scenarios, app-emitted truth events, stable profiling artifacts, and budget verdicts, behind one contract that any interaction driver can serve.
 
-## V1 scope
+**Bring your own driver. Keep your evidence.**
 
-This first public cut includes:
+## How it works
 
-- `app/`: thin React Native session wiring and public app-side contracts
-- `core/`: reusable artifact contract and config template
-- `runner/profile-ios.js`: an iOS-first scaffold that writes the public artifact set from scenario metadata and profile-event logs
-- `examples/`: generic iOS scenario manifests and minimal integration examples
-- `docs/`: public principles for contract-first scenario execution
+1. You define a scenario as data: `app-startup`, `open-close-cycle`, or your own.
+2. Your app emits truth events around the real user journey through a thin integration layer (`emitProfileEvent`), so a run's outcome is timestamped fact, not screenshot inference.
+3. A runner executes the scenario and writes one stable artifact folder per run: metrics, budget verdict, summary, raw logs, captures, and optional signals.
+4. You — or your agent — read the artifacts, compare against the last trusted run, and decide what to change next.
 
-This first public cut does not include:
+Interaction drivers (AXe, XcodeBuildMCP, agent-device, Argent, and whatever ships next) are adapters behind the runner boundary. Scenarios, instrumentation, budgets, and run history survive every driver switch.
 
-- live simulator orchestration as a supported public feature
-- Android support
-- physical-device flows
-- Computer Use flows
-- HelpBnk doctrine, selectors, bundle IDs, schemes, budgets, or product scenarios
-- Codex rules or skills as required runtime dependencies
+## What you get out of the box
+
+V1 ships the contracts and the artifact pipeline:
+
+- `app/profile-session.ts`: thin React Native integration — session control, truth events, signal attachments
+- `core/artifact-contract.js`: the artifact builders — manifest, metrics, causal run, budget verdict, summary
+- `runner/profile-ios.js`: an iOS runner that turns scenario metadata plus `[profile-event]` logs into the full artifact set
+- `examples/scenarios/ios/`: scenario manifests to start from
+- `schemas/`: JSON Schemas for `causal-run.json` and `budget-verdict.json`
+
+V1 does not yet ship live simulator orchestration as a supported public feature. The current runner assembles artifacts from event logs you capture; a fully automated driver loop is the next milestone, and it lands behind the same contract. Adopting the contracts now means that loop drops in later without rewrites.
+
+Also out of v1 scope: Android, physical devices, and Computer Use flows.
 
 ## Public contracts
 
-The required public app-side contracts are:
+App-side, what your app exposes:
 
 - session control: `startProfileSession`, `stopProfileSession`, `applyProfileSessionUrl`
 - truth events: `emitProfileEvent`
 - signal attachments: `storeProfileSignal`
 
-The stable artifact layout is:
+Artifact layout, what every run produces:
 
-- `manifest.json`
-- `metrics.json`
-- `summary.md`
-- `raw/`
-- `captures/`
-- optional `signals/js`, `signals/memory`, `signals/network`
+- `manifest.json` — run identity: scenario, driver, simulator, tool versions, status
+- `metrics.json` — cycle timings, failures, timeouts, budget evaluation
+- `budget-verdict.json` — pass or fail against the scenario's committed budget, when budgets are configured
+- `causal-run.json` — the run as a phase timeline
+- `summary.md` — the human-readable readout
+- `raw/`, `captures/`, and optional `signals/js`, `signals/memory`, `signals/network`
 
-Budgets are supported, but optional for adoption.
-
-## What is supported today
-
-The supported public runner path in v1 is `runner/profile-ios.js`.
-
-It reads:
-
-- project config
-- scenario metadata
-- optional event logs containing `[profile-event]` entries
-
-It writes:
-
-- `manifest.json`
-- `metrics.json`
-- `causal-run.json`
-- `budget-verdict.json` when budgets are configured
-- `summary.md`
-- copied raw event logs under `raw/`
-
-That means the current release is suitable for teams that want to standardize scenario contracts and artifact shape first, then harden live orchestration behind the same contract later.
+Budgets are supported but optional for adoption.
 
 ## Quick start
 
 1. Copy `app/profile-session.ts` into your React Native app and wire `useProfileSessionBootstrap()` near the root.
-2. Emit stable profile events around one real user journey.
-3. Copy `core/config-template.json` into project-specific config and fill in app identifiers.
+2. Emit truth events around one real user journey. One journey is enough to start.
+3. Copy `core/config-template.json` into project-specific config and fill in your app identifiers.
 4. Start from `examples/scenarios/ios/app-startup.json` or `examples/scenarios/ios/open-close-cycle.json`.
-5. Run `node runner/profile-ios.js --config <config> --scenario <scenario> --events <event-log>`.
+5. Run the journey on a simulator — manually or with your driver of choice — while capturing device logs, so the log contains your `[profile-event]` lines. Then:
 
-## Positioning
+```bash
+node runner/profile-ios.js --config <config> --scenario <scenario> --events <event-log>
+```
 
-`agent-scenario-loop` is for teams that want:
+The runner prints the run folder. Read `summary.md` first.
 
-- deterministic scenario contracts
-- explicit product-truth events instead of screenshot-only pass/fail claims
-- stable profiling artifacts that agents and humans can inspect
-- a thin app integration layer for React Native
+## Who this is for
 
-It is not positioned as:
+- teams that want deterministic scenario contracts instead of ad-hoc automation scripts
+- teams that want explicit product-truth events instead of screenshot-only pass/fail claims
+- teams whose agents do performance work and need artifacts they can read, diff, and act on
+- teams that expect to switch interaction drivers and refuse to lose their scenarios when they do
+
+What it is not:
 
 - an end-to-end UI test framework
 - a generic mobile automation stack
-- a full mobile developer OS in v1
+- zero-touch: your app emits the truth events, and that is the point
 
 ## Roadmap
 
-Near-term future work:
+Near-term:
 
-- harden a real supported iOS interaction driver path behind the same artifact contract
+- harden a supported live iOS driver loop — simulator lifecycle, deep-link control, log capture — behind the existing artifact contract
+- publish the interaction-driver adapter interface as a documented public contract
 - improve runner validation and failure reporting
 - add more complete example integrations
 
-Explicitly out of v1:
-
-- Android support
-- physical-device flows
-- Computer Use flows
-- product-specific doctrine or scenarios
+Explicitly out of v1: Android, physical devices, Computer Use flows, product-specific scenarios.

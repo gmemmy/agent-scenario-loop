@@ -1,6 +1,6 @@
 # Principles
 
-`agent-scenario-loop` is a small agent-oriented substrate for deterministic mobile scenarios and stable profiling artifacts in React Native apps.
+`agent-scenario-loop` is a small agent-oriented foundation for deterministic mobile scenarios and stable profiling artifacts in React Native apps.
 
 ## Three planes
 
@@ -16,9 +16,9 @@ Use taps, swipes, and full UI interaction for realism checks and last-mile valid
 ## Invariants
 
 - Deterministic evidence beats quick scenario passability.
-- Scenario health is part of product truth.
+- Scenario health is part of product truth. A flaky scenario is not trustworthy evidence.
 - Generated runs are outputs, not source.
 - The artifact contract is a public API.
 - App integration stays thin.
-- Interaction drivers are adapters, not schema owners.
-- Public claims should stay narrower than internal ambition.
+- Interaction drivers are adapters, not schema owners. Scenarios and artifacts must outlive any individual driver.
+- Public claims stay narrower than internal ambition.

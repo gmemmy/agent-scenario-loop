@@ -1,22 +1,15 @@
 # Runner
 
-`agent-scenario-loop` keeps host execution behind a runner boundary.
+The runner owns host execution. It is the boundary between scenario contracts and whatever tool actually drives the device.
 
-V1 scope in this extraction:
+V1 ships one supported executable: `profile-ios.js`. It reads project config, a scenario manifest, and an event log containing `[profile-event]` entries, then writes the full public artifact layout — `manifest.json`, `metrics.json`, `causal-run.json`, `budget-verdict.json` when budgets are configured, `summary.md`, and copied raw logs under `raw/`.
 
-- one supported target: iOS simulator
-- stable artifact contract in `../core/`
-- scenario manifests under `../examples/scenarios/ios/`
-- one supported public executable: `profile-ios.js`
+What it does not do yet:
 
-Current contents:
+- boot or control simulators
+- drive the app through an interaction driver
+- capture logs, video, or UI trees itself
 
-- `profile-ios.js`: contract-first scaffold that reads config, scenario metadata, and optional `[profile-event]` logs, then writes the public artifact layout
+That live orchestration layer is the next milestone, and it lands behind the same artifact contract. Interaction drivers — AXe, XcodeBuildMCP, agent-device, Argent — plug in as adapters, so scenarios and artifacts stay stable while drivers change underneath.
 
-Non-goals for v1:
-
-- shipping a hardened live simulator orchestration layer
-- claiming device automation support
-- claiming Computer Use support
-
-The goal of the public cut is to freeze the reusable contracts first, then harden live orchestration behind them in later releases.
+Freezing the contracts first is deliberate: adopt the artifact shape now, inherit the automated loop later without rewrites.

@@ -1,8 +1,6 @@
 # Minimal App Integration
 
-This example is intentionally documentation-only in the extraction folder.
-
-The public v1 app contract is the file at `../../app/profile-session.ts`.
+This example is intentionally documentation-only: the entire v1 app contract is one file, `../../app/profile-session.ts`. Copy it into your app and wire it as shown below.
 
 ## Startup wiring
 
@@ -51,7 +49,7 @@ export function persistQuerySnapshot(snapshot: unknown) {
 
 ## Deep-link control
 
-The runner should control the app through URLs shaped like:
+Deep links are the control plane: the runner starts, commands, and stops profile sessions through URLs instead of replaying raw UI input. The app should respond to URLs shaped like:
 
 - `example-app://profile-session/start?scenario=open-close-cycle&runId=run-123`
 - `example-app://profile-session/command?scenario=open-close-cycle&runId=run-123&command=activate-target:composer-open-button`

@@ -2,7 +2,7 @@
   "name": "agent-scenario-loop",
   "version": "0.1.0",
   "private": false,
-  "description": "Deterministic mobile scenario execution and profiling artifacts for agent-operated React Native apps.",
+  "description": "Driver-agnostic scenario orchestration and profiling artifacts for agent-operated React Native apps. Bring your own driver. Keep your evidence.",
   "license": "MIT",
   "type": "commonjs",
   "scripts": {
