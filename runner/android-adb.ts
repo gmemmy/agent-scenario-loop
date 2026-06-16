@@ -108,6 +108,10 @@ type AndroidPreflightOptions = {
   serial?: string | null;
   waitMs?: number;
 };
+type NextActionHint = {
+  nextAction: string;
+  nextActionCode: string;
+};
 
 /**
  * Prints CLI usage to stderr.
@@ -248,6 +252,20 @@ function selectDevice(devices: AndroidDevice[], serial?: string | null): Android
   }
 
   return devices.find((device) => device.state === 'device') ?? null;
+}
+
+/**
+ * Creates scalar health-check metadata for an agent-readable next action.
+ *
+ * @param {string} nextActionCode
+ * @param {string} nextAction
+ * @returns {NextActionHint}
+ */
+function nextActionHint(nextActionCode: string, nextAction: string): NextActionHint {
+  return {
+    nextAction,
+    nextActionCode,
+  };
 }
 
 /**
@@ -576,16 +594,25 @@ async function runAndroidAdbPreflight({
   const raw: Record<string, string> = {};
   const checks: Record<string, unknown>[] = [];
   const version = await executor(adbPath, ['version']);
+  const adbAvailable = version.exitCode === 0;
   raw['adb-version.txt'] = [version.stdout, version.stderr].filter(Boolean).join('\n');
   checks.push({
     name: 'adb_available',
-    status: version.exitCode === 0 ? 'passed' : 'failed',
+    status: adbAvailable ? 'passed' : 'failed',
     source: 'runner',
-    code: version.exitCode === 0 ? 'adb_available' : 'adb_unavailable',
-    message: version.exitCode === 0 ? 'adb command is available.' : 'adb command could not be executed.',
+    code: adbAvailable ? 'adb_available' : 'adb_unavailable',
+    message: adbAvailable ? 'adb command is available.' : 'adb command could not be executed.',
+    ...(!adbAvailable
+      ? {
+          metadata: nextActionHint(
+            'fix_adb_command',
+            'Install Android platform-tools or pass --adb with a working adb binary, then rerun the capture.',
+          ),
+        }
+      : {}),
   });
 
-  const devicesOutput = version.exitCode === 0
+  const devicesOutput = adbAvailable
     ? await executor(adbPath, ['devices', '-l'])
     : {
         command: adbPath,
@@ -597,16 +624,25 @@ async function runAndroidAdbPreflight({
   raw['adb-devices.txt'] = [devicesOutput.stdout, devicesOutput.stderr].filter(Boolean).join('\n');
   const devices = parseAdbDevices(devicesOutput.stdout);
   const device = selectDevice(devices, serial);
+  const deviceOnline = Boolean(device && device.state === 'device');
   checks.push({
     name: 'android_device_connected',
-    status: device && device.state === 'device' ? 'passed' : 'failed',
+    status: deviceOnline ? 'passed' : 'failed',
     source: 'runner',
-    code: device && device.state === 'device' ? 'android_device_connected' : 'android_device_missing',
-    message: device && device.state === 'device'
+    code: deviceOnline ? 'android_device_connected' : 'android_device_missing',
+    message: deviceOnline && device
       ? `Selected Android device ${device.serial}.`
       : serial
         ? `No online Android device matched serial ${serial}.`
         : 'No online Android device was found.',
+    ...(!deviceOnline
+      ? {
+          metadata: nextActionHint(
+            'select_android_device',
+            'Start or unlock an Android emulator/device, confirm it appears as `device` in adb devices -l, or pass --serial for the intended device.',
+          ),
+        }
+      : {}),
   });
 
   const metadata: Record<string, unknown> = {
@@ -655,28 +691,46 @@ async function runAndroidAdbPreflight({
     if (packageName) {
       const packageCheck = await executor(adbPath, [...shellPrefix, 'pm', 'path', packageName]);
       raw['adb-package.txt'] = [packageCheck.stdout, packageCheck.stderr].filter(Boolean).join('\n');
+      const packageInstalled = packageCheck.exitCode === 0 && packageCheck.stdout.includes('package:');
       checks.push({
         name: 'android_package_installed',
-        status: packageCheck.exitCode === 0 && packageCheck.stdout.includes('package:') ? 'passed' : 'failed',
+        status: packageInstalled ? 'passed' : 'failed',
         source: 'runner',
-        code: packageCheck.exitCode === 0 && packageCheck.stdout.includes('package:')
+        code: packageInstalled
           ? 'android_package_installed'
           : 'android_package_missing',
-        message: packageCheck.exitCode === 0 && packageCheck.stdout.includes('package:')
+        message: packageInstalled
           ? `Package ${packageName} is installed.`
           : `Package ${packageName} is not installed on ${device.serial}.`,
+        ...(!packageInstalled
+          ? {
+              metadata: nextActionHint(
+                'install_android_package',
+                'Build and install the app on the selected device, or rerun with --package set to the installed application id.',
+              ),
+            }
+          : {}),
       });
     }
 
     if (clearLogcat) {
       const clear = await driver.clearLogs();
+      const logcatCleared = clear.exitCode === 0;
       raw[clear.rawFileName] = formatAndroidAdbRawOutput(clear);
       checks.push({
         name: 'android_logcat_cleared',
-        status: clear.exitCode === 0 ? 'passed' : 'failed',
+        status: logcatCleared ? 'passed' : 'failed',
         source: 'runner',
-        code: clear.exitCode === 0 ? 'android_logcat_cleared' : 'android_logcat_clear_failed',
-        message: clear.exitCode === 0 ? 'Cleared adb logcat before capture.' : 'adb logcat clear failed.',
+        code: logcatCleared ? 'android_logcat_cleared' : 'android_logcat_clear_failed',
+        message: logcatCleared ? 'Cleared adb logcat before capture.' : 'adb logcat clear failed.',
+        ...(!logcatCleared
+          ? {
+              metadata: nextActionHint(
+                'inspect_adb_logcat_clear',
+                `Inspect raw/${clear.rawFileName}, confirm the selected device allows logcat access, then rerun the capture.`,
+              ),
+            }
+          : {}),
       });
       metadata.logcatClear = {
         args: clear.args,
@@ -693,18 +747,31 @@ async function runAndroidAdbPreflight({
           source: 'runner',
           code: 'android_launch_missing_package',
           message: 'Package launch was requested, but --package was not provided.',
+          metadata: nextActionHint(
+            'provide_android_package',
+            'Rerun with --package set to the installed Android application id when --launch is enabled.',
+          ),
         });
       } else {
         const launchResult = await driver.launchPackage(packageName);
+        const launchPassed = launchResult.exitCode === 0;
         raw[launchResult.rawFileName] = formatAndroidAdbRawOutput(launchResult);
         checks.push({
           name: 'android_package_launched',
-          status: launchResult.exitCode === 0 ? 'passed' : 'failed',
+          status: launchPassed ? 'passed' : 'failed',
           source: 'runner',
-          code: launchResult.exitCode === 0 ? 'android_package_launched' : 'android_package_launch_failed',
-          message: launchResult.exitCode === 0
+          code: launchPassed ? 'android_package_launched' : 'android_package_launch_failed',
+          message: launchPassed
             ? `Launched package ${packageName}.`
             : `Failed to launch package ${packageName}.`,
+          ...(!launchPassed
+            ? {
+                metadata: nextActionHint(
+                  'inspect_android_launch',
+                  `Inspect raw/${launchResult.rawFileName}, verify the package has a launcher activity, and confirm the app can open manually on the device.`,
+                ),
+              }
+            : {}),
         });
         metadata.launchResult = {
           args: launchResult.args,
@@ -721,15 +788,24 @@ async function runAndroidAdbPreflight({
         rawFileName,
         url: deepLink.url,
       });
+      const deepLinkOpened = deepLinkResult.exitCode === 0;
       raw[deepLinkResult.rawFileName] = formatAndroidAdbRawOutput(deepLinkResult);
       checks.push({
         name: 'android_deep_link_opened',
-        status: deepLinkResult.exitCode === 0 ? 'passed' : 'failed',
+        status: deepLinkOpened ? 'passed' : 'failed',
         source: 'runner',
-        code: deepLinkResult.exitCode === 0 ? 'android_deep_link_opened' : 'android_deep_link_failed',
-        message: deepLinkResult.exitCode === 0
+        code: deepLinkOpened ? 'android_deep_link_opened' : 'android_deep_link_failed',
+        message: deepLinkOpened
           ? `Opened Android deep link ${deepLink.label ?? index + 1}.`
           : `Failed to open Android deep link ${deepLink.label ?? index + 1}.`,
+        ...(!deepLinkOpened
+          ? {
+              metadata: nextActionHint(
+                'inspect_android_deep_link',
+                `Inspect raw/${deepLinkResult.rawFileName}, verify the app scheme/intent filter, and rerun with --package if the intent must target one app.`,
+              ),
+            }
+          : {}),
       });
 
       if (deepLink.waitMs && deepLink.waitMs > 0) {
@@ -792,6 +868,12 @@ async function runAndroidAdbPreflight({
           metadata: {
             driverAction: driverStep.driverAction,
             ...buildAndroidSelectorHealthMetadata(driverStep.selector),
+            ...(!resolved
+              ? nextActionHint(
+                  'fix_android_selector',
+                  `Inspect raw/${treeResult.rawFileName}, update the scenario selector, or provide explicit adb coordinates for this driver action.`,
+                )
+              : {}),
             ...(driverStep.stepId ? { stepId: driverStep.stepId } : {}),
           },
         });
@@ -831,6 +913,14 @@ async function runAndroidAdbPreflight({
         metadata: {
           driverAction: executableDriverStep.driverAction,
           ...buildAndroidSelectorHealthMetadata(executableDriverStep.selector),
+          ...(failed
+            ? nextActionHint(
+                isReadLogs ? 'inspect_android_logcat_capture' : 'inspect_android_driver_action',
+                isReadLogs
+                  ? `Inspect raw/${driverResult.rawFileName}, confirm adb logcat access for the selected device, and rerun the capture.`
+                  : `Inspect raw/${driverResult.rawFileName}, confirm the device is interactive and the action metadata is valid, then rerun the capture.`,
+              )
+            : {}),
           ...(executableDriverStep.stepId ? { stepId: executableDriverStep.stepId } : {}),
         },
       });
@@ -866,6 +956,10 @@ async function runAndroidAdbPreflight({
         source: 'runner',
         code: 'android_capture_window_no_device',
         message: 'Android capture window setup was requested, but no online Android device was selected.',
+        metadata: nextActionHint(
+          'select_android_device',
+          'Start or unlock an Android emulator/device, confirm it appears as `device` in adb devices -l, then rerun the capture.',
+        ),
       });
     }
 
@@ -876,6 +970,10 @@ async function runAndroidAdbPreflight({
         source: 'runner',
         code: 'android_logcat_no_device',
         message: 'adb logcat capture was requested, but no online Android device was selected.',
+        metadata: nextActionHint(
+          'select_android_device',
+          'Start or unlock an Android emulator/device before requesting logcat capture.',
+        ),
       });
     }
 
@@ -886,6 +984,10 @@ async function runAndroidAdbPreflight({
         source: 'runner',
         code: 'android_driver_actions_no_device',
         message: 'adb driver actions were requested, but no online Android device was selected.',
+        metadata: nextActionHint(
+          'select_android_device',
+          'Start or unlock an Android emulator/device before running adb driver actions.',
+        ),
       });
     }
   }

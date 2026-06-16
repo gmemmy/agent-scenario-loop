@@ -71,6 +71,39 @@ test('ignores package-manager argument separator', () => {
   });
 });
 
+test('writes next-action hints when no iOS simulator is booted', async (t: TestContext) => {
+  const outputDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-ios-simctl-missing-'));
+  t.after(async () => {
+    await fsp.rm(outputDir, { recursive: true, force: true });
+  });
+  const executor = createExecutor({
+    'simctl list devices': {
+      stdout: [
+        '== Devices ==',
+        '-- iOS 26.3 --',
+        '    iPhone 17 Pro Max (A692ED28-893E-453F-8866-C69331AE757F) (Shutdown)',
+      ].join('\n'),
+    },
+  });
+
+  const result = await runIosSimctlCapture({
+    executor,
+    launch: true,
+    outputDir,
+    runId: 'ios-missing-sim',
+  });
+  const summary = fs.readFileSync(path.join(outputDir, 'agent-summary.md'), 'utf8');
+
+  assert.equal(result.health.healthStatus, 'failed');
+  assert.equal(result.verdict.verdictStatus, 'inconclusive');
+  assert.ok(
+    (result.health.checks as Array<{ code: string; metadata?: { nextActionCode?: string } }>).some(
+      (check) => check.code === 'ios_simulator_missing' && check.metadata?.nextActionCode === 'boot_ios_simulator',
+    ),
+  );
+  assert.match(summary, /Next action `boot_ios_simulator`/u);
+});
+
 test('captures bounded iOS simulator log evidence', async (t: TestContext) => {
   const outputDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-ios-simctl-'));
   t.after(async () => {

@@ -1007,6 +1007,7 @@ function main(): void {
     });
     const missingAdbCaptureRoot = path.join(missingAdbProfileRoot, '_adb-captures', missingAdbRunId);
     const missingAdbHealth = JSON.parse(fs.readFileSync(path.join(missingAdbCaptureRoot, 'health.json'), 'utf8'));
+    const missingAdbSummary = fs.readFileSync(path.join(missingAdbCaptureRoot, 'agent-summary.md'), 'utf8');
     assert.equal(missingAdb.status, 1);
     assert.match(missingAdb.stderr, /Android adb capture failed/u);
     assert.equal(missingAdbHealth.healthStatus, 'failed');
@@ -1014,6 +1015,13 @@ function main(): void {
       missingAdbHealth.checks.some((check: { code: string }) => check.code === 'adb_unavailable'),
       true,
     );
+    assert.equal(
+      missingAdbHealth.checks.some((check: { code: string; metadata?: { nextActionCode?: string } }) =>
+        check.code === 'adb_unavailable' && check.metadata?.nextActionCode === 'fix_adb_command'
+      ),
+      true,
+    );
+    assert.match(missingAdbSummary, /Next action `fix_adb_command`/u);
 
     const health = JSON.parse(fs.readFileSync(path.join(artifactDir, 'health.json'), 'utf8'));
     assert.equal(health.scenarioId, 'app-startup');

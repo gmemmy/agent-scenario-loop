@@ -130,7 +130,7 @@ pnpm example:profile:android:live:open-close
 pnpm example:profile:android:live:scroll
 ```
 
-These commands start a profile session through the app scheme, execute scenario-declared Android commands where needed, capture bounded logcat evidence, and write the standard `health.json`, `verdict.json`, `agent-summary.md`, `manifest.json`, `metrics.json`, `causal-run.json`, `budget-verdict.json`, and raw evidence files. If adb, the app package, or the device is unavailable, the capture writes failed health and the profile runner stops before making timing claims.
+These commands start a profile session through the app scheme, execute scenario-declared Android commands where needed, capture bounded logcat evidence, and write the standard `health.json`, `verdict.json`, `agent-summary.md`, `manifest.json`, `metrics.json`, `causal-run.json`, `budget-verdict.json`, and raw evidence files. If adb, the app package, or the device is unavailable, the capture writes failed health with next-action hints and the profile runner stops before making timing claims.
 
 To attach a bounded Android logcat snapshot after a manual or agent-driven run:
 
@@ -279,6 +279,7 @@ Current package guarantees:
 - Android adb capture can resolve supported portable selectors into tap and scroll coordinates from UIAutomator bounds
 - installed commands expose iOS simctl capture, screenshot preservation, and iOS profile ingestion from simctl artifacts
 - provider evidence attachments are inventoried with stable paths, source filenames, sizes, and sha256 hashes
+- failed adb, simctl, package, selector, and capture checks emit scalar next-action hints into health metadata and `agent-summary.md`
 - adapter-target manifests for external tools are schema-checked and planner-tested without bundling those tools
 - package smoke blocks generated artifacts, internal-only paths, and local/product-specific strings from the tarball
 

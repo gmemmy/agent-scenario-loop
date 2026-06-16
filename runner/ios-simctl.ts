@@ -94,6 +94,10 @@ type IosSimctlCaptureResult = {
   verdict: Record<string, unknown>;
 };
 type AsyncStorageManifest = Record<string, string | null>;
+type NextActionHint = {
+  nextAction: string;
+  nextActionCode: string;
+};
 
 const PROFILE_STORAGE_PREFIX = 'agent-scenario-loop';
 const PROFILE_STORAGE_SCHEMA = '1';
@@ -461,6 +465,20 @@ function selectSimulator(simulators: IosSimulator[], device?: string | null): Io
 }
 
 /**
+ * Creates scalar health-check metadata for an agent-readable next action.
+ *
+ * @param {string} nextActionCode
+ * @param {string} nextAction
+ * @returns {NextActionHint}
+ */
+function nextActionHint(nextActionCode: string, nextAction: string): NextActionHint {
+  return {
+    nextAction,
+    nextActionCode,
+  };
+}
+
+/**
  * Builds a health artifact from iOS simulator capture checks.
  *
  * @param {{runId: string, checks: Record<string, unknown>[]}} options
@@ -542,28 +560,46 @@ async function runIosSimctlCapture({
   };
   const checks: Record<string, unknown>[] = [];
   const devicesOutput = await executor(xcrunPath, ['simctl', 'list', 'devices']);
+  const simctlAvailable = devicesOutput.exitCode === 0;
   raw['ios-simctl-devices.txt'] = [devicesOutput.stdout, devicesOutput.stderr].filter(Boolean).join('\n');
   checks.push({
     name: 'ios_simctl_available',
-    status: devicesOutput.exitCode === 0 ? 'passed' : 'failed',
+    status: simctlAvailable ? 'passed' : 'failed',
     source: 'runner',
-    code: devicesOutput.exitCode === 0 ? 'ios_simctl_available' : 'ios_simctl_unavailable',
-    message: devicesOutput.exitCode === 0 ? 'simctl device listing succeeded.' : 'simctl device listing failed.',
+    code: simctlAvailable ? 'ios_simctl_available' : 'ios_simctl_unavailable',
+    message: simctlAvailable ? 'simctl device listing succeeded.' : 'simctl device listing failed.',
+    ...(!simctlAvailable
+      ? {
+          metadata: nextActionHint(
+            'fix_xcrun_simctl',
+            'Select a working Xcode with xcode-select, finish any first-launch setup, or pass --xcrun with a working xcrun binary.',
+          ),
+        }
+      : {}),
   });
 
   const simulators = parseSimctlDevices(devicesOutput.stdout);
-  const simulator = devicesOutput.exitCode === 0 ? selectSimulator(simulators, device) : null;
+  const simulator = simctlAvailable ? selectSimulator(simulators, device) : null;
   const selectedDevice = device || 'booted';
+  const simulatorBooted = Boolean(simulator && simulator.state === 'Booted');
   checks.push({
     name: 'ios_simulator_booted',
-    status: simulator && simulator.state === 'Booted' ? 'passed' : 'failed',
+    status: simulatorBooted ? 'passed' : 'failed',
     source: 'runner',
-    code: simulator && simulator.state === 'Booted' ? 'ios_simulator_booted' : 'ios_simulator_missing',
-    message: simulator && simulator.state === 'Booted'
+    code: simulatorBooted ? 'ios_simulator_booted' : 'ios_simulator_missing',
+    message: simulatorBooted && simulator
       ? `Selected iOS simulator ${simulator.name} (${simulator.udid}).`
       : device
         ? `No booted iOS simulator matched ${device}.`
         : 'No booted iOS simulator was found.',
+    ...(!simulatorBooted
+      ? {
+          metadata: nextActionHint(
+            'boot_ios_simulator',
+            'Boot an iOS simulator, install the required simulator runtime if needed, or pass --device with a booted simulator UDID.',
+          ),
+        }
+      : {}),
   });
 
   const metadata: Record<string, unknown> = {
@@ -598,16 +634,25 @@ async function runIosSimctlCapture({
     if (bundleId) {
       const appContainer = await executor(xcrunPath, ['simctl', 'get_app_container', simulator.udid, bundleId, 'app']);
       raw['ios-app-container.txt'] = [appContainer.stdout, appContainer.stderr].filter(Boolean).join('\n');
+      const appInstalled = appContainer.exitCode === 0 && appContainer.stdout.trim().length > 0;
       checks.push({
         name: 'ios_app_installed',
-        status: appContainer.exitCode === 0 && appContainer.stdout.trim().length > 0 ? 'passed' : 'failed',
+        status: appInstalled ? 'passed' : 'failed',
         source: 'runner',
-        code: appContainer.exitCode === 0 && appContainer.stdout.trim().length > 0
+        code: appInstalled
           ? 'ios_app_installed'
           : 'ios_app_missing',
-        message: appContainer.exitCode === 0 && appContainer.stdout.trim().length > 0
+        message: appInstalled
           ? `App ${bundleId} is installed.`
           : `App ${bundleId} is not installed on ${simulator.udid}.`,
+        ...(!appInstalled
+          ? {
+              metadata: nextActionHint(
+                'install_ios_app',
+                'Build and install the app on the selected simulator, or rerun with --bundle set to the installed bundle id.',
+              ),
+            }
+          : {}),
       });
       metadata.appContainer = {
         rawPath: 'raw/ios-app-container.txt',
@@ -633,6 +678,14 @@ async function runIosSimctlCapture({
           message: dataContainerPath
             ? `App data container for ${bundleId} is available.`
             : `App data container for ${bundleId} was not available.`,
+          ...(!dataContainerPath
+            ? {
+                metadata: nextActionHint(
+                  'inspect_ios_data_container',
+                  'Confirm the app is installed and has launched at least once so simctl can resolve its data container.',
+                ),
+              }
+            : {}),
         });
         metadata.dataContainer = {
           rawPath: 'raw/ios-data-container.txt',
@@ -648,20 +701,33 @@ async function runIosSimctlCapture({
           source: 'runner',
           code: 'ios_terminate_missing_bundle',
           message: 'App termination was requested, but no bundle id was provided.',
+          metadata: nextActionHint(
+            'provide_ios_bundle',
+            'Rerun with --bundle set to the installed iOS bundle id when termination is requested.',
+          ),
         });
       } else {
         const terminateResult = await driver.terminateBundle(bundleId);
         raw[terminateResult.rawFileName] = formatIosSimctlRawOutput(terminateResult);
         const terminateOutput = `${terminateResult.stdout}\n${terminateResult.stderr}`;
         const notRunning = /not running|No such process|The operation couldn't be completed/iu.test(terminateOutput);
+        const terminatePassed = terminateResult.exitCode === 0 || notRunning;
         checks.push({
           name: 'ios_app_terminated',
-          status: terminateResult.exitCode === 0 || notRunning ? 'passed' : 'failed',
+          status: terminatePassed ? 'passed' : 'failed',
           source: 'runner',
-          code: terminateResult.exitCode === 0 || notRunning ? 'ios_app_terminated' : 'ios_app_terminate_failed',
-          message: terminateResult.exitCode === 0 || notRunning
+          code: terminatePassed ? 'ios_app_terminated' : 'ios_app_terminate_failed',
+          message: terminatePassed
             ? `Terminated app ${bundleId} before capture.`
             : `Failed to terminate app ${bundleId} before capture.`,
+          ...(!terminatePassed
+            ? {
+                metadata: nextActionHint(
+                  'inspect_ios_terminate',
+                  'Inspect raw/ios-terminate.txt, confirm the bundle id is installed on the selected simulator, then rerun.',
+                ),
+              }
+            : {}),
         });
         metadata.terminateResult = {
           args: terminateResult.args,
@@ -679,6 +745,10 @@ async function runIosSimctlCapture({
           source: 'runner',
           code: 'ios_profile_session_seed_missing_container',
           message: 'Profile-session storage seeding needs both bundle id and app data container.',
+          metadata: nextActionHint(
+            'fix_ios_profile_session_storage',
+            'Provide --bundle, install and launch the app once, then rerun so the native AsyncStorage container exists.',
+          ),
         });
       } else {
         const seeded = await seedProfileSessionStorage({
@@ -719,16 +789,29 @@ async function runIosSimctlCapture({
           source: 'runner',
           code: 'ios_launch_missing_bundle',
           message: 'App launch was requested, but no bundle id was provided.',
+          metadata: nextActionHint(
+            'provide_ios_bundle',
+            'Rerun with --bundle set to the installed iOS bundle id when --launch is enabled.',
+          ),
         });
       } else {
         const launchResult = await driver.launchBundle(bundleId);
+        const launchPassed = launchResult.exitCode === 0;
         raw[launchResult.rawFileName] = formatIosSimctlRawOutput(launchResult);
         checks.push({
           name: 'ios_app_launched',
-          status: launchResult.exitCode === 0 ? 'passed' : 'failed',
+          status: launchPassed ? 'passed' : 'failed',
           source: 'runner',
-          code: launchResult.exitCode === 0 ? 'ios_app_launched' : 'ios_app_launch_failed',
-          message: launchResult.exitCode === 0 ? `Launched app ${bundleId}.` : `Failed to launch app ${bundleId}.`,
+          code: launchPassed ? 'ios_app_launched' : 'ios_app_launch_failed',
+          message: launchPassed ? `Launched app ${bundleId}.` : `Failed to launch app ${bundleId}.`,
+          ...(!launchPassed
+            ? {
+                metadata: nextActionHint(
+                  'inspect_ios_launch',
+                  'Inspect raw/ios-launch.txt, confirm the bundle id and simulator runtime are valid, and verify the app opens manually.',
+                ),
+              }
+            : {}),
         });
         metadata.launchResult = {
           args: launchResult.args,
@@ -741,15 +824,24 @@ async function runIosSimctlCapture({
     for (const [index, deepLink] of deepLinks.entries()) {
       const rawFileName = `ios-deep-link-${index + 1}.txt`;
       const deepLinkResult = await driver.openDeepLink({ rawFileName, url: deepLink.url });
+      const deepLinkOpened = deepLinkResult.exitCode === 0;
       raw[deepLinkResult.rawFileName] = formatIosSimctlRawOutput(deepLinkResult);
       checks.push({
         name: 'ios_deep_link_opened',
-        status: deepLinkResult.exitCode === 0 ? 'passed' : 'failed',
+        status: deepLinkOpened ? 'passed' : 'failed',
         source: 'runner',
-        code: deepLinkResult.exitCode === 0 ? 'ios_deep_link_opened' : 'ios_deep_link_failed',
-        message: deepLinkResult.exitCode === 0
+        code: deepLinkOpened ? 'ios_deep_link_opened' : 'ios_deep_link_failed',
+        message: deepLinkOpened
           ? `Opened iOS deep link ${deepLink.label ?? index + 1}.`
           : `Failed to open iOS deep link ${deepLink.label ?? index + 1}.`,
+        ...(!deepLinkOpened
+          ? {
+              metadata: nextActionHint(
+                'inspect_ios_deep_link',
+                `Inspect raw/${deepLinkResult.rawFileName}, verify the app URL scheme, and confirm the app is installed on the selected simulator.`,
+              ),
+            }
+          : {}),
       });
 
       if (deepLink.waitMs && deepLink.waitMs > 0) {
@@ -790,6 +882,14 @@ async function runIosSimctlCapture({
         source: 'runner',
         code: screenshotCaptured ? 'ios_screenshot_captured' : 'ios_screenshot_failed',
         message: screenshotCaptured ? 'Captured iOS simulator screenshot.' : 'iOS simulator screenshot capture failed.',
+        ...(!screenshotCaptured
+          ? {
+              metadata: nextActionHint(
+                'inspect_ios_screenshot',
+                `Inspect raw/${screenshotResult.rawFileName}, confirm the simulator window is available, then rerun the screenshot capture.`,
+              ),
+            }
+          : {}),
       });
       metadata.screenshot = {
         args: screenshotResult.args,
@@ -800,13 +900,22 @@ async function runIosSimctlCapture({
     }
 
     const log = await driver.readLogs({ last: logLast });
+    const logsCaptured = log.exitCode === 0;
     raw[log.rawFileName] = formatIosSimctlRawOutput(log);
     checks.push({
       name: 'ios_logs_captured',
-      status: log.exitCode === 0 ? 'passed' : 'failed',
+      status: logsCaptured ? 'passed' : 'failed',
       source: 'runner',
-      code: log.exitCode === 0 ? 'ios_logs_captured' : 'ios_logs_failed',
-      message: log.exitCode === 0 ? `Captured iOS simulator logs from the last ${logLast}.` : 'iOS simulator log capture failed.',
+      code: logsCaptured ? 'ios_logs_captured' : 'ios_logs_failed',
+      message: logsCaptured ? `Captured iOS simulator logs from the last ${logLast}.` : 'iOS simulator log capture failed.',
+      ...(!logsCaptured
+        ? {
+            metadata: nextActionHint(
+              'inspect_ios_logs',
+              `Inspect raw/${log.rawFileName}, confirm xcrun simctl log access works for the selected simulator, then rerun the capture.`,
+            ),
+          }
+        : {}),
     });
     metadata.logs = {
       args: log.args,
@@ -822,6 +931,10 @@ async function runIosSimctlCapture({
           source: 'runner',
           code: 'ios_profile_storage_missing_container',
           message: 'Profile storage collection needs both bundle id and app data container.',
+          metadata: nextActionHint(
+            'fix_ios_profile_storage',
+            'Provide --bundle, install and launch the app once, then rerun profile storage collection.',
+          ),
         });
       } else {
         try {
@@ -864,6 +977,10 @@ async function runIosSimctlCapture({
             source: 'runner',
             code: 'ios_profile_storage_collect_failed',
             message: 'Failed to collect stored profile events from app storage.',
+            metadata: nextActionHint(
+              'inspect_ios_profile_storage',
+              'Inspect raw/ios-profile-storage-error.txt and confirm the app writes profile events to the expected AsyncStorage keys.',
+            ),
           });
         }
       }
@@ -875,6 +992,10 @@ async function runIosSimctlCapture({
       source: 'runner',
       code: 'ios_capture_window_no_simulator',
       message: 'iOS capture window setup was requested, but no booted simulator was selected.',
+      metadata: nextActionHint(
+        'boot_ios_simulator',
+        'Boot an iOS simulator or pass --device with a booted simulator UDID before requesting launch, storage, or deep-link capture.',
+      ),
     });
   }
 

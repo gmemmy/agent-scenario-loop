@@ -31,6 +31,30 @@ function firstString(values: unknown[], fallback: string): string {
 }
 
 /**
+ * Formats an optional next-action hint stored on a health check.
+ *
+ * @param {SummaryRecord} record
+ * @returns {string}
+ */
+function formatNextAction(record: SummaryRecord): string {
+  const metadata = record.metadata;
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) {
+    return '';
+  }
+
+  const metadataRecord = metadata as SummaryRecord;
+  const nextAction = firstString([metadataRecord.nextAction], '');
+  if (!nextAction) {
+    return '';
+  }
+
+  const nextActionCode = firstString([metadataRecord.nextActionCode], '');
+  return nextActionCode
+    ? ` Next action ${code(nextActionCode)}: ${nextAction}`
+    : ` Next action: ${nextAction}`;
+}
+
+/**
  * Formats health or warning checks as markdown list items.
  *
  * @param {unknown[]} checks
@@ -46,7 +70,7 @@ function formatChecks(checks: unknown[]): string[] {
     const name = firstString([record.name, record.code], 'unknown_check');
     const status = firstString([record.status], 'unknown');
     const message = firstString([record.message], 'no message');
-    return `- ${code(name)}: ${status} - ${message}`;
+    return `- ${code(name)}: ${status} - ${message}${formatNextAction(record)}`;
   });
 }
 

@@ -463,10 +463,17 @@ test('fails health when no online adb device is connected', async (t: TestContex
     outputDir,
     runId: 'android-run-2',
   });
+  const summary = fs.readFileSync(path.join(outputDir, 'agent-summary.md'), 'utf8');
 
   assert.equal(result.health.healthStatus, 'failed');
   assert.equal(result.verdict.verdictStatus, 'inconclusive');
   assert.equal(result.device, null);
+  assert.ok(
+    (result.health.checks as Array<{ code: string; metadata?: { nextActionCode?: string } }>).some(
+      (check) => check.code === 'android_device_missing' && check.metadata?.nextActionCode === 'select_android_device',
+    ),
+  );
+  assert.match(summary, /Next action `select_android_device`/u);
 });
 
 test('fails logcat capture when no online Android device is connected', async (t: TestContext) => {
@@ -532,5 +539,10 @@ test('fails health when the requested package is not installed', async (t: TestC
   assert.equal(result.verdict.verdictStatus, 'inconclusive');
   assert.ok(
     (result.health.checks as Array<{ code: string }>).some((check) => check.code === 'android_package_missing'),
+  );
+  assert.ok(
+    (result.health.checks as Array<{ code: string; metadata?: { nextActionCode?: string } }>).some(
+      (check) => check.code === 'android_package_missing' && check.metadata?.nextActionCode === 'install_android_package',
+    ),
   );
 });

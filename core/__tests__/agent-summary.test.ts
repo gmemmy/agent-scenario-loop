@@ -42,6 +42,10 @@ test('blocks optimization claims when scenario health fails', () => {
           status: 'failed',
           source: 'evidence',
           message: 'No active runner or evidence provider can produce required artifact `profiler`.',
+          metadata: {
+            nextAction: 'Enable a runner or provider that produces profiler evidence before comparing budgets.',
+            nextActionCode: 'add_profiler_provider',
+          },
         },
       ],
       warnings: [
@@ -64,6 +68,7 @@ test('blocks optimization claims when scenario health fails', () => {
   assert.match(summary, /Do not optimize from this run/u);
   assert.match(summary, /## failed checks/u);
   assert.match(summary, /`missing_required_artifact`: failed/u);
+  assert.match(summary, /Next action `add_profiler_provider`: Enable a runner or provider/u);
   assert.match(summary, /## warnings/u);
   assert.match(summary, /`missing_optional_artifact`: warning/u);
 });
