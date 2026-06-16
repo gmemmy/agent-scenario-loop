@@ -109,6 +109,14 @@ pnpm demo:loop -- --out artifacts/demo-loop
 
 That command runs preflight, profiles baseline/current event logs, writes run artifacts, compares the runs, and refreshes the current run's `agent-summary.md`.
 
+To verify the installable package surface before publishing:
+
+```bash
+pnpm package:smoke
+```
+
+That command packs the repo, installs the tarball into a temporary project, runs the installed `asl-check-plan` binary against packaged examples, checks root exports, and verifies that schemas, examples, the app helper, and the config template ship in the package.
+
 Read next: [Contracts](docs/contracts.md) for the artifact layout and current scope.
 
 ## Quick start
