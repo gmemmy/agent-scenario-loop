@@ -150,6 +150,44 @@ test('writes failed health and inconclusive verdict for incompatible plans', asy
   assert.match(verdict.summary, /do not optimize/u);
 });
 
+test('writes failed health for malformed adapter metadata', async (t: TestContext) => {
+  const outputDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-check-plan-adapter-options-'));
+  const scenario = readJson(fixturePath('examples/scenarios/mobile/app-startup.json'));
+  scenario.steps.push({
+    id: 'tap-card',
+    kind: 'gesture',
+    driverAction: 'tap',
+  });
+  const scenarioPath = path.join(outputDir, 'invalid-adapter-options.json');
+  await fsp.writeFile(scenarioPath, `${JSON.stringify(scenario, null, 2)}\n`, 'utf8');
+  t.after(async () => {
+    await fsp.rm(outputDir, { recursive: true, force: true });
+  });
+
+  await execFileAsync(process.execPath, [
+    CHECK_PLAN,
+    '--scenario',
+    scenarioPath,
+    '--runner',
+    fixturePath('examples/runners/adb-android.json'),
+    '--platform',
+    'android',
+    '--run-id',
+    'cli-run-invalid-adapter',
+    '--out',
+    outputDir,
+  ]);
+
+  const health = readJson(path.join(outputDir, 'health.json'));
+  const compatibility = readJson(path.join(outputDir, 'planner-compatibility.json'));
+  const summary = fs.readFileSync(path.join(outputDir, 'agent-summary.md'), 'utf8');
+
+  assert.equal(health.healthStatus, 'failed');
+  assert.equal(compatibility.compatible, false);
+  assert.ok(health.checks.some((check: PlanCheck) => check.code === 'invalid_adapter_options'));
+  assert.match(summary, /adapterOptions\.androidAdb\.x\/y/u);
+});
+
 test('allows evidence providers to satisfy required evidence in CLI plans', async () => {
   const { buildPlanArtifacts } = require('../check-plan');
   const scenario = readJson(fixturePath('examples/scenarios/mobile/scroll-settle.json'));

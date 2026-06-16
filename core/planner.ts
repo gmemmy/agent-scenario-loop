@@ -20,11 +20,14 @@ type CompatibilityResult = {
 };
 
 type ScenarioStep = ManifestRecord & {
+  adapterOptions?: unknown;
   driverAction?: unknown;
+  id?: unknown;
   required?: unknown;
 };
 
 type ScenarioManifest = ManifestRecord & {
+  adapterOptions?: unknown;
   id?: string;
   name?: string;
   flowId?: string;
@@ -107,6 +110,47 @@ function createIssue(code: string, message: string, metadata: ManifestRecord = {
     message,
     ...metadata,
   };
+}
+
+/**
+ * Returns `value` when it is a plain object; otherwise returns an empty object.
+ *
+ * @param {unknown} value
+ * @returns {Record<string, unknown>}
+ */
+function asObject(value: unknown): ManifestRecord {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as ManifestRecord : {};
+}
+
+/**
+ * Returns true when a value is a finite number.
+ *
+ * @param {unknown} value
+ * @returns {boolean}
+ */
+function isFiniteNumber(value: unknown): boolean {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+/**
+ * Returns true when a value is a positive integer.
+ *
+ * @param {unknown} value
+ * @returns {boolean}
+ */
+function isPositiveInteger(value: unknown): boolean {
+  return typeof value === 'number' && Number.isInteger(value) && value > 0;
+}
+
+/**
+ * Resolves the stable scenario step identifier used in planner errors.
+ *
+ * @param {Record<string, unknown>} step
+ * @param {number} index
+ * @returns {string}
+ */
+function getScenarioStepId(step: ScenarioStep, index: number): string {
+  return typeof step.id === 'string' && step.id.length > 0 ? step.id : `step-${index + 1}`;
 }
 
 /**
@@ -294,6 +338,231 @@ function collectScenarioDriverActions(scenario: ScenarioManifest): { required: s
 }
 
 /**
+ * Adds a structured invalid-adapter-options issue.
+ *
+ * @param {{adapter: string, errors: PlannerIssue[], field: string, message: string, scenario: ScenarioManifest, stepId?: string}} options
+ * @returns {void}
+ */
+function pushInvalidAdapterOption({
+  adapter,
+  errors,
+  field,
+  message,
+  scenario,
+  stepId,
+}: {
+  adapter: string;
+  errors: PlannerIssue[];
+  field: string;
+  message: string;
+  scenario: ScenarioManifest;
+  stepId?: string;
+}): void {
+  errors.push(
+    createIssue('invalid_adapter_options', message, {
+      adapter,
+      field,
+      scenarioId: getScenarioId(scenario),
+      ...(stepId ? { stepId } : {}),
+    }),
+  );
+}
+
+/**
+ * Validates Android adb metadata that built-in runners depend on at runtime.
+ *
+ * @param {{scenario: ScenarioManifest, errors: PlannerIssue[]}} options
+ * @returns {void}
+ */
+function validateAndroidAdbAdapterOptions({
+  errors,
+  scenario,
+}: {
+  errors: PlannerIssue[];
+  scenario: ScenarioManifest;
+}): void {
+  const steps = Array.isArray(scenario.steps) ? scenario.steps : [];
+  for (const [index, step] of steps.entries()) {
+    if (!step || typeof step !== 'object') {
+      continue;
+    }
+
+    const androidAdb = asObject(asObject(step.adapterOptions).androidAdb);
+    const stepId = getScenarioStepId(step, index);
+    if (step.driverAction === 'tap' && (!isFiniteNumber(androidAdb.x) || !isFiniteNumber(androidAdb.y))) {
+      pushInvalidAdapterOption({
+        adapter: 'androidAdb',
+        errors,
+        field: 'x/y',
+        message: `Step \`${stepId}\` uses driverAction \`tap\` but adapterOptions.androidAdb.x/y are required.`,
+        scenario,
+        stepId,
+      });
+    }
+
+    if (
+      step.driverAction === 'scroll' &&
+      (
+        !isFiniteNumber(androidAdb.startX) ||
+        !isFiniteNumber(androidAdb.startY) ||
+        !isFiniteNumber(androidAdb.endX) ||
+        !isFiniteNumber(androidAdb.endY)
+      )
+    ) {
+      pushInvalidAdapterOption({
+        adapter: 'androidAdb',
+        errors,
+        field: 'startX/startY/endX/endY',
+        message: `Step \`${stepId}\` uses driverAction \`scroll\` but adapterOptions.androidAdb.startX/startY/endX/endY are required.`,
+        scenario,
+        stepId,
+      });
+    }
+
+    if ('durationMs' in androidAdb && !isPositiveInteger(androidAdb.durationMs)) {
+      pushInvalidAdapterOption({
+        adapter: 'androidAdb',
+        errors,
+        field: 'durationMs',
+        message: `Step \`${stepId}\` has adapterOptions.androidAdb.durationMs, but it must be a positive integer.`,
+        scenario,
+        stepId,
+      });
+    }
+
+    if ('logcatLines' in androidAdb && !isPositiveInteger(androidAdb.logcatLines)) {
+      pushInvalidAdapterOption({
+        adapter: 'androidAdb',
+        errors,
+        field: 'logcatLines',
+        message: `Step \`${stepId}\` has adapterOptions.androidAdb.logcatLines, but it must be a positive integer.`,
+        scenario,
+        stepId,
+      });
+    }
+
+    if ('waitMs' in androidAdb && !isPositiveInteger(androidAdb.waitMs)) {
+      pushInvalidAdapterOption({
+        adapter: 'androidAdb',
+        errors,
+        field: 'waitMs',
+        message: `Step \`${stepId}\` has adapterOptions.androidAdb.waitMs, but it must be a positive integer.`,
+        scenario,
+        stepId,
+      });
+    }
+  }
+}
+
+/**
+ * Validates iOS simctl metadata that built-in runners depend on at runtime.
+ *
+ * @param {{scenario: ScenarioManifest, errors: PlannerIssue[]}} options
+ * @returns {void}
+ */
+function validateIosSimctlAdapterOptions({
+  errors,
+  scenario,
+}: {
+  errors: PlannerIssue[];
+  scenario: ScenarioManifest;
+}): void {
+  const scenarioIosSimctl = asObject(asObject(scenario.adapterOptions).iosSimctl);
+  if ('repeat' in scenarioIosSimctl && !isPositiveInteger(scenarioIosSimctl.repeat)) {
+    pushInvalidAdapterOption({
+      adapter: 'iosSimctl',
+      errors,
+      field: 'repeat',
+      message: 'Scenario adapterOptions.iosSimctl.repeat must be a positive integer.',
+      scenario,
+    });
+  }
+
+  if ('commands' in scenarioIosSimctl) {
+    if (!Array.isArray(scenarioIosSimctl.commands)) {
+      pushInvalidAdapterOption({
+        adapter: 'iosSimctl',
+        errors,
+        field: 'commands',
+        message: 'Scenario adapterOptions.iosSimctl.commands must be an array when provided.',
+        scenario,
+      });
+    } else {
+      for (const [index, command] of scenarioIosSimctl.commands.entries()) {
+        const commandOptions = asObject(command);
+        if (typeof commandOptions.command !== 'string' || commandOptions.command.length === 0) {
+          pushInvalidAdapterOption({
+            adapter: 'iosSimctl',
+            errors,
+            field: `commands[${index}].command`,
+            message: `Scenario adapterOptions.iosSimctl.commands[${index}].command must be a non-empty string.`,
+            scenario,
+          });
+        }
+        if ('waitMs' in commandOptions && !isPositiveInteger(commandOptions.waitMs)) {
+          pushInvalidAdapterOption({
+            adapter: 'iosSimctl',
+            errors,
+            field: `commands[${index}].waitMs`,
+            message: `Scenario adapterOptions.iosSimctl.commands[${index}].waitMs must be a positive integer.`,
+            scenario,
+          });
+        }
+      }
+    }
+  }
+
+  const steps = Array.isArray(scenario.steps) ? scenario.steps : [];
+  for (const [index, step] of steps.entries()) {
+    if (!step || typeof step !== 'object') {
+      continue;
+    }
+
+    const iosSimctl = asObject(asObject(step.adapterOptions).iosSimctl);
+    if ('waitMs' in iosSimctl && !isPositiveInteger(iosSimctl.waitMs)) {
+      const stepId = getScenarioStepId(step, index);
+      pushInvalidAdapterOption({
+        adapter: 'iosSimctl',
+        errors,
+        field: 'waitMs',
+        message: `Step \`${stepId}\` has adapterOptions.iosSimctl.waitMs, but it must be a positive integer.`,
+        scenario,
+        stepId,
+      });
+    }
+  }
+}
+
+/**
+ * Validates adapter-specific scenario metadata for the selected platform set.
+ *
+ * @param {{scenario: ScenarioManifest, effectivePlatforms: string[], errors: PlannerIssue[], runner?: RunnerManifest}} options
+ * @returns {void}
+ */
+function validateScenarioAdapterOptions({
+  effectivePlatforms,
+  errors,
+  runner,
+  scenario,
+}: {
+  effectivePlatforms: string[];
+  errors: PlannerIssue[];
+  runner?: RunnerManifest;
+  scenario: ScenarioManifest;
+}): void {
+  const runnerId = runner ? getRunnerId(runner) : '';
+  const usesAndroidAdbOptions = Array.isArray(scenario.steps) &&
+    scenario.steps.some((step) => Object.prototype.hasOwnProperty.call(asObject(asObject(step).adapterOptions), 'androidAdb'));
+  if (effectivePlatforms.includes('android') && (runnerId.includes('adb') || usesAndroidAdbOptions)) {
+    validateAndroidAdbAdapterOptions({ errors, scenario });
+  }
+
+  if (effectivePlatforms.includes('ios')) {
+    validateIosSimctlAdapterOptions({ errors, scenario });
+  }
+}
+
+/**
  * Adds planner errors when the selected runner cannot own a run lifecycle.
  *
  * @param {{runner: Record<string, unknown>, errors: Record<string, unknown>[]}} options
@@ -420,6 +689,7 @@ function evaluateRunnerCompatibility({
   }
 
   const effectivePlatforms = resolveEffectivePlatforms({ scenario, runner: primaryRunner, platform, errors });
+  validateScenarioAdapterOptions({ effectivePlatforms, errors, runner: primaryRunner, scenario });
   const runnerCapabilities = uniqueSorted(asArray(primaryRunner.capabilities));
   const missingRequiredCapabilities = includesAll(
     runnerCapabilities,
@@ -636,6 +906,7 @@ export {
   evaluateRunnerCompatibility,
   intersection,
   uniqueSorted,
+  validateScenarioAdapterOptions,
 };
 
 export type {

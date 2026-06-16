@@ -15,11 +15,14 @@ const ROOT = path.join(__dirname, '..', '..', '..');
 
 type JsonRecord = Record<string, any>;
 type PlannerIssue = {
+  adapter?: string;
   artifact?: string;
   capability?: string;
   code?: string;
   driverAction?: string;
+  field?: string;
   status?: string;
+  stepId?: string;
 };
 type HealthCheck = {
   code?: string;
@@ -156,6 +159,62 @@ test('accepts scenario steps when the runner declares required driver actions', 
   assert.equal(result.compatible, true);
   assert.deepEqual(result.errors, []);
   assert.ok(result.matched.driverActions.includes('scroll'));
+});
+
+test('fails when Android adb tap metadata is missing coordinates', () => {
+  const scenario = readJson('examples/scenarios/mobile/app-startup.json');
+  const runner = readJson('examples/runners/adb-android.json');
+  scenario.steps.push({
+    id: 'tap-card',
+    kind: 'gesture',
+    driverAction: 'tap',
+  });
+
+  const result = evaluateRunnerCompatibility({ scenario, runner, platform: 'android' });
+
+  assert.equal(result.compatible, false);
+  assert.deepEqual(
+    result.errors
+      .filter((error: PlannerIssue) => error.code === 'invalid_adapter_options')
+      .map((error: PlannerIssue) => ({
+        adapter: error.adapter,
+        field: error.field,
+        stepId: error.stepId,
+      })),
+    [{ adapter: 'androidAdb', field: 'x/y', stepId: 'tap-card' }],
+  );
+});
+
+test('fails when iOS simctl command metadata is malformed', () => {
+  const scenario = readJson('examples/scenarios/mobile/app-startup.json');
+  const runner = readJson('examples/runners/xcodebuildmcp-ios.json');
+  scenario.adapterOptions = {
+    iosSimctl: {
+      commands: [
+        {
+          waitMs: 0,
+        },
+      ],
+      repeat: 0,
+    },
+  };
+
+  const result = evaluateRunnerCompatibility({ scenario, runner, platform: 'ios' });
+
+  assert.equal(result.compatible, false);
+  assert.deepEqual(
+    result.errors
+      .filter((error: PlannerIssue) => error.code === 'invalid_adapter_options')
+      .map((error: PlannerIssue) => ({
+        adapter: error.adapter,
+        field: error.field,
+      })),
+    [
+      { adapter: 'iosSimctl', field: 'repeat' },
+      { adapter: 'iosSimctl', field: 'commands[0].command' },
+      { adapter: 'iosSimctl', field: 'commands[0].waitMs' },
+    ],
+  );
 });
 
 test('agent-device runner target satisfies portable driver-action scenarios', () => {
