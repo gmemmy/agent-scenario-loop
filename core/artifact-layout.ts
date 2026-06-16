@@ -6,6 +6,7 @@ const ARTIFACT_FILENAMES = {
   agentSummary: 'agent-summary.md',
   comparison: 'comparison.json',
   health: 'health.json',
+  liveProof: 'live-proof.json',
   plannerCompatibility: 'planner-compatibility.json',
   verdict: 'verdict.json',
 };
@@ -33,6 +34,7 @@ type ArtifactLayout = {
   verdict: string;
   comparison: string;
   agentSummary: string;
+  liveProof: string;
   plannerCompatibility: string;
   raw: string;
   captures: string;
@@ -66,6 +68,7 @@ function createArtifactLayout({ outputDir }: { outputDir: string }): ArtifactLay
     verdict: path.join(outputDir, ARTIFACT_FILENAMES.verdict),
     comparison: path.join(outputDir, ARTIFACT_FILENAMES.comparison),
     agentSummary: path.join(outputDir, ARTIFACT_FILENAMES.agentSummary),
+    liveProof: path.join(outputDir, ARTIFACT_FILENAMES.liveProof),
     plannerCompatibility: path.join(outputDir, ARTIFACT_FILENAMES.plannerCompatibility),
     raw: path.join(outputDir, 'raw'),
     captures: path.join(outputDir, 'captures'),

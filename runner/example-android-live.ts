@@ -12,10 +12,12 @@ const {
   compareLiveProfilesToLatest,
   isEnabledFlag,
 } = require('./example-live-comparison');
+const { writeLiveProofSummary } = require('./example-live-proof-summary');
 const { runProfileAndroid } = require('./profile-android');
 
 type CliArgs = import('./android-adb').CliArgs;
 type ExampleLiveComparisonResult = import('./example-live-comparison').ExampleLiveComparisonResult;
+type LiveProofSummaryResult = import('./example-live-proof-summary').LiveProofSummaryResult;
 type AndroidLiveProofOptions = {
   delay?: (ms: number) => Promise<void>;
   executor?: import('./android-adb').CommandExecutor;
@@ -29,6 +31,7 @@ type AndroidLiveProfile = {
   scenarioId: string;
 };
 type AndroidLiveProofResult = {
+  aggregateSummary: LiveProofSummaryResult;
   comparisons: ExampleLiveComparisonResult[];
   outputDir: string;
   preflightDir: string;
@@ -213,6 +216,7 @@ async function runExampleAndroidLiveProof(
   const config = readJson(configPath);
   const packageName = resolveAndroidPackageName({ args, config });
   const runSuffix = normalizeRunSuffix(args['run-suffix']);
+  const aggregateRunId = buildLiveRunId('android-live-proof', runSuffix);
   const preflightRunId = buildLiveRunId('android-live-preflight', runSuffix);
   const preflightDir = path.join(outputDir, '_preflight', preflightRunId);
   const reactNativeDebugHost = typeof args['react-native-debug-host'] === 'string'
@@ -276,8 +280,18 @@ async function runExampleAndroidLiveProof(
   const comparisons = isEnabledFlag(args['compare-latest'])
     ? await compareLiveProfilesToLatest({ outputDir, profiles })
     : [];
+  const aggregateSummary = await writeLiveProofSummary({
+    comparisons,
+    outputDir,
+    platform: 'android',
+    preflightDir: preflight.runDir,
+    preflightRunId,
+    profiles,
+    runId: aggregateRunId,
+  });
 
   return {
+    aggregateSummary,
     comparisons,
     outputDir,
     preflightDir: preflight.runDir,
@@ -294,6 +308,7 @@ async function runExampleAndroidLiveProof(
 function formatResult(result: AndroidLiveProofResult): string {
   return [
     'Android example live proof passed.',
+    `Live proof: ${result.aggregateSummary.summaryPath}`,
     `Preflight: ${result.preflightDir}/agent-summary.md`,
     ...result.profiles.map((profile) => (
       `${profile.label}: ${profile.runDir}/agent-summary.md`

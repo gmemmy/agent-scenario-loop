@@ -24,6 +24,7 @@ The package is intentionally contract-first: adopt the scenario and artifact sha
 - [runner/android-adb.ts](../runner/android-adb.ts): Android adb readiness preflight, optional package launch, ordered driver actions, and bounded logcat capture that write runner health and raw adb evidence
 - [runner/android-adb-driver.ts](../runner/android-adb-driver.ts): adb-backed Android driver adapter for tap, scroll, UI tree, screenshot, and log capture plus Android-specific lifecycle helpers
 - [runner/ios-simctl-driver.ts](../runner/ios-simctl-driver.ts): simctl-backed iOS driver adapter for screenshot and log capture plus explicit iOS lifecycle helpers
+- [runner/example-android-live.ts](../runner/example-android-live.ts): packaged Android example live proof for adb preflight plus canonical startup, open-close, and scroll-settle scenarios
 - [runner/example-ios-live.ts](../runner/example-ios-live.ts): packaged iOS example live proof for simctl preflight plus canonical startup, open-close, and scroll-settle scenarios
 - [runner/demo-loop.ts](../runner/demo-loop.ts): fixture loop that proves preflight, profile history, and latest-trusted comparison without a simulator
 - [examples/event-logs](../examples/event-logs): deterministic profile-event logs for the fixture loop
@@ -85,6 +86,7 @@ Core artifacts:
 - `health.json`: whether the scenario execution was valid enough to interpret
 - `verdict.json`: budget outcome for product behavior, or `not_evaluated` before evidence is collected
 - `comparison.json`: optional before/after result against a trusted baseline
+- `live-proof.json`: aggregate proof summary for a multi-scenario live run
 - `agent-summary.md`: agent-readable health gate and next-action summary
 - `planner-compatibility.json`: optional preflight detail from runner/provider matching
 
@@ -97,6 +99,8 @@ Profile runner artifacts:
 - `summary.md`
 
 `manifest.json`, `metrics.json`, `budget-verdict.json`, and `causal-run.json` are schema-checked before the runner writes them. This keeps profile artifacts stable across fixture logs, adb-captured logs, and future runner adapters.
+
+Aggregate example live proof commands write `live-proof.json` and `agent-summary.md` under `_live-proof/<run-id>`. The live-proof artifact points to preflight evidence, every scenario run, and optional latest-trusted comparison outputs, giving agents one stable batch entrypoint after a multi-scenario proof.
 
 Provider or custom-script evidence attached with `--signal` or `--capture` is copied into stable run folders and inventoried in `manifest.artifacts.evidenceAttachments`. Each inventory entry records the evidence channel, kind, run-relative path, source filename, byte size, and sha256 hash; it does not preserve local absolute source paths.
 

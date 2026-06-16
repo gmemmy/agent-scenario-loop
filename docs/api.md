@@ -28,6 +28,7 @@ The root package is for stable, runner-neutral behavior:
 - evidence interpretation gates
 - run indexing and latest-trusted-run lookup
 - comparison artifacts
+- aggregate live-proof artifacts
 - schema validation
 
 ## Runner Subpaths

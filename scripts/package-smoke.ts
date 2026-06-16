@@ -1045,6 +1045,14 @@ function main(): void {
     );
     assert.equal(exampleLivePreflightHealth.healthStatus, 'passed');
     assert.equal(
+      fs.existsSync(path.join(exampleLiveRoot, '_live-proof', 'android-live-proof', 'live-proof.json')),
+      true,
+    );
+    assert.equal(
+      fs.existsSync(path.join(exampleLiveRoot, '_live-proof', 'android-live-proof', 'agent-summary.md')),
+      true,
+    );
+    assert.equal(
       fs.existsSync(path.join(exampleLiveRoot, '_preflight', 'android-live-preflight', 'raw', 'adb-react-native-reverse.txt')),
       true,
     );
@@ -1069,6 +1077,10 @@ function main(): void {
       env,
     });
     assert.match(exampleLiveCompareOutput, /Comparisons:/u);
+    assert.equal(
+      fs.existsSync(path.join(exampleLiveRoot, '_live-proof', 'android-live-proof-smoke', 'live-proof.json')),
+      true,
+    );
     for (const [scenarioDir, runId] of [
       ['app-startup', 'android-live-startup'],
       ['open-close-cycle', 'android-live-open-close'],
@@ -1135,6 +1147,14 @@ function main(): void {
       fs.readFileSync(path.join(exampleIosLiveRoot, '_preflight', 'ios-live-preflight', 'health.json'), 'utf8'),
     );
     assert.equal(exampleIosLivePreflightHealth.healthStatus, 'passed');
+    assert.equal(
+      fs.existsSync(path.join(exampleIosLiveRoot, '_live-proof', 'ios-live-proof', 'live-proof.json')),
+      true,
+    );
+    assert.equal(
+      fs.existsSync(path.join(exampleIosLiveRoot, '_live-proof', 'ios-live-proof', 'agent-summary.md')),
+      true,
+    );
     const exampleIosLiveCompareOutput = run(packageBinPath(installDir, 'asl-example-ios-live'), [
       '--xcrun',
       fakeExampleLiveXcrunPath,
@@ -1152,6 +1172,10 @@ function main(): void {
       env,
     });
     assert.match(exampleIosLiveCompareOutput, /Comparisons:/u);
+    assert.equal(
+      fs.existsSync(path.join(exampleIosLiveRoot, '_live-proof', 'ios-live-proof-smoke', 'live-proof.json')),
+      true,
+    );
     for (const [scenarioDir, runId] of [
       ['app-startup', 'ios-live-startup'],
       ['open-close-cycle', 'ios-live-open-close'],
@@ -1271,7 +1295,7 @@ function main(): void {
       "}",
       "assert.equal(asl.ARTIFACT_LAYOUT_VERSION, '1.0.0');",
       "assert.equal(asl.ARTIFACT_FILENAMES.health, 'health.json');",
-      "assert.deepEqual(asl.ARTIFACT_FILENAMES, { agentSummary: 'agent-summary.md', comparison: 'comparison.json', health: 'health.json', plannerCompatibility: 'planner-compatibility.json', verdict: 'verdict.json' });",
+      "assert.deepEqual(asl.ARTIFACT_FILENAMES, { agentSummary: 'agent-summary.md', comparison: 'comparison.json', health: 'health.json', liveProof: 'live-proof.json', plannerCompatibility: 'planner-compatibility.json', verdict: 'verdict.json' });",
       "assert.equal(asl.PROFILE_ARTIFACT_FILENAMES.metrics, 'metrics.json');",
       "assert.deepEqual(asl.PROFILE_ARTIFACT_FILENAMES, { budgetVerdict: 'budget-verdict.json', causalRun: 'causal-run.json', manifest: 'manifest.json', metrics: 'metrics.json', summary: 'summary.md' });",
       "assert.equal(typeof asl.createArtifactLayout, 'function');",
@@ -1280,6 +1304,7 @@ function main(): void {
       "assert.equal(layout.verdict, 'run/verdict.json');",
       "assert.equal(layout.comparison, 'run/comparison.json');",
       "assert.equal(layout.agentSummary, 'run/agent-summary.md');",
+      "assert.equal(layout.liveProof, 'run/live-proof.json');",
       "assert.equal(layout.plannerCompatibility, 'run/planner-compatibility.json');",
       "assert.equal(layout.raw, 'run/raw');",
       "assert.equal(layout.captures, 'run/captures');",
@@ -1333,6 +1358,7 @@ function main(): void {
       "require.resolve('agent-scenario-loop/schemas/causal-run.schema.json');",
       "require.resolve('agent-scenario-loop/schemas/comparison.schema.json');",
       "require.resolve('agent-scenario-loop/schemas/health.schema.json');",
+      "require.resolve('agent-scenario-loop/schemas/live-proof.schema.json');",
       "require.resolve('agent-scenario-loop/schemas/scenario.schema.json');",
       "require.resolve('agent-scenario-loop/schemas/manifest.schema.json');",
       "require.resolve('agent-scenario-loop/schemas/metrics.schema.json');",

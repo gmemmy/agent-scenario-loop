@@ -155,7 +155,10 @@ test('runs the packaged iOS example live proof with a fake simctl executor', asy
 
   assert.equal(result.profiles.length, 3);
   assert.equal(result.comparisons.length, 3);
+  assert.equal(fs.existsSync(result.aggregateSummary.liveProofPath), true);
+  assert.equal(fs.existsSync(result.aggregateSummary.summaryPath), true);
   assert.match(formatResult(result), /iOS example live proof passed/u);
+  assert.match(formatResult(result), /Live proof:/u);
   assert.match(formatResult(result), /Comparisons:/u);
   assert.ok(calls.some((call) => call === `simctl launch ${DEVICE_ID} ${BUNDLE_ID}`));
   assert.deepEqual(
@@ -175,4 +178,10 @@ test('runs the packaged iOS example live proof with a fake simctl executor', asy
     assert.equal(fs.existsSync(path.join(comparison.comparisonDir, 'comparison.json')), true);
     assert.equal(fs.existsSync(path.join(comparison.comparisonDir, 'agent-summary.md')), true);
   }
+
+  const aggregate = JSON.parse(fs.readFileSync(result.aggregateSummary.liveProofPath, 'utf8'));
+  assert.equal(aggregate.platform, 'ios');
+  assert.equal(aggregate.runId, 'ios-live-proof-pr-123');
+  assert.equal(aggregate.profiles.length, 3);
+  assert.equal(aggregate.comparisons.length, 3);
 });

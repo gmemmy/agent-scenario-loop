@@ -333,6 +333,57 @@ test('accepts manifest and metrics profile artifacts', () => {
   assert.equal(validateJson(metrics, SCHEMAS.metrics, 'Metrics artifact').valid, true);
 });
 
+test('accepts aggregate live proof artifacts', () => {
+  const liveProof = {
+    schemaVersion: '1.0.0',
+    platform: 'android',
+    runId: 'android-live-proof-after-change',
+    status: 'passed',
+    outputDir: 'artifacts/example-mobile-app/android',
+    preflight: {
+      runId: 'android-live-preflight-after-change',
+      runDir: 'artifacts/example-mobile-app/android/_preflight/android-live-preflight-after-change',
+      summaryPath: 'artifacts/example-mobile-app/android/_preflight/android-live-preflight-after-change/agent-summary.md',
+    },
+    profiles: [
+      {
+        label: 'startup',
+        scenarioId: 'app-startup',
+        runId: 'android-live-startup-after-change',
+        runDir: 'artifacts/example-mobile-app/android/app-startup/android-live-startup-after-change',
+        summaryPath: 'artifacts/example-mobile-app/android/app-startup/android-live-startup-after-change/agent-summary.md',
+      },
+    ],
+    comparisons: [
+      {
+        label: 'startup',
+        scenarioId: 'app-startup',
+        runId: 'android-live-startup-after-change',
+        status: 'better',
+        baselineDir: 'artifacts/example-mobile-app/android/app-startup/android-live-startup',
+        comparisonDir: 'artifacts/example-mobile-app/android/comparisons/app-startup/android-live-startup-after-change',
+        summaryPath: 'artifacts/example-mobile-app/android/comparisons/app-startup/android-live-startup-after-change/agent-summary.md',
+        reason: null,
+      },
+      {
+        label: 'scroll',
+        scenarioId: 'scroll-settle',
+        runId: 'android-live-scroll-after-change',
+        status: 'skipped',
+        baselineDir: null,
+        comparisonDir: null,
+        summaryPath: null,
+        reason: 'No trusted prior run found for scenario scroll-settle.',
+      },
+    ],
+    summary: 'android live proof passed 1 profile run(s) with 2 comparison result(s).',
+  };
+
+  const result = validateJson(liveProof, SCHEMAS.liveProof, 'Live proof artifact');
+
+  assert.equal(result.valid, true, result.message);
+});
+
 test('accepts null schema types', () => {
   const manifest = {
     scenario: 'app-startup',

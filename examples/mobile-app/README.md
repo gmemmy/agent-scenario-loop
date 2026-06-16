@@ -86,6 +86,8 @@ With an emulator or device online and the example app installed, the Android run
 pnpm example:android:live
 ```
 
+The aggregate command writes `_live-proof/android-live-proof/live-proof.json` and `_live-proof/android-live-proof/agent-summary.md` under the Android artifact root as the batch entrypoint.
+
 The live Android commands assume the isolated Metro server is on port `8097`. They configure adb reverse and the app's React Native debug host as `localhost:8097` before launch, so the example app does not accidentally load another app's Metro bundle from the default `8081` port. To apply only that Android Metro routing setup, run:
 
 ```bash
@@ -131,6 +133,8 @@ pnpm example:ios:live
 ```
 
 The aggregate command runs simctl preflight, startup, open-close, and scroll-settle. The individual scenario commands remain useful while debugging one scenario:
+
+It also writes `_live-proof/ios-live-proof/live-proof.json` and `_live-proof/ios-live-proof/agent-summary.md` under the iOS artifact root as the batch entrypoint.
 
 ```bash
 pnpm example:profile:ios:live:startup

@@ -115,6 +115,8 @@ pnpm example:android:live
 
 `example:app:android` builds, installs, and opens the private example app. Keep Metro running. `example:android:live` then checks adb/package readiness and runs startup, open-close, and scroll-settle through the same scenario/artifact contract. It prints the `agent-summary.md` entrypoint for each run.
 
+The aggregate proof also writes a batch entrypoint at `artifacts/example-mobile-app/android/_live-proof/android-live-proof/agent-summary.md` plus a schema-checked `live-proof.json` that points to preflight, scenario, and comparison evidence.
+
 The Android live proof uses the isolated Metro port `8097`. During preflight it configures `adb reverse tcp:8097 tcp:8097` and writes the app's React Native debug host as `localhost:8097`, preserving both commands as raw adb evidence. To apply only that routing setup:
 
 ```bash
@@ -139,6 +141,7 @@ The proof command writes:
 - startup artifacts under `artifacts/example-mobile-app/android/app-startup/android-live-startup`
 - open-close artifacts under `artifacts/example-mobile-app/android/open-close-cycle/android-live-open-close`
 - scroll artifacts under `artifacts/example-mobile-app/android/scroll-settle/android-live-scroll`
+- aggregate live-proof artifacts under `artifacts/example-mobile-app/android/_live-proof/android-live-proof`
 - optional comparison artifacts under `artifacts/example-mobile-app/android/comparisons/<scenario-id>/<run-id>`
 
 The underlying profile commands remain available when you want to isolate one scenario:
@@ -186,6 +189,8 @@ pnpm example:ios:live
 ```
 
 The aggregate command runs simctl preflight, startup, open-close, and scroll-settle. The individual scenario commands remain available when isolating one run:
+
+It also writes a batch entrypoint at `artifacts/example-mobile-app/ios/_live-proof/ios-live-proof/agent-summary.md` plus a schema-checked `live-proof.json`.
 
 ```bash
 pnpm example:profile:ios:live:startup

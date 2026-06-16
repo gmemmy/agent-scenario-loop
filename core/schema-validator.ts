@@ -75,6 +75,7 @@ const SCHEMAS = {
   causalRun: loadSchema('causal-run.schema.json'),
   comparison: loadSchema('comparison.schema.json'),
   health: loadSchema('health.schema.json'),
+  liveProof: loadSchema('live-proof.schema.json'),
   manifest: loadSchema('manifest.schema.json'),
   metrics: loadSchema('metrics.schema.json'),
   scenario: loadSchema('scenario.schema.json'),

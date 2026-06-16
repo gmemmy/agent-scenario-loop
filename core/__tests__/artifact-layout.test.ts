@@ -18,6 +18,7 @@ test('builds the stable artifact layout for one run directory', () => {
   assert.equal(layout.health, path.join(outputDir, ARTIFACT_FILENAMES.health));
   assert.equal(layout.verdict, path.join(outputDir, ARTIFACT_FILENAMES.verdict));
   assert.equal(layout.agentSummary, path.join(outputDir, ARTIFACT_FILENAMES.agentSummary));
+  assert.equal(layout.liveProof, path.join(outputDir, ARTIFACT_FILENAMES.liveProof));
   assert.equal(layout.plannerCompatibility, path.join(outputDir, ARTIFACT_FILENAMES.plannerCompatibility));
   assert.equal(layout.signals.memory, path.join(outputDir, 'signals', 'memory'));
   assert.equal(layout.profile.metrics, path.join(outputDir, PROFILE_ARTIFACT_FILENAMES.metrics));

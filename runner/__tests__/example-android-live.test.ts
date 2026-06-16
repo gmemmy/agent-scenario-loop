@@ -159,7 +159,10 @@ test('runs the packaged Android example live proof with a fake adb executor', as
 
   assert.equal(result.profiles.length, 3);
   assert.equal(result.comparisons.length, 3);
+  assert.equal(fs.existsSync(result.aggregateSummary.liveProofPath), true);
+  assert.equal(fs.existsSync(result.aggregateSummary.summaryPath), true);
   assert.match(formatResult(result), /Android example live proof passed/u);
+  assert.match(formatResult(result), /Live proof:/u);
   assert.match(formatResult(result), /Comparisons:/u);
   assert.ok(calls.some((call) => call.includes('profile-session/start')));
   assert.ok(calls.some((call) => call === '-s emulator-5554 reverse tcp:8097 tcp:8097'));
@@ -181,4 +184,10 @@ test('runs the packaged Android example live proof with a fake adb executor', as
     assert.equal(fs.existsSync(path.join(comparison.comparisonDir, 'comparison.json')), true);
     assert.equal(fs.existsSync(path.join(comparison.comparisonDir, 'agent-summary.md')), true);
   }
+
+  const aggregate = JSON.parse(fs.readFileSync(result.aggregateSummary.liveProofPath, 'utf8'));
+  assert.equal(aggregate.platform, 'android');
+  assert.equal(aggregate.runId, 'android-live-proof-pr-123');
+  assert.equal(aggregate.profiles.length, 3);
+  assert.equal(aggregate.comparisons.length, 3);
 });
