@@ -67,12 +67,15 @@ type AndroidDeepLinkCommand = {
 };
 
 type AndroidAdbDriverStep = {
-  driverAction: 'assertVisible' | 'inspectTree' | 'readLogs' | 'screenshot' | 'scroll' | 'tap';
+  captureFileName?: string;
+  driverAction: 'assertVisible' | 'inspectTree' | 'readLogs' | 'record' | 'screenshot' | 'scroll' | 'tap';
   durationMs?: number;
+  durationSeconds?: number;
   endX?: number;
   endY?: number;
   lines?: number;
   rawFileName?: string;
+  remotePath?: string;
   required?: boolean;
   selector?: import('./android-adb-driver').AndroidSelector;
   stepId?: string;
@@ -349,6 +352,14 @@ function resolveAndroidAdbDriverSteps({
           index: actionIndex,
           readLogsIndex,
         }),
+        ...(step.driverAction === 'record'
+          ? {
+              captureFileName: step.captureFileName ?? defaultAndroidAdbCaptureFileName({
+                driverAction: step.driverAction,
+                index: actionIndex,
+              }),
+            }
+          : {}),
         required: step.required !== false,
       };
     });
@@ -396,6 +407,27 @@ function defaultAndroidAdbRawFileName({
   }
 
   return `adb-${driverAction}${suffix}.txt`;
+}
+
+/**
+ * Returns the default capture filename for one adb driver action.
+ *
+ * @param {{driverAction: AndroidAdbDriverStep['driverAction'], index: number}} options
+ * @returns {string}
+ */
+function defaultAndroidAdbCaptureFileName({
+  driverAction,
+  index,
+}: {
+  driverAction: AndroidAdbDriverStep['driverAction'];
+  index: number;
+}): string {
+  const suffix = index === 1 ? '' : `-${index}`;
+  if (driverAction === 'record') {
+    return `adb-record${suffix}.mp4`;
+  }
+
+  return `adb-${driverAction}${suffix}`;
 }
 
 /**
@@ -493,10 +525,12 @@ function buildAndroidSelectorHealthMetadata(
  * @returns {Promise<import('./android-adb-driver').AndroidAdbCommandResult>}
  */
 async function runAndroidAdbDriverStep({
+  capturesDir,
   driver,
   driverStep,
   logcatLines,
 }: {
+  capturesDir: string;
   driver: import('./android-adb-driver').AndroidAdbDriver;
   driverStep: AndroidAdbDriverStep;
   logcatLines: number;
@@ -530,6 +564,16 @@ async function runAndroidAdbDriverStep({
     return driver.assertVisible({
       ...(typeof driverStep.rawFileName === 'string' ? { rawFileName: driverStep.rawFileName } : {}),
       selector: driverStep.selector,
+    });
+  }
+
+  if (driverStep.driverAction === 'record') {
+    const captureFileName = driverStep.captureFileName ?? 'adb-record.mp4';
+    return driver.record({
+      ...(typeof driverStep.durationSeconds === 'number' ? { durationSeconds: driverStep.durationSeconds } : {}),
+      outputPath: path.join(capturesDir, captureFileName),
+      ...(typeof driverStep.rawFileName === 'string' ? { rawFileName: driverStep.rawFileName } : {}),
+      ...(typeof driverStep.remotePath === 'string' ? { remotePath: driverStep.remotePath } : {}),
     });
   }
 
@@ -910,6 +954,7 @@ async function runAndroidAdbPreflight({
       }
 
       const driverResult = await runAndroidAdbDriverStep({
+        capturesDir: layout.captures,
         driver,
         driverStep: executableDriverStep,
         logcatLines,
@@ -950,6 +995,9 @@ async function runAndroidAdbPreflight({
         args: driverResult.args,
         driverAction: executableDriverStep.driverAction,
         exitCode: driverResult.exitCode,
+        ...(driverResult.capturePath
+          ? { capturePath: `captures/${path.basename(driverResult.capturePath)}` }
+          : {}),
         rawPath: `raw/${driverResult.rawFileName}`,
         ...(executableDriverStep.selector ? { selector: executableDriverStep.selector } : {}),
         ...(executableDriverStep.stepId ? { stepId: executableDriverStep.stepId } : {}),

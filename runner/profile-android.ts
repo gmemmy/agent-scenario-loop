@@ -204,6 +204,23 @@ function isAndroidSelector(value: unknown): value is import('./android-adb-drive
 }
 
 /**
+ * Appends one repeatable profile capture argument without losing caller-provided values.
+ *
+ * @param {{args: import('./profile-mobile').CliArgs, value: string}} options
+ * @returns {string | boolean | Array<string | boolean>}
+ */
+function appendCaptureArg({
+  args,
+  value,
+}: {
+  args: import('./profile-mobile').CliArgs;
+  value: string;
+}): string | boolean | Array<string | boolean> {
+  const existing = args.capture;
+  return existing === undefined ? value : Array.isArray(existing) ? [...existing, value] : [existing, value];
+}
+
+/**
  * Expands portable scenario command steps into Android profile-session commands.
  *
  * @param {Record<string, unknown>} scenario
@@ -234,7 +251,7 @@ function resolveAndroidAdbDriverSteps(scenario: Record<string, any>): AndroidAdb
   let readLogsIndex = 0;
   return executionPlan.steps
     .filter((step: ScenarioExecutionStep) =>
-      ['assertVisible', 'inspectTree', 'readLogs', 'screenshot', 'scroll', 'tap'].includes(String(step.driverAction)),
+      ['assertVisible', 'inspectTree', 'readLogs', 'record', 'screenshot', 'scroll', 'tap'].includes(String(step.driverAction)),
     )
     .map((step: ScenarioExecutionStep) => {
       const androidAdbOptions = readAndroidAdbStepOptions(step);
@@ -251,6 +268,12 @@ function resolveAndroidAdbDriverSteps(scenario: Record<string, any>): AndroidAdb
 
       return {
         driverAction: step.driverAction as AndroidAdbDriverStep['driverAction'],
+        ...(typeof androidAdbOptions.captureFileName === 'string' && androidAdbOptions.captureFileName.length > 0
+          ? { captureFileName: androidAdbOptions.captureFileName }
+          : {}),
+        ...(typeof readFiniteNumber(androidAdbOptions.durationSeconds) === 'number'
+          ? { durationSeconds: readFiniteNumber(androidAdbOptions.durationSeconds) }
+          : {}),
         ...(step.driverAction === 'readLogs' ? { lines: readPositiveInteger(androidAdbOptions.logcatLines, 1000) } : {}),
         ...(typeof rawFileName === 'string' ? { rawFileName } : {}),
         required: step.required,
@@ -263,11 +286,31 @@ function resolveAndroidAdbDriverSteps(scenario: Record<string, any>): AndroidAdb
         ...(typeof readFiniteNumber(androidAdbOptions.endY) === 'number' ? { endY: readFiniteNumber(androidAdbOptions.endY) } : {}),
         ...(typeof readFiniteNumber(androidAdbOptions.startX) === 'number' ? { startX: readFiniteNumber(androidAdbOptions.startX) } : {}),
         ...(typeof readFiniteNumber(androidAdbOptions.startY) === 'number' ? { startY: readFiniteNumber(androidAdbOptions.startY) } : {}),
+        ...(typeof androidAdbOptions.remotePath === 'string' && androidAdbOptions.remotePath.length > 0
+          ? { remotePath: androidAdbOptions.remotePath }
+          : {}),
         waitMs: readStepWaitMs(step),
         ...(typeof readFiniteNumber(androidAdbOptions.x) === 'number' ? { x: readFiniteNumber(androidAdbOptions.x) } : {}),
         ...(typeof readFiniteNumber(androidAdbOptions.y) === 'number' ? { y: readFiniteNumber(androidAdbOptions.y) } : {}),
       };
     });
+}
+
+/**
+ * Reads the first video capture produced by adb driver actions.
+ *
+ * @param {Record<string, unknown>} metadata
+ * @returns {string | null}
+ */
+function readAndroidAdbVideoCapturePath(metadata: Record<string, unknown>): string | null {
+  const actions = Array.isArray(metadata.driverActions) ? metadata.driverActions : [];
+  const recordAction = actions.find((action: Record<string, unknown>) =>
+    action.driverAction === 'record' &&
+    action.exitCode === 0 &&
+    typeof action.capturePath === 'string',
+  );
+
+  return typeof recordAction?.capturePath === 'string' ? recordAction.capturePath : null;
 }
 
 /**
@@ -438,9 +481,19 @@ async function runProfileAndroid(
     );
   }
 
+  const videoCapturePath = readAndroidAdbVideoCapturePath(adbCapture.metadata);
+
   return runProfileMobile({
     ...args,
     'adb-artifacts': adbCapture.runDir,
+    ...(videoCapturePath
+      ? {
+          capture: appendCaptureArg({
+            args,
+            value: `video:${path.join(adbCapture.runDir, videoCapturePath)}`,
+          }),
+        }
+      : {}),
     events: undefined,
     'run-id': runId,
   }, {
@@ -485,6 +538,7 @@ export {
   parseArgs,
   resolveAndroidAdbProfileCommands,
   resolveAndroidAdbDriverSteps,
+  readAndroidAdbVideoCapturePath,
   validateAndroidAdbDriverSteps,
   runProfileAndroid,
   summarizeFailedAndroidChecks,

@@ -142,7 +142,7 @@ test('runs portable adb driver actions and writes raw evidence', async (t: TestC
   t.after(async () => {
     await fsp.rm(outputDir, { recursive: true, force: true });
   });
-  const executor = createExecutor({
+  const fallbackExecutor = createExecutor({
     version: { stdout: 'Android Debug Bridge version 1.0.41\n' },
     'devices -l': {
       stdout: [
@@ -159,7 +159,19 @@ test('runs portable adb driver actions and writes raw evidence', async (t: TestC
       stdout: '<hierarchy><node text="Example" resource-id="dev.example:id/example" bounds="[10,100][210,260]" /></hierarchy>\n',
     },
     '-s emulator-5554 exec-out screencap -p': { stdout: 'PNG' },
+    '-s emulator-5554 shell screenrecord --time-limit 2 /sdcard/asl-record.mp4': { stdout: '' },
+    '-s emulator-5554 shell rm -f /sdcard/asl-record.mp4': { stdout: '' },
   });
+  const executor = async (command: string, args: string[]): Promise<CommandResult> => {
+    const key = args.join(' ');
+    const videoPath = path.join(outputDir, 'captures', 'adb-record-6.mp4');
+    if (key === `-s emulator-5554 pull /sdcard/asl-record.mp4 ${videoPath}`) {
+      await fsp.writeFile(videoPath, 'MP4', 'utf8');
+      return { args, command, exitCode: 0, stderr: '', stdout: `${videoPath}\n` };
+    }
+
+    return fallbackExecutor(command, args);
+  };
 
   const result = await runAndroidAdbPreflight({
     driverSteps: [
@@ -172,6 +184,13 @@ test('runs portable adb driver actions and writes raw evidence', async (t: TestC
         stepId: 'assert-example',
       },
       { driverAction: 'screenshot', stepId: 'capture-final' },
+      {
+        captureFileName: 'adb-record-6.mp4',
+        driverAction: 'record',
+        durationSeconds: 2,
+        remotePath: '/sdcard/asl-record.mp4',
+        stepId: 'record-final',
+      },
     ],
     executor,
     outputDir,
@@ -186,10 +205,13 @@ test('runs portable adb driver actions and writes raw evidence', async (t: TestC
   assert.ok(fs.existsSync(path.join(outputDir, 'raw', 'adb-ui-tree-3.xml')));
   assert.ok(fs.existsSync(path.join(outputDir, 'raw', 'adb-assert-visible-4.xml')));
   assert.ok(fs.existsSync(path.join(outputDir, 'raw', 'adb-screenshot-5.png')));
+  assert.ok(fs.existsSync(path.join(outputDir, 'raw', 'adb-record-6.txt')));
+  assert.ok(fs.existsSync(path.join(outputDir, 'captures', 'adb-record-6.mp4')));
   assert.deepEqual(
     (metadata.driverActions as Array<{ driverAction: string }>).map((item) => item.driverAction),
-    ['tap', 'scroll', 'inspectTree', 'assertVisible', 'screenshot'],
+    ['tap', 'scroll', 'inspectTree', 'assertVisible', 'screenshot', 'record'],
   );
+  assert.equal((metadata.driverActions as Array<{ capturePath?: string }>)[5]?.capturePath, 'captures/adb-record-6.mp4');
   assert.ok(
     (result.health.checks as Array<{ code: string }>).some((check) => check.code === 'android_tap_completed'),
   );

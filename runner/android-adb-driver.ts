@@ -1,6 +1,10 @@
+const fsp = require('node:fs/promises');
+const path = require('node:path');
+
 type AndroidAdbCommandResult = {
   action: string;
   args: string[];
+  capturePath?: string;
   command: string;
   exitCode: number;
   rawFileName: string;
@@ -15,6 +19,7 @@ type AndroidAdbDriver = {
   launchPackage: (packageName: string) => Promise<AndroidAdbCommandResult>;
   openDeepLink: (options: AndroidAdbDeepLinkOptions) => Promise<AndroidAdbCommandResult>;
   readLogs: (options?: AndroidAdbReadLogsOptions) => Promise<AndroidAdbCommandResult>;
+  record: (options: AndroidAdbRecordOptions) => Promise<AndroidAdbCommandResult>;
   screenshot: (options?: AndroidAdbScreenshotOptions) => Promise<AndroidAdbCommandResult>;
   scroll: (options: AndroidAdbScrollOptions) => Promise<AndroidAdbCommandResult>;
   tap: (options: AndroidAdbTapOptions) => Promise<AndroidAdbCommandResult>;
@@ -50,6 +55,13 @@ type AndroidAdbDeepLinkOptions = {
 type AndroidAdbReadLogsOptions = {
   lines?: number;
   rawFileName?: string;
+};
+
+type AndroidAdbRecordOptions = {
+  durationSeconds?: number;
+  outputPath: string;
+  rawFileName?: string;
+  remotePath?: string;
 };
 
 type AndroidAdbInspectTreeOptions = {
@@ -145,6 +157,25 @@ function buildDriverResult({
  */
 function formatAndroidAdbRawOutput(result: { stdout: string; stderr: string }): string {
   return [result.stdout, result.stderr].filter(Boolean).join('\n');
+}
+
+/**
+ * Joins command output from a multi-command adb driver action.
+ *
+ * @param {Array<{args: string[], exitCode: number, stderr: string, stdout: string}>} results
+ * @returns {string}
+ */
+function formatAndroidAdbCommandTranscript(
+  results: Array<{args: string[]; exitCode: number; stderr: string; stdout: string}>,
+): string {
+  return results
+    .map((result) => [
+      `$ adb ${result.args.join(' ')}`,
+      `exitCode=${result.exitCode}`,
+      result.stdout,
+      result.stderr,
+    ].filter(Boolean).join('\n'))
+    .join('\n\n');
 }
 
 /**
@@ -457,6 +488,55 @@ function createAndroidAdbDriver({
       return buildDriverResult({ action: 'readLogs', rawFileName, result });
     },
 
+    async record({
+      durationSeconds = 5,
+      outputPath,
+      rawFileName = 'adb-record.txt',
+      remotePath = `/sdcard/agent-scenario-loop-${Date.now()}.mp4`,
+    }: AndroidAdbRecordOptions): Promise<AndroidAdbCommandResult> {
+      await fsp.mkdir(path.dirname(outputPath), { recursive: true });
+      const recordResult = await executor(adbPath, [
+        '-s',
+        deviceSerial,
+        'shell',
+        'screenrecord',
+        '--time-limit',
+        String(durationSeconds),
+        remotePath,
+      ]);
+      const pullResult = recordResult.exitCode === 0
+        ? await executor(adbPath, ['-s', deviceSerial, 'pull', remotePath, outputPath])
+        : null;
+      const cleanupResult = await executor(adbPath, ['-s', deviceSerial, 'shell', 'rm', '-f', remotePath]);
+      const outputFile = pullResult?.exitCode === 0 ? await fsp.stat(outputPath).catch(() => null) : null;
+      const outputCheckResult = pullResult?.exitCode === 0 && !outputFile?.isFile()
+        ? {
+            args: ['verify-output', outputPath],
+            command: adbPath,
+            exitCode: 1,
+            stderr: `Android screenrecord output was not found at ${outputPath}.`,
+            stdout: '',
+          }
+        : null;
+      const results = [recordResult, ...(pullResult ? [pullResult] : []), ...(outputCheckResult ? [outputCheckResult] : []), cleanupResult];
+      const failedResult = [recordResult, pullResult, outputCheckResult].find((result) => result && result.exitCode !== 0);
+
+      return {
+        ...buildDriverResult({
+          action: 'record',
+          rawFileName,
+          result: {
+            args: recordResult.args,
+            command: recordResult.command,
+            exitCode: failedResult?.exitCode ?? 0,
+            stderr: '',
+            stdout: formatAndroidAdbCommandTranscript(results),
+          },
+        }),
+        ...(failedResult ? {} : { capturePath: outputPath }),
+      };
+    },
+
     async screenshot({
       rawFileName = 'adb-screenshot.png',
     }: AndroidAdbScreenshotOptions = {}): Promise<AndroidAdbCommandResult> {
@@ -501,6 +581,7 @@ function createAndroidAdbDriver({
 export {
   buildAndroidScrollCoordinatesFromBounds,
   createAndroidAdbDriver,
+  formatAndroidAdbCommandTranscript,
   formatAndroidAdbRawOutput,
   parseAndroidAdbBounds,
   parseAndroidUiAutomatorNodes,
@@ -518,6 +599,7 @@ export type {
   AndroidAdbAssertVisibleOptions,
   AndroidAdbInspectTreeOptions,
   AndroidAdbReadLogsOptions,
+  AndroidAdbRecordOptions,
   AndroidAdbScreenshotOptions,
   AndroidAdbScrollOptions,
   AndroidSelector,

@@ -187,7 +187,7 @@ test('rejects invalid runner driver actions', () => {
   const result = validateJson(runner, SCHEMAS.runnerCapabilities, 'Runner capability manifest');
 
   assert.equal(result.valid, false);
-  assert.ok(result.errors.some((error: ValidationIssue) => error.path === '$.driverActions[6]'));
+  assert.ok(result.errors.some((error: ValidationIssue) => error.path === `$.driverActions[${runner.driverActions.length - 1}]`));
 });
 
 test('rejects invalid scenario cycle counts', () => {

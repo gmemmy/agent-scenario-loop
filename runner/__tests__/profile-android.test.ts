@@ -589,6 +589,109 @@ test('profile-android routes normalized readLogs evidence steps through adb driv
   assert.ok(fs.existsSync(path.join(result.runDir, 'raw', 'adb-logcat.txt')));
 });
 
+test('profile-android attaches adb record output as video evidence', async (t: TestContext) => {
+  const tempRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-android-record-'));
+  t.after(async () => {
+    await fsp.rm(tempRoot, { recursive: true, force: true });
+  });
+  const scenarioPath = path.join(tempRoot, 'app-startup-record.json');
+  const scenario = readJson(fixturePath('examples/mobile-app/scenarios/android/app-startup.json'));
+  scenario.steps = [
+    {
+      id: 'capture-log-window',
+      kind: 'captureEvidence',
+      artifact: 'logs',
+      driverAction: 'readLogs',
+      adapterOptions: {
+        androidAdb: {
+          logcatLines: 25,
+          rawFileName: 'adb-logcat.txt',
+        },
+      },
+    },
+    {
+      id: 'record-startup',
+      kind: 'captureEvidence',
+      artifact: 'video',
+      driverAction: 'record',
+      adapterOptions: {
+        androidAdb: {
+          captureFileName: 'startup-record.mp4',
+          durationSeconds: 2,
+          rawFileName: 'adb-record.txt',
+          remotePath: '/sdcard/asl-startup-record.mp4',
+        },
+      },
+    },
+  ];
+  await fsp.writeFile(scenarioPath, `${JSON.stringify(scenario, null, 2)}\n`, 'utf8');
+  const adbCaptureRoot = path.join(tempRoot, 'adb-capture');
+  const profileRoot = path.join(tempRoot, 'profile');
+  const executor = async (command: string, args: string[]): Promise<CommandResult> => {
+    const key = args.join(' ');
+    const videoPath = path.join(adbCaptureRoot, 'captures', 'startup-record.mp4');
+    if (key === `-s emulator-5554 pull /sdcard/asl-startup-record.mp4 ${videoPath}`) {
+      await fsp.writeFile(videoPath, 'MP4', 'utf8');
+      return { command, args, exitCode: 0, stderr: '', stdout: `${videoPath}\n` };
+    }
+    const responses: Record<string, Partial<CommandResult>> = {
+      version: { stdout: 'Android Debug Bridge version 1.0.41\n' },
+      'devices -l': {
+        stdout: [
+          'List of devices attached',
+          'emulator-5554 device product:sdk_gphone model:Pixel_6 device:emu64',
+        ].join('\n'),
+      },
+      '-s emulator-5554 shell getprop ro.product.model': { stdout: 'Pixel 6\n' },
+      '-s emulator-5554 shell getprop ro.build.version.release': { stdout: '15\n' },
+      '-s emulator-5554 shell getprop ro.build.version.sdk': { stdout: '35\n' },
+      '-s emulator-5554 shell pm path dev.agentscenarioloop.example': {
+        stdout: 'package:/data/app/dev.agentscenarioloop.example/base.apk\n',
+      },
+      '-s emulator-5554 logcat -d -v time -t 25': {
+        stdout: fs
+          .readFileSync(fixturePath('examples/mobile-app/event-logs/android-app-startup.log'), 'utf8')
+          .replace(/android-example-startup/gu, 'android-record-startup'),
+      },
+      '-s emulator-5554 shell screenrecord --time-limit 2 /sdcard/asl-startup-record.mp4': {
+        stdout: '',
+      },
+      '-s emulator-5554 shell rm -f /sdcard/asl-startup-record.mp4': {
+        stdout: '',
+      },
+    };
+    const response = responses[key] ?? { exitCode: 1, stderr: `unexpected command: ${key}` };
+    return {
+      command,
+      args,
+      exitCode: response.exitCode ?? 0,
+      stderr: response.stderr ?? '',
+      stdout: response.stdout ?? '',
+    };
+  };
+
+  const result = await runProfileAndroid({
+    'adb-capture': true,
+    'adb-out': adbCaptureRoot,
+    config: fixturePath('examples/mobile-app/asl.config.json'),
+    out: profileRoot,
+    'run-id': 'android-record-startup',
+    scenario: scenarioPath,
+  }, {
+    executor,
+  });
+
+  const manifest = readJson(path.join(result.runDir, 'manifest.json'));
+  const health = readJson(path.join(result.runDir, 'health.json'));
+  const adbMetadata = readJson(path.join(adbCaptureRoot, 'raw', 'android-metadata.json'));
+
+  assert.equal(health.healthStatus, 'passed');
+  assert.equal((manifest.artifacts as { captures: { video: string } }).captures.video, 'captures/startup-record.mp4');
+  assert.equal((adbMetadata.driverActions as Array<{ capturePath?: string; driverAction: string }>)[1]?.capturePath, 'captures/startup-record.mp4');
+  assert.ok(fs.existsSync(path.join(adbCaptureRoot, 'captures', 'startup-record.mp4')));
+  assert.ok(fs.existsSync(path.join(result.runDir, 'captures', 'startup-record.mp4')));
+});
+
 test('profile-android rejects adb tap metadata before capture starts', async (t: TestContext) => {
   const tempRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-android-invalid-driver-step-'));
   t.after(async () => {
@@ -892,6 +995,20 @@ test('profile-android derives portable adb driver actions from scenario metadata
         driverAction: 'screenshot',
         required: false,
       },
+      {
+        id: 'record-final',
+        kind: 'captureEvidence',
+        artifact: 'video',
+        driverAction: 'record',
+        adapterOptions: {
+          androidAdb: {
+            captureFileName: 'record-final.mp4',
+            durationSeconds: 3,
+            rawFileName: 'record-final.txt',
+            remotePath: '/sdcard/record-final.mp4',
+          },
+        },
+      },
     ],
   };
 
@@ -932,6 +1049,16 @@ test('profile-android derives portable adb driver actions from scenario metadata
       driverAction: 'screenshot',
       required: false,
       stepId: 'capture-final',
+      waitMs: 0,
+    },
+    {
+      captureFileName: 'record-final.mp4',
+      driverAction: 'record',
+      durationSeconds: 3,
+      rawFileName: 'record-final.txt',
+      remotePath: '/sdcard/record-final.mp4',
+      required: true,
+      stepId: 'record-final',
       waitMs: 0,
     },
   ]);

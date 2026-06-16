@@ -1,4 +1,7 @@
 const assert = require('node:assert/strict');
+const fsp = require('node:fs/promises');
+const os = require('node:os');
+const path = require('node:path');
 const test = require('node:test');
 
 const {
@@ -99,42 +102,72 @@ test('Android adb driver keeps lifecycle helpers separate from portable driver a
 });
 
 test('Android adb driver performs portable UI and capture actions', async () => {
-  const executor = createExecutor({
-    '-s emulator-5554 shell input tap 120 240': { stdout: '' },
-    '-s emulator-5554 shell input swipe 500 1400 500 400 350': { stdout: '' },
-    '-s emulator-5554 shell uiautomator dump /dev/tty': {
-      stdout: '<hierarchy><node text="Home" resource-id="dev.example:id/home" bounds="[0,0][100,100]" /></hierarchy>\n',
-    },
-    '-s emulator-5554 exec-out screencap -p': {
-      stdout: 'PNG',
-    },
-  });
-  const driver = createAndroidAdbDriver({
-    adbPath: 'fake-adb',
-    deviceSerial: 'emulator-5554',
-    executor,
-  });
+  const tempRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-adb-driver-record-'));
+  try {
+    const videoPath = path.join(tempRoot, 'adb-record.mp4');
+    const fallbackExecutor = createExecutor({
+      '-s emulator-5554 shell input tap 120 240': { stdout: '' },
+      '-s emulator-5554 shell input swipe 500 1400 500 400 350': { stdout: '' },
+      '-s emulator-5554 shell uiautomator dump /dev/tty': {
+        stdout: '<hierarchy><node text="Home" resource-id="dev.example:id/home" bounds="[0,0][100,100]" /></hierarchy>\n',
+      },
+      '-s emulator-5554 exec-out screencap -p': {
+        stdout: 'PNG',
+      },
+      '-s emulator-5554 shell screenrecord --time-limit 2 /sdcard/asl-record.mp4': {
+        stdout: '',
+      },
+      '-s emulator-5554 shell rm -f /sdcard/asl-record.mp4': {
+        stdout: '',
+      },
+    });
+    const executor = async (command: string, args: string[]): Promise<CommandResult> => {
+      const key = args.join(' ');
+      if (key === `-s emulator-5554 pull /sdcard/asl-record.mp4 ${videoPath}`) {
+        await fsp.writeFile(videoPath, 'MP4', 'utf8');
+        return { args, command, exitCode: 0, stderr: '', stdout: `${videoPath}\n` };
+      }
 
-  const tap = await driver.tap({ x: 120, y: 240 });
-  const scroll = await driver.scroll({ durationMs: 350, endX: 500, endY: 400, startX: 500, startY: 1400 });
-  const tree = await driver.inspectTree();
-  const visible = await driver.assertVisible({
-    selector: { kind: 'resourceId', value: 'dev.example:id/home' },
-  });
-  const screenshot = await driver.screenshot();
+      return fallbackExecutor(command, args);
+    };
+    const driver = createAndroidAdbDriver({
+      adbPath: 'fake-adb',
+      deviceSerial: 'emulator-5554',
+      executor,
+    });
 
-  assert.equal(tap.action, 'tap');
-  assert.equal(tap.rawFileName, 'adb-tap.txt');
-  assert.equal(scroll.action, 'scroll');
-  assert.equal(scroll.rawFileName, 'adb-scroll.txt');
-  assert.equal(tree.action, 'inspectTree');
-  assert.equal(tree.rawFileName, 'adb-ui-tree.xml');
-  assert.match(formatAndroidAdbRawOutput(tree), /hierarchy/u);
-  assert.equal(visible.action, 'assertVisible');
-  assert.equal(visible.exitCode, 0);
-  assert.equal(visible.rawFileName, 'adb-assert-visible.xml');
-  assert.equal(screenshot.action, 'screenshot');
-  assert.equal(screenshot.rawFileName, 'adb-screenshot.png');
+    const tap = await driver.tap({ x: 120, y: 240 });
+    const scroll = await driver.scroll({ durationMs: 350, endX: 500, endY: 400, startX: 500, startY: 1400 });
+    const tree = await driver.inspectTree();
+    const visible = await driver.assertVisible({
+      selector: { kind: 'resourceId', value: 'dev.example:id/home' },
+    });
+    const screenshot = await driver.screenshot();
+    const record = await driver.record({
+      durationSeconds: 2,
+      outputPath: videoPath,
+      remotePath: '/sdcard/asl-record.mp4',
+    });
+
+    assert.equal(tap.action, 'tap');
+    assert.equal(tap.rawFileName, 'adb-tap.txt');
+    assert.equal(scroll.action, 'scroll');
+    assert.equal(scroll.rawFileName, 'adb-scroll.txt');
+    assert.equal(tree.action, 'inspectTree');
+    assert.equal(tree.rawFileName, 'adb-ui-tree.xml');
+    assert.match(formatAndroidAdbRawOutput(tree), /hierarchy/u);
+    assert.equal(visible.action, 'assertVisible');
+    assert.equal(visible.exitCode, 0);
+    assert.equal(visible.rawFileName, 'adb-assert-visible.xml');
+    assert.equal(screenshot.action, 'screenshot');
+    assert.equal(screenshot.rawFileName, 'adb-screenshot.png');
+    assert.equal(record.action, 'record');
+    assert.equal(record.capturePath, videoPath);
+    assert.equal(record.rawFileName, 'adb-record.txt');
+    assert.match(formatAndroidAdbRawOutput(record), /screenrecord --time-limit 2/u);
+  } finally {
+    await fsp.rm(tempRoot, { recursive: true, force: true });
+  }
 });
 
 test('Android adb driver resolves portable selectors from UIAutomator trees', () => {
