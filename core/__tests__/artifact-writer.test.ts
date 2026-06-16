@@ -103,9 +103,12 @@ test('copies raw artifacts and satisfies the artifact writer port', async (t: Te
       requiredMethods: ARTIFACT_WRITER_PORT,
     }),
     {
-      valid: true,
-      name: 'artifact writer',
+      expectedMethods: ARTIFACT_WRITER_PORT,
+      implementedMethods: [...ARTIFACT_WRITER_PORT].sort(),
+      message: 'artifact writer satisfies the required port methods.',
       missingMethods: [],
+      name: 'artifact writer',
+      valid: true,
     },
   );
 });

@@ -6,6 +6,7 @@ const {
   EVIDENCE_PROVIDER_PORT,
   PRIMARY_RUNNER_PORT,
   assertPortImplementation,
+  implementedPortMethods,
   missingPortMethods,
   validatePortImplementation,
 } = require('../ports');
@@ -20,7 +21,10 @@ test('validates a primary runner port implementation', () => {
   });
 
   assert.equal(result.valid, true);
+  assert.deepEqual(result.expectedMethods, PRIMARY_RUNNER_PORT);
+  assert.deepEqual(result.implementedMethods, [...PRIMARY_RUNNER_PORT].sort());
   assert.deepEqual(result.missingMethods, []);
+  assert.equal(result.message, 'primary runner satisfies the required port methods.');
 });
 
 test('reports missing driver methods', () => {
@@ -33,6 +37,17 @@ test('reports missing driver methods', () => {
     missingPortMethods(implementation, DRIVER_PORT),
     ['scroll', 'inspectTree', 'record', 'readLogs', 'collectPerfSignals'],
   );
+});
+
+test('reports implemented methods in stable sorted order', () => {
+  const implementation = {
+    screenshot() {},
+    tap() {},
+    label: 'driver',
+    scroll() {},
+  };
+
+  assert.deepEqual(implementedPortMethods(implementation), ['screenshot', 'scroll', 'tap']);
 });
 
 test('asserts evidence provider port implementations', () => {
