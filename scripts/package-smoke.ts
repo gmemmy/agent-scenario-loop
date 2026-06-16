@@ -31,6 +31,11 @@ type ExampleProfileRun = {
   scenario: string;
 };
 
+type ExampleLiveFixture = {
+  fixtureRunId: string;
+  logcatText: string;
+};
+
 const EXAMPLE_PROFILE_RUNS: ExampleProfileRun[] = [
   {
     binaryName: 'asl-profile-ios',
@@ -233,6 +238,77 @@ function writeFakeAdb({
     "process.stdout.write(response.stdout ?? '');",
     "process.stderr.write(response.stderr ?? '');",
     "process.exit(response.exitCode ?? 0);",
+    '',
+  ].join('\n');
+  fs.writeFileSync(scriptPath, script, { mode: 0o755 });
+  if (filePath.endsWith('.cmd')) {
+    fs.writeFileSync(filePath, `@echo off\r\n"${process.execPath}" "%~dp0${path.basename(scriptPath)}" %*\r\n`, {
+      mode: 0o755,
+    });
+  }
+}
+
+/**
+ * Writes a tiny adb-compatible command for the installed example-live proof.
+ *
+ * @param {{filePath: string, fixtures: Record<string, ExampleLiveFixture>, packageName: string}} options
+ * @returns {void}
+ */
+function writeFakeExampleLiveAdb({
+  filePath,
+  fixtures,
+  packageName,
+}: {
+  filePath: string;
+  fixtures: Record<string, ExampleLiveFixture>;
+  packageName: string;
+}): void {
+  const scriptPath = filePath.endsWith('.cmd') ? filePath.replace(/\.cmd$/u, '.js') : filePath;
+  const script = [
+    '#!/usr/bin/env node',
+    "const fs = require('node:fs');",
+    "const args = process.argv.slice(2);",
+    "const key = args.join(' ');",
+    `const fixtures = ${JSON.stringify(fixtures)};`,
+    `const packageName = ${JSON.stringify(packageName)};`,
+    `const statePath = ${JSON.stringify(`${scriptPath}.state.json`)};`,
+    "function readState() {",
+    "  try {",
+    "    return JSON.parse(fs.readFileSync(statePath, 'utf8'));",
+    "  } catch {",
+    "    return { currentRunId: 'android-live-startup', currentScenario: 'app-startup' };",
+    "  }",
+    "}",
+    "function writeState(state) {",
+    "  fs.writeFileSync(statePath, `${JSON.stringify(state)}\\n`, 'utf8');",
+    "}",
+    "const state = readState();",
+    "function ok(stdout = '') { process.stdout.write(stdout); process.exit(0); }",
+    "if (key === 'version') ok('Android Debug Bridge version 1.0.41\\n');",
+    "if (key === 'devices -l') ok('List of devices attached\\nemulator-5554 device product:sdk_gphone model:Pixel_6 device:emu64\\n');",
+    "if (key.endsWith('shell getprop ro.product.model')) ok('Pixel 6\\n');",
+    "if (key.endsWith('shell getprop ro.build.version.release')) ok('15\\n');",
+    "if (key.endsWith('shell getprop ro.build.version.sdk')) ok('35\\n');",
+    "if (key.endsWith(`shell pm path ${packageName}`)) ok(`package:/data/app/${packageName}/base.apk\\n`);",
+    "if (key.endsWith(`shell monkey -p ${packageName} -c android.intent.category.LAUNCHER 1`)) ok('Events injected: 1\\n');",
+    "if (key.endsWith('logcat -c')) ok('');",
+    "if (key.includes('profile-session/start')) {",
+    "  state.currentRunId = /runId=([^&']+)/u.exec(key)?.[1] ?? state.currentRunId;",
+    "  state.currentScenario = /scenario=([^&']+)/u.exec(key)?.[1] ?? state.currentScenario;",
+    "  writeState(state);",
+    "  ok('Starting: Intent\\n');",
+    "}",
+    "if (key.includes('profile-session/command')) ok('Starting: Intent\\n');",
+    "if (key.endsWith('logcat -d -v time -t 1000')) {",
+    "  const fixture = fixtures[state.currentScenario];",
+    "  if (!fixture) {",
+    "    process.stderr.write(`missing fixture for ${state.currentScenario}\\n`);",
+    "    process.exit(1);",
+    "  }",
+    "  ok(fixture.logcatText.replaceAll(fixture.fixtureRunId, state.currentRunId));",
+    "}",
+    "process.stderr.write(`unexpected fake adb command: ${key}\\n`);",
+    "process.exit(1);",
     '',
   ].join('\n');
   fs.writeFileSync(scriptPath, script, { mode: 0o755 });
@@ -476,6 +552,60 @@ function main(): void {
     assert.equal(adbCaptureVerdict.verdictStatus, 'passed');
     assert.equal(adbCaptureRunnerHealth.healthStatus, 'passed');
     assert.equal(fs.existsSync(path.join(adbCaptureProfileRunDir, 'raw', 'adb-logcat.txt')), true);
+
+    const exampleLiveRoot = path.join(tempRoot, 'example-android-live-proof');
+    const fakeExampleLiveAdbPath = path.join(
+      tempRoot,
+      process.platform === 'win32' ? 'fake-example-live-adb.cmd' : 'fake-example-live-adb',
+    );
+    writeFakeExampleLiveAdb({
+      filePath: fakeExampleLiveAdbPath,
+      fixtures: {
+        'app-startup': {
+          fixtureRunId: 'android-example-startup',
+          logcatText: fs.readFileSync(path.join(exampleAppRoot, 'event-logs', 'android-app-startup.log'), 'utf8'),
+        },
+        'open-close-cycle': {
+          fixtureRunId: 'android-example-open-close',
+          logcatText: fs.readFileSync(path.join(exampleAppRoot, 'event-logs', 'android-open-close-cycle.log'), 'utf8'),
+        },
+        'scroll-settle': {
+          fixtureRunId: 'android-example-scroll',
+          logcatText: fs.readFileSync(path.join(exampleAppRoot, 'event-logs', 'android-scroll-settle.log'), 'utf8'),
+        },
+      },
+      packageName: androidPackageName,
+    });
+    const exampleLiveOutput = run(packageBinPath(installDir, 'asl-example-android-live'), [
+      '--adb',
+      fakeExampleLiveAdbPath,
+      '--out',
+      exampleLiveRoot,
+      '--wait-ms',
+      '1',
+      '--command-wait-ms',
+      '1',
+    ], {
+      cwd: installDir,
+      env,
+    });
+    assert.match(exampleLiveOutput, /Android example live proof passed/u);
+    const exampleLivePreflightHealth = JSON.parse(
+      fs.readFileSync(path.join(exampleLiveRoot, '_preflight', 'android-live-preflight', 'health.json'), 'utf8'),
+    );
+    assert.equal(exampleLivePreflightHealth.healthStatus, 'passed');
+    for (const [scenarioDir, runId] of [
+      ['app-startup', 'android-live-startup'],
+      ['open-close-cycle', 'android-live-open-close'],
+      ['scroll-settle', 'android-live-scroll'],
+    ]) {
+      const runDir = path.join(exampleLiveRoot, scenarioDir, runId);
+      const health = JSON.parse(fs.readFileSync(path.join(runDir, 'health.json'), 'utf8'));
+      const verdict = JSON.parse(fs.readFileSync(path.join(runDir, 'verdict.json'), 'utf8'));
+      assert.equal(health.healthStatus, 'passed');
+      assert.equal(verdict.verdictStatus, 'passed');
+      assert.equal(fs.existsSync(path.join(runDir, 'agent-summary.md')), true);
+    }
 
     const missingAdbRunId = 'package-smoke-missing-adb';
     const missingAdbProfileRoot = path.join(tempRoot, 'missing-adb-profile');

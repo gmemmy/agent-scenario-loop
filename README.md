@@ -171,7 +171,7 @@ To verify the full release gate before publishing:
 pnpm release:check
 ```
 
-That command runs the test suite, packs the repo, installs the tarball into a temporary project, runs installed binaries against packaged examples, checks root exports, and verifies that schemas, examples, the app helper, and the config template ship in the package. `npm publish` runs the same gate through `prepublishOnly`.
+That command runs the test suite, packs the repo, installs the tarball into a temporary project, runs installed binaries against packaged examples, runs the installed Android example-live proof through fake adb, checks root exports, and verifies that schemas, examples, the app helper, and the config template ship in the package. `npm publish` runs the same gate through `prepublishOnly`.
 
 Read next: [Contracts](docs/contracts.md) for the artifact layout and supported runner surface.
 
@@ -223,7 +223,7 @@ Current package guarantees:
 
 - the public package is installable from the packed tarball
 - root exports expose the core artifact, planner, comparison, writer, interpreter, and ports contracts
-- installable CLIs print help and run against packaged examples
+- installable CLIs print help and run against packaged examples, including the Android example-live proof path
 - packaged schemas, scenarios, runner manifests, app helper, and config template resolve after install
 - canonical fixture and neutral Expo-app event logs produce passed profile artifacts
 - explicit baseline/current run folders can produce schema-checked `comparison.json`
