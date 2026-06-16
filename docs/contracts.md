@@ -132,7 +132,7 @@ The package currently supports:
 - iOS bounded simulator log capture and stored app truth-event collection through simctl
 - iOS simulator app launch plus storage-backed profile-session and command seeding
 - iOS profile artifact generation from explicit event logs, prior simctl artifacts, or an owned `--simctl-capture` window
-- evidence-provider command execution through `--provider <manifest>`, with declared outputs inventoried as stable evidence attachments
+- evidence-provider command execution through `--provider <manifest>`, with declared outputs inventoried as stable evidence attachments and nonzero exits written as failed health gates
 - trusted baseline/current comparison after scenario health passes
 - latest trusted prior-run comparison from an artifact root
 

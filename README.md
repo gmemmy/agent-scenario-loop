@@ -280,6 +280,7 @@ Current package guarantees:
 - installed commands expose iOS simctl capture, screenshot preservation, and iOS profile ingestion from simctl artifacts
 - provider evidence attachments are inventoried with stable paths, source filenames, sizes, and sha256 hashes
 - evidence-provider manifests can declare no-shell commands whose outputs are preserved under stable run artifacts
+- failed evidence-provider commands write failed health, inconclusive verdicts, raw command records, and next-action summaries
 - failed adb, simctl, package, selector, and capture checks emit scalar next-action hints into health metadata and `agent-summary.md`
 - adapter-target manifests for external tools are schema-checked and planner-tested without bundling those tools
 - package smoke blocks generated artifacts, internal-only paths, and local/product-specific strings from the tarball
@@ -288,6 +289,6 @@ Remaining hardening:
 
 - extend Android beyond basic selector-backed adb actions into broader semantic driver support
 - extend iOS beyond log/screenshot capture into richer simulator driver support
-- expand provider-command failure handling into schema-checked failed health artifacts
+- add richer examples for real external providers without making them package dependencies
 
 The package should remain product-neutral. Product-specific selectors, routes, auth assumptions, and scenario data belong in the consuming app, not in this repository.

@@ -113,6 +113,17 @@ type ProviderCommandResult = {
   stderr: string;
   stdout: string;
 };
+type ProviderCommandFailure = {
+  commandId: string;
+  exitCode: number;
+  phase: ProviderCommand['phase'];
+  providerId: string;
+  rawPath: string;
+};
+type ProviderCommandExecution = {
+  failures: ProviderCommandFailure[];
+  inputs: EvidenceAttachmentInput[];
+};
 type ExecFileError = Error & {
   code?: number;
 };
@@ -428,7 +439,7 @@ function buildProviderEvidenceInput({
  * Executes declared evidence-provider commands and returns their output attachments.
  *
  * @param {{args: CliArgs, layout: ReturnType<typeof createArtifactLayout>, platform: ProfilePlatform, runDir: string, runId: string, scenarioId: string}} options
- * @returns {Promise<EvidenceAttachmentInput[]>}
+ * @returns {Promise<ProviderCommandExecution>}
  */
 async function executeProviderCommands({
   args,
@@ -444,11 +455,12 @@ async function executeProviderCommands({
   runDir: string;
   runId: string;
   scenarioId: string;
-}): Promise<EvidenceAttachmentInput[]> {
+}): Promise<ProviderCommandExecution> {
+  const failures: ProviderCommandFailure[] = [];
   const inputs: EvidenceAttachmentInput[] = [];
   const providerManifestPaths = readRepeatableArgValues(args, 'provider');
   if (providerManifestPaths.length === 0) {
-    return inputs;
+    return { failures, inputs };
   }
 
   const commandRecordDir = path.join(layout.raw, 'provider-commands');
@@ -494,7 +506,8 @@ async function executeProviderCommands({
         cwd: resolvedCwd,
         env: resolvedEnv,
       });
-      const commandRecordPath = path.join(commandRecordDir, `${providerId}-${providerCommand.id}.json`);
+      const commandRecordFileName = `${providerId}-${providerCommand.id}.json`;
+      const commandRecordPath = path.join(commandRecordDir, commandRecordFileName);
       await fsp.writeFile(
         commandRecordPath,
         `${JSON.stringify({
@@ -509,7 +522,14 @@ async function executeProviderCommands({
         'utf8',
       );
       if (commandResult.exitCode !== 0) {
-        throw new Error(`Evidence provider command ${providerId}/${providerCommand.id} failed; inspect raw/provider-commands/${providerId}-${providerCommand.id}.json.`);
+        failures.push({
+          commandId: providerCommand.id,
+          exitCode: commandResult.exitCode,
+          phase: providerCommand.phase,
+          providerId,
+          rawPath: `raw/provider-commands/${commandRecordFileName}`,
+        });
+        continue;
       }
 
       for (const output of providerCommand.outputs) {
@@ -523,7 +543,7 @@ async function executeProviderCommands({
     }
   }
 
-  return inputs;
+  return { failures, inputs };
 }
 
 /**
@@ -773,6 +793,50 @@ function buildProfileHealth({
 }
 
 /**
+ * Builds failed scenario health from evidence-provider command failures.
+ *
+ * @param {{failures: ProviderCommandFailure[], runId: string, scenario: Record<string, unknown>}} options
+ * @returns {Record<string, unknown>}
+ */
+function buildProviderCommandFailureHealth({
+  failures,
+  runId,
+  scenario,
+}: {
+  failures: ProviderCommandFailure[];
+  runId: string;
+  scenario: Record<string, any>;
+}): Record<string, unknown> {
+  return assertValidJson(
+    {
+      schemaVersion: '1.0.0',
+      scenarioId: scenario.name,
+      ...(typeof scenario.flowId === 'string' ? { flowId: scenario.flowId } : {}),
+      runId,
+      healthStatus: 'failed',
+      checks: failures.map((failure) => ({
+        name: 'evidence_provider_command_completed',
+        status: 'failed',
+        source: 'evidence',
+        code: 'provider_command_failed',
+        message: `Evidence provider command ${failure.providerId}/${failure.commandId} failed with exit code ${failure.exitCode}.`,
+        metadata: {
+          commandId: failure.commandId,
+          exitCode: failure.exitCode,
+          nextAction: `Inspect ${failure.rawPath}, fix the provider command or its environment, then rerun the profile.`,
+          nextActionCode: 'fix_provider_command',
+          phase: failure.phase,
+          providerId: failure.providerId,
+          rawPath: failure.rawPath,
+        },
+      })),
+    },
+    SCHEMAS.health,
+    'Health artifact',
+  ) as Record<string, unknown>;
+}
+
+/**
  * Converts profile budget evaluation checks into verdict budget checks.
  *
  * @param {Record<string, unknown> | null | undefined} budgetEvaluation
@@ -967,7 +1031,7 @@ async function runProfileMobile(args: CliArgs, options: ProfileMobileOptions): P
   await ensureDir(layout.signals.js);
   await ensureDir(layout.signals.memory);
   await ensureDir(layout.signals.network);
-  const providerInputs = await executeProviderCommands({
+  const providerExecution = await executeProviderCommands({
     args,
     layout,
     platform: options.platform,
@@ -975,7 +1039,39 @@ async function runProfileMobile(args: CliArgs, options: ProfileMobileOptions): P
     runId,
     scenarioId: scenario.name,
   });
-  const attachedEvidence = await resolveAttachedEvidence({ args, layout, providerInputs });
+  if (providerExecution.failures.length > 0) {
+    const health = buildProviderCommandFailureHealth({
+      failures: providerExecution.failures,
+      runId,
+      scenario,
+    });
+    const verdict = buildProfileVerdict({ scenario, runId, health, metrics: {} });
+    const agentSummary = buildAgentSummaryMarkdown({ health, verdict });
+    await writeJsonArtifact({
+      filePath: layout.health,
+      value: health,
+      schema: SCHEMAS.health,
+      label: 'Health artifact',
+    });
+    await writeJsonArtifact({
+      filePath: layout.verdict,
+      value: verdict,
+      schema: SCHEMAS.verdict,
+      label: 'Verdict artifact',
+    });
+    await writeTextArtifact({
+      filePath: layout.agentSummary,
+      content: agentSummary,
+    });
+
+    return {
+      runDir,
+      health,
+      verdict,
+    };
+  }
+
+  const attachedEvidence = await resolveAttachedEvidence({ args, layout, providerInputs: providerExecution.inputs });
 
   const eventLogText = eventLogPath ? await fsp.readFile(eventLogPath, 'utf8') : '';
   const events = extractProfileEvents(eventLogText, {
@@ -1159,6 +1255,7 @@ async function runProfileCli({
 
 export {
   buildProfileHealth,
+  buildProviderCommandFailureHealth,
   buildProfileVerdict,
   buildVerdictBudgetChecks,
   parseArgs,

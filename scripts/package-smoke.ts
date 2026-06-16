@@ -802,6 +802,67 @@ function main(): void {
       },
     ]);
 
+    const failingProviderCommandRoot = path.join(tempRoot, 'provider-command-failure');
+    const failingProviderCommandProfileRoot = path.join(tempRoot, 'provider-command-failure-profile');
+    fs.mkdirSync(failingProviderCommandRoot, { recursive: true });
+    const failingProviderCommandScript = path.join(failingProviderCommandRoot, 'fail-provider.js');
+    fs.writeFileSync(failingProviderCommandScript, "process.stderr.write('provider unavailable\\n'); process.exit(7);\n");
+    const failingProviderCommandManifestPath = path.join(failingProviderCommandRoot, 'provider.json');
+    fs.writeFileSync(failingProviderCommandManifestPath, `${JSON.stringify({
+      schemaVersion: '1.0.0',
+      runnerId: 'smoke-failing-provider',
+      kind: 'evidenceProvider',
+      platforms: ['android'],
+      capabilities: ['accessibility'],
+      artifactOutputs: ['accessibility'],
+      lifecycle: ['capture'],
+      providerCommands: [
+        {
+          id: 'capture-accessibility',
+          phase: 'capture',
+          command: process.execPath,
+          args: [failingProviderCommandScript],
+          outputs: [
+            {
+              channel: 'provider',
+              kind: 'accessibility',
+              path: '{providerDir}/accessibility.json',
+            },
+          ],
+        },
+      ],
+    }, null, 2)}\n`);
+    const failingProviderCommandProfileOutput = run(packageBinPath(installDir, 'asl-profile-android'), [
+      '--config',
+      path.join(exampleAppRoot, 'asl.config.json'),
+      '--scenario',
+      path.join(exampleAppRoot, 'scenarios', 'android', 'app-startup.json'),
+      '--events',
+      path.join(exampleAppRoot, 'event-logs', 'android-app-startup.log'),
+      '--provider',
+      failingProviderCommandManifestPath,
+      '--out',
+      failingProviderCommandProfileRoot,
+      '--run-id',
+      'android-provider-failure',
+    ], {
+      cwd: installDir,
+      env,
+    });
+    const failingProviderCommandRunDir = failingProviderCommandProfileOutput.trim();
+    const failingProviderCommandHealth = JSON.parse(fs.readFileSync(path.join(failingProviderCommandRunDir, 'health.json'), 'utf8'));
+    const failingProviderCommandSummary = fs.readFileSync(path.join(failingProviderCommandRunDir, 'agent-summary.md'), 'utf8');
+    const failingProviderCommandRecord = JSON.parse(fs.readFileSync(path.join(failingProviderCommandRunDir, 'raw', 'provider-commands', 'smoke-failing-provider-capture-accessibility.json'), 'utf8'));
+    assert.equal(failingProviderCommandHealth.healthStatus, 'failed');
+    assert.equal(failingProviderCommandRecord.exitCode, 7);
+    assert.equal(
+      failingProviderCommandHealth.checks.some((check: { code: string; metadata?: { nextActionCode?: string } }) =>
+        check.code === 'provider_command_failed' && check.metadata?.nextActionCode === 'fix_provider_command'
+      ),
+      true,
+    );
+    assert.match(failingProviderCommandSummary, /Next action `fix_provider_command`/u);
+
     const adbArtifactRoot = path.join(tempRoot, 'adb-artifacts');
     fs.mkdirSync(path.join(adbArtifactRoot, 'raw'), { recursive: true });
     fs.copyFileSync(

@@ -322,6 +322,84 @@ test('profile-android executes declared evidence provider commands', async (t: T
   assert.match(summary, /provider\/accessibility/u);
 });
 
+test('profile-android writes failed health when an evidence provider command fails', async (t: TestContext) => {
+  const artifactRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-android-provider-failure-'));
+  const providerRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-provider-failure-'));
+  t.after(async () => {
+    await fsp.rm(artifactRoot, { recursive: true, force: true });
+    await fsp.rm(providerRoot, { recursive: true, force: true });
+  });
+  const providerScript = path.join(providerRoot, 'fail-provider.js');
+  await fsp.writeFile(
+    providerScript,
+    "process.stderr.write('provider unavailable\\n'); process.exit(7);\n",
+    'utf8',
+  );
+  const providerManifestPath = path.join(providerRoot, 'provider.json');
+  await fsp.writeFile(
+    providerManifestPath,
+    `${JSON.stringify({
+      schemaVersion: '1.0.0',
+      runnerId: 'failing-provider',
+      kind: 'evidenceProvider',
+      platforms: ['android'],
+      capabilities: ['accessibility'],
+      artifactOutputs: ['accessibility'],
+      lifecycle: ['capture'],
+      providerCommands: [
+        {
+          id: 'capture-accessibility',
+          phase: 'capture',
+          command: process.execPath,
+          args: [providerScript],
+          outputs: [
+            {
+              channel: 'provider',
+              kind: 'accessibility',
+              path: '{providerDir}/accessibility.json',
+            },
+          ],
+        },
+      ],
+    }, null, 2)}\n`,
+    'utf8',
+  );
+
+  const { stdout } = await execFileAsync(process.execPath, [
+    PROFILE_ANDROID,
+    '--config',
+    fixturePath('examples/mobile-app/asl.config.json'),
+    '--scenario',
+    fixturePath('examples/mobile-app/scenarios/android/app-startup.json'),
+    '--events',
+    fixturePath('examples/mobile-app/event-logs/android-app-startup.log'),
+    '--provider',
+    providerManifestPath,
+    '--out',
+    artifactRoot,
+    '--run-id',
+    'android-provider-failure',
+  ]);
+
+  const runDir = stdout.trim();
+  const health = readJson(path.join(runDir, 'health.json'));
+  const verdict = readJson(path.join(runDir, 'verdict.json'));
+  const summary = fs.readFileSync(path.join(runDir, 'agent-summary.md'), 'utf8');
+  const commandRecord = readJson(path.join(runDir, 'raw', 'provider-commands', 'failing-provider-capture-accessibility.json'));
+
+  assert.equal(health.healthStatus, 'failed');
+  assert.equal(verdict.verdictStatus, 'inconclusive');
+  assert.equal(commandRecord.exitCode, 7);
+  assert.equal(commandRecord.stderr, 'provider unavailable\n');
+  assert.ok(
+    (health.checks as Array<{ code: string; metadata?: { nextActionCode?: string } }>).some(
+      (check) => check.code === 'provider_command_failed' && check.metadata?.nextActionCode === 'fix_provider_command',
+    ),
+  );
+  assert.match(summary, /Do not optimize from this run/u);
+  assert.match(summary, /Next action `fix_provider_command`/u);
+});
+
 test('profile-android reads logcat from adb artifact folders', async (t: TestContext) => {
   const tempRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-android-adb-artifacts-'));
   t.after(async () => {
