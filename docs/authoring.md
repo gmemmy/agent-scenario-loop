@@ -136,6 +136,8 @@ Signals are copied into `signals/js`, `signals/memory`, or `signals/network` and
 
 Provider manifests can also declare `providerCommands`. Profile runners execute those commands when passed with `--provider <manifest>`. Commands run without a shell, can use placeholders such as `{providerDir}`, `{runDir}`, `{runId}`, `{scenarioId}`, and `{platform}`, and must declare their output files. Provider-channel outputs are copied or preserved under `raw/providers/<provider-id>/` and inventoried in `artifacts.evidenceAttachments`; signal and capture outputs can still map into the standard `signals/*` or `captures/` folders. Command stdout, stderr, exit code, phase, and argv are preserved under `raw/provider-commands/`. When a provider command exits nonzero, the runner writes failed `health.json`, inconclusive `verdict.json`, and `agent-summary.md` with a next-action hint instead of making timing claims.
 
+The `examples/runners/script-*.json` manifests show package-neutral wrappers for accessibility, profiler, memory, and network evidence. They intentionally reference placeholder commands such as `capture-accessibility` or `capture-memory`; replace those with your project-local script, binary, or agent command. The contract that matters is the declared output path and evidence kind, not the specific tool used to create the file.
+
 ## Artifacts
 
 A completed profile run should leave the standard artifact set:

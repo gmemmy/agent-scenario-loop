@@ -1,0 +1,24 @@
+{
+  "schemaVersion": "1.0.0",
+  "runnerId": "script-network-provider",
+  "kind": "evidenceProvider",
+  "platforms": ["ios", "android"],
+  "capabilities": ["network"],
+  "artifactOutputs": ["network", "signals"],
+  "lifecycle": ["prepare", "startWindow", "capture", "stopWindow", "finalize"],
+  "providerCommands": [
+    {
+      "id": "capture-network",
+      "phase": "capture",
+      "command": "capture-network",
+      "args": ["--platform", "{platform}", "--scenario", "{scenarioId}", "--out", "{providerDir}/network.har"],
+      "outputs": [
+        {
+          "channel": "signal",
+          "kind": "network",
+          "path": "{providerDir}/network.har"
+        }
+      ]
+    }
+  ]
+}

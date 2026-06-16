@@ -1,0 +1,24 @@
+{
+  "schemaVersion": "1.0.0",
+  "runnerId": "script-memory-provider",
+  "kind": "evidenceProvider",
+  "platforms": ["ios", "android"],
+  "capabilities": ["memory"],
+  "artifactOutputs": ["memory", "signals"],
+  "lifecycle": ["prepare", "startWindow", "capture", "stopWindow", "finalize"],
+  "providerCommands": [
+    {
+      "id": "capture-memory",
+      "phase": "capture",
+      "command": "capture-memory",
+      "args": ["--platform", "{platform}", "--run-id", "{runId}", "--out", "{providerDir}/memory.json"],
+      "outputs": [
+        {
+          "channel": "signal",
+          "kind": "memory",
+          "path": "{providerDir}/memory.json"
+        }
+      ]
+    }
+  ]
+}

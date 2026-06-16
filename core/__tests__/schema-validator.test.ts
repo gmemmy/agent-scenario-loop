@@ -78,6 +78,27 @@ test('accepts all runner capability manifests', () => {
   }
 });
 
+test('script provider examples declare command-backed evidence outputs', () => {
+  const expected = new Map([
+    ['examples/runners/script-accessibility-provider.json', 'accessibility'],
+    ['examples/runners/script-memory-provider.json', 'memory'],
+    ['examples/runners/script-network-provider.json', 'network'],
+    ['examples/runners/script-profiler-provider.json', 'profiler'],
+  ]);
+
+  for (const [fixture, capability] of expected.entries()) {
+    const provider = readJson(fixture);
+    assert.equal(provider.kind, 'evidenceProvider');
+    assert.ok(provider.capabilities.includes(capability), `${fixture} does not declare ${capability}`);
+    assert.ok(Array.isArray(provider.providerCommands), `${fixture} is missing providerCommands`);
+    assert.ok(provider.providerCommands.length > 0, `${fixture} has no provider commands`);
+    assert.ok(
+      provider.providerCommands.every((command: JsonRecord) => Array.isArray(command.outputs) && command.outputs.length > 0),
+      `${fixture} has a command without outputs`,
+    );
+  }
+});
+
 test('accepts shipped authoring templates', () => {
   const scenario = validateJson(readJson('templates/mobile-scenario.json'), SCHEMAS.scenario, 'templates/mobile-scenario.json');
   const primaryRunner = validateJson(readJson('templates/primary-runner.json'), SCHEMAS.runnerCapabilities, 'templates/primary-runner.json');

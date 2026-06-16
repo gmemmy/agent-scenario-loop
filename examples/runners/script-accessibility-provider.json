@@ -1,0 +1,24 @@
+{
+  "schemaVersion": "1.0.0",
+  "runnerId": "script-accessibility-provider",
+  "kind": "evidenceProvider",
+  "platforms": ["ios", "android"],
+  "capabilities": ["accessibility"],
+  "artifactOutputs": ["accessibility"],
+  "lifecycle": ["prepare", "startWindow", "capture", "stopWindow", "finalize"],
+  "providerCommands": [
+    {
+      "id": "capture-accessibility",
+      "phase": "capture",
+      "command": "capture-accessibility",
+      "args": ["--platform", "{platform}", "--out", "{providerDir}/accessibility.json"],
+      "outputs": [
+        {
+          "channel": "provider",
+          "kind": "accessibility",
+          "path": "{providerDir}/accessibility.json"
+        }
+      ]
+    }
+  ]
+}

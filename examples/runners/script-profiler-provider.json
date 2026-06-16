@@ -1,0 +1,30 @@
+{
+  "schemaVersion": "1.0.0",
+  "runnerId": "script-profiler-provider",
+  "kind": "evidenceProvider",
+  "platforms": ["ios", "android"],
+  "capabilities": ["profiler"],
+  "driverActions": ["collectPerfSignals"],
+  "artifactOutputs": ["profiler", "signals"],
+  "lifecycle": ["prepare", "startWindow", "capture", "stopWindow", "finalize"],
+  "providerCommands": [
+    {
+      "id": "capture-profiler",
+      "phase": "capture",
+      "command": "capture-profiler",
+      "args": ["--platform", "{platform}", "--run-id", "{runId}", "--out", "{providerDir}/profiler.json"],
+      "outputs": [
+        {
+          "channel": "provider",
+          "kind": "profiler",
+          "path": "{providerDir}/profiler.json"
+        },
+        {
+          "channel": "signal",
+          "kind": "js",
+          "path": "{providerDir}/profiler.json"
+        }
+      ]
+    }
+  ]
+}
