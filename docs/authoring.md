@@ -103,6 +103,20 @@ Use an evidence provider when:
 - the evidence can be collected independently
 - the same provider should work with multiple primary runners
 
+When a provider or custom script has already written files, attach them to a profile run with repeatable CLI flags:
+
+```bash
+asl-profile-android \
+  --config asl.config.json \
+  --scenario scenarios/android/app-startup.json \
+  --events artifacts/raw/adb-logcat.txt \
+  --signal js:artifacts/provider/js-profile.json \
+  --signal network:artifacts/provider/network.har \
+  --capture uiTree:artifacts/provider/ui-tree.json
+```
+
+Signals are copied into `signals/js`, `signals/memory`, or `signals/network` and listed in `manifest.json`. Captures are copied into `captures` and replace the matching named capture path in the manifest. Attached provider evidence is preserved as proof, but timing verdicts still come from app-owned truth events and budgets.
+
 ## Artifacts
 
 A completed profile run should leave the standard artifact set:

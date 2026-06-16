@@ -657,6 +657,42 @@ function main(): void {
       assert.equal(verdict.verdictStatus, 'passed');
     }
 
+    const providerEvidenceRoot = path.join(tempRoot, 'provider-evidence');
+    const providerProfileRoot = path.join(tempRoot, 'provider-evidence-profile');
+    fs.mkdirSync(providerEvidenceRoot, { recursive: true });
+    fs.writeFileSync(path.join(providerEvidenceRoot, 'js-profile.json'), '{"samples":[]}\n', 'utf8');
+    fs.writeFileSync(path.join(providerEvidenceRoot, 'network-capture.har'), '{"log":{"entries":[]}}\n', 'utf8');
+    fs.writeFileSync(path.join(providerEvidenceRoot, 'ui-tree.json'), '{"tree":[]}\n', 'utf8');
+    const providerProfileOutput = run(packageBinPath(installDir, 'asl-profile-android'), [
+      '--config',
+      path.join(exampleAppRoot, 'asl.config.json'),
+      '--scenario',
+      path.join(exampleAppRoot, 'scenarios', 'android', 'app-startup.json'),
+      '--events',
+      path.join(exampleAppRoot, 'event-logs', 'android-app-startup.log'),
+      '--signal',
+      `js:${path.join(providerEvidenceRoot, 'js-profile.json')}`,
+      '--signal',
+      `network:${path.join(providerEvidenceRoot, 'network-capture.har')}`,
+      '--capture',
+      `uiTree:${path.join(providerEvidenceRoot, 'ui-tree.json')}`,
+      '--out',
+      providerProfileRoot,
+      '--run-id',
+      'android-example-startup',
+    ], {
+      cwd: installDir,
+      env,
+    });
+    const providerProfileRunDir = providerProfileOutput.trim();
+    const providerManifest = JSON.parse(fs.readFileSync(path.join(providerProfileRunDir, 'manifest.json'), 'utf8'));
+    assert.deepEqual(providerManifest.artifacts.signals.js, ['signals/js/js-profile.json']);
+    assert.deepEqual(providerManifest.artifacts.signals.network, ['signals/network/network-capture.har']);
+    assert.equal(providerManifest.artifacts.captures.uiTree, 'captures/ui-tree.json');
+    assert.equal(fs.existsSync(path.join(providerProfileRunDir, 'signals', 'js', 'js-profile.json')), true);
+    assert.equal(fs.existsSync(path.join(providerProfileRunDir, 'signals', 'network', 'network-capture.har')), true);
+    assert.equal(fs.existsSync(path.join(providerProfileRunDir, 'captures', 'ui-tree.json')), true);
+
     const adbArtifactRoot = path.join(tempRoot, 'adb-artifacts');
     fs.mkdirSync(path.join(adbArtifactRoot, 'raw'), { recursive: true });
     fs.copyFileSync(

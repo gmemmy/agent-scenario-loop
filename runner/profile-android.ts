@@ -11,6 +11,7 @@ const {
 } = require('./android-adb');
 const {
   parseArgs,
+  readScalarArg,
   runProfileMobile,
   usage,
 } = require('./profile-mobile');
@@ -46,7 +47,7 @@ function readJson(filePath: string): Record<string, any> {
  * @param {string | boolean | undefined} value
  * @returns {boolean}
  */
-function isEnabled(value: string | boolean | undefined): boolean {
+function isEnabled(value: string | boolean | Array<string | boolean> | undefined): boolean {
   return value === true || value === 'true';
 }
 
@@ -379,7 +380,7 @@ async function runProfileAndroid(
             runId,
             scenario: scenarioName,
           }),
-          waitMs: parsePositiveInteger(args['command-wait-ms'], 250),
+          waitMs: parsePositiveInteger(readScalarArg(args['command-wait-ms']), 250),
         },
         ...resolveAndroidAdbProfileCommands(scenario).map((profileCommand, index) => ({
           label: profileCommand.label ?? `profile-command-${index + 1}`,
@@ -403,12 +404,12 @@ async function runProfileAndroid(
     ...(options.executor ? { executor: options.executor } : {}),
     driverSteps,
     launch: isEnabled(args.launch),
-    logcatLines: parsePositiveInteger(args['logcat-lines'], 1000),
+    logcatLines: parsePositiveInteger(readScalarArg(args['logcat-lines']), 1000),
     outputDir: resolveAdbCaptureOutputDir({ args, runId }),
     packageName: resolveAndroidPackageName({ args, config }),
     runId,
     ...(typeof args.serial === 'string' ? { serial: args.serial } : {}),
-    waitMs: parsePositiveInteger(args['wait-ms'], 0),
+    waitMs: parsePositiveInteger(readScalarArg(args['wait-ms']), 0),
   });
 
   if (adbCapture.health.healthStatus !== 'passed') {

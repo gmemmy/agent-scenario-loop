@@ -11,6 +11,7 @@ const {
   buildProfileVerdict,
   buildVerdictBudgetChecks,
   parseArgs,
+  readScalarArg,
   runProfileCli,
   runProfileMobile,
   usage,
@@ -46,7 +47,7 @@ function readJson(filePath: string): Record<string, any> {
  * @param {string | boolean | undefined} value
  * @returns {boolean}
  */
-function isEnabled(value: string | boolean | undefined): boolean {
+function isEnabled(value: string | boolean | Array<string | boolean> | undefined): boolean {
   return value === true || value === 'true';
 }
 
@@ -277,7 +278,7 @@ async function runProfileIos(
             runId,
             scenario: scenarioName,
           }),
-          waitMs: readPositiveInteger(args['command-wait-ms'], 250),
+          waitMs: readPositiveInteger(readScalarArg(args['command-wait-ms']), 250),
         },
         ...profileSessionCommands.map((profileCommand, index) => ({
           label: profileCommand.label ?? `profile-command-${index + 1}`,
@@ -319,7 +320,7 @@ async function runProfileIos(
           terminateBeforeLaunch: isEnabled(args['terminate-before-launch']),
         }),
     runId,
-    waitMs: readPositiveInteger(args['wait-ms'], 0),
+    waitMs: readPositiveInteger(readScalarArg(args['wait-ms']), 0),
     ...(typeof args.xcrun === 'string' ? { xcrunPath: args.xcrun } : {}),
   });
 

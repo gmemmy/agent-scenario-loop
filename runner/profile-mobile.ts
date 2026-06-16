@@ -19,15 +19,18 @@ const {
 const { SCHEMAS, assertValidJson } = require('../core/schema-validator');
 const { writeUsage } = require('./cli');
 
+type CliArgValue = string | boolean | Array<string | boolean>;
 type CliArgs = {
   'adb-artifacts'?: string | boolean;
   'simctl-artifacts'?: string | boolean;
+  capture?: CliArgValue;
   config?: string | boolean;
   scenario?: string | boolean;
   events?: string | boolean;
   out?: string | boolean;
   'run-id'?: string | boolean;
-  [key: string]: string | boolean | undefined;
+  signal?: CliArgValue;
+  [key: string]: CliArgValue | undefined;
 };
 
 type ProfileRunResult = {
@@ -41,6 +44,22 @@ type ProfileMobileOptions = {
   interactionDriver?: string;
   platform: ProfilePlatform;
 };
+type CaptureEvidenceKind = 'uiTree' | 'video';
+type SignalEvidenceKind = 'js' | 'memory' | 'network';
+type EvidenceAttachment = {
+  destinationPath: string;
+  kind: CaptureEvidenceKind | SignalEvidenceKind;
+  manifestPath: string;
+  sourcePath: string;
+};
+type AttachedEvidence = {
+  captures: Record<CaptureEvidenceKind, string | null>;
+  copies: EvidenceAttachment[];
+  signals: Record<SignalEvidenceKind, string[]>;
+};
+
+const CAPTURE_EVIDENCE_KINDS = new Set(['uiTree', 'video']);
+const SIGNAL_EVIDENCE_KINDS = new Set(['js', 'memory', 'network']);
 
 /**
  * Prints CLI usage to stderr.
@@ -60,6 +79,8 @@ function usage({
     `Usage: ${binaryName} --config <path> --scenario <path> [--events <path>] [--out <dir>] [--run-id <id>]`,
     '',
     `Reads scenario metadata plus profile-event evidence and writes the artifact layout for one ${platform} profile run.`,
+    'Use repeated --signal <js|memory|network>:<path> to attach provider signal artifacts.',
+    'Use repeated --capture <video|uiTree>:<path> to attach named capture artifacts.',
   ];
   if (platform === 'android') {
     lines.push('Use --adb-artifacts <dir> to read raw/adb-logcat.txt from a prior asl-android-adb capture.');
@@ -93,14 +114,31 @@ function parseArgs(argv: string[]): CliArgs {
     }
     const key = token.slice(2);
     const value = argv[index + 1];
-    if (value && !value.startsWith('--')) {
-      args[key] = value;
-      index += 1;
+    const hasValue = typeof value === 'string' && !value.startsWith('--');
+    const resolvedValue = hasValue ? value : true;
+    const existingValue = args[key];
+    if (Array.isArray(existingValue)) {
+      existingValue.push(resolvedValue);
+    } else if (existingValue !== undefined) {
+      args[key] = [existingValue, resolvedValue];
     } else {
-      args[key] = true;
+      args[key] = resolvedValue;
+    }
+    if (hasValue) {
+      index += 1;
     }
   }
   return args;
+}
+
+/**
+ * Returns a scalar CLI flag value, ignoring repeated values for scalar-only flags.
+ *
+ * @param {string | boolean | Array<string | boolean> | undefined} value
+ * @returns {string | boolean | undefined}
+ */
+function readScalarArg(value: CliArgValue | undefined): string | boolean | undefined {
+  return Array.isArray(value) ? undefined : value;
 }
 
 /**
@@ -121,6 +159,156 @@ function readJson(filePath: string): Record<string, any> {
  */
 async function ensureDir(dirPath: string): Promise<void> {
   await fsp.mkdir(dirPath, { recursive: true });
+}
+
+/**
+ * Returns string values supplied for a repeatable CLI option.
+ *
+ * @param {CliArgs} args
+ * @param {string} key
+ * @returns {string[]}
+ */
+function readRepeatableArgValues(args: CliArgs, key: string): string[] {
+  const value = args[key];
+  const values = Array.isArray(value) ? value : value === undefined ? [] : [value];
+
+  return values.map((entry) => {
+    if (typeof entry !== 'string') {
+      throw new Error(`--${key} requires a value.`);
+    }
+
+    return entry;
+  });
+}
+
+/**
+ * Parses a `kind:path` evidence attachment value.
+ *
+ * @param {{argName: string, allowedKinds: Set<string>, value: string}} options
+ * @returns {{kind: string, sourcePath: string}}
+ */
+function parseEvidenceArg({
+  allowedKinds,
+  argName,
+  value,
+}: {
+  allowedKinds: Set<string>;
+  argName: string;
+  value: string;
+}): { kind: string; sourcePath: string } {
+  const separatorIndex = value.indexOf(':');
+  if (separatorIndex <= 0 || separatorIndex === value.length - 1) {
+    throw new Error(`--${argName} must use <kind>:<path>.`);
+  }
+
+  const kind = value.slice(0, separatorIndex);
+  if (!allowedKinds.has(kind)) {
+    throw new Error(`Unsupported --${argName} kind "${kind}".`);
+  }
+
+  return {
+    kind,
+    sourcePath: path.resolve(value.slice(separatorIndex + 1)),
+  };
+}
+
+/**
+ * Validates provider artifact files and resolves their stable run destinations.
+ *
+ * @param {{args: CliArgs, layout: ReturnType<typeof createArtifactLayout>}} options
+ * @returns {Promise<AttachedEvidence>}
+ */
+async function resolveAttachedEvidence({
+  args,
+  layout,
+}: {
+  args: CliArgs;
+  layout: ReturnType<typeof createArtifactLayout>;
+}): Promise<AttachedEvidence> {
+  const attached: AttachedEvidence = {
+    captures: {
+      uiTree: null,
+      video: null,
+    },
+    copies: [],
+    signals: {
+      js: [],
+      memory: [],
+      network: [],
+    },
+  };
+  const destinationPaths = new Set<string>();
+
+  const addCopy = async ({
+    destinationPath,
+    kind,
+    manifestPath,
+    sourcePath,
+  }: EvidenceAttachment): Promise<void> => {
+    const stat = await fsp.stat(sourcePath).catch(() => null);
+    if (!stat?.isFile()) {
+      throw new Error(`Evidence artifact does not exist or is not a file: ${sourcePath}`);
+    }
+
+    if (destinationPaths.has(destinationPath)) {
+      throw new Error(`Duplicate evidence artifact destination: ${manifestPath}`);
+    }
+
+    destinationPaths.add(destinationPath);
+    attached.copies.push({ destinationPath, kind, manifestPath, sourcePath });
+  };
+
+  for (const value of readRepeatableArgValues(args, 'signal')) {
+    const parsed = parseEvidenceArg({
+      allowedKinds: SIGNAL_EVIDENCE_KINDS,
+      argName: 'signal',
+      value,
+    }) as { kind: SignalEvidenceKind; sourcePath: string };
+    const fileName = path.basename(parsed.sourcePath);
+    const manifestPath = `signals/${parsed.kind}/${fileName}`;
+    attached.signals[parsed.kind].push(manifestPath);
+    await addCopy({
+      destinationPath: path.join(layout.signals[parsed.kind], fileName),
+      kind: parsed.kind,
+      manifestPath,
+      sourcePath: parsed.sourcePath,
+    });
+  }
+
+  for (const value of readRepeatableArgValues(args, 'capture')) {
+    const parsed = parseEvidenceArg({
+      allowedKinds: CAPTURE_EVIDENCE_KINDS,
+      argName: 'capture',
+      value,
+    }) as { kind: CaptureEvidenceKind; sourcePath: string };
+    const fileName = path.basename(parsed.sourcePath);
+    const manifestPath = `captures/${fileName}`;
+    if (attached.captures[parsed.kind]) {
+      throw new Error(`Duplicate --capture kind "${parsed.kind}".`);
+    }
+
+    attached.captures[parsed.kind] = manifestPath;
+    await addCopy({
+      destinationPath: path.join(layout.captures, fileName),
+      kind: parsed.kind,
+      manifestPath,
+      sourcePath: parsed.sourcePath,
+    });
+  }
+
+  return attached;
+}
+
+/**
+ * Copies validated provider artifacts into the run artifact folder.
+ *
+ * @param {EvidenceAttachment[]} copies
+ * @returns {Promise<void>}
+ */
+async function copyAttachedEvidence(copies: EvidenceAttachment[]): Promise<void> {
+  for (const copy of copies) {
+    await fsp.copyFile(copy.sourcePath, copy.destinationPath);
+  }
 }
 
 /**
@@ -390,6 +578,7 @@ async function runProfileMobile(args: CliArgs, options: ProfileMobileOptions): P
   await ensureDir(layout.signals.js);
   await ensureDir(layout.signals.memory);
   await ensureDir(layout.signals.network);
+  const attachedEvidence = await resolveAttachedEvidence({ args, layout });
 
   const eventLogText = eventLogPath ? await fsp.readFile(eventLogPath, 'utf8') : '';
   const events = extractProfileEvents(eventLogText, {
@@ -404,6 +593,10 @@ async function runProfileMobile(args: CliArgs, options: ProfileMobileOptions): P
     expectedIterations: scenario.defaultIterations ?? 1,
     budgets: scenario.budgets ?? null,
     cycleEventNames: scenario.metricEvents ?? null,
+    artifacts: {
+      captures: attachedEvidence.captures,
+      signals: attachedEvidence.signals,
+    },
   });
 
   const manifest = buildManifest({
@@ -435,13 +628,13 @@ async function runProfileMobile(args: CliArgs, options: ProfileMobileOptions): P
         deviceLog: 'raw/device.log',
       },
       captures: {
-        video: 'captures/run.mp4',
-        uiTree: 'captures/ui-tree.json',
+        video: attachedEvidence.captures.video ?? 'captures/run.mp4',
+        uiTree: attachedEvidence.captures.uiTree ?? 'captures/ui-tree.json',
       },
       signals: {
-        js: [],
-        memory: [],
-        network: [],
+        js: attachedEvidence.signals.js,
+        memory: attachedEvidence.signals.memory,
+        network: attachedEvidence.signals.network,
       },
     },
   });
@@ -528,6 +721,7 @@ async function runProfileMobile(args: CliArgs, options: ProfileMobileOptions): P
   if (eventLogPath) {
     await fsp.copyFile(eventLogPath, path.join(rawDir, path.basename(eventLogPath)));
   }
+  await copyAttachedEvidence(attachedEvidence.copies);
 
   return {
     runDir,
@@ -569,8 +763,10 @@ export {
   buildProfileVerdict,
   buildVerdictBudgetChecks,
   parseArgs,
+  readScalarArg,
   resolveAppId,
   resolveArtifactRoot,
+  resolveAttachedEvidence,
   resolveEventLogPath,
   resolveInteractionDriver,
   runProfileCli,

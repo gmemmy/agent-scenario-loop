@@ -127,6 +127,57 @@ test('profile-android writes artifacts from fixture event logs', async (t: TestC
   assert.match(summary, /Scenario health passed/u);
 });
 
+test('profile-android attaches provider signal and capture artifacts', async (t: TestContext) => {
+  const artifactRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-android-evidence-'));
+  const providerRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-provider-evidence-'));
+  t.after(async () => {
+    await fsp.rm(artifactRoot, { recursive: true, force: true });
+    await fsp.rm(providerRoot, { recursive: true, force: true });
+  });
+  const jsSignalPath = path.join(providerRoot, 'js-profile.json');
+  const networkSignalPath = path.join(providerRoot, 'network-capture.har');
+  const uiTreePath = path.join(providerRoot, 'ui-tree-provider.json');
+  await fsp.writeFile(jsSignalPath, '{"samples":[]}\n', 'utf8');
+  await fsp.writeFile(networkSignalPath, '{"log":{"entries":[]}}\n', 'utf8');
+  await fsp.writeFile(uiTreePath, '{"tree":[]}\n', 'utf8');
+
+  const { stdout } = await execFileAsync(process.execPath, [
+    PROFILE_ANDROID,
+    '--config',
+    fixturePath('examples/mobile-app/asl.config.json'),
+    '--scenario',
+    fixturePath('examples/mobile-app/scenarios/android/app-startup.json'),
+    '--events',
+    fixturePath('examples/mobile-app/event-logs/android-app-startup.log'),
+    '--signal',
+    `js:${jsSignalPath}`,
+    '--signal',
+    `network:${networkSignalPath}`,
+    '--capture',
+    `uiTree:${uiTreePath}`,
+    '--out',
+    artifactRoot,
+    '--run-id',
+    'android-example-startup',
+  ]);
+
+  const runDir = stdout.trim();
+  const manifest = readJson(path.join(runDir, 'manifest.json'));
+  const metrics = readJson(path.join(runDir, 'metrics.json'));
+  const artifacts = manifest.artifacts as {
+    captures: { uiTree: string };
+    signals: { js: string[]; network: string[] };
+  };
+
+  assert.deepEqual(artifacts.signals.js, ['signals/js/js-profile.json']);
+  assert.deepEqual(artifacts.signals.network, ['signals/network/network-capture.har']);
+  assert.equal(artifacts.captures.uiTree, 'captures/ui-tree-provider.json');
+  assert.ok(fs.existsSync(path.join(runDir, 'signals', 'js', 'js-profile.json')));
+  assert.ok(fs.existsSync(path.join(runDir, 'signals', 'network', 'network-capture.har')));
+  assert.ok(fs.existsSync(path.join(runDir, 'captures', 'ui-tree-provider.json')));
+  assert.deepEqual((metrics.artifacts as { signals: { js: string[] } }).signals.js, ['signals/js/js-profile.json']);
+});
+
 test('profile-android reads logcat from adb artifact folders', async (t: TestContext) => {
   const tempRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-android-adb-artifacts-'));
   t.after(async () => {
