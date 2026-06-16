@@ -13,6 +13,7 @@ const {
   resolveAndroidAdbDriverSteps,
   resolveAndroidAdbProfileCommands,
   runProfileAndroid,
+  validateAndroidAdbDriverSteps,
 } = require('../profile-android');
 
 type ExecOutput = {
@@ -313,6 +314,61 @@ test('profile-android routes normalized readLogs evidence steps through adb driv
   assert.equal((adbMetadata.logcat as { rawPath: string; stepId: string }).rawPath, 'raw/adb-logcat.txt');
   assert.equal((adbMetadata.logcat as { rawPath: string; stepId: string }).stepId, 'capture-log-window');
   assert.ok(fs.existsSync(path.join(result.runDir, 'raw', 'adb-logcat.txt')));
+});
+
+test('profile-android rejects adb tap metadata before capture starts', async (t: TestContext) => {
+  const tempRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-android-invalid-driver-step-'));
+  t.after(async () => {
+    await fsp.rm(tempRoot, { recursive: true, force: true });
+  });
+  const scenarioPath = path.join(tempRoot, 'invalid-tap.json');
+  const scenario = readJson(fixturePath('examples/mobile-app/scenarios/android/app-startup.json'));
+  scenario.steps = [
+    {
+      id: 'tap-card',
+      kind: 'gesture',
+      driverAction: 'tap',
+    },
+  ];
+  await fsp.writeFile(scenarioPath, `${JSON.stringify(scenario, null, 2)}\n`, 'utf8');
+  const calls: string[] = [];
+
+  await assert.rejects(
+    runProfileAndroid({
+      'adb-capture': true,
+      config: fixturePath('examples/mobile-app/asl.config.json'),
+      out: path.join(tempRoot, 'profile'),
+      'run-id': 'invalid-tap',
+      scenario: scenarioPath,
+    }, {
+      executor: async (command: string, args: string[]): Promise<CommandResult> => {
+        calls.push(args.join(' '));
+        return { args, command, exitCode: 0, stderr: '', stdout: '' };
+      },
+    }),
+    /Invalid Android adb driver step metadata: step `tap-card` uses driverAction `tap`/u,
+  );
+  assert.deepEqual(calls, []);
+});
+
+test('profile-android validates tap and scroll driver metadata', () => {
+  assert.deepEqual(
+    validateAndroidAdbDriverSteps([
+      { driverAction: 'tap', stepId: 'tap-card', x: 10, y: 20 },
+      { driverAction: 'scroll', endX: 100, endY: 200, startX: 100, startY: 800, stepId: 'scroll-list' },
+    ]),
+    [],
+  );
+  assert.deepEqual(
+    validateAndroidAdbDriverSteps([
+      { driverAction: 'tap', stepId: 'tap-card' },
+      { driverAction: 'scroll', stepId: 'scroll-list', startX: 100, startY: 800 },
+    ]),
+    [
+      'step `tap-card` uses driverAction `tap` but is missing adapterOptions.androidAdb.x/y.',
+      'step `scroll-list` uses driverAction `scroll` but is missing adapterOptions.androidAdb.startX/startY/endX/endY.',
+    ],
+  );
 });
 
 test('profile-android starts profile sessions and executes scenario commands during adb capture', async (t: TestContext) => {

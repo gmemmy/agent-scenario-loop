@@ -254,6 +254,37 @@ function resolveAndroidAdbDriverSteps(scenario: Record<string, any>): AndroidAdb
 }
 
 /**
+ * Returns profile-time validation errors for adb driver steps.
+ *
+ * @param {import('./android-adb').AndroidAdbDriverStep[]} driverSteps
+ * @returns {string[]}
+ */
+function validateAndroidAdbDriverSteps(driverSteps: AndroidAdbDriverStep[]): string[] {
+  const errors: string[] = [];
+  for (const step of driverSteps) {
+    const stepLabel = step.stepId ? `step \`${step.stepId}\`` : 'unnamed step';
+    if (step.driverAction === 'tap' && (typeof step.x !== 'number' || typeof step.y !== 'number')) {
+      errors.push(`${stepLabel} uses driverAction \`tap\` but is missing adapterOptions.androidAdb.x/y.`);
+    }
+    if (
+      step.driverAction === 'scroll' &&
+      (
+        typeof step.startX !== 'number' ||
+        typeof step.startY !== 'number' ||
+        typeof step.endX !== 'number' ||
+        typeof step.endY !== 'number'
+      )
+    ) {
+      errors.push(
+        `${stepLabel} uses driverAction \`scroll\` but is missing adapterOptions.androidAdb.startX/startY/endX/endY.`,
+      );
+    }
+  }
+
+  return errors;
+}
+
+/**
  * Expands scenario-declared Android commands for an adb capture profile session.
  *
  * @param {Record<string, unknown>} scenario
@@ -333,6 +364,11 @@ async function runProfileAndroid(
   const runId = typeof args['run-id'] === 'string' ? args['run-id'] : createRunId();
   const profileSessionEnabled = isEnabled(args['profile-session']);
   const scenarioName = typeof scenario.name === 'string' ? scenario.name : path.basename(args.scenario, '.json');
+  const driverSteps = resolveAndroidAdbDriverSteps(scenario);
+  const driverStepErrors = validateAndroidAdbDriverSteps(driverSteps);
+  if (driverStepErrors.length > 0) {
+    throw new Error(`Invalid Android adb driver step metadata: ${driverStepErrors.join(' ')}`);
+  }
   const profileSessionDeepLinks = profileSessionEnabled
     ? [
         {
@@ -365,7 +401,7 @@ async function runProfileAndroid(
     deepLinks: profileSessionDeepLinks,
     ...(options.delay ? { delay: options.delay } : {}),
     ...(options.executor ? { executor: options.executor } : {}),
-    driverSteps: resolveAndroidAdbDriverSteps(scenario),
+    driverSteps,
     launch: isEnabled(args.launch),
     logcatLines: parsePositiveInteger(args['logcat-lines'], 1000),
     outputDir: resolveAdbCaptureOutputDir({ args, runId }),
@@ -428,6 +464,7 @@ export {
   parseArgs,
   resolveAndroidAdbProfileCommands,
   resolveAndroidAdbDriverSteps,
+  validateAndroidAdbDriverSteps,
   runProfileAndroid,
   summarizeFailedAndroidChecks,
   usage,
