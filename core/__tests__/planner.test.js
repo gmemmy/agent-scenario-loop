@@ -29,6 +29,62 @@ function clone(value) {
   return JSON.parse(JSON.stringify(value));
 }
 
+/**
+ * Lists JSON fixture paths under a repo-local directory.
+ *
+ * @param {string} relativeDir
+ * @returns {string[]}
+ */
+function listJsonFiles(relativeDir) {
+  const absoluteDir = path.join(__dirname, '..', '..', relativeDir);
+  return fs
+    .readdirSync(absoluteDir)
+    .filter((name) => name.endsWith('.json'))
+    .sort()
+    .map((name) => path.join(relativeDir, name));
+}
+
+test('all canonical v1 scenarios have at least one compatible primary runner', () => {
+  const scenarios = listJsonFiles('examples/scenarios/v1').map((fixture) => readJson(fixture));
+  const primaryRunners = listJsonFiles('examples/runners')
+    .map((fixture) => readJson(fixture))
+    .filter((runner) => runner.kind === 'primary' && runner.runnerId !== 'manual-log-ingest');
+  const profilerProvider = readJson('examples/runners/rozenite-profiler-provider.json');
+
+  for (const scenario of scenarios) {
+    const compatibleRunners = primaryRunners.filter((runner) => {
+      const platform = runner.platforms.find((candidate) => scenario.platforms.includes(candidate));
+      const result = evaluateRunnerCompatibility({
+        scenario,
+        runner,
+        evidenceProviders: [profilerProvider],
+        platform,
+      });
+      return result.compatible;
+    });
+
+    assert.ok(
+      compatibleRunners.length > 0,
+      `${scenario.id} has no compatible primary runner fixture`,
+    );
+  }
+});
+
+test('manual log-ingest is intentionally incompatible with live canonical scenarios', () => {
+  const scenarios = listJsonFiles('examples/scenarios/v1').map((fixture) => readJson(fixture));
+  const runner = readJson('examples/runners/manual-log-ingest.json');
+
+  for (const scenario of scenarios) {
+    const result = evaluateRunnerCompatibility({ scenario, runner, platform: 'ios' });
+
+    assert.equal(result.compatible, false, `${scenario.id} unexpectedly accepted manual log ingest`);
+    assert.ok(
+      result.errors.some((error) => error.code === 'missing_required_capability'),
+      `${scenario.id} did not report missing lifecycle capabilities`,
+    );
+  }
+});
+
 test('accepts a compatible primary runner for a canonical scenario', () => {
   const scenario = readJson('examples/scenarios/v1/open-close-cycle.json');
   const runner = readJson('examples/runners/xcodebuildmcp-ios.json');

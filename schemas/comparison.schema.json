@@ -1,0 +1,106 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-scenario-loop.dev/schemas/comparison.schema.json",
+  "title": "Agent Scenario Loop Comparison",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "scenarioId",
+    "runId",
+    "baselineRunId",
+    "comparisonStatus",
+    "healthStatus",
+    "verdictStatus",
+    "summary"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "type": "string",
+      "pattern": "^1\\.0\\.0$"
+    },
+    "scenarioId": {
+      "type": "string"
+    },
+    "flowId": {
+      "type": "string"
+    },
+    "runId": {
+      "type": "string"
+    },
+    "baselineRunId": {
+      "type": "string"
+    },
+    "comparisonStatus": {
+      "type": "string",
+      "enum": ["better", "worse", "unchanged", "inconclusive"]
+    },
+    "healthStatus": {
+      "type": "string",
+      "enum": ["passed", "failed", "partial"]
+    },
+    "verdictStatus": {
+      "type": "string",
+      "enum": ["passed", "failed", "inconclusive", "not_evaluated"]
+    },
+    "metricComparisons": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/metricComparison"
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "missingRequired": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "summary": {
+      "type": "string"
+    }
+  },
+  "$defs": {
+    "metricComparison": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "unit", "baseline", "current", "delta", "status"],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "unit": {
+          "type": "string",
+          "enum": ["ms", "count", "bytes", "percent", "boolean"]
+        },
+        "baseline": {
+          "type": ["number", "integer", "boolean", "null"]
+        },
+        "current": {
+          "type": ["number", "integer", "boolean", "null"]
+        },
+        "delta": {
+          "type": ["number", "integer", "boolean", "null"]
+        },
+        "status": {
+          "type": "string",
+          "enum": ["better", "worse", "unchanged", "inconclusive"]
+        },
+        "notes": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

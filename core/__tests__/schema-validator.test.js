@@ -30,6 +30,35 @@ function clone(value) {
   return JSON.parse(JSON.stringify(value));
 }
 
+/**
+ * Lists JSON fixture paths under a repo-local directory.
+ *
+ * @param {string} relativeDir
+ * @returns {string[]}
+ */
+function listJsonFiles(relativeDir) {
+  const absoluteDir = path.join(__dirname, '..', '..', relativeDir);
+  return fs
+    .readdirSync(absoluteDir)
+    .filter((name) => name.endsWith('.json'))
+    .sort()
+    .map((name) => path.join(relativeDir, name));
+}
+
+test('accepts all canonical v1 scenario manifests', () => {
+  for (const fixture of listJsonFiles('examples/scenarios/v1')) {
+    const result = validateJson(readJson(fixture), SCHEMAS.scenario, fixture);
+    assert.equal(result.valid, true, result.message);
+  }
+});
+
+test('accepts all runner capability manifests', () => {
+  for (const fixture of listJsonFiles('examples/runners')) {
+    const result = validateJson(readJson(fixture), SCHEMAS.runnerCapabilities, fixture);
+    assert.equal(result.valid, true, result.message);
+  }
+});
+
 test('accepts canonical v1 scenario manifests', () => {
   const scenario = readJson('examples/scenarios/v1/app-startup.json');
 
@@ -85,6 +114,56 @@ test('rejects additional properties in strict objects', () => {
     result.errors.filter((error) => error.code === 'additional_property').map((error) => error.path),
     ['$.experimental'],
   );
+});
+
+test('accepts comparison artifacts with metric and evidence details', () => {
+  const comparison = {
+    schemaVersion: '1.0.0',
+    scenarioId: 'open-close-cycle',
+    flowId: 'open-close-cycle',
+    runId: 'current-run',
+    baselineRunId: 'baseline-run',
+    comparisonStatus: 'better',
+    healthStatus: 'passed',
+    verdictStatus: 'passed',
+    metricComparisons: [
+      {
+        name: 'open p95',
+        unit: 'ms',
+        baseline: 1200,
+        current: 980,
+        delta: -220,
+        status: 'better',
+      },
+    ],
+    evidence: {
+      missingRequired: [],
+      warnings: ['video artifact not captured'],
+    },
+    summary: 'Current run improved against the explicit baseline.',
+  };
+
+  const result = validateJson(comparison, SCHEMAS.comparison, 'Comparison artifact');
+
+  assert.equal(result.valid, true, result.message);
+});
+
+test('rejects comparison artifacts with unknown comparison status', () => {
+  const comparison = {
+    schemaVersion: '1.0.0',
+    scenarioId: 'open-close-cycle',
+    runId: 'current-run',
+    baselineRunId: 'baseline-run',
+    comparisonStatus: 'faster-ish',
+    healthStatus: 'passed',
+    verdictStatus: 'passed',
+    summary: 'Invalid status.',
+  };
+
+  const result = validateJson(comparison, SCHEMAS.comparison, 'Comparison artifact');
+
+  assert.equal(result.valid, false);
+  assert.equal(result.errors[0].path, '$.comparisonStatus');
 });
 
 test('assertValidJson throws a path-specific schema error', () => {

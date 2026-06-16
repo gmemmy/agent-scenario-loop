@@ -20,6 +20,7 @@ Runners and drivers (Codex, AXe, XcodeBuildMCP, agent-device, Argent, adb, profi
 V1 ships the contracts and the artifact pipeline:
 
 - `app/profile-session.ts`: thin React Native integration — session control, truth events, signal attachments
+- `core/agent-summary.js`: the agent-facing summary builder for health, verdict, and comparison state
 - `core/artifact-contract.js`: the artifact builders — manifest, metrics, causal run, budget verdict, summary
 - `core/planner.js`: planner compatibility checks between scenario requirements, primary runner capabilities, and evidence providers
 - `core/schema-validator.js`: dependency-free validation for the JSON Schema subset used by the public v1 contracts
@@ -50,7 +51,7 @@ Artifact layout, what every run produces:
 - `summary.md` — the human-readable readout
 - `raw/`, `captures/`, and optional `signals/js`, `signals/memory`, `signals/network`
 
-The v1 target contract separates scenario health from product verdict: `health.json` records execution validity, `verdict.json` records budget outcome, and `comparison.json` records before/after baseline comparison. `core/planner.js` can already derive initial health and unevaluated verdict artifacts from compatibility results. The current runner still writes `metrics.json` and `budget-verdict.json` as transition artifacts.
+The v1 target contract separates scenario health from product verdict: `health.json` records execution validity, `verdict.json` records budget outcome, `comparison.json` records before/after baseline comparison, and `agent-summary.md` gives agents the health gate before they touch code. `core/planner.js` can already derive initial health and unevaluated verdict artifacts from compatibility results. The current runner still writes `metrics.json` and `budget-verdict.json` as transition artifacts.
 
 Budgets are supported but optional for adoption.
 

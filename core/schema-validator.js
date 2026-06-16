@@ -38,6 +38,7 @@ function loadSchema(relativePath) {
 }
 
 const SCHEMAS = {
+  comparison: loadSchema('comparison.schema.json'),
   health: loadSchema('health.schema.json'),
   scenario: loadSchema('scenario.schema.json'),
   runnerCapabilities: loadSchema('runner-capabilities.schema.json'),
