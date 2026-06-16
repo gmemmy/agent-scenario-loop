@@ -51,6 +51,10 @@
       "types": "./dist/runner/android-adb.d.ts",
       "require": "./dist/runner/android-adb.js"
     },
+    "./runner/android-adb-driver": {
+      "types": "./dist/runner/android-adb-driver.d.ts",
+      "require": "./dist/runner/android-adb-driver.js"
+    },
     "./runner/check-plan": {
       "types": "./dist/runner/check-plan.d.ts",
       "require": "./dist/runner/check-plan.js"

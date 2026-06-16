@@ -21,6 +21,7 @@ The package is intentionally contract-first: adopt the scenario and artifact sha
 - [runner/profile-android.ts](../runner/profile-android.ts): Android profile runner that can ingest profile-event logs directly, read adb artifact folders, or own a bounded adb capture window before writing the full artifact set
 - [runner/profile-ios.ts](../runner/profile-ios.ts): iOS log-ingest runner that turns scenario metadata plus `[profile-event]` logs into the full artifact set
 - [runner/android-adb.ts](../runner/android-adb.ts): Android adb readiness preflight, optional package launch, and bounded logcat capture that write runner health and raw adb evidence
+- [runner/android-adb-driver.ts](../runner/android-adb-driver.ts): adb-backed Android driver adapter for proven log capture plus Android-specific lifecycle helpers
 - [runner/demo-loop.ts](../runner/demo-loop.ts): fixture loop that proves preflight, profile history, and latest-trusted comparison without a simulator
 - [examples/event-logs](../examples/event-logs): deterministic profile-event logs for the fixture loop
 - [examples/mobile-app](../examples/mobile-app): neutral Expo dogfood app with scenario manifests and profile-event evidence fixtures
@@ -108,6 +109,7 @@ The package currently supports:
 - Android adb readiness checks
 - Android bounded logcat capture
 - Android package launch plus bounded logcat capture
+- Android adb driver adapter with `readLogs` as the currently proven portable driver action
 - Android profile artifact generation from explicit event logs, prior adb artifacts, or an owned `--adb-capture` window
 - iOS profile artifact generation from explicit event logs
 - trusted baseline/current comparison after scenario health passes

@@ -10,6 +10,10 @@ const { createArtifactLayout } = require('../core/artifact-layout');
 const { writeJsonArtifact, writeTextArtifact } = require('../core/artifact-writer');
 const { SCHEMAS, assertValidJson } = require('../core/schema-validator');
 const { hasHelpFlag, writeUsage } = require('./cli');
+const {
+  createAndroidAdbDriver,
+  formatAndroidAdbRawOutput,
+} = require('./android-adb-driver');
 
 type CliArgs = {
   adb?: string | boolean;
@@ -203,19 +207,6 @@ function parseAdbDevices(output: string): AndroidDevice[] {
 }
 
 /**
- * Quotes one argument for the Android device shell.
- *
- * `adb shell` still lets the device shell interpret metacharacters in later
- * tokens, so deep-link URLs with `&` must be quoted before execution.
- *
- * @param {string} value
- * @returns {string}
- */
-function quoteAndroidShellArg(value: string): string {
-  return `'${value.replace(/'/g, "'\\''")}'`;
-}
-
-/**
  * Selects an Android device by explicit serial or first online device.
  *
  * @param {AndroidDevice[]} devices
@@ -355,6 +346,11 @@ async function runAndroidAdbPreflight({
 
   if (device && device.state === 'device') {
     const shellPrefix = ['-s', device.serial, 'shell'];
+    const driver = createAndroidAdbDriver({
+      adbPath,
+      deviceSerial: device.serial,
+      executor,
+    });
     const [model, release, sdk] = await Promise.all([
       executor(adbPath, [...shellPrefix, 'getprop', 'ro.product.model']),
       executor(adbPath, [...shellPrefix, 'getprop', 'ro.build.version.release']),
@@ -388,8 +384,8 @@ async function runAndroidAdbPreflight({
     }
 
     if (clearLogcat) {
-      const clear = await executor(adbPath, ['-s', device.serial, 'logcat', '-c']);
-      raw['adb-logcat-clear.txt'] = [clear.stdout, clear.stderr].filter(Boolean).join('\n');
+      const clear = await driver.clearLogs();
+      raw[clear.rawFileName] = formatAndroidAdbRawOutput(clear);
       checks.push({
         name: 'android_logcat_cleared',
         status: clear.exitCode === 0 ? 'passed' : 'failed',
@@ -400,7 +396,7 @@ async function runAndroidAdbPreflight({
       metadata.logcatClear = {
         args: clear.args,
         exitCode: clear.exitCode,
-        rawPath: 'raw/adb-logcat-clear.txt',
+        rawPath: `raw/${clear.rawFileName}`,
       };
     }
 
@@ -414,18 +410,8 @@ async function runAndroidAdbPreflight({
           message: 'Package launch was requested, but --package was not provided.',
         });
       } else {
-        const launchResult = await executor(adbPath, [
-          '-s',
-          device.serial,
-          'shell',
-          'monkey',
-          '-p',
-          packageName,
-          '-c',
-          'android.intent.category.LAUNCHER',
-          '1',
-        ]);
-        raw['adb-launch.txt'] = [launchResult.stdout, launchResult.stderr].filter(Boolean).join('\n');
+        const launchResult = await driver.launchPackage(packageName);
+        raw[launchResult.rawFileName] = formatAndroidAdbRawOutput(launchResult);
         checks.push({
           name: 'android_package_launched',
           status: launchResult.exitCode === 0 ? 'passed' : 'failed',
@@ -438,29 +424,19 @@ async function runAndroidAdbPreflight({
         metadata.launchResult = {
           args: launchResult.args,
           exitCode: launchResult.exitCode,
-          rawPath: 'raw/adb-launch.txt',
+          rawPath: `raw/${launchResult.rawFileName}`,
         };
       }
     }
 
     for (const [index, deepLink] of deepLinks.entries()) {
-      const deepLinkCommand = [
-        'am',
-        'start',
-        '-a',
-        quoteAndroidShellArg('android.intent.action.VIEW'),
-        '-d',
-        quoteAndroidShellArg(deepLink.url),
-        ...(packageName ? ['-p', quoteAndroidShellArg(packageName)] : []),
-      ].join(' ');
-      const deepLinkResult = await executor(adbPath, [
-        '-s',
-        device.serial,
-        'shell',
-        deepLinkCommand,
-      ]);
       const rawFileName = `adb-deep-link-${index + 1}.txt`;
-      raw[rawFileName] = [deepLinkResult.stdout, deepLinkResult.stderr].filter(Boolean).join('\n');
+      const deepLinkResult = await driver.openDeepLink({
+        packageName,
+        rawFileName,
+        url: deepLink.url,
+      });
+      raw[deepLinkResult.rawFileName] = formatAndroidAdbRawOutput(deepLinkResult);
       checks.push({
         name: 'android_deep_link_opened',
         status: deepLinkResult.exitCode === 0 ? 'passed' : 'failed',
@@ -495,17 +471,8 @@ async function runAndroidAdbPreflight({
     }
 
     if (captureLogcat) {
-      const logcat = await executor(adbPath, [
-        '-s',
-        device.serial,
-        'logcat',
-        '-d',
-        '-v',
-        'time',
-        '-t',
-        String(logcatLines),
-      ]);
-      raw['adb-logcat.txt'] = [logcat.stdout, logcat.stderr].filter(Boolean).join('\n');
+      const logcat = await driver.readLogs({ lines: logcatLines });
+      raw[logcat.rawFileName] = formatAndroidAdbRawOutput(logcat);
       checks.push({
         name: 'android_logcat_captured',
         status: logcat.exitCode === 0 ? 'passed' : 'failed',
@@ -518,7 +485,7 @@ async function runAndroidAdbPreflight({
       metadata.logcat = {
         args: logcat.args,
         exitCode: logcat.exitCode,
-        rawPath: 'raw/adb-logcat.txt',
+        rawPath: `raw/${logcat.rawFileName}`,
       };
     }
   } else {

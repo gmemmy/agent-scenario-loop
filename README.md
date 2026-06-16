@@ -91,6 +91,8 @@ pnpm check-plan -- --scenario examples/scenarios/mobile/app-startup.json --runne
 
 That command does not require Xcode, a simulator, or device artifacts. It validates scenario and runner manifests, writes preflight artifacts, and stops before live execution.
 
+Adapter authors can import `agent-scenario-loop/runner/android-adb-driver` to reuse the adb-backed `readLogs` driver action and Android lifecycle helpers without depending on the `asl-android-adb` CLI.
+
 To check Android adb readiness before live scenario execution:
 
 ```bash
@@ -241,6 +243,7 @@ Current package guarantees:
 - explicit baseline/current run folders can produce schema-checked `comparison.json`
 - artifact roots can be indexed to find trusted prior runs per scenario
 - installed commands can compare a current run against the latest trusted prior run for a scenario
+- installed adapter subpaths expose the proven Android adb driver helper
 - package smoke blocks generated artifacts, internal-only paths, and local/product-specific strings from the tarball
 
 Remaining hardening:
