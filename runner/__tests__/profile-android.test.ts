@@ -154,8 +154,11 @@ test('profile-android reads logcat from adb artifact folders', async (t: TestCon
   const health = readJson(path.join(runDir, 'health.json'));
   const verdict = readJson(path.join(runDir, 'verdict.json'));
   const artifacts = manifest.artifacts as { raw: { interactionLog: string } };
+  const causalRun = readJson(path.join(runDir, 'causal-run.json'));
 
   assert.equal(artifacts.raw.interactionLog, 'raw/adb-logcat.txt');
+  assert.equal(manifest.interactionDriver, 'adb-logcat');
+  assert.equal((causalRun.scenario as { driver: string }).driver, 'adb-logcat');
   assert.equal(health.healthStatus, 'passed');
   assert.equal(verdict.verdictStatus, 'passed');
   assert.ok(fs.existsSync(path.join(runDir, 'raw', 'adb-logcat.txt')));
@@ -215,11 +218,14 @@ test('profile-android can capture adb logs and profile them in one run', async (
   const manifest = readJson(path.join(result.runDir, 'manifest.json'));
   const health = readJson(path.join(result.runDir, 'health.json'));
   const adbHealth = readJson(path.join(adbCaptureRoot, 'health.json'));
+  const causalRun = readJson(path.join(result.runDir, 'causal-run.json'));
 
   assert.deepEqual(waits, [25]);
   assert.equal(result.runDir, path.join(profileRoot, 'app-startup', 'android-captured-startup'));
   assert.equal(health.healthStatus, 'passed');
   assert.equal(adbHealth.healthStatus, 'passed');
   assert.equal((manifest.artifacts as { raw: { interactionLog: string } }).raw.interactionLog, 'raw/adb-logcat.txt');
+  assert.equal(manifest.interactionDriver, 'adb-logcat');
+  assert.equal((causalRun.scenario as { driver: string }).driver, 'adb-logcat');
   assert.ok(fs.existsSync(path.join(result.runDir, 'raw', 'adb-logcat.txt')));
 });

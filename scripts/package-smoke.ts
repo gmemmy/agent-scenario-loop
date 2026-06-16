@@ -382,9 +382,12 @@ function main(): void {
     });
     const adbArtifactProfileRunDir = adbArtifactProfileOutput.trim();
     const adbArtifactManifest = JSON.parse(fs.readFileSync(path.join(adbArtifactProfileRunDir, 'manifest.json'), 'utf8'));
+    const adbArtifactCausalRun = JSON.parse(fs.readFileSync(path.join(adbArtifactProfileRunDir, 'causal-run.json'), 'utf8'));
     const adbArtifactHealth = JSON.parse(fs.readFileSync(path.join(adbArtifactProfileRunDir, 'health.json'), 'utf8'));
     const adbArtifactVerdict = JSON.parse(fs.readFileSync(path.join(adbArtifactProfileRunDir, 'verdict.json'), 'utf8'));
     assert.equal(adbArtifactManifest.artifacts.raw.interactionLog, 'raw/adb-logcat.txt');
+    assert.equal(adbArtifactManifest.interactionDriver, 'adb-logcat');
+    assert.equal(adbArtifactCausalRun.scenario.driver, 'adb-logcat');
     assert.equal(adbArtifactHealth.healthStatus, 'passed');
     assert.equal(adbArtifactVerdict.verdictStatus, 'passed');
 
@@ -422,12 +425,15 @@ function main(): void {
     const adbCaptureProfileRunDir = adbCaptureProfileOutput.trim();
     const adbCaptureRoot = path.join(adbCaptureProfileRoot, '_adb-captures', adbCaptureRunId);
     const adbCaptureManifest = JSON.parse(fs.readFileSync(path.join(adbCaptureProfileRunDir, 'manifest.json'), 'utf8'));
+    const adbCaptureCausalRun = JSON.parse(fs.readFileSync(path.join(adbCaptureProfileRunDir, 'causal-run.json'), 'utf8'));
     const adbCaptureHealth = JSON.parse(fs.readFileSync(path.join(adbCaptureProfileRunDir, 'health.json'), 'utf8'));
     const adbCaptureVerdict = JSON.parse(fs.readFileSync(path.join(adbCaptureProfileRunDir, 'verdict.json'), 'utf8'));
     const adbCaptureRunnerHealth = JSON.parse(fs.readFileSync(path.join(adbCaptureRoot, 'health.json'), 'utf8'));
     assert.equal(adbCaptureProfileRunDir, path.join(adbCaptureProfileRoot, 'app-startup', adbCaptureRunId));
     assert.equal(adbCaptureManifest.artifacts.raw.interactionLog, 'raw/adb-logcat.txt');
     assert.equal(adbCaptureManifest.bundleId, androidPackageName);
+    assert.equal(adbCaptureManifest.interactionDriver, 'adb-logcat');
+    assert.equal(adbCaptureCausalRun.scenario.driver, 'adb-logcat');
     assert.equal(adbCaptureHealth.healthStatus, 'passed');
     assert.equal(adbCaptureVerdict.verdictStatus, 'passed');
     assert.equal(adbCaptureRunnerHealth.healthStatus, 'passed');

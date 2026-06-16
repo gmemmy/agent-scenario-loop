@@ -107,6 +107,7 @@ async function runProfileAndroid(
   if (!isEnabled(args['adb-capture'])) {
     return runProfileMobile(args, {
       defaultDriver: 'adb-logcat',
+      ...(typeof args['adb-artifacts'] === 'string' ? { interactionDriver: 'adb-logcat' } : {}),
       platform: 'android',
     });
   }
@@ -143,6 +144,7 @@ async function runProfileAndroid(
     'run-id': runId,
   }, {
     defaultDriver: 'adb-logcat',
+    interactionDriver: 'adb-logcat',
     platform: 'android',
   });
 }

@@ -37,6 +37,7 @@ type ProfileRunResult = {
 type ProfilePlatform = 'android' | 'ios';
 type ProfileMobileOptions = {
   defaultDriver: string;
+  interactionDriver?: string;
   platform: ProfilePlatform;
 };
 
@@ -307,6 +308,24 @@ function resolveAppId({ config, platform }: { config: Record<string, any>; platf
 }
 
 /**
+ * Resolves the interaction driver recorded in profile artifacts.
+ *
+ * @param {{config: Record<string, unknown>, options: ProfileMobileOptions, scenario: Record<string, unknown>}} options
+ * @returns {string}
+ */
+function resolveInteractionDriver({
+  config,
+  options,
+  scenario,
+}: {
+  config: Record<string, any>;
+  options: ProfileMobileOptions;
+  scenario: Record<string, any>;
+}): string {
+  return options.interactionDriver || scenario.interactionDriver || config.drivers?.default || options.defaultDriver;
+}
+
+/**
  * Resolves the profile event log source from explicit logs or prior adb artifacts.
  *
  * @param {{args: CliArgs, platform: ProfilePlatform}} options
@@ -349,6 +368,7 @@ async function runProfileMobile(args: CliArgs, options: ProfileMobileOptions): P
   const signalsDir = path.join(runDir, 'signals');
   const startedAt = new Date().toISOString();
   const eventLogPath = resolveEventLogPath({ args, platform: options.platform });
+  const interactionDriver = resolveInteractionDriver({ config, options, scenario });
 
   await ensureDir(rawDir);
   await ensureDir(capturesDir);
@@ -377,7 +397,7 @@ async function runProfileMobile(args: CliArgs, options: ProfileMobileOptions): P
     platform: options.platform,
     status: metrics.status,
     endedAt: new Date().toISOString(),
-    interactionDriver: scenario.interactionDriver || config.drivers?.default || options.defaultDriver,
+    interactionDriver,
     startedAt,
     simulator: {
       name: options.platform === 'android' ? 'unknown android device' : 'unknown',
@@ -424,7 +444,7 @@ async function runProfileMobile(args: CliArgs, options: ProfileMobileOptions): P
     runId,
     platform: options.platform,
     buildFlavor: 'unknown',
-    interactionDriver: scenario.interactionDriver || config.drivers?.default || options.defaultDriver,
+    interactionDriver,
     trigger: scenario.trigger ?? null,
     budgets: scenario.budgets?.pass ?? null,
     timeline,
@@ -534,6 +554,7 @@ export {
   resolveAppId,
   resolveArtifactRoot,
   resolveEventLogPath,
+  resolveInteractionDriver,
   runProfileCli,
   runProfileMobile,
   usage,
