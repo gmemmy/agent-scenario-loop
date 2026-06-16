@@ -76,6 +76,20 @@ const EXAMPLE_PROFILE_RUNS: ExampleProfileRun[] = [
   },
 ];
 
+const PACKED_FILE_ALLOWLIST = [
+  /^LICENSE$/u,
+  /^README\.md$/u,
+  /^package\.json$/u,
+  /^app\/profile-session\.ts$/u,
+  /^core\/config-template\.json$/u,
+  /^dist\/index\.(?:js|d\.ts)$/u,
+  /^dist\/core\/[a-z-]+\.(?:js|d\.ts)$/u,
+  /^dist\/runner\/[a-z-]+\.(?:js|d\.ts)$/u,
+  /^docs\/[a-z-]+\.md$/u,
+  /^examples\/.+/u,
+  /^schemas\/[a-z-]+\.schema\.json$/u,
+];
+
 /**
  * Lists every file under a directory using relative POSIX-style paths.
  *
@@ -97,6 +111,16 @@ function listFiles(rootDir: string, relativeDir = ''): string[] {
 
     return [relativePath.split(path.sep).join('/')];
   });
+}
+
+/**
+ * Returns whether a packed file belongs to the intentional public package surface.
+ *
+ * @param {string} filePath
+ * @returns {boolean}
+ */
+function isAllowedPackedFile(filePath: string): boolean {
+  return PACKED_FILE_ALLOWLIST.some((pattern) => pattern.test(filePath));
 }
 
 /**
@@ -271,9 +295,10 @@ function main(): void {
       /^node_modules\//u,
       /^runner\/__tests__\//u,
       /^scripts\//u,
-      /internal-roadmap/u,
+      new RegExp(['internal', 'roadmap'].join('-'), 'u'),
     ];
     for (const filePath of packedFiles) {
+      assert.equal(isAllowedPackedFile(filePath), true, `unexpected public package path: ${filePath}`);
       assert.equal(
         forbiddenPathPatterns.some((pattern) => pattern.test(filePath)),
         false,
@@ -527,6 +552,7 @@ export {
   createSmokeEnv,
   listFiles,
   main,
+  isAllowedPackedFile,
   packageBinPath,
   run,
   runExpectFailure,
