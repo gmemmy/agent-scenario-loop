@@ -42,6 +42,7 @@
     "asl-example-ios-live": "dist/runner/example-ios-live.js",
     "asl-init": "dist/runner/init-project.js",
     "asl-ios-simctl": "dist/runner/ios-simctl.js",
+    "asl-live-proof": "dist/runner/live-proof.js",
     "asl-profile-android": "dist/runner/profile-android.js",
     "asl-profile-ios": "dist/runner/profile-ios.js"
   },
@@ -93,6 +94,10 @@
     "./runner/ios-simctl-driver": {
       "types": "./dist/runner/ios-simctl-driver.d.ts",
       "require": "./dist/runner/ios-simctl-driver.js"
+    },
+    "./runner/live-proof": {
+      "types": "./dist/runner/live-proof.d.ts",
+      "require": "./dist/runner/live-proof.js"
     },
     "./runner/profile-ios": {
       "types": "./dist/runner/profile-ios.d.ts",
@@ -162,6 +167,7 @@
     "example:app:ios:metro-port": "if [ -n \"${ASL_EXAMPLE_XCODE_DEVELOPER_DIR:-}\" ]; then export DEVELOPER_DIR=\"$ASL_EXAMPLE_XCODE_DEVELOPER_DIR\"; fi; xcrun simctl spawn ${ASL_EXAMPLE_IOS_DEVICE:-booted} defaults write ${ASL_EXAMPLE_IOS_APP_ID:-dev.agent-scenario-loop.example} RCT_jsLocation ${ASL_EXAMPLE_METRO_HOST:-localhost}:${ASL_EXAMPLE_METRO_PORT:-8097}",
     "example:app:start": "pnpm --dir examples/mobile-app start",
     "example:app:start:isolated": "pnpm --dir examples/mobile-app exec expo start --port 8097 --localhost",
+    "live-proof": "pnpm build && node dist/runner/live-proof.js",
     "profile:android": "pnpm build && node dist/runner/profile-android.js",
     "profile:ios": "pnpm build && node dist/runner/profile-ios.js",
     "profile:ios:startup": "pnpm build && node dist/runner/profile-ios.js --config core/config-template.json --scenario examples/scenarios/ios/app-startup.json",

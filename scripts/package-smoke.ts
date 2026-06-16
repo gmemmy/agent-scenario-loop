@@ -1081,6 +1081,16 @@ function main(): void {
       fs.existsSync(path.join(exampleLiveRoot, '_live-proof', 'android-live-proof-smoke', 'live-proof.json')),
       true,
     );
+    const exampleLiveProofOutput = run(packageBinPath(installDir, 'asl-live-proof'), [
+      '--file',
+      path.join(exampleLiveRoot, '_live-proof', 'android-live-proof-smoke', 'live-proof.json'),
+      '--fail-on-regression',
+    ], {
+      cwd: installDir,
+      env,
+    });
+    assert.match(exampleLiveProofOutput, /Comparison status: unchanged/u);
+    assert.match(exampleLiveProofOutput, /Next action: inspect_summary/u);
     for (const [scenarioDir, runId] of [
       ['app-startup', 'android-live-startup'],
       ['open-close-cycle', 'android-live-open-close'],
@@ -1394,6 +1404,7 @@ function main(): void {
       "assert.equal(fs.existsSync('node_modules/agent-scenario-loop/docs/api.md'), true);",
       "assert.equal(fs.existsSync('node_modules/agent-scenario-loop/docs/authoring.md'), true);",
       "require.resolve('agent-scenario-loop/runner/ios-simctl-driver');",
+      "require.resolve('agent-scenario-loop/runner/live-proof');",
     ].join('\n');
     run(process.execPath, ['-e', resolveSmokeScript], {
       cwd: installDir,
@@ -1425,6 +1436,7 @@ function main(): void {
       "import { initProject } from 'agent-scenario-loop/runner/init-project';",
       "import { compareLatestTrustedRun } from 'agent-scenario-loop/runner/compare-latest';",
       "import { runIosSimctlCapture } from 'agent-scenario-loop/runner/ios-simctl';",
+      "import { readLiveProof } from 'agent-scenario-loop/runner/live-proof';",
       "import { resolveAndroidAdbDriverSteps, resolveAndroidAdbProfileCommands, runProfileAndroid } from 'agent-scenario-loop/runner/profile-android';",
       "import { runProfileIos, type CliArgs } from 'agent-scenario-loop/runner/profile-ios';",
       '',
@@ -1507,6 +1519,7 @@ function main(): void {
       'void runExampleIosLiveProof;',
       'void initProject;',
       'void runIosSimctlCapture;',
+      'void readLiveProof;',
       'void resolveAndroidAdbProfileCommands;',
       'void runProfileAndroid;',
       'void runProfileIos;',

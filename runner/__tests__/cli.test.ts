@@ -50,6 +50,10 @@ const HELP_CASES = [
     usage: 'Usage: asl-ios-simctl',
   },
   {
+    file: path.join(DIST_ROOT, 'runner', 'live-proof.js'),
+    usage: 'Usage: asl-live-proof',
+  },
+  {
     file: path.join(DIST_ROOT, 'runner', 'profile-ios.js'),
     usage: 'Usage: asl-profile-ios',
   },

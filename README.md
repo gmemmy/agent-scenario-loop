@@ -86,7 +86,7 @@ const {
 } = require('agent-scenario-loop');
 ```
 
-The preflight CLI is exported as `agent-scenario-loop` and `asl-check-plan` after package installation. The template scaffold command is exported as `asl-init`. The Android adb runner is exported as `asl-android-adb`, Android profiling is exported as `asl-profile-android`, the iOS simctl capture helper is exported as `asl-ios-simctl`, the packaged Android and iOS example proofs are exported as `asl-example-android-live` and `asl-example-ios-live`, iOS profiling is exported as `asl-profile-ios`, comparison is exported as `asl-compare` and `asl-compare-latest`, and the fixture loop is exported as `asl-demo-loop`. In this repo, use the script form:
+The preflight CLI is exported as `agent-scenario-loop` and `asl-check-plan` after package installation. The template scaffold command is exported as `asl-init`. The Android adb runner is exported as `asl-android-adb`, Android profiling is exported as `asl-profile-android`, the iOS simctl capture helper is exported as `asl-ios-simctl`, the packaged Android and iOS example proofs are exported as `asl-example-android-live` and `asl-example-ios-live`, iOS profiling is exported as `asl-profile-ios`, comparison is exported as `asl-compare` and `asl-compare-latest`, aggregate proof inspection is exported as `asl-live-proof`, and the fixture loop is exported as `asl-demo-loop`. In this repo, use the script form:
 
 ```bash
 pnpm check-plan -- --scenario examples/scenarios/mobile/app-startup.json --runner examples/runners/xcodebuildmcp-ios.json --platform ios --out artifacts/plan/app-startup
@@ -213,6 +213,12 @@ pnpm example:ios:live -- --run-suffix after-change --compare-latest
 ```
 
 Comparison artifacts are written under `artifacts/example-mobile-app/ios/comparisons/<scenario-id>/<run-id>`.
+
+To validate an aggregate proof and optionally fail on regressions:
+
+```bash
+pnpm live-proof -- --file artifacts/example-mobile-app/android/_live-proof/android-live-proof/live-proof.json --fail-on-regression
+```
 
 The lower-level command is:
 

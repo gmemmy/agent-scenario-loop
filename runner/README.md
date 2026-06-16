@@ -122,6 +122,12 @@ The comparison step writes `comparison.json` and `agent-summary.md` under `artif
 
 Each aggregate live proof also writes `_live-proof/<run-id>/live-proof.json` and `_live-proof/<run-id>/agent-summary.md`, giving agents one batch entrypoint that links preflight evidence, scenario run summaries, and optional comparisons.
 
+To inspect or gate the batch artifact:
+
+```bash
+pnpm live-proof -- --file artifacts/example-mobile-app/android/_live-proof/android-live-proof/live-proof.json --fail-on-regression
+```
+
 The individual iOS profile commands remain useful while debugging one scenario:
 
 ```bash
