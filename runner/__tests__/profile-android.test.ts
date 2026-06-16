@@ -88,7 +88,7 @@ test('profile-android writes artifacts from fixture event logs', async (t: TestC
 
   assert.equal(runDir, path.join(artifactRoot, 'app-startup', 'android-example-startup'));
   assert.equal(manifest.platform, 'android');
-  assert.equal(manifest.bundleId, 'dev.agent_scenario_loop.example');
+  assert.equal(manifest.bundleId, 'dev.agentscenarioloop.example');
   assert.equal(health.healthStatus, 'passed');
   assert.equal(verdict.verdictStatus, 'passed');
   assert.match(summary, /Scenario health passed/u);

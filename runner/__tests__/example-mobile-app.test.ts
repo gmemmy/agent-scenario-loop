@@ -106,6 +106,16 @@ function readJson(filePath: string): Record<string, unknown> {
   return JSON.parse(fs.readFileSync(filePath, 'utf8'));
 }
 
+test('example mobile app config matches Expo app identity', () => {
+  const appJson = readJson(fixturePath('examples/mobile-app/app.json'));
+  const aslConfig = readJson(fixturePath('examples/mobile-app/asl.config.json'));
+  const expo = appJson.expo as { android?: { package?: string }; ios?: { bundleIdentifier?: string } };
+  const app = aslConfig.app as { androidPackage?: string; iosBundleId?: string };
+
+  assert.equal(app.androidPackage, expo.android?.package);
+  assert.equal(app.iosBundleId, expo.ios?.bundleIdentifier);
+});
+
 test('example mobile app scenarios produce passed artifacts from committed evidence', async (t: TestContext) => {
   const artifactRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-example-mobile-app-'));
   t.after(async () => {

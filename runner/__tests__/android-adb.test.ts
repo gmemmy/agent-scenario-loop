@@ -137,6 +137,78 @@ test('captures bounded adb logcat evidence when requested', async (t: TestContex
   );
 });
 
+test('clears logs, launches package, waits, and captures a bounded Android window', async (t: TestContext) => {
+  const outputDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-android-adb-window-'));
+  t.after(async () => {
+    await fsp.rm(outputDir, { recursive: true, force: true });
+  });
+  const calls: string[] = [];
+  const executor = async (command: string, args: string[]): Promise<CommandResult> => {
+    const key = args.join(' ');
+    calls.push(key);
+    const responses: Record<string, Partial<CommandResult>> = {
+      version: { stdout: 'Android Debug Bridge version 1.0.41\n' },
+      'devices -l': {
+        stdout: [
+          'List of devices attached',
+          'emulator-5554 device product:sdk_gphone model:Pixel_6 device:emu64',
+        ].join('\n'),
+      },
+      '-s emulator-5554 shell getprop ro.product.model': { stdout: 'Pixel 6\n' },
+      '-s emulator-5554 shell getprop ro.build.version.release': { stdout: '15\n' },
+      '-s emulator-5554 shell getprop ro.build.version.sdk': { stdout: '35\n' },
+      '-s emulator-5554 shell pm path dev.agentscenarioloop.example': {
+        stdout: 'package:/data/app/dev.agentscenarioloop.example/base.apk\n',
+      },
+      '-s emulator-5554 logcat -c': { stdout: '' },
+      '-s emulator-5554 shell monkey -p dev.agentscenarioloop.example -c android.intent.category.LAUNCHER 1': {
+        stdout: 'Events injected: 1\n',
+      },
+      '-s emulator-5554 logcat -d -v time -t 50': {
+        stdout: '06-16 10:00:00.000 I/ReactNativeJS(123): [profile-event] {"event":"app_ready"}\n',
+      },
+    };
+    const response = responses[key] ?? { exitCode: 1, stderr: `unexpected command: ${key}` };
+    return {
+      command,
+      args,
+      exitCode: response.exitCode ?? 0,
+      stderr: response.stderr ?? '',
+      stdout: response.stdout ?? '',
+    };
+  };
+  const waits: number[] = [];
+
+  const result = await runAndroidAdbPreflight({
+    captureLogcat: true,
+    clearLogcat: true,
+    delay: async (ms: number) => {
+      waits.push(ms);
+    },
+    executor,
+    launch: true,
+    logcatLines: 50,
+    outputDir,
+    packageName: 'dev.agentscenarioloop.example',
+    runId: 'android-window-1',
+    waitMs: 250,
+  });
+
+  assert.equal(result.health.healthStatus, 'passed');
+  assert.deepEqual(waits, [250]);
+  assert.ok(fs.existsSync(path.join(outputDir, 'raw', 'adb-logcat-clear.txt')));
+  assert.ok(fs.existsSync(path.join(outputDir, 'raw', 'adb-launch.txt')));
+  assert.ok(fs.existsSync(path.join(outputDir, 'raw', 'adb-logcat.txt')));
+  assert.ok(calls.indexOf('-s emulator-5554 logcat -c') < calls.indexOf('-s emulator-5554 shell monkey -p dev.agentscenarioloop.example -c android.intent.category.LAUNCHER 1'));
+  assert.ok(calls.indexOf('-s emulator-5554 shell monkey -p dev.agentscenarioloop.example -c android.intent.category.LAUNCHER 1') < calls.indexOf('-s emulator-5554 logcat -d -v time -t 50'));
+  assert.ok(
+    (result.health.checks as Array<{ code: string }>).some((check) => check.code === 'android_package_launched'),
+  );
+  assert.ok(
+    (result.health.checks as Array<{ code: string }>).some((check) => check.code === 'android_capture_window_waited'),
+  );
+});
+
 test('fails health when no online adb device is connected', async (t: TestContext) => {
   const outputDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-android-adb-missing-'));
   t.after(async () => {
@@ -180,12 +252,17 @@ test('fails logcat capture when no online Android device is connected', async (t
 
   const result = await runAndroidAdbPreflight({
     captureLogcat: true,
+    clearLogcat: true,
     executor,
+    launch: true,
     outputDir,
     runId: 'android-run-logcat-missing',
   });
 
   assert.equal(result.health.healthStatus, 'failed');
+  assert.ok(
+    (result.health.checks as Array<{ code: string }>).some((check) => check.code === 'android_capture_window_no_device'),
+  );
   assert.ok(
     (result.health.checks as Array<{ code: string }>).some((check) => check.code === 'android_logcat_no_device'),
   );

@@ -49,6 +49,12 @@ To attach raw Android logs around a manual or agent-driven run:
 pnpm android:logcat -- --package com.example.app --logcat-lines 1000 --out artifacts/android-adb-logcat
 ```
 
+To create a bounded Android launch capture:
+
+```bash
+pnpm android:logcat -- --package com.example.app --clear-logcat --launch --wait-ms 5000 --logcat-lines 1000 --out artifacts/android-adb-launch
+```
+
 To turn that captured logcat evidence into scenario artifacts:
 
 ```bash

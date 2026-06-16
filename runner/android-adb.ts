@@ -14,11 +14,14 @@ const { hasHelpFlag, writeUsage } = require('./cli');
 type CliArgs = {
   adb?: string | boolean;
   'capture-logcat'?: string | boolean;
+  'clear-logcat'?: string | boolean;
+  launch?: string | boolean;
   'logcat-lines'?: string | boolean;
   out?: string | boolean;
   package?: string | boolean;
   'run-id'?: string | boolean;
   serial?: string | boolean;
+  'wait-ms'?: string | boolean;
   [key: string]: string | boolean | undefined;
 };
 
@@ -54,12 +57,16 @@ type AndroidPreflightResult = {
 type AndroidPreflightOptions = {
   adbPath?: string;
   captureLogcat?: boolean;
+  clearLogcat?: boolean;
+  delay?: (ms: number) => Promise<void>;
   executor?: CommandExecutor;
+  launch?: boolean;
   logcatLines?: number;
   outputDir?: string;
   packageName?: string | null;
   runId?: string;
   serial?: string | null;
+  waitMs?: number;
 };
 
 /**
@@ -73,6 +80,7 @@ function usage(output: { write: (message: string) => unknown } = process.stderr)
     '',
     'Checks adb/device readiness and writes health.json, verdict.json, agent-summary.md, and raw adb evidence.',
     'Use --capture-logcat [--logcat-lines <count>] to attach a bounded adb logcat snapshot under raw/adb-logcat.txt.',
+    'Use --clear-logcat --launch --wait-ms <ms> with --package <name> to capture a bounded app launch window.',
   ], output);
 }
 
@@ -149,6 +157,18 @@ function execFileCommand(command: string, args: string[]): Promise<CommandResult
         stdout,
       });
     });
+  });
+}
+
+/**
+ * Waits for the requested capture window.
+ *
+ * @param {number} ms
+ * @returns {Promise<void>}
+ */
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
   });
 }
 
@@ -247,12 +267,16 @@ function buildAndroidVerdict({ runId, health }: { runId: string; health: Record<
 async function runAndroidAdbPreflight({
   adbPath = 'adb',
   captureLogcat = false,
+  clearLogcat = false,
+  delay: wait = delay,
   executor = execFileCommand,
+  launch = false,
   logcatLines = 1000,
   outputDir = path.resolve('artifacts/android-adb-preflight'),
   packageName = null,
   runId = createRunId(),
   serial = null,
+  waitMs = 0,
 }: AndroidPreflightOptions = {}): Promise<AndroidPreflightResult> {
   const runDir = path.resolve(outputDir);
   const layout = createArtifactLayout({ outputDir: runDir });
@@ -298,10 +322,13 @@ async function runAndroidAdbPreflight({
   const metadata: Record<string, unknown> = {
     adbPath,
     captureLogcat,
+    clearLogcat,
     devices,
+    launch,
     logcatLines,
     selectedDevice: device,
     packageName,
+    waitMs,
   };
 
   if (device && device.state === 'device') {
@@ -338,6 +365,73 @@ async function runAndroidAdbPreflight({
       });
     }
 
+    if (clearLogcat) {
+      const clear = await executor(adbPath, ['-s', device.serial, 'logcat', '-c']);
+      raw['adb-logcat-clear.txt'] = [clear.stdout, clear.stderr].filter(Boolean).join('\n');
+      checks.push({
+        name: 'android_logcat_cleared',
+        status: clear.exitCode === 0 ? 'passed' : 'failed',
+        source: 'runner',
+        code: clear.exitCode === 0 ? 'android_logcat_cleared' : 'android_logcat_clear_failed',
+        message: clear.exitCode === 0 ? 'Cleared adb logcat before capture.' : 'adb logcat clear failed.',
+      });
+      metadata.logcatClear = {
+        args: clear.args,
+        exitCode: clear.exitCode,
+        rawPath: 'raw/adb-logcat-clear.txt',
+      };
+    }
+
+    if (launch) {
+      if (!packageName) {
+        checks.push({
+          name: 'android_package_launched',
+          status: 'failed',
+          source: 'runner',
+          code: 'android_launch_missing_package',
+          message: 'Package launch was requested, but --package was not provided.',
+        });
+      } else {
+        const launchResult = await executor(adbPath, [
+          '-s',
+          device.serial,
+          'shell',
+          'monkey',
+          '-p',
+          packageName,
+          '-c',
+          'android.intent.category.LAUNCHER',
+          '1',
+        ]);
+        raw['adb-launch.txt'] = [launchResult.stdout, launchResult.stderr].filter(Boolean).join('\n');
+        checks.push({
+          name: 'android_package_launched',
+          status: launchResult.exitCode === 0 ? 'passed' : 'failed',
+          source: 'runner',
+          code: launchResult.exitCode === 0 ? 'android_package_launched' : 'android_package_launch_failed',
+          message: launchResult.exitCode === 0
+            ? `Launched package ${packageName}.`
+            : `Failed to launch package ${packageName}.`,
+        });
+        metadata.launchResult = {
+          args: launchResult.args,
+          exitCode: launchResult.exitCode,
+          rawPath: 'raw/adb-launch.txt',
+        };
+      }
+    }
+
+    if (waitMs > 0 && captureLogcat) {
+      await wait(waitMs);
+      checks.push({
+        name: 'android_capture_window_waited',
+        status: 'passed',
+        source: 'runner',
+        code: 'android_capture_window_waited',
+        message: `Waited ${waitMs}ms before capturing adb logcat.`,
+      });
+    }
+
     if (captureLogcat) {
       const logcat = await executor(adbPath, [
         '-s',
@@ -365,14 +459,26 @@ async function runAndroidAdbPreflight({
         rawPath: 'raw/adb-logcat.txt',
       };
     }
-  } else if (captureLogcat) {
-    checks.push({
-      name: 'android_logcat_captured',
-      status: 'failed',
-      source: 'runner',
-      code: 'android_logcat_no_device',
-      message: 'adb logcat capture was requested, but no online Android device was selected.',
-    });
+  } else {
+    if (clearLogcat || launch) {
+      checks.push({
+        name: 'android_capture_window_started',
+        status: 'failed',
+        source: 'runner',
+        code: 'android_capture_window_no_device',
+        message: 'Android capture window setup was requested, but no online Android device was selected.',
+      });
+    }
+
+    if (captureLogcat) {
+      checks.push({
+        name: 'android_logcat_captured',
+        status: 'failed',
+        source: 'runner',
+        code: 'android_logcat_no_device',
+        message: 'adb logcat capture was requested, but no online Android device was selected.',
+      });
+    }
   }
 
   const health = buildAndroidHealth({ runId, checks });
@@ -429,11 +535,14 @@ async function main(): Promise<void> {
   const result = await runAndroidAdbPreflight({
     ...(typeof args.adb === 'string' ? { adbPath: args.adb } : {}),
     captureLogcat: args['capture-logcat'] === true || args['capture-logcat'] === 'true',
+    clearLogcat: args['clear-logcat'] === true || args['clear-logcat'] === 'true',
+    launch: args.launch === true || args.launch === 'true',
     logcatLines: parsePositiveInteger(args['logcat-lines'], 1000),
     ...(typeof args.out === 'string' ? { outputDir: args.out } : {}),
     ...(typeof args.package === 'string' ? { packageName: args.package } : {}),
     ...(typeof args['run-id'] === 'string' ? { runId: args['run-id'] } : {}),
     ...(typeof args.serial === 'string' ? { serial: args.serial } : {}),
+    waitMs: parsePositiveInteger(args['wait-ms'], 0),
   });
   process.stdout.write(`${result.runDir}\n`);
 }

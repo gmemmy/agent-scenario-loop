@@ -130,7 +130,7 @@ The command writes:
 
 If adb, a connected online device, or an optional package check fails, health fails and the verdict remains `inconclusive`.
 
-Add `--capture-logcat --logcat-lines <count>` to write `raw/adb-logcat.txt` in the same artifact folder. If logcat capture is requested and fails, scenario health fails because timing and event evidence would be incomplete.
+Add `--capture-logcat --logcat-lines <count>` to write `raw/adb-logcat.txt` in the same artifact folder. Add `--clear-logcat --launch --wait-ms <ms>` with `--package <name>` to clear logs, launch the package, wait for a bounded capture window, and then collect logcat evidence. If requested capture-window setup or logcat capture fails, scenario health fails because timing and event evidence would be incomplete.
 
 Use that captured logcat evidence directly with Android profiling:
 
