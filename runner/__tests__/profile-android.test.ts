@@ -259,13 +259,13 @@ test('profile-android starts profile sessions and executes scenario commands dur
       '-s emulator-5554 shell monkey -p dev.agentscenarioloop.example -c android.intent.category.LAUNCHER 1': {
         stdout: 'Events injected: 1\n',
       },
-      '-s emulator-5554 shell am start -a android.intent.action.VIEW -d asl-example://profile-session/start?runId=android-live-open-close&scenario=open-close-cycle -p dev.agentscenarioloop.example': {
+      "-s emulator-5554 shell am start -a 'android.intent.action.VIEW' -d 'asl-example://profile-session/start?runId=android-live-open-close&scenario=open-close-cycle' -p 'dev.agentscenarioloop.example'": {
         stdout: 'Starting: Intent { act=android.intent.action.VIEW }\n',
       },
-      '-s emulator-5554 shell am start -a android.intent.action.VIEW -d asl-example://profile-session/command?runId=android-live-open-close&scenario=open-close-cycle&command=activate-target%3Aexample-card-1 -p dev.agentscenarioloop.example': {
+      "-s emulator-5554 shell am start -a 'android.intent.action.VIEW' -d 'asl-example://profile-session/command?runId=android-live-open-close&scenario=open-close-cycle&command=activate-target%3Aexample-card-1' -p 'dev.agentscenarioloop.example'": {
         stdout: 'Starting: Intent { act=android.intent.action.VIEW }\n',
       },
-      '-s emulator-5554 shell am start -a android.intent.action.VIEW -d asl-example://profile-session/command?runId=android-live-open-close&scenario=open-close-cycle&command=activate-target%3Aclose-card -p dev.agentscenarioloop.example': {
+      "-s emulator-5554 shell am start -a 'android.intent.action.VIEW' -d 'asl-example://profile-session/command?runId=android-live-open-close&scenario=open-close-cycle&command=activate-target%3Aclose-card' -p 'dev.agentscenarioloop.example'": {
         stdout: 'Starting: Intent { act=android.intent.action.VIEW }\n',
       },
       '-s emulator-5554 logcat -d -v time -t 1000': {
@@ -315,7 +315,7 @@ test('profile-android starts profile sessions and executes scenario commands dur
   assert.deepEqual(waits, [250, 300, 300, 300, 300, 300, 300]);
   assert.ok(
     calls.indexOf('-s emulator-5554 logcat -c') <
-      calls.indexOf('-s emulator-5554 shell am start -a android.intent.action.VIEW -d asl-example://profile-session/start?runId=android-live-open-close&scenario=open-close-cycle -p dev.agentscenarioloop.example'),
+      calls.indexOf("-s emulator-5554 shell am start -a 'android.intent.action.VIEW' -d 'asl-example://profile-session/start?runId=android-live-open-close&scenario=open-close-cycle' -p 'dev.agentscenarioloop.example'"),
   );
   assert.ok(fs.existsSync(path.join(result.runDir, 'raw', 'adb-logcat.txt')));
 });

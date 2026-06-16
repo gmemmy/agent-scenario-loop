@@ -203,6 +203,19 @@ function parseAdbDevices(output: string): AndroidDevice[] {
 }
 
 /**
+ * Quotes one argument for the Android device shell.
+ *
+ * `adb shell` still lets the device shell interpret metacharacters in later
+ * tokens, so deep-link URLs with `&` must be quoted before execution.
+ *
+ * @param {string} value
+ * @returns {string}
+ */
+function quoteAndroidShellArg(value: string): string {
+  return `'${value.replace(/'/g, "'\\''")}'`;
+}
+
+/**
  * Selects an Android device by explicit serial or first online device.
  *
  * @param {AndroidDevice[]} devices
@@ -431,17 +444,20 @@ async function runAndroidAdbPreflight({
     }
 
     for (const [index, deepLink] of deepLinks.entries()) {
+      const deepLinkCommand = [
+        'am',
+        'start',
+        '-a',
+        quoteAndroidShellArg('android.intent.action.VIEW'),
+        '-d',
+        quoteAndroidShellArg(deepLink.url),
+        ...(packageName ? ['-p', quoteAndroidShellArg(packageName)] : []),
+      ].join(' ');
       const deepLinkResult = await executor(adbPath, [
         '-s',
         device.serial,
         'shell',
-        'am',
-        'start',
-        '-a',
-        'android.intent.action.VIEW',
-        '-d',
-        deepLink.url,
-        ...(packageName ? ['-p', packageName] : []),
+        deepLinkCommand,
       ]);
       const rawFileName = `adb-deep-link-${index + 1}.txt`;
       raw[rawFileName] = [deepLinkResult.stdout, deepLinkResult.stderr].filter(Boolean).join('\n');

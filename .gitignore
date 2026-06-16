@@ -2,6 +2,8 @@ node_modules/
 dist/
 core/artifacts/
 artifacts/
+examples/mobile-app/.expo/
+examples/mobile-app/android/
 *.trace
 *.mp4
 *.png

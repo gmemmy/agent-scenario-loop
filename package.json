@@ -80,6 +80,12 @@
     "!dist/scripts",
     "docs",
     "examples",
+    "!examples/mobile-app/.expo",
+    "!examples/mobile-app/.expo/**",
+    "!examples/mobile-app/android",
+    "!examples/mobile-app/android/**",
+    "!examples/mobile-app/node_modules",
+    "!examples/mobile-app/node_modules/**",
     "schemas",
     "README.md",
     "LICENSE"

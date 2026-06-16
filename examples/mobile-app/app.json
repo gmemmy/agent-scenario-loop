@@ -11,10 +11,6 @@
     },
     "android": {
       "package": "dev.agentscenarioloop.example"
-    },
-    "plugins": ["expo-router"],
-    "experiments": {
-      "typedRoutes": true
     }
   }
 }

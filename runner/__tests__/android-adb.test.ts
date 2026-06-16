@@ -232,7 +232,7 @@ test('opens profile-session deep links before logcat capture', async (t: TestCon
       '-s emulator-5554 shell pm path dev.agentscenarioloop.example': {
         stdout: 'package:/data/app/dev.agentscenarioloop.example/base.apk\n',
       },
-      '-s emulator-5554 shell am start -a android.intent.action.VIEW -d asl-example://profile-session/start?scenario=app-startup&runId=android-live -p dev.agentscenarioloop.example': {
+      "-s emulator-5554 shell am start -a 'android.intent.action.VIEW' -d 'asl-example://profile-session/start?scenario=app-startup&runId=android-live' -p 'dev.agentscenarioloop.example'": {
         stdout: 'Starting: Intent { act=android.intent.action.VIEW }\n',
       },
       '-s emulator-5554 logcat -d -v time -t 25': {
@@ -273,7 +273,7 @@ test('opens profile-session deep links before logcat capture', async (t: TestCon
   assert.deepEqual(waits, [125]);
   assert.ok(fs.existsSync(path.join(outputDir, 'raw', 'adb-deep-link-1.txt')));
   assert.ok(
-    calls.indexOf('-s emulator-5554 shell am start -a android.intent.action.VIEW -d asl-example://profile-session/start?scenario=app-startup&runId=android-live -p dev.agentscenarioloop.example') <
+    calls.indexOf("-s emulator-5554 shell am start -a 'android.intent.action.VIEW' -d 'asl-example://profile-session/start?scenario=app-startup&runId=android-live' -p 'dev.agentscenarioloop.example'") <
       calls.indexOf('-s emulator-5554 logcat -d -v time -t 25'),
   );
   assert.ok(

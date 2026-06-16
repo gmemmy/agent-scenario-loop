@@ -47,8 +47,9 @@ export function ExampleScreen(): React.ReactElement {
   const [scrollSettled, setScrollSettled] = useState(false);
   const scrollViewRef = useRef<ScrollView | null>(null);
   const commandIterationRef = useRef(1);
+  const ignoredMomentumEndsRef = useRef(0);
   const selectedIterationRef = useRef(1);
-  const startupRunRef = useRef<string | null>(null);
+  const startupRunKeyRef = useRef<string | null>(null);
 
   const openCard = useCallback((index: number, iterationOverride?: number) => {
     const card = CARDS[index] ?? CARDS[0];
@@ -73,6 +74,7 @@ export function ExampleScreen(): React.ReactElement {
   const runScrollSettle = useCallback((iteration = 1) => {
     setScrollSettled(false);
     mark('feed_scroll_started', iteration);
+    ignoredMomentumEndsRef.current += 1;
     scrollViewRef.current?.scrollTo({ animated: true, y: 360 });
     requestAnimationFrame(() => {
       mark('feed_first_content_visible', iteration);
@@ -83,29 +85,36 @@ export function ExampleScreen(): React.ReactElement {
   }, []);
 
   useEffect(() => {
-    if (profileSession.runId) {
+    if (profileSession.runId && profileSession.startedAt) {
       commandIterationRef.current = 1;
     }
-  }, [profileSession.runId]);
+  }, [profileSession.runId, profileSession.startedAt]);
 
   useEffect(() => {
+    const startupRunKey = `${profileSession.runId ?? 'unknown'}:${profileSession.startedAt ?? 0}`;
     if (
       !profileSession.active ||
       profileSession.scenario !== 'app-startup' ||
       !profileSession.runId ||
-      startupRunRef.current === profileSession.runId
+      !profileSession.startedAt ||
+      startupRunKeyRef.current === startupRunKey
     ) {
       return;
     }
 
-    startupRunRef.current = profileSession.runId;
+    startupRunKeyRef.current = startupRunKey;
     mark('app_launch_requested');
     requestAnimationFrame(() => {
       mark('home_ready');
       mark('startup_idle_observed');
       mark('startup_complete');
     });
-  }, [profileSession.active, profileSession.runId, profileSession.scenario]);
+  }, [
+    profileSession.active,
+    profileSession.runId,
+    profileSession.scenario,
+    profileSession.startedAt,
+  ]);
 
   useEffect(() => {
     const unregisterOpen = registerProfileCommandTargetHandler('example-card-1', () => {
@@ -135,6 +144,7 @@ export function ExampleScreen(): React.ReactElement {
           styles.content,
           {
             paddingBottom: Math.max(insets.bottom + 120, 144),
+            paddingTop: insets.top + 18,
           },
         ]}
         contentInsetAdjustmentBehavior="automatic"
@@ -143,6 +153,11 @@ export function ExampleScreen(): React.ReactElement {
           mark('feed_scroll_started');
         }}
         onMomentumScrollEnd={() => {
+          if (ignoredMomentumEndsRef.current > 0) {
+            ignoredMomentumEndsRef.current -= 1;
+            return;
+          }
+
           mark('feed_first_content_visible');
           mark('feed_scroll_settle_requested');
           mark('feed_scroll_settled');
@@ -223,7 +238,6 @@ const styles = StyleSheet.create({
   content: {
     gap: 12,
     paddingHorizontal: 16,
-    paddingTop: 18,
   },
   header: {
     borderBottomColor: '#d9dde5',

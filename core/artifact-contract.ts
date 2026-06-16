@@ -217,18 +217,39 @@ function buildMetricsFromProfileEvents({
     if (typeof event.iteration !== 'number') {
       continue;
     }
+    if (typeof event.atMs !== 'number') {
+      continue;
+    }
 
     const current = iterations.get(event.iteration) ?? {};
-    if (event.event === resolvedCycleEventNames.openRequested) {
+    if (
+      event.event === resolvedCycleEventNames.openRequested &&
+      typeof current.presentRequestedAt !== 'number'
+    ) {
       current.presentRequestedAt = event.atMs;
     }
-    if (event.event === resolvedCycleEventNames.opened) {
+    if (
+      event.event === resolvedCycleEventNames.opened &&
+      typeof current.openedAt !== 'number' &&
+      typeof current.presentRequestedAt === 'number' &&
+      event.atMs >= current.presentRequestedAt
+    ) {
       current.openedAt = event.atMs;
     }
-    if (event.event === resolvedCycleEventNames.closeRequested) {
+    if (
+      event.event === resolvedCycleEventNames.closeRequested &&
+      typeof current.closeRequestedAt !== 'number'
+    ) {
       current.closeRequestedAt = event.atMs;
     }
-    if (event.event === resolvedCycleEventNames.dismissed) {
+    if (
+      event.event === resolvedCycleEventNames.dismissed &&
+      typeof current.dismissedAt !== 'number' &&
+      typeof current.presentRequestedAt === 'number' &&
+      typeof current.closeRequestedAt === 'number' &&
+      event.atMs >= current.presentRequestedAt &&
+      event.atMs >= current.closeRequestedAt
+    ) {
       current.dismissedAt = event.atMs;
     }
 
