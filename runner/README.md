@@ -61,6 +61,12 @@ To turn that captured logcat evidence into scenario artifacts:
 pnpm profile:android -- --config <config> --scenario <scenario> --adb-artifacts artifacts/android-adb-logcat --run-id <run-id>
 ```
 
+To let `profile:android` own both the adb capture window and the profile artifact run:
+
+```bash
+pnpm profile:android -- --config <config> --scenario <scenario> --adb-capture --clear-logcat --launch --wait-ms 5000 --run-id <run-id>
+```
+
 Android is the first live runtime target for the example app while local iOS tooling is unavailable:
 
 ```bash

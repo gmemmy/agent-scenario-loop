@@ -138,6 +138,12 @@ Use that captured logcat evidence directly with Android profiling:
 pnpm profile:android -- --config core/config-template.json --scenario examples/mobile-app/scenarios/android/app-startup.json --adb-artifacts artifacts/android-adb-preflight --run-id android-run-1
 ```
 
+Or let Android profiling own the adb capture window before it writes profile artifacts:
+
+```bash
+pnpm profile:android -- --config core/config-template.json --scenario examples/mobile-app/scenarios/android/app-startup.json --adb-capture --clear-logcat --launch --wait-ms 5000 --run-id android-run-1
+```
+
 ## Historical comparison
 
 Use `compare` to build `comparison.json` from two completed run folders:

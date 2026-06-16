@@ -9,10 +9,18 @@ const test = require('node:test');
 const DIST_ROOT = path.join(__dirname, '..', '..');
 const ROOT = path.join(DIST_ROOT, '..');
 const PROFILE_ANDROID = path.join(DIST_ROOT, 'runner', 'profile-android.js');
+const { runProfileAndroid } = require('../profile-android');
 
 type ExecOutput = {
   stdout: string;
   stderr: string;
+};
+type CommandResult = {
+  command: string;
+  args: string[];
+  exitCode: number;
+  stderr: string;
+  stdout: string;
 };
 type ExecFailure = Error & ExecOutput;
 type TestContext = import('node:test').TestContext;
@@ -58,6 +66,26 @@ function fixturePath(relativePath: string): string {
  */
 function readJson(filePath: string): Record<string, unknown> {
   return JSON.parse(fs.readFileSync(filePath, 'utf8'));
+}
+
+/**
+ * Creates a fake adb executor from argument-keyed responses.
+ *
+ * @param {Record<string, Partial<CommandResult>>} responses
+ * @returns {(command: string, args: string[]) => Promise<CommandResult>}
+ */
+function createExecutor(responses: Record<string, Partial<CommandResult>>) {
+  return async (command: string, args: string[]): Promise<CommandResult> => {
+    const key = args.join(' ');
+    const response = responses[key] ?? { exitCode: 1, stderr: `unexpected command: ${key}` };
+    return {
+      command,
+      args,
+      exitCode: response.exitCode ?? 0,
+      stderr: response.stderr ?? '',
+      stdout: response.stdout ?? '',
+    };
+  };
 }
 
 test('profile-android writes artifacts from fixture event logs', async (t: TestContext) => {
@@ -131,4 +159,67 @@ test('profile-android reads logcat from adb artifact folders', async (t: TestCon
   assert.equal(health.healthStatus, 'passed');
   assert.equal(verdict.verdictStatus, 'passed');
   assert.ok(fs.existsSync(path.join(runDir, 'raw', 'adb-logcat.txt')));
+});
+
+test('profile-android can capture adb logs and profile them in one run', async (t: TestContext) => {
+  const tempRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-android-adb-capture-'));
+  t.after(async () => {
+    await fsp.rm(tempRoot, { recursive: true, force: true });
+  });
+  const adbCaptureRoot = path.join(tempRoot, 'adb-capture');
+  const profileRoot = path.join(tempRoot, 'profile');
+  const waits: number[] = [];
+  const executor = createExecutor({
+    version: { stdout: 'Android Debug Bridge version 1.0.41\n' },
+    'devices -l': {
+      stdout: [
+        'List of devices attached',
+        'emulator-5554 device product:sdk_gphone model:Pixel_6 device:emu64',
+      ].join('\n'),
+    },
+    '-s emulator-5554 shell getprop ro.product.model': { stdout: 'Pixel 6\n' },
+    '-s emulator-5554 shell getprop ro.build.version.release': { stdout: '15\n' },
+    '-s emulator-5554 shell getprop ro.build.version.sdk': { stdout: '35\n' },
+    '-s emulator-5554 shell pm path dev.agentscenarioloop.example': {
+      stdout: 'package:/data/app/dev.agentscenarioloop.example/base.apk\n',
+    },
+    '-s emulator-5554 logcat -c': { stdout: '' },
+    '-s emulator-5554 shell monkey -p dev.agentscenarioloop.example -c android.intent.category.LAUNCHER 1': {
+      stdout: 'Events injected: 1\n',
+    },
+    '-s emulator-5554 logcat -d -v time -t 1000': {
+      stdout: fs
+        .readFileSync(fixturePath('examples/mobile-app/event-logs/android-app-startup.log'), 'utf8')
+        .replace(/android-example-startup/gu, 'android-captured-startup'),
+    },
+  });
+
+  const result = await runProfileAndroid({
+    'adb-capture': true,
+    'adb-out': adbCaptureRoot,
+    'clear-logcat': true,
+    config: fixturePath('examples/mobile-app/asl.config.json'),
+    events: fixturePath('examples/mobile-app/event-logs/android-open-close-cycle.log'),
+    launch: true,
+    out: profileRoot,
+    'run-id': 'android-captured-startup',
+    scenario: fixturePath('examples/mobile-app/scenarios/android/app-startup.json'),
+    'wait-ms': '25',
+  }, {
+    delay: async (ms: number) => {
+      waits.push(ms);
+    },
+    executor,
+  });
+
+  const manifest = readJson(path.join(result.runDir, 'manifest.json'));
+  const health = readJson(path.join(result.runDir, 'health.json'));
+  const adbHealth = readJson(path.join(adbCaptureRoot, 'health.json'));
+
+  assert.deepEqual(waits, [25]);
+  assert.equal(result.runDir, path.join(profileRoot, 'app-startup', 'android-captured-startup'));
+  assert.equal(health.healthStatus, 'passed');
+  assert.equal(adbHealth.healthStatus, 'passed');
+  assert.equal((manifest.artifacts as { raw: { interactionLog: string } }).raw.interactionLog, 'raw/adb-logcat.txt');
+  assert.ok(fs.existsSync(path.join(result.runDir, 'raw', 'adb-logcat.txt')));
 });
