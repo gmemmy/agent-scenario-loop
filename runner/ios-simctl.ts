@@ -1,0 +1,962 @@
+#!/usr/bin/env node
+
+const { execFile } = require('node:child_process');
+const crypto = require('node:crypto');
+const fs = require('node:fs');
+const fsp = require('node:fs/promises');
+const path = require('node:path');
+
+const { buildAgentSummaryMarkdown } = require('../core/agent-summary');
+const { createArtifactLayout } = require('../core/artifact-layout');
+const { writeJsonArtifact, writeTextArtifact } = require('../core/artifact-writer');
+const { SCHEMAS, assertValidJson } = require('../core/schema-validator');
+const { hasHelpFlag, writeUsage } = require('./cli');
+
+type CliArgs = {
+  bundle?: string | boolean;
+  'collect-profile-storage'?: string | boolean;
+  device?: string | boolean;
+  launch?: string | boolean;
+  'log-last'?: string | boolean;
+  out?: string | boolean;
+  'profile-session-storage'?: string | boolean;
+  'run-id'?: string | boolean;
+  'terminate-before-launch'?: string | boolean;
+  'wait-ms'?: string | boolean;
+  xcrun?: string | boolean;
+  [key: string]: string | boolean | undefined;
+};
+type CommandResult = {
+  command: string;
+  args: string[];
+  exitCode: number;
+  stderr: string;
+  stdout: string;
+};
+type CommandExecutor = (command: string, args: string[]) => Promise<CommandResult>;
+type ExecFileError = Error & {
+  code?: number;
+};
+type IosSimulator = {
+  name: string;
+  state: string;
+  udid: string;
+};
+type IosSimctlDeepLink = {
+  label?: string;
+  url: string;
+  waitMs?: number;
+};
+type IosProfileSessionStorageCommand = {
+  command: string;
+  id?: string;
+  label?: string;
+  timestamp?: number;
+};
+type IosProfileSessionStorageSeed = {
+  commands?: IosProfileSessionStorageCommand[];
+  scenario: string;
+  runId: string;
+  startedAt?: number;
+};
+type IosSimctlCaptureOptions = {
+  bundleId?: string | null;
+  collectProfileStorage?: boolean;
+  deepLinks?: IosSimctlDeepLink[];
+  delay?: (ms: number) => Promise<void>;
+  device?: string | null;
+  executor?: CommandExecutor;
+  launch?: boolean;
+  logLast?: string;
+  outputDir?: string;
+  profileSessionStorage?: IosProfileSessionStorageSeed | null;
+  runId?: string;
+  terminateBeforeLaunch?: boolean;
+  waitMs?: number;
+  xcrunPath?: string;
+};
+type IosSimctlCaptureResult = {
+  agentSummary: string;
+  health: Record<string, unknown>;
+  metadata: Record<string, unknown>;
+  raw: Record<string, string>;
+  runDir: string;
+  simulator: IosSimulator | null;
+  verdict: Record<string, unknown>;
+};
+type AsyncStorageManifest = Record<string, string | null>;
+
+const PROFILE_STORAGE_PREFIX = 'agent-scenario-loop';
+const PROFILE_STORAGE_SCHEMA = '1';
+const PROFILE_EVENT_STORAGE_KEY = `${PROFILE_STORAGE_PREFIX}.profile-events.${PROFILE_STORAGE_SCHEMA}`;
+const PROFILE_SIGNAL_STORAGE_KEY = `${PROFILE_STORAGE_PREFIX}.profile-signals.${PROFILE_STORAGE_SCHEMA}`;
+const PROFILE_SESSION_STORAGE_KEY = `${PROFILE_STORAGE_PREFIX}.profile-session.${PROFILE_STORAGE_SCHEMA}`;
+const PROFILE_COMMAND_STORAGE_KEY = `${PROFILE_STORAGE_PREFIX}.profile-commands.${PROFILE_STORAGE_SCHEMA}`;
+const PROFILE_SESSION_ENTRIES_STORAGE_KEY = `${PROFILE_STORAGE_PREFIX}.profile-session-entries.${PROFILE_STORAGE_SCHEMA}`;
+const PROFILE_STORAGE_RESET_KEYS = [
+  PROFILE_EVENT_STORAGE_KEY,
+  PROFILE_SIGNAL_STORAGE_KEY,
+  PROFILE_COMMAND_STORAGE_KEY,
+  PROFILE_SESSION_ENTRIES_STORAGE_KEY,
+];
+
+/**
+ * Prints CLI usage to stderr.
+ *
+ * @returns {void}
+ */
+function usage(output: { write: (message: string) => unknown } = process.stderr): void {
+  writeUsage([
+    'Usage: asl-ios-simctl [--xcrun <path>] [--device <udid|booted>] [--bundle <id>] [--run-id <id>] [--out <dir>]',
+    '',
+    'Checks iOS simulator readiness and writes health.json, verdict.json, agent-summary.md, and raw simctl evidence.',
+    'Use --launch with --bundle <id> to launch the app before capturing a bounded simulator log window.',
+    'Use --profile-session-storage <scenario> with --bundle <id> to seed the app profile session before launch.',
+    'Use --collect-profile-storage with --bundle <id> to collect stored profile events after the capture window.',
+  ], output);
+}
+
+/**
+ * Parses `--key value` arguments for the iOS simctl capture CLI.
+ *
+ * @param {string[]} argv
+ * @returns {CliArgs}
+ */
+function parseArgs(argv: string[]): CliArgs {
+  const args: CliArgs = {};
+  for (let index = 0; index < argv.length; index += 1) {
+    const token = argv[index];
+    if (token === '--') {
+      continue;
+    }
+    if (!token || !token.startsWith('--')) {
+      continue;
+    }
+
+    const key = token.slice(2);
+    const value = argv[index + 1];
+    if (value && !value.startsWith('--')) {
+      args[key] = value;
+      index += 1;
+    } else {
+      args[key] = true;
+    }
+  }
+
+  return args;
+}
+
+/**
+ * Parses a positive integer CLI value, falling back when absent or invalid.
+ *
+ * @param {string | boolean | undefined} value
+ * @param {number} fallback
+ * @returns {number}
+ */
+function parsePositiveInteger(value: string | boolean | undefined, fallback: number): number {
+  if (typeof value !== 'string') {
+    return fallback;
+  }
+
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+/**
+ * Creates a short random run id for iOS simulator capture runs.
+ *
+ * @returns {string}
+ */
+function createRunId(): string {
+  return crypto.randomBytes(6).toString('hex');
+}
+
+/**
+ * Resolves React Native AsyncStorage's iOS storage directory for an app data container.
+ *
+ * @param {{dataContainer: string, bundleId: string}} options
+ * @returns {string}
+ */
+function resolveAsyncStorageDirectory({
+  bundleId,
+  dataContainer,
+}: {
+  bundleId: string;
+  dataContainer: string;
+}): string {
+  return path.join(dataContainer, 'Library', 'Application Support', bundleId, 'RCTAsyncLocalStorage_V1');
+}
+
+/**
+ * Returns the native iOS AsyncStorage spill-file name for a key.
+ *
+ * @param {string} key
+ * @returns {string}
+ */
+function asyncStorageFileNameForKey(key: string): string {
+  return crypto.createHash('md5').update(key).digest('hex');
+}
+
+/**
+ * Reads the native iOS AsyncStorage manifest when it exists.
+ *
+ * @param {string} storageDir
+ * @returns {AsyncStorageManifest}
+ */
+function readAsyncStorageManifestSync(storageDir: string): AsyncStorageManifest {
+  const manifestPath = path.join(storageDir, 'manifest.json');
+  if (!fs.existsSync(manifestPath)) {
+    return {};
+  }
+
+  return JSON.parse(fs.readFileSync(manifestPath, 'utf8')) as AsyncStorageManifest;
+}
+
+/**
+ * Writes the native iOS AsyncStorage manifest with stable formatting.
+ *
+ * @param {{manifest: AsyncStorageManifest, storageDir: string}} options
+ * @returns {Promise<void>}
+ */
+async function writeAsyncStorageManifest({
+  manifest,
+  storageDir,
+}: {
+  manifest: AsyncStorageManifest;
+  storageDir: string;
+}): Promise<void> {
+  await fsp.mkdir(storageDir, { recursive: true });
+  await fsp.writeFile(path.join(storageDir, 'manifest.json'), `${JSON.stringify(manifest)}\n`, 'utf8');
+}
+
+/**
+ * Reads one native iOS AsyncStorage value from an inline manifest or spill file.
+ *
+ * @param {{key: string, storageDir: string}} options
+ * @returns {string | null}
+ */
+function readAsyncStorageValueSync({
+  key,
+  storageDir,
+}: {
+  key: string;
+  storageDir: string;
+}): string | null {
+  const manifest = readAsyncStorageManifestSync(storageDir);
+  const value = manifest[key];
+  if (typeof value === 'string') {
+    return value;
+  }
+
+  if (value !== null) {
+    return null;
+  }
+
+  const spillPath = path.join(storageDir, asyncStorageFileNameForKey(key));
+  return fs.existsSync(spillPath) ? fs.readFileSync(spillPath, 'utf8') : null;
+}
+
+/**
+ * Removes stale native iOS AsyncStorage spill files for keys the runner resets.
+ *
+ * @param {{keys: string[], storageDir: string}} options
+ * @returns {Promise<void>}
+ */
+async function removeAsyncStorageSpillFiles({
+  keys,
+  storageDir,
+}: {
+  keys: string[];
+  storageDir: string;
+}): Promise<void> {
+  await Promise.all(
+    keys.map((key) =>
+      fsp.rm(path.join(storageDir, asyncStorageFileNameForKey(key)), { force: true }),
+    ),
+  );
+}
+
+/**
+ * Seeds the app profile-session AsyncStorage key before launching the iOS app.
+ *
+ * @param {{bundleId: string, commands?: IosProfileSessionStorageCommand[], dataContainer: string, runId: string, scenario: string, startedAt?: number}} options
+ * @returns {Promise<{manifestPath: string, storageDir: string, session: Record<string, unknown>}>}
+ */
+async function seedProfileSessionStorage({
+  bundleId,
+  commands = [],
+  dataContainer,
+  runId,
+  scenario,
+  startedAt = Date.now(),
+}: {
+  bundleId: string;
+  commands?: IosProfileSessionStorageCommand[];
+  dataContainer: string;
+  runId: string;
+  scenario: string;
+  startedAt?: number;
+}): Promise<{commands: Record<string, unknown>[]; manifestPath: string; storageDir: string; session: Record<string, unknown>}> {
+  const storageDir = resolveAsyncStorageDirectory({ bundleId, dataContainer });
+  const manifest = readAsyncStorageManifestSync(storageDir);
+  for (const key of PROFILE_STORAGE_RESET_KEYS) {
+    delete manifest[key];
+  }
+
+  const session = {
+    active: true,
+    scenario,
+    runId,
+    startedAt,
+  };
+  const queuedCommands = commands.map((profileCommand, index) => ({
+    id: profileCommand.id ?? `ios-storage-command-${index + 1}-${profileCommand.command}`,
+    scenario,
+    runId,
+    command: profileCommand.command,
+    timestamp: typeof profileCommand.timestamp === 'number' ? profileCommand.timestamp : startedAt + index + 1,
+  }));
+  manifest[PROFILE_SESSION_STORAGE_KEY] = JSON.stringify(session);
+  if (queuedCommands.length > 0) {
+    manifest[PROFILE_COMMAND_STORAGE_KEY] = JSON.stringify(queuedCommands);
+  }
+  await removeAsyncStorageSpillFiles({
+    keys: [PROFILE_SESSION_STORAGE_KEY, ...PROFILE_STORAGE_RESET_KEYS],
+    storageDir,
+  });
+  await writeAsyncStorageManifest({ manifest, storageDir });
+
+  return {
+    commands: queuedCommands,
+    manifestPath: path.join(storageDir, 'manifest.json'),
+    session,
+    storageDir,
+  };
+}
+
+/**
+ * Reads JSON stored by the app profile-session AsyncStorage bridge.
+ *
+ * @param {{bundleId: string, dataContainer: string, key: string, fallback: unknown}} options
+ * @returns {unknown}
+ */
+function readProfileStorageJson({
+  bundleId,
+  dataContainer,
+  fallback,
+  key,
+}: {
+  bundleId: string;
+  dataContainer: string;
+  fallback: unknown;
+  key: string;
+}): unknown {
+  const storageDir = resolveAsyncStorageDirectory({ bundleId, dataContainer });
+  const rawValue = readAsyncStorageValueSync({ key, storageDir });
+  if (!rawValue) {
+    return fallback;
+  }
+
+  return JSON.parse(rawValue);
+}
+
+/**
+ * Formats stored profile events as the canonical profile-event log payload.
+ *
+ * @param {Record<string, unknown>[]} events
+ * @returns {string}
+ */
+function formatStoredProfileEventLog(events: Record<string, unknown>[]): string {
+  return events
+    .map((event) => {
+      const timestamp = typeof event.timestamp === 'number' && Number.isFinite(event.timestamp)
+        ? new Date(event.timestamp).toISOString()
+        : new Date(0).toISOString();
+      return `${timestamp} ios-simctl [profile-event] ${JSON.stringify(event)}`;
+    })
+    .join('\n');
+}
+
+/**
+ * Runs a command and captures stdout, stderr, and exit code without throwing.
+ *
+ * @param {string} command
+ * @param {string[]} args
+ * @returns {Promise<CommandResult>}
+ */
+function execFileCommand(command: string, args: string[]): Promise<CommandResult> {
+  return new Promise((resolve) => {
+    execFile(command, args, (error: ExecFileError | null, stdout: string, stderr: string) => {
+      resolve({
+        command,
+        args,
+        exitCode: error && typeof error.code === 'number' ? error.code : error ? 1 : 0,
+        stderr,
+        stdout,
+      });
+    });
+  });
+}
+
+/**
+ * Waits for the requested capture window.
+ *
+ * @param {number} ms
+ * @returns {Promise<void>}
+ */
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+/**
+ * Parses `xcrun simctl list devices` output into simulator rows.
+ *
+ * @param {string} output
+ * @returns {IosSimulator[]}
+ */
+function parseSimctlDevices(output: string): IosSimulator[] {
+  return String(output)
+    .split(/\r?\n/u)
+    .map((line) => line.trim())
+    .map((line) => {
+      const match = /^(?<name>.+) \((?<udid>[0-9A-F-]+)\) \((?<state>[^)]+)\)$/u.exec(line);
+      if (!match?.groups) {
+        return null;
+      }
+
+      return {
+        name: match.groups.name,
+        state: match.groups.state,
+        udid: match.groups.udid,
+      };
+    })
+    .filter((simulator): simulator is IosSimulator => Boolean(simulator));
+}
+
+/**
+ * Selects a simulator by explicit UDID or the first booted simulator.
+ *
+ * @param {IosSimulator[]} simulators
+ * @param {string | null | undefined} device
+ * @returns {IosSimulator | null}
+ */
+function selectSimulator(simulators: IosSimulator[], device?: string | null): IosSimulator | null {
+  if (device && device !== 'booted') {
+    return simulators.find((simulator) => simulator.udid === device) ?? null;
+  }
+
+  return simulators.find((simulator) => simulator.state === 'Booted') ?? null;
+}
+
+/**
+ * Builds a health artifact from iOS simulator capture checks.
+ *
+ * @param {{runId: string, checks: Record<string, unknown>[]}} options
+ * @returns {Record<string, unknown>}
+ */
+function buildIosSimctlHealth({ runId, checks }: { runId: string; checks: Record<string, unknown>[] }): Record<string, unknown> {
+  const failed = checks.some((check) => check.status === 'failed');
+  return assertValidJson(
+    {
+      schemaVersion: '1.0.0',
+      scenarioId: 'ios-simctl-capture',
+      flowId: 'ios-simctl-capture',
+      runId,
+      healthStatus: failed ? 'failed' : 'passed',
+      checks,
+    },
+    SCHEMAS.health,
+    'Health artifact',
+  ) as Record<string, unknown>;
+}
+
+/**
+ * Builds a verdict artifact for iOS simulator capture readiness.
+ *
+ * @param {{runId: string, health: Record<string, unknown>}} options
+ * @returns {Record<string, unknown>}
+ */
+function buildIosSimctlVerdict({ runId, health }: { runId: string; health: Record<string, unknown> }): Record<string, unknown> {
+  const passed = health.healthStatus === 'passed';
+  return assertValidJson(
+    {
+      schemaVersion: '1.0.0',
+      scenarioId: 'ios-simctl-capture',
+      flowId: 'ios-simctl-capture',
+      runId,
+      healthStatus: health.healthStatus,
+      verdictStatus: passed ? 'not_evaluated' : 'inconclusive',
+      budgetChecks: [],
+      summary: passed
+        ? 'iOS simctl capture passed; no product budget has been evaluated.'
+        : 'iOS simctl capture failed; runtime scenario execution is not ready.',
+    },
+    SCHEMAS.verdict,
+    'Verdict artifact',
+  ) as Record<string, unknown>;
+}
+
+/**
+ * Runs iOS simulator readiness checks and writes raw simctl evidence.
+ *
+ * @param {IosSimctlCaptureOptions} options
+ * @returns {Promise<IosSimctlCaptureResult>}
+ */
+async function runIosSimctlCapture({
+  bundleId = null,
+  collectProfileStorage = false,
+  deepLinks = [],
+  delay: wait = delay,
+  device = null,
+  executor = execFileCommand,
+  launch = false,
+  logLast = '2m',
+  outputDir = path.resolve('artifacts/ios-simctl-capture'),
+  profileSessionStorage = null,
+  runId = createRunId(),
+  terminateBeforeLaunch = false,
+  waitMs = 0,
+  xcrunPath = 'xcrun',
+}: IosSimctlCaptureOptions = {}): Promise<IosSimctlCaptureResult> {
+  const runDir = path.resolve(outputDir);
+  const layout = createArtifactLayout({ outputDir: runDir });
+  const rawDir = layout.raw;
+  await fsp.mkdir(rawDir, { recursive: true });
+
+  const raw: Record<string, string> = {};
+  const checks: Record<string, unknown>[] = [];
+  const devicesOutput = await executor(xcrunPath, ['simctl', 'list', 'devices']);
+  raw['ios-simctl-devices.txt'] = [devicesOutput.stdout, devicesOutput.stderr].filter(Boolean).join('\n');
+  checks.push({
+    name: 'ios_simctl_available',
+    status: devicesOutput.exitCode === 0 ? 'passed' : 'failed',
+    source: 'runner',
+    code: devicesOutput.exitCode === 0 ? 'ios_simctl_available' : 'ios_simctl_unavailable',
+    message: devicesOutput.exitCode === 0 ? 'simctl device listing succeeded.' : 'simctl device listing failed.',
+  });
+
+  const simulators = parseSimctlDevices(devicesOutput.stdout);
+  const simulator = devicesOutput.exitCode === 0 ? selectSimulator(simulators, device) : null;
+  const selectedDevice = device || 'booted';
+  checks.push({
+    name: 'ios_simulator_booted',
+    status: simulator && simulator.state === 'Booted' ? 'passed' : 'failed',
+    source: 'runner',
+    code: simulator && simulator.state === 'Booted' ? 'ios_simulator_booted' : 'ios_simulator_missing',
+    message: simulator && simulator.state === 'Booted'
+      ? `Selected iOS simulator ${simulator.name} (${simulator.udid}).`
+      : device
+        ? `No booted iOS simulator matched ${device}.`
+        : 'No booted iOS simulator was found.',
+  });
+
+  const metadata: Record<string, unknown> = {
+    bundleId,
+    collectProfileStorage,
+    deepLinks,
+    launch,
+    logLast,
+    profileSessionStorage: profileSessionStorage
+      ? {
+          commandCount: Array.isArray(profileSessionStorage.commands) ? profileSessionStorage.commands.length : 0,
+          runId: profileSessionStorage.runId,
+          scenario: profileSessionStorage.scenario,
+          startedAt: profileSessionStorage.startedAt ?? null,
+        }
+      : null,
+    selectedDevice,
+    selectedSimulator: simulator,
+    terminateBeforeLaunch,
+    waitMs,
+    xcrunPath,
+  };
+
+  if (simulator && simulator.state === 'Booted') {
+    let dataContainerPath: string | null = null;
+    if (bundleId) {
+      const appContainer = await executor(xcrunPath, ['simctl', 'get_app_container', simulator.udid, bundleId, 'app']);
+      raw['ios-app-container.txt'] = [appContainer.stdout, appContainer.stderr].filter(Boolean).join('\n');
+      checks.push({
+        name: 'ios_app_installed',
+        status: appContainer.exitCode === 0 && appContainer.stdout.trim().length > 0 ? 'passed' : 'failed',
+        source: 'runner',
+        code: appContainer.exitCode === 0 && appContainer.stdout.trim().length > 0
+          ? 'ios_app_installed'
+          : 'ios_app_missing',
+        message: appContainer.exitCode === 0 && appContainer.stdout.trim().length > 0
+          ? `App ${bundleId} is installed.`
+          : `App ${bundleId} is not installed on ${simulator.udid}.`,
+      });
+      metadata.appContainer = {
+        rawPath: 'raw/ios-app-container.txt',
+      };
+
+      if (collectProfileStorage || profileSessionStorage) {
+        const dataContainer = await executor(xcrunPath, [
+          'simctl',
+          'get_app_container',
+          simulator.udid,
+          bundleId,
+          'data',
+        ]);
+        raw['ios-data-container.txt'] = [dataContainer.stdout, dataContainer.stderr].filter(Boolean).join('\n');
+        dataContainerPath = dataContainer.exitCode === 0 && dataContainer.stdout.trim().length > 0
+          ? dataContainer.stdout.trim()
+          : null;
+        checks.push({
+          name: 'ios_data_container_available',
+          status: dataContainerPath ? 'passed' : 'failed',
+          source: 'runner',
+          code: dataContainerPath ? 'ios_data_container_available' : 'ios_data_container_missing',
+          message: dataContainerPath
+            ? `App data container for ${bundleId} is available.`
+            : `App data container for ${bundleId} was not available.`,
+        });
+        metadata.dataContainer = {
+          rawPath: 'raw/ios-data-container.txt',
+        };
+      }
+    }
+
+    if (terminateBeforeLaunch) {
+      if (!bundleId) {
+        checks.push({
+          name: 'ios_app_terminated',
+          status: 'failed',
+          source: 'runner',
+          code: 'ios_terminate_missing_bundle',
+          message: 'App termination was requested, but no bundle id was provided.',
+        });
+      } else {
+        const terminateResult = await executor(xcrunPath, ['simctl', 'terminate', simulator.udid, bundleId]);
+        raw['ios-terminate.txt'] = [terminateResult.stdout, terminateResult.stderr].filter(Boolean).join('\n');
+        const terminateOutput = `${terminateResult.stdout}\n${terminateResult.stderr}`;
+        const notRunning = /not running|No such process|The operation couldn't be completed/iu.test(terminateOutput);
+        checks.push({
+          name: 'ios_app_terminated',
+          status: terminateResult.exitCode === 0 || notRunning ? 'passed' : 'failed',
+          source: 'runner',
+          code: terminateResult.exitCode === 0 || notRunning ? 'ios_app_terminated' : 'ios_app_terminate_failed',
+          message: terminateResult.exitCode === 0 || notRunning
+            ? `Terminated app ${bundleId} before capture.`
+            : `Failed to terminate app ${bundleId} before capture.`,
+        });
+        metadata.terminateResult = {
+          args: terminateResult.args,
+          exitCode: terminateResult.exitCode,
+          rawPath: 'raw/ios-terminate.txt',
+        };
+      }
+    }
+
+    if (profileSessionStorage) {
+      if (!bundleId || !dataContainerPath) {
+        checks.push({
+          name: 'ios_profile_session_seeded',
+          status: 'failed',
+          source: 'runner',
+          code: 'ios_profile_session_seed_missing_container',
+          message: 'Profile-session storage seeding needs both bundle id and app data container.',
+        });
+      } else {
+        const seeded = await seedProfileSessionStorage({
+          bundleId,
+          ...(Array.isArray(profileSessionStorage.commands)
+            ? { commands: profileSessionStorage.commands }
+            : {}),
+          dataContainer: dataContainerPath,
+          runId: profileSessionStorage.runId,
+          scenario: profileSessionStorage.scenario,
+          ...(typeof profileSessionStorage.startedAt === 'number'
+            ? { startedAt: profileSessionStorage.startedAt }
+            : {}),
+        });
+        raw['ios-profile-session-seed.json'] = JSON.stringify({
+          commands: seeded.commands,
+          session: seeded.session,
+        }, null, 2);
+        checks.push({
+          name: 'ios_profile_session_seeded',
+          status: 'passed',
+          source: 'runner',
+          code: 'ios_profile_session_seeded',
+          message: `Seeded profile session ${profileSessionStorage.scenario}/${profileSessionStorage.runId} into app storage.`,
+        });
+        metadata.profileSessionSeed = {
+          commandCount: seeded.commands.length,
+          rawPath: 'raw/ios-profile-session-seed.json',
+        };
+      }
+    }
+
+    if (launch) {
+      if (!bundleId) {
+        checks.push({
+          name: 'ios_app_launched',
+          status: 'failed',
+          source: 'runner',
+          code: 'ios_launch_missing_bundle',
+          message: 'App launch was requested, but no bundle id was provided.',
+        });
+      } else {
+        const launchResult = await executor(xcrunPath, ['simctl', 'launch', simulator.udid, bundleId]);
+        raw['ios-launch.txt'] = [launchResult.stdout, launchResult.stderr].filter(Boolean).join('\n');
+        checks.push({
+          name: 'ios_app_launched',
+          status: launchResult.exitCode === 0 ? 'passed' : 'failed',
+          source: 'runner',
+          code: launchResult.exitCode === 0 ? 'ios_app_launched' : 'ios_app_launch_failed',
+          message: launchResult.exitCode === 0 ? `Launched app ${bundleId}.` : `Failed to launch app ${bundleId}.`,
+        });
+        metadata.launchResult = {
+          args: launchResult.args,
+          exitCode: launchResult.exitCode,
+          rawPath: 'raw/ios-launch.txt',
+        };
+      }
+    }
+
+    for (const [index, deepLink] of deepLinks.entries()) {
+      const rawFileName = `ios-deep-link-${index + 1}.txt`;
+      const deepLinkResult = await executor(xcrunPath, ['simctl', 'openurl', simulator.udid, deepLink.url]);
+      raw[rawFileName] = [deepLinkResult.stdout, deepLinkResult.stderr].filter(Boolean).join('\n');
+      checks.push({
+        name: 'ios_deep_link_opened',
+        status: deepLinkResult.exitCode === 0 ? 'passed' : 'failed',
+        source: 'runner',
+        code: deepLinkResult.exitCode === 0 ? 'ios_deep_link_opened' : 'ios_deep_link_failed',
+        message: deepLinkResult.exitCode === 0
+          ? `Opened iOS deep link ${deepLink.label ?? index + 1}.`
+          : `Failed to open iOS deep link ${deepLink.label ?? index + 1}.`,
+      });
+
+      if (deepLink.waitMs && deepLink.waitMs > 0) {
+        await wait(deepLink.waitMs);
+        checks.push({
+          name: 'ios_deep_link_waited',
+          status: 'passed',
+          source: 'runner',
+          code: 'ios_deep_link_waited',
+          message: `Waited ${deepLink.waitMs}ms after iOS deep link ${deepLink.label ?? index + 1}.`,
+        });
+      }
+    }
+
+    if (waitMs > 0) {
+      await wait(waitMs);
+      checks.push({
+        name: 'ios_capture_window_waited',
+        status: 'passed',
+        source: 'runner',
+        code: 'ios_capture_window_waited',
+        message: `Waited ${waitMs}ms before capturing iOS simulator logs.`,
+      });
+    }
+
+    const log = await executor(xcrunPath, [
+      'simctl',
+      'spawn',
+      simulator.udid,
+      'log',
+      'show',
+      '--style',
+      'compact',
+      '--last',
+      logLast,
+      '--predicate',
+      'eventMessage CONTAINS "[profile-event]" OR eventMessage CONTAINS "[profile-session]"',
+    ]);
+    raw['ios-simctl-log.txt'] = [log.stdout, log.stderr].filter(Boolean).join('\n');
+    checks.push({
+      name: 'ios_logs_captured',
+      status: log.exitCode === 0 ? 'passed' : 'failed',
+      source: 'runner',
+      code: log.exitCode === 0 ? 'ios_logs_captured' : 'ios_logs_failed',
+      message: log.exitCode === 0 ? `Captured iOS simulator logs from the last ${logLast}.` : 'iOS simulator log capture failed.',
+    });
+    metadata.logs = {
+      args: log.args,
+      exitCode: log.exitCode,
+      rawPath: 'raw/ios-simctl-log.txt',
+    };
+
+    if (collectProfileStorage) {
+      if (!bundleId || !dataContainerPath) {
+        checks.push({
+          name: 'ios_profile_storage_collected',
+          status: 'failed',
+          source: 'runner',
+          code: 'ios_profile_storage_missing_container',
+          message: 'Profile storage collection needs both bundle id and app data container.',
+        });
+      } else {
+        try {
+          const storedEvents = readProfileStorageJson({
+            bundleId,
+            dataContainer: dataContainerPath,
+            fallback: [],
+            key: PROFILE_EVENT_STORAGE_KEY,
+          });
+          const storedEntries = readProfileStorageJson({
+            bundleId,
+            dataContainer: dataContainerPath,
+            fallback: [],
+            key: PROFILE_SESSION_ENTRIES_STORAGE_KEY,
+          });
+          const events = Array.isArray(storedEvents)
+            ? storedEvents.filter((event): event is Record<string, unknown> => Boolean(event) && typeof event === 'object' && !Array.isArray(event))
+            : [];
+          raw['ios-profile-events.json'] = JSON.stringify(events, null, 2);
+          raw['ios-profile-events.log'] = formatStoredProfileEventLog(events);
+          raw['ios-profile-session-entries.json'] = JSON.stringify(storedEntries, null, 2);
+          checks.push({
+            name: 'ios_profile_storage_collected',
+            status: 'passed',
+            source: 'runner',
+            code: 'ios_profile_storage_collected',
+            message: `Collected ${events.length} stored profile event${events.length === 1 ? '' : 's'} from app storage.`,
+          });
+          metadata.profileStorage = {
+            eventCount: events.length,
+            eventsRawPath: 'raw/ios-profile-events.json',
+            logRawPath: 'raw/ios-profile-events.log',
+            sessionEntriesRawPath: 'raw/ios-profile-session-entries.json',
+          };
+        } catch (error) {
+          raw['ios-profile-storage-error.txt'] = error instanceof Error ? error.message : String(error);
+          checks.push({
+            name: 'ios_profile_storage_collected',
+            status: 'failed',
+            source: 'runner',
+            code: 'ios_profile_storage_collect_failed',
+            message: 'Failed to collect stored profile events from app storage.',
+          });
+        }
+      }
+    }
+  } else if (launch || terminateBeforeLaunch || profileSessionStorage || collectProfileStorage || deepLinks.length > 0) {
+    checks.push({
+      name: 'ios_capture_window_started',
+      status: 'failed',
+      source: 'runner',
+      code: 'ios_capture_window_no_simulator',
+      message: 'iOS capture window setup was requested, but no booted simulator was selected.',
+    });
+  }
+
+  const health = buildIosSimctlHealth({ runId, checks });
+  const verdict = buildIosSimctlVerdict({ runId, health });
+  const agentSummary = buildAgentSummaryMarkdown({ health, verdict });
+
+  await Promise.all(
+    Object.entries(raw).map(([fileName, content]) =>
+      fsp.writeFile(path.join(rawDir, fileName), `${content.trimEnd()}\n`, 'utf8'),
+    ),
+  );
+  await fsp.writeFile(path.join(rawDir, 'ios-metadata.json'), `${JSON.stringify(metadata, null, 2)}\n`, 'utf8');
+  await writeJsonArtifact({
+    filePath: layout.health,
+    value: health,
+    schema: SCHEMAS.health,
+    label: 'Health artifact',
+  });
+  await writeJsonArtifact({
+    filePath: layout.verdict,
+    value: verdict,
+    schema: SCHEMAS.verdict,
+    label: 'Verdict artifact',
+  });
+  await writeTextArtifact({
+    filePath: layout.agentSummary,
+    content: agentSummary,
+  });
+
+  return {
+    agentSummary,
+    health,
+    metadata,
+    raw,
+    runDir,
+    simulator,
+    verdict,
+  };
+}
+
+/**
+ * Runs the ios-simctl capture CLI.
+ *
+ * @returns {Promise<void>}
+ */
+async function main(): Promise<void> {
+  const argv = process.argv.slice(2);
+  if (hasHelpFlag(argv)) {
+    usage(process.stdout);
+    return;
+  }
+
+  const args = parseArgs(argv);
+  const runId = typeof args['run-id'] === 'string' ? args['run-id'] : createRunId();
+  const profileSessionStorageEnabled = typeof args['profile-session-storage'] === 'string';
+  const result = await runIosSimctlCapture({
+    ...(typeof args.bundle === 'string' ? { bundleId: args.bundle } : {}),
+    collectProfileStorage: profileSessionStorageEnabled ||
+      args['collect-profile-storage'] === true ||
+      args['collect-profile-storage'] === 'true',
+    ...(typeof args.device === 'string' ? { device: args.device } : {}),
+    launch: args.launch === true || args.launch === 'true',
+    ...(typeof args['log-last'] === 'string' ? { logLast: args['log-last'] } : {}),
+    ...(typeof args.out === 'string' ? { outputDir: args.out } : {}),
+    ...(profileSessionStorageEnabled && typeof args['profile-session-storage'] === 'string'
+      ? {
+          profileSessionStorage: {
+            runId,
+            scenario: args['profile-session-storage'],
+          },
+        }
+      : {}),
+    runId,
+    terminateBeforeLaunch: args['terminate-before-launch'] === true || args['terminate-before-launch'] === 'true',
+    waitMs: parsePositiveInteger(args['wait-ms'], 0),
+    ...(typeof args.xcrun === 'string' ? { xcrunPath: args.xcrun } : {}),
+  });
+  process.stdout.write(`${result.runDir}\n`);
+}
+
+if (require.main === module) {
+  main().catch((error: unknown) => {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exitCode = 1;
+  });
+}
+
+export {
+  buildIosSimctlHealth,
+  buildIosSimctlVerdict,
+  asyncStorageFileNameForKey,
+  execFileCommand,
+  formatStoredProfileEventLog,
+  main,
+  parseArgs,
+  parsePositiveInteger,
+  parseSimctlDevices,
+  readAsyncStorageValueSync,
+  readProfileStorageJson,
+  resolveAsyncStorageDirectory,
+  runIosSimctlCapture,
+  seedProfileSessionStorage,
+  selectSimulator,
+  usage,
+};
+
+export type {
+  CliArgs,
+  CommandExecutor,
+  CommandResult,
+  IosSimctlCaptureOptions,
+  IosSimctlCaptureResult,
+  IosSimctlDeepLink,
+  IosProfileSessionStorageSeed,
+  IosSimulator,
+};

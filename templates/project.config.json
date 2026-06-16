@@ -1,0 +1,36 @@
+{
+  "projectName": "replace-me",
+  "app": {
+    "displayName": "Example App",
+    "scheme": "example-app",
+    "profileSessionScheme": "example-app",
+    "iosBundleId": "com.example.app",
+    "androidPackage": "com.example.app",
+    "ios": {
+      "xcodeScheme": "Example App",
+      "launchConfiguration": "Debug",
+      "profileConfiguration": "Release"
+    }
+  },
+  "paths": {
+    "artifactRoot": "artifacts",
+    "iosArtifactsRoot": "artifacts/ios",
+    "androidArtifactsRoot": "artifacts/android",
+    "scenarioRoot": "scenarios"
+  },
+  "drivers": {
+    "default": "manual-log-ingest",
+    "supported": ["manual-log-ingest"]
+  },
+  "versionControl": {
+    "commit": [
+      "scenarios/**",
+      "runner-manifests/**",
+      "docs/**"
+    ],
+    "ignore": [
+      "artifacts/**",
+      "raw simulator recordings, screenshots, and ephemeral profiler exports"
+    ]
+  }
+}

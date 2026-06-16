@@ -38,6 +38,14 @@ const HELP_CASES = [
     usage: 'Usage: asl-example-android-live',
   },
   {
+    file: path.join(DIST_ROOT, 'runner', 'example-ios-live.js'),
+    usage: 'Usage: asl-example-ios-live',
+  },
+  {
+    file: path.join(DIST_ROOT, 'runner', 'ios-simctl.js'),
+    usage: 'Usage: asl-ios-simctl',
+  },
+  {
     file: path.join(DIST_ROOT, 'runner', 'profile-ios.js'),
     usage: 'Usage: asl-profile-ios',
   },

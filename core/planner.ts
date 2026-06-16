@@ -240,6 +240,31 @@ function collectProvidedCapabilities({
 }
 
 /**
+ * Collects driver operations available from the primary runner and active providers.
+ *
+ * @param {{runner: Record<string, unknown>, evidenceProviders: Record<string, unknown>[], effectivePlatforms: string[]}} options
+ * @returns {string[]}
+ */
+function collectProvidedDriverActions({
+  runner,
+  evidenceProviders,
+  effectivePlatforms,
+}: {
+  runner: RunnerManifest;
+  evidenceProviders: RunnerManifest[];
+  effectivePlatforms: string[];
+}): string[] {
+  const activeProviders = evidenceProviders.filter((provider) =>
+    isProviderActiveForPlatforms(provider, effectivePlatforms),
+  );
+
+  return uniqueSorted([
+    ...asArray(runner?.driverActions),
+    ...activeProviders.flatMap((provider) => asArray(provider?.driverActions)),
+  ]);
+}
+
+/**
  * Collects driver operations required by scenario steps.
  *
  * @param {Record<string, unknown>} scenario
@@ -434,13 +459,17 @@ function evaluateRunnerCompatibility({
     );
   }
 
-  const runnerDriverActions = uniqueSorted(asArray(primaryRunner.driverActions));
+  const providedDriverActions = collectProvidedDriverActions({
+    runner: primaryRunner,
+    evidenceProviders,
+    effectivePlatforms,
+  });
   const scenarioDriverActions = collectScenarioDriverActions(scenario);
-  for (const driverAction of includesAll(runnerDriverActions, scenarioDriverActions.required)) {
+  for (const driverAction of includesAll(providedDriverActions, scenarioDriverActions.required)) {
     errors.push(
       createIssue(
         'missing_required_driver_action',
-        `Runner \`${getRunnerId(primaryRunner)}\` is missing required driver action \`${driverAction}\`.`,
+        `No active runner or provider declares required driver action \`${driverAction}\`.`,
         {
           runnerId: getRunnerId(primaryRunner),
           scenarioId: getScenarioId(scenario),
@@ -450,11 +479,11 @@ function evaluateRunnerCompatibility({
     );
   }
 
-  for (const driverAction of includesAll(runnerDriverActions, scenarioDriverActions.optional)) {
+  for (const driverAction of includesAll(providedDriverActions, scenarioDriverActions.optional)) {
     warnings.push(
       createIssue(
         'missing_optional_driver_action',
-        `Runner \`${getRunnerId(primaryRunner)}\` does not declare optional driver action \`${driverAction}\`.`,
+        `No active runner or provider declares optional driver action \`${driverAction}\`.`,
         {
           runnerId: getRunnerId(primaryRunner),
           scenarioId: getScenarioId(scenario),
@@ -497,7 +526,7 @@ function evaluateRunnerCompatibility({
     matched: {
       platforms: effectivePlatforms,
       capabilities: providedCapabilities,
-      driverActions: runnerDriverActions,
+      driverActions: providedDriverActions,
       artifacts,
       evidenceProviders: activeProviders.map((provider) => getRunnerId(provider)),
     },
@@ -602,6 +631,7 @@ function buildUnevaluatedVerdict({
 export {
   buildCompatibilityHealth,
   buildUnevaluatedVerdict,
+  collectProvidedDriverActions,
   collectScenarioDriverActions,
   evaluateRunnerCompatibility,
   intersection,

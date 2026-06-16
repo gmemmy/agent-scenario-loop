@@ -1,0 +1,19 @@
+{
+  "schemaVersion": "1.0.0",
+  "runnerId": "example-mobile-runner",
+  "kind": "primary",
+  "platforms": ["ios", "android"],
+  "capabilities": ["launch", "sessionControl", "command", "logCapture", "artifactWrite"],
+  "driverActions": ["tap", "readLogs"],
+  "artifactOutputs": ["logs", "signals"],
+  "lifecycle": [
+    "prepare",
+    "launch",
+    "startSession",
+    "executeStep",
+    "waitForTruthEvent",
+    "captureEvidence",
+    "stopSession",
+    "finalize"
+  ]
+}

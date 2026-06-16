@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "1.0.0",
+  "runnerId": "argent-react-profiler-provider",
+  "kind": "evidenceProvider",
+  "platforms": ["android"],
+  "capabilities": ["profiler"],
+  "driverActions": ["collectPerfSignals"],
+  "artifactOutputs": ["profiler", "signals"],
+  "lifecycle": ["prepare", "startWindow", "capture", "stopWindow", "finalize"],
+  "adapterOptionsSchema": {
+    "connection": "mcp",
+    "warmup": "oncePerRun",
+    "signalPath": "signals/js"
+  }
+}

@@ -8,6 +8,18 @@
     "kind": "gesture",
     "label": "Perform one deterministic feed scroll."
   },
+  "adapterOptions": {
+    "iosSimctl": {
+      "commands": [
+        {
+          "command": "activate-target:scroll-feed",
+          "label": "scroll example feed",
+          "waitMs": 300
+        }
+      ],
+      "repeat": 3
+    }
+  },
   "defaultIterations": 3,
   "timelinePhases": {
     "feed_scroll_started": "intent",

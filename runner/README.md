@@ -2,7 +2,7 @@
 
 The runner owns host execution. It is the boundary between scenario contracts and whichever tool actually drives the device or captures evidence.
 
-The package ships eight public runner entrypoints. Package scripts build them into `dist/` before execution:
+The package ships ten public runner entrypoints. Package scripts build them into `dist/` before execution:
 
 - `android-adb.ts`: checks adb availability, connected Android device readiness, optional package installation, optional package launch, bounded logcat output, and writes raw adb evidence.
 - `check-plan.ts`: validates a scenario manifest, primary runner capability manifest, and optional evidence-provider manifests, then writes schema-checked `health.json`, `verdict.json`, `agent-summary.md`, and `planner-compatibility.json` before execution.
@@ -10,8 +10,10 @@ The package ships eight public runner entrypoints. Package scripts build them in
 - `compare-latest.ts`: scans an artifact root for the newest trusted prior run for a scenario, rejects unhealthy current runs, then writes or prints a schema-checked `comparison.json`.
 - `demo-loop.ts`: runs the fixture preflight, profile history, and latest-trusted comparison without requiring a simulator.
 - `example-android-live.ts`: runs the packaged example Android live proof with adb preflight and the canonical startup, open-close, and scroll-settle scenarios.
+- `example-ios-live.ts`: runs the packaged example iOS live proof with simctl preflight and the canonical startup, open-close, and scroll-settle scenarios.
+- `ios-simctl.ts`: checks iOS simulator readiness, optional app installation, optional app launch, profile-session storage seeding, storage-backed command seeding, profile-session deep links, bounded simulator logs, stored profile-event collection, and writes raw simctl evidence.
 - `profile-android.ts`: reads project config and an Android scenario manifest, then profiles explicit event logs, prior adb artifacts, or an owned adb capture window. During profile-session capture, Android-specific command metadata takes precedence; otherwise it derives command steps from `buildScenarioExecutionPlan()`.
-- `profile-ios.ts`: reads project config, an iOS scenario manifest, and an event log containing `[profile-event]` entries, then writes the current public artifact layout.
+- `profile-ios.ts`: reads project config and an iOS scenario manifest, then profiles explicit event logs, prior simctl artifacts, or an owned simctl capture window. During profile-session capture, iOS-specific command metadata takes precedence; otherwise it derives command steps from `buildScenarioExecutionPlan()`.
 
 The package also exports `runner/android-adb-driver` as a small adapter module. It exposes `readLogs` as the portable driver action currently proven by adb, and keeps Android-specific helpers such as log clearing, package launch, and deep-link execution behind explicit method names.
 
@@ -23,12 +25,12 @@ What it does not do yet:
 
 - boot or control simulators
 - install or build apps
-- drive full scenario-step UI interactions beyond Android package launch and deep-link helpers
+- drive full scenario-step UI interactions beyond app launch, storage-backed app commands, and profile-session deep-link helpers
 - capture video, screenshots, UI trees, memory, network, or accessibility evidence from built-in drivers
 
 Those deeper orchestration capabilities land behind the same artifact contract. Primary runners own one run lifecycle. Evidence providers attach optional or required evidence through a smaller provider interface. Tools such as AXe, XcodeBuildMCP, agent-device, Argent, adb, profilers, accessibility inspectors, and log collectors plug in as adapters, so scenarios and artifacts stay stable while tactical tools change underneath.
 
-Runner manifests separate `capabilities` from `driverActions`. Capabilities say the runner can own parts of the lifecycle or evidence contract. Driver actions say the underlying adapter can perform concrete operations such as `tap`, `scroll`, `inspectTree`, `screenshot`, `record`, `readLogs`, or `collectPerfSignals`. `check-plan` fails before execution when a required scenario step declares a `driverAction` the runner does not support.
+Runner manifests separate `capabilities` from `driverActions`. Capabilities say the runner can own parts of the lifecycle or evidence contract. Driver actions say the underlying adapter can perform concrete operations such as `tap`, `scroll`, `inspectTree`, `screenshot`, `record`, `readLogs`, or `collectPerfSignals`. `check-plan` fails before execution when a required scenario step declares a `driverAction` no active runner or provider supports.
 
 `examples/runners` includes adapter-target manifests for `agent-device` and `axe`. These fixtures are intentionally just contracts: they let the planner prove capability matching without adding vendor dependencies or pretending the package has bundled those runtime integrations.
 
@@ -81,9 +83,20 @@ To let `profile:android` own both the adb capture window and the profile artifac
 pnpm profile:android -- --config <config> --scenario <scenario> --adb-capture --clear-logcat --launch --wait-ms 5000 --run-id <run-id>
 ```
 
-Android is the first live runtime target for the example app while local iOS tooling is unavailable:
+To run the example app through the current live capture paths:
 
 ```bash
 pnpm example:app:android
 pnpm example:android:live
+pnpm example:ios:live
 ```
+
+The individual iOS profile commands remain useful while debugging one scenario:
+
+```bash
+pnpm example:profile:ios:live:startup
+pnpm example:profile:ios:live:open-close
+pnpm example:profile:ios:live:scroll
+```
+
+The iOS live commands seed the app-owned profile session into native AsyncStorage before launch. Command scenarios also seed a command queue into the same storage contract. After the capture window, the runner collects stored profile events from the simulator app data container. When stored events are present, `profile-ios` ingests `raw/ios-profile-events.log`; otherwise it falls back to bounded `raw/ios-simctl-log.txt` from the simctl capture artifact.

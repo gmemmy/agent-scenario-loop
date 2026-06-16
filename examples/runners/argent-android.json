@@ -1,0 +1,32 @@
+{
+  "schemaVersion": "1.0.0",
+  "runnerId": "argent-android",
+  "kind": "primary",
+  "platforms": ["android"],
+  "capabilities": [
+    "launch",
+    "sessionControl",
+    "command",
+    "logCapture",
+    "artifactWrite",
+    "screenshot",
+    "uiTree"
+  ],
+  "driverActions": ["tap", "scroll", "inspectTree", "screenshot", "readLogs"],
+  "artifactOutputs": ["logs", "signals", "screenshot", "uiTree"],
+  "lifecycle": [
+    "prepare",
+    "launch",
+    "startSession",
+    "executeStep",
+    "waitForTruthEvent",
+    "captureEvidence",
+    "stopSession",
+    "finalize"
+  ],
+  "adapterOptionsSchema": {
+    "fallbackUiTreeProvider": "adb-uiautomator",
+    "fallbackScreenshotProvider": "adb-screencap",
+    "failHealthOnRootOnlyTree": true
+  }
+}

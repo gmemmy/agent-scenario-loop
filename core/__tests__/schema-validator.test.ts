@@ -78,6 +78,16 @@ test('accepts all runner capability manifests', () => {
   }
 });
 
+test('accepts shipped authoring templates', () => {
+  const scenario = validateJson(readJson('templates/mobile-scenario.json'), SCHEMAS.scenario, 'templates/mobile-scenario.json');
+  const primaryRunner = validateJson(readJson('templates/primary-runner.json'), SCHEMAS.runnerCapabilities, 'templates/primary-runner.json');
+  const evidenceProvider = validateJson(readJson('templates/evidence-provider.json'), SCHEMAS.runnerCapabilities, 'templates/evidence-provider.json');
+
+  assert.equal(scenario.valid, true, scenario.message);
+  assert.equal(primaryRunner.valid, true, primaryRunner.message);
+  assert.equal(evidenceProvider.valid, true, evidenceProvider.message);
+});
+
 test('accepts canonical mobile scenario manifests', () => {
   const scenario = readJson('examples/scenarios/mobile/app-startup.json');
 

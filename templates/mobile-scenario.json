@@ -1,0 +1,123 @@
+{
+  "schemaVersion": "1.0.0",
+  "id": "first-journey",
+  "flowId": "first-journey",
+  "description": "Prove one durable mobile app journey with app-owned truth events.",
+  "journey": {
+    "name": "First journey",
+    "intent": "Run one important user journey and prove the app reached the expected state.",
+    "actor": "returning user",
+    "startState": "app ready for the journey",
+    "endState": "journey completed"
+  },
+  "platforms": ["ios", "android"],
+  "requiredCapabilities": ["launch", "sessionControl", "command", "logCapture", "artifactWrite"],
+  "optionalCapabilities": ["screenshot", "uiTree", "profiler"],
+  "truthEvents": {
+    "journeyStarted": {
+      "event": "first_journey_started",
+      "required": true,
+      "timeoutMs": 3000,
+      "phase": "intent"
+    },
+    "journeyCompleted": {
+      "event": "first_journey_completed",
+      "required": true,
+      "timeoutMs": 8000,
+      "phase": "completion"
+    }
+  },
+  "milestones": [
+    {
+      "id": "journeyStarted",
+      "event": "first_journey_started",
+      "description": "The app accepted the journey intent.",
+      "required": true,
+      "timeoutMs": 3000,
+      "phase": "intent"
+    },
+    {
+      "id": "journeyCompleted",
+      "event": "first_journey_completed",
+      "description": "The app emitted the completion truth event.",
+      "required": true,
+      "timeoutMs": 8000,
+      "phase": "completion"
+    }
+  ],
+  "expectedEvents": ["first_journey_started", "first_journey_completed"],
+  "cycles": {
+    "iterations": 3,
+    "warmupIterations": 0,
+    "stopOnFailure": true
+  },
+  "budgets": [
+    {
+      "name": "journey p95",
+      "source": "milestone",
+      "metric": "p95",
+      "unit": "ms",
+      "limit": 8000,
+      "fromMilestone": "journeyStarted",
+      "toMilestone": "journeyCompleted"
+    },
+    {
+      "name": "failures",
+      "source": "milestone",
+      "metric": "failures",
+      "unit": "count",
+      "limit": 0
+    }
+  ],
+  "steps": [
+    {
+      "id": "launch",
+      "kind": "launch"
+    },
+    {
+      "id": "start-journey",
+      "kind": "command",
+      "command": "activate-target:first-journey",
+      "driverAction": "tap",
+      "timeoutMs": 3000
+    },
+    {
+      "id": "wait-for-completion",
+      "kind": "waitForMilestone",
+      "milestone": "journeyCompleted",
+      "timeoutMs": 8000
+    },
+    {
+      "id": "capture-final-screen",
+      "kind": "captureEvidence",
+      "artifact": "screenshot",
+      "driverAction": "screenshot",
+      "required": false
+    }
+  ],
+  "artifacts": {
+    "required": ["logs", "signals"],
+    "optional": ["screenshot", "uiTree", "profiler"]
+  },
+  "adapterOptions": {
+    "androidAdb": {
+      "commands": [
+        {
+          "command": "activate-target:first-journey",
+          "label": "start first journey",
+          "waitMs": 300
+        }
+      ]
+    },
+    "iosSimctl": {
+      "commands": [
+        {
+          "command": "activate-target:first-journey",
+          "label": "start first journey",
+          "waitMs": 300
+        }
+      ],
+      "repeat": 3
+    }
+  }
+}

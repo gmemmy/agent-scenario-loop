@@ -21,6 +21,7 @@ const { writeUsage } = require('./cli');
 
 type CliArgs = {
   'adb-artifacts'?: string | boolean;
+  'simctl-artifacts'?: string | boolean;
   config?: string | boolean;
   scenario?: string | boolean;
   events?: string | boolean;
@@ -64,6 +65,11 @@ function usage({
     lines.push('Use --adb-artifacts <dir> to read raw/adb-logcat.txt from a prior asl-android-adb capture.');
     lines.push('Use --adb-capture [--clear-logcat] [--launch] [--wait-ms <ms>] to capture adb logcat before profiling.');
     lines.push('Use --profile-session with --adb-capture to start the app profile session and execute scenario-declared Android commands.');
+  } else {
+    lines.push('Use --simctl-artifacts <dir> to read raw/ios-simctl-log.txt from a prior iOS simctl capture.');
+    lines.push('Use --simctl-capture [--launch] [--wait-ms <ms>] to capture iOS simulator logs before profiling.');
+    lines.push('Use --profile-session with --simctl-capture to start the app profile session and execute scenario-declared iOS commands.');
+    lines.push('Use --profile-session-storage with --profile-session to seed startup control through iOS AsyncStorage and collect stored truth events.');
   }
 
   writeUsage(lines, output);
@@ -339,6 +345,15 @@ function resolveEventLogPath({ args, platform }: { args: CliArgs; platform: Prof
 
   if (platform === 'android' && typeof args['adb-artifacts'] === 'string') {
     return path.resolve(args['adb-artifacts'], 'raw', 'adb-logcat.txt');
+  }
+
+  if (platform === 'ios' && typeof args['simctl-artifacts'] === 'string') {
+    const storedEventLogPath = path.resolve(args['simctl-artifacts'], 'raw', 'ios-profile-events.log');
+    if (fs.existsSync(storedEventLogPath)) {
+      return storedEventLogPath;
+    }
+
+    return path.resolve(args['simctl-artifacts'], 'raw', 'ios-simctl-log.txt');
   }
 
   return null;

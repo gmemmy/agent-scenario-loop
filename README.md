@@ -13,10 +13,13 @@ Agent Scenario Loop is a scenario orchestration and evidence collection framewor
 | Understand the idea in plain language | [Concepts](docs/concepts.md) |
 | Understand the project doctrine | [Principles](docs/principles.md) |
 | See the current artifacts and package surface | [Contracts](docs/contracts.md) |
+| Inspect the public package API | [Public API](docs/api.md) |
+| Write your first scenario | [Scenario Authoring](docs/authoring.md) |
 | Validate a scenario/runner plan before execution | [Package use](#package-use) |
 | Inspect runner behavior and current runner limits | [Runner docs](runner/README.md) |
 | See example scenarios and runner manifests | [examples/scenarios](examples/scenarios), [examples/runners](examples/runners) |
 | Run the Android live proof path | [Android live proof](#android-live-proof) |
+| Run the iOS live proof paths | [iOS live proof](#ios-live-proof) |
 | See the neutral Expo dogfood app | [examples/mobile-app](examples/mobile-app/README.md) |
 | See a minimal app integration note | [examples/minimal-app](examples/minimal-app/README.md) |
 
@@ -83,7 +86,7 @@ const {
 } = require('agent-scenario-loop');
 ```
 
-The preflight CLI is exported as `agent-scenario-loop` and `asl-check-plan` after package installation. The Android adb runner is exported as `asl-android-adb`, Android profiling is exported as `asl-profile-android`, the packaged Android example proof is exported as `asl-example-android-live`, iOS log-ingest profiling is exported as `asl-profile-ios`, comparison is exported as `asl-compare` and `asl-compare-latest`, and the fixture loop is exported as `asl-demo-loop`. In this repo, use the script form:
+The preflight CLI is exported as `agent-scenario-loop` and `asl-check-plan` after package installation. The Android adb runner is exported as `asl-android-adb`, Android profiling is exported as `asl-profile-android`, the iOS simctl capture helper is exported as `asl-ios-simctl`, the packaged Android and iOS example proofs are exported as `asl-example-android-live` and `asl-example-ios-live`, iOS profiling is exported as `asl-profile-ios`, comparison is exported as `asl-compare` and `asl-compare-latest`, and the fixture loop is exported as `asl-demo-loop`. In this repo, use the script form:
 
 ```bash
 pnpm check-plan -- --scenario examples/scenarios/mobile/app-startup.json --runner examples/runners/xcodebuildmcp-ios.json --platform ios --out artifacts/plan/app-startup
@@ -155,6 +158,32 @@ Or let Android profiling own both the adb capture window and the profile artifac
 pnpm profile:android -- --config <config> --scenario <scenario> --adb-capture --clear-logcat --launch --wait-ms 5000 --run-id <run-id>
 ```
 
+## iOS live proof
+
+With the Expo example app installed on a booted iOS simulator and Metro connected, run the storage-backed iOS proof paths:
+
+```bash
+pnpm example:ios:live
+```
+
+The aggregate command runs simctl preflight, startup, open-close, and scroll-settle. The individual scenario commands remain available when isolating one run:
+
+```bash
+pnpm example:profile:ios:live:startup
+pnpm example:profile:ios:live:open-close
+pnpm example:profile:ios:live:scroll
+```
+
+These commands seed the app-owned profile session into native AsyncStorage before launch. Command scenarios also seed the scenario command queue into the same storage contract before launch. After the capture window, the runner collects stored profile events from the simulator app data container and writes the same profile artifact set used by fixture logs.
+
+The lower-level command is:
+
+```bash
+pnpm profile:ios -- --config <config> --scenario <scenario> --simctl-capture --profile-session --profile-session-storage --launch --wait-ms 5000 --run-id <run-id>
+```
+
+When stored events are collected, `profile-ios` ingests `raw/ios-profile-events.log`. If storage-backed events are absent, it falls back to the bounded `raw/ios-simctl-log.txt` captured by simctl and scenario health must still pass before any timing claim is trusted.
+
 To compare two completed run folders:
 
 ```bash
@@ -185,7 +214,7 @@ To verify the full release gate before publishing:
 pnpm release:check
 ```
 
-That command runs the test suite, packs the repo, installs the tarball into a temporary project, runs installed binaries against packaged examples, runs the installed Android example-live proof through fake adb, checks root exports, and verifies that schemas, examples, the app helper, and the config template ship in the package. `npm publish` runs the same gate through `prepublishOnly`.
+That command runs the test suite, packs the repo, installs the tarball into a temporary project, runs installed binaries against packaged examples, runs the installed Android and iOS example-live proofs through fake device executors, checks root exports, and verifies that schemas, examples, templates, docs, and the app helper ship in the package. `npm publish` runs the same gate through `prepublishOnly`.
 
 Read next: [Contracts](docs/contracts.md) for the artifact layout and supported runner surface.
 
@@ -193,7 +222,7 @@ Read next: [Contracts](docs/contracts.md) for the artifact layout and supported 
 
 1. Copy [app/profile-session.ts](app/profile-session.ts) into your React Native app and wire `useProfileSessionBootstrap()` once near the root.
 2. Emit truth events around one real user journey. One journey is enough to start.
-3. Copy [core/config-template.json](core/config-template.json) into project-specific config and fill in your app identifiers.
+3. Copy [templates/project.config.json](templates/project.config.json) into project-specific config and fill in your app identifiers.
 4. Start from [examples/scenarios/ios/app-startup.json](examples/scenarios/ios/app-startup.json) or [examples/scenarios/ios/open-close-cycle.json](examples/scenarios/ios/open-close-cycle.json).
 5. Run the journey on a simulator manually or with your driver of choice while capturing device logs, so the log contains your `[profile-event]` lines. Then:
 
@@ -209,13 +238,15 @@ No simulator available yet? Use the committed fixture logs:
 pnpm demo:loop -- --out artifacts/demo-loop
 ```
 
-To inspect the neutral Expo example app used for package dogfooding, start with [examples/mobile-app](examples/mobile-app/README.md). Its committed Android and iOS event logs are part of `pnpm release:check`, so the package has to prove the example app scenarios can produce passed artifacts before publishing. Android is the first live runtime proving target while iOS local tooling is unavailable.
+To inspect the neutral Expo example app used for package dogfooding, start with [examples/mobile-app](examples/mobile-app/README.md). Its committed Android and iOS event logs are part of `pnpm release:check`, so the package has to prove the example app scenarios can produce passed artifacts before publishing. Android adb and iOS simctl capture paths can also feed the same profile artifact contract when the app is installed on a live device or simulator.
 
 To validate a portable scenario, runner manifest, and initial planning artifacts before execution:
 
 ```bash
 pnpm check-plan -- --scenario examples/scenarios/mobile/app-startup.json --runner examples/runners/xcodebuildmcp-ios.json --platform ios --out artifacts/plan/app-startup
 ```
+
+To start from clean templates instead of existing examples, copy files from [templates](templates) and follow [Scenario Authoring](docs/authoring.md).
 
 ## Who this is for
 
@@ -237,20 +268,21 @@ Current package guarantees:
 
 - the public package is installable from the packed tarball
 - root exports expose the core artifact, planner, comparison, writer, interpreter, and ports contracts
-- installable CLIs print help and run against packaged examples, including the Android example-live proof path
-- packaged schemas, scenarios, runner manifests, app helper, and config template resolve after install
+- installable CLIs print help and run against packaged examples, including Android and iOS example-live proof paths
+- packaged schemas, scenarios, runner manifests, templates, docs, and app helper resolve after install
 - canonical fixture and neutral Expo-app event logs produce passed profile artifacts
 - explicit baseline/current run folders can produce schema-checked `comparison.json`
 - artifact roots can be indexed to find trusted prior runs per scenario
 - installed commands can compare a current run against the latest trusted prior run for a scenario
 - installed adapter subpaths expose the proven Android adb driver helper
+- installed commands expose iOS simctl capture and iOS profile ingestion from simctl artifacts
 - adapter-target manifests for external tools are schema-checked and planner-tested without bundling those tools
 - package smoke blocks generated artifacts, internal-only paths, and local/product-specific strings from the tarball
 
 Remaining hardening:
 
 - extend Android beyond package launch/log capture into scenario-step driving and richer evidence providers
-- harden a supported live iOS driver loop behind the existing artifact contract
+- extend iOS beyond launch/deep-link/log capture into richer simulator evidence providers
 - improve runner validation and failure reporting for more adapter classes
 
 The package should remain product-neutral. Product-specific selectors, routes, auth assumptions, and scenario data belong in the consuming app, not in this repository.

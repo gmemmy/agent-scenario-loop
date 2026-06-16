@@ -100,6 +100,7 @@ const PACKED_FILE_ALLOWLIST = [
   /^docs\/[a-z-]+\.md$/u,
   /^examples\/.+/u,
   /^schemas\/[a-z-]+\.schema\.json$/u,
+  /^templates\/[a-z0-9.-]+\.json$/u,
 ];
 
 /**
@@ -328,6 +329,78 @@ function writeFakeExampleLiveAdb({
 }
 
 /**
+ * Writes a tiny xcrun-compatible command for the installed iOS example-live proof.
+ *
+ * @param {{bundleId: string, deviceId: string, filePath: string, fixtures: Record<string, ExampleLiveFixture>}} options
+ * @returns {void}
+ */
+function writeFakeExampleLiveXcrun({
+  bundleId,
+  deviceId,
+  filePath,
+  fixtures,
+}: {
+  bundleId: string;
+  deviceId: string;
+  filePath: string;
+  fixtures: Record<string, ExampleLiveFixture>;
+}): void {
+  const scriptPath = filePath.endsWith('.cmd') ? filePath.replace(/\.cmd$/u, '.js') : filePath;
+  const dataContainer = `${scriptPath}.data`;
+  const script = [
+    '#!/usr/bin/env node',
+    "const fs = require('node:fs');",
+    "const path = require('node:path');",
+    "const args = process.argv.slice(2);",
+    "const key = args.join(' ');",
+    `const bundleId = ${JSON.stringify(bundleId)};`,
+    `const dataContainer = ${JSON.stringify(dataContainer)};`,
+    `const deviceId = ${JSON.stringify(deviceId)};`,
+    `const fixtures = ${JSON.stringify(fixtures)};`,
+    "function ok(stdout = '') { process.stdout.write(stdout); process.exit(0); }",
+    "function storageDir() {",
+    "  return path.join(dataContainer, 'Library', 'Application Support', bundleId, 'RCTAsyncLocalStorage_V1');",
+    "}",
+    "function readSession() {",
+    "  const manifestPath = path.join(storageDir(), 'manifest.json');",
+    "  const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));",
+    "  return { manifest, manifestPath, session: JSON.parse(manifest['agent-scenario-loop.profile-session.1']) };",
+    "}",
+    "function parseFixtureEvents(logText, fixtureRunId, runId) {",
+    "  return logText.split(/\\r?\\n/u).filter(Boolean).map((line) => {",
+    "    const payload = line.slice(line.indexOf('[profile-event]') + '[profile-event]'.length).trim();",
+    "    return { ...JSON.parse(payload), runId };",
+    "  });",
+    "}",
+    "function writeCurrentEvents() {",
+    "  const current = readSession();",
+    "  const fixture = fixtures[current.session.scenario];",
+    "  if (!fixture) {",
+    "    process.stderr.write(`missing fixture for ${current.session.scenario}\\n`);",
+    "    process.exit(1);",
+    "  }",
+    "  current.manifest['agent-scenario-loop.profile-events.1'] = JSON.stringify(parseFixtureEvents(fixture.logcatText, fixture.fixtureRunId, current.session.runId));",
+    "  fs.writeFileSync(current.manifestPath, JSON.stringify(current.manifest), 'utf8');",
+    "}",
+    "if (key === 'simctl list devices') ok(`== Devices ==\\n-- iOS 26.3 --\\n    iPhone 17 Pro Max (${deviceId}) (Booted)\\n`);",
+    "if (key === `simctl get_app_container ${deviceId} ${bundleId} app`) ok('/tmp/ASLExampleMobile.app\\n');",
+    "if (key === `simctl get_app_container ${deviceId} ${bundleId} data`) { fs.mkdirSync(storageDir(), { recursive: true }); ok(`${dataContainer}\\n`); }",
+    "if (key === `simctl terminate ${deviceId} ${bundleId}`) ok('');",
+    "if (key === `simctl launch ${deviceId} ${bundleId}`) { writeCurrentEvents(); ok(`${bundleId}: 1234\\n`); }",
+    "if (key === `simctl spawn ${deviceId} log show --style compact --last 2m --predicate eventMessage CONTAINS \"[profile-event]\" OR eventMessage CONTAINS \"[profile-session]\"`) ok('Timestamp Ty Process[PID:TID]\\n');",
+    "process.stderr.write(`unexpected fake xcrun command: ${key}\\n`);",
+    "process.exit(1);",
+    '',
+  ].join('\n');
+  fs.writeFileSync(scriptPath, script, { mode: 0o755 });
+  if (filePath.endsWith('.cmd')) {
+    fs.writeFileSync(filePath, `@echo off\r\n"${process.execPath}" "%~dp0${path.basename(scriptPath)}" %*\r\n`, {
+      mode: 0o755,
+    });
+  }
+}
+
+/**
  * Writes a minimal passed run directory for installed-package comparison smoke tests.
  *
  * @param {SmokeRunOptions} options
@@ -506,17 +579,28 @@ function main(): void {
       env,
     });
 
-    for (const binaryName of [
-      'agent-scenario-loop',
-      'asl-android-adb',
-      'asl-check-plan',
-      'asl-compare',
-      'asl-compare-latest',
-      'asl-demo-loop',
-      'asl-example-android-live',
-      'asl-profile-android',
-      'asl-profile-ios',
-    ]) {
+    run(packageBinPath(installDir, 'asl-check-plan'), [
+      '--scenario',
+      path.join(packageRoot, 'templates', 'mobile-scenario.json'),
+      '--runner',
+      path.join(packageRoot, 'templates', 'primary-runner.json'),
+      '--platform',
+      'ios',
+      '--run-id',
+      'template-smoke',
+      '--out',
+      path.join(tempRoot, 'template-plan'),
+    ], {
+      cwd: installDir,
+      env,
+    });
+
+    const packageJson = JSON.parse(fs.readFileSync(path.join(packageRoot, 'package.json'), 'utf8'));
+    assert.equal(packageJson.private, false);
+    assert.equal(packageJson.publishConfig?.access, 'public');
+    assert.equal(packageJson.scripts?.prepublishOnly, 'pnpm release:check');
+
+    for (const binaryName of Object.keys(packageJson.bin).sort()) {
       const helpText = run(packageBinPath(installDir, binaryName), ['--help'], {
         cwd: installDir,
         env,
@@ -741,6 +825,64 @@ function main(): void {
       assert.equal(fs.existsSync(path.join(runDir, 'agent-summary.md')), true);
     }
 
+    const exampleIosLiveRoot = path.join(tempRoot, 'example-ios-live-proof');
+    const fakeExampleLiveXcrunPath = path.join(
+      tempRoot,
+      process.platform === 'win32' ? 'fake-example-live-xcrun.cmd' : 'fake-example-live-xcrun',
+    );
+    const iosDeviceId = 'A692ED28-893E-453F-8866-C69331AE757F';
+    const iosBundleId = 'dev.agent-scenario-loop.example';
+    writeFakeExampleLiveXcrun({
+      bundleId: iosBundleId,
+      deviceId: iosDeviceId,
+      filePath: fakeExampleLiveXcrunPath,
+      fixtures: {
+        'app-startup': {
+          fixtureRunId: 'example-startup',
+          logcatText: fs.readFileSync(path.join(exampleAppRoot, 'event-logs', 'app-startup.log'), 'utf8'),
+        },
+        'open-close-cycle': {
+          fixtureRunId: 'example-open-close',
+          logcatText: fs.readFileSync(path.join(exampleAppRoot, 'event-logs', 'open-close-cycle.log'), 'utf8'),
+        },
+        'scroll-settle': {
+          fixtureRunId: 'example-scroll',
+          logcatText: fs.readFileSync(path.join(exampleAppRoot, 'event-logs', 'scroll-settle.log'), 'utf8'),
+        },
+      },
+    });
+    const exampleIosLiveOutput = run(packageBinPath(installDir, 'asl-example-ios-live'), [
+      '--xcrun',
+      fakeExampleLiveXcrunPath,
+      '--device',
+      iosDeviceId,
+      '--out',
+      exampleIosLiveRoot,
+      '--wait-ms',
+      '1',
+    ], {
+      cwd: installDir,
+      env,
+    });
+    assert.match(exampleIosLiveOutput, /iOS example live proof passed/u);
+    const exampleIosLivePreflightHealth = JSON.parse(
+      fs.readFileSync(path.join(exampleIosLiveRoot, '_preflight', 'ios-live-preflight', 'health.json'), 'utf8'),
+    );
+    assert.equal(exampleIosLivePreflightHealth.healthStatus, 'passed');
+    for (const [scenarioDir, runId] of [
+      ['app-startup', 'ios-live-startup'],
+      ['open-close-cycle', 'ios-live-open-close'],
+      ['scroll-settle', 'ios-live-scroll'],
+    ]) {
+      const runDir = path.join(exampleIosLiveRoot, scenarioDir, runId);
+      const health = JSON.parse(fs.readFileSync(path.join(runDir, 'health.json'), 'utf8'));
+      const verdict = JSON.parse(fs.readFileSync(path.join(runDir, 'verdict.json'), 'utf8'));
+      assert.equal(health.healthStatus, 'passed');
+      assert.equal(verdict.verdictStatus, 'passed');
+      assert.equal(fs.existsSync(path.join(runDir, 'agent-summary.md')), true);
+      assert.equal(fs.existsSync(path.join(runDir, 'raw', 'ios-profile-events.log')), true);
+    }
+
     const missingAdbRunId = 'package-smoke-missing-adb';
     const missingAdbProfileRoot = path.join(tempRoot, 'missing-adb-profile');
     const missingAdb = runExpectFailure(packageBinPath(installDir, 'asl-profile-android'), [
@@ -814,19 +956,19 @@ function main(): void {
     assert.equal(latestComparison.comparisonStatus, 'better');
     assert.equal(fs.existsSync(path.join(latestCompareOutputDir, 'agent-summary.md')), true);
 
-    const packageJson = JSON.parse(fs.readFileSync(path.join(packageRoot, 'package.json'), 'utf8'));
-    assert.equal(packageJson.private, false);
-    assert.equal(packageJson.publishConfig?.access, 'public');
-    assert.equal(packageJson.scripts?.prepublishOnly, 'pnpm release:check');
-
     const resolveSmokeScript = [
       "const assert = require('node:assert/strict');",
       "const fs = require('node:fs');",
       "const path = require('node:path');",
       "const asl = require('agent-scenario-loop');",
       "const packageRoot = path.join(process.cwd(), 'node_modules', 'agent-scenario-loop');",
+      "const packageJson = require('agent-scenario-loop/package.json');",
       "function readJson(relativePath) { return JSON.parse(fs.readFileSync(path.join(packageRoot, relativePath), 'utf8')); }",
       "function listJsonFiles(relativeDir) { return fs.readdirSync(path.join(packageRoot, relativeDir)).filter((name) => name.endsWith('.json')).sort().map((name) => path.join(relativeDir, name)); }",
+      "for (const subpath of Object.keys(packageJson.exports).filter((name) => !name.includes('*'))) {",
+      "  const specifier = subpath === '.' ? 'agent-scenario-loop' : `agent-scenario-loop/${subpath.slice(2)}`;",
+      "  require.resolve(specifier);",
+      "}",
       "assert.equal(asl.ARTIFACT_LAYOUT_VERSION, '1.0.0');",
       "assert.equal(asl.ARTIFACT_FILENAMES.health, 'health.json');",
       "assert.deepEqual(asl.ARTIFACT_FILENAMES, { agentSummary: 'agent-summary.md', comparison: 'comparison.json', health: 'health.json', plannerCompatibility: 'planner-compatibility.json', verdict: 'verdict.json' });",
@@ -898,24 +1040,29 @@ function main(): void {
       "require.resolve('agent-scenario-loop/schemas/verdict.schema.json');",
       "require.resolve('agent-scenario-loop/examples/scenarios/mobile/app-startup.json');",
       "require.resolve('agent-scenario-loop/examples/mobile-app/asl.config.json');",
-      "require.resolve('agent-scenario-loop/runner/android-adb-driver');",
-      "require.resolve('agent-scenario-loop/runner/compare-latest');",
-      "require.resolve('agent-scenario-loop/runner/profile-android');",
-      "require.resolve('agent-scenario-loop/runner/profile-ios');",
+      "require.resolve('agent-scenario-loop/templates/project.config.json');",
+      "require.resolve('agent-scenario-loop/templates/mobile-scenario.json');",
+      "require.resolve('agent-scenario-loop/templates/primary-runner.json');",
+      "require.resolve('agent-scenario-loop/templates/evidence-provider.json');",
       "for (const scenarioFixture of listJsonFiles('examples/scenarios/mobile')) {",
       "  const result = asl.validateJson(readJson(scenarioFixture), asl.SCHEMAS.scenario, scenarioFixture);",
       "  assert.equal(result.valid, true, result.message);",
       "}",
+      "assert.equal(asl.validateJson(readJson('templates/mobile-scenario.json'), asl.SCHEMAS.scenario, 'templates/mobile-scenario.json').valid, true);",
       "for (const runnerFixture of listJsonFiles('examples/runners')) {",
       "  const result = asl.validateJson(readJson(runnerFixture), asl.SCHEMAS.runnerCapabilities, runnerFixture);",
       "  assert.equal(result.valid, true, result.message);",
       "}",
+      "assert.equal(asl.validateJson(readJson('templates/primary-runner.json'), asl.SCHEMAS.runnerCapabilities, 'templates/primary-runner.json').valid, true);",
+      "assert.equal(asl.validateJson(readJson('templates/evidence-provider.json'), asl.SCHEMAS.runnerCapabilities, 'templates/evidence-provider.json').valid, true);",
       "const appJson = readJson('examples/mobile-app/app.json');",
       "const aslConfig = readJson('examples/mobile-app/asl.config.json');",
       "assert.equal(aslConfig.app.androidPackage, appJson.expo.android.package);",
       "assert.equal(aslConfig.app.iosBundleId, appJson.expo.ios.bundleIdentifier);",
       "assert.equal(fs.existsSync('node_modules/agent-scenario-loop/app/profile-session.ts'), true);",
       "assert.equal(fs.existsSync('node_modules/agent-scenario-loop/core/config-template.json'), true);",
+      "assert.equal(fs.existsSync('node_modules/agent-scenario-loop/docs/api.md'), true);",
+      "assert.equal(fs.existsSync('node_modules/agent-scenario-loop/docs/authoring.md'), true);",
     ].join('\n');
     run(process.execPath, ['-e', resolveSmokeScript], {
       cwd: installDir,
@@ -941,7 +1088,9 @@ function main(): void {
       "} from 'agent-scenario-loop';",
       "import { createAndroidAdbDriver } from 'agent-scenario-loop/runner/android-adb-driver';",
       "import { runExampleAndroidLiveProof } from 'agent-scenario-loop/runner/example-android-live';",
+      "import { runExampleIosLiveProof } from 'agent-scenario-loop/runner/example-ios-live';",
       "import { compareLatestTrustedRun } from 'agent-scenario-loop/runner/compare-latest';",
+      "import { runIosSimctlCapture } from 'agent-scenario-loop/runner/ios-simctl';",
       "import { resolveAndroidAdbDriverSteps, resolveAndroidAdbProfileCommands, runProfileAndroid } from 'agent-scenario-loop/runner/profile-android';",
       "import { runProfileIos, type CliArgs } from 'agent-scenario-loop/runner/profile-ios';",
       '',
@@ -989,6 +1138,8 @@ function main(): void {
       'void summary;',
       'void compareLatestTrustedRun;',
       'void runExampleAndroidLiveProof;',
+      'void runExampleIosLiveProof;',
+      'void runIosSimctlCapture;',
       'void resolveAndroidAdbProfileCommands;',
       'void runProfileAndroid;',
       'void runProfileIos;',

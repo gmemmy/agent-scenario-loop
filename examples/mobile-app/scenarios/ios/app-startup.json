@@ -9,6 +9,12 @@
     "kind": "cold-launch",
     "label": "Launch the example app from a terminated state."
   },
+  "adapterOptions": {
+    "iosSimctl": {
+      "commands": [],
+      "repeat": 1
+    }
+  },
   "defaultIterations": 1,
   "timelinePhases": {
     "app_launch_requested": "intent",

@@ -6,6 +6,7 @@ const test = require('node:test');
 const {
   buildCompatibilityHealth,
   buildUnevaluatedVerdict,
+  collectProvidedDriverActions,
   collectScenarioDriverActions,
   evaluateRunnerCompatibility,
 } = require('../planner');
@@ -170,6 +171,23 @@ test('agent-device runner target satisfies portable driver-action scenarios', ()
   assert.ok(result.matched.artifacts.includes('uiTree'));
 });
 
+test('argent runner targets satisfy portable driver-action scenarios', () => {
+  const scenario = readJson('examples/scenarios/mobile/scroll-settle.json');
+  scenario.steps[1].driverAction = 'scroll';
+
+  for (const fixture of ['argent-ios.json', 'argent-android.json']) {
+    const runner = readJson(`examples/runners/${fixture}`);
+    const platform = runner.platforms[0];
+
+    const result = evaluateRunnerCompatibility({ scenario, runner, platform });
+
+    assert.equal(result.compatible, true, `${fixture} should satisfy scroll-settle`);
+    assert.deepEqual(result.errors, []);
+    assert.ok(result.matched.driverActions.includes('scroll'));
+    assert.ok(result.matched.artifacts.includes('uiTree'));
+  }
+});
+
 test('treats optional step driver actions as warnings', () => {
   const scenario = readJson('examples/scenarios/mobile/app-startup.json');
   const runner = readJson('examples/runners/adb-android.json');
@@ -288,6 +306,97 @@ test('axe accessibility provider can satisfy required accessibility evidence', (
   assert.deepEqual(result.errors, []);
   assert.ok(result.matched.artifacts.includes('accessibility'));
   assert.deepEqual(result.matched.evidenceProviders, ['axe-accessibility-provider']);
+});
+
+test('argent react profiler provider can satisfy required profiler evidence', () => {
+  const scenario = readJson('examples/scenarios/mobile/scroll-settle.json');
+  const runner = readJson('examples/runners/adb-android.json');
+  const profilerProvider = readJson('examples/runners/argent-react-profiler-provider.json');
+  scenario.artifacts.required.push('profiler');
+
+  const result = evaluateRunnerCompatibility({
+    scenario,
+    runner,
+    evidenceProviders: [profilerProvider],
+    platform: 'android',
+  });
+
+  assert.equal(result.compatible, true);
+  assert.deepEqual(result.errors, []);
+  assert.ok(result.matched.artifacts.includes('profiler'));
+  assert.deepEqual(result.matched.evidenceProviders, ['argent-react-profiler-provider']);
+});
+
+test('active evidence providers can satisfy required provider driver actions', () => {
+  const scenario = readJson('examples/scenarios/mobile/scroll-settle.json');
+  const runner = readJson('examples/runners/adb-android.json');
+  const profilerProvider = readJson('examples/runners/argent-react-profiler-provider.json');
+  scenario.steps.push({
+    id: 'collect-js-profile',
+    kind: 'captureEvidence',
+    artifact: 'profiler',
+    driverAction: 'collectPerfSignals',
+  });
+  scenario.artifacts.required.push('profiler');
+
+  const result = evaluateRunnerCompatibility({
+    scenario,
+    runner,
+    evidenceProviders: [profilerProvider],
+    platform: 'android',
+  });
+
+  assert.equal(result.compatible, true);
+  assert.deepEqual(result.errors, []);
+  assert.ok(result.matched.driverActions.includes('collectPerfSignals'));
+  assert.deepEqual(result.matched.evidenceProviders, ['argent-react-profiler-provider']);
+});
+
+test('inactive evidence provider driver actions do not satisfy selected platform', () => {
+  const scenario = readJson('examples/scenarios/mobile/scroll-settle.json');
+  const runner = readJson('examples/runners/xcodebuildmcp-ios.json');
+  const profilerProvider = readJson('examples/runners/argent-react-profiler-provider.json');
+  scenario.steps.push({
+    id: 'collect-js-profile',
+    kind: 'captureEvidence',
+    artifact: 'profiler',
+    driverAction: 'collectPerfSignals',
+  });
+
+  const result = evaluateRunnerCompatibility({
+    scenario,
+    runner,
+    evidenceProviders: [profilerProvider],
+    platform: 'ios',
+  });
+
+  assert.equal(result.compatible, false);
+  assert.deepEqual(
+    result.errors
+      .filter((error: PlannerIssue) => error.code === 'missing_required_driver_action')
+      .map((error: PlannerIssue) => error.driverAction),
+    ['collectPerfSignals'],
+  );
+  assert.equal(result.matched.driverActions.includes('collectPerfSignals'), false);
+  assert.deepEqual(result.matched.evidenceProviders, []);
+});
+
+test('collects provider driver actions only from active providers', () => {
+  const runner = readJson('examples/runners/adb-android.json');
+  const androidProvider = readJson('examples/runners/argent-react-profiler-provider.json');
+  const inactiveProvider = clone(androidProvider);
+  inactiveProvider.runnerId = 'inactive-profiler-provider';
+  inactiveProvider.platforms = ['ios'];
+  inactiveProvider.driverActions = ['screenshot'];
+
+  assert.deepEqual(
+    collectProvidedDriverActions({
+      runner,
+      evidenceProviders: [inactiveProvider, androidProvider],
+      effectivePlatforms: ['android'],
+    }),
+    ['collectPerfSignals', 'readLogs'],
+  );
 });
 
 test('rejects a selected platform that the runner does not support', () => {
