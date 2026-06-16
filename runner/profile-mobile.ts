@@ -21,6 +21,7 @@ const { SCHEMAS, assertValidJson } = require('../core/schema-validator');
 const { writeUsage } = require('./cli');
 
 type CliArgs = {
+  'adb-artifacts'?: string | boolean;
   config?: string | boolean;
   scenario?: string | boolean;
   events?: string | boolean;
@@ -54,11 +55,16 @@ function usage({
   output?: { write: (message: string) => unknown };
   platform: ProfilePlatform;
 }): void {
-  writeUsage([
+  const lines = [
     `Usage: ${binaryName} --config <path> --scenario <path> [--events <path>] [--out <dir>] [--run-id <id>]`,
     '',
     `Reads scenario metadata plus profile-event logs and writes the artifact layout for one ${platform} log-ingest run.`,
-  ], output);
+  ];
+  if (platform === 'android') {
+    lines.push('Use --adb-artifacts <dir> to read raw/adb-logcat.txt from a prior asl-android-adb capture.');
+  }
+
+  writeUsage(lines, output);
 }
 
 /**
@@ -312,6 +318,24 @@ function resolveAppId({ config, platform }: { config: Record<string, any>; platf
 }
 
 /**
+ * Resolves the profile event log source from explicit logs or prior adb artifacts.
+ *
+ * @param {{args: CliArgs, platform: ProfilePlatform}} options
+ * @returns {string | null}
+ */
+function resolveEventLogPath({ args, platform }: { args: CliArgs; platform: ProfilePlatform }): string | null {
+  if (typeof args.events === 'string') {
+    return path.resolve(args.events);
+  }
+
+  if (platform === 'android' && typeof args['adb-artifacts'] === 'string') {
+    return path.resolve(args['adb-artifacts'], 'raw', 'adb-logcat.txt');
+  }
+
+  return null;
+}
+
+/**
  * Runs the mobile log-ingest profile artifact pipeline.
  *
  * @param {CliArgs} args
@@ -335,6 +359,7 @@ async function runProfileMobile(args: CliArgs, options: ProfileMobileOptions): P
   const capturesDir = path.join(runDir, 'captures');
   const signalsDir = path.join(runDir, 'signals');
   const startedAt = new Date().toISOString();
+  const eventLogPath = resolveEventLogPath({ args, platform: options.platform });
 
   await ensureDir(rawDir);
   await ensureDir(capturesDir);
@@ -342,7 +367,7 @@ async function runProfileMobile(args: CliArgs, options: ProfileMobileOptions): P
   await ensureDir(path.join(signalsDir, 'memory'));
   await ensureDir(path.join(signalsDir, 'network'));
 
-  const eventLogText = typeof args.events === 'string' ? await fsp.readFile(path.resolve(args.events), 'utf8') : '';
+  const eventLogText = eventLogPath ? await fsp.readFile(eventLogPath, 'utf8') : '';
   const events = extractProfileEvents(eventLogText, {
     scenario: scenario.name,
     runId,
@@ -381,7 +406,7 @@ async function runProfileMobile(args: CliArgs, options: ProfileMobileOptions): P
       metrics: 'metrics.json',
       scenario: toPortablePathReference(scenarioPath),
       raw: {
-        interactionLog: typeof args.events === 'string' ? `raw/${path.basename(args.events)}` : 'raw/interaction.log',
+        interactionLog: eventLogPath ? `raw/${path.basename(eventLogPath)}` : 'raw/interaction.log',
         deviceLog: 'raw/device.log',
       },
       captures: {
@@ -452,8 +477,8 @@ async function runProfileMobile(args: CliArgs, options: ProfileMobileOptions): P
     await writeJson(path.join(runDir, 'budget-verdict.json'), budgetVerdict);
   }
   await fsp.writeFile(path.join(runDir, 'summary.md'), summary, 'utf8');
-  if (typeof args.events === 'string') {
-    await fsp.copyFile(path.resolve(args.events), path.join(rawDir, path.basename(args.events)));
+  if (eventLogPath) {
+    await fsp.copyFile(eventLogPath, path.join(rawDir, path.basename(eventLogPath)));
   }
 
   return {
@@ -498,6 +523,7 @@ export {
   parseArgs,
   resolveAppId,
   resolveArtifactRoot,
+  resolveEventLogPath,
   runProfileCli,
   runProfileMobile,
   usage,

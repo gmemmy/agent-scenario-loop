@@ -49,6 +49,12 @@ To attach raw Android logs around a manual or agent-driven run:
 pnpm android:logcat -- --package com.example.app --logcat-lines 1000 --out artifacts/android-adb-logcat
 ```
 
+To turn that captured logcat evidence into scenario artifacts:
+
+```bash
+pnpm profile:android -- --config <config> --scenario <scenario> --adb-artifacts artifacts/android-adb-logcat --run-id <run-id>
+```
+
 Android is the first live runtime target for the example app while local iOS tooling is unavailable:
 
 ```bash

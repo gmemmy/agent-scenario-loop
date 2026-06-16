@@ -93,3 +93,42 @@ test('profile-android writes artifacts from fixture event logs', async (t: TestC
   assert.equal(verdict.verdictStatus, 'passed');
   assert.match(summary, /Scenario health passed/u);
 });
+
+test('profile-android reads logcat from adb artifact folders', async (t: TestContext) => {
+  const tempRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-android-adb-artifacts-'));
+  t.after(async () => {
+    await fsp.rm(tempRoot, { recursive: true, force: true });
+  });
+  const adbArtifactRoot = path.join(tempRoot, 'adb-capture');
+  const profileArtifactRoot = path.join(tempRoot, 'profile');
+  await fsp.mkdir(path.join(adbArtifactRoot, 'raw'), { recursive: true });
+  await fsp.copyFile(
+    fixturePath('examples/mobile-app/event-logs/android-app-startup.log'),
+    path.join(adbArtifactRoot, 'raw', 'adb-logcat.txt'),
+  );
+
+  const { stdout } = await execFileAsync(process.execPath, [
+    PROFILE_ANDROID,
+    '--config',
+    fixturePath('examples/mobile-app/asl.config.json'),
+    '--scenario',
+    fixturePath('examples/mobile-app/scenarios/android/app-startup.json'),
+    '--adb-artifacts',
+    adbArtifactRoot,
+    '--out',
+    profileArtifactRoot,
+    '--run-id',
+    'android-example-startup',
+  ]);
+
+  const runDir = stdout.trim();
+  const manifest = readJson(path.join(runDir, 'manifest.json'));
+  const health = readJson(path.join(runDir, 'health.json'));
+  const verdict = readJson(path.join(runDir, 'verdict.json'));
+  const artifacts = manifest.artifacts as { raw: { interactionLog: string } };
+
+  assert.equal(artifacts.raw.interactionLog, 'raw/adb-logcat.txt');
+  assert.equal(health.healthStatus, 'passed');
+  assert.equal(verdict.verdictStatus, 'passed');
+  assert.ok(fs.existsSync(path.join(runDir, 'raw', 'adb-logcat.txt')));
+});

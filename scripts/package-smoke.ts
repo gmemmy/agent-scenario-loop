@@ -265,6 +265,35 @@ function main(): void {
       assert.equal(verdict.verdictStatus, 'passed');
     }
 
+    const adbArtifactRoot = path.join(tempRoot, 'adb-artifacts');
+    fs.mkdirSync(path.join(adbArtifactRoot, 'raw'), { recursive: true });
+    fs.copyFileSync(
+      path.join(exampleAppRoot, 'event-logs', 'android-app-startup.log'),
+      path.join(adbArtifactRoot, 'raw', 'adb-logcat.txt'),
+    );
+    const adbArtifactProfileOutput = run(packageBinPath(installDir, 'asl-profile-android'), [
+      '--config',
+      path.join(exampleAppRoot, 'asl.config.json'),
+      '--scenario',
+      path.join(exampleAppRoot, 'scenarios', 'android', 'app-startup.json'),
+      '--adb-artifacts',
+      adbArtifactRoot,
+      '--out',
+      path.join(tempRoot, 'example-mobile-app-adb-artifact-profile'),
+      '--run-id',
+      'android-example-startup',
+    ], {
+      cwd: installDir,
+      env,
+    });
+    const adbArtifactProfileRunDir = adbArtifactProfileOutput.trim();
+    const adbArtifactManifest = JSON.parse(fs.readFileSync(path.join(adbArtifactProfileRunDir, 'manifest.json'), 'utf8'));
+    const adbArtifactHealth = JSON.parse(fs.readFileSync(path.join(adbArtifactProfileRunDir, 'health.json'), 'utf8'));
+    const adbArtifactVerdict = JSON.parse(fs.readFileSync(path.join(adbArtifactProfileRunDir, 'verdict.json'), 'utf8'));
+    assert.equal(adbArtifactManifest.artifacts.raw.interactionLog, 'raw/adb-logcat.txt');
+    assert.equal(adbArtifactHealth.healthStatus, 'passed');
+    assert.equal(adbArtifactVerdict.verdictStatus, 'passed');
+
     const health = JSON.parse(fs.readFileSync(path.join(artifactDir, 'health.json'), 'utf8'));
     assert.equal(health.scenarioId, 'app-startup');
     assert.equal(health.runId, 'package-smoke');

@@ -102,6 +102,12 @@ pnpm android:logcat -- --package com.example.app --logcat-lines 1000 --out artif
 
 That writes `raw/adb-logcat.txt` beside the adb readiness evidence, so the same log can feed `asl-profile-android` when it contains `[profile-event]` lines.
 
+Then profile a scenario from that captured evidence:
+
+```bash
+pnpm profile:android -- --config <config> --scenario <scenario> --adb-artifacts artifacts/android-adb-logcat --run-id <run-id>
+```
+
 To compare two completed run folders:
 
 ```bash
@@ -178,7 +184,7 @@ Near-term hardening:
 - compare trusted run folders and emit `comparison.json`
 - keep the fixture loop green as the contract changes
 - harden the neutral Expo example app with canonical startup, open-close, scroll, and media scenarios
-- harden Android adb from readiness checks, bounded log capture, and log-ingest artifacts into lifecycle execution
+- harden Android adb from readiness checks, bounded log capture, and log-ingest artifact assembly into lifecycle execution
 - harden a supported live iOS driver loop behind the existing artifact contract
 - improve runner validation and failure reporting
 - harden historical baseline selection around the comparison artifact

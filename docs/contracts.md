@@ -73,7 +73,7 @@ Budgets are supported but optional for adoption.
 
 ## Current Scope
 
-Live simulator or device orchestration is not yet a supported public feature. The current Android and iOS profile runners assemble artifacts from event logs you capture. The Android adb runner verifies readiness and can attach bounded logcat evidence before or after manual execution. Fully automated runner/adapter loops land behind the same contract.
+Live simulator or device orchestration is not yet a supported public feature. The current Android and iOS profile runners assemble artifacts from event logs you capture. The Android adb runner verifies readiness and can attach bounded logcat evidence before or after manual execution; `profile-android` can read that adb artifact folder through `--adb-artifacts`. Fully automated runner/adapter loops land behind the same contract.
 
 Not yet shipped as supported public features:
 
@@ -112,6 +112,12 @@ The command writes:
 If adb, a connected online device, or an optional package check fails, health fails and the verdict remains `inconclusive`.
 
 Add `--capture-logcat --logcat-lines <count>` to write `raw/adb-logcat.txt` in the same artifact folder. If logcat capture is requested and fails, scenario health fails because timing and event evidence would be incomplete.
+
+Use that captured logcat evidence directly with Android profiling:
+
+```bash
+pnpm profile:android -- --config core/config-template.json --scenario examples/mobile-app/scenarios/android/app-startup.json --adb-artifacts artifacts/android-adb-preflight --run-id android-run-1
+```
 
 ## Historical comparison
 
