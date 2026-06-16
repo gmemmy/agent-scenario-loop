@@ -9,10 +9,22 @@ const {
   evaluateRunnerCompatibility,
 } = require('../planner');
 
+/**
+ * Reads a repo-local JSON fixture.
+ *
+ * @param {string} relativePath
+ * @returns {unknown}
+ */
 function readJson(relativePath) {
   return JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', relativePath), 'utf8'));
 }
 
+/**
+ * Deep-clones JSON-compatible test data.
+ *
+ * @param {unknown} value
+ * @returns {unknown}
+ */
 function clone(value) {
   return JSON.parse(JSON.stringify(value));
 }

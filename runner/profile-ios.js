@@ -15,12 +15,23 @@ const {
   sortValue,
 } = require('../core/artifact-contract');
 
+/**
+ * Prints CLI usage to stderr.
+ *
+ * @returns {void}
+ */
 function usage() {
   console.error(
     'Usage: node runner/profile-ios.js --config <path> --scenario <path> [--events <path>] [--out <dir>] [--run-id <id>]',
   );
 }
 
+/**
+ * Parses `--key value` arguments for the iOS profile runner.
+ *
+ * @param {string[]} argv
+ * @returns {Record<string, string>}
+ */
 function parseArgs(argv) {
   const args = {};
   for (let index = 0; index < argv.length; index += 1) {
@@ -36,22 +47,52 @@ function parseArgs(argv) {
   return args;
 }
 
+/**
+ * Reads and parses a JSON file.
+ *
+ * @param {string} filePath
+ * @returns {unknown}
+ */
 function readJson(filePath) {
   return JSON.parse(fs.readFileSync(filePath, 'utf8'));
 }
 
+/**
+ * Creates a directory and any missing parents.
+ *
+ * @param {string} dirPath
+ * @returns {Promise<void>}
+ */
 async function ensureDir(dirPath) {
   await fsp.mkdir(dirPath, { recursive: true });
 }
 
+/**
+ * Writes a stable, newline-terminated JSON artifact.
+ *
+ * @param {string} filePath
+ * @param {unknown} value
+ * @returns {Promise<void>}
+ */
 async function writeJson(filePath, value) {
   await fsp.writeFile(filePath, `${JSON.stringify(sortValue(value), null, 2)}\n`, 'utf8');
 }
 
+/**
+ * Creates a short random run id for manual profile runs.
+ *
+ * @returns {string}
+ */
 function createRunId() {
   return crypto.randomBytes(6).toString('hex');
 }
 
+/**
+ * Returns a path reference that can move with the artifact folder when possible.
+ *
+ * @param {string} targetPath
+ * @returns {string}
+ */
 function toPortablePathReference(targetPath) {
   const cwdRelativePath = path.relative(process.cwd(), targetPath);
   if (
@@ -65,6 +106,11 @@ function toPortablePathReference(targetPath) {
   return path.basename(targetPath);
 }
 
+/**
+ * Runs the iOS log-ingest profile artifact pipeline.
+ *
+ * @returns {Promise<void>}
+ */
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   if (!args.config || !args.scenario) {

@@ -9,6 +9,14 @@ const test = require('node:test');
 const ROOT = path.join(__dirname, '..', '..');
 const CHECK_PLAN = path.join(ROOT, 'runner', 'check-plan.js');
 
+/**
+ * Runs a child process and returns captured output.
+ *
+ * @param {string} command
+ * @param {string[]} args
+ * @param {Record<string, unknown>} [options]
+ * @returns {Promise<{stdout: string, stderr: string}>}
+ */
 function execFileAsync(command, args, options = {}) {
   return new Promise((resolve, reject) => {
     execFile(command, args, { cwd: ROOT, ...options }, (error, stdout, stderr) => {
@@ -23,10 +31,22 @@ function execFileAsync(command, args, options = {}) {
   });
 }
 
+/**
+ * Resolves a path relative to the repository root.
+ *
+ * @param {string} relativePath
+ * @returns {string}
+ */
 function fixturePath(relativePath) {
   return path.join(ROOT, relativePath);
 }
 
+/**
+ * Reads a JSON file.
+ *
+ * @param {string} filePath
+ * @returns {unknown}
+ */
 function readJson(filePath) {
   return JSON.parse(fs.readFileSync(filePath, 'utf8'));
 }

@@ -15,6 +15,11 @@ const {
   assertValidJson,
 } = require('../core/schema-validator');
 
+/**
+ * Prints CLI usage to stderr.
+ *
+ * @returns {void}
+ */
 function usage() {
   console.error(
     [
@@ -26,6 +31,12 @@ function usage() {
   );
 }
 
+/**
+ * Parses the small flag surface for the plan-check CLI.
+ *
+ * @param {string[]} argv
+ * @returns {{providers: string[], [key: string]: string | boolean | string[]}}
+ */
 function parseArgs(argv) {
   const args = {
     providers: [],
@@ -59,6 +70,13 @@ function parseArgs(argv) {
   return args;
 }
 
+/**
+ * Reads a JSON file and reports parse failures with the manifest label.
+ *
+ * @param {string} filePath
+ * @param {string} [label]
+ * @returns {unknown}
+ */
 function readJson(filePath, label) {
   try {
     return JSON.parse(fs.readFileSync(filePath, 'utf8'));
@@ -68,18 +86,44 @@ function readJson(filePath, label) {
   }
 }
 
+/**
+ * Reads a JSON file and validates it against a public contract schema.
+ *
+ * @param {string} filePath
+ * @param {Record<string, unknown>} schema
+ * @param {string} label
+ * @returns {unknown}
+ */
 function readValidatedJson(filePath, schema, label) {
   return assertValidJson(readJson(filePath, label), schema, label);
 }
 
+/**
+ * Writes a stable, newline-terminated JSON artifact.
+ *
+ * @param {string} filePath
+ * @param {unknown} value
+ * @returns {Promise<void>}
+ */
 async function writeJson(filePath, value) {
   await fsp.writeFile(filePath, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
 }
 
+/**
+ * Creates a short random run id for ad-hoc plan checks.
+ *
+ * @returns {string}
+ */
 function createRunId() {
   return crypto.randomBytes(6).toString('hex');
 }
 
+/**
+ * Builds pre-execution planner artifacts from validated scenario and runner manifests.
+ *
+ * @param {{scenarioPath: string, runnerPath: string, providerPaths?: string[], platform?: string | null, runId?: string}} options
+ * @returns {Promise<{compatibility: Record<string, unknown>, health: Record<string, unknown>, verdict: Record<string, unknown>}>}
+ */
 async function buildPlanArtifacts({
   scenarioPath,
   runnerPath,
@@ -130,6 +174,11 @@ async function buildPlanArtifacts({
   };
 }
 
+/**
+ * Runs the check-plan CLI.
+ *
+ * @returns {Promise<void>}
+ */
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   if (!args.scenario || !args.runner) {

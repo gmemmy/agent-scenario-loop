@@ -1,5 +1,11 @@
 const PROFILE_EVENT_PREFIX = '[profile-event]';
 
+/**
+ * Converts finite numeric strings to numbers while preserving invalid input as `null`.
+ *
+ * @param {unknown} value
+ * @returns {number | null}
+ */
 function coerceNumber(value) {
   if (typeof value === 'number' && Number.isFinite(value)) {
     return value;
@@ -13,6 +19,12 @@ function coerceNumber(value) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+/**
+ * Parses legacy key/value `[profile-event]` payloads into structured event objects.
+ *
+ * @param {string} payload
+ * @returns {Record<string, unknown> | null}
+ */
 function parseKeyValueProfileEvent(payload) {
   const matches = payload.match(/(?:[^\s=]+)=(?:"[^"]*"|'[^']*'|[^\s]+)/gu) ?? [];
   if (matches.length === 0) {
@@ -58,10 +70,23 @@ function parseKeyValueProfileEvent(payload) {
   return event;
 }
 
+/**
+ * Rounds millisecond values to a stable artifact precision.
+ *
+ * @param {number} value
+ * @returns {number}
+ */
 function roundMs(value) {
   return Math.round(value * 1000) / 1000;
 }
 
+/**
+ * Returns a nearest-rank percentile for numeric measurements.
+ *
+ * @param {number[]} values
+ * @param {number} percentileValue
+ * @returns {number | null}
+ */
 function percentile(values, percentileValue) {
   if (!Array.isArray(values) || values.length === 0) {
     return null;
@@ -73,6 +98,15 @@ function percentile(values, percentileValue) {
   return roundMs(sorted[index]);
 }
 
+/**
+ * Extracts structured profile events from device logs.
+ *
+ * Supports both JSON payloads and the older key/value payload format.
+ *
+ * @param {string} logText
+ * @param {{runId?: string, scenario?: string}} [filters]
+ * @returns {Record<string, unknown>[]}
+ */
 function extractProfileEvents(logText, filters = {}) {
   const { runId, scenario } = filters;
 
@@ -123,6 +157,12 @@ function extractProfileEvents(logText, filters = {}) {
     });
 }
 
+/**
+ * Builds timing metrics from app-emitted profile events.
+ *
+ * @param {{scenario: string, runId: string, events: Record<string, unknown>[], expectedIterations: number, timeoutCount?: number, artifacts?: Record<string, unknown>, cycleEventNames?: Record<string, string> | null, budgets?: Record<string, unknown> | null}} options
+ * @returns {Record<string, unknown>}
+ */
 function buildMetricsFromProfileEvents({
   scenario,
   runId,
@@ -234,6 +274,12 @@ function buildMetricsFromProfileEvents({
   return metrics;
 }
 
+/**
+ * Evaluates one numeric budget threshold.
+ *
+ * @param {{name: string, actual: unknown, limit: unknown}} options
+ * @returns {{name: string, actual: unknown, limit: number, pass: boolean, unit: string} | null}
+ */
 function evaluateBudgetCheck({ name, actual, limit }) {
   if (typeof limit !== 'number') {
     return null;
@@ -249,6 +295,12 @@ function evaluateBudgetCheck({ name, actual, limit }) {
   };
 }
 
+/**
+ * Evaluates configured profile budgets against generated metrics.
+ *
+ * @param {{metrics: Record<string, unknown>, budgets?: Record<string, unknown> | null}} options
+ * @returns {Record<string, unknown> | null}
+ */
 function evaluateProfileBudgets({ metrics, budgets }) {
   if (!budgets?.pass || typeof budgets.pass !== 'object') {
     return null;
@@ -341,6 +393,12 @@ function evaluateProfileBudgets({ metrics, budgets }) {
   };
 }
 
+/**
+ * Recursively sorts object keys and array values for stable JSON artifacts.
+ *
+ * @param {unknown} value
+ * @returns {unknown}
+ */
 function sortValue(value) {
   if (Array.isArray(value)) {
     return [...value].sort().map(sortValue);
@@ -358,6 +416,12 @@ function sortValue(value) {
   return value;
 }
 
+/**
+ * Normalizes event timestamps to milliseconds since run start.
+ *
+ * @param {{event: Record<string, unknown>, startedAt?: string}} options
+ * @returns {number | null}
+ */
 function normalizeEventTimestamp({ event, startedAt }) {
   if (!event || typeof event !== 'object') {
     return null;
@@ -383,6 +447,12 @@ function normalizeEventTimestamp({ event, startedAt }) {
   return null;
 }
 
+/**
+ * Infers a causal timeline phase from an event name when no explicit phase is provided.
+ *
+ * @param {unknown} eventName
+ * @returns {string}
+ */
 function inferTimelinePhase(eventName) {
   if (typeof eventName !== 'string' || eventName.length === 0) {
     return 'domain';
@@ -455,6 +525,12 @@ function inferTimelinePhase(eventName) {
   return 'domain';
 }
 
+/**
+ * Infers timeline status from an event name when no explicit status is provided.
+ *
+ * @param {unknown} eventName
+ * @returns {string}
+ */
 function inferTimelineStatus(eventName) {
   if (typeof eventName !== 'string' || eventName.length === 0) {
     return 'observed';
@@ -482,6 +558,12 @@ function inferTimelineStatus(eventName) {
   return 'observed';
 }
 
+/**
+ * Builds a causal timeline from app-owned profile events.
+ *
+ * @param {{events: Record<string, unknown>[], startedAt?: string, phaseMap?: Record<string, string> | null, owner?: string | null}} options
+ * @returns {Record<string, unknown>[]}
+ */
 function buildCausalTimeline({ events, startedAt, phaseMap = null, owner = null }) {
   return [...(Array.isArray(events) ? events : [])]
     .map((event) => {
@@ -527,6 +609,12 @@ function buildCausalTimeline({ events, startedAt, phaseMap = null, owner = null 
     .sort((left, right) => left.atMs - right.atMs);
 }
 
+/**
+ * Builds the transition `budget-verdict.json` artifact from budget evaluation.
+ *
+ * @param {{flowId: string, runId: string, budgetEvaluation?: Record<string, unknown> | null, visualOutcome?: Record<string, unknown> | null, baselineRunId?: string | null}} options
+ * @returns {Record<string, unknown> | null}
+ */
 function buildBudgetVerdict({
   flowId,
   runId,
@@ -573,6 +661,12 @@ function buildBudgetVerdict({
   });
 }
 
+/**
+ * Infers the display unit for legacy budget keys.
+ *
+ * @param {unknown} name
+ * @returns {string}
+ */
 function inferBudgetUnit(name) {
   if (typeof name !== 'string') {
     return 'count';
@@ -585,6 +679,12 @@ function inferBudgetUnit(name) {
   return 'count';
 }
 
+/**
+ * Normalizes legacy budget config into the causal-run budget shape.
+ *
+ * @param {Record<string, unknown> | null | undefined} budgets
+ * @returns {Record<string, unknown>}
+ */
 function normalizeBudgetsForCausalRun(budgets) {
   if (!budgets || typeof budgets !== 'object') {
     return {};
@@ -605,6 +705,12 @@ function normalizeBudgetsForCausalRun(budgets) {
   }, {});
 }
 
+/**
+ * Builds the transition `causal-run.json` artifact.
+ *
+ * @param {Record<string, unknown>} options
+ * @returns {Record<string, unknown>}
+ */
 function buildCausalRun({
   scenario,
   flowId,
@@ -656,6 +762,12 @@ function buildCausalRun({
   });
 }
 
+/**
+ * Builds the run manifest artifact.
+ *
+ * @param {Record<string, unknown>} options
+ * @returns {Record<string, unknown>}
+ */
 function buildManifest({
   scenario,
   runId,
@@ -689,6 +801,12 @@ function buildManifest({
   };
 }
 
+/**
+ * Builds the human-readable profile summary.
+ *
+ * @param {{manifest: Record<string, unknown>, metrics: Record<string, unknown>}} options
+ * @returns {string}
+ */
 function buildSummaryMarkdown({ manifest, metrics }) {
   const signalLines = [
     `- JS: ${
@@ -781,6 +899,12 @@ function buildSummaryMarkdown({ manifest, metrics }) {
   return lines.join('\n');
 }
 
+/**
+ * Extracts possible accessibility or test identifiers from a UI tree dump.
+ *
+ * @param {string} rawDescription
+ * @returns {string[]}
+ */
 function extractCandidateIdentifiers(rawDescription) {
   const seen = new Set();
   const identifiers = [];
@@ -841,6 +965,13 @@ function extractCandidateIdentifiers(rawDescription) {
   return identifiers;
 }
 
+/**
+ * Finds the first UI identifier matching a required pattern.
+ *
+ * @param {string} rawDescription
+ * @param {string} pattern
+ * @returns {string | null}
+ */
 function findMatchingIdentifier(rawDescription, pattern) {
   const regex = new RegExp(pattern, 'u');
   const identifier = extractCandidateIdentifiers(rawDescription).find((candidate) =>
@@ -854,6 +985,12 @@ function findMatchingIdentifier(rawDescription, pattern) {
   return String(rawDescription).match(regex)?.[0] ?? null;
 }
 
+/**
+ * Evaluates a UI contract from required identifier patterns.
+ *
+ * @param {{rawDescription: string, requiredIdentifierPatterns?: string[]}} options
+ * @returns {{pass: boolean, checks: Record<string, unknown>[], missingPatterns: string[]}}
+ */
 function evaluateUiContract({ rawDescription, requiredIdentifierPatterns = [] }) {
   const checks = requiredIdentifierPatterns.map((pattern) => {
     const matchedIdentifier = findMatchingIdentifier(rawDescription, pattern);

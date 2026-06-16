@@ -1,21 +1,55 @@
+/**
+ * Returns `value` when it is already an array; otherwise returns an empty array.
+ *
+ * @param {unknown} value
+ * @returns {unknown[]}
+ */
 function asArray(value) {
   return Array.isArray(value) ? value : [];
 }
 
+/**
+ * Returns non-empty string values with duplicates removed and deterministic ordering.
+ *
+ * @param {unknown[]} values
+ * @returns {string[]}
+ */
 function uniqueSorted(values) {
   return [...new Set(values.filter((value) => typeof value === 'string' && value.length > 0))].sort();
 }
 
+/**
+ * Finds the unique string values shared by two arrays.
+ *
+ * @param {unknown[]} left
+ * @param {unknown[]} right
+ * @returns {string[]}
+ */
 function intersection(left, right) {
   const rightSet = new Set(asArray(right));
   return uniqueSorted(asArray(left).filter((value) => rightSet.has(value)));
 }
 
+/**
+ * Returns required values that are absent from the available set.
+ *
+ * @param {unknown[]} available
+ * @param {unknown[]} required
+ * @returns {unknown[]}
+ */
 function includesAll(available, required) {
   const availableSet = new Set(asArray(available));
   return asArray(required).filter((item) => !availableSet.has(item));
 }
 
+/**
+ * Creates a structured planner issue.
+ *
+ * @param {string} code
+ * @param {string} message
+ * @param {Record<string, unknown>} [metadata]
+ * @returns {Record<string, unknown>}
+ */
 function createIssue(code, message, metadata = {}) {
   return {
     code,
@@ -24,14 +58,32 @@ function createIssue(code, message, metadata = {}) {
   };
 }
 
+/**
+ * Resolves the stable scenario identifier used in generated artifacts.
+ *
+ * @param {Record<string, unknown> | null | undefined} scenario
+ * @returns {string}
+ */
 function getScenarioId(scenario) {
   return scenario?.id ?? scenario?.name ?? 'unknown-scenario';
 }
 
+/**
+ * Resolves the stable runner identifier used in planner errors.
+ *
+ * @param {Record<string, unknown> | null | undefined} runner
+ * @returns {string}
+ */
 function getRunnerId(runner) {
   return runner?.runnerId ?? runner?.name ?? 'unknown-runner';
 }
 
+/**
+ * Keeps only scalar issue metadata so health artifacts remain schema-safe.
+ *
+ * @param {Record<string, unknown>} issue
+ * @returns {Record<string, string | number | boolean | null>}
+ */
 function getIssueMetadata(issue) {
   return Object.keys(issue)
     .filter((key) => key !== 'code' && key !== 'message')
@@ -50,6 +102,13 @@ function getIssueMetadata(issue) {
     }, {});
 }
 
+/**
+ * Converts a planner issue into a `health.json` check entry.
+ *
+ * @param {Record<string, unknown>} issue
+ * @param {'failed' | 'warning'} status
+ * @returns {Record<string, unknown>}
+ */
 function issueToHealthCheck(issue, status) {
   const metadata = getIssueMetadata(issue);
   return {
@@ -65,10 +124,23 @@ function issueToHealthCheck(issue, status) {
   };
 }
 
+/**
+ * Returns whether a provider can participate in the selected platform set.
+ *
+ * @param {Record<string, unknown>} provider
+ * @param {string[]} effectivePlatforms
+ * @returns {boolean}
+ */
 function isProviderActiveForPlatforms(provider, effectivePlatforms) {
   return intersection(provider?.platforms, effectivePlatforms).length > 0;
 }
 
+/**
+ * Collects artifacts available from the primary runner and active evidence providers.
+ *
+ * @param {{runner: Record<string, unknown>, evidenceProviders: Record<string, unknown>[], effectivePlatforms: string[]}} options
+ * @returns {{activeProviders: Record<string, unknown>[], artifacts: string[]}}
+ */
 function collectProvidedArtifacts({ runner, evidenceProviders, effectivePlatforms }) {
   const activeProviders = asArray(evidenceProviders).filter((provider) =>
     isProviderActiveForPlatforms(provider, effectivePlatforms),
@@ -83,6 +155,12 @@ function collectProvidedArtifacts({ runner, evidenceProviders, effectivePlatform
   };
 }
 
+/**
+ * Collects capabilities available from the primary runner and active evidence providers.
+ *
+ * @param {{runner: Record<string, unknown>, evidenceProviders: Record<string, unknown>[], effectivePlatforms: string[]}} options
+ * @returns {string[]}
+ */
 function collectProvidedCapabilities({ runner, evidenceProviders, effectivePlatforms }) {
   const activeProviders = asArray(evidenceProviders).filter((provider) =>
     isProviderActiveForPlatforms(provider, effectivePlatforms),
@@ -94,6 +172,12 @@ function collectProvidedCapabilities({ runner, evidenceProviders, effectivePlatf
   ]);
 }
 
+/**
+ * Adds planner errors when the selected runner cannot own a run lifecycle.
+ *
+ * @param {{runner: Record<string, unknown>, errors: Record<string, unknown>[]}} options
+ * @returns {void}
+ */
 function validatePrimaryRunner({ runner, errors }) {
   if (!runner || typeof runner !== 'object') {
     errors.push(createIssue('runner_missing', 'A primary runner capability manifest is required.'));
@@ -110,6 +194,12 @@ function validatePrimaryRunner({ runner, errors }) {
   }
 }
 
+/**
+ * Determines the platform set a plan should evaluate and records platform mismatches.
+ *
+ * @param {{scenario: Record<string, unknown>, runner: Record<string, unknown>, platform?: string | null, errors: Record<string, unknown>[]}} options
+ * @returns {string[]}
+ */
 function resolveEffectivePlatforms({ scenario, runner, platform, errors }) {
   const scenarioPlatforms = asArray(scenario?.platforms);
   const runnerPlatforms = asArray(runner?.platforms);
@@ -153,6 +243,12 @@ function resolveEffectivePlatforms({ scenario, runner, platform, errors }) {
   return commonPlatforms;
 }
 
+/**
+ * Evaluates whether a scenario can be served by a primary runner plus evidence providers.
+ *
+ * @param {{scenario?: Record<string, unknown>, runner?: Record<string, unknown>, evidenceProviders?: Record<string, unknown>[], platform?: string | null}} [options]
+ * @returns {{compatible: boolean, errors: Record<string, unknown>[], warnings: Record<string, unknown>[], matched: {platforms: string[], capabilities: string[], artifacts: string[], evidenceProviders: string[]}}}
+ */
 function evaluateRunnerCompatibility({
   scenario,
   runner,
@@ -258,6 +354,12 @@ function evaluateRunnerCompatibility({
   };
 }
 
+/**
+ * Builds the initial `health.json` artifact from planner compatibility results.
+ *
+ * @param {{scenario: Record<string, unknown>, runId?: string, compatibility: Record<string, unknown>}} options
+ * @returns {Record<string, unknown>}
+ */
 function buildCompatibilityHealth({
   scenario,
   runId,
@@ -299,6 +401,12 @@ function buildCompatibilityHealth({
   };
 }
 
+/**
+ * Builds a pre-budget `verdict.json` artifact from scenario health.
+ *
+ * @param {{scenario: Record<string, unknown>, runId?: string, health: Record<string, unknown>}} options
+ * @returns {Record<string, unknown>}
+ */
 function buildUnevaluatedVerdict({ scenario, runId, health }) {
   const healthStatus = health?.healthStatus ?? 'failed';
   const scenarioId = health?.scenarioId ?? getScenarioId(scenario);
