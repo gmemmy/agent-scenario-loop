@@ -21,6 +21,7 @@ V1 ships the contracts and the artifact pipeline:
 
 - `app/profile-session.ts`: thin React Native integration — session control, truth events, signal attachments
 - `core/agent-summary.ts`: the agent-facing summary builder for health, verdict, and comparison state
+- `core/artifact-layout.ts`: the canonical v1 artifact path contract for one run directory
 - `core/artifact-writer.ts`: schema-enforcing writers for stable JSON/text artifacts
 - `core/artifact-contract.ts`: the artifact builders — manifest, metrics, causal run, budget verdict, summary
 - `core/evidence-interpreter.ts`: evidence interpretation helpers that gate timing claims on scenario health
@@ -47,16 +48,39 @@ App-side, what your app exposes:
 
 Artifact layout, what every run produces:
 
-- `manifest.json` — run identity: scenario, driver, simulator, tool versions, status
-- `metrics.json` — cycle timings, failures, timeouts, budget evaluation
-- `budget-verdict.json` — pass or fail against the scenario's committed budget, when budgets are configured
-- `causal-run.json` — the run as a phase timeline
-- `summary.md` — the human-readable readout
+- `health.json` — whether the scenario execution was valid enough to interpret
+- `verdict.json` — budget outcome for product behavior, or `not_evaluated` before evidence is collected
+- `comparison.json` — optional before/after result against a trusted baseline
+- `agent-summary.md` — agent-readable health gate and next-action summary
+- `planner-compatibility.json` — optional preflight detail from runner/provider matching
+- transition runner artifacts: `manifest.json`, `metrics.json`, `budget-verdict.json`, `causal-run.json`, and `summary.md`
 - `raw/`, `captures/`, and optional `signals/js`, `signals/memory`, `signals/network`
 
 The v1 target contract separates scenario health from product verdict: `health.json` records execution validity, `verdict.json` records budget outcome, `comparison.json` records before/after baseline comparison, and `agent-summary.md` gives agents the health gate before they touch code. `core/planner.ts` can already derive initial health and unevaluated verdict artifacts from compatibility results. The current runner still writes `metrics.json` and `budget-verdict.json` as transition artifacts.
 
 Budgets are supported but optional for adoption.
+
+## Package use
+
+The package builds to `dist/` and exposes the typed core contracts from the root:
+
+```js
+const {
+  createArtifactLayout,
+  evaluateRunnerCompatibility,
+  buildCompatibilityHealth,
+  buildUnevaluatedVerdict,
+  buildAgentSummaryMarkdown,
+} = require('agent-scenario-loop');
+```
+
+The preflight CLI is exported as `agent-scenario-loop` and `asl-check-plan` after package installation. In this repo, use the script form:
+
+```bash
+pnpm check-plan -- --scenario examples/scenarios/v1/app-startup.json --runner examples/runners/xcodebuildmcp-ios.json --platform ios --out artifacts/plan/app-startup
+```
+
+That command does not require Xcode, a simulator, or device artifacts. It validates scenario and runner manifests, writes the v1 preflight artifacts, and stops before live execution.
 
 ## Quick start
 
@@ -78,7 +102,7 @@ To validate a v1 scenario, runner manifest, and initial planning artifacts befor
 pnpm check-plan -- --scenario examples/scenarios/v1/app-startup.json --runner examples/runners/xcodebuildmcp-ios.json --platform ios --out artifacts/plan/app-startup
 ```
 
-This validates the input manifests, writes schema-checked `health.json` and `verdict.json`, and includes the raw planner match in `planner-compatibility.json`.
+This validates the input manifests, writes schema-checked `health.json` and `verdict.json`, writes `agent-summary.md`, and includes the raw planner match in `planner-compatibility.json`.
 
 ## Who this is for
 
@@ -98,7 +122,7 @@ What it is not:
 
 Near-term:
 
-- harden planner validation around the v1 scenario and runner capability schemas
+- publish the package boundary and keep exported declarations stable
 - add a neutral example app with canonical startup, open-close, scroll, and media scenarios
 - harden a supported live iOS driver loop — simulator lifecycle, deep-link control, log capture — behind the existing artifact contract
 - improve runner validation and failure reporting

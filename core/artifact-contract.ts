@@ -1061,7 +1061,7 @@ function evaluateUiContract({
   };
 }
 
-module.exports = {
+export {
   PROFILE_EVENT_PREFIX,
   buildBudgetVerdict,
   buildCausalRun,
@@ -1070,10 +1070,16 @@ module.exports = {
   buildMetricsFromProfileEvents,
   buildSummaryMarkdown,
   evaluateUiContract,
+  evaluateProfileBudgets,
   extractCandidateIdentifiers,
   extractProfileEvents,
-  evaluateProfileBudgets,
   findMatchingIdentifier,
   percentile,
   sortValue,
+};
+
+export type {
+  ArtifactRecord,
+  BudgetCheck,
+  ProfileEvent,
 };

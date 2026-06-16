@@ -111,10 +111,12 @@ test('writes health, verdict, and compatibility artifacts to an output directory
   const health = readJson(path.join(outputDir, 'health.json'));
   const verdict = readJson(path.join(outputDir, 'verdict.json'));
   const compatibility = readJson(path.join(outputDir, 'planner-compatibility.json'));
+  const agentSummary = fs.readFileSync(path.join(outputDir, 'agent-summary.md'), 'utf8');
 
   assert.equal(health.healthStatus, 'passed');
   assert.equal(verdict.verdictStatus, 'not_evaluated');
   assert.equal(compatibility.compatible, true);
+  assert.match(agentSummary, /Scenario health passed/u);
 });
 
 test('writes failed health and inconclusive verdict for incompatible plans', async (t: TestContext) => {

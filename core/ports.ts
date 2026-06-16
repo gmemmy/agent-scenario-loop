@@ -94,7 +94,7 @@ function assertPortImplementation({
   return implementation;
 }
 
-module.exports = {
+export {
   ARTIFACT_WRITER_PORT,
   DRIVER_PORT,
   EVIDENCE_PROVIDER_PORT,
@@ -103,6 +103,11 @@ module.exports = {
   assertPortImplementation,
   missingPortMethods,
   validatePortImplementation,
+};
+
+export type {
+  PortImplementation,
+  PortValidationResult,
 };
 type PortImplementation = Record<string, unknown>;
 

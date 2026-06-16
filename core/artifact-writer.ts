@@ -81,7 +81,7 @@ function createArtifactWriter(): {
   };
 }
 
-module.exports = {
+export {
   copyRawArtifact,
   createArtifactWriter,
   writeJsonArtifact,

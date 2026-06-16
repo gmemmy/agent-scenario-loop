@@ -3,7 +3,9 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
-const { writeJsonArtifact } = require('../core/artifact-writer');
+const { buildAgentSummaryMarkdown } = require('../core/agent-summary');
+const { createArtifactLayout } = require('../core/artifact-layout');
+const { writeJsonArtifact, writeTextArtifact } = require('../core/artifact-writer');
 const {
   buildCompatibilityHealth,
   buildUnevaluatedVerdict,
@@ -29,6 +31,7 @@ type PlanArtifacts = {
   compatibility: Record<string, unknown>;
   health: Record<string, unknown>;
   verdict: Record<string, unknown>;
+  agentSummary: string;
 };
 
 /**
@@ -131,7 +134,7 @@ function createRunId() {
  * Builds pre-execution planner artifacts from validated scenario and runner manifests.
  *
  * @param {{scenarioPath: string, runnerPath: string, providerPaths?: string[], platform?: string | null, runId?: string}} options
- * @returns {Promise<{compatibility: Record<string, unknown>, health: Record<string, unknown>, verdict: Record<string, unknown>}>}
+ * @returns {Promise<{compatibility: Record<string, unknown>, health: Record<string, unknown>, verdict: Record<string, unknown>, agentSummary: string}>}
  */
 async function buildPlanArtifacts({
   scenarioPath,
@@ -179,10 +182,15 @@ async function buildPlanArtifacts({
     runId,
     health,
   });
+  const agentSummary = buildAgentSummaryMarkdown({
+    health,
+    verdict,
+  });
   assertValidJson(health, SCHEMAS.health, 'Health artifact');
   assertValidJson(verdict, SCHEMAS.verdict, 'Verdict artifact');
 
   return {
+    agentSummary,
     compatibility,
     health,
     verdict,
@@ -212,26 +220,31 @@ async function main() {
 
   if (typeof args.out === 'string' && args.out.length > 0) {
     const outputDir = path.resolve(args.out);
+    const layout = createArtifactLayout({ outputDir });
     await writeJsonArtifact({
-      filePath: path.join(outputDir, 'health.json'),
+      filePath: layout.health,
       value: artifacts.health,
       schema: SCHEMAS.health,
       label: 'Health artifact',
     });
     await writeJsonArtifact({
-      filePath: path.join(outputDir, 'verdict.json'),
+      filePath: layout.verdict,
       value: artifacts.verdict,
       schema: SCHEMAS.verdict,
       label: 'Verdict artifact',
     });
     await writeJsonArtifact({
-      filePath: path.join(outputDir, 'planner-compatibility.json'),
+      filePath: layout.plannerCompatibility,
       value: artifacts.compatibility,
       schema: {
         type: 'object',
         additionalProperties: true,
       },
       label: 'Planner compatibility artifact',
+    });
+    await writeTextArtifact({
+      filePath: layout.agentSummary,
+      content: artifacts.agentSummary,
     });
     process.stdout.write(`${outputDir}\n`);
     return;
@@ -251,7 +264,7 @@ if (require.main === module) {
   });
 }
 
-module.exports = {
+export {
   buildPlanArtifacts,
   parseArgs,
 };

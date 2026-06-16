@@ -529,10 +529,18 @@ function buildUnevaluatedVerdict({
   };
 }
 
-module.exports = {
+export {
   buildCompatibilityHealth,
   buildUnevaluatedVerdict,
   evaluateRunnerCompatibility,
   intersection,
   uniqueSorted,
+};
+
+export type {
+  CompatibilityResult,
+  ManifestRecord,
+  PlannerIssue,
+  RunnerManifest,
+  ScenarioManifest,
 };

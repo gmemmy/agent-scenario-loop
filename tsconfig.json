@@ -17,6 +17,6 @@
     "forceConsistentCasingInFileNames": true,
     "skipLibCheck": true
   },
-  "include": ["core/**/*.ts", "runner/**/*.ts"],
+  "include": ["index.ts", "core/**/*.ts", "runner/**/*.ts"],
   "exclude": ["dist", "node_modules", "app"]
 }

@@ -130,8 +130,13 @@ function buildAgentSummaryMarkdown({ health, verdict, comparison = null }: Agent
   return `${lines.join('\n')}\n`;
 }
 
-module.exports = {
+export {
   buildAgentSummaryMarkdown,
+};
+
+export type {
+  AgentSummaryInput,
+  SummaryRecord,
 };
 type SummaryRecord = Record<string, unknown>;
 

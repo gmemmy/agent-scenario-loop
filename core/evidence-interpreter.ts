@@ -80,9 +80,14 @@ function interpretEvidence({
   };
 }
 
-module.exports = {
+export {
   interpretEvidence,
   isTimingEvidenceTrusted,
+};
+
+export type {
+  EvidenceInterpretation,
+  EvidenceRecord,
 };
 type EvidenceRecord = Record<string, unknown>;
 

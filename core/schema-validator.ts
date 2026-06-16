@@ -444,10 +444,16 @@ function formatValidationErrorMessage(label: string, errors: Array<Pick<Validati
   ].join('\n');
 }
 
-module.exports = {
+export {
   SCHEMAS,
   SchemaValidationError,
   assertValidJson,
   formatValidationErrorMessage,
   validateJson,
+};
+
+export type {
+  JsonSchema,
+  ValidationError,
+  ValidationResult,
 };
