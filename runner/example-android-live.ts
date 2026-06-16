@@ -45,6 +45,7 @@ const EXAMPLE_PROFILES = [
     scenario: 'scroll-settle.json',
   },
 ];
+const DEFAULT_REACT_NATIVE_DEBUG_HOST = 'localhost:8097';
 
 /**
  * Prints CLI usage.
@@ -54,10 +55,11 @@ const EXAMPLE_PROFILES = [
  */
 function usage(output: { write: (message: string) => unknown } = process.stderr): void {
   writeUsage([
-    'Usage: asl-example-android-live [--config <path>] [--out <dir>] [--package <name>] [--serial <device>]',
+    'Usage: asl-example-android-live [--config <path>] [--out <dir>] [--package <name>] [--serial <device>] [--react-native-debug-host <host:port>]',
     '',
     'Runs the packaged example Android live proof: adb preflight, startup, open-close, and scroll-settle.',
     'The example app must already be installed and reachable on an online Android emulator or device.',
+    `By default, the runner sets the app React Native debug host to ${DEFAULT_REACT_NATIVE_DEBUG_HOST} for the isolated Metro server.`,
   ], output);
 }
 
@@ -168,6 +170,9 @@ async function runExampleAndroidLiveProof(
   const config = readJson(configPath);
   const packageName = resolveAndroidPackageName({ args, config });
   const preflightDir = path.join(outputDir, '_preflight', 'android-live-preflight');
+  const reactNativeDebugHost = typeof args['react-native-debug-host'] === 'string'
+    ? args['react-native-debug-host']
+    : DEFAULT_REACT_NATIVE_DEBUG_HOST;
 
   const preflight = await runAndroidAdbPreflight({
     ...(typeof args.adb === 'string' ? { adbPath: args.adb } : {}),
@@ -175,6 +180,7 @@ async function runExampleAndroidLiveProof(
     ...(options.executor ? { executor: options.executor } : {}),
     outputDir: preflightDir,
     packageName,
+    reactNativeDebugHost,
     runId: 'android-live-preflight',
     ...(typeof args.serial === 'string' ? { serial: args.serial } : {}),
   });
@@ -196,6 +202,7 @@ async function runExampleAndroidLiveProof(
       out: outputDir,
       ...(packageName ? { package: packageName } : {}),
       'profile-session': true,
+      'react-native-debug-host': reactNativeDebugHost,
       'run-id': profile.runId,
       scenario: path.join(exampleRoot, 'scenarios', 'android', profile.scenario),
       ...(typeof args.serial === 'string' ? { serial: args.serial } : {}),

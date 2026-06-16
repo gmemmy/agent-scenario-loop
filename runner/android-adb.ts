@@ -14,6 +14,7 @@ const {
   buildAndroidScrollCoordinatesFromBounds,
   createAndroidAdbDriver,
   formatAndroidAdbRawOutput,
+  quoteAndroidShellArg,
   resolveAndroidSelectorFromUiTree,
 } = require('./android-adb-driver');
 
@@ -25,6 +26,7 @@ type CliArgs = {
   'logcat-lines'?: string | boolean;
   out?: string | boolean;
   package?: string | boolean;
+  'react-native-debug-host'?: string | boolean;
   'run-id'?: string | boolean;
   serial?: string | boolean;
   'wait-ms'?: string | boolean;
@@ -107,6 +109,7 @@ type AndroidPreflightOptions = {
   logcatLines?: number;
   outputDir?: string;
   packageName?: string | null;
+  reactNativeDebugHost?: string | null;
   runId?: string;
   serial?: string | null;
   waitMs?: number;
@@ -128,6 +131,7 @@ function usage(output: { write: (message: string) => unknown } = process.stderr)
     'Checks adb/device readiness and writes health.json, verdict.json, agent-summary.md, and raw adb evidence.',
     'Use --capture-logcat [--logcat-lines <count>] to attach a bounded adb logcat snapshot under raw/adb-logcat.txt.',
     'Use --clear-logcat --launch --wait-ms <ms> with --package <name> to capture a bounded app launch window.',
+    'Use --react-native-debug-host <host:port> with --package <name> to set the app debug server and adb reverse for React Native dev builds.',
   ], output);
 }
 
@@ -269,6 +273,84 @@ function nextActionHint(nextActionCode: string, nextAction: string): NextActionH
     nextAction,
     nextActionCode,
   };
+}
+
+/**
+ * Reads the TCP port from a React Native debug server host string.
+ *
+ * @param {string} debugHost
+ * @returns {number | null}
+ */
+function parseReactNativeDebugHostPort(debugHost: string): number | null {
+  if (debugHost.includes('://')) {
+    return null;
+  }
+
+  const match = /:(?<port>\d+)$/u.exec(debugHost);
+  const port = match?.groups?.port ? Number(match.groups.port) : NaN;
+  return Number.isInteger(port) && port > 0 && port <= 65535 ? port : null;
+}
+
+/**
+ * Escapes text for the Android shared preference XML file.
+ *
+ * @param {string} value
+ * @returns {string}
+ */
+function escapeAndroidPreferenceXml(value: string): string {
+  return value
+    .replace(/&/gu, '&amp;')
+    .replace(/</gu, '&lt;')
+    .replace(/>/gu, '&gt;')
+    .replace(/"/gu, '&quot;')
+    .replace(/'/gu, '&apos;');
+}
+
+/**
+ * Builds a device-side shell command that writes React Native debug host preferences.
+ *
+ * @param {{debugHost: string, packageName: string}} options
+ * @returns {string}
+ */
+function buildReactNativeDebugHostPreferenceCommand({
+  debugHost,
+  packageName,
+}: {
+  debugHost: string;
+  packageName: string;
+}): string {
+  const preferenceFile = `shared_prefs/${packageName}_preferences.xml`;
+  const lines = [
+    '<?xml version="1.0" encoding="utf-8" standalone="yes" ?>',
+    '<map>',
+    `    <string name="debug_http_host">${escapeAndroidPreferenceXml(debugHost)}</string>`,
+    '</map>',
+  ];
+
+  return [
+    `cd ${quoteAndroidShellArg(`/data/data/${packageName}`)}`,
+    'mkdir -p shared_prefs',
+    [
+      `printf ${quoteAndroidShellArg('%s\\n')}`,
+      ...lines.map((line) => quoteAndroidShellArg(line)),
+      `> ${quoteAndroidShellArg(preferenceFile)}`,
+    ].join(' '),
+  ].join(' && ');
+}
+
+/**
+ * Combines one adb command result into raw evidence text.
+ *
+ * @param {CommandResult} result
+ * @returns {string}
+ */
+function formatAndroidCommandRawOutput(result: CommandResult): string {
+  return [
+    `$ adb ${result.args.join(' ')}`,
+    `exitCode=${result.exitCode}`,
+    result.stdout,
+    result.stderr,
+  ].filter(Boolean).join('\n');
 }
 
 /**
@@ -648,6 +730,7 @@ async function runAndroidAdbPreflight({
   logcatLines = 1000,
   outputDir = path.resolve('artifacts/android-adb-preflight'),
   packageName = null,
+  reactNativeDebugHost = null,
   runId = createRunId(),
   serial = null,
   waitMs = 0,
@@ -722,6 +805,7 @@ async function runAndroidAdbPreflight({
     logcatLines,
     selectedDevice: device,
     packageName,
+    reactNativeDebugHost,
     waitMs,
   };
   const resolvedDriverSteps = resolveAndroidAdbDriverSteps({
@@ -754,10 +838,12 @@ async function runAndroidAdbPreflight({
       `sdk=${sdk.stdout.trim()}`,
     ].join('\n');
 
+    let selectedPackageInstalled = false;
     if (packageName) {
       const packageCheck = await executor(adbPath, [...shellPrefix, 'pm', 'path', packageName]);
       raw['adb-package.txt'] = [packageCheck.stdout, packageCheck.stderr].filter(Boolean).join('\n');
       const packageInstalled = packageCheck.exitCode === 0 && packageCheck.stdout.includes('package:');
+      selectedPackageInstalled = packageInstalled;
       checks.push({
         name: 'android_package_installed',
         status: packageInstalled ? 'passed' : 'failed',
@@ -777,6 +863,117 @@ async function runAndroidAdbPreflight({
             }
           : {}),
       });
+    }
+
+    if (reactNativeDebugHost) {
+      const reactNativeDebugPort = parseReactNativeDebugHostPort(reactNativeDebugHost);
+      if (!packageName) {
+        checks.push({
+          name: 'android_react_native_debug_host_configured',
+          status: 'failed',
+          source: 'runner',
+          code: 'android_react_native_debug_host_missing_package',
+          message: 'React Native debug host setup was requested, but --package was not provided.',
+          metadata: nextActionHint(
+            'provide_android_package',
+            'Rerun with --package set to the installed Android application id when --react-native-debug-host is enabled.',
+          ),
+        });
+      } else if (!selectedPackageInstalled) {
+        checks.push({
+          name: 'android_react_native_debug_host_configured',
+          status: 'failed',
+          source: 'runner',
+          code: 'android_react_native_debug_host_package_missing',
+          message: `React Native debug host setup requires installed package ${packageName}.`,
+          metadata: nextActionHint(
+            'install_android_package',
+            'Build and install the app on the selected device before configuring the React Native debug host.',
+          ),
+        });
+      } else if (!reactNativeDebugPort) {
+        checks.push({
+          name: 'android_react_native_debug_host_configured',
+          status: 'failed',
+          source: 'runner',
+          code: 'android_react_native_debug_host_invalid',
+          message: `React Native debug host ${reactNativeDebugHost} must be a host:port value without a URL scheme.`,
+          metadata: nextActionHint(
+            'fix_react_native_debug_host',
+            'Pass a React Native debug host such as localhost:8097, not a full http:// URL.',
+          ),
+        });
+      } else {
+        const reverseResult = await executor(adbPath, [
+          '-s',
+          device.serial,
+          'reverse',
+          `tcp:${reactNativeDebugPort}`,
+          `tcp:${reactNativeDebugPort}`,
+        ]);
+        const preferenceCommand = buildReactNativeDebugHostPreferenceCommand({
+          debugHost: reactNativeDebugHost,
+          packageName,
+        });
+        const preferenceResult = await executor(adbPath, [
+          '-s',
+          device.serial,
+          'shell',
+          'run-as',
+          packageName,
+          'sh',
+          '-c',
+          quoteAndroidShellArg(preferenceCommand),
+        ]);
+        const reversePassed = reverseResult.exitCode === 0;
+        const preferencePassed = preferenceResult.exitCode === 0;
+        raw['adb-react-native-reverse.txt'] = formatAndroidCommandRawOutput(reverseResult);
+        raw['adb-react-native-debug-host.txt'] = formatAndroidCommandRawOutput(preferenceResult);
+        checks.push({
+          name: 'android_react_native_reverse_configured',
+          status: reversePassed ? 'passed' : 'failed',
+          source: 'runner',
+          code: reversePassed
+            ? 'android_react_native_reverse_configured'
+            : 'android_react_native_reverse_failed',
+          message: reversePassed
+            ? `Configured adb reverse for React Native debug port ${reactNativeDebugPort}.`
+            : `Failed to configure adb reverse for React Native debug port ${reactNativeDebugPort}.`,
+          ...(!reversePassed
+            ? {
+                metadata: nextActionHint(
+                  'inspect_android_react_native_reverse',
+                  'Inspect raw/adb-react-native-reverse.txt, confirm the selected device supports adb reverse, then rerun the capture.',
+                ),
+              }
+            : {}),
+        });
+        checks.push({
+          name: 'android_react_native_debug_host_configured',
+          status: preferencePassed ? 'passed' : 'failed',
+          source: 'runner',
+          code: preferencePassed
+            ? 'android_react_native_debug_host_configured'
+            : 'android_react_native_debug_host_failed',
+          message: preferencePassed
+            ? `Configured React Native debug host ${reactNativeDebugHost} for ${packageName}.`
+            : `Failed to configure React Native debug host ${reactNativeDebugHost} for ${packageName}.`,
+          ...(!preferencePassed
+            ? {
+                metadata: nextActionHint(
+                  'inspect_android_react_native_debug_host',
+                  'Inspect raw/adb-react-native-debug-host.txt, confirm the app is debuggable and run-as works for the package, then rerun the capture.',
+                ),
+              }
+            : {}),
+        });
+        metadata.reactNativeDebugHostSetup = {
+          debugHost: reactNativeDebugHost,
+          port: reactNativeDebugPort,
+          preferenceRawPath: 'raw/adb-react-native-debug-host.txt',
+          reverseRawPath: 'raw/adb-react-native-reverse.txt',
+        };
+      }
     }
 
     if (clearLogcat) {
@@ -1121,6 +1318,9 @@ async function main(): Promise<void> {
     logcatLines: parsePositiveInteger(args['logcat-lines'], 1000),
     ...(typeof args.out === 'string' ? { outputDir: args.out } : {}),
     ...(typeof args.package === 'string' ? { packageName: args.package } : {}),
+    ...(typeof args['react-native-debug-host'] === 'string'
+      ? { reactNativeDebugHost: args['react-native-debug-host'] }
+      : {}),
     ...(typeof args['run-id'] === 'string' ? { runId: args['run-id'] } : {}),
     ...(typeof args.serial === 'string' ? { serial: args.serial } : {}),
     waitMs: parsePositiveInteger(args['wait-ms'], 0),
@@ -1138,11 +1338,14 @@ if (require.main === module) {
 export {
   buildAndroidHealth,
   buildAndroidVerdict,
+  buildReactNativeDebugHostPreferenceCommand,
+  escapeAndroidPreferenceXml,
   execFileCommand,
   main,
   parseAdbDevices,
   parseArgs,
   parsePositiveInteger,
+  parseReactNativeDebugHostPort,
   resolveAndroidAdbDriverSteps,
   applyAndroidSelectorResolution,
   buildAndroidSelectorHealthMetadata,

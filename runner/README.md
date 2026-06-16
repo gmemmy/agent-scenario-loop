@@ -4,7 +4,7 @@ The runner owns host execution. It is the boundary between scenario contracts an
 
 The package ships eleven public runner entrypoints. Package scripts build them into `dist/` before execution:
 
-- `android-adb.ts`: checks adb availability, connected Android device readiness, optional package installation, optional package launch, ordered adb driver actions, bounded logcat output, and raw adb evidence.
+- `android-adb.ts`: checks adb availability, connected Android device readiness, optional package installation, optional React Native debug-host setup, optional package launch, ordered adb driver actions, bounded logcat output, and raw adb evidence.
 - `check-plan.ts`: validates a scenario manifest, primary runner capability manifest, and optional evidence-provider manifests, then writes schema-checked `health.json`, `verdict.json`, `agent-summary.md`, and `planner-compatibility.json` before execution.
 - `compare.ts`: reads two completed run directories, validates `health.json` and `verdict.json`, then writes or prints a schema-checked `comparison.json`.
 - `compare-latest.ts`: scans an artifact root for the newest trusted prior run for a scenario, rejects unhealthy current runs, then writes or prints a schema-checked `comparison.json`.
@@ -75,6 +75,14 @@ To create a bounded Android launch capture:
 ```bash
 pnpm android:logcat -- --package com.example.app --clear-logcat --launch --wait-ms 5000 --logcat-lines 1000 --out artifacts/android-adb-launch
 ```
+
+For React Native development builds, add `--react-native-debug-host <host:port>` to make the capture window configure adb reverse and the app's `debug_http_host` preference before launch:
+
+```bash
+pnpm android:logcat -- --package com.example.app --react-native-debug-host localhost:8097 --clear-logcat --launch --wait-ms 5000 --out artifacts/android-adb-launch
+```
+
+That writes `raw/adb-react-native-reverse.txt` and `raw/adb-react-native-debug-host.txt` alongside the rest of the adb setup evidence.
 
 To turn that captured logcat evidence into scenario artifacts:
 

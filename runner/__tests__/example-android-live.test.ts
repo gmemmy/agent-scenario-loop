@@ -93,6 +93,12 @@ test('runs the packaged Android example live proof with a fake adb executor', as
         stdout: 'package:/data/app/dev.agentscenarioloop.example/base.apk\n',
       };
     }
+    if (key === '-s emulator-5554 reverse tcp:8097 tcp:8097') {
+      return { command, args, exitCode: 0, stderr: '', stdout: '' };
+    }
+    if (key.includes('shell run-as dev.agentscenarioloop.example sh -c') && key.includes('debug_http_host') && key.includes('localhost:8097')) {
+      return { command, args, exitCode: 0, stderr: '', stdout: '' };
+    }
     if (key.endsWith('shell monkey -p dev.agentscenarioloop.example -c android.intent.category.LAUNCHER 1')) {
       return { command, args, exitCode: 0, stderr: '', stdout: 'Events injected: 1\n' };
     }
@@ -134,6 +140,8 @@ test('runs the packaged Android example live proof with a fake adb executor', as
   assert.equal(result.profiles.length, 3);
   assert.match(formatResult(result), /Android example live proof passed/u);
   assert.ok(calls.some((call) => call.includes('profile-session/start')));
+  assert.ok(calls.some((call) => call === '-s emulator-5554 reverse tcp:8097 tcp:8097'));
+  assert.ok(calls.some((call) => call.includes('debug_http_host')));
 
   for (const profile of result.profiles) {
     const health = JSON.parse(fs.readFileSync(path.join(profile.runDir, 'health.json'), 'utf8'));

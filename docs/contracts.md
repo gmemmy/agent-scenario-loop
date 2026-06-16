@@ -173,7 +173,7 @@ The command writes:
 
 If adb, a connected online device, or an optional package check fails, health fails and the verdict remains `inconclusive`.
 
-Add `--capture-logcat --logcat-lines <count>` to write `raw/adb-logcat.txt` in the same artifact folder. Add `--clear-logcat --launch --wait-ms <ms>` with `--package <name>` to clear logs, launch the package, wait for a bounded capture window, and then collect logcat evidence. If requested capture-window setup or logcat capture fails, scenario health fails because timing and event evidence would be incomplete.
+Add `--capture-logcat --logcat-lines <count>` to write `raw/adb-logcat.txt` in the same artifact folder. Add `--react-native-debug-host <host:port>` with `--package <name>` for React Native development builds that need adb reverse plus the app `debug_http_host` preference before launch; the runner writes `raw/adb-react-native-reverse.txt` and `raw/adb-react-native-debug-host.txt`. Add `--clear-logcat --launch --wait-ms <ms>` with `--package <name>` to clear logs, launch the package, wait for a bounded capture window, and then collect logcat evidence. If requested capture-window setup or logcat capture fails, scenario health fails because timing and event evidence would be incomplete.
 
 Use that captured logcat evidence directly with Android profiling:
 
@@ -184,7 +184,7 @@ pnpm profile:android -- --config core/config-template.json --scenario examples/m
 Or let Android profiling own the adb capture window before it writes profile artifacts:
 
 ```bash
-pnpm profile:android -- --config core/config-template.json --scenario examples/mobile-app/scenarios/android/app-startup.json --adb-capture --clear-logcat --launch --wait-ms 5000 --run-id android-run-1
+pnpm profile:android -- --config core/config-template.json --scenario examples/mobile-app/scenarios/android/app-startup.json --adb-capture --react-native-debug-host localhost:8097 --clear-logcat --launch --wait-ms 5000 --run-id android-run-1
 ```
 
 ## iOS simulator capture

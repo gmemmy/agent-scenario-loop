@@ -310,6 +310,8 @@ function writeFakeExampleLiveAdb({
     "if (key.endsWith('shell getprop ro.build.version.release')) ok('15\\n');",
     "if (key.endsWith('shell getprop ro.build.version.sdk')) ok('35\\n');",
     "if (key.endsWith(`shell pm path ${packageName}`)) ok(`package:/data/app/${packageName}/base.apk\\n`);",
+    "if (key === '-s emulator-5554 reverse tcp:8097 tcp:8097') ok('');",
+    "if (key.includes(`shell run-as ${packageName} sh -c`) && key.includes('debug_http_host') && key.includes('localhost:8097')) ok('');",
     "if (key.endsWith(`shell monkey -p ${packageName} -c android.intent.category.LAUNCHER 1`)) ok('Events injected: 1\\n');",
     "if (key.endsWith('logcat -c')) ok('');",
     "if (key.includes('profile-session/start')) {",
@@ -1042,6 +1044,14 @@ function main(): void {
       fs.readFileSync(path.join(exampleLiveRoot, '_preflight', 'android-live-preflight', 'health.json'), 'utf8'),
     );
     assert.equal(exampleLivePreflightHealth.healthStatus, 'passed');
+    assert.equal(
+      fs.existsSync(path.join(exampleLiveRoot, '_preflight', 'android-live-preflight', 'raw', 'adb-react-native-reverse.txt')),
+      true,
+    );
+    assert.equal(
+      fs.existsSync(path.join(exampleLiveRoot, '_preflight', 'android-live-preflight', 'raw', 'adb-react-native-debug-host.txt')),
+      true,
+    );
     for (const [scenarioDir, runId] of [
       ['app-startup', 'android-live-startup'],
       ['open-close-cycle', 'android-live-open-close'],

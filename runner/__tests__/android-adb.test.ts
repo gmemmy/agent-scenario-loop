@@ -6,8 +6,11 @@ const path = require('node:path');
 const test = require('node:test');
 
 const {
+  buildReactNativeDebugHostPreferenceCommand,
+  escapeAndroidPreferenceXml,
   parseAdbDevices,
   parseArgs,
+  parseReactNativeDebugHostPort,
   runAndroidAdbPreflight,
   selectDevice,
 } = require('../android-adb');
@@ -65,6 +68,26 @@ test('ignores package-manager argument separator', () => {
   });
 });
 
+test('parses and rejects React Native debug host ports', () => {
+  assert.equal(parseReactNativeDebugHostPort('localhost:8097'), 8097);
+  assert.equal(parseReactNativeDebugHostPort('10.0.2.2:8081'), 8081);
+  assert.equal(parseReactNativeDebugHostPort('http://localhost:8097'), null);
+  assert.equal(parseReactNativeDebugHostPort('localhost'), null);
+  assert.equal(parseReactNativeDebugHostPort('localhost:70000'), null);
+});
+
+test('builds React Native debug host preference command safely', () => {
+  assert.equal(escapeAndroidPreferenceXml('localhost:8097'), 'localhost:8097');
+  assert.equal(escapeAndroidPreferenceXml('owner&device<debug>"host\''), 'owner&amp;device&lt;debug&gt;&quot;host&apos;');
+  assert.match(
+    buildReactNativeDebugHostPreferenceCommand({
+      debugHost: 'localhost:8097',
+      packageName: 'com.example.app',
+    }),
+    /debug_http_host/u,
+  );
+});
+
 test('writes passed health for an online adb device and installed package', async (t: TestContext) => {
   const outputDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-android-adb-'));
   t.after(async () => {
@@ -99,6 +122,59 @@ test('writes passed health for an online adb device and installed package', asyn
   assert.ok(fs.existsSync(path.join(outputDir, 'raw', 'adb-devices.txt')));
   assert.ok(fs.existsSync(path.join(outputDir, 'raw', 'android-metadata.json')));
   assert.match(fs.readFileSync(path.join(outputDir, 'agent-summary.md'), 'utf8'), /Scenario health passed/u);
+});
+
+test('configures React Native debug host and adb reverse when requested', async (t: TestContext) => {
+  const outputDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-android-adb-rn-host-'));
+  t.after(async () => {
+    await fsp.rm(outputDir, { recursive: true, force: true });
+  });
+  const calls: string[] = [];
+  const fallbackExecutor = createExecutor({
+    version: { stdout: 'Android Debug Bridge version 1.0.41\n' },
+    'devices -l': {
+      stdout: [
+        'List of devices attached',
+        'emulator-5554 device product:sdk_gphone model:Pixel_6 device:emu64',
+      ].join('\n'),
+    },
+    '-s emulator-5554 shell getprop ro.product.model': { stdout: 'Pixel 6\n' },
+    '-s emulator-5554 shell getprop ro.build.version.release': { stdout: '15\n' },
+    '-s emulator-5554 shell getprop ro.build.version.sdk': { stdout: '35\n' },
+    '-s emulator-5554 shell pm path com.example.app': { stdout: 'package:/data/app/com.example.app/base.apk\n' },
+    '-s emulator-5554 reverse tcp:8097 tcp:8097': { stdout: '' },
+  });
+  const executor = async (command: string, args: string[]): Promise<CommandResult> => {
+    const key = args.join(' ');
+    calls.push(key);
+    if (key.includes('shell run-as com.example.app sh -c') && key.includes('debug_http_host') && key.includes('localhost:8097')) {
+      return { args, command, exitCode: 0, stderr: '', stdout: '' };
+    }
+
+    return fallbackExecutor(command, args);
+  };
+
+  const result = await runAndroidAdbPreflight({
+    adbPath: 'fake-adb',
+    executor,
+    outputDir,
+    packageName: 'com.example.app',
+    reactNativeDebugHost: 'localhost:8097',
+    runId: 'android-rn-host',
+  });
+  const metadata = JSON.parse(fs.readFileSync(path.join(outputDir, 'raw', 'android-metadata.json'), 'utf8'));
+
+  assert.equal(result.health.healthStatus, 'passed', JSON.stringify(result.health.checks, null, 2));
+  assert.ok(calls.includes('-s emulator-5554 reverse tcp:8097 tcp:8097'));
+  assert.ok(calls.some((call) => call.includes('debug_http_host')));
+  assert.equal(metadata.reactNativeDebugHostSetup.debugHost, 'localhost:8097');
+  assert.ok(fs.existsSync(path.join(outputDir, 'raw', 'adb-react-native-reverse.txt')));
+  assert.ok(fs.existsSync(path.join(outputDir, 'raw', 'adb-react-native-debug-host.txt')));
+  assert.ok(
+    (result.health.checks as Array<{ code: string }>).some((check) => (
+      check.code === 'android_react_native_debug_host_configured'
+    )),
+  );
 });
 
 test('captures bounded adb logcat evidence when requested', async (t: TestContext) => {

@@ -86,6 +86,18 @@ With an emulator or device online and the example app installed, the Android run
 pnpm example:android:live
 ```
 
+The live Android commands assume the isolated Metro server is on port `8097`. They configure adb reverse and the app's React Native debug host as `localhost:8097` before launch, so the example app does not accidentally load another app's Metro bundle from the default `8081` port. To apply only that Android Metro routing setup, run:
+
+```bash
+pnpm example:app:android:metro-port
+```
+
+Override the target package or debug host when needed:
+
+```bash
+ASL_EXAMPLE_ANDROID_APP_ID=<package-name> ASL_EXAMPLE_ANDROID_DEBUG_HOST=<host:port> pnpm example:app:android:metro-port
+```
+
 The individual live commands remain useful while debugging one scenario:
 
 ```bash

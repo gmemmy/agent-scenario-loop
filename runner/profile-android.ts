@@ -470,6 +470,9 @@ async function runProfileAndroid(
     logcatLines: parsePositiveInteger(readScalarArg(args['logcat-lines']), 1000),
     outputDir: resolveAdbCaptureOutputDir({ args, runId }),
     packageName: resolveAndroidPackageName({ args, config }),
+    ...(typeof args['react-native-debug-host'] === 'string'
+      ? { reactNativeDebugHost: args['react-native-debug-host'] }
+      : {}),
     runId,
     ...(typeof args.serial === 'string' ? { serial: args.serial } : {}),
     waitMs: parsePositiveInteger(readScalarArg(args['wait-ms']), 0),

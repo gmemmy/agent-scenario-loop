@@ -115,6 +115,12 @@ pnpm example:android:live
 
 `example:app:android` builds, installs, and opens the private example app. Keep Metro running. `example:android:live` then checks adb/package readiness and runs startup, open-close, and scroll-settle through the same scenario/artifact contract. It prints the `agent-summary.md` entrypoint for each run.
 
+The Android live proof uses the isolated Metro port `8097`. During preflight it configures `adb reverse tcp:8097 tcp:8097` and writes the app's React Native debug host as `localhost:8097`, preserving both commands as raw adb evidence. To apply only that routing setup:
+
+```bash
+pnpm example:app:android:metro-port
+```
+
 The proof command writes:
 
 - adb preflight health under `artifacts/example-mobile-app/android/_preflight/android-live-preflight`
@@ -155,7 +161,7 @@ pnpm profile:android -- --config <config> --scenario <scenario> --adb-artifacts 
 Or let Android profiling own both the adb capture window and the profile artifact run:
 
 ```bash
-pnpm profile:android -- --config <config> --scenario <scenario> --adb-capture --clear-logcat --launch --wait-ms 5000 --run-id <run-id>
+pnpm profile:android -- --config <config> --scenario <scenario> --adb-capture --react-native-debug-host localhost:8097 --clear-logcat --launch --wait-ms 5000 --run-id <run-id>
 ```
 
 ## iOS live proof
