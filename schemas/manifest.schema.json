@@ -119,6 +119,12 @@
             },
             "uiTree": {
               "type": "string"
+            },
+            "screenshots": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
             }
           }
         },

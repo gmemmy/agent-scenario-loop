@@ -44,7 +44,7 @@ type ProfileMobileOptions = {
   interactionDriver?: string;
   platform: ProfilePlatform;
 };
-type CaptureEvidenceKind = 'uiTree' | 'video';
+type CaptureEvidenceKind = 'screenshot' | 'uiTree' | 'video';
 type SignalEvidenceKind = 'js' | 'memory' | 'network';
 type EvidenceAttachment = {
   destinationPath: string;
@@ -53,12 +53,16 @@ type EvidenceAttachment = {
   sourcePath: string;
 };
 type AttachedEvidence = {
-  captures: Record<CaptureEvidenceKind, string | null>;
+  captures: {
+    screenshots: string[];
+    uiTree: string | null;
+    video: string | null;
+  };
   copies: EvidenceAttachment[];
   signals: Record<SignalEvidenceKind, string[]>;
 };
 
-const CAPTURE_EVIDENCE_KINDS = new Set(['uiTree', 'video']);
+const CAPTURE_EVIDENCE_KINDS = new Set(['screenshot', 'uiTree', 'video']);
 const SIGNAL_EVIDENCE_KINDS = new Set(['js', 'memory', 'network']);
 
 /**
@@ -80,7 +84,7 @@ function usage({
     '',
     `Reads scenario metadata plus profile-event evidence and writes the artifact layout for one ${platform} profile run.`,
     'Use repeated --signal <js|memory|network>:<path> to attach provider signal artifacts.',
-    'Use repeated --capture <video|uiTree>:<path> to attach named capture artifacts.',
+    'Use repeated --capture <screenshot|video|uiTree>:<path> to attach named capture artifacts.',
   ];
   if (platform === 'android') {
     lines.push('Use --adb-artifacts <dir> to read raw/adb-logcat.txt from a prior asl-android-adb capture.');
@@ -227,6 +231,7 @@ async function resolveAttachedEvidence({
 }): Promise<AttachedEvidence> {
   const attached: AttachedEvidence = {
     captures: {
+      screenshots: [],
       uiTree: null,
       video: null,
     },
@@ -283,6 +288,17 @@ async function resolveAttachedEvidence({
     }) as { kind: CaptureEvidenceKind; sourcePath: string };
     const fileName = path.basename(parsed.sourcePath);
     const manifestPath = `captures/${fileName}`;
+    if (parsed.kind === 'screenshot') {
+      attached.captures.screenshots.push(manifestPath);
+      await addCopy({
+        destinationPath: path.join(layout.captures, fileName),
+        kind: parsed.kind,
+        manifestPath,
+        sourcePath: parsed.sourcePath,
+      });
+      continue;
+    }
+
     if (attached.captures[parsed.kind]) {
       throw new Error(`Duplicate --capture kind "${parsed.kind}".`);
     }
@@ -628,6 +644,7 @@ async function runProfileMobile(args: CliArgs, options: ProfileMobileOptions): P
         deviceLog: 'raw/device.log',
       },
       captures: {
+        screenshots: attachedEvidence.captures.screenshots,
         video: attachedEvidence.captures.video ?? 'captures/run.mp4',
         uiTree: attachedEvidence.captures.uiTree ?? 'captures/ui-tree.json',
       },

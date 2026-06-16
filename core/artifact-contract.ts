@@ -894,6 +894,9 @@ function buildSummaryMarkdown({ manifest, metrics }: { manifest: ArtifactRecord;
         : 'none'
     }`,
   ];
+  const screenshots = Array.isArray(manifest.artifacts.captures.screenshots)
+    ? manifest.artifacts.captures.screenshots
+    : [];
   const lines = [
     `# ${String(manifest.platform || 'ios').toUpperCase()} profile run: ${manifest.scenario}`,
     '',
@@ -922,6 +925,11 @@ function buildSummaryMarkdown({ manifest, metrics }: { manifest: ArtifactRecord;
     `- Device log: \`${manifest.artifacts.raw.deviceLog}\``,
     `- Video: \`${manifest.artifacts.captures.video}\``,
     `- UI tree: \`${manifest.artifacts.captures.uiTree}\``,
+    `- Screenshots: ${
+      screenshots.length > 0
+        ? screenshots.map((item: string) => `\`${item}\``).join(', ')
+        : 'none'
+    }`,
     '',
     '## Signal attachments',
     '',

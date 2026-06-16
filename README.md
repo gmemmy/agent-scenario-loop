@@ -94,7 +94,7 @@ pnpm check-plan -- --scenario examples/scenarios/mobile/app-startup.json --runne
 
 That command does not require Xcode, a simulator, or device artifacts. It validates scenario and runner manifests, writes preflight artifacts, and stops before live execution.
 
-Adapter authors can import `agent-scenario-loop/runner/android-adb-driver` to reuse adb-backed `tap`, `scroll`, `inspectTree`, `screenshot`, and `readLogs` driver actions plus Android lifecycle helpers without depending on the `asl-android-adb` CLI. Android profiling routes supported scenario `driverAction` steps through that adapter during owned adb capture.
+Adapter authors can import `agent-scenario-loop/runner/android-adb-driver` to reuse adb-backed `tap`, `scroll`, `inspectTree`, `screenshot`, and `readLogs` driver actions plus Android lifecycle helpers without depending on the `asl-android-adb` CLI. They can import `agent-scenario-loop/runner/ios-simctl-driver` for simctl-backed `screenshot` and `readLogs` evidence actions plus explicit iOS lifecycle helpers. Built-in profile CLIs route supported scenario `driverAction` steps through those adapters during owned capture windows.
 
 To check Android adb readiness before live scenario execution:
 
@@ -275,15 +275,15 @@ Current package guarantees:
 - explicit baseline/current run folders can produce schema-checked `comparison.json`
 - artifact roots can be indexed to find trusted prior runs per scenario
 - installed commands can compare a current run against the latest trusted prior run for a scenario
-- installed adapter subpaths expose the proven Android adb driver helper for log, UI tree, screenshot, tap, and scroll actions
-- installed commands expose iOS simctl capture and iOS profile ingestion from simctl artifacts
+- installed adapter subpaths expose proven Android adb and iOS simctl driver helpers for portable evidence actions and explicit lifecycle helpers
+- installed commands expose iOS simctl capture, screenshot preservation, and iOS profile ingestion from simctl artifacts
 - adapter-target manifests for external tools are schema-checked and planner-tested without bundling those tools
 - package smoke blocks generated artifacts, internal-only paths, and local/product-specific strings from the tarball
 
 Remaining hardening:
 
 - extend Android beyond coordinate-based adb actions into richer evidence providers and app-aware selectors
-- extend iOS beyond launch/deep-link/log capture into richer simulator evidence providers
+- extend iOS beyond log/screenshot capture into richer simulator evidence providers
 - improve runner validation and failure reporting for more adapter classes
 
 The package should remain product-neutral. Product-specific selectors, routes, auth assumptions, and scenario data belong in the consuming app, not in this repository.

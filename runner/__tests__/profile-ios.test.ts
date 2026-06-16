@@ -135,30 +135,63 @@ test('profile-ios can capture simctl logs and profile them in one run', async (t
   });
   const simctlCaptureRoot = path.join(tempRoot, 'simctl-capture');
   const profileRoot = path.join(tempRoot, 'profile');
-  const waits: number[] = [];
-  const executor = createExecutor({
-    'simctl list devices': {
-      stdout: [
-        '== Devices ==',
-        '-- iOS 26.3 --',
-        '    iPhone 17 Pro Max (A692ED28-893E-453F-8866-C69331AE757F) (Booted)',
-      ].join('\n'),
-    },
-    'simctl get_app_container A692ED28-893E-453F-8866-C69331AE757F dev.agent-scenario-loop.example app': {
-      stdout: '/tmp/ASLExampleMobile.app\n',
-    },
-    'simctl launch A692ED28-893E-453F-8866-C69331AE757F dev.agent-scenario-loop.example': {
-      stdout: 'dev.agent-scenario-loop.example: 1234\n',
-    },
-    'simctl openurl A692ED28-893E-453F-8866-C69331AE757F asl-example://profile-session/start?runId=ios-live-startup&scenario=app-startup': {
-      stdout: '',
-    },
-    'simctl spawn A692ED28-893E-453F-8866-C69331AE757F log show --style compact --last 2m --predicate eventMessage CONTAINS "[profile-event]" OR eventMessage CONTAINS "[profile-session]"': {
-      stdout: fs
-        .readFileSync(fixturePath('examples/mobile-app/event-logs/app-startup.log'), 'utf8')
-        .replace(/example-startup/gu, 'ios-live-startup'),
-    },
+  const scenario = readJson(fixturePath('examples/mobile-app/scenarios/ios/app-startup.json'));
+  scenario.steps = [];
+  scenario.steps.push({
+    id: 'final-screenshot',
+    kind: 'captureEvidence',
+    artifact: 'screenshot',
+    driverAction: 'screenshot',
   });
+  const scenarioPath = path.join(tempRoot, 'app-startup-screenshot.json');
+  await fsp.writeFile(scenarioPath, `${JSON.stringify(scenario, null, 2)}\n`, 'utf8');
+  const waits: number[] = [];
+  const executor = async (command: string, args: string[]): Promise<CommandResult> => {
+    const key = args.join(' ');
+    const screenshotPath = path.join(simctlCaptureRoot, 'captures', 'ios-screenshot.png');
+    if (key === `simctl io A692ED28-893E-453F-8866-C69331AE757F screenshot ${screenshotPath}`) {
+      await fsp.mkdir(path.dirname(screenshotPath), { recursive: true });
+      await fsp.writeFile(screenshotPath, 'PNG', 'utf8');
+      return {
+        command,
+        args,
+        exitCode: 0,
+        stderr: '',
+        stdout: 'Wrote screenshot\n',
+      };
+    }
+    const responses: Record<string, Partial<CommandResult>> = {
+      'simctl list devices': {
+        stdout: [
+          '== Devices ==',
+          '-- iOS 26.3 --',
+          '    iPhone 17 Pro Max (A692ED28-893E-453F-8866-C69331AE757F) (Booted)',
+        ].join('\n'),
+      },
+      'simctl get_app_container A692ED28-893E-453F-8866-C69331AE757F dev.agent-scenario-loop.example app': {
+        stdout: '/tmp/ASLExampleMobile.app\n',
+      },
+      'simctl launch A692ED28-893E-453F-8866-C69331AE757F dev.agent-scenario-loop.example': {
+        stdout: 'dev.agent-scenario-loop.example: 1234\n',
+      },
+      'simctl openurl A692ED28-893E-453F-8866-C69331AE757F asl-example://profile-session/start?runId=ios-live-startup&scenario=app-startup': {
+        stdout: '',
+      },
+      'simctl spawn A692ED28-893E-453F-8866-C69331AE757F log show --style compact --last 2m --predicate eventMessage CONTAINS "[profile-event]" OR eventMessage CONTAINS "[profile-session]"': {
+        stdout: fs
+          .readFileSync(fixturePath('examples/mobile-app/event-logs/app-startup.log'), 'utf8')
+          .replace(/example-startup/gu, 'ios-live-startup'),
+      },
+    };
+    const response = responses[key] ?? { exitCode: 1, stderr: `unexpected command: ${key}` };
+    return {
+      command,
+      args,
+      exitCode: response.exitCode ?? 0,
+      stderr: response.stderr ?? '',
+      stdout: response.stdout ?? '',
+    };
+  };
 
   const result = await runProfileIos({
     config: fixturePath('examples/mobile-app/asl.config.json'),
@@ -167,7 +200,7 @@ test('profile-ios can capture simctl logs and profile them in one run', async (t
     out: profileRoot,
     'profile-session': true,
     'run-id': 'ios-live-startup',
-    scenario: fixturePath('examples/mobile-app/scenarios/ios/app-startup.json'),
+    scenario: scenarioPath,
     'simctl-capture': true,
     'simctl-out': simctlCaptureRoot,
     'wait-ms': '25',
@@ -188,9 +221,14 @@ test('profile-ios can capture simctl logs and profile them in one run', async (t
   assert.equal(health.healthStatus, 'passed');
   assert.equal(simctlHealth.healthStatus, 'passed');
   assert.equal((manifest.artifacts as { raw: { interactionLog: string } }).raw.interactionLog, 'raw/ios-simctl-log.txt');
+  assert.deepEqual((manifest.artifacts as { captures: { screenshots: string[] } }).captures.screenshots, [
+    'captures/ios-screenshot.png',
+  ]);
   assert.equal(manifest.interactionDriver, 'ios-simctl');
   assert.equal((causalRun.scenario as { driver: string }).driver, 'ios-simctl');
+  assert.equal((causalRun.artifacts as { screenshot: string }).screenshot, 'captures/ios-screenshot.png');
   assert.ok(fs.existsSync(path.join(result.runDir, 'raw', 'ios-simctl-log.txt')));
+  assert.ok(fs.existsSync(path.join(result.runDir, 'captures', 'ios-screenshot.png')));
 });
 
 test('profile-ios can seed and profile stored iOS app truth events', async (t: TestContext) => {

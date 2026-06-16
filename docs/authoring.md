@@ -128,10 +128,11 @@ asl-profile-android \
   --events artifacts/raw/adb-logcat.txt \
   --signal js:artifacts/provider/js-profile.json \
   --signal network:artifacts/provider/network.har \
+  --capture screenshot:artifacts/provider/final-screen.png \
   --capture uiTree:artifacts/provider/ui-tree.json
 ```
 
-Signals are copied into `signals/js`, `signals/memory`, or `signals/network` and listed in `manifest.json`. Captures are copied into `captures` and replace the matching named capture path in the manifest. Attached provider evidence is preserved as proof, but timing verdicts still come from app-owned truth events and budgets.
+Signals are copied into `signals/js`, `signals/memory`, or `signals/network` and listed in `manifest.json`. Captures are copied into `captures`; screenshots are listed in `artifacts.captures.screenshots`, while video and UI tree captures replace the matching named capture path in the manifest. Attached provider evidence is preserved as proof, but timing verdicts still come from app-owned truth events and budgets.
 
 ## Artifacts
 

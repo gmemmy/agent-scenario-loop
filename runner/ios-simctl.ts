@@ -11,6 +11,10 @@ const { createArtifactLayout } = require('../core/artifact-layout');
 const { writeJsonArtifact, writeTextArtifact } = require('../core/artifact-writer');
 const { SCHEMAS, assertValidJson } = require('../core/schema-validator');
 const { hasHelpFlag, writeUsage } = require('./cli');
+const {
+  createIosSimctlDriver,
+  formatIosSimctlRawOutput,
+} = require('./ios-simctl-driver');
 
 type CliArgs = {
   bundle?: string | boolean;
@@ -21,6 +25,7 @@ type CliArgs = {
   out?: string | boolean;
   'profile-session-storage'?: string | boolean;
   'run-id'?: string | boolean;
+  screenshot?: string | boolean;
   'terminate-before-launch'?: string | boolean;
   'wait-ms'?: string | boolean;
   xcrun?: string | boolean;
@@ -71,6 +76,7 @@ type IosSimctlCaptureOptions = {
   outputDir?: string;
   profileSessionStorage?: IosProfileSessionStorageSeed | null;
   runId?: string;
+  screenshot?: boolean;
   terminateBeforeLaunch?: boolean;
   waitMs?: number;
   xcrunPath?: string;
@@ -78,6 +84,9 @@ type IosSimctlCaptureOptions = {
 type IosSimctlCaptureResult = {
   agentSummary: string;
   health: Record<string, unknown>;
+  captures: {
+    screenshot: string | null;
+  };
   metadata: Record<string, unknown>;
   raw: Record<string, string>;
   runDir: string;
@@ -111,6 +120,7 @@ function usage(output: { write: (message: string) => unknown } = process.stderr)
     '',
     'Checks iOS simulator readiness and writes health.json, verdict.json, agent-summary.md, and raw simctl evidence.',
     'Use --launch with --bundle <id> to launch the app before capturing a bounded simulator log window.',
+    'Use --screenshot to save a simulator screenshot into captures/ios-screenshot.png.',
     'Use --profile-session-storage <scenario> with --bundle <id> to seed the app profile session before launch.',
     'Use --collect-profile-storage with --bundle <id> to collect stored profile events after the capture window.',
   ], output);
@@ -516,6 +526,7 @@ async function runIosSimctlCapture({
   outputDir = path.resolve('artifacts/ios-simctl-capture'),
   profileSessionStorage = null,
   runId = createRunId(),
+  screenshot = false,
   terminateBeforeLaunch = false,
   waitMs = 0,
   xcrunPath = 'xcrun',
@@ -526,6 +537,9 @@ async function runIosSimctlCapture({
   await fsp.mkdir(rawDir, { recursive: true });
 
   const raw: Record<string, string> = {};
+  const captures: { screenshot: string | null } = {
+    screenshot: null,
+  };
   const checks: Record<string, unknown>[] = [];
   const devicesOutput = await executor(xcrunPath, ['simctl', 'list', 'devices']);
   raw['ios-simctl-devices.txt'] = [devicesOutput.stdout, devicesOutput.stderr].filter(Boolean).join('\n');
@@ -566,6 +580,7 @@ async function runIosSimctlCapture({
           startedAt: profileSessionStorage.startedAt ?? null,
         }
       : null,
+    screenshot,
     selectedDevice,
     selectedSimulator: simulator,
     terminateBeforeLaunch,
@@ -574,6 +589,11 @@ async function runIosSimctlCapture({
   };
 
   if (simulator && simulator.state === 'Booted') {
+    const driver = createIosSimctlDriver({
+      deviceUdid: simulator.udid,
+      executor,
+      xcrunPath,
+    });
     let dataContainerPath: string | null = null;
     if (bundleId) {
       const appContainer = await executor(xcrunPath, ['simctl', 'get_app_container', simulator.udid, bundleId, 'app']);
@@ -630,8 +650,8 @@ async function runIosSimctlCapture({
           message: 'App termination was requested, but no bundle id was provided.',
         });
       } else {
-        const terminateResult = await executor(xcrunPath, ['simctl', 'terminate', simulator.udid, bundleId]);
-        raw['ios-terminate.txt'] = [terminateResult.stdout, terminateResult.stderr].filter(Boolean).join('\n');
+        const terminateResult = await driver.terminateBundle(bundleId);
+        raw[terminateResult.rawFileName] = formatIosSimctlRawOutput(terminateResult);
         const terminateOutput = `${terminateResult.stdout}\n${terminateResult.stderr}`;
         const notRunning = /not running|No such process|The operation couldn't be completed/iu.test(terminateOutput);
         checks.push({
@@ -701,8 +721,8 @@ async function runIosSimctlCapture({
           message: 'App launch was requested, but no bundle id was provided.',
         });
       } else {
-        const launchResult = await executor(xcrunPath, ['simctl', 'launch', simulator.udid, bundleId]);
-        raw['ios-launch.txt'] = [launchResult.stdout, launchResult.stderr].filter(Boolean).join('\n');
+        const launchResult = await driver.launchBundle(bundleId);
+        raw[launchResult.rawFileName] = formatIosSimctlRawOutput(launchResult);
         checks.push({
           name: 'ios_app_launched',
           status: launchResult.exitCode === 0 ? 'passed' : 'failed',
@@ -720,8 +740,8 @@ async function runIosSimctlCapture({
 
     for (const [index, deepLink] of deepLinks.entries()) {
       const rawFileName = `ios-deep-link-${index + 1}.txt`;
-      const deepLinkResult = await executor(xcrunPath, ['simctl', 'openurl', simulator.udid, deepLink.url]);
-      raw[rawFileName] = [deepLinkResult.stdout, deepLinkResult.stderr].filter(Boolean).join('\n');
+      const deepLinkResult = await driver.openDeepLink({ rawFileName, url: deepLink.url });
+      raw[deepLinkResult.rawFileName] = formatIosSimctlRawOutput(deepLinkResult);
       checks.push({
         name: 'ios_deep_link_opened',
         status: deepLinkResult.exitCode === 0 ? 'passed' : 'failed',
@@ -755,20 +775,32 @@ async function runIosSimctlCapture({
       });
     }
 
-    const log = await executor(xcrunPath, [
-      'simctl',
-      'spawn',
-      simulator.udid,
-      'log',
-      'show',
-      '--style',
-      'compact',
-      '--last',
-      logLast,
-      '--predicate',
-      'eventMessage CONTAINS "[profile-event]" OR eventMessage CONTAINS "[profile-session]"',
-    ]);
-    raw['ios-simctl-log.txt'] = [log.stdout, log.stderr].filter(Boolean).join('\n');
+    if (screenshot) {
+      await fsp.mkdir(layout.captures, { recursive: true });
+      const screenshotPath = path.join(layout.captures, 'ios-screenshot.png');
+      const screenshotResult = await driver.screenshot({ outputPath: screenshotPath });
+      raw[screenshotResult.rawFileName] = formatIosSimctlRawOutput(screenshotResult);
+      const screenshotCaptured = screenshotResult.exitCode === 0 && fs.existsSync(screenshotPath);
+      if (screenshotCaptured) {
+        captures.screenshot = 'captures/ios-screenshot.png';
+      }
+      checks.push({
+        name: 'ios_screenshot_captured',
+        status: screenshotCaptured ? 'passed' : 'failed',
+        source: 'runner',
+        code: screenshotCaptured ? 'ios_screenshot_captured' : 'ios_screenshot_failed',
+        message: screenshotCaptured ? 'Captured iOS simulator screenshot.' : 'iOS simulator screenshot capture failed.',
+      });
+      metadata.screenshot = {
+        args: screenshotResult.args,
+        capturePath: captures.screenshot,
+        exitCode: screenshotResult.exitCode,
+        rawPath: `raw/${screenshotResult.rawFileName}`,
+      };
+    }
+
+    const log = await driver.readLogs({ last: logLast });
+    raw[log.rawFileName] = formatIosSimctlRawOutput(log);
     checks.push({
       name: 'ios_logs_captured',
       status: log.exitCode === 0 ? 'passed' : 'failed',
@@ -779,7 +811,7 @@ async function runIosSimctlCapture({
     metadata.logs = {
       args: log.args,
       exitCode: log.exitCode,
-      rawPath: 'raw/ios-simctl-log.txt',
+      rawPath: `raw/${log.rawFileName}`,
     };
 
     if (collectProfileStorage) {
@@ -875,6 +907,7 @@ async function runIosSimctlCapture({
 
   return {
     agentSummary,
+    captures,
     health,
     metadata,
     raw,
@@ -917,6 +950,7 @@ async function main(): Promise<void> {
         }
       : {}),
     runId,
+    screenshot: args.screenshot === true || args.screenshot === 'true',
     terminateBeforeLaunch: args['terminate-before-launch'] === true || args['terminate-before-launch'] === 'true',
     waitMs: parsePositiveInteger(args['wait-ms'], 0),
     ...(typeof args.xcrun === 'string' ? { xcrunPath: args.xcrun } : {}),

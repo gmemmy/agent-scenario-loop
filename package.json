@@ -90,6 +90,10 @@
       "types": "./dist/runner/ios-simctl.d.ts",
       "require": "./dist/runner/ios-simctl.js"
     },
+    "./runner/ios-simctl-driver": {
+      "types": "./dist/runner/ios-simctl-driver.d.ts",
+      "require": "./dist/runner/ios-simctl-driver.js"
+    },
     "./runner/profile-ios": {
       "types": "./dist/runner/profile-ios.d.ts",
       "require": "./dist/runner/profile-ios.js"

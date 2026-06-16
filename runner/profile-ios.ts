@@ -218,6 +218,36 @@ function resolveIosSimctlProfileCommands(scenario: Record<string, any>): IosSimc
 }
 
 /**
+ * Returns true when the scenario asks iOS simctl capture to preserve a screenshot.
+ *
+ * @param {Record<string, unknown>} scenario
+ * @returns {boolean}
+ */
+function requiresIosSimctlScreenshot(scenario: Record<string, any>): boolean {
+  const executionPlan = buildScenarioExecutionPlan(scenario);
+  return executionPlan.steps.some((step: ScenarioExecutionStep) =>
+    step.driverAction === 'screenshot' || step.artifact === 'screenshot',
+  );
+}
+
+/**
+ * Appends one repeatable profile capture argument without losing caller-provided values.
+ *
+ * @param {{args: import('./profile-mobile').CliArgs, value: string}} options
+ * @returns {string | boolean | Array<string | boolean>}
+ */
+function appendCaptureArg({
+  args,
+  value,
+}: {
+  args: import('./profile-mobile').CliArgs;
+  value: string;
+}): string | boolean | Array<string | boolean> {
+  const existing = args.capture;
+  return existing === undefined ? value : Array.isArray(existing) ? [...existing, value] : [existing, value];
+}
+
+/**
  * Summarizes failed simctl capture checks for CLI errors.
  *
  * @param {Record<string, unknown>} health
@@ -320,6 +350,7 @@ async function runProfileIos(
           terminateBeforeLaunch: isEnabled(args['terminate-before-launch']),
         }),
     runId,
+    screenshot: isEnabled(args.screenshot) || requiresIosSimctlScreenshot(scenario),
     waitMs: readPositiveInteger(readScalarArg(args['wait-ms']), 0),
     ...(typeof args.xcrun === 'string' ? { xcrunPath: args.xcrun } : {}),
   });
@@ -330,12 +361,20 @@ async function runProfileIos(
     );
   }
 
-  return runProfileMobile({
+  const profileArgs = {
     ...args,
     events: undefined,
     'run-id': runId,
     'simctl-artifacts': simctlCapture.runDir,
-  }, {
+    ...(simctlCapture.captures.screenshot
+      ? { capture: appendCaptureArg({
+          args,
+          value: `screenshot:${path.join(simctlCapture.runDir, simctlCapture.captures.screenshot)}`,
+        }) }
+      : {}),
+  };
+
+  return runProfileMobile(profileArgs, {
     defaultDriver: 'xcodebuildmcp',
     interactionDriver: 'ios-simctl',
     platform: 'ios',
@@ -382,6 +421,7 @@ export {
   resolveIosBundleId,
   resolveIosSimctlProfileCommands,
   resolveSimctlCaptureOutputDir,
+  requiresIosSimctlScreenshot,
   runProfileIos,
   summarizeFailedIosChecks,
   usage,
