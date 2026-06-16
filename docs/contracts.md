@@ -111,6 +111,7 @@ The package currently supports:
 - Android profile artifact generation from explicit event logs, prior adb artifacts, or an owned `--adb-capture` window
 - iOS profile artifact generation from explicit event logs
 - trusted baseline/current comparison after scenario health passes
+- latest trusted prior-run comparison from an artifact root
 
 Not yet shipped as supported public features:
 
@@ -173,6 +174,14 @@ pnpm compare -- --baseline artifacts/runs/app-startup/baseline --current artifac
 ```
 
 The comparison gate is intentionally strict. If either run failed scenario health, or if the scenario ids do not match, the comparison is `inconclusive`. Numeric budget checks are compared only after that health gate passes.
+
+Use `compare:latest` when an artifact root contains run history and the agent should compare the current run against the newest trusted prior run for the same scenario:
+
+```bash
+pnpm compare:latest -- --root artifacts/runs --scenario app-startup --current artifacts/runs/app-startup/current --out artifacts/runs/app-startup/current
+```
+
+The latest-trusted command excludes the exact current run directory from baseline selection. Baseline trust requires passed health and passed verdict. Current runs must pass scenario health before the command will compare timing or budget evidence.
 
 ## Fixture loop
 

@@ -26,6 +26,10 @@ const HELP_CASES = [
     usage: 'Usage: asl-compare',
   },
   {
+    file: path.join(DIST_ROOT, 'runner', 'compare-latest.js'),
+    usage: 'Usage: asl-compare-latest',
+  },
+  {
     file: path.join(DIST_ROOT, 'runner', 'demo-loop.js'),
     usage: 'Usage: asl-demo-loop',
   },

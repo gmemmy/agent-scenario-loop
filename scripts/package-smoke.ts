@@ -36,6 +36,13 @@ type ExampleLiveFixture = {
   logcatText: string;
 };
 
+type SmokeRunOptions = {
+  actual: number;
+  endedAt: string;
+  root: string;
+  runId: string;
+};
+
 const EXAMPLE_PROFILE_RUNS: ExampleProfileRun[] = [
   {
     binaryName: 'asl-profile-ios',
@@ -320,6 +327,73 @@ function writeFakeExampleLiveAdb({
 }
 
 /**
+ * Writes a minimal passed run directory for installed-package comparison smoke tests.
+ *
+ * @param {SmokeRunOptions} options
+ * @returns {string}
+ */
+function writeSmokeRun({
+  actual,
+  endedAt,
+  root,
+  runId,
+}: SmokeRunOptions): string {
+  const runDir = path.join(root, 'app-startup', runId);
+  fs.mkdirSync(runDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(runDir, 'manifest.json'),
+    `${JSON.stringify({
+      schemaVersion: '1.0.0',
+      runId,
+      scenario: 'app-startup',
+      platform: 'android',
+      interactionDriver: 'adb-logcat',
+      startedAt: '2026-06-16T10:00:00.000Z',
+      endedAt,
+      durationMs: 1000,
+      artifacts: { raw: {} },
+    })}\n`,
+    'utf8',
+  );
+  fs.writeFileSync(
+    path.join(runDir, 'health.json'),
+    `${JSON.stringify({
+      schemaVersion: '1.0.0',
+      scenarioId: 'app-startup',
+      flowId: 'app-startup',
+      runId,
+      healthStatus: 'passed',
+      checks: [{ name: 'truth_events_complete', status: 'passed', source: 'truth' }],
+    })}\n`,
+    'utf8',
+  );
+  fs.writeFileSync(
+    path.join(runDir, 'verdict.json'),
+    `${JSON.stringify({
+      schemaVersion: '1.0.0',
+      scenarioId: 'app-startup',
+      flowId: 'app-startup',
+      runId,
+      healthStatus: 'passed',
+      verdictStatus: 'passed',
+      budgetChecks: [
+        {
+          name: 'startup p95',
+          source: 'milestone',
+          metric: 'p95',
+          unit: 'ms',
+          expected: 1000,
+          actual,
+          pass: actual <= 1000,
+        },
+      ],
+    })}\n`,
+    'utf8',
+  );
+  return runDir;
+}
+
+/**
  * Returns the platform-specific path for a package binary in a temp install.
  *
  * @param {string} installDir
@@ -436,6 +510,7 @@ function main(): void {
       'asl-android-adb',
       'asl-check-plan',
       'asl-compare',
+      'asl-compare-latest',
       'asl-demo-loop',
       'asl-example-android-live',
       'asl-profile-android',
@@ -644,6 +719,42 @@ function main(): void {
     assert.equal(health.runId, 'package-smoke');
     assert.equal(health.healthStatus, 'passed');
 
+    const latestCompareRoot = path.join(tempRoot, 'latest-compare-runs');
+    writeSmokeRun({
+      root: latestCompareRoot,
+      runId: 'baseline-run',
+      actual: 950,
+      endedAt: '2026-06-16T10:00:00.000Z',
+    });
+    const latestCompareCurrentDir = writeSmokeRun({
+      root: latestCompareRoot,
+      runId: 'current-run',
+      actual: 850,
+      endedAt: '2026-06-16T10:05:00.000Z',
+    });
+    const latestCompareOutputDir = path.join(tempRoot, 'latest-compare-output');
+    const latestCompareOutput = run(packageBinPath(installDir, 'asl-compare-latest'), [
+      '--root',
+      latestCompareRoot,
+      '--scenario',
+      'app-startup',
+      '--current',
+      latestCompareCurrentDir,
+      '--out',
+      latestCompareOutputDir,
+    ], {
+      cwd: installDir,
+      env,
+    });
+    const latestComparison = JSON.parse(
+      fs.readFileSync(path.join(latestCompareOutputDir, 'comparison.json'), 'utf8'),
+    );
+    assert.equal(latestCompareOutput.trim(), latestCompareOutputDir);
+    assert.equal(latestComparison.baselineRunId, 'baseline-run');
+    assert.equal(latestComparison.runId, 'current-run');
+    assert.equal(latestComparison.comparisonStatus, 'better');
+    assert.equal(fs.existsSync(path.join(latestCompareOutputDir, 'agent-summary.md')), true);
+
     const packageJson = JSON.parse(fs.readFileSync(path.join(packageRoot, 'package.json'), 'utf8'));
     assert.equal(packageJson.private, false);
     assert.equal(packageJson.publishConfig?.access, 'public');
@@ -728,6 +839,7 @@ function main(): void {
       "require.resolve('agent-scenario-loop/schemas/verdict.schema.json');",
       "require.resolve('agent-scenario-loop/examples/scenarios/mobile/app-startup.json');",
       "require.resolve('agent-scenario-loop/examples/mobile-app/asl.config.json');",
+      "require.resolve('agent-scenario-loop/runner/compare-latest');",
       "require.resolve('agent-scenario-loop/runner/profile-android');",
       "require.resolve('agent-scenario-loop/runner/profile-ios');",
       "for (const scenarioFixture of listJsonFiles('examples/scenarios/mobile')) {",
@@ -768,6 +880,7 @@ function main(): void {
       "  type PortValidationResult,",
       "} from 'agent-scenario-loop';",
       "import { runExampleAndroidLiveProof } from 'agent-scenario-loop/runner/example-android-live';",
+      "import { compareLatestTrustedRun } from 'agent-scenario-loop/runner/compare-latest';",
       "import { resolveAndroidAdbProfileCommands, runProfileAndroid } from 'agent-scenario-loop/runner/profile-android';",
       "import { runProfileIos, type CliArgs } from 'agent-scenario-loop/runner/profile-ios';",
       '',
@@ -799,6 +912,7 @@ function main(): void {
       'void latestTrusted;',
       'void args;',
       'void summary;',
+      'void compareLatestTrustedRun;',
       'void runExampleAndroidLiveProof;',
       'void resolveAndroidAdbProfileCommands;',
       'void runProfileAndroid;',
@@ -847,4 +961,5 @@ export {
   runExpectFailure,
   typescriptBinPath,
   writeFakeAdb,
+  writeSmokeRun,
 };

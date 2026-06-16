@@ -35,6 +35,7 @@
     "asl-android-adb": "dist/runner/android-adb.js",
     "agent-scenario-loop": "dist/runner/check-plan.js",
     "asl-compare": "dist/runner/compare.js",
+    "asl-compare-latest": "dist/runner/compare-latest.js",
     "asl-check-plan": "dist/runner/check-plan.js",
     "asl-demo-loop": "dist/runner/demo-loop.js",
     "asl-example-android-live": "dist/runner/example-android-live.js",
@@ -57,6 +58,10 @@
     "./runner/compare": {
       "types": "./dist/runner/compare.d.ts",
       "require": "./dist/runner/compare.js"
+    },
+    "./runner/compare-latest": {
+      "types": "./dist/runner/compare-latest.d.ts",
+      "require": "./dist/runner/compare-latest.js"
     },
     "./runner/demo-loop": {
       "types": "./dist/runner/demo-loop.d.ts",
@@ -107,6 +112,7 @@
     "android:logcat": "pnpm build && node dist/runner/android-adb.js --capture-logcat",
     "android:preflight": "pnpm build && node dist/runner/android-adb.js",
     "compare": "pnpm build && node dist/runner/compare.js",
+    "compare:latest": "pnpm build && node dist/runner/compare-latest.js",
     "check-plan": "pnpm build && node dist/runner/check-plan.js",
     "demo:loop": "pnpm build && node dist/runner/demo-loop.js",
     "example:profile:open-close": "pnpm build && node dist/runner/profile-ios.js --config examples/mobile-app/asl.config.json --scenario examples/mobile-app/scenarios/ios/open-close-cycle.json --events examples/mobile-app/event-logs/open-close-cycle.log --out artifacts/example-mobile-app/ios --run-id example-open-close",

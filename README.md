@@ -83,7 +83,7 @@ const {
 } = require('agent-scenario-loop');
 ```
 
-The preflight CLI is exported as `agent-scenario-loop` and `asl-check-plan` after package installation. The Android adb runner is exported as `asl-android-adb`, Android profiling is exported as `asl-profile-android`, the packaged Android example proof is exported as `asl-example-android-live`, iOS log-ingest profiling is exported as `asl-profile-ios`, the comparison CLI is exported as `asl-compare`, and the fixture loop is exported as `asl-demo-loop`. In this repo, use the script form:
+The preflight CLI is exported as `agent-scenario-loop` and `asl-check-plan` after package installation. The Android adb runner is exported as `asl-android-adb`, Android profiling is exported as `asl-profile-android`, the packaged Android example proof is exported as `asl-example-android-live`, iOS log-ingest profiling is exported as `asl-profile-ios`, comparison is exported as `asl-compare` and `asl-compare-latest`, and the fixture loop is exported as `asl-demo-loop`. In this repo, use the script form:
 
 ```bash
 pnpm check-plan -- --scenario examples/scenarios/mobile/app-startup.json --runner examples/runners/xcodebuildmcp-ios.json --platform ios --out artifacts/plan/app-startup
@@ -161,6 +161,14 @@ pnpm compare -- --baseline artifacts/runs/app-startup/baseline --current artifac
 
 Comparison only reports better, worse, or unchanged when both runs passed scenario health. Otherwise it writes an inconclusive `comparison.json`.
 
+To compare the current run against the newest trusted prior run for the same scenario:
+
+```bash
+pnpm compare:latest -- --root artifacts/runs --scenario app-startup --current artifacts/runs/app-startup/current --out artifacts/runs/app-startup/current
+```
+
+A trusted prior run must have passed both `health.json` and `verdict.json`. The current run must pass scenario health before timing or budget evidence is compared, so a broken scenario cannot accidentally become a performance claim.
+
 To run the complete fixture loop without a simulator:
 
 ```bash
@@ -232,6 +240,7 @@ Current package guarantees:
 - canonical fixture and neutral Expo-app event logs produce passed profile artifacts
 - explicit baseline/current run folders can produce schema-checked `comparison.json`
 - artifact roots can be indexed to find trusted prior runs per scenario
+- installed commands can compare a current run against the latest trusted prior run for a scenario
 - package smoke blocks generated artifacts, internal-only paths, and local/product-specific strings from the tarball
 
 Remaining hardening:
@@ -239,6 +248,5 @@ Remaining hardening:
 - extend Android beyond package launch/log capture into scenario-step driving and richer evidence providers
 - harden a supported live iOS driver loop behind the existing artifact contract
 - improve runner validation and failure reporting for more adapter classes
-- add automatic compare-against-latest-trusted commands on top of the run index
 
 The package should remain product-neutral. Product-specific selectors, routes, auth assumptions, and scenario data belong in the consuming app, not in this repository.
