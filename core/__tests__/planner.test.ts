@@ -157,6 +157,19 @@ test('accepts scenario steps when the runner declares required driver actions', 
   assert.ok(result.matched.driverActions.includes('scroll'));
 });
 
+test('agent-device runner target satisfies portable driver-action scenarios', () => {
+  const scenario = readJson('examples/scenarios/mobile/scroll-settle.json');
+  const runner = readJson('examples/runners/agent-device-android.json');
+  scenario.steps[1].driverAction = 'scroll';
+
+  const result = evaluateRunnerCompatibility({ scenario, runner, platform: 'android' });
+
+  assert.equal(result.compatible, true);
+  assert.deepEqual(result.errors, []);
+  assert.ok(result.matched.driverActions.includes('scroll'));
+  assert.ok(result.matched.artifacts.includes('uiTree'));
+});
+
 test('treats optional step driver actions as warnings', () => {
   const scenario = readJson('examples/scenarios/mobile/app-startup.json');
   const runner = readJson('examples/runners/adb-android.json');
@@ -256,6 +269,25 @@ test('allows an evidence provider to satisfy required evidence', () => {
   assert.deepEqual(result.errors, []);
   assert.ok(result.matched.artifacts.includes('profiler'));
   assert.deepEqual(result.matched.evidenceProviders, ['rozenite-profiler-provider']);
+});
+
+test('axe accessibility provider can satisfy required accessibility evidence', () => {
+  const scenario = readJson('examples/scenarios/mobile/app-startup.json');
+  const runner = readJson('examples/runners/adb-android.json');
+  const accessibilityProvider = readJson('examples/runners/axe-accessibility-provider.json');
+  scenario.artifacts.required.push('accessibility');
+
+  const result = evaluateRunnerCompatibility({
+    scenario,
+    runner,
+    evidenceProviders: [accessibilityProvider],
+    platform: 'android',
+  });
+
+  assert.equal(result.compatible, true);
+  assert.deepEqual(result.errors, []);
+  assert.ok(result.matched.artifacts.includes('accessibility'));
+  assert.deepEqual(result.matched.evidenceProviders, ['axe-accessibility-provider']);
 });
 
 test('rejects a selected platform that the runner does not support', () => {

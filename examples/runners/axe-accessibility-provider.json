@@ -1,0 +1,9 @@
+{
+  "schemaVersion": "1.0.0",
+  "runnerId": "axe-accessibility-provider",
+  "kind": "evidenceProvider",
+  "platforms": ["ios", "android"],
+  "capabilities": ["accessibility"],
+  "artifactOutputs": ["accessibility"],
+  "lifecycle": ["prepare", "startWindow", "capture", "stopWindow", "finalize"]
+}

@@ -30,6 +30,8 @@ Those deeper orchestration capabilities land behind the same artifact contract. 
 
 Runner manifests separate `capabilities` from `driverActions`. Capabilities say the runner can own parts of the lifecycle or evidence contract. Driver actions say the underlying adapter can perform concrete operations such as `tap`, `scroll`, `inspectTree`, `screenshot`, `record`, `readLogs`, or `collectPerfSignals`. `check-plan` fails before execution when a required scenario step declares a `driverAction` the runner does not support.
 
+`examples/runners` includes adapter-target manifests for `agent-device` and `axe`. These fixtures are intentionally just contracts: they let the planner prove capability matching without adding vendor dependencies or pretending the package has bundled those runtime integrations.
+
 After planning passes, `buildScenarioExecutionPlan()` normalizes scenario steps into the adapter-facing work list. It preserves app commands and milestones, records required versus optional steps, and maps step kinds to the runner port method that owns execution.
 
 Freezing the contracts first is deliberate: adopt the artifact shape now, inherit the automated loop later without rewrites.

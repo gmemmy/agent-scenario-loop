@@ -27,7 +27,7 @@ The package is intentionally contract-first: adopt the scenario and artifact sha
 - [examples/mobile-app](../examples/mobile-app): neutral Expo dogfood app with scenario manifests and profile-event evidence fixtures
 - [examples/scenarios/ios](../examples/scenarios/ios): iOS profile scenario manifests for the current log-ingest runner
 - [examples/scenarios/mobile](../examples/scenarios/mobile): canonical portable scenario fixtures
-- [examples/runners](../examples/runners): primary runner and evidence-provider capability fixtures
+- [examples/runners](../examples/runners): primary runner, evidence-provider, and adapter-target capability fixtures
 - [schemas](../schemas): JSON Schemas for current artifacts plus the scenario and runner capability contracts
 
 ## Public app contract
@@ -63,6 +63,8 @@ Runner capabilities describe ownership, such as launch, session control, command
 `buildScenarioExecutionPlan()` turns the same scenario steps into a deterministic adapter-facing work list. Each normalized step records the scenario step id, original kind, required flag, optional driver action, and the runner port method that owns it: `launch`, `executeStep`, `waitForTruthEvent`, or `captureEvidence`.
 
 Android adb capture currently routes normalized steps with `driverAction: "readLogs"` through the adb driver adapter. `adapterOptions.androidAdb.logcatLines` controls the bounded log window, and `adapterOptions.androidAdb.rawFileName` can override the raw evidence filename when the consuming profile path does not require the default `raw/adb-logcat.txt`.
+
+Adapter-target fixtures such as `agent-device-android`, `agent-device-ios`, and `axe-accessibility-provider` describe where external tools can plug into the same contract. They are schema-checked and planner-tested capability manifests, not bundled runtime integrations. Tools such as Argent should get the same treatment once their concrete mobile driver and evidence capabilities are known enough to avoid overclaiming.
 
 ## Public artifact layout
 
