@@ -55,11 +55,12 @@ const DEFAULT_REACT_NATIVE_DEBUG_HOST = 'localhost:8097';
  */
 function usage(output: { write: (message: string) => unknown } = process.stderr): void {
   writeUsage([
-    'Usage: asl-example-android-live [--config <path>] [--out <dir>] [--package <name>] [--serial <device>] [--react-native-debug-host <host:port>]',
+    'Usage: asl-example-android-live [--config <path>] [--out <dir>] [--package <name>] [--serial <device>] [--react-native-debug-host <host:port>] [--run-suffix <label>]',
     '',
     'Runs the packaged example Android live proof: adb preflight, startup, open-close, and scroll-settle.',
     'The example app must already be installed and reachable on an online Android emulator or device.',
     `By default, the runner sets the app React Native debug host to ${DEFAULT_REACT_NATIVE_DEBUG_HOST} for the isolated Metro server.`,
+    'Use --run-suffix to preserve multiple live proof artifact sets without changing deterministic default run ids.',
   ], output);
 }
 
@@ -118,6 +119,37 @@ function resolveAndroidPackageName({
 }
 
 /**
+ * Converts a caller-provided run suffix into a path-safe run-id segment.
+ *
+ * @param {unknown} value
+ * @returns {string | null}
+ */
+function normalizeRunSuffix(value: unknown): string | null {
+  if (typeof value !== 'string') {
+    return null;
+  }
+
+  const normalized = value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/gu, '-')
+    .replace(/^-+|-+$/gu, '')
+    .slice(0, 64);
+  return normalized.length > 0 ? normalized : null;
+}
+
+/**
+ * Applies the optional run suffix while preserving deterministic defaults.
+ *
+ * @param {string} baseRunId
+ * @param {string | null} suffix
+ * @returns {string}
+ */
+function buildLiveRunId(baseRunId: string, suffix: string | null): string {
+  return suffix ? `${baseRunId}-${suffix}` : baseRunId;
+}
+
+/**
  * Throws when a profile run did not produce trusted evidence.
  *
  * @param {{label: string, runDir: string, health: Record<string, unknown>, verdict: Record<string, unknown>}} options
@@ -169,7 +201,9 @@ async function runExampleAndroidLiveProof(
     : path.resolve('artifacts/example-mobile-app/android');
   const config = readJson(configPath);
   const packageName = resolveAndroidPackageName({ args, config });
-  const preflightDir = path.join(outputDir, '_preflight', 'android-live-preflight');
+  const runSuffix = normalizeRunSuffix(args['run-suffix']);
+  const preflightRunId = buildLiveRunId('android-live-preflight', runSuffix);
+  const preflightDir = path.join(outputDir, '_preflight', preflightRunId);
   const reactNativeDebugHost = typeof args['react-native-debug-host'] === 'string'
     ? args['react-native-debug-host']
     : DEFAULT_REACT_NATIVE_DEBUG_HOST;
@@ -181,7 +215,7 @@ async function runExampleAndroidLiveProof(
     outputDir: preflightDir,
     packageName,
     reactNativeDebugHost,
-    runId: 'android-live-preflight',
+    runId: preflightRunId,
     ...(typeof args.serial === 'string' ? { serial: args.serial } : {}),
   });
 
@@ -191,6 +225,7 @@ async function runExampleAndroidLiveProof(
 
   const profiles: AndroidLiveProfile[] = [];
   for (const profile of EXAMPLE_PROFILES) {
+    const profileRunId = buildLiveRunId(profile.runId, runSuffix);
     const result = await runProfileAndroid({
       ...(typeof args.adb === 'string' ? { adb: args.adb } : {}),
       'adb-capture': true,
@@ -203,7 +238,7 @@ async function runExampleAndroidLiveProof(
       ...(packageName ? { package: packageName } : {}),
       'profile-session': true,
       'react-native-debug-host': reactNativeDebugHost,
-      'run-id': profile.runId,
+      'run-id': profileRunId,
       scenario: path.join(exampleRoot, 'scenarios', 'android', profile.scenario),
       ...(typeof args.serial === 'string' ? { serial: args.serial } : {}),
       'wait-ms': typeof args['wait-ms'] === 'string' ? args['wait-ms'] : '1000',
@@ -221,7 +256,7 @@ async function runExampleAndroidLiveProof(
     profiles.push({
       label: profile.label,
       runDir: result.runDir,
-      runId: profile.runId,
+      runId: profileRunId,
       scenario: profile.scenario,
     });
   }
@@ -275,7 +310,9 @@ if (require.main === module) {
 
 export {
   formatResult,
+  buildLiveRunId,
   main,
+  normalizeRunSuffix,
   runExampleAndroidLiveProof,
   usage,
 };

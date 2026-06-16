@@ -98,6 +98,12 @@ Override the target package or debug host when needed:
 ASL_EXAMPLE_ANDROID_APP_ID=<package-name> ASL_EXAMPLE_ANDROID_DEBUG_HOST=<host:port> pnpm example:app:android:metro-port
 ```
 
+Pass a run suffix when you want preserved live artifact directories for before/after comparison:
+
+```bash
+pnpm example:android:live -- --run-suffix before-change
+```
+
 The individual live commands remain useful while debugging one scenario:
 
 ```bash
@@ -124,6 +130,12 @@ The aggregate command runs simctl preflight, startup, open-close, and scroll-set
 pnpm example:profile:ios:live:startup
 pnpm example:profile:ios:live:open-close
 pnpm example:profile:ios:live:scroll
+```
+
+Pass a run suffix when you want preserved iOS live artifact directories:
+
+```bash
+pnpm example:ios:live -- --run-suffix after-change
 ```
 
 Each command writes simctl capture evidence under `artifacts/example-mobile-app/ios/_ios-simctl-captures/<run-id>`, collects stored app truth events into `raw/ios-profile-events.log`, then writes scenario artifacts under the matching scenario run directory.

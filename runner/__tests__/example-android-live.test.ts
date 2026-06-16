@@ -6,7 +6,9 @@ const path = require('node:path');
 const test = require('node:test');
 
 const {
+  buildLiveRunId,
   formatResult,
+  normalizeRunSuffix,
   runExampleAndroidLiveProof,
 } = require('../example-android-live');
 
@@ -14,6 +16,13 @@ type CommandResult = import('../android-adb').CommandResult;
 type TestContext = import('node:test').TestContext;
 
 const ROOT = path.join(__dirname, '..', '..', '..');
+
+test('normalizes Android example live run suffixes', () => {
+  assert.equal(normalizeRunSuffix(' PR 123 / before '), 'pr-123-before');
+  assert.equal(normalizeRunSuffix('---'), null);
+  assert.equal(buildLiveRunId('android-live-startup', 'pr-123'), 'android-live-startup-pr-123');
+  assert.equal(buildLiveRunId('android-live-startup', null), 'android-live-startup');
+});
 
 /**
  * Reads fixture logcat text for one Android example scenario.
@@ -131,6 +140,7 @@ test('runs the packaged Android example live proof with a fake adb executor', as
   const result = await runExampleAndroidLiveProof({
     adb: 'fake-adb',
     out: outputDir,
+    'run-suffix': 'PR 123',
   }, {
     delay: async () => {},
     executor,
@@ -142,6 +152,10 @@ test('runs the packaged Android example live proof with a fake adb executor', as
   assert.ok(calls.some((call) => call.includes('profile-session/start')));
   assert.ok(calls.some((call) => call === '-s emulator-5554 reverse tcp:8097 tcp:8097'));
   assert.ok(calls.some((call) => call.includes('debug_http_host')));
+  assert.deepEqual(
+    result.profiles.map((profile: { runId: string }) => profile.runId),
+    ['android-live-startup-pr-123', 'android-live-open-close-pr-123', 'android-live-scroll-pr-123'],
+  );
 
   for (const profile of result.profiles) {
     const health = JSON.parse(fs.readFileSync(path.join(profile.runDir, 'health.json'), 'utf8'));

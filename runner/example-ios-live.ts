@@ -54,10 +54,11 @@ const EXAMPLE_PROFILES = [
  */
 function usage(output: { write: (message: string) => unknown } = process.stderr): void {
   writeUsage([
-    'Usage: asl-example-ios-live [--config <path>] [--out <dir>] [--bundle <id>] [--device <udid|booted>] [--xcrun <path>]',
+    'Usage: asl-example-ios-live [--config <path>] [--out <dir>] [--bundle <id>] [--device <udid|booted>] [--xcrun <path>] [--run-suffix <label>]',
     '',
     'Runs the packaged example iOS live proof: simctl preflight, startup, open-close, and scroll-settle.',
     'The example app must already be installed on a booted iOS simulator and connected to Metro.',
+    'Use --run-suffix to preserve multiple live proof artifact sets without changing deterministic default run ids.',
   ], output);
 }
 
@@ -116,6 +117,37 @@ function resolveIosBundleId({
 }
 
 /**
+ * Converts a caller-provided run suffix into a path-safe run-id segment.
+ *
+ * @param {unknown} value
+ * @returns {string | null}
+ */
+function normalizeRunSuffix(value: unknown): string | null {
+  if (typeof value !== 'string') {
+    return null;
+  }
+
+  const normalized = value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/gu, '-')
+    .replace(/^-+|-+$/gu, '')
+    .slice(0, 64);
+  return normalized.length > 0 ? normalized : null;
+}
+
+/**
+ * Applies the optional run suffix while preserving deterministic defaults.
+ *
+ * @param {string} baseRunId
+ * @param {string | null} suffix
+ * @returns {string}
+ */
+function buildLiveRunId(baseRunId: string, suffix: string | null): string {
+  return suffix ? `${baseRunId}-${suffix}` : baseRunId;
+}
+
+/**
  * Throws when a profile run did not produce trusted evidence.
  *
  * @param {{label: string, runDir: string, health: Record<string, unknown>, verdict: Record<string, unknown>}} options
@@ -167,14 +199,16 @@ async function runExampleIosLiveProof(
     : path.resolve('artifacts/example-mobile-app/ios');
   const config = readJson(configPath);
   const bundleId = resolveIosBundleId({ args, config });
-  const preflightDir = path.join(outputDir, '_preflight', 'ios-live-preflight');
+  const runSuffix = normalizeRunSuffix(args['run-suffix']);
+  const preflightRunId = buildLiveRunId('ios-live-preflight', runSuffix);
+  const preflightDir = path.join(outputDir, '_preflight', preflightRunId);
 
   const preflight = await runIosSimctlCapture({
     bundleId,
     ...(typeof args.device === 'string' ? { device: args.device } : {}),
     ...(options.executor ? { executor: options.executor } : {}),
     outputDir: preflightDir,
-    runId: 'ios-live-preflight',
+    runId: preflightRunId,
     ...(typeof args.xcrun === 'string' ? { xcrunPath: args.xcrun } : {}),
   });
 
@@ -184,6 +218,7 @@ async function runExampleIosLiveProof(
 
   const profiles: IosLiveProfile[] = [];
   for (const profile of EXAMPLE_PROFILES) {
+    const profileRunId = buildLiveRunId(profile.runId, runSuffix);
     const result = await runProfileIos({
       config: configPath,
       ...(typeof args.device === 'string' ? { device: args.device } : {}),
@@ -192,10 +227,10 @@ async function runExampleIosLiveProof(
       out: outputDir,
       'profile-session': true,
       'profile-session-storage': true,
-      'run-id': profile.runId,
+      'run-id': profileRunId,
       scenario: path.join(exampleRoot, 'scenarios', 'ios', profile.scenario),
       'simctl-capture': true,
-      'simctl-out': path.join(outputDir, '_ios-simctl-captures', profile.runId),
+      'simctl-out': path.join(outputDir, '_ios-simctl-captures', profileRunId),
       'wait-ms': typeof args['wait-ms'] === 'string' ? args['wait-ms'] : '1000',
       ...(bundleId ? { bundle: bundleId } : {}),
       ...(typeof args.xcrun === 'string' ? { xcrun: args.xcrun } : {}),
@@ -213,7 +248,7 @@ async function runExampleIosLiveProof(
     profiles.push({
       label: profile.label,
       runDir: result.runDir,
-      runId: profile.runId,
+      runId: profileRunId,
       scenario: profile.scenario,
     });
   }
@@ -266,8 +301,10 @@ if (require.main === module) {
 }
 
 export {
+  buildLiveRunId,
   formatResult,
   main,
+  normalizeRunSuffix,
   runExampleIosLiveProof,
   usage,
 };

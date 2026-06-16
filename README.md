@@ -121,6 +121,12 @@ The Android live proof uses the isolated Metro port `8097`. During preflight it 
 pnpm example:app:android:metro-port
 ```
 
+Pass `--run-suffix <label>` to preserve multiple live proof runs for comparison without changing the deterministic default run ids:
+
+```bash
+pnpm example:android:live -- --run-suffix before-change
+```
+
 The proof command writes:
 
 - adb preflight health under `artifacts/example-mobile-app/android/_preflight/android-live-preflight`
@@ -181,6 +187,12 @@ pnpm example:profile:ios:live:scroll
 ```
 
 These commands seed the app-owned profile session into native AsyncStorage before launch. Command scenarios also seed the scenario command queue into the same storage contract before launch. After the capture window, the runner collects stored profile events from the simulator app data container and writes the same profile artifact set used by fixture logs.
+
+Pass `--run-suffix <label>` to keep multiple iOS live proof artifact sets:
+
+```bash
+pnpm example:ios:live -- --run-suffix after-change
+```
 
 The lower-level command is:
 

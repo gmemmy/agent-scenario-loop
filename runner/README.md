@@ -104,6 +104,13 @@ pnpm example:android:live
 pnpm example:ios:live
 ```
 
+The aggregate Android and iOS live proof commands accept `--run-suffix <label>` when you want artifact directories that do not overwrite the deterministic default run ids:
+
+```bash
+pnpm example:android:live -- --run-suffix before-change
+pnpm example:ios:live -- --run-suffix after-change
+```
+
 The individual iOS profile commands remain useful while debugging one scenario:
 
 ```bash

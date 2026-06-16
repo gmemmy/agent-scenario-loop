@@ -6,7 +6,9 @@ const path = require('node:path');
 const test = require('node:test');
 
 const {
+  buildLiveRunId,
   formatResult,
+  normalizeRunSuffix,
   runExampleIosLiveProof,
 } = require('../example-ios-live');
 const {
@@ -19,6 +21,13 @@ type TestContext = import('node:test').TestContext;
 const ROOT = path.join(__dirname, '..', '..', '..');
 const BUNDLE_ID = 'dev.agent-scenario-loop.example';
 const DEVICE_ID = 'A692ED28-893E-453F-8866-C69331AE757F';
+
+test('normalizes iOS example live run suffixes', () => {
+  assert.equal(normalizeRunSuffix(' PR 123 / before '), 'pr-123-before');
+  assert.equal(normalizeRunSuffix('---'), null);
+  assert.equal(buildLiveRunId('ios-live-startup', 'pr-123'), 'ios-live-startup-pr-123');
+  assert.equal(buildLiveRunId('ios-live-startup', null), 'ios-live-startup');
+});
 
 /**
  * Reads fixture profile events for one iOS example scenario.
@@ -127,6 +136,7 @@ test('runs the packaged iOS example live proof with a fake simctl executor', asy
   const result = await runExampleIosLiveProof({
     device: DEVICE_ID,
     out: outputDir,
+    'run-suffix': 'PR 123',
   }, {
     delay: async () => {},
     executor,
@@ -136,6 +146,10 @@ test('runs the packaged iOS example live proof with a fake simctl executor', asy
   assert.equal(result.profiles.length, 3);
   assert.match(formatResult(result), /iOS example live proof passed/u);
   assert.ok(calls.some((call) => call === `simctl launch ${DEVICE_ID} ${BUNDLE_ID}`));
+  assert.deepEqual(
+    result.profiles.map((profile: { runId: string }) => profile.runId),
+    ['ios-live-startup-pr-123', 'ios-live-open-close-pr-123', 'ios-live-scroll-pr-123'],
+  );
 
   for (const profile of result.profiles) {
     const health = JSON.parse(fs.readFileSync(path.join(profile.runDir, 'health.json'), 'utf8'));
