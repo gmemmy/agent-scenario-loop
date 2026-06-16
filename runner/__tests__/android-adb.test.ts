@@ -209,6 +209,78 @@ test('clears logs, launches package, waits, and captures a bounded Android windo
   );
 });
 
+test('opens profile-session deep links before logcat capture', async (t: TestContext) => {
+  const outputDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-android-adb-deep-link-'));
+  t.after(async () => {
+    await fsp.rm(outputDir, { recursive: true, force: true });
+  });
+  const calls: string[] = [];
+  const executor = async (command: string, args: string[]): Promise<CommandResult> => {
+    const key = args.join(' ');
+    calls.push(key);
+    const responses: Record<string, Partial<CommandResult>> = {
+      version: { stdout: 'Android Debug Bridge version 1.0.41\n' },
+      'devices -l': {
+        stdout: [
+          'List of devices attached',
+          'emulator-5554 device product:sdk_gphone model:Pixel_6 device:emu64',
+        ].join('\n'),
+      },
+      '-s emulator-5554 shell getprop ro.product.model': { stdout: 'Pixel 6\n' },
+      '-s emulator-5554 shell getprop ro.build.version.release': { stdout: '15\n' },
+      '-s emulator-5554 shell getprop ro.build.version.sdk': { stdout: '35\n' },
+      '-s emulator-5554 shell pm path dev.agentscenarioloop.example': {
+        stdout: 'package:/data/app/dev.agentscenarioloop.example/base.apk\n',
+      },
+      '-s emulator-5554 shell am start -a android.intent.action.VIEW -d asl-example://profile-session/start?scenario=app-startup&runId=android-live -p dev.agentscenarioloop.example': {
+        stdout: 'Starting: Intent { act=android.intent.action.VIEW }\n',
+      },
+      '-s emulator-5554 logcat -d -v time -t 25': {
+        stdout: '06-16 10:00:00.000 I/ReactNativeJS(123): [profile-event] event=home_ready\n',
+      },
+    };
+    const response = responses[key] ?? { exitCode: 1, stderr: `unexpected command: ${key}` };
+    return {
+      command,
+      args,
+      exitCode: response.exitCode ?? 0,
+      stderr: response.stderr ?? '',
+      stdout: response.stdout ?? '',
+    };
+  };
+  const waits: number[] = [];
+
+  const result = await runAndroidAdbPreflight({
+    captureLogcat: true,
+    deepLinks: [
+      {
+        label: 'profile-session-start',
+        url: 'asl-example://profile-session/start?scenario=app-startup&runId=android-live',
+        waitMs: 125,
+      },
+    ],
+    delay: async (ms: number) => {
+      waits.push(ms);
+    },
+    executor,
+    logcatLines: 25,
+    outputDir,
+    packageName: 'dev.agentscenarioloop.example',
+    runId: 'android-live',
+  });
+
+  assert.equal(result.health.healthStatus, 'passed');
+  assert.deepEqual(waits, [125]);
+  assert.ok(fs.existsSync(path.join(outputDir, 'raw', 'adb-deep-link-1.txt')));
+  assert.ok(
+    calls.indexOf('-s emulator-5554 shell am start -a android.intent.action.VIEW -d asl-example://profile-session/start?scenario=app-startup&runId=android-live -p dev.agentscenarioloop.example') <
+      calls.indexOf('-s emulator-5554 logcat -d -v time -t 25'),
+  );
+  assert.ok(
+    (result.health.checks as Array<{ code: string }>).some((check) => check.code === 'android_deep_link_opened'),
+  );
+});
+
 test('fails health when no online adb device is connected', async (t: TestContext) => {
   const outputDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-android-adb-missing-'));
   t.after(async () => {

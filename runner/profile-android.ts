@@ -20,6 +20,12 @@ type AndroidProfileOptions = {
   executor?: import('./android-adb').CommandExecutor;
 };
 
+type AndroidAdbProfileCommand = {
+  command: string;
+  label?: string;
+  waitMs?: number;
+};
+
 /**
  * Reads and parses a JSON object from disk.
  *
@@ -38,6 +44,17 @@ function readJson(filePath: string): Record<string, any> {
  */
 function isEnabled(value: string | boolean | undefined): boolean {
   return value === true || value === 'true';
+}
+
+/**
+ * Reads a positive integer from unknown scenario adapter metadata.
+ *
+ * @param {unknown} value
+ * @param {number} fallback
+ * @returns {number}
+ */
+function readPositiveInteger(value: unknown, fallback: number): number {
+  return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : fallback;
 }
 
 /**
@@ -94,6 +111,69 @@ function resolveAndroidPackageName({
 }
 
 /**
+ * Builds a profile-session deep link for the example app or another configured app.
+ *
+ * @param {{config: Record<string, unknown>, action: 'start' | 'command', scenario: string, runId: string, command?: string}} options
+ * @returns {string}
+ */
+function buildProfileSessionUrl({
+  action,
+  command,
+  config,
+  runId,
+  scenario,
+}: {
+  action: 'start' | 'command';
+  command?: string;
+  config: Record<string, any>;
+  runId: string;
+  scenario: string;
+}): string {
+  const scheme = typeof config.app?.profileSessionScheme === 'string'
+    ? config.app.profileSessionScheme
+    : typeof config.app?.scheme === 'string'
+      ? config.app.scheme
+      : 'app';
+  const params = new URLSearchParams({ runId, scenario });
+  if (action === 'command' && command) {
+    params.set('command', command);
+  }
+
+  return `${scheme}://profile-session/${action}?${params.toString()}`;
+}
+
+/**
+ * Expands scenario-declared Android commands for an adb capture profile session.
+ *
+ * @param {Record<string, unknown>} scenario
+ * @returns {AndroidAdbProfileCommand[]}
+ */
+function resolveAndroidAdbProfileCommands(scenario: Record<string, any>): AndroidAdbProfileCommand[] {
+  const androidAdbOptions = scenario.adapterOptions?.androidAdb;
+  if (!androidAdbOptions || !Array.isArray(androidAdbOptions.commands)) {
+    return [];
+  }
+
+  const repeat = readPositiveInteger(androidAdbOptions.repeat, readPositiveInteger(scenario.defaultIterations, 1));
+  const commands: AndroidAdbProfileCommand[] = [];
+  for (let iteration = 0; iteration < repeat; iteration += 1) {
+    for (const command of androidAdbOptions.commands) {
+      if (!command || typeof command.command !== 'string') {
+        continue;
+      }
+
+      commands.push({
+        command: command.command,
+        ...(typeof command.label === 'string' ? { label: command.label } : {}),
+        waitMs: readPositiveInteger(command.waitMs, 0),
+      });
+    }
+  }
+
+  return commands;
+}
+
+/**
  * Runs the Android profile artifact pipeline.
  *
  * @param {import('./profile-mobile').CliArgs} args
@@ -117,11 +197,40 @@ async function runProfileAndroid(
   }
 
   const config = readJson(path.resolve(args.config));
+  const scenario = readJson(path.resolve(args.scenario));
   const runId = typeof args['run-id'] === 'string' ? args['run-id'] : createRunId();
+  const profileSessionEnabled = isEnabled(args['profile-session']);
+  const scenarioName = typeof scenario.name === 'string' ? scenario.name : path.basename(args.scenario, '.json');
+  const profileSessionDeepLinks = profileSessionEnabled
+    ? [
+        {
+          label: 'profile-session-start',
+          url: buildProfileSessionUrl({
+            action: 'start',
+            config,
+            runId,
+            scenario: scenarioName,
+          }),
+          waitMs: parsePositiveInteger(args['command-wait-ms'], 250),
+        },
+        ...resolveAndroidAdbProfileCommands(scenario).map((profileCommand, index) => ({
+          label: profileCommand.label ?? `profile-command-${index + 1}`,
+          url: buildProfileSessionUrl({
+            action: 'command',
+            command: profileCommand.command,
+            config,
+            runId,
+            scenario: scenarioName,
+          }),
+          waitMs: profileCommand.waitMs,
+        })),
+      ]
+    : [];
   const adbCapture = await runAndroidAdbPreflight({
     ...(typeof args.adb === 'string' ? { adbPath: args.adb } : {}),
     captureLogcat: true,
     clearLogcat: isEnabled(args['clear-logcat']),
+    deepLinks: profileSessionDeepLinks,
     ...(options.delay ? { delay: options.delay } : {}),
     ...(options.executor ? { executor: options.executor } : {}),
     launch: isEnabled(args.launch),

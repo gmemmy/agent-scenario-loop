@@ -229,3 +229,93 @@ test('profile-android can capture adb logs and profile them in one run', async (
   assert.equal((causalRun.scenario as { driver: string }).driver, 'adb-logcat');
   assert.ok(fs.existsSync(path.join(result.runDir, 'raw', 'adb-logcat.txt')));
 });
+
+test('profile-android starts profile sessions and executes scenario commands during adb capture', async (t: TestContext) => {
+  const tempRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-android-profile-session-'));
+  t.after(async () => {
+    await fsp.rm(tempRoot, { recursive: true, force: true });
+  });
+  const adbCaptureRoot = path.join(tempRoot, 'adb-capture');
+  const profileRoot = path.join(tempRoot, 'profile');
+  const calls: string[] = [];
+  const executor = async (command: string, args: string[]): Promise<CommandResult> => {
+    const key = args.join(' ');
+    calls.push(key);
+    const responses: Record<string, Partial<CommandResult>> = {
+      version: { stdout: 'Android Debug Bridge version 1.0.41\n' },
+      'devices -l': {
+        stdout: [
+          'List of devices attached',
+          'emulator-5554 device product:sdk_gphone model:Pixel_6 device:emu64',
+        ].join('\n'),
+      },
+      '-s emulator-5554 shell getprop ro.product.model': { stdout: 'Pixel 6\n' },
+      '-s emulator-5554 shell getprop ro.build.version.release': { stdout: '15\n' },
+      '-s emulator-5554 shell getprop ro.build.version.sdk': { stdout: '35\n' },
+      '-s emulator-5554 shell pm path dev.agentscenarioloop.example': {
+        stdout: 'package:/data/app/dev.agentscenarioloop.example/base.apk\n',
+      },
+      '-s emulator-5554 logcat -c': { stdout: '' },
+      '-s emulator-5554 shell monkey -p dev.agentscenarioloop.example -c android.intent.category.LAUNCHER 1': {
+        stdout: 'Events injected: 1\n',
+      },
+      '-s emulator-5554 shell am start -a android.intent.action.VIEW -d asl-example://profile-session/start?runId=android-live-open-close&scenario=open-close-cycle -p dev.agentscenarioloop.example': {
+        stdout: 'Starting: Intent { act=android.intent.action.VIEW }\n',
+      },
+      '-s emulator-5554 shell am start -a android.intent.action.VIEW -d asl-example://profile-session/command?runId=android-live-open-close&scenario=open-close-cycle&command=activate-target%3Aexample-card-1 -p dev.agentscenarioloop.example': {
+        stdout: 'Starting: Intent { act=android.intent.action.VIEW }\n',
+      },
+      '-s emulator-5554 shell am start -a android.intent.action.VIEW -d asl-example://profile-session/command?runId=android-live-open-close&scenario=open-close-cycle&command=activate-target%3Aclose-card -p dev.agentscenarioloop.example': {
+        stdout: 'Starting: Intent { act=android.intent.action.VIEW }\n',
+      },
+      '-s emulator-5554 logcat -d -v time -t 1000': {
+        stdout: fs
+          .readFileSync(fixturePath('examples/mobile-app/event-logs/android-open-close-cycle.log'), 'utf8')
+          .replace(/android-example-open-close/gu, 'android-live-open-close'),
+      },
+    };
+    const response = responses[key] ?? { exitCode: 1, stderr: `unexpected command: ${key}` };
+    return {
+      command,
+      args,
+      exitCode: response.exitCode ?? 0,
+      stderr: response.stderr ?? '',
+      stdout: response.stdout ?? '',
+    };
+  };
+  const waits: number[] = [];
+
+  const result = await runProfileAndroid({
+    'adb-capture': true,
+    'adb-out': adbCaptureRoot,
+    'clear-logcat': true,
+    config: fixturePath('examples/mobile-app/asl.config.json'),
+    launch: true,
+    out: profileRoot,
+    'profile-session': true,
+    'run-id': 'android-live-open-close',
+    scenario: fixturePath('examples/mobile-app/scenarios/android/open-close-cycle.json'),
+  }, {
+    delay: async (ms: number) => {
+      waits.push(ms);
+    },
+    executor,
+  });
+
+  const health = readJson(path.join(result.runDir, 'health.json'));
+  const adbHealth = readJson(path.join(adbCaptureRoot, 'health.json'));
+  const deepLinkCount = (adbHealth.checks as Array<{ code: string }>)
+    .filter((check) => check.code === 'android_deep_link_opened')
+    .length;
+
+  assert.equal(result.runDir, path.join(profileRoot, 'open-close-cycle', 'android-live-open-close'));
+  assert.equal(health.healthStatus, 'passed');
+  assert.equal(adbHealth.healthStatus, 'passed');
+  assert.equal(deepLinkCount, 7);
+  assert.deepEqual(waits, [250, 300, 300, 300, 300, 300, 300]);
+  assert.ok(
+    calls.indexOf('-s emulator-5554 logcat -c') <
+      calls.indexOf('-s emulator-5554 shell am start -a android.intent.action.VIEW -d asl-example://profile-session/start?runId=android-live-open-close&scenario=open-close-cycle -p dev.agentscenarioloop.example'),
+  );
+  assert.ok(fs.existsSync(path.join(result.runDir, 'raw', 'adb-logcat.txt')));
+});

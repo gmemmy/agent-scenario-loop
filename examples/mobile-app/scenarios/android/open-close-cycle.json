@@ -8,6 +8,23 @@
     "kind": "tap",
     "label": "Tap the first example card from a stable home state."
   },
+  "adapterOptions": {
+    "androidAdb": {
+      "commands": [
+        {
+          "command": "activate-target:example-card-1",
+          "label": "open first example card",
+          "waitMs": 300
+        },
+        {
+          "command": "activate-target:close-card",
+          "label": "close example card",
+          "waitMs": 300
+        }
+      ],
+      "repeat": 3
+    }
+  },
   "defaultIterations": 3,
   "timelinePhases": {
     "card_open_requested": "intent",

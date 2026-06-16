@@ -1,9 +1,11 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import {
   emitProfileEvent,
+  registerProfileCommandTargetHandler,
+  useProfileSession,
   useProfileSessionBootstrap,
 } from '../../../app/profile-session';
 
@@ -40,28 +42,95 @@ export function ExampleScreen(): React.ReactElement {
   useProfileSessionBootstrap();
 
   const insets = useSafeAreaInsets();
+  const profileSession = useProfileSession();
   const [selectedCard, setSelectedCard] = useState<string | null>(null);
-  const [selectedIteration, setSelectedIteration] = useState(1);
   const [scrollSettled, setScrollSettled] = useState(false);
-  const startupMarked = useRef(false);
+  const scrollViewRef = useRef<ScrollView | null>(null);
+  const commandIterationRef = useRef(1);
+  const selectedIterationRef = useRef(1);
+  const startupRunRef = useRef<string | null>(null);
+
+  const openCard = useCallback((index: number, iterationOverride?: number) => {
+    const card = CARDS[index] ?? CARDS[0];
+    const iteration = iterationOverride ?? index + 1;
+    mark('card_open_requested', iteration);
+    selectedIterationRef.current = iteration;
+    setSelectedCard(card);
+    requestAnimationFrame(() => {
+      mark('card_opened', iteration);
+    });
+  }, []);
+
+  const closeCard = useCallback(() => {
+    const iteration = selectedIterationRef.current;
+    mark('card_close_requested', iteration);
+    setSelectedCard(null);
+    requestAnimationFrame(() => {
+      mark('card_dismissed', iteration);
+    });
+  }, []);
+
+  const runScrollSettle = useCallback((iteration = 1) => {
+    setScrollSettled(false);
+    mark('feed_scroll_started', iteration);
+    scrollViewRef.current?.scrollTo({ animated: true, y: 360 });
+    requestAnimationFrame(() => {
+      mark('feed_first_content_visible', iteration);
+      mark('feed_scroll_settle_requested', iteration);
+      mark('feed_scroll_settled', iteration);
+      setScrollSettled(true);
+    });
+  }, []);
 
   useEffect(() => {
-    if (startupMarked.current) {
+    if (profileSession.runId) {
+      commandIterationRef.current = 1;
+    }
+  }, [profileSession.runId]);
+
+  useEffect(() => {
+    if (
+      !profileSession.active ||
+      profileSession.scenario !== 'app-startup' ||
+      !profileSession.runId ||
+      startupRunRef.current === profileSession.runId
+    ) {
       return;
     }
 
-    startupMarked.current = true;
+    startupRunRef.current = profileSession.runId;
     mark('app_launch_requested');
     requestAnimationFrame(() => {
       mark('home_ready');
       mark('startup_idle_observed');
       mark('startup_complete');
     });
-  }, []);
+  }, [profileSession.active, profileSession.runId, profileSession.scenario]);
+
+  useEffect(() => {
+    const unregisterOpen = registerProfileCommandTargetHandler('example-card-1', () => {
+      openCard(0, commandIterationRef.current);
+    });
+    const unregisterClose = registerProfileCommandTargetHandler('close-card', () => {
+      closeCard();
+      commandIterationRef.current += 1;
+    });
+    const unregisterScroll = registerProfileCommandTargetHandler('scroll-feed', () => {
+      runScrollSettle(commandIterationRef.current);
+      commandIterationRef.current += 1;
+    });
+
+    return () => {
+      unregisterOpen();
+      unregisterClose();
+      unregisterScroll();
+    };
+  }, [closeCard, openCard, runScrollSettle]);
 
   return (
     <View style={styles.root}>
       <ScrollView
+        ref={scrollViewRef}
         contentContainerStyle={[
           styles.content,
           {
@@ -98,13 +167,7 @@ export function ExampleScreen(): React.ReactElement {
             accessibilityRole="button"
             key={card}
             onPress={() => {
-              const iteration = index + 1;
-              mark('card_open_requested', iteration);
-              setSelectedIteration(iteration);
-              setSelectedCard(card);
-              requestAnimationFrame(() => {
-                mark('card_opened', iteration);
-              });
+              openCard(index);
             }}
             style={styles.card}
           >
@@ -140,11 +203,7 @@ export function ExampleScreen(): React.ReactElement {
           <Pressable
             accessibilityRole="button"
             onPress={() => {
-              mark('card_close_requested', selectedIteration);
-              setSelectedCard(null);
-              requestAnimationFrame(() => {
-                mark('card_dismissed', selectedIteration);
-              });
+              closeCard();
             }}
             style={styles.closeButton}
           >

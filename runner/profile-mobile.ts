@@ -63,6 +63,7 @@ function usage({
   if (platform === 'android') {
     lines.push('Use --adb-artifacts <dir> to read raw/adb-logcat.txt from a prior asl-android-adb capture.');
     lines.push('Use --adb-capture [--clear-logcat] [--launch] [--wait-ms <ms>] to capture adb logcat before profiling.');
+    lines.push('Use --profile-session with --adb-capture to start the app profile session and execute scenario-declared Android commands.');
   }
 
   writeUsage(lines, output);

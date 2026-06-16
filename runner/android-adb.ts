@@ -54,10 +54,17 @@ type AndroidPreflightResult = {
   verdict: Record<string, unknown>;
 };
 
+type AndroidDeepLinkCommand = {
+  label?: string;
+  url: string;
+  waitMs?: number;
+};
+
 type AndroidPreflightOptions = {
   adbPath?: string;
   captureLogcat?: boolean;
   clearLogcat?: boolean;
+  deepLinks?: AndroidDeepLinkCommand[];
   delay?: (ms: number) => Promise<void>;
   executor?: CommandExecutor;
   launch?: boolean;
@@ -268,6 +275,7 @@ async function runAndroidAdbPreflight({
   adbPath = 'adb',
   captureLogcat = false,
   clearLogcat = false,
+  deepLinks = [],
   delay: wait = delay,
   executor = execFileCommand,
   launch = false,
@@ -323,6 +331,7 @@ async function runAndroidAdbPreflight({
     adbPath,
     captureLogcat,
     clearLogcat,
+    deepLinks,
     devices,
     launch,
     logcatLines,
@@ -418,6 +427,43 @@ async function runAndroidAdbPreflight({
           exitCode: launchResult.exitCode,
           rawPath: 'raw/adb-launch.txt',
         };
+      }
+    }
+
+    for (const [index, deepLink] of deepLinks.entries()) {
+      const deepLinkResult = await executor(adbPath, [
+        '-s',
+        device.serial,
+        'shell',
+        'am',
+        'start',
+        '-a',
+        'android.intent.action.VIEW',
+        '-d',
+        deepLink.url,
+        ...(packageName ? ['-p', packageName] : []),
+      ]);
+      const rawFileName = `adb-deep-link-${index + 1}.txt`;
+      raw[rawFileName] = [deepLinkResult.stdout, deepLinkResult.stderr].filter(Boolean).join('\n');
+      checks.push({
+        name: 'android_deep_link_opened',
+        status: deepLinkResult.exitCode === 0 ? 'passed' : 'failed',
+        source: 'runner',
+        code: deepLinkResult.exitCode === 0 ? 'android_deep_link_opened' : 'android_deep_link_failed',
+        message: deepLinkResult.exitCode === 0
+          ? `Opened Android deep link ${deepLink.label ?? index + 1}.`
+          : `Failed to open Android deep link ${deepLink.label ?? index + 1}.`,
+      });
+
+      if (deepLink.waitMs && deepLink.waitMs > 0) {
+        await wait(deepLink.waitMs);
+        checks.push({
+          name: 'android_deep_link_waited',
+          status: 'passed',
+          source: 'runner',
+          code: 'android_deep_link_waited',
+          message: `Waited ${deepLink.waitMs}ms after Android deep link ${deepLink.label ?? index + 1}.`,
+        });
       }
     }
 
@@ -569,6 +615,7 @@ export {
 
 export type {
   AndroidDevice,
+  AndroidDeepLinkCommand,
   AndroidPreflightOptions,
   AndroidPreflightResult,
   CliArgs,

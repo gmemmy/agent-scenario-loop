@@ -89,10 +89,20 @@ That command does not require Xcode, a simulator, or device artifacts. It valida
 To check Android adb readiness before live scenario execution:
 
 ```bash
-pnpm android:preflight -- --package com.example.app --out artifacts/android-adb-preflight
+pnpm example:android:preflight
 ```
 
 That command writes runner health, an inconclusive pre-budget verdict, an agent summary, and raw adb evidence. It does not install the app or drive arbitrary scenario steps.
+
+With the Expo example app installed on an online Android emulator or device, run live profile proof through the same scenario/artifact contract:
+
+```bash
+pnpm example:profile:android:live:startup
+pnpm example:profile:android:live:open-close
+pnpm example:profile:android:live:scroll
+```
+
+Those commands start a profile session through the app scheme, execute scenario-declared Android commands where needed, capture bounded logcat evidence, and write the standard `health.json`, `verdict.json`, `agent-summary.md`, `manifest.json`, `metrics.json`, `causal-run.json`, `budget-verdict.json`, and raw evidence files. If adb, the app package, or the device is unavailable, the capture writes failed health and the profile runner stops before making timing claims.
 
 To attach a bounded Android logcat snapshot after a manual or agent-driven run:
 
