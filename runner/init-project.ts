@@ -18,6 +18,7 @@ type ScaffoldFile = {
   destination: string;
   scenarioId?: string;
   source: string;
+  transform?: 'scenario' | 'template';
 };
 
 type InitProjectOptions = {
@@ -37,6 +38,8 @@ type InitProjectResult = {
 const TEMPLATE_FILES = {
   config: 'project.config.json',
   evidenceProvider: 'evidence-provider.json',
+  integrationReadme: 'integration-readme.md',
+  packageScripts: 'package-scripts.json',
   primaryRunner: 'primary-runner.json',
   scenario: 'mobile-scenario.json',
 };
@@ -146,6 +149,7 @@ function buildScaffoldFiles({
       source: path.join(templatesRoot, TEMPLATE_FILES.scenario),
       destination: path.join(targetDir, 'scenarios', 'mobile', `${scenarioId}.json`),
       scenarioId,
+      transform: 'scenario',
     },
     {
       source: path.join(templatesRoot, TEMPLATE_FILES.primaryRunner),
@@ -154,6 +158,22 @@ function buildScaffoldFiles({
     {
       source: path.join(templatesRoot, TEMPLATE_FILES.evidenceProvider),
       destination: path.join(targetDir, 'runner-manifests', 'evidence-provider.json'),
+    },
+    {
+      source: path.join(templatesRoot, TEMPLATE_FILES.integrationReadme),
+      destination: path.join(targetDir, 'asl', 'README.md'),
+      scenarioId,
+      transform: 'template',
+    },
+    {
+      source: path.join(templatesRoot, TEMPLATE_FILES.packageScripts),
+      destination: path.join(targetDir, 'asl', 'package-scripts.json'),
+      scenarioId,
+      transform: 'template',
+    },
+    {
+      source: path.join(packageRoot, 'app', 'profile-session.ts'),
+      destination: path.join(targetDir, 'src', 'devtools', 'profile-session.ts'),
     },
   ];
 }
@@ -183,11 +203,14 @@ async function copyScaffoldFile({
   }
 
   await fsp.mkdir(path.dirname(file.destination), { recursive: true });
-  if (file.scenarioId) {
+  if (file.transform === 'scenario' && file.scenarioId) {
     const scenario = JSON.parse(await fsp.readFile(file.source, 'utf8'));
     scenario.id = file.scenarioId;
     scenario.flowId = file.scenarioId;
     await fsp.writeFile(file.destination, `${JSON.stringify(scenario, null, 2)}\n`, 'utf8');
+  } else if (file.transform === 'template' && file.scenarioId) {
+    const template = await fsp.readFile(file.source, 'utf8');
+    await fsp.writeFile(file.destination, template.replace(/\{\{SCENARIO_ID\}\}/gu, file.scenarioId), 'utf8');
   } else {
     await fsp.copyFile(file.source, file.destination);
   }

@@ -54,14 +54,20 @@ test('init-project scaffolds templates into a consuming app layout', async (t: T
 
   assert.deepEqual(result.created.sort(), [
     'asl.config.json',
+    'asl/README.md',
+    'asl/package-scripts.json',
     'runner-manifests/evidence-provider.json',
     'runner-manifests/primary-runner.json',
     'scenarios/mobile/checkout-submit.json',
+    'src/devtools/profile-session.ts',
   ]);
   assert.deepEqual(result.skipped, []);
   assert.equal(readJson(path.join(targetDir, 'asl.config.json')).projectName, 'replace-me');
   assert.equal(readJson(path.join(targetDir, 'scenarios', 'mobile', 'checkout-submit.json')).id, 'checkout-submit');
   assert.equal(readJson(path.join(targetDir, 'scenarios', 'mobile', 'checkout-submit.json')).flowId, 'checkout-submit');
+  assert.equal(readJson(path.join(targetDir, 'asl', 'package-scripts.json'))['asl:check:ios'], 'asl-check-plan --scenario scenarios/mobile/checkout-submit.json --runner runner-manifests/primary-runner.json --platform ios --out artifacts/asl/plan/checkout-submit-ios');
+  assert.match(fs.readFileSync(path.join(targetDir, 'asl', 'README.md'), 'utf8'), /checkout-submit/u);
+  assert.match(fs.readFileSync(path.join(targetDir, 'src', 'devtools', 'profile-session.ts'), 'utf8'), /useProfileSessionBootstrap/u);
   assert.match(formatResult(result), /created:/u);
 });
 
@@ -80,6 +86,9 @@ test('init-project skips existing files unless force is enabled', async (t: Test
     'scenarios/mobile/first-journey.json',
     'runner-manifests/primary-runner.json',
     'runner-manifests/evidence-provider.json',
+    'asl/README.md',
+    'asl/package-scripts.json',
+    'src/devtools/profile-session.ts',
   ]);
   assert.equal(readJson(path.join(targetDir, 'asl.config.json')).projectName, 'custom');
 
@@ -100,6 +109,6 @@ test('init-project dry run reports files without writing them', async (t: TestCo
     packageRoot: ROOT,
   });
 
-  assert.equal(result.created.length, 4);
+  assert.equal(result.created.length, 7);
   assert.equal(fs.existsSync(path.join(targetDir, 'asl.config.json')), false);
 });

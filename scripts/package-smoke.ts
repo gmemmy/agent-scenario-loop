@@ -111,7 +111,7 @@ const PACKED_FILE_ALLOWLIST = [
   /^docs\/[a-z-]+\.md$/u,
   /^examples\/.+/u,
   /^schemas\/[a-z-]+\.schema\.json$/u,
-  /^templates\/[a-z0-9.-]+\.json$/u,
+  /^templates\/[a-z0-9.-]+\.(?:json|md)$/u,
 ];
 
 /**
@@ -628,6 +628,9 @@ function main(): void {
     assert.equal(fs.existsSync(path.join(initOutputDir, 'scenarios', 'mobile', 'checkout-submit.json')), true);
     assert.equal(fs.existsSync(path.join(initOutputDir, 'runner-manifests', 'primary-runner.json')), true);
     assert.equal(fs.existsSync(path.join(initOutputDir, 'runner-manifests', 'evidence-provider.json')), true);
+    assert.equal(fs.existsSync(path.join(initOutputDir, 'asl', 'README.md')), true);
+    assert.equal(fs.existsSync(path.join(initOutputDir, 'asl', 'package-scripts.json')), true);
+    assert.equal(fs.existsSync(path.join(initOutputDir, 'src', 'devtools', 'profile-session.ts')), true);
     assert.equal(
       JSON.parse(fs.readFileSync(path.join(initOutputDir, 'asl.config.json'), 'utf8')).projectName,
       'replace-me',
@@ -635,6 +638,14 @@ function main(): void {
     assert.equal(
       JSON.parse(fs.readFileSync(path.join(initOutputDir, 'scenarios', 'mobile', 'checkout-submit.json'), 'utf8')).id,
       'checkout-submit',
+    );
+    assert.match(
+      fs.readFileSync(path.join(initOutputDir, 'asl', 'README.md'), 'utf8'),
+      /checkout-submit/u,
+    );
+    assert.match(
+      JSON.parse(fs.readFileSync(path.join(initOutputDir, 'asl', 'package-scripts.json'), 'utf8'))['asl:check:ios'],
+      /checkout-submit/u,
     );
 
     for (const binaryName of Object.keys(packageJson.bin).sort()) {
@@ -1384,6 +1395,8 @@ function main(): void {
       "require.resolve('agent-scenario-loop/templates/mobile-scenario.json');",
       "require.resolve('agent-scenario-loop/templates/primary-runner.json');",
       "require.resolve('agent-scenario-loop/templates/evidence-provider.json');",
+      "require.resolve('agent-scenario-loop/templates/integration-readme.md');",
+      "require.resolve('agent-scenario-loop/templates/package-scripts.json');",
       "for (const scenarioFixture of listJsonFiles('examples/scenarios/mobile')) {",
       "  const result = asl.validateJson(readJson(scenarioFixture), asl.SCHEMAS.scenario, scenarioFixture);",
       "  assert.equal(result.valid, true, result.message);",

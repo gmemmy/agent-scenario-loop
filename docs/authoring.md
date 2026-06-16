@@ -16,8 +16,11 @@ That creates:
 - `scenarios/mobile/first-journey.json`
 - `runner-manifests/primary-runner.json`
 - `runner-manifests/evidence-provider.json`
+- `src/devtools/profile-session.ts`
+- `asl/README.md`
+- `asl/package-scripts.json`
 
-The command refuses to overwrite existing files unless `--force` is provided. Use `--dry-run` to preview the file list without writing.
+The command refuses to overwrite existing files unless `--force` is provided. Use `--dry-run` to preview the file list without writing. It does not edit your existing `package.json`; merge the generated script snippets intentionally.
 
 ## Templates
 
@@ -29,8 +32,10 @@ You can also copy these files manually and rename them as needed:
 | `templates/mobile-scenario.json` | First portable mobile scenario |
 | `templates/primary-runner.json` | Primary runner capability manifest |
 | `templates/evidence-provider.json` | Optional evidence-provider manifest |
+| `templates/integration-readme.md` | Consumer-app wiring guide generated into `asl/README.md` |
+| `templates/package-scripts.json` | Package-script snippets generated into `asl/package-scripts.json` |
 
-The templates are valid JSON and are checked by package smoke. They intentionally use neutral placeholder names.
+The JSON templates are schema-checked, and every shipped template is checked by package smoke. They intentionally use neutral placeholder names.
 
 ## Scenario Shape
 

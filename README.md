@@ -264,11 +264,12 @@ Read next: [Contracts](docs/contracts.md) for the artifact layout and supported 
 
 ## Quick start
 
-1. Copy [app/profile-session.ts](app/profile-session.ts) into your React Native app and wire `useProfileSessionBootstrap()` once near the root.
-2. Emit truth events around one real user journey. One journey is enough to start.
-3. Run `asl-init --out . --scenario first-journey`, or copy files from [templates](templates), then fill in your app identifiers.
-4. Start from the scaffolded scenario or from [examples/scenarios/ios/app-startup.json](examples/scenarios/ios/app-startup.json) and [examples/scenarios/ios/open-close-cycle.json](examples/scenarios/ios/open-close-cycle.json).
-5. Run the journey on a simulator manually or with your driver of choice while capturing device logs, so the log contains your `[profile-event]` lines. Then:
+1. Run `asl-init --out . --scenario first-journey`, or copy files from [templates](templates), then fill in your app identifiers.
+2. Wire the generated `src/devtools/profile-session.ts` helper by mounting `useProfileSessionBootstrap()` once near the app root.
+3. Emit truth events around one real user journey. One journey is enough to start.
+4. Merge the generated `asl/package-scripts.json` snippets into your app `package.json` intentionally.
+5. Start from the scaffolded scenario or from [examples/scenarios/ios/app-startup.json](examples/scenarios/ios/app-startup.json) and [examples/scenarios/ios/open-close-cycle.json](examples/scenarios/ios/open-close-cycle.json).
+6. Run the journey on a simulator manually or with your driver of choice while capturing device logs, so the log contains your `[profile-event]` lines. Then:
 
 ```bash
 pnpm profile:ios -- --config <config> --scenario <scenario> --events <event-log>
@@ -313,7 +314,7 @@ Current package guarantees:
 - the public package is installable from the packed tarball
 - root exports expose the core artifact, planner, comparison, writer, interpreter, and ports contracts
 - installable CLIs print help and run against packaged examples, including Android and iOS example-live proof paths
-- `asl-init` scaffolds package templates into a consuming app layout from the installed tarball
+- `asl-init` scaffolds config, scenario, runner manifests, local script snippets, and React Native profile-session wiring into a consuming app layout from the installed tarball
 - packaged schemas, scenarios, runner manifests, templates, docs, and app helper resolve after install
 - canonical fixture and neutral Expo-app event logs produce passed profile artifacts
 - explicit baseline/current run folders can produce schema-checked `comparison.json`
