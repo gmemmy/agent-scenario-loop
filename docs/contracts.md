@@ -1,8 +1,8 @@
 # Contracts
 
-This package ships the scenario, runner, and artifact contracts that make Agent Scenario Loop useful before every live runner is automated.
+This package ships the scenario, runner, and artifact contracts that make Agent Scenario Loop useful while live runners are added behind stable interfaces.
 
-The package is intentionally contract-first: adopt the scenario and artifact shape now, then inherit more automated runner loops later without rewriting your scenarios.
+The package is intentionally contract-first: adopt the scenario and artifact shape once, then add or swap runner loops without rewriting your scenarios.
 
 ## What ships today
 
@@ -16,9 +16,9 @@ The package is intentionally contract-first: adopt the scenario and artifact sha
 - [core/planner.ts](../core/planner.ts): compatibility checks between scenario requirements, primary runner capabilities, and evidence providers
 - [core/ports.ts](../core/ports.ts): ports-and-adapters method surfaces for runners, drivers, providers, writers, and interpreters
 - [core/schema-validator.ts](../core/schema-validator.ts): dependency-free validation for the JSON Schema subset used by the public contracts
-- [runner/profile-android.ts](../runner/profile-android.ts): Android log-ingest runner that turns scenario metadata plus `[profile-event]` logs into the full artifact set
+- [runner/profile-android.ts](../runner/profile-android.ts): Android profile runner that can ingest profile-event logs directly, read adb artifact folders, or own a bounded adb capture window before writing the full artifact set
 - [runner/profile-ios.ts](../runner/profile-ios.ts): iOS log-ingest runner that turns scenario metadata plus `[profile-event]` logs into the full artifact set
-- [runner/android-adb.ts](../runner/android-adb.ts): Android adb readiness preflight and optional bounded logcat capture that write runner health and raw adb evidence
+- [runner/android-adb.ts](../runner/android-adb.ts): Android adb readiness preflight, optional package launch, and bounded logcat capture that write runner health and raw adb evidence
 - [runner/demo-loop.ts](../runner/demo-loop.ts): fixture loop that proves preflight, profile, and comparison without a simulator
 - [examples/event-logs](../examples/event-logs): deterministic profile-event logs for the fixture loop
 - [examples/mobile-app](../examples/mobile-app): neutral Expo dogfood app with scenario manifests and profile-event evidence fixtures
@@ -74,7 +74,7 @@ Profile runner artifacts:
 - `causal-run.json`
 - `summary.md`
 
-`manifest.json`, `metrics.json`, `budget-verdict.json`, and `causal-run.json` are schema-checked before the runner writes them. This keeps profile artifacts stable while the live runner layer matures.
+`manifest.json`, `metrics.json`, `budget-verdict.json`, and `causal-run.json` are schema-checked before the runner writes them. This keeps profile artifacts stable across fixture logs, adb-captured logs, and future runner adapters.
 
 Evidence folders:
 
@@ -90,14 +90,25 @@ The current profile runner writes health, verdict, agent summary, metrics, causa
 
 Budgets are supported but optional for adoption.
 
-## Current Scope
+## Supported Runner Surface
 
-Live simulator or device orchestration is not yet a supported public feature. The current Android and iOS profile runners assemble artifacts from event logs you capture. The Android adb runner verifies readiness and can attach bounded logcat evidence before or after manual execution; `profile-android` can read that adb artifact folder through `--adb-artifacts`. Fully automated runner/adapter loops land behind the same contract.
+The package currently supports:
+
+- scenario/runner compatibility planning through `check-plan`
+- fixture profile loops through committed profile-event logs
+- Android adb readiness checks
+- Android bounded logcat capture
+- Android package launch plus bounded logcat capture
+- Android profile artifact generation from explicit event logs, prior adb artifacts, or an owned `--adb-capture` window
+- iOS profile artifact generation from explicit event logs
+- trusted baseline/current comparison after scenario health passes
 
 Not yet shipped as supported public features:
 
-- full Android scenario execution beyond adb readiness preflight, bounded logcat capture, and log-ingest artifact assembly
-- physical devices
+- app installation or build orchestration
+- full scenario-step UI driving beyond Android package launch and log capture
+- iOS simulator launch/control
+- video, screenshot, UI-tree, memory, network, or accessibility evidence capture from built-in drivers
 - Computer Use flows
 - product-specific scenarios
 

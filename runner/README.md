@@ -4,11 +4,11 @@ The runner owns host execution. It is the boundary between scenario contracts an
 
 The package ships six public runner entrypoints. Package scripts build them into `dist/` before execution:
 
-- `android-adb.ts`: checks adb availability, connected Android device readiness, optional package installation, optionally captures bounded logcat output, and writes raw adb evidence.
+- `android-adb.ts`: checks adb availability, connected Android device readiness, optional package installation, optional package launch, bounded logcat output, and writes raw adb evidence.
 - `check-plan.ts`: validates a scenario manifest, primary runner capability manifest, and optional evidence-provider manifests, then writes schema-checked `health.json`, `verdict.json`, `agent-summary.md`, and `planner-compatibility.json` before execution.
 - `compare.ts`: reads two completed run directories, validates `health.json` and `verdict.json`, then writes or prints a schema-checked `comparison.json`.
 - `demo-loop.ts`: runs the fixture preflight, baseline/current profile logs, and comparison without requiring a simulator.
-- `profile-android.ts`: reads project config, an Android scenario manifest, and an event log containing `[profile-event]` entries, then writes the current public artifact layout.
+- `profile-android.ts`: reads project config and an Android scenario manifest, then profiles explicit event logs, prior adb artifacts, or an owned adb capture window.
 - `profile-ios.ts`: reads project config, an iOS scenario manifest, and an event log containing `[profile-event]` entries, then writes the current public artifact layout.
 
 The artifact contract separates scenario health, product verdict, baseline comparison, and profile evidence into schema-checked files. `health.json`, `verdict.json`, and optional `comparison.json` provide the interpretation gate; `manifest.json`, `metrics.json`, `causal-run.json`, and `budget-verdict.json` preserve the profile evidence for agents and humans.
@@ -16,11 +16,11 @@ The artifact contract separates scenario health, product verdict, baseline compa
 What it does not do yet:
 
 - boot or control simulators
-- drive the app through an interaction driver
-- capture logs, video, or UI trees itself
-- install or launch Android apps from the adb preflight runner
+- install or build apps
+- drive full scenario-step UI interactions beyond Android package launch
+- capture video, screenshots, UI trees, memory, network, or accessibility evidence from built-in drivers
 
-That live orchestration layer is the next milestone, and it lands behind the same artifact contract. Primary runners own one run lifecycle. Evidence providers attach optional or required evidence through a smaller provider interface. Tools such as AXe, XcodeBuildMCP, agent-device, Argent, adb, profilers, accessibility inspectors, and log collectors plug in as adapters, so scenarios and artifacts stay stable while tactical tools change underneath.
+Those deeper orchestration capabilities land behind the same artifact contract. Primary runners own one run lifecycle. Evidence providers attach optional or required evidence through a smaller provider interface. Tools such as AXe, XcodeBuildMCP, agent-device, Argent, adb, profilers, accessibility inspectors, and log collectors plug in as adapters, so scenarios and artifacts stay stable while tactical tools change underneath.
 
 Freezing the contracts first is deliberate: adopt the artifact shape now, inherit the automated loop later without rewrites.
 

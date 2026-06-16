@@ -92,7 +92,7 @@ To check Android adb readiness before live scenario execution:
 pnpm android:preflight -- --package com.example.app --out artifacts/android-adb-preflight
 ```
 
-That command writes runner health, an inconclusive pre-budget verdict, an agent summary, and raw adb evidence. It does not yet install, launch, or drive the app.
+That command writes runner health, an inconclusive pre-budget verdict, an agent summary, and raw adb evidence. It does not install the app or drive arbitrary scenario steps.
 
 To attach a bounded Android logcat snapshot after a manual or agent-driven run:
 
@@ -102,10 +102,22 @@ pnpm android:logcat -- --package com.example.app --logcat-lines 1000 --out artif
 
 That writes `raw/adb-logcat.txt` beside the adb readiness evidence, so the same log can feed `asl-profile-android` when it contains `[profile-event]` lines.
 
+To clear logcat, launch the package, wait for app-emitted profile events, and capture the resulting log window:
+
+```bash
+pnpm android:logcat -- --package com.example.app --clear-logcat --launch --wait-ms 5000 --logcat-lines 1000 --out artifacts/android-adb-launch
+```
+
 Then profile a scenario from that captured evidence:
 
 ```bash
 pnpm profile:android -- --config <config> --scenario <scenario> --adb-artifacts artifacts/android-adb-logcat --run-id <run-id>
+```
+
+Or let Android profiling own both the adb capture window and the profile artifact run:
+
+```bash
+pnpm profile:android -- --config <config> --scenario <scenario> --adb-capture --clear-logcat --launch --wait-ms 5000 --run-id <run-id>
 ```
 
 To compare two completed run folders:
@@ -132,7 +144,7 @@ pnpm release:check
 
 That command runs the test suite, packs the repo, installs the tarball into a temporary project, runs installed binaries against packaged examples, checks root exports, and verifies that schemas, examples, the app helper, and the config template ship in the package. `npm publish` runs the same gate through `prepublishOnly`.
 
-Read next: [Contracts](docs/contracts.md) for the artifact layout and current scope.
+Read next: [Contracts](docs/contracts.md) for the artifact layout and supported runner surface.
 
 ## Quick start
 
