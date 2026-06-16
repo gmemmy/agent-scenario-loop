@@ -14,6 +14,7 @@ const {
   runProfileMobile,
   usage,
 } = require('./profile-mobile');
+const { buildScenarioExecutionPlan } = require('../core/execution-plan');
 
 type AndroidProfileOptions = {
   delay?: (ms: number) => Promise<void>;
@@ -25,6 +26,8 @@ type AndroidAdbProfileCommand = {
   label?: string;
   waitMs?: number;
 };
+
+type ScenarioExecutionStep = import('../core/execution-plan').ScenarioExecutionStep;
 
 /**
  * Reads and parses a JSON object from disk.
@@ -143,6 +146,44 @@ function buildProfileSessionUrl({
 }
 
 /**
+ * Reads Android-specific wait metadata from a normalized execution step.
+ *
+ * @param {import('../core/execution-plan').ScenarioExecutionStep} step
+ * @returns {number}
+ */
+function readStepWaitMs(step: ScenarioExecutionStep): number {
+  const androidAdbOptions = step.adapterOptions?.androidAdb;
+  if (androidAdbOptions && typeof androidAdbOptions === 'object' && !Array.isArray(androidAdbOptions)) {
+    const waitMs = (androidAdbOptions as Record<string, unknown>).waitMs;
+    if (typeof waitMs === 'number' && Number.isInteger(waitMs) && waitMs > 0) {
+      return waitMs;
+    }
+  }
+
+  return readPositiveInteger(step.timeoutMs, 0);
+}
+
+/**
+ * Expands portable scenario command steps into Android profile-session commands.
+ *
+ * @param {Record<string, unknown>} scenario
+ * @returns {AndroidAdbProfileCommand[]}
+ */
+function resolveExecutionPlanProfileCommands(scenario: Record<string, any>): AndroidAdbProfileCommand[] {
+  const executionPlan = buildScenarioExecutionPlan(scenario);
+  const repeat = readPositiveInteger(scenario.defaultIterations, readPositiveInteger(scenario.cycles?.iterations, 1));
+  const commands = executionPlan.steps
+    .filter((step: ScenarioExecutionStep) => step.portMethod === 'executeStep' && typeof step.command === 'string')
+    .map((step: ScenarioExecutionStep) => ({
+      command: step.command as string,
+      label: step.id,
+      waitMs: readStepWaitMs(step),
+    }));
+
+  return Array.from({ length: repeat }).flatMap(() => commands);
+}
+
+/**
  * Expands scenario-declared Android commands for an adb capture profile session.
  *
  * @param {Record<string, unknown>} scenario
@@ -151,7 +192,7 @@ function buildProfileSessionUrl({
 function resolveAndroidAdbProfileCommands(scenario: Record<string, any>): AndroidAdbProfileCommand[] {
   const androidAdbOptions = scenario.adapterOptions?.androidAdb;
   if (!androidAdbOptions || !Array.isArray(androidAdbOptions.commands)) {
-    return [];
+    return resolveExecutionPlanProfileCommands(scenario);
   }
 
   const repeat = readPositiveInteger(androidAdbOptions.repeat, readPositiveInteger(scenario.defaultIterations, 1));
@@ -314,6 +355,7 @@ if (require.main === module) {
 export {
   main,
   parseArgs,
+  resolveAndroidAdbProfileCommands,
   runProfileAndroid,
   summarizeFailedAndroidChecks,
   usage,

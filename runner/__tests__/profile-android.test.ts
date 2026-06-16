@@ -9,7 +9,10 @@ const test = require('node:test');
 const DIST_ROOT = path.join(__dirname, '..', '..');
 const ROOT = path.join(DIST_ROOT, '..');
 const PROFILE_ANDROID = path.join(DIST_ROOT, 'runner', 'profile-android.js');
-const { runProfileAndroid } = require('../profile-android');
+const {
+  resolveAndroidAdbProfileCommands,
+  runProfileAndroid,
+} = require('../profile-android');
 
 type ExecOutput = {
   stdout: string;
@@ -318,4 +321,35 @@ test('profile-android starts profile sessions and executes scenario commands dur
       calls.indexOf("-s emulator-5554 shell am start -a 'android.intent.action.VIEW' -d 'asl-example://profile-session/start?runId=android-live-open-close&scenario=open-close-cycle' -p 'dev.agentscenarioloop.example'"),
   );
   assert.ok(fs.existsSync(path.join(result.runDir, 'raw', 'adb-logcat.txt')));
+});
+
+test('profile-android derives commands from normalized execution-plan steps', () => {
+  const scenario = readJson(fixturePath('examples/mobile-app/scenarios/android/open-close-cycle.json'));
+  delete scenario.adapterOptions;
+  scenario.defaultIterations = 2;
+  scenario.steps = [
+    {
+      id: 'open-card',
+      kind: 'command',
+      command: 'activate-target:example-card-1',
+      adapterOptions: {
+        androidAdb: {
+          waitMs: 125,
+        },
+      },
+    },
+    {
+      id: 'close-card',
+      kind: 'command',
+      command: 'activate-target:close-card',
+      timeoutMs: 225,
+    },
+  ];
+
+  assert.deepEqual(resolveAndroidAdbProfileCommands(scenario), [
+    { command: 'activate-target:example-card-1', label: 'open-card', waitMs: 125 },
+    { command: 'activate-target:close-card', label: 'close-card', waitMs: 225 },
+    { command: 'activate-target:example-card-1', label: 'open-card', waitMs: 125 },
+    { command: 'activate-target:close-card', label: 'close-card', waitMs: 225 },
+  ]);
 });
