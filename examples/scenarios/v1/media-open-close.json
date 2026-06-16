@@ -1,0 +1,91 @@
+{
+  "schemaVersion": "1.0.0",
+  "id": "media-open-close",
+  "flowId": "media-open-close",
+  "description": "Open media, wait for visual readiness, then dismiss cleanly.",
+  "platforms": ["ios", "android"],
+  "requiredCapabilities": ["launch", "sessionControl", "command", "logCapture", "artifactWrite"],
+  "optionalCapabilities": ["screenshot", "video", "memory", "network"],
+  "truthEvents": {
+    "openRequested": {
+      "event": "media_open_requested",
+      "required": true,
+      "phase": "intent"
+    },
+    "mediaReady": {
+      "event": "media_visual_ready",
+      "required": true,
+      "timeoutMs": 5000,
+      "phase": "visual"
+    },
+    "closeRequested": {
+      "event": "media_close_requested",
+      "required": true,
+      "phase": "intent"
+    },
+    "dismissed": {
+      "event": "media_dismissed",
+      "required": true,
+      "timeoutMs": 3000,
+      "phase": "completion"
+    }
+  },
+  "budgets": [
+    {
+      "name": "media ready p95",
+      "source": "milestone",
+      "metric": "p95",
+      "unit": "ms",
+      "limit": 5000,
+      "fromMilestone": "openRequested",
+      "toMilestone": "mediaReady"
+    },
+    {
+      "name": "dismiss p95",
+      "source": "milestone",
+      "metric": "p95",
+      "unit": "ms",
+      "limit": 3000,
+      "fromMilestone": "closeRequested",
+      "toMilestone": "dismissed"
+    }
+  ],
+  "steps": [
+    {
+      "id": "launch",
+      "kind": "launch"
+    },
+    {
+      "id": "open-media",
+      "kind": "command",
+      "command": "activate-target:example-media-open"
+    },
+    {
+      "id": "wait-media-ready",
+      "kind": "waitForMilestone",
+      "milestone": "mediaReady",
+      "timeoutMs": 5000
+    },
+    {
+      "id": "capture-media",
+      "kind": "captureEvidence",
+      "artifact": "screenshot",
+      "required": false
+    },
+    {
+      "id": "close-media",
+      "kind": "command",
+      "command": "activate-target:example-media-close"
+    },
+    {
+      "id": "wait-dismissed",
+      "kind": "waitForMilestone",
+      "milestone": "dismissed",
+      "timeoutMs": 3000
+    }
+  ],
+  "artifacts": {
+    "required": ["logs", "signals"],
+    "optional": ["screenshot", "video", "memory", "network"]
+  }
+}

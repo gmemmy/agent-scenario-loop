@@ -1,0 +1,49 @@
+{
+  "schemaVersion": "1.0.0",
+  "id": "app-startup",
+  "flowId": "startup",
+  "description": "Launch the app and wait for the first usable screen milestone.",
+  "platforms": ["ios", "android"],
+  "requiredCapabilities": ["launch", "sessionControl", "logCapture", "artifactWrite"],
+  "optionalCapabilities": ["screenshot", "video"],
+  "truthEvents": {
+    "firstUsable": {
+      "event": "app_first_usable_screen",
+      "required": true,
+      "timeoutMs": 8000,
+      "phase": "visual"
+    }
+  },
+  "budgets": [
+    {
+      "name": "startup first usable p95",
+      "source": "milestone",
+      "metric": "p95",
+      "unit": "ms",
+      "limit": 8000,
+      "toMilestone": "firstUsable"
+    }
+  ],
+  "steps": [
+    {
+      "id": "launch",
+      "kind": "launch"
+    },
+    {
+      "id": "wait-for-first-usable",
+      "kind": "waitForMilestone",
+      "milestone": "firstUsable",
+      "timeoutMs": 8000
+    },
+    {
+      "id": "capture-final-screen",
+      "kind": "captureEvidence",
+      "artifact": "screenshot",
+      "required": false
+    }
+  ],
+  "artifacts": {
+    "required": ["logs", "signals"],
+    "optional": ["screenshot", "video"]
+  }
+}

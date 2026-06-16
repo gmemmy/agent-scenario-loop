@@ -1,0 +1,28 @@
+{
+  "schemaVersion": "1.0.0",
+  "runnerId": "xcodebuildmcp-ios",
+  "kind": "primary",
+  "platforms": ["ios"],
+  "capabilities": [
+    "launch",
+    "sessionControl",
+    "command",
+    "logCapture",
+    "artifactWrite",
+    "screenshot",
+    "video",
+    "uiTree",
+    "accessibility"
+  ],
+  "artifactOutputs": ["logs", "signals", "screenshot", "video", "uiTree", "accessibility"],
+  "lifecycle": [
+    "prepare",
+    "launch",
+    "startSession",
+    "executeStep",
+    "waitForTruthEvent",
+    "captureEvidence",
+    "stopSession",
+    "finalize"
+  ]
+}

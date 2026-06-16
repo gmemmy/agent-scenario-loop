@@ -1,0 +1,73 @@
+{
+  "schemaVersion": "1.0.0",
+  "id": "scroll-settle",
+  "flowId": "scroll-settle",
+  "description": "Scroll a stable list and wait for app-owned visible/settled evidence.",
+  "platforms": ["ios", "android"],
+  "requiredCapabilities": ["launch", "sessionControl", "command", "logCapture", "artifactWrite"],
+  "optionalCapabilities": ["screenshot", "video", "uiTree", "profiler"],
+  "truthEvents": {
+    "scrollStarted": {
+      "event": "list_scroll_started",
+      "required": true,
+      "phase": "intent"
+    },
+    "settled": {
+      "event": "list_scroll_settled",
+      "required": true,
+      "timeoutMs": 3000,
+      "phase": "visual"
+    }
+  },
+  "budgets": [
+    {
+      "name": "scroll settle p95",
+      "source": "milestone",
+      "metric": "p95",
+      "unit": "ms",
+      "limit": 1400,
+      "fromMilestone": "scrollStarted",
+      "toMilestone": "settled"
+    },
+    {
+      "name": "dropped frames",
+      "source": "artifact",
+      "metric": "droppedFrames",
+      "unit": "count",
+      "limit": 0,
+      "artifact": "profiler"
+    }
+  ],
+  "steps": [
+    {
+      "id": "launch",
+      "kind": "launch"
+    },
+    {
+      "id": "scroll-list",
+      "kind": "command",
+      "command": "scroll-by:600",
+      "adapterOptions": {
+        "gestureFallback": {
+          "direction": "down"
+        }
+      }
+    },
+    {
+      "id": "wait-settled",
+      "kind": "waitForMilestone",
+      "milestone": "settled",
+      "timeoutMs": 3000
+    },
+    {
+      "id": "capture-ui-tree",
+      "kind": "captureEvidence",
+      "artifact": "uiTree",
+      "required": false
+    }
+  ],
+  "artifacts": {
+    "required": ["logs", "signals"],
+    "optional": ["screenshot", "video", "uiTree", "profiler"]
+  }
+}

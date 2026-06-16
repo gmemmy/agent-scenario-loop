@@ -1,0 +1,9 @@
+{
+  "schemaVersion": "1.0.0",
+  "runnerId": "rozenite-profiler-provider",
+  "kind": "evidenceProvider",
+  "platforms": ["ios", "android"],
+  "capabilities": ["profiler"],
+  "artifactOutputs": ["profiler"],
+  "lifecycle": ["prepare", "startWindow", "capture", "stopWindow", "finalize"]
+}

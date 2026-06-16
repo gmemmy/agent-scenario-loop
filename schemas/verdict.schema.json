@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-scenario-loop.dev/schemas/verdict.schema.json",
+  "title": "Agent Scenario Loop Verdict",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "scenarioId", "runId", "healthStatus", "verdictStatus"],
+  "properties": {
+    "schemaVersion": {
+      "type": "string",
+      "pattern": "^1\\.0\\.0$"
+    },
+    "scenarioId": {
+      "type": "string"
+    },
+    "flowId": {
+      "type": "string"
+    },
+    "runId": {
+      "type": "string"
+    },
+    "healthStatus": {
+      "type": "string",
+      "enum": ["passed", "failed", "partial"]
+    },
+    "verdictStatus": {
+      "type": "string",
+      "enum": ["passed", "failed", "inconclusive", "not_evaluated"]
+    },
+    "budgetChecks": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/budgetCheck"
+      }
+    },
+    "comparison": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "artifact": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["better", "worse", "unchanged", "inconclusive"]
+        }
+      }
+    },
+    "summary": {
+      "type": "string"
+    }
+  },
+  "$defs": {
+    "budgetCheck": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "source", "metric", "unit", "expected", "actual", "pass"],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "source": {
+          "type": "string",
+          "enum": ["milestone", "artifact"]
+        },
+        "metric": {
+          "type": "string"
+        },
+        "unit": {
+          "type": "string",
+          "enum": ["ms", "count", "bytes", "percent", "boolean"]
+        },
+        "expected": {
+          "type": ["number", "integer", "boolean"]
+        },
+        "actual": {
+          "type": ["number", "integer", "boolean", "null"]
+        },
+        "pass": {
+          "type": "boolean"
+        },
+        "notes": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

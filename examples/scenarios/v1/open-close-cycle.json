@@ -1,0 +1,85 @@
+{
+  "schemaVersion": "1.0.0",
+  "id": "open-close-cycle",
+  "flowId": "open-close-cycle",
+  "description": "Open and dismiss a target surface repeatedly using app-owned commands and truth milestones.",
+  "platforms": ["ios", "android"],
+  "requiredCapabilities": ["launch", "sessionControl", "command", "logCapture", "artifactWrite"],
+  "optionalCapabilities": ["screenshot", "video", "uiTree"],
+  "truthEvents": {
+    "openRequested": {
+      "event": "surface_open_requested",
+      "required": true,
+      "phase": "intent"
+    },
+    "opened": {
+      "event": "surface_opened",
+      "required": true,
+      "timeoutMs": 2500,
+      "phase": "visual"
+    },
+    "closeRequested": {
+      "event": "surface_close_requested",
+      "required": true,
+      "phase": "intent"
+    },
+    "dismissed": {
+      "event": "surface_dismissed",
+      "required": true,
+      "timeoutMs": 2500,
+      "phase": "completion"
+    }
+  },
+  "budgets": [
+    {
+      "name": "open p95",
+      "source": "milestone",
+      "metric": "p95",
+      "unit": "ms",
+      "limit": 1200,
+      "fromMilestone": "openRequested",
+      "toMilestone": "opened"
+    },
+    {
+      "name": "close p95",
+      "source": "milestone",
+      "metric": "p95",
+      "unit": "ms",
+      "limit": 1200,
+      "fromMilestone": "closeRequested",
+      "toMilestone": "dismissed"
+    }
+  ],
+  "steps": [
+    {
+      "id": "launch",
+      "kind": "launch"
+    },
+    {
+      "id": "open-surface",
+      "kind": "command",
+      "command": "activate-target:example-surface-open"
+    },
+    {
+      "id": "wait-opened",
+      "kind": "waitForMilestone",
+      "milestone": "opened",
+      "timeoutMs": 2500
+    },
+    {
+      "id": "close-surface",
+      "kind": "command",
+      "command": "activate-target:example-surface-close"
+    },
+    {
+      "id": "wait-dismissed",
+      "kind": "waitForMilestone",
+      "milestone": "dismissed",
+      "timeoutMs": 2500
+    }
+  ],
+  "artifacts": {
+    "required": ["logs", "signals"],
+    "optional": ["screenshot", "video", "uiTree"]
+  }
+}

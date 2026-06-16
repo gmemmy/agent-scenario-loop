@@ -1,8 +1,10 @@
 # Principles
 
-`agent-scenario-loop` is a small agent-oriented foundation for deterministic mobile scenarios and stable profiling artifacts in React Native apps.
+`agent-scenario-loop` is an evidence-first scenario orchestration layer for agent-driven mobile development.
 
-## Three planes
+The durable value is not any one runner. The durable value is a stable scenario and evidence contract that survives runner changes.
+
+## Four planes
 
 1. Control plane
 Use semantic app commands, deep links, and deterministic hooks before falling back to raw UI replay.
@@ -10,7 +12,10 @@ Use semantic app commands, deep links, and deterministic hooks before falling ba
 2. Truth plane
 Use explicit profile events, stored signals, route state, and committed artifacts as the source of truth.
 
-3. Realism plane
+3. Evidence plane
+Preserve logs, screenshots, videos, profiler exports, memory captures, network captures, UI trees, metrics, and verdicts in one stable artifact layout.
+
+4. Realism plane
 Use taps, swipes, and full UI interaction for realism checks and last-mile validation, not as the primary control architecture.
 
 ## Invariants
@@ -20,5 +25,7 @@ Use taps, swipes, and full UI interaction for realism checks and last-mile valid
 - Generated runs are outputs, not source.
 - The artifact contract is a public API.
 - App integration stays thin.
-- Interaction drivers are adapters, not schema owners. Scenarios and artifacts must outlive any individual driver.
+- Runners and interaction drivers are adapters, not schema owners. Scenarios and artifacts must outlive any individual runner.
+- Failed or partial scenario health cannot support an optimization claim.
+- Product-specific selectors, routes, auth assumptions, and domain events stay outside the orchestration core.
 - Public claims stay narrower than internal ambition.

@@ -1,0 +1,9 @@
+{
+  "schemaVersion": "1.0.0",
+  "runnerId": "manual-log-ingest",
+  "kind": "primary",
+  "platforms": ["ios", "android"],
+  "capabilities": ["logCapture", "artifactWrite"],
+  "artifactOutputs": ["logs", "signals"],
+  "lifecycle": ["prepare", "captureEvidence", "finalize"]
+}

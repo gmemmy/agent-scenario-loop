@@ -2,10 +2,12 @@
   "name": "agent-scenario-loop",
   "version": "0.1.0",
   "private": false,
-  "description": "Driver-agnostic scenario orchestration and profiling artifacts for agent-operated React Native apps. Bring your own driver. Keep your evidence.",
+  "description": "Evidence-first scenario orchestration for agent-driven mobile development. Bring your own runner. Keep your scenarios. Keep your evidence.",
   "license": "MIT",
   "type": "commonjs",
   "scripts": {
+    "test": "node --test",
+    "check-plan": "node runner/check-plan.js",
     "profile:ios": "node runner/profile-ios.js",
     "profile:ios:startup": "node runner/profile-ios.js --config core/config-template.json --scenario examples/scenarios/ios/app-startup.json",
     "profile:ios:open-close": "node runner/profile-ios.js --config core/config-template.json --scenario examples/scenarios/ios/open-close-cycle.json"
