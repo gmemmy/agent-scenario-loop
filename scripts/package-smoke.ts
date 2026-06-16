@@ -169,6 +169,57 @@ function runExpectFailure(command: string, args: string[], options: RunOptions):
 }
 
 /**
+ * Writes a tiny adb-compatible command for installed-package smoke tests.
+ *
+ * @param {{filePath: string, logcatText: string, packageName: string}} options
+ * @returns {void}
+ */
+function writeFakeAdb({
+  filePath,
+  logcatText,
+  packageName,
+}: {
+  filePath: string;
+  logcatText: string;
+  packageName: string;
+}): void {
+  const scriptPath = filePath.endsWith('.cmd') ? filePath.replace(/\.cmd$/u, '.js') : filePath;
+  const script = [
+    '#!/usr/bin/env node',
+    "const args = process.argv.slice(2);",
+    "const key = args.join(' ');",
+    `const logcatText = ${JSON.stringify(logcatText)};`,
+    `const packageName = ${JSON.stringify(packageName)};`,
+    "const responses = new Map([",
+    "  ['version', { stdout: 'Android Debug Bridge version 1.0.41\\n' }],",
+    "  ['devices -l', { stdout: 'List of devices attached\\nemulator-5554 device product:sdk_gphone model:Pixel_6 device:emu64\\n' }],",
+    "  ['-s emulator-5554 shell getprop ro.product.model', { stdout: 'Pixel 6\\n' }],",
+    "  ['-s emulator-5554 shell getprop ro.build.version.release', { stdout: '15\\n' }],",
+    "  ['-s emulator-5554 shell getprop ro.build.version.sdk', { stdout: '35\\n' }],",
+    "  [`-s emulator-5554 shell pm path ${packageName}`, { stdout: `package:/data/app/${packageName}/base.apk\\n` }],",
+    "  ['-s emulator-5554 logcat -c', { stdout: '' }],",
+    "  [`-s emulator-5554 shell monkey -p ${packageName} -c android.intent.category.LAUNCHER 1`, { stdout: 'Events injected: 1\\n' }],",
+    "  ['-s emulator-5554 logcat -d -v time -t 1000', { stdout: logcatText }],",
+    "]);",
+    "const response = responses.get(key);",
+    "if (!response) {",
+    "  process.stderr.write(`unexpected fake adb command: ${key}\\n`);",
+    "  process.exit(1);",
+    "}",
+    "process.stdout.write(response.stdout ?? '');",
+    "process.stderr.write(response.stderr ?? '');",
+    "process.exit(response.exitCode ?? 0);",
+    '',
+  ].join('\n');
+  fs.writeFileSync(scriptPath, script, { mode: 0o755 });
+  if (filePath.endsWith('.cmd')) {
+    fs.writeFileSync(filePath, `@echo off\r\n"${process.execPath}" "%~dp0${path.basename(scriptPath)}" %*\r\n`, {
+      mode: 0o755,
+    });
+  }
+}
+
+/**
  * Returns the platform-specific path for a package binary in a temp install.
  *
  * @param {string} installDir
@@ -337,6 +388,51 @@ function main(): void {
     assert.equal(adbArtifactHealth.healthStatus, 'passed');
     assert.equal(adbArtifactVerdict.verdictStatus, 'passed');
 
+    const adbCaptureRunId = 'package-smoke-adb-capture';
+    const androidPackageName = 'dev.agentscenarioloop.example';
+    const fakeAdbPath = path.join(tempRoot, process.platform === 'win32' ? 'fake-adb.cmd' : 'fake-adb');
+    const adbCaptureProfileRoot = path.join(tempRoot, 'adb-capture-profile');
+    writeFakeAdb({
+      filePath: fakeAdbPath,
+      logcatText: fs
+        .readFileSync(path.join(exampleAppRoot, 'event-logs', 'android-app-startup.log'), 'utf8')
+        .replace(/android-example-startup/gu, adbCaptureRunId),
+      packageName: androidPackageName,
+    });
+    const adbCaptureProfileOutput = run(packageBinPath(installDir, 'asl-profile-android'), [
+      '--config',
+      path.join(exampleAppRoot, 'asl.config.json'),
+      '--scenario',
+      path.join(exampleAppRoot, 'scenarios', 'android', 'app-startup.json'),
+      '--adb-capture',
+      '--adb',
+      fakeAdbPath,
+      '--clear-logcat',
+      '--launch',
+      '--wait-ms',
+      '1',
+      '--out',
+      adbCaptureProfileRoot,
+      '--run-id',
+      adbCaptureRunId,
+    ], {
+      cwd: installDir,
+      env,
+    });
+    const adbCaptureProfileRunDir = adbCaptureProfileOutput.trim();
+    const adbCaptureRoot = path.join(adbCaptureProfileRoot, '_adb-captures', adbCaptureRunId);
+    const adbCaptureManifest = JSON.parse(fs.readFileSync(path.join(adbCaptureProfileRunDir, 'manifest.json'), 'utf8'));
+    const adbCaptureHealth = JSON.parse(fs.readFileSync(path.join(adbCaptureProfileRunDir, 'health.json'), 'utf8'));
+    const adbCaptureVerdict = JSON.parse(fs.readFileSync(path.join(adbCaptureProfileRunDir, 'verdict.json'), 'utf8'));
+    const adbCaptureRunnerHealth = JSON.parse(fs.readFileSync(path.join(adbCaptureRoot, 'health.json'), 'utf8'));
+    assert.equal(adbCaptureProfileRunDir, path.join(adbCaptureProfileRoot, 'app-startup', adbCaptureRunId));
+    assert.equal(adbCaptureManifest.artifacts.raw.interactionLog, 'raw/adb-logcat.txt');
+    assert.equal(adbCaptureManifest.bundleId, androidPackageName);
+    assert.equal(adbCaptureHealth.healthStatus, 'passed');
+    assert.equal(adbCaptureVerdict.verdictStatus, 'passed');
+    assert.equal(adbCaptureRunnerHealth.healthStatus, 'passed');
+    assert.equal(fs.existsSync(path.join(adbCaptureProfileRunDir, 'raw', 'adb-logcat.txt')), true);
+
     const missingAdbRunId = 'package-smoke-missing-adb';
     const missingAdbProfileRoot = path.join(tempRoot, 'missing-adb-profile');
     const missingAdb = runExpectFailure(packageBinPath(installDir, 'asl-profile-android'), [
@@ -426,4 +522,5 @@ export {
   packageBinPath,
   run,
   runExpectFailure,
+  writeFakeAdb,
 };
