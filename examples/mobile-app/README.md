@@ -96,6 +96,8 @@ pnpm example:profile:android:live:scroll
 
 The command targets live in the scenario `adapterOptions.androidAdb.commands` block, while the app handles them through `registerProfileCommandTargetHandler`. If adb, the package, or the device is unavailable, the adb capture folder gets a failed `health.json` and the profile run stops before making timing claims.
 
+`scenarios/android/app-startup-video.json` is an opt-in variant that adds an optional `record` capture step. Use it when you want adb to preserve `captures.video` for a startup run without making video part of the default live proof.
+
 ## iOS Capture
 
 With the example app installed on a booted iOS simulator and Metro connected, the iOS runner can own a simctl capture window before writing profile artifacts. The live commands use storage-backed profile-session and command seeding, so they do not depend on iOS unified logs carrying JavaScript console output:

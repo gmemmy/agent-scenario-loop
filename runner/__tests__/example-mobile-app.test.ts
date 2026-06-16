@@ -10,6 +10,9 @@ const DIST_ROOT = path.join(__dirname, '..', '..');
 const ROOT = path.join(DIST_ROOT, '..');
 const PROFILE_ANDROID = path.join(DIST_ROOT, 'runner', 'profile-android.js');
 const PROFILE_IOS = path.join(DIST_ROOT, 'runner', 'profile-ios.js');
+const {
+  resolveAndroidAdbDriverSteps,
+} = require('../profile-android');
 
 type ExecOutput = {
   stdout: string;
@@ -114,6 +117,32 @@ test('example mobile app config matches Expo app identity', () => {
 
   assert.equal(app.androidPackage, expo.android?.package);
   assert.equal(app.iosBundleId, expo.ios?.bundleIdentifier);
+});
+
+test('example Android video scenario maps to optional adb record capture', () => {
+  const scenario = readJson(fixturePath('examples/mobile-app/scenarios/android/app-startup-video.json'));
+  const driverSteps = resolveAndroidAdbDriverSteps(scenario);
+
+  assert.deepEqual(driverSteps, [
+    {
+      driverAction: 'readLogs',
+      lines: 1000,
+      rawFileName: 'adb-logcat.txt',
+      required: true,
+      stepId: 'capture-log-window',
+      waitMs: 0,
+    },
+    {
+      captureFileName: 'app-startup-video.mp4',
+      driverAction: 'record',
+      durationSeconds: 5,
+      rawFileName: 'adb-record-startup.txt',
+      remotePath: '/sdcard/asl-app-startup-video.mp4',
+      required: false,
+      stepId: 'record-startup-window',
+      waitMs: 0,
+    },
+  ]);
 });
 
 test('example mobile app scenarios produce passed artifacts from committed evidence', async (t: TestContext) => {
