@@ -701,7 +701,7 @@ function buildBudgetVerdict({
           regression: {
             baselineRunId,
             status: 'unknown',
-            summary: 'Baseline comparison not implemented yet.',
+            summary: 'Regression status is unknown until comparison.json is produced for the baseline/current run folders.',
           },
         }
       : {}),
