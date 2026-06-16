@@ -2,7 +2,7 @@
   "name": "agent-scenario-loop",
   "version": "0.1.0",
   "private": false,
-  "description": "Evidence-first scenario orchestration for agent-driven mobile development. Bring your own runner. Keep your scenarios. Keep your evidence.",
+  "description": "Scenario orchestration and evidence collection for agent-driven software development. Bring your own runner. Keep your scenarios. Keep your evidence.",
   "license": "MIT",
   "type": "commonjs",
   "main": "dist/index.js",

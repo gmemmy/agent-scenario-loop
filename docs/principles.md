@@ -1,8 +1,10 @@
 # Principles
 
-`agent-scenario-loop` is an evidence-first scenario orchestration layer for agent-driven mobile development.
+`agent-scenario-loop` is a scenario orchestration and evidence collection layer for agent-driven software development.
 
 The durable value is not any one runner. The durable value is a stable scenario and evidence contract that survives runner changes.
+
+It is not another agent runner. It is the layer that coordinates runners, preserves evidence, and keeps scenarios useful as tooling changes.
 
 ## Four planes
 
@@ -26,6 +28,7 @@ Use taps, swipes, and full UI interaction for realism checks and last-mile valid
 - The artifact contract is a public API.
 - App integration stays thin.
 - Runners and interaction drivers are adapters, not schema owners. Scenarios and artifacts must outlive any individual runner.
+- Runners can be swapped, combined, introduced, or compared without rewriting scenario definitions.
 - Failed or partial scenario health cannot support an optimization claim.
 - Product-specific selectors, routes, auth assumptions, and domain events stay outside the orchestration core.
 - Public claims stay narrower than internal ambition.
