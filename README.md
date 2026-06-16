@@ -175,7 +175,7 @@ To run the complete fixture loop without a simulator:
 pnpm demo:loop -- --out artifacts/demo-loop
 ```
 
-That command runs preflight, profiles baseline/current event logs, writes run artifacts, compares the runs, and refreshes the current run's `agent-summary.md`.
+That command runs preflight, profiles baseline/current event logs, writes run artifacts, compares the current run against the latest trusted prior run, and refreshes the current run's `agent-summary.md`.
 
 To verify the full release gate before publishing:
 

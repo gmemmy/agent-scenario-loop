@@ -21,7 +21,7 @@ The package is intentionally contract-first: adopt the scenario and artifact sha
 - [runner/profile-android.ts](../runner/profile-android.ts): Android profile runner that can ingest profile-event logs directly, read adb artifact folders, or own a bounded adb capture window before writing the full artifact set
 - [runner/profile-ios.ts](../runner/profile-ios.ts): iOS log-ingest runner that turns scenario metadata plus `[profile-event]` logs into the full artifact set
 - [runner/android-adb.ts](../runner/android-adb.ts): Android adb readiness preflight, optional package launch, and bounded logcat capture that write runner health and raw adb evidence
-- [runner/demo-loop.ts](../runner/demo-loop.ts): fixture loop that proves preflight, profile, and comparison without a simulator
+- [runner/demo-loop.ts](../runner/demo-loop.ts): fixture loop that proves preflight, profile history, and latest-trusted comparison without a simulator
 - [examples/event-logs](../examples/event-logs): deterministic profile-event logs for the fixture loop
 - [examples/mobile-app](../examples/mobile-app): neutral Expo dogfood app with scenario manifests and profile-event evidence fixtures
 - [examples/scenarios/ios](../examples/scenarios/ios): iOS profile scenario manifests for the current log-ingest runner
@@ -200,7 +200,7 @@ The fixture loop writes:
 - `profile-runs/app-startup/demo-current/*`
 - `profile-runs/app-startup/demo-current/comparison.json`
 
-This is not a replacement for live device proof. It is a stable contract check that keeps the evidence loop reproducible while iOS or Android runtime setup is unavailable.
+This is not a replacement for live device proof. It is a stable contract check that keeps the evidence loop reproducible through trusted prior-run selection while iOS or Android runtime setup is unavailable.
 
 ## Read next
 

@@ -5,10 +5,11 @@ const path = require('node:path');
 const { buildAgentSummaryMarkdown } = require('../core/agent-summary');
 const { createArtifactLayout } = require('../core/artifact-layout');
 const { writeJsonArtifact, writeTextArtifact } = require('../core/artifact-writer');
-const { compareRunDirectories, readRunArtifacts } = require('../core/comparison');
+const { readRunArtifacts } = require('../core/comparison');
 const { SCHEMAS } = require('../core/schema-validator');
 const { buildPlanArtifacts } = require('./check-plan');
 const { hasHelpFlag, writeUsage } = require('./cli');
+const { compareLatestTrustedRun } = require('./compare-latest');
 const { runProfileIos } = require('./profile-ios');
 
 type CliArgs = {
@@ -66,7 +67,7 @@ function parseArgs(argv: string[]): CliArgs {
 }
 
 /**
- * Writes a fixture-backed preflight, baseline profile, current profile, and comparison.
+ * Writes a fixture-backed preflight, profile history, current profile, and latest-trusted comparison.
  *
  * @param {{outputDir?: string}} options
  * @returns {Promise<DemoLoopResult>}
@@ -116,7 +117,7 @@ async function runDemoLoop({ outputDir = path.resolve('artifacts/demo-loop') }: 
     label: 'Planner compatibility artifact',
   });
 
-  const baseline = await runProfileIos({
+  await runProfileIos({
     config: configPath,
     events: baselineLogPath,
     out: profileRoot,
@@ -130,14 +131,15 @@ async function runDemoLoop({ outputDir = path.resolve('artifacts/demo-loop') }: 
     scenario: profileScenarioPath,
     'run-id': 'demo-current',
   });
-  const comparison = compareRunDirectories({
-    baselineDir: baseline.runDir,
+  const latestComparison = compareLatestTrustedRun({
+    rootDir: profileRoot,
+    scenarioId: 'app-startup',
     currentDir: current.runDir,
   });
   const currentLayout = createArtifactLayout({ outputDir: current.runDir });
   await writeJsonArtifact({
     filePath: currentLayout.comparison,
-    value: comparison,
+    value: latestComparison.comparison,
     schema: SCHEMAS.comparison,
     label: 'Comparison artifact',
   });
@@ -148,13 +150,13 @@ async function runDemoLoop({ outputDir = path.resolve('artifacts/demo-loop') }: 
     content: buildAgentSummaryMarkdown({
       health: currentArtifacts.health,
       verdict: currentArtifacts.verdict,
-      comparison,
+      comparison: latestComparison.comparison,
     }),
   });
 
   return {
-    baselineRunDir: baseline.runDir,
-    comparison,
+    baselineRunDir: latestComparison.baselineDir,
+    comparison: latestComparison.comparison,
     currentRunDir: current.runDir,
     outputDir: resolvedOutputDir,
     preflightDir,
