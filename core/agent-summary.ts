@@ -4,7 +4,7 @@
  * @param {unknown} value
  * @returns {unknown[]}
  */
-function asArray(value) {
+function asArray(value: unknown): unknown[] {
   return Array.isArray(value) ? value : [];
 }
 
@@ -14,7 +14,7 @@ function asArray(value) {
  * @param {unknown} value
  * @returns {string}
  */
-function code(value) {
+function code(value: unknown): string {
   return `\`${String(value ?? 'unknown')}\``;
 }
 
@@ -25,7 +25,7 @@ function code(value) {
  * @param {string} fallback
  * @returns {string}
  */
-function firstString(values, fallback) {
+function firstString(values: unknown[], fallback: string): string {
   const found = values.find((value) => typeof value === 'string' && value.length > 0);
   return typeof found === 'string' ? found : fallback;
 }
@@ -36,15 +36,16 @@ function firstString(values, fallback) {
  * @param {unknown[]} checks
  * @returns {string[]}
  */
-function formatChecks(checks) {
+function formatChecks(checks: unknown[]): string[] {
   return asArray(checks).map((check) => {
     if (!check || typeof check !== 'object') {
       return '- unknown check';
     }
 
-    const name = firstString([check.name, check.code], 'unknown_check');
-    const status = firstString([check.status], 'unknown');
-    const message = firstString([check.message], 'no message');
+    const record = check as SummaryRecord;
+    const name = firstString([record.name, record.code], 'unknown_check');
+    const status = firstString([record.status], 'unknown');
+    const message = firstString([record.message], 'no message');
     return `- ${code(name)}: ${status} - ${message}`;
   });
 }
@@ -55,13 +56,17 @@ function formatChecks(checks) {
  * @param {unknown[]} budgetChecks
  * @returns {string[]}
  */
-function formatFailedBudgets(budgetChecks) {
+function formatFailedBudgets(budgetChecks: unknown[]): string[] {
   return asArray(budgetChecks)
-    .filter((check) => check && typeof check === 'object' && check.pass === false)
+    .filter((check) => {
+      const record = check as SummaryRecord | null;
+      return !!record && typeof record === 'object' && record.pass === false;
+    })
     .map((check) => {
-      const name = firstString([check.name], 'unknown budget');
-      const metric = firstString([check.metric], 'unknown metric');
-      return `- ${name}: ${metric} expected ${check.expected ?? 'n/a'}, actual ${check.actual ?? 'n/a'}`;
+      const record = check as SummaryRecord;
+      const name = firstString([record.name], 'unknown budget');
+      const metric = firstString([record.metric], 'unknown metric');
+      return `- ${name}: ${metric} expected ${record.expected ?? 'n/a'}, actual ${record.actual ?? 'n/a'}`;
     });
 }
 
@@ -71,7 +76,7 @@ function formatFailedBudgets(budgetChecks) {
  * @param {{health: Record<string, unknown>, verdict: Record<string, unknown>, comparison?: Record<string, unknown> | null}} options
  * @returns {string}
  */
-function buildAgentSummaryMarkdown({ health, verdict, comparison = null }) {
+function buildAgentSummaryMarkdown({ health, verdict, comparison = null }: AgentSummaryInput): string {
   const scenarioId = firstString([health?.scenarioId, verdict?.scenarioId], 'unknown-scenario');
   const runId = firstString([health?.runId, verdict?.runId], 'unknown-run');
   const healthStatus = firstString([health?.healthStatus], 'failed');
@@ -99,7 +104,10 @@ function buildAgentSummaryMarkdown({ health, verdict, comparison = null }) {
   }
 
   const failedChecks = asArray(health?.checks).filter(
-    (check) => check && typeof check === 'object' && check.status !== 'passed',
+    (check) => {
+      const record = check as SummaryRecord | null;
+      return !!record && typeof record === 'object' && record.status !== 'passed';
+    },
   );
   if (failedChecks.length > 0) {
     lines.push('', '## failed checks', '', ...formatChecks(failedChecks));
@@ -110,13 +118,13 @@ function buildAgentSummaryMarkdown({ health, verdict, comparison = null }) {
     lines.push('', '## warnings', '', ...formatChecks(warnings));
   }
 
-  const failedBudgets = formatFailedBudgets(verdict?.budgetChecks);
+  const failedBudgets = formatFailedBudgets(asArray(verdict?.budgetChecks));
   if (failedBudgets.length > 0) {
     lines.push('', '## failed budgets', '', ...failedBudgets);
   }
 
   if (comparison) {
-    lines.push('', '## comparison', '', comparison.summary ?? 'No comparison summary provided.');
+    lines.push('', '## comparison', '', firstString([comparison.summary], 'No comparison summary provided.'));
   }
 
   return `${lines.join('\n')}\n`;
@@ -124,4 +132,11 @@ function buildAgentSummaryMarkdown({ health, verdict, comparison = null }) {
 
 module.exports = {
   buildAgentSummaryMarkdown,
+};
+type SummaryRecord = Record<string, unknown>;
+
+type AgentSummaryInput = {
+  health: SummaryRecord;
+  verdict: SummaryRecord;
+  comparison?: SummaryRecord | null;
 };

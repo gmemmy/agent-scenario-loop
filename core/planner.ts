@@ -1,10 +1,52 @@
+type ManifestRecord = Record<string, unknown>;
+
+type PlannerIssue = {
+  code: string;
+  message: string;
+  [key: string]: unknown;
+};
+
+type CompatibilityResult = {
+  compatible: boolean;
+  errors: PlannerIssue[];
+  warnings: PlannerIssue[];
+  matched: {
+    platforms: string[];
+    capabilities: string[];
+    artifacts: string[];
+    evidenceProviders: string[];
+  };
+};
+
+type ScenarioManifest = ManifestRecord & {
+  id?: string;
+  name?: string;
+  flowId?: string;
+  platforms?: unknown[];
+  requiredCapabilities?: unknown[];
+  optionalCapabilities?: unknown[];
+  artifacts?: {
+    required?: unknown[];
+    optional?: unknown[];
+  };
+};
+
+type RunnerManifest = ManifestRecord & {
+  runnerId?: string;
+  name?: string;
+  kind?: string;
+  platforms?: unknown[];
+  capabilities?: unknown[];
+  artifactOutputs?: unknown[];
+};
+
 /**
  * Returns `value` when it is already an array; otherwise returns an empty array.
  *
  * @param {unknown} value
  * @returns {unknown[]}
  */
-function asArray(value) {
+function asArray(value: unknown): unknown[] {
   return Array.isArray(value) ? value : [];
 }
 
@@ -14,8 +56,9 @@ function asArray(value) {
  * @param {unknown[]} values
  * @returns {string[]}
  */
-function uniqueSorted(values) {
-  return [...new Set(values.filter((value) => typeof value === 'string' && value.length > 0))].sort();
+function uniqueSorted(values: unknown[]): string[] {
+  const strings = values.filter((value): value is string => typeof value === 'string' && value.length > 0);
+  return [...new Set(strings)].sort();
 }
 
 /**
@@ -25,7 +68,7 @@ function uniqueSorted(values) {
  * @param {unknown[]} right
  * @returns {string[]}
  */
-function intersection(left, right) {
+function intersection(left: unknown[], right: unknown[]): string[] {
   const rightSet = new Set(asArray(right));
   return uniqueSorted(asArray(left).filter((value) => rightSet.has(value)));
 }
@@ -37,7 +80,7 @@ function intersection(left, right) {
  * @param {unknown[]} required
  * @returns {unknown[]}
  */
-function includesAll(available, required) {
+function includesAll(available: unknown[], required: unknown[]): unknown[] {
   const availableSet = new Set(asArray(available));
   return asArray(required).filter((item) => !availableSet.has(item));
 }
@@ -50,7 +93,7 @@ function includesAll(available, required) {
  * @param {Record<string, unknown>} [metadata]
  * @returns {Record<string, unknown>}
  */
-function createIssue(code, message, metadata = {}) {
+function createIssue(code: string, message: string, metadata: ManifestRecord = {}): PlannerIssue {
   return {
     code,
     message,
@@ -64,7 +107,7 @@ function createIssue(code, message, metadata = {}) {
  * @param {Record<string, unknown> | null | undefined} scenario
  * @returns {string}
  */
-function getScenarioId(scenario) {
+function getScenarioId(scenario: ScenarioManifest | null | undefined): string {
   return scenario?.id ?? scenario?.name ?? 'unknown-scenario';
 }
 
@@ -74,7 +117,7 @@ function getScenarioId(scenario) {
  * @param {Record<string, unknown> | null | undefined} runner
  * @returns {string}
  */
-function getRunnerId(runner) {
+function getRunnerId(runner: RunnerManifest | null | undefined): string {
   return runner?.runnerId ?? runner?.name ?? 'unknown-runner';
 }
 
@@ -84,11 +127,11 @@ function getRunnerId(runner) {
  * @param {Record<string, unknown>} issue
  * @returns {Record<string, string | number | boolean | null>}
  */
-function getIssueMetadata(issue) {
+function getIssueMetadata(issue: PlannerIssue): Record<string, string | number | boolean | null> {
   return Object.keys(issue)
     .filter((key) => key !== 'code' && key !== 'message')
     .sort()
-    .reduce((metadata, key) => {
+    .reduce<Record<string, string | number | boolean | null>>((metadata, key) => {
       const value = issue[key];
       if (
         typeof value === 'string' ||
@@ -109,7 +152,7 @@ function getIssueMetadata(issue) {
  * @param {'failed' | 'warning'} status
  * @returns {Record<string, unknown>}
  */
-function issueToHealthCheck(issue, status) {
+function issueToHealthCheck(issue: PlannerIssue, status: 'failed' | 'warning'): ManifestRecord {
   const metadata = getIssueMetadata(issue);
   return {
     name: issue.code,
@@ -131,8 +174,8 @@ function issueToHealthCheck(issue, status) {
  * @param {string[]} effectivePlatforms
  * @returns {boolean}
  */
-function isProviderActiveForPlatforms(provider, effectivePlatforms) {
-  return intersection(provider?.platforms, effectivePlatforms).length > 0;
+function isProviderActiveForPlatforms(provider: RunnerManifest, effectivePlatforms: string[]): boolean {
+  return intersection(asArray(provider?.platforms), effectivePlatforms).length > 0;
 }
 
 /**
@@ -141,8 +184,16 @@ function isProviderActiveForPlatforms(provider, effectivePlatforms) {
  * @param {{runner: Record<string, unknown>, evidenceProviders: Record<string, unknown>[], effectivePlatforms: string[]}} options
  * @returns {{activeProviders: Record<string, unknown>[], artifacts: string[]}}
  */
-function collectProvidedArtifacts({ runner, evidenceProviders, effectivePlatforms }) {
-  const activeProviders = asArray(evidenceProviders).filter((provider) =>
+function collectProvidedArtifacts({
+  runner,
+  evidenceProviders,
+  effectivePlatforms,
+}: {
+  runner: RunnerManifest;
+  evidenceProviders: RunnerManifest[];
+  effectivePlatforms: string[];
+}): { activeProviders: RunnerManifest[]; artifacts: string[] } {
+  const activeProviders = evidenceProviders.filter((provider) =>
     isProviderActiveForPlatforms(provider, effectivePlatforms),
   );
 
@@ -161,8 +212,16 @@ function collectProvidedArtifacts({ runner, evidenceProviders, effectivePlatform
  * @param {{runner: Record<string, unknown>, evidenceProviders: Record<string, unknown>[], effectivePlatforms: string[]}} options
  * @returns {string[]}
  */
-function collectProvidedCapabilities({ runner, evidenceProviders, effectivePlatforms }) {
-  const activeProviders = asArray(evidenceProviders).filter((provider) =>
+function collectProvidedCapabilities({
+  runner,
+  evidenceProviders,
+  effectivePlatforms,
+}: {
+  runner: RunnerManifest;
+  evidenceProviders: RunnerManifest[];
+  effectivePlatforms: string[];
+}): string[] {
+  const activeProviders = evidenceProviders.filter((provider) =>
     isProviderActiveForPlatforms(provider, effectivePlatforms),
   );
 
@@ -178,7 +237,13 @@ function collectProvidedCapabilities({ runner, evidenceProviders, effectivePlatf
  * @param {{runner: Record<string, unknown>, errors: Record<string, unknown>[]}} options
  * @returns {void}
  */
-function validatePrimaryRunner({ runner, errors }) {
+function validatePrimaryRunner({
+  runner,
+  errors,
+}: {
+  runner?: RunnerManifest | undefined;
+  errors: PlannerIssue[];
+}): void {
   if (!runner || typeof runner !== 'object') {
     errors.push(createIssue('runner_missing', 'A primary runner capability manifest is required.'));
     return;
@@ -200,7 +265,17 @@ function validatePrimaryRunner({ runner, errors }) {
  * @param {{scenario: Record<string, unknown>, runner: Record<string, unknown>, platform?: string | null, errors: Record<string, unknown>[]}} options
  * @returns {string[]}
  */
-function resolveEffectivePlatforms({ scenario, runner, platform, errors }) {
+function resolveEffectivePlatforms({
+  scenario,
+  runner,
+  platform,
+  errors,
+}: {
+  scenario: ScenarioManifest;
+  runner: RunnerManifest;
+  platform?: string | null;
+  errors: PlannerIssue[];
+}): string[] {
   const scenarioPlatforms = asArray(scenario?.platforms);
   const runnerPlatforms = asArray(runner?.platforms);
 
@@ -254,11 +329,17 @@ function evaluateRunnerCompatibility({
   runner,
   evidenceProviders = [],
   platform = null,
-} = {}) {
-  const errors = [];
-  const warnings = [];
+}: {
+  scenario?: ScenarioManifest;
+  runner?: RunnerManifest;
+  evidenceProviders?: RunnerManifest[];
+  platform?: string | null;
+} = {}): CompatibilityResult {
+  const errors: PlannerIssue[] = [];
+  const warnings: PlannerIssue[] = [];
 
   validatePrimaryRunner({ runner, errors });
+  const primaryRunner = runner ?? {};
 
   if (!scenario || typeof scenario !== 'object') {
     errors.push(createIssue('scenario_missing', 'A scenario manifest is required.'));
@@ -275,8 +356,8 @@ function evaluateRunnerCompatibility({
     };
   }
 
-  const effectivePlatforms = resolveEffectivePlatforms({ scenario, runner, platform, errors });
-  const runnerCapabilities = uniqueSorted(asArray(runner?.capabilities));
+  const effectivePlatforms = resolveEffectivePlatforms({ scenario, runner: primaryRunner, platform, errors });
+  const runnerCapabilities = uniqueSorted(asArray(primaryRunner.capabilities));
   const missingRequiredCapabilities = includesAll(
     runnerCapabilities,
     asArray(scenario.requiredCapabilities),
@@ -286,9 +367,9 @@ function evaluateRunnerCompatibility({
     errors.push(
       createIssue(
         'missing_required_capability',
-        `Runner \`${getRunnerId(runner)}\` is missing required capability \`${capability}\`.`,
+        `Runner \`${getRunnerId(primaryRunner)}\` is missing required capability \`${capability}\`.`,
         {
-          runnerId: getRunnerId(runner),
+          runnerId: getRunnerId(primaryRunner),
           scenarioId: getScenarioId(scenario),
           capability,
         },
@@ -297,7 +378,7 @@ function evaluateRunnerCompatibility({
   }
 
   const providedCapabilities = collectProvidedCapabilities({
-    runner,
+    runner: primaryRunner,
     evidenceProviders,
     effectivePlatforms,
   });
@@ -316,7 +397,7 @@ function evaluateRunnerCompatibility({
   }
 
   const { activeProviders, artifacts } = collectProvidedArtifacts({
-    runner,
+    runner: primaryRunner,
     evidenceProviders,
     effectivePlatforms,
   });
@@ -364,11 +445,15 @@ function buildCompatibilityHealth({
   scenario,
   runId,
   compatibility,
-}) {
+}: {
+  scenario: ScenarioManifest;
+  runId?: string;
+  compatibility: CompatibilityResult;
+}): ManifestRecord {
   const scenarioId = getScenarioId(scenario);
   const resolvedRunId = typeof runId === 'string' && runId.length > 0 ? runId : 'unknown-run';
-  const errors = asArray(compatibility?.errors);
-  const warnings = asArray(compatibility?.warnings);
+  const errors = compatibility.errors;
+  const warnings = compatibility.warnings;
   const failedChecks = errors.map((issue) => issueToHealthCheck(issue, 'failed'));
   const warningChecks = warnings.map((issue) => issueToHealthCheck(issue, 'warning'));
   const checks =
@@ -407,7 +492,15 @@ function buildCompatibilityHealth({
  * @param {{scenario: Record<string, unknown>, runId?: string, health: Record<string, unknown>}} options
  * @returns {Record<string, unknown>}
  */
-function buildUnevaluatedVerdict({ scenario, runId, health }) {
+function buildUnevaluatedVerdict({
+  scenario,
+  runId,
+  health,
+}: {
+  scenario: ScenarioManifest;
+  runId?: string;
+  health: ManifestRecord;
+}): ManifestRecord {
   const healthStatus = health?.healthStatus ?? 'failed';
   const scenarioId = health?.scenarioId ?? getScenarioId(scenario);
   const resolvedRunId =

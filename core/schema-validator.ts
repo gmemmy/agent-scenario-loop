@@ -1,15 +1,45 @@
 const fs = require('node:fs');
 const path = require('node:path');
 
+type JsonSchema = Record<string, unknown> & {
+  $ref?: string;
+  type?: string | string[];
+  enum?: unknown[];
+  pattern?: string;
+  minimum?: number;
+  minItems?: number;
+  uniqueItems?: boolean;
+  items?: JsonSchema;
+  minProperties?: number;
+  required?: string[];
+  properties?: Record<string, JsonSchema>;
+  additionalProperties?: boolean | JsonSchema;
+};
+
+type ValidationError = {
+  code: string;
+  path: string;
+  message: string;
+};
+
+type ValidationResult = {
+  valid: boolean;
+  errors: ValidationError[];
+  message: string;
+};
+
 /**
  * Error thrown when a manifest or generated artifact does not satisfy its schema.
  */
 class SchemaValidationError extends Error {
+  label: string;
+  errors: ValidationError[];
+
   /**
    * @param {string} label
    * @param {{code: string, path: string, message: string}[]} errors
    */
-  constructor(label, errors) {
+  constructor(label: string, errors: ValidationError[]) {
     super(formatValidationErrorMessage(label, errors));
     this.name = 'SchemaValidationError';
     this.label = label;
@@ -23,7 +53,7 @@ class SchemaValidationError extends Error {
  * @param {string} filePath
  * @returns {unknown}
  */
-function readJson(filePath) {
+function readJson(filePath: string): unknown {
   return JSON.parse(fs.readFileSync(filePath, 'utf8'));
 }
 
@@ -33,8 +63,11 @@ function readJson(filePath) {
  * @param {string} relativePath
  * @returns {Record<string, unknown>}
  */
-function loadSchema(relativePath) {
-  return readJson(path.join(__dirname, '..', 'schemas', relativePath));
+function loadSchema(relativePath: string): JsonSchema {
+  const sourcePath = path.join(__dirname, '..', 'schemas', relativePath);
+  const compiledPath = path.join(__dirname, '..', '..', 'schemas', relativePath);
+  const schemaPath = fs.existsSync(sourcePath) ? sourcePath : compiledPath;
+  return readJson(schemaPath) as JsonSchema;
 }
 
 const SCHEMAS = {
@@ -51,12 +84,12 @@ const SCHEMAS = {
  * @param {(string | number)[]} pathSegments
  * @returns {string}
  */
-function formatPath(pathSegments) {
+function formatPath(pathSegments: Array<string | number>): string {
   if (pathSegments.length === 0) {
     return '$';
   }
 
-  return pathSegments.reduce((result, segment) => {
+  return pathSegments.reduce<string>((result, segment) => {
     if (typeof segment === 'number') {
       return `${result}[${segment}]`;
     }
@@ -75,7 +108,7 @@ function formatPath(pathSegments) {
  * @param {unknown} value
  * @returns {string | undefined}
  */
-function stableStringify(value) {
+function stableStringify(value: unknown): string | undefined {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return JSON.stringify(value);
   }
@@ -83,8 +116,9 @@ function stableStringify(value) {
   return JSON.stringify(
     Object.keys(value)
       .sort()
-      .reduce((result, key) => {
-        result[key] = value[key];
+      .reduce<Record<string, unknown>>((result, key) => {
+        const source = value as Record<string, unknown>;
+        result[key] = source[key];
         return result;
       }, {}),
   );
@@ -96,7 +130,7 @@ function stableStringify(value) {
  * @param {unknown[]} values
  * @returns {string}
  */
-function describeAllowedValues(values) {
+function describeAllowedValues(values: unknown[]): string {
   return values.map((value) => JSON.stringify(value)).join(', ');
 }
 
@@ -107,7 +141,7 @@ function describeAllowedValues(values) {
  * @param {string} ref
  * @returns {Record<string, unknown>}
  */
-function resolveLocalRef(rootSchema, ref) {
+function resolveLocalRef(rootSchema: JsonSchema, ref: string): JsonSchema {
   if (!ref.startsWith('#/')) {
     throw new Error(`Only local schema refs are supported: ${ref}`);
   }
@@ -115,13 +149,13 @@ function resolveLocalRef(rootSchema, ref) {
   return ref
     .slice(2)
     .split('/')
-    .reduce((current, token) => {
+    .reduce<unknown>((current, token) => {
       const key = token.replace(/~1/g, '/').replace(/~0/g, '~');
       if (!current || typeof current !== 'object' || !(key in current)) {
         throw new Error(`Schema ref could not be resolved: ${ref}`);
       }
-      return current[key];
-    }, rootSchema);
+      return (current as Record<string, unknown>)[key];
+    }, rootSchema) as JsonSchema;
 }
 
 /**
@@ -131,7 +165,7 @@ function resolveLocalRef(rootSchema, ref) {
  * @param {string} type
  * @returns {boolean}
  */
-function isType(value, type) {
+function isType(value: unknown, type: string): boolean {
   if (type === 'array') {
     return Array.isArray(value);
   }
@@ -157,7 +191,17 @@ function isType(value, type) {
  * @param {{value: unknown, expectedType: string | string[], pathSegments: (string | number)[], errors: {code: string, path: string, message: string}[]}} options
  * @returns {boolean}
  */
-function validateType({ value, expectedType, pathSegments, errors }) {
+function validateType({
+  value,
+  expectedType,
+  pathSegments,
+  errors,
+}: {
+  value: unknown;
+  expectedType: string | string[];
+  pathSegments: Array<string | number>;
+  errors: ValidationError[];
+}): boolean {
   const expectedTypes = Array.isArray(expectedType) ? expectedType : [expectedType];
   if (!expectedTypes.some((type) => isType(value, type))) {
     errors.push({
@@ -181,7 +225,13 @@ function validateType({ value, expectedType, pathSegments, errors }) {
  * @param {{code: string, path: string, message: string}[]} [errors]
  * @returns {{code: string, path: string, message: string}[]}
  */
-function validateSchema(value, schema, rootSchema, pathSegments = [], errors = []) {
+function validateSchema(
+  value: unknown,
+  schema: JsonSchema,
+  rootSchema: JsonSchema,
+  pathSegments: Array<string | number> = [],
+  errors: ValidationError[] = [],
+): ValidationError[] {
   if (!schema || typeof schema !== 'object') {
     return errors;
   }
@@ -226,7 +276,7 @@ function validateSchema(value, schema, rootSchema, pathSegments = [], errors = [
   }
 
   if (value && typeof value === 'object' && !Array.isArray(value)) {
-    validateObject(value, schema, rootSchema, pathSegments, errors);
+    validateObject(value as Record<string, unknown>, schema, rootSchema, pathSegments, errors);
   }
 
   return errors;
@@ -242,7 +292,13 @@ function validateSchema(value, schema, rootSchema, pathSegments = [], errors = [
  * @param {{code: string, path: string, message: string}[]} errors
  * @returns {void}
  */
-function validateArray(value, schema, rootSchema, pathSegments, errors) {
+function validateArray(
+  value: unknown[],
+  schema: JsonSchema,
+  rootSchema: JsonSchema,
+  pathSegments: Array<string | number>,
+  errors: ValidationError[],
+): void {
   if (typeof schema.minItems === 'number' && value.length < schema.minItems) {
     errors.push({
       code: 'too_few_items',
@@ -268,7 +324,8 @@ function validateArray(value, schema, rootSchema, pathSegments, errors) {
   }
 
   if (schema.items) {
-    value.forEach((item, index) => validateSchema(item, schema.items, rootSchema, [...pathSegments, index], errors));
+    const itemSchema = schema.items;
+    value.forEach((item, index) => validateSchema(item, itemSchema, rootSchema, [...pathSegments, index], errors));
   }
 }
 
@@ -282,7 +339,13 @@ function validateArray(value, schema, rootSchema, pathSegments, errors) {
  * @param {{code: string, path: string, message: string}[]} errors
  * @returns {void}
  */
-function validateObject(value, schema, rootSchema, pathSegments, errors) {
+function validateObject(
+  value: Record<string, unknown>,
+  schema: JsonSchema,
+  rootSchema: JsonSchema,
+  pathSegments: Array<string | number>,
+  errors: ValidationError[],
+): void {
   if (typeof schema.minProperties === 'number' && Object.keys(value).length < schema.minProperties) {
     errors.push({
       code: 'too_few_properties',
@@ -333,7 +396,7 @@ function validateObject(value, schema, rootSchema, pathSegments, errors) {
  * @param {string} [label]
  * @returns {{valid: boolean, errors: {code: string, path: string, message: string}[], message: string}}
  */
-function validateJson(value, schema, label = 'JSON document') {
+function validateJson(value: unknown, schema: JsonSchema, label = 'JSON document'): ValidationResult {
   const errors = validateSchema(value, schema, schema);
   if (errors.length > 0) {
     return {
@@ -358,7 +421,7 @@ function validateJson(value, schema, label = 'JSON document') {
  * @param {string} label
  * @returns {unknown}
  */
-function assertValidJson(value, schema, label) {
+function assertValidJson(value: unknown, schema: JsonSchema, label: string): unknown {
   const result = validateJson(value, schema, label);
   if (!result.valid) {
     throw new SchemaValidationError(label, result.errors);
@@ -374,7 +437,7 @@ function assertValidJson(value, schema, label) {
  * @param {{path: string, message: string}[]} errors
  * @returns {string}
  */
-function formatValidationErrorMessage(label, errors) {
+function formatValidationErrorMessage(label: string, errors: Array<Pick<ValidationError, 'path' | 'message'>>): string {
   return [
     `${label} failed schema validation:`,
     ...errors.map((error) => `- ${error.path}: ${error.message}`),

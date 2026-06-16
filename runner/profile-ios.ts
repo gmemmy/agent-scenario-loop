@@ -15,6 +15,15 @@ const {
   sortValue,
 } = require('../core/artifact-contract');
 
+type CliArgs = {
+  config?: string;
+  scenario?: string;
+  events?: string;
+  out?: string;
+  'run-id'?: string;
+  [key: string]: string | undefined;
+};
+
 /**
  * Prints CLI usage to stderr.
  *
@@ -32,10 +41,13 @@ function usage() {
  * @param {string[]} argv
  * @returns {Record<string, string>}
  */
-function parseArgs(argv) {
-  const args = {};
+function parseArgs(argv: string[]): CliArgs {
+  const args: CliArgs = {};
   for (let index = 0; index < argv.length; index += 1) {
     const token = argv[index];
+    if (!token) {
+      continue;
+    }
     if (!token.startsWith('--')) {
       continue;
     }
@@ -53,7 +65,7 @@ function parseArgs(argv) {
  * @param {string} filePath
  * @returns {unknown}
  */
-function readJson(filePath) {
+function readJson(filePath: string): Record<string, any> {
   return JSON.parse(fs.readFileSync(filePath, 'utf8'));
 }
 
@@ -63,7 +75,7 @@ function readJson(filePath) {
  * @param {string} dirPath
  * @returns {Promise<void>}
  */
-async function ensureDir(dirPath) {
+async function ensureDir(dirPath: string): Promise<void> {
   await fsp.mkdir(dirPath, { recursive: true });
 }
 
@@ -74,7 +86,7 @@ async function ensureDir(dirPath) {
  * @param {unknown} value
  * @returns {Promise<void>}
  */
-async function writeJson(filePath, value) {
+async function writeJson(filePath: string, value: unknown): Promise<void> {
   await fsp.writeFile(filePath, `${JSON.stringify(sortValue(value), null, 2)}\n`, 'utf8');
 }
 
@@ -93,7 +105,7 @@ function createRunId() {
  * @param {string} targetPath
  * @returns {string}
  */
-function toPortablePathReference(targetPath) {
+function toPortablePathReference(targetPath: string): string {
   const cwdRelativePath = path.relative(process.cwd(), targetPath);
   if (
     cwdRelativePath &&

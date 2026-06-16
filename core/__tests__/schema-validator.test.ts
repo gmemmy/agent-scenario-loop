@@ -10,14 +10,22 @@ const {
   validateJson,
 } = require('../schema-validator');
 
+const ROOT = path.join(__dirname, '..', '..', '..');
+
+type JsonRecord = Record<string, any>;
+type ValidationIssue = {
+  code?: string;
+  path?: string;
+};
+
 /**
  * Reads a repo-local JSON fixture.
  *
  * @param {string} relativePath
  * @returns {unknown}
  */
-function readJson(relativePath) {
-  return JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', relativePath), 'utf8'));
+function readJson(relativePath: string): JsonRecord {
+  return JSON.parse(fs.readFileSync(path.join(ROOT, relativePath), 'utf8'));
 }
 
 /**
@@ -26,7 +34,7 @@ function readJson(relativePath) {
  * @param {unknown} value
  * @returns {unknown}
  */
-function clone(value) {
+function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value));
 }
 
@@ -36,13 +44,13 @@ function clone(value) {
  * @param {string} relativeDir
  * @returns {string[]}
  */
-function listJsonFiles(relativeDir) {
-  const absoluteDir = path.join(__dirname, '..', '..', relativeDir);
+function listJsonFiles(relativeDir: string): string[] {
+  const absoluteDir = path.join(ROOT, relativeDir);
   return fs
     .readdirSync(absoluteDir)
-    .filter((name) => name.endsWith('.json'))
+    .filter((name: string) => name.endsWith('.json'))
     .sort()
-    .map((name) => path.join(relativeDir, name));
+    .map((name: string) => path.join(relativeDir, name));
 }
 
 test('accepts all canonical v1 scenario manifests', () => {
@@ -76,7 +84,7 @@ test('rejects missing required scenario properties', () => {
 
   assert.equal(result.valid, false);
   assert.deepEqual(
-    result.errors.map((error) => error.code),
+    result.errors.map((error: ValidationIssue) => error.code),
     ['missing_required_property'],
   );
   assert.equal(result.errors[0].path, '$.truthEvents');
@@ -89,7 +97,7 @@ test('rejects invalid enum values through local schema refs', () => {
   const result = validateJson(scenario, SCHEMAS.scenario, 'Scenario manifest');
 
   assert.equal(result.valid, false);
-  assert.ok(result.errors.some((error) => error.path === '$.requiredCapabilities[4]'));
+  assert.ok(result.errors.some((error: ValidationIssue) => error.path === '$.requiredCapabilities[4]'));
   assert.ok(result.message.includes('telepathy') === false);
 });
 
@@ -100,7 +108,7 @@ test('rejects duplicate unique array items', () => {
   const result = validateJson(runner, SCHEMAS.runnerCapabilities, 'Runner capability manifest');
 
   assert.equal(result.valid, false);
-  assert.ok(result.errors.some((error) => error.code === 'duplicate_item'));
+  assert.ok(result.errors.some((error: ValidationIssue) => error.code === 'duplicate_item'));
 });
 
 test('rejects additional properties in strict objects', () => {
@@ -111,7 +119,9 @@ test('rejects additional properties in strict objects', () => {
 
   assert.equal(result.valid, false);
   assert.deepEqual(
-    result.errors.filter((error) => error.code === 'additional_property').map((error) => error.path),
+    result.errors
+      .filter((error: ValidationIssue) => error.code === 'additional_property')
+      .map((error: ValidationIssue) => error.path),
     ['$.experimental'],
   );
 });
@@ -172,10 +182,11 @@ test('assertValidJson throws a path-specific schema error', () => {
 
   assert.throws(
     () => assertValidJson(scenario, SCHEMAS.scenario, 'Scenario manifest'),
-    (error) => {
+    (error: unknown) => {
       assert.ok(error instanceof SchemaValidationError);
-      assert.equal(error.errors[0].path, '$.steps[1].timeoutMs');
-      assert.match(error.message, /Expected value to be >= 1/u);
+      const validationError = error as Error & { errors: ValidationIssue[] };
+      assert.equal(validationError.errors[0]?.path, '$.steps[1].timeoutMs');
+      assert.match(validationError.message, /Expected value to be >= 1/u);
       return true;
     },
   );

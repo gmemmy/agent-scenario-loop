@@ -20,14 +20,14 @@ Runners and drivers (Codex, AXe, XcodeBuildMCP, agent-device, Argent, adb, profi
 V1 ships the contracts and the artifact pipeline:
 
 - `app/profile-session.ts`: thin React Native integration — session control, truth events, signal attachments
-- `core/agent-summary.js`: the agent-facing summary builder for health, verdict, and comparison state
-- `core/artifact-writer.js`: schema-enforcing writers for stable JSON/text artifacts
-- `core/artifact-contract.js`: the artifact builders — manifest, metrics, causal run, budget verdict, summary
-- `core/evidence-interpreter.js`: evidence interpretation helpers that gate timing claims on scenario health
-- `core/planner.js`: planner compatibility checks between scenario requirements, primary runner capabilities, and evidence providers
-- `core/ports.js`: ports-and-adapters method surfaces for runners, drivers, providers, writers, and interpreters
-- `core/schema-validator.js`: dependency-free validation for the JSON Schema subset used by the public v1 contracts
-- `runner/profile-ios.js`: an iOS runner that turns scenario metadata plus `[profile-event]` logs into the full artifact set
+- `core/agent-summary.ts`: the agent-facing summary builder for health, verdict, and comparison state
+- `core/artifact-writer.ts`: schema-enforcing writers for stable JSON/text artifacts
+- `core/artifact-contract.ts`: the artifact builders — manifest, metrics, causal run, budget verdict, summary
+- `core/evidence-interpreter.ts`: evidence interpretation helpers that gate timing claims on scenario health
+- `core/planner.ts`: planner compatibility checks between scenario requirements, primary runner capabilities, and evidence providers
+- `core/ports.ts`: ports-and-adapters method surfaces for runners, drivers, providers, writers, and interpreters
+- `core/schema-validator.ts`: dependency-free validation for the JSON Schema subset used by the public v1 contracts
+- `runner/profile-ios.ts`: an iOS runner that turns scenario metadata plus `[profile-event]` logs into the full artifact set
 - `examples/scenarios/ios/`: transition scenario manifests for the current iOS log-ingest runner
 - `examples/scenarios/v1/`: canonical v1 scenario fixtures
 - `examples/runners/`: primary runner and evidence-provider capability fixtures
@@ -54,7 +54,7 @@ Artifact layout, what every run produces:
 - `summary.md` — the human-readable readout
 - `raw/`, `captures/`, and optional `signals/js`, `signals/memory`, `signals/network`
 
-The v1 target contract separates scenario health from product verdict: `health.json` records execution validity, `verdict.json` records budget outcome, `comparison.json` records before/after baseline comparison, and `agent-summary.md` gives agents the health gate before they touch code. `core/planner.js` can already derive initial health and unevaluated verdict artifacts from compatibility results. The current runner still writes `metrics.json` and `budget-verdict.json` as transition artifacts.
+The v1 target contract separates scenario health from product verdict: `health.json` records execution validity, `verdict.json` records budget outcome, `comparison.json` records before/after baseline comparison, and `agent-summary.md` gives agents the health gate before they touch code. `core/planner.ts` can already derive initial health and unevaluated verdict artifacts from compatibility results. The current runner still writes `metrics.json` and `budget-verdict.json` as transition artifacts.
 
 Budgets are supported but optional for adoption.
 
@@ -67,7 +67,7 @@ Budgets are supported but optional for adoption.
 5. Run the journey on a simulator — manually or with your driver of choice — while capturing device logs, so the log contains your `[profile-event]` lines. Then:
 
 ```bash
-node runner/profile-ios.js --config <config> --scenario <scenario> --events <event-log>
+pnpm profile:ios -- --config <config> --scenario <scenario> --events <event-log>
 ```
 
 The runner prints the run folder. Read `summary.md` first.
@@ -75,7 +75,7 @@ The runner prints the run folder. Read `summary.md` first.
 To validate a v1 scenario, runner manifest, and initial planning artifacts before execution:
 
 ```bash
-node runner/check-plan.js --scenario examples/scenarios/v1/app-startup.json --runner examples/runners/xcodebuildmcp-ios.json --platform ios --out artifacts/plan/app-startup
+pnpm check-plan -- --scenario examples/scenarios/v1/app-startup.json --runner examples/runners/xcodebuildmcp-ios.json --platform ios --out artifacts/plan/app-startup
 ```
 
 This validates the input manifests, writes schema-checked `health.json` and `verdict.json`, and includes the raw planner match in `planner-compatibility.json`.

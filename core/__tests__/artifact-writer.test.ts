@@ -14,7 +14,9 @@ const {
 const { ARTIFACT_WRITER_PORT, validatePortImplementation } = require('../ports');
 const { SCHEMAS, SchemaValidationError } = require('../schema-validator');
 
-test('writes schema-valid json artifacts with stable formatting', async (t) => {
+type TestContext = import('node:test').TestContext;
+
+test('writes schema-valid json artifacts with stable formatting', async (t: TestContext) => {
   const outputDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-artifact-writer-'));
   t.after(async () => {
     await fsp.rm(outputDir, { recursive: true, force: true });
@@ -39,7 +41,7 @@ test('writes schema-valid json artifacts with stable formatting', async (t) => {
   assert.match(fs.readFileSync(filePath, 'utf8'), /\n$/u);
 });
 
-test('refuses to write invalid json artifacts', async (t) => {
+test('refuses to write invalid json artifacts', async (t: TestContext) => {
   const outputDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-invalid-artifact-'));
   t.after(async () => {
     await fsp.rm(outputDir, { recursive: true, force: true });
@@ -64,7 +66,7 @@ test('refuses to write invalid json artifacts', async (t) => {
   assert.equal(fs.existsSync(filePath), false);
 });
 
-test('writes text artifacts with parent directories', async (t) => {
+test('writes text artifacts with parent directories', async (t: TestContext) => {
   const outputDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-text-artifact-'));
   t.after(async () => {
     await fsp.rm(outputDir, { recursive: true, force: true });
@@ -79,7 +81,7 @@ test('writes text artifacts with parent directories', async (t) => {
   assert.equal(fs.readFileSync(filePath, 'utf8'), '# agent summary\n');
 });
 
-test('copies raw artifacts and satisfies the artifact writer port', async (t) => {
+test('copies raw artifacts and satisfies the artifact writer port', async (t: TestContext) => {
   const outputDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-raw-artifact-'));
   t.after(async () => {
     await fsp.rm(outputDir, { recursive: true, force: true });

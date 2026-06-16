@@ -29,7 +29,7 @@ test('does not trust timing evidence when scenario health failed', () => {
   assert.deepEqual(result.blockedReasons, ['scenario health did not pass']);
   assert.ok(result.recommendations.includes('harden scenario health before interpreting timing evidence'));
   assert.ok(result.recommendations.includes('resolve health check missing_required_artifact'));
-  assert.equal(result.recommendations.some((item) => item.includes('open p95')), false);
+  assert.equal(result.recommendations.some((item: string) => item.includes('open p95')), false);
 });
 
 test('emits budget and comparison hints only after scenario health passed', () => {

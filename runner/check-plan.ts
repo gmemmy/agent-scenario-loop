@@ -15,6 +15,22 @@ const {
   assertValidJson,
 } = require('../core/schema-validator');
 
+type CliArgs = {
+  providers: string[];
+  scenario?: string | boolean;
+  runner?: string | boolean;
+  platform?: string | boolean;
+  out?: string | boolean;
+  'run-id'?: string | boolean;
+  [key: string]: string | boolean | string[] | undefined;
+};
+
+type PlanArtifacts = {
+  compatibility: Record<string, unknown>;
+  health: Record<string, unknown>;
+  verdict: Record<string, unknown>;
+};
+
 /**
  * Prints CLI usage to stderr.
  *
@@ -37,13 +53,16 @@ function usage() {
  * @param {string[]} argv
  * @returns {{providers: string[], [key: string]: string | boolean | string[]}}
  */
-function parseArgs(argv) {
-  const args = {
+function parseArgs(argv: string[]): CliArgs {
+  const args: CliArgs = {
     providers: [],
   };
 
   for (let index = 0; index < argv.length; index += 1) {
     const token = argv[index];
+    if (!token) {
+      continue;
+    }
     if (!token.startsWith('--')) {
       continue;
     }
@@ -77,12 +96,13 @@ function parseArgs(argv) {
  * @param {string} [label]
  * @returns {unknown}
  */
-function readJson(filePath, label) {
+function readJson(filePath: string, label?: string): unknown {
   try {
     return JSON.parse(fs.readFileSync(filePath, 'utf8'));
   } catch (error) {
     const prefix = label ? `${label} ` : '';
-    throw new Error(`${prefix}could not be parsed as JSON: ${filePath}\n${error.message}`);
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`${prefix}could not be parsed as JSON: ${filePath}\n${message}`);
   }
 }
 
@@ -94,7 +114,7 @@ function readJson(filePath, label) {
  * @param {string} label
  * @returns {unknown}
  */
-function readValidatedJson(filePath, schema, label) {
+function readValidatedJson(filePath: string, schema: Record<string, unknown>, label: string): Record<string, unknown> {
   return assertValidJson(readJson(filePath, label), schema, label);
 }
 
@@ -119,7 +139,13 @@ async function buildPlanArtifacts({
   providerPaths = [],
   platform = null,
   runId = createRunId(),
-}) {
+}: {
+  scenarioPath: string;
+  runnerPath: string;
+  providerPaths?: string[];
+  platform?: string | null;
+  runId?: string;
+}): Promise<PlanArtifacts> {
   const scenario = readValidatedJson(
     path.resolve(scenarioPath),
     SCHEMAS.scenario,
@@ -170,7 +196,7 @@ async function buildPlanArtifacts({
  */
 async function main() {
   const args = parseArgs(process.argv.slice(2));
-  if (!args.scenario || !args.runner) {
+  if (typeof args.scenario !== 'string' || typeof args.runner !== 'string') {
     usage();
     process.exitCode = 1;
     return;
@@ -181,7 +207,7 @@ async function main() {
     runnerPath: args.runner,
     providerPaths: args.providers,
     platform: typeof args.platform === 'string' ? args.platform : null,
-    runId: typeof args['run-id'] === 'string' ? args['run-id'] : undefined,
+    ...(typeof args['run-id'] === 'string' ? { runId: args['run-id'] } : {}),
   });
 
   if (typeof args.out === 'string' && args.out.length > 0) {

@@ -4,7 +4,7 @@
  * @param {unknown} value
  * @returns {unknown[]}
  */
-function asArray(value) {
+function asArray(value: unknown): unknown[] {
   return Array.isArray(value) ? value : [];
 }
 
@@ -14,7 +14,7 @@ function asArray(value) {
  * @param {Record<string, unknown>} health
  * @returns {boolean}
  */
-function isTimingEvidenceTrusted(health) {
+function isTimingEvidenceTrusted(health: EvidenceRecord): boolean {
   return health?.healthStatus === 'passed';
 }
 
@@ -26,10 +26,18 @@ function isTimingEvidenceTrusted(health) {
  * @param {{health: Record<string, unknown>, verdict?: Record<string, unknown> | null, comparison?: Record<string, unknown> | null}} options
  * @returns {{timingTrusted: boolean, recommendations: string[], blockedReasons: string[]}}
  */
-function interpretEvidence({ health, verdict = null, comparison = null }) {
+function interpretEvidence({
+  health,
+  verdict = null,
+  comparison = null,
+}: {
+  health: EvidenceRecord;
+  verdict?: EvidenceRecord | null;
+  comparison?: EvidenceRecord | null;
+}): EvidenceInterpretation {
   const timingTrusted = isTimingEvidenceTrusted(health);
-  const blockedReasons = [];
-  const recommendations = [];
+  const blockedReasons: string[] = [];
+  const recommendations: string[] = [];
 
   if (!timingTrusted) {
     blockedReasons.push('scenario health did not pass');
@@ -37,19 +45,27 @@ function interpretEvidence({ health, verdict = null, comparison = null }) {
   }
 
   const failedChecks = asArray(health?.checks).filter(
-    (check) => check && typeof check === 'object' && check.status !== 'passed',
+    (check) => {
+      const record = check as EvidenceRecord | null;
+      return !!record && typeof record === 'object' && record.status !== 'passed';
+    },
   );
   for (const check of failedChecks) {
-    const name = typeof check.name === 'string' ? check.name : check.code;
+    const record = check as EvidenceRecord;
+    const name = typeof record.name === 'string' ? record.name : record.code;
     recommendations.push(`resolve health check ${name ?? 'unknown_check'}`);
   }
 
   if (timingTrusted) {
     const failedBudgets = asArray(verdict?.budgetChecks).filter(
-      (check) => check && typeof check === 'object' && check.pass === false,
+      (check) => {
+        const record = check as EvidenceRecord | null;
+        return !!record && typeof record === 'object' && record.pass === false;
+      },
     );
     for (const check of failedBudgets) {
-      recommendations.push(`investigate failed budget ${check.name ?? 'unknown budget'}`);
+      const record = check as EvidenceRecord;
+      recommendations.push(`investigate failed budget ${record.name ?? 'unknown budget'}`);
     }
 
     if (comparison?.comparisonStatus === 'worse') {
@@ -67,4 +83,11 @@ function interpretEvidence({ health, verdict = null, comparison = null }) {
 module.exports = {
   interpretEvidence,
   isTimingEvidenceTrusted,
+};
+type EvidenceRecord = Record<string, unknown>;
+
+type EvidenceInterpretation = {
+  timingTrusted: boolean;
+  recommendations: string[];
+  blockedReasons: string[];
 };

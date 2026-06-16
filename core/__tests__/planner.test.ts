@@ -9,14 +9,28 @@ const {
   evaluateRunnerCompatibility,
 } = require('../planner');
 
+const ROOT = path.join(__dirname, '..', '..', '..');
+
+type JsonRecord = Record<string, any>;
+type PlannerIssue = {
+  artifact?: string;
+  capability?: string;
+  code?: string;
+  status?: string;
+};
+type HealthCheck = {
+  code?: string;
+  status?: string;
+};
+
 /**
  * Reads a repo-local JSON fixture.
  *
  * @param {string} relativePath
  * @returns {unknown}
  */
-function readJson(relativePath) {
-  return JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', relativePath), 'utf8'));
+function readJson(relativePath: string): JsonRecord {
+  return JSON.parse(fs.readFileSync(path.join(ROOT, relativePath), 'utf8'));
 }
 
 /**
@@ -25,7 +39,7 @@ function readJson(relativePath) {
  * @param {unknown} value
  * @returns {unknown}
  */
-function clone(value) {
+function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value));
 }
 
@@ -35,25 +49,25 @@ function clone(value) {
  * @param {string} relativeDir
  * @returns {string[]}
  */
-function listJsonFiles(relativeDir) {
-  const absoluteDir = path.join(__dirname, '..', '..', relativeDir);
+function listJsonFiles(relativeDir: string): string[] {
+  const absoluteDir = path.join(ROOT, relativeDir);
   return fs
     .readdirSync(absoluteDir)
-    .filter((name) => name.endsWith('.json'))
+    .filter((name: string) => name.endsWith('.json'))
     .sort()
-    .map((name) => path.join(relativeDir, name));
+    .map((name: string) => path.join(relativeDir, name));
 }
 
 test('all canonical v1 scenarios have at least one compatible primary runner', () => {
-  const scenarios = listJsonFiles('examples/scenarios/v1').map((fixture) => readJson(fixture));
+  const scenarios = listJsonFiles('examples/scenarios/v1').map((fixture: string) => readJson(fixture));
   const primaryRunners = listJsonFiles('examples/runners')
-    .map((fixture) => readJson(fixture))
-    .filter((runner) => runner.kind === 'primary' && runner.runnerId !== 'manual-log-ingest');
+    .map((fixture: string) => readJson(fixture))
+    .filter((runner: JsonRecord) => runner.kind === 'primary' && runner.runnerId !== 'manual-log-ingest');
   const profilerProvider = readJson('examples/runners/rozenite-profiler-provider.json');
 
   for (const scenario of scenarios) {
-    const compatibleRunners = primaryRunners.filter((runner) => {
-      const platform = runner.platforms.find((candidate) => scenario.platforms.includes(candidate));
+    const compatibleRunners = primaryRunners.filter((runner: JsonRecord) => {
+      const platform = runner.platforms.find((candidate: string) => scenario.platforms.includes(candidate));
       const result = evaluateRunnerCompatibility({
         scenario,
         runner,
@@ -71,7 +85,7 @@ test('all canonical v1 scenarios have at least one compatible primary runner', (
 });
 
 test('manual log-ingest is intentionally incompatible with live canonical scenarios', () => {
-  const scenarios = listJsonFiles('examples/scenarios/v1').map((fixture) => readJson(fixture));
+  const scenarios = listJsonFiles('examples/scenarios/v1').map((fixture: string) => readJson(fixture));
   const runner = readJson('examples/runners/manual-log-ingest.json');
 
   for (const scenario of scenarios) {
@@ -79,7 +93,7 @@ test('manual log-ingest is intentionally incompatible with live canonical scenar
 
     assert.equal(result.compatible, false, `${scenario.id} unexpectedly accepted manual log ingest`);
     assert.ok(
-      result.errors.some((error) => error.code === 'missing_required_capability'),
+      result.errors.some((error: PlannerIssue) => error.code === 'missing_required_capability'),
       `${scenario.id} did not report missing lifecycle capabilities`,
     );
   }
@@ -101,13 +115,13 @@ test('accepts a compatible primary runner for a canonical scenario', () => {
 test('fails when a runner is missing a required capability', () => {
   const scenario = readJson('examples/scenarios/v1/open-close-cycle.json');
   const runner = readJson('examples/runners/xcodebuildmcp-ios.json');
-  runner.capabilities = runner.capabilities.filter((capability) => capability !== 'logCapture');
+  runner.capabilities = runner.capabilities.filter((capability: string) => capability !== 'logCapture');
 
   const result = evaluateRunnerCompatibility({ scenario, runner, platform: 'ios' });
 
   assert.equal(result.compatible, false);
   assert.deepEqual(
-    result.errors.map((error) => error.code),
+    result.errors.map((error: PlannerIssue) => error.code),
     ['missing_required_capability'],
   );
   assert.equal(result.errors[0].capability, 'logCapture');
@@ -122,8 +136,8 @@ test('fails early when a manual log-ingest runner cannot own live scenario lifec
   assert.equal(result.compatible, false);
   assert.deepEqual(
     result.errors
-      .filter((error) => error.code === 'missing_required_capability')
-      .map((error) => error.capability),
+      .filter((error: PlannerIssue) => error.code === 'missing_required_capability')
+      .map((error: PlannerIssue) => error.capability),
     ['launch', 'sessionControl', 'command'],
   );
 });
@@ -132,10 +146,10 @@ test('treats missing optional evidence as warnings, not incompatibility', () => 
   const scenario = readJson('examples/scenarios/v1/app-startup.json');
   const runner = readJson('examples/runners/xcodebuildmcp-ios.json');
   runner.capabilities = runner.capabilities.filter(
-    (capability) => capability !== 'screenshot' && capability !== 'video',
+    (capability: string) => capability !== 'screenshot' && capability !== 'video',
   );
   runner.artifactOutputs = runner.artifactOutputs.filter(
-    (artifact) => artifact !== 'screenshot' && artifact !== 'video',
+    (artifact: string) => artifact !== 'screenshot' && artifact !== 'video',
   );
 
   const result = evaluateRunnerCompatibility({ scenario, runner, platform: 'ios' });
@@ -144,8 +158,8 @@ test('treats missing optional evidence as warnings, not incompatibility', () => 
   assert.deepEqual(result.errors, []);
   assert.deepEqual(
     result.warnings
-      .filter((warning) => warning.code === 'missing_optional_artifact')
-      .map((warning) => warning.artifact),
+      .filter((warning: PlannerIssue) => warning.code === 'missing_optional_artifact')
+      .map((warning: PlannerIssue) => warning.artifact),
     ['screenshot', 'video'],
   );
 });
@@ -159,7 +173,7 @@ test('fails when required evidence cannot be produced by the runner or providers
 
   assert.equal(result.compatible, false);
   assert.deepEqual(
-    result.errors.map((error) => error.code),
+    result.errors.map((error: PlannerIssue) => error.code),
     ['missing_required_artifact'],
   );
   assert.equal(result.errors[0].artifact, 'profiler');
@@ -223,7 +237,7 @@ test('maps compatible planner output to passed health', () => {
   assert.equal(health.runId, 'run-1');
   assert.equal(health.healthStatus, 'passed');
   assert.deepEqual(
-    health.checks.map((check) => check.status),
+    health.checks.map((check: HealthCheck) => check.status),
     ['passed'],
   );
   assert.ok(health.matched.capabilities.includes('launch'));
@@ -232,8 +246,8 @@ test('maps compatible planner output to passed health', () => {
 test('maps planner warnings into health warnings without failing health', () => {
   const scenario = readJson('examples/scenarios/v1/app-startup.json');
   const runner = readJson('examples/runners/xcodebuildmcp-ios.json');
-  runner.capabilities = runner.capabilities.filter((capability) => capability !== 'video');
-  runner.artifactOutputs = runner.artifactOutputs.filter((artifact) => artifact !== 'video');
+  runner.capabilities = runner.capabilities.filter((capability: string) => capability !== 'video');
+  runner.artifactOutputs = runner.artifactOutputs.filter((artifact: string) => artifact !== 'video');
   const compatibility = evaluateRunnerCompatibility({ scenario, runner, platform: 'ios' });
 
   const health = buildCompatibilityHealth({
@@ -244,7 +258,7 @@ test('maps planner warnings into health warnings without failing health', () => 
 
   assert.equal(health.healthStatus, 'passed');
   assert.deepEqual(
-    health.warnings.map((warning) => warning.code),
+    health.warnings.map((warning: PlannerIssue) => warning.code),
     ['missing_optional_capability', 'missing_optional_artifact'],
   );
 });
@@ -262,8 +276,8 @@ test('maps incompatible planner output to failed health checks', () => {
 
   assert.equal(health.healthStatus, 'failed');
   assert.ok(health.checks.length >= 1);
-  assert.ok(health.checks.every((check) => check.status === 'failed'));
-  assert.ok(health.checks.some((check) => check.code === 'missing_required_capability'));
+  assert.ok(health.checks.every((check: HealthCheck) => check.status === 'failed'));
+  assert.ok(health.checks.some((check: HealthCheck) => check.code === 'missing_required_capability'));
 });
 
 test('creates a not-evaluated verdict when health passes before budget evaluation', () => {

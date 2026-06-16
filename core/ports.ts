@@ -44,7 +44,7 @@ const INTERPRETER_PORT = [
  * @param {string[]} requiredMethods
  * @returns {string[]}
  */
-function missingPortMethods(implementation, requiredMethods) {
+function missingPortMethods(implementation: PortImplementation, requiredMethods: string[]): string[] {
   return requiredMethods.filter((methodName) => typeof implementation?.[methodName] !== 'function');
 }
 
@@ -54,7 +54,15 @@ function missingPortMethods(implementation, requiredMethods) {
  * @param {{name: string, implementation: Record<string, unknown>, requiredMethods: string[]}} options
  * @returns {{valid: boolean, name: string, missingMethods: string[]}}
  */
-function validatePortImplementation({ name, implementation, requiredMethods }) {
+function validatePortImplementation({
+  name,
+  implementation,
+  requiredMethods,
+}: {
+  name: string;
+  implementation: PortImplementation;
+  requiredMethods: string[];
+}): PortValidationResult {
   const missingMethods = missingPortMethods(implementation, requiredMethods);
   return {
     valid: missingMethods.length === 0,
@@ -69,7 +77,15 @@ function validatePortImplementation({ name, implementation, requiredMethods }) {
  * @param {{name: string, implementation: Record<string, unknown>, requiredMethods: string[]}} options
  * @returns {Record<string, unknown>}
  */
-function assertPortImplementation({ name, implementation, requiredMethods }) {
+function assertPortImplementation({
+  name,
+  implementation,
+  requiredMethods,
+}: {
+  name: string;
+  implementation: PortImplementation;
+  requiredMethods: string[];
+}): PortImplementation {
   const result = validatePortImplementation({ name, implementation, requiredMethods });
   if (!result.valid) {
     throw new Error(`${name} is missing required method(s): ${result.missingMethods.join(', ')}`);
@@ -87,4 +103,11 @@ module.exports = {
   assertPortImplementation,
   missingPortMethods,
   validatePortImplementation,
+};
+type PortImplementation = Record<string, unknown>;
+
+type PortValidationResult = {
+  valid: boolean;
+  name: string;
+  missingMethods: string[];
 };

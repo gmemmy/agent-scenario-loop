@@ -1,12 +1,30 @@
 const PROFILE_EVENT_PREFIX = '[profile-event]';
 
+type ArtifactRecord = Record<string, any>;
+type ProfileEvent = ArtifactRecord & {
+  event?: string;
+  scenario?: string;
+  runId?: string;
+  iteration?: number;
+  atMs?: number;
+  timestamp?: number | string;
+};
+
+type BudgetCheck = {
+  name: string;
+  actual: unknown;
+  limit: number;
+  pass: boolean;
+  unit: string;
+};
+
 /**
  * Converts finite numeric strings to numbers while preserving invalid input as `null`.
  *
  * @param {unknown} value
  * @returns {number | null}
  */
-function coerceNumber(value) {
+function coerceNumber(value: unknown): number | null {
   if (typeof value === 'number' && Number.isFinite(value)) {
     return value;
   }
@@ -25,13 +43,13 @@ function coerceNumber(value) {
  * @param {string} payload
  * @returns {Record<string, unknown> | null}
  */
-function parseKeyValueProfileEvent(payload) {
+function parseKeyValueProfileEvent(payload: string): ProfileEvent | null {
   const matches = payload.match(/(?:[^\s=]+)=(?:"[^"]*"|'[^']*'|[^\s]+)/gu) ?? [];
   if (matches.length === 0) {
     return null;
   }
 
-  const event = {};
+  const event: ProfileEvent = {};
   for (const match of matches) {
     const separatorIndex = match.indexOf('=');
     if (separatorIndex <= 0) {
@@ -76,7 +94,7 @@ function parseKeyValueProfileEvent(payload) {
  * @param {number} value
  * @returns {number}
  */
-function roundMs(value) {
+function roundMs(value: number): number {
   return Math.round(value * 1000) / 1000;
 }
 
@@ -87,7 +105,7 @@ function roundMs(value) {
  * @param {number} percentileValue
  * @returns {number | null}
  */
-function percentile(values, percentileValue) {
+function percentile(values: number[], percentileValue: number): number | null {
   if (!Array.isArray(values) || values.length === 0) {
     return null;
   }
@@ -95,7 +113,8 @@ function percentile(values, percentileValue) {
   const sorted = [...values].sort((left, right) => left - right);
   const rank = Math.ceil((percentileValue / 100) * sorted.length) - 1;
   const index = Math.min(sorted.length - 1, Math.max(0, rank));
-  return roundMs(sorted[index]);
+  const value = sorted[index];
+  return typeof value === 'number' ? roundMs(value) : null;
 }
 
 /**
@@ -107,7 +126,7 @@ function percentile(values, percentileValue) {
  * @param {{runId?: string, scenario?: string}} [filters]
  * @returns {Record<string, unknown>[]}
  */
-function extractProfileEvents(logText, filters = {}) {
+function extractProfileEvents(logText: string, filters: { runId?: string; scenario?: string } = {}): ProfileEvent[] {
   const { runId, scenario } = filters;
 
   return String(logText)
@@ -172,7 +191,16 @@ function buildMetricsFromProfileEvents({
   artifacts = {},
   cycleEventNames = null,
   budgets = null,
-}) {
+}: {
+  scenario: string;
+  runId: string;
+  events: ProfileEvent[];
+  expectedIterations: number;
+  timeoutCount?: number;
+  artifacts?: ArtifactRecord;
+  cycleEventNames?: ArtifactRecord | null;
+  budgets?: ArtifactRecord | null;
+}): ArtifactRecord {
   const resolvedCycleEventNames = {
     openRequested: cycleEventNames?.openRequested ?? 'surface_open_requested',
     opened: cycleEventNames?.opened ?? 'surface_opened',
@@ -207,10 +235,10 @@ function buildMetricsFromProfileEvents({
     iterations.set(event.iteration, current);
   }
 
-  const durationsMs = [];
-  const openDurationsMs = [];
-  const closeDurationsMs = [];
-  const incompleteIterations = [];
+  const durationsMs: number[] = [];
+  const openDurationsMs: number[] = [];
+  const closeDurationsMs: number[] = [];
+  const incompleteIterations: number[] = [];
   let failures = 0;
 
   for (let iteration = 1; iteration <= expectedIterations; iteration += 1) {
@@ -250,7 +278,7 @@ function buildMetricsFromProfileEvents({
     }
   }
 
-  const metrics = {
+  const metrics: ArtifactRecord = {
     scenario,
     runId,
     status: failures === 0 && timeoutCount === 0 ? 'passed' : 'failed',
@@ -280,7 +308,7 @@ function buildMetricsFromProfileEvents({
  * @param {{name: string, actual: unknown, limit: unknown}} options
  * @returns {{name: string, actual: unknown, limit: number, pass: boolean, unit: string} | null}
  */
-function evaluateBudgetCheck({ name, actual, limit }) {
+function evaluateBudgetCheck({ name, actual, limit }: { name: string; actual: unknown; limit: unknown }): BudgetCheck | null {
   if (typeof limit !== 'number') {
     return null;
   }
@@ -301,12 +329,12 @@ function evaluateBudgetCheck({ name, actual, limit }) {
  * @param {{metrics: Record<string, unknown>, budgets?: Record<string, unknown> | null}} options
  * @returns {Record<string, unknown> | null}
  */
-function evaluateProfileBudgets({ metrics, budgets }) {
+function evaluateProfileBudgets({ metrics, budgets }: { metrics: ArtifactRecord; budgets?: ArtifactRecord | null }): ArtifactRecord | null {
   if (!budgets?.pass || typeof budgets.pass !== 'object') {
     return null;
   }
 
-  const checks = [
+  const checks: BudgetCheck[] = [
     evaluateBudgetCheck({
       name: 'cycle p50',
       actual: metrics.p50Ms,
@@ -357,9 +385,9 @@ function evaluateProfileBudgets({ metrics, budgets }) {
       actual: metrics.firstVisibleP95Ms,
       limit: budgets.pass.firstVisibleP95Ms,
     }),
-  ].filter(Boolean);
+  ].filter((check): check is BudgetCheck => Boolean(check));
 
-  const thresholdChecks = [
+  const thresholdChecks: BudgetCheck[] = [
     typeof budgets.pass.failures === 'number'
       ? {
           name: 'failures',
@@ -378,9 +406,9 @@ function evaluateProfileBudgets({ metrics, budgets }) {
           unit: 'count',
         }
       : null,
-  ].filter(Boolean);
+  ].filter((check): check is BudgetCheck => Boolean(check));
 
-  const allChecks = [...thresholdChecks, ...checks];
+  const allChecks: BudgetCheck[] = [...thresholdChecks, ...checks];
   if (allChecks.length === 0) {
     return null;
   }
@@ -399,7 +427,7 @@ function evaluateProfileBudgets({ metrics, budgets }) {
  * @param {unknown} value
  * @returns {unknown}
  */
-function sortValue(value) {
+function sortValue(value: any): any {
   if (Array.isArray(value)) {
     return [...value].sort().map(sortValue);
   }
@@ -407,7 +435,7 @@ function sortValue(value) {
   if (value && typeof value === 'object') {
     return Object.keys(value)
       .sort()
-      .reduce((result, key) => {
+      .reduce<ArtifactRecord>((result, key) => {
         result[key] = sortValue(value[key]);
         return result;
       }, {});
@@ -422,7 +450,7 @@ function sortValue(value) {
  * @param {{event: Record<string, unknown>, startedAt?: string}} options
  * @returns {number | null}
  */
-function normalizeEventTimestamp({ event, startedAt }) {
+function normalizeEventTimestamp({ event, startedAt }: { event: ProfileEvent; startedAt?: string }): number | null {
   if (!event || typeof event !== 'object') {
     return null;
   }
@@ -440,7 +468,7 @@ function normalizeEventTimestamp({ event, startedAt }) {
   const startedAtEpochMs =
     typeof startedAt === 'string' && startedAt.length > 0 ? Date.parse(startedAt) : Number.NaN;
 
-  if (Number.isFinite(eventTimestamp) && Number.isFinite(startedAtEpochMs)) {
+  if (eventTimestamp !== null && Number.isFinite(eventTimestamp) && Number.isFinite(startedAtEpochMs)) {
     return roundMs(Math.max(0, eventTimestamp - startedAtEpochMs));
   }
 
@@ -453,7 +481,7 @@ function normalizeEventTimestamp({ event, startedAt }) {
  * @param {unknown} eventName
  * @returns {string}
  */
-function inferTimelinePhase(eventName) {
+function inferTimelinePhase(eventName: unknown): string {
   if (typeof eventName !== 'string' || eventName.length === 0) {
     return 'domain';
   }
@@ -531,7 +559,7 @@ function inferTimelinePhase(eventName) {
  * @param {unknown} eventName
  * @returns {string}
  */
-function inferTimelineStatus(eventName) {
+function inferTimelineStatus(eventName: unknown): string {
   if (typeof eventName !== 'string' || eventName.length === 0) {
     return 'observed';
   }
@@ -564,14 +592,27 @@ function inferTimelineStatus(eventName) {
  * @param {{events: Record<string, unknown>[], startedAt?: string, phaseMap?: Record<string, string> | null, owner?: string | null}} options
  * @returns {Record<string, unknown>[]}
  */
-function buildCausalTimeline({ events, startedAt, phaseMap = null, owner = null }) {
+function buildCausalTimeline({
+  events,
+  startedAt,
+  phaseMap = null,
+  owner = null,
+}: {
+  events: ProfileEvent[];
+  startedAt?: string;
+  phaseMap?: ArtifactRecord | null;
+  owner?: string | null;
+}): ArtifactRecord[] {
   return [...(Array.isArray(events) ? events : [])]
     .map((event) => {
       if (!event || typeof event !== 'object' || typeof event.event !== 'string') {
         return null;
       }
 
-      const atMs = normalizeEventTimestamp({ event, startedAt });
+      const atMs = normalizeEventTimestamp({
+        event,
+        ...(typeof startedAt === 'string' ? { startedAt } : {}),
+      });
       if (atMs === null) {
         return null;
       }
@@ -621,7 +662,13 @@ function buildBudgetVerdict({
   budgetEvaluation,
   visualOutcome = null,
   baselineRunId = null,
-}) {
+}: {
+  flowId: string;
+  runId: string;
+  budgetEvaluation?: ArtifactRecord | null;
+  visualOutcome?: ArtifactRecord | null;
+  baselineRunId?: string | null;
+}): ArtifactRecord | null {
   if (!budgetEvaluation) {
     return null;
   }
@@ -640,7 +687,7 @@ function buildBudgetVerdict({
       : budgetEvaluation.pass
         ? 'passed'
         : 'failed',
-    checks: (budgetEvaluation.checks ?? []).map((check) => ({
+    checks: (budgetEvaluation.checks ?? []).map((check: BudgetCheck) => ({
       name: check.name,
       metric: budgetEvaluation.metric ?? 'profile budget',
       unit: check.unit,
@@ -667,7 +714,7 @@ function buildBudgetVerdict({
  * @param {unknown} name
  * @returns {string}
  */
-function inferBudgetUnit(name) {
+function inferBudgetUnit(name: unknown): string {
   if (typeof name !== 'string') {
     return 'count';
   }
@@ -685,12 +732,12 @@ function inferBudgetUnit(name) {
  * @param {Record<string, unknown> | null | undefined} budgets
  * @returns {Record<string, unknown>}
  */
-function normalizeBudgetsForCausalRun(budgets) {
+function normalizeBudgetsForCausalRun(budgets: ArtifactRecord | null | undefined): ArtifactRecord {
   if (!budgets || typeof budgets !== 'object') {
     return {};
   }
 
-  return Object.keys(budgets).reduce((result, key) => {
+  return Object.keys(budgets).reduce<ArtifactRecord>((result, key) => {
     const limit = budgets[key];
     if (typeof limit !== 'number' && typeof limit !== 'boolean') {
       return result;
@@ -724,7 +771,7 @@ function buildCausalRun({
   artifacts,
   manifest,
   metrics,
-}) {
+}: ArtifactRecord): ArtifactRecord {
   return sortValue({
     schemaVersion: '1.0.0',
     flowId,
@@ -782,7 +829,7 @@ function buildManifest({
   toolVersions,
   artifacts,
   failureReason = null,
-}) {
+}: ArtifactRecord): ArtifactRecord {
   return {
     scenario,
     runId,
@@ -807,21 +854,21 @@ function buildManifest({
  * @param {{manifest: Record<string, unknown>, metrics: Record<string, unknown>}} options
  * @returns {string}
  */
-function buildSummaryMarkdown({ manifest, metrics }) {
+function buildSummaryMarkdown({ manifest, metrics }: { manifest: ArtifactRecord; metrics: ArtifactRecord }): string {
   const signalLines = [
     `- JS: ${
       manifest.artifacts.signals.js.length > 0
-        ? manifest.artifacts.signals.js.map((item) => `\`${item}\``).join(', ')
+        ? manifest.artifacts.signals.js.map((item: string) => `\`${item}\``).join(', ')
         : 'none'
     }`,
     `- Memory: ${
       manifest.artifacts.signals.memory.length > 0
-        ? manifest.artifacts.signals.memory.map((item) => `\`${item}\``).join(', ')
+        ? manifest.artifacts.signals.memory.map((item: string) => `\`${item}\``).join(', ')
         : 'none'
     }`,
     `- Network: ${
       manifest.artifacts.signals.network.length > 0
-        ? manifest.artifacts.signals.network.map((item) => `\`${item}\``).join(', ')
+        ? manifest.artifacts.signals.network.map((item: string) => `\`${item}\``).join(', ')
         : 'none'
     }`,
   ];
@@ -869,7 +916,7 @@ function buildSummaryMarkdown({ manifest, metrics }) {
     );
 
     for (const check of metrics.budgetEvaluation.checks) {
-      const formatValue = (value) => {
+      const formatValue = (value: unknown) => {
         if (typeof value !== 'number') {
           return value ?? 'n/a';
         }
@@ -905,10 +952,10 @@ function buildSummaryMarkdown({ manifest, metrics }) {
  * @param {string} rawDescription
  * @returns {string[]}
  */
-function extractCandidateIdentifiers(rawDescription) {
+function extractCandidateIdentifiers(rawDescription: string): string[] {
   const seen = new Set();
-  const identifiers = [];
-  const push = (value) => {
+  const identifiers: string[] = [];
+  const push = (value: unknown): void => {
     if (typeof value !== 'string') {
       return;
     }
@@ -922,7 +969,7 @@ function extractCandidateIdentifiers(rawDescription) {
     identifiers.push(normalized);
   };
 
-  const visit = (value) => {
+  const visit = (value: unknown): void => {
     if (Array.isArray(value)) {
       for (const item of value) {
         visit(item);
@@ -972,7 +1019,7 @@ function extractCandidateIdentifiers(rawDescription) {
  * @param {string} pattern
  * @returns {string | null}
  */
-function findMatchingIdentifier(rawDescription, pattern) {
+function findMatchingIdentifier(rawDescription: string, pattern: string): string | null {
   const regex = new RegExp(pattern, 'u');
   const identifier = extractCandidateIdentifiers(rawDescription).find((candidate) =>
     regex.test(candidate),
@@ -991,7 +1038,13 @@ function findMatchingIdentifier(rawDescription, pattern) {
  * @param {{rawDescription: string, requiredIdentifierPatterns?: string[]}} options
  * @returns {{pass: boolean, checks: Record<string, unknown>[], missingPatterns: string[]}}
  */
-function evaluateUiContract({ rawDescription, requiredIdentifierPatterns = [] }) {
+function evaluateUiContract({
+  rawDescription,
+  requiredIdentifierPatterns = [],
+}: {
+  rawDescription: string;
+  requiredIdentifierPatterns?: string[];
+}): { pass: boolean; checks: ArtifactRecord[]; missingPatterns: string[] } {
   const checks = requiredIdentifierPatterns.map((pattern) => {
     const matchedIdentifier = findMatchingIdentifier(rawDescription, pattern);
     return {

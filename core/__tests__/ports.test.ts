@@ -11,7 +11,7 @@ const {
 } = require('../ports');
 
 test('validates a primary runner port implementation', () => {
-  const implementation = Object.fromEntries(PRIMARY_RUNNER_PORT.map((methodName) => [methodName, () => {}]));
+  const implementation = Object.fromEntries(PRIMARY_RUNNER_PORT.map((methodName: string) => [methodName, () => {}]));
 
   const result = validatePortImplementation({
     name: 'primary runner',
