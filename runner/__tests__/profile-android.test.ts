@@ -1,4 +1,5 @@
 const assert = require('node:assert/strict');
+const crypto = require('node:crypto');
 const { execFile } = require('node:child_process');
 const fs = require('node:fs');
 const fsp = require('node:fs/promises');
@@ -71,6 +72,16 @@ function fixturePath(relativePath: string): string {
  */
 function readJson(filePath: string): Record<string, unknown> {
   return JSON.parse(fs.readFileSync(filePath, 'utf8'));
+}
+
+/**
+ * Hashes a fixture file for provider attachment assertions.
+ *
+ * @param {string} filePath
+ * @returns {string}
+ */
+function sha256File(filePath: string): string {
+  return crypto.createHash('sha256').update(fs.readFileSync(filePath)).digest('hex');
 }
 
 /**
@@ -166,16 +177,55 @@ test('profile-android attaches provider signal and capture artifacts', async (t:
   const metrics = readJson(path.join(runDir, 'metrics.json'));
   const artifacts = manifest.artifacts as {
     captures: { uiTree: string };
+    evidenceAttachments: Array<{
+      channel: string;
+      kind: string;
+      path: string;
+      sha256: string;
+      sizeBytes: number;
+      sourceFileName: string;
+    }>;
     signals: { js: string[]; network: string[] };
   };
+  const causalRun = readJson(path.join(runDir, 'causal-run.json'));
+  const summary = fs.readFileSync(path.join(runDir, 'summary.md'), 'utf8');
 
   assert.deepEqual(artifacts.signals.js, ['signals/js/js-profile.json']);
   assert.deepEqual(artifacts.signals.network, ['signals/network/network-capture.har']);
   assert.equal(artifacts.captures.uiTree, 'captures/ui-tree-provider.json');
+  assert.deepEqual(artifacts.evidenceAttachments, [
+    {
+      channel: 'signal',
+      kind: 'js',
+      path: 'signals/js/js-profile.json',
+      sha256: sha256File(jsSignalPath),
+      sizeBytes: fs.statSync(jsSignalPath).size,
+      sourceFileName: 'js-profile.json',
+    },
+    {
+      channel: 'signal',
+      kind: 'network',
+      path: 'signals/network/network-capture.har',
+      sha256: sha256File(networkSignalPath),
+      sizeBytes: fs.statSync(networkSignalPath).size,
+      sourceFileName: 'network-capture.har',
+    },
+    {
+      channel: 'capture',
+      kind: 'uiTree',
+      path: 'captures/ui-tree-provider.json',
+      sha256: sha256File(uiTreePath),
+      sizeBytes: fs.statSync(uiTreePath).size,
+      sourceFileName: 'ui-tree-provider.json',
+    },
+  ]);
   assert.ok(fs.existsSync(path.join(runDir, 'signals', 'js', 'js-profile.json')));
   assert.ok(fs.existsSync(path.join(runDir, 'signals', 'network', 'network-capture.har')));
   assert.ok(fs.existsSync(path.join(runDir, 'captures', 'ui-tree-provider.json')));
   assert.deepEqual((metrics.artifacts as { signals: { js: string[] } }).signals.js, ['signals/js/js-profile.json']);
+  assert.equal((causalRun.artifacts as { evidenceAttachments: unknown[] }).evidenceAttachments.length, 3);
+  assert.match(summary, /## Evidence attachments/u);
+  assert.match(summary, /signal\/js/u);
 });
 
 test('profile-android reads logcat from adb artifact folders', async (t: TestContext) => {

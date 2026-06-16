@@ -278,6 +278,7 @@ Current package guarantees:
 - installed adapter subpaths expose proven Android adb and iOS simctl driver helpers for portable evidence actions and explicit lifecycle helpers
 - Android adb capture can resolve supported portable selectors into tap and scroll coordinates from UIAutomator bounds
 - installed commands expose iOS simctl capture, screenshot preservation, and iOS profile ingestion from simctl artifacts
+- provider evidence attachments are inventoried with stable paths, source filenames, sizes, and sha256 hashes
 - adapter-target manifests for external tools are schema-checked and planner-tested without bundling those tools
 - package smoke blocks generated artifacts, internal-only paths, and local/product-specific strings from the tarball
 

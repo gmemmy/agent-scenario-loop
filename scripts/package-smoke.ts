@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 const assert = require('node:assert/strict');
+const crypto = require('node:crypto');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -22,6 +23,16 @@ type ExecFileSyncError = Error & {
   stderr?: Buffer | string;
   stdout?: Buffer | string;
 };
+
+/**
+ * Hashes a package-smoke fixture file.
+ *
+ * @param {string} filePath
+ * @returns {string}
+ */
+function sha256File(filePath: string): string {
+  return crypto.createHash('sha256').update(fs.readFileSync(filePath)).digest('hex');
+}
 
 type ExampleProfileRun = {
   binaryName: string;
@@ -686,9 +697,38 @@ function main(): void {
     });
     const providerProfileRunDir = providerProfileOutput.trim();
     const providerManifest = JSON.parse(fs.readFileSync(path.join(providerProfileRunDir, 'manifest.json'), 'utf8'));
+    const providerJsSignal = path.join(providerEvidenceRoot, 'js-profile.json');
+    const providerNetworkSignal = path.join(providerEvidenceRoot, 'network-capture.har');
+    const providerUiTree = path.join(providerEvidenceRoot, 'ui-tree.json');
     assert.deepEqual(providerManifest.artifacts.signals.js, ['signals/js/js-profile.json']);
     assert.deepEqual(providerManifest.artifacts.signals.network, ['signals/network/network-capture.har']);
     assert.equal(providerManifest.artifacts.captures.uiTree, 'captures/ui-tree.json');
+    assert.deepEqual(providerManifest.artifacts.evidenceAttachments, [
+      {
+        channel: 'signal',
+        kind: 'js',
+        path: 'signals/js/js-profile.json',
+        sha256: sha256File(providerJsSignal),
+        sizeBytes: fs.statSync(providerJsSignal).size,
+        sourceFileName: 'js-profile.json',
+      },
+      {
+        channel: 'signal',
+        kind: 'network',
+        path: 'signals/network/network-capture.har',
+        sha256: sha256File(providerNetworkSignal),
+        sizeBytes: fs.statSync(providerNetworkSignal).size,
+        sourceFileName: 'network-capture.har',
+      },
+      {
+        channel: 'capture',
+        kind: 'uiTree',
+        path: 'captures/ui-tree.json',
+        sha256: sha256File(providerUiTree),
+        sizeBytes: fs.statSync(providerUiTree).size,
+        sourceFileName: 'ui-tree.json',
+      },
+    ]);
     assert.equal(fs.existsSync(path.join(providerProfileRunDir, 'signals', 'js', 'js-profile.json')), true);
     assert.equal(fs.existsSync(path.join(providerProfileRunDir, 'signals', 'network', 'network-capture.har')), true);
     assert.equal(fs.existsSync(path.join(providerProfileRunDir, 'captures', 'ui-tree.json')), true);

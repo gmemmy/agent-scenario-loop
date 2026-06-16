@@ -132,7 +132,7 @@ asl-profile-android \
   --capture uiTree:artifacts/provider/ui-tree.json
 ```
 
-Signals are copied into `signals/js`, `signals/memory`, or `signals/network` and listed in `manifest.json`. Captures are copied into `captures`; screenshots are listed in `artifacts.captures.screenshots`, while video and UI tree captures replace the matching named capture path in the manifest. Attached provider evidence is preserved as proof, but timing verdicts still come from app-owned truth events and budgets.
+Signals are copied into `signals/js`, `signals/memory`, or `signals/network` and listed in `manifest.json`. Captures are copied into `captures`; screenshots are listed in `artifacts.captures.screenshots`, while video and UI tree captures replace the matching named capture path in the manifest. Every attached file is also listed in `artifacts.evidenceAttachments` with kind, run-relative path, source filename, byte size, and sha256 hash. Attached provider evidence is preserved as proof, but timing verdicts still come from app-owned truth events and budgets.
 
 ## Artifacts
 

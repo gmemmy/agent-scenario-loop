@@ -98,6 +98,8 @@ Profile runner artifacts:
 
 `manifest.json`, `metrics.json`, `budget-verdict.json`, and `causal-run.json` are schema-checked before the runner writes them. This keeps profile artifacts stable across fixture logs, adb-captured logs, and future runner adapters.
 
+Provider or custom-script evidence attached with `--signal` or `--capture` is copied into stable run folders and inventoried in `manifest.artifacts.evidenceAttachments`. Each inventory entry records the evidence channel, kind, run-relative path, source filename, byte size, and sha256 hash; it does not preserve local absolute source paths.
+
 Evidence folders:
 
 - `raw/`

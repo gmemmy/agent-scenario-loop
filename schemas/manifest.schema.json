@@ -152,6 +152,38 @@
               }
             }
           }
+        },
+        "evidenceAttachments": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["channel", "kind", "path", "sha256", "sizeBytes", "sourceFileName"],
+            "properties": {
+              "channel": {
+                "type": "string",
+                "enum": ["capture", "signal"]
+              },
+              "kind": {
+                "type": "string",
+                "enum": ["js", "memory", "network", "screenshot", "uiTree", "video"]
+              },
+              "path": {
+                "type": "string"
+              },
+              "sha256": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "sizeBytes": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "sourceFileName": {
+                "type": "string"
+              }
+            }
+          }
         }
       }
     },

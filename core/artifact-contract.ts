@@ -822,6 +822,7 @@ function buildCausalRun({
         ? artifacts.captures.screenshots[0] ?? null
         : null,
       signals: artifacts.signals,
+      evidenceAttachments: Array.isArray(artifacts.evidenceAttachments) ? artifacts.evidenceAttachments : [],
     },
     notes: [
       `Manifest status: ${manifest.status}`,
@@ -897,6 +898,14 @@ function buildSummaryMarkdown({ manifest, metrics }: { manifest: ArtifactRecord;
   const screenshots = Array.isArray(manifest.artifacts.captures.screenshots)
     ? manifest.artifacts.captures.screenshots
     : [];
+  const evidenceAttachments = Array.isArray(manifest.artifacts.evidenceAttachments)
+    ? manifest.artifacts.evidenceAttachments
+    : [];
+  const evidenceAttachmentLines = evidenceAttachments.length > 0
+    ? evidenceAttachments.map((attachment: ArtifactRecord) =>
+        `- ${attachment.channel}/${attachment.kind}: \`${attachment.path}\` (${attachment.sizeBytes} bytes, sha256 ${attachment.sha256})`,
+      )
+    : ['- none'];
   const lines = [
     `# ${String(manifest.platform || 'ios').toUpperCase()} profile run: ${manifest.scenario}`,
     '',
@@ -934,6 +943,10 @@ function buildSummaryMarkdown({ manifest, metrics }: { manifest: ArtifactRecord;
     '## Signal attachments',
     '',
     ...signalLines,
+    '',
+    '## Evidence attachments',
+    '',
+    ...evidenceAttachmentLines,
   ];
 
   if (metrics.budgetEvaluation) {

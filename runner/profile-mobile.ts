@@ -47,12 +47,24 @@ type ProfileMobileOptions = {
 type CaptureEvidenceKind = 'screenshot' | 'uiTree' | 'video';
 type SignalEvidenceKind = 'js' | 'memory' | 'network';
 type EvidenceAttachment = {
+  channel: 'capture' | 'signal';
   destinationPath: string;
   kind: CaptureEvidenceKind | SignalEvidenceKind;
+  manifestPath: string;
+  sha256: string;
+  sourcePath: string;
+  sourceFileName: string;
+  sizeBytes: number;
+};
+type EvidenceAttachmentInput = {
+  channel: EvidenceAttachment['channel'];
+  destinationPath: string;
+  kind: EvidenceAttachment['kind'];
   manifestPath: string;
   sourcePath: string;
 };
 type AttachedEvidence = {
+  attachments: EvidenceAttachment[];
   captures: {
     screenshots: string[];
     uiTree: string | null;
@@ -217,6 +229,34 @@ function parseEvidenceArg({
 }
 
 /**
+ * Hashes one provider artifact without recording its source path in public metadata.
+ *
+ * @param {string} filePath
+ * @returns {Promise<string>}
+ */
+async function hashFileSha256(filePath: string): Promise<string> {
+  const content = await fsp.readFile(filePath);
+  return crypto.createHash('sha256').update(content).digest('hex');
+}
+
+/**
+ * Converts internal attachment copy plans into manifest-safe metadata.
+ *
+ * @param {EvidenceAttachment[]} attachments
+ * @returns {Record<string, unknown>[]}
+ */
+function buildEvidenceAttachmentManifest(attachments: EvidenceAttachment[]): Record<string, unknown>[] {
+  return attachments.map((attachment) => ({
+    channel: attachment.channel,
+    kind: attachment.kind,
+    path: attachment.manifestPath,
+    sha256: attachment.sha256,
+    sizeBytes: attachment.sizeBytes,
+    sourceFileName: attachment.sourceFileName,
+  }));
+}
+
+/**
  * Validates provider artifact files and resolves their stable run destinations.
  *
  * @param {{args: CliArgs, layout: ReturnType<typeof createArtifactLayout>}} options
@@ -230,6 +270,7 @@ async function resolveAttachedEvidence({
   layout: ReturnType<typeof createArtifactLayout>;
 }): Promise<AttachedEvidence> {
   const attached: AttachedEvidence = {
+    attachments: [],
     captures: {
       screenshots: [],
       uiTree: null,
@@ -245,11 +286,12 @@ async function resolveAttachedEvidence({
   const destinationPaths = new Set<string>();
 
   const addCopy = async ({
+    channel,
     destinationPath,
     kind,
     manifestPath,
     sourcePath,
-  }: EvidenceAttachment): Promise<void> => {
+  }: EvidenceAttachmentInput): Promise<void> => {
     const stat = await fsp.stat(sourcePath).catch(() => null);
     if (!stat?.isFile()) {
       throw new Error(`Evidence artifact does not exist or is not a file: ${sourcePath}`);
@@ -260,7 +302,18 @@ async function resolveAttachedEvidence({
     }
 
     destinationPaths.add(destinationPath);
-    attached.copies.push({ destinationPath, kind, manifestPath, sourcePath });
+    const attachment = {
+      channel,
+      destinationPath,
+      kind,
+      manifestPath,
+      sha256: await hashFileSha256(sourcePath),
+      sourceFileName: path.basename(sourcePath),
+      sourcePath,
+      sizeBytes: stat.size,
+    };
+    attached.attachments.push(attachment);
+    attached.copies.push(attachment);
   };
 
   for (const value of readRepeatableArgValues(args, 'signal')) {
@@ -273,6 +326,7 @@ async function resolveAttachedEvidence({
     const manifestPath = `signals/${parsed.kind}/${fileName}`;
     attached.signals[parsed.kind].push(manifestPath);
     await addCopy({
+      channel: 'signal',
       destinationPath: path.join(layout.signals[parsed.kind], fileName),
       kind: parsed.kind,
       manifestPath,
@@ -291,6 +345,7 @@ async function resolveAttachedEvidence({
     if (parsed.kind === 'screenshot') {
       attached.captures.screenshots.push(manifestPath);
       await addCopy({
+        channel: 'capture',
         destinationPath: path.join(layout.captures, fileName),
         kind: parsed.kind,
         manifestPath,
@@ -305,6 +360,7 @@ async function resolveAttachedEvidence({
 
     attached.captures[parsed.kind] = manifestPath;
     await addCopy({
+      channel: 'capture',
       destinationPath: path.join(layout.captures, fileName),
       kind: parsed.kind,
       manifestPath,
@@ -653,6 +709,7 @@ async function runProfileMobile(args: CliArgs, options: ProfileMobileOptions): P
         memory: attachedEvidence.signals.memory,
         network: attachedEvidence.signals.network,
       },
+      evidenceAttachments: buildEvidenceAttachmentManifest(attachedEvidence.attachments),
     },
   });
 
@@ -780,6 +837,7 @@ export {
   buildProfileVerdict,
   buildVerdictBudgetChecks,
   parseArgs,
+  buildEvidenceAttachmentManifest,
   readScalarArg,
   resolveAppId,
   resolveArtifactRoot,
