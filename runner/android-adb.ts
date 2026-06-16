@@ -67,7 +67,7 @@ type AndroidDeepLinkCommand = {
 };
 
 type AndroidAdbDriverStep = {
-  driverAction: 'inspectTree' | 'readLogs' | 'screenshot' | 'scroll' | 'tap';
+  driverAction: 'assertVisible' | 'inspectTree' | 'readLogs' | 'screenshot' | 'scroll' | 'tap';
   durationMs?: number;
   endX?: number;
   endY?: number;
@@ -388,6 +388,9 @@ function defaultAndroidAdbRawFileName({
   if (driverAction === 'inspectTree') {
     return `adb-ui-tree${suffix}.xml`;
   }
+  if (driverAction === 'assertVisible') {
+    return `adb-assert-visible${suffix}.xml`;
+  }
   if (driverAction === 'screenshot') {
     return `adb-screenshot${suffix}.png`;
   }
@@ -508,6 +511,25 @@ async function runAndroidAdbDriverStep({
   if (driverStep.driverAction === 'inspectTree') {
     return driver.inspectTree({
       ...(typeof driverStep.rawFileName === 'string' ? { rawFileName: driverStep.rawFileName } : {}),
+    });
+  }
+
+  if (driverStep.driverAction === 'assertVisible') {
+    if (!driverStep.selector) {
+      return {
+        action: 'assertVisible',
+        args: [],
+        command: 'adb',
+        exitCode: 1,
+        rawFileName: driverStep.rawFileName ?? 'adb-assert-visible.xml',
+        stderr: 'assertVisible driver action requires a selector.',
+        stdout: '',
+      };
+    }
+
+    return driver.assertVisible({
+      ...(typeof driverStep.rawFileName === 'string' ? { rawFileName: driverStep.rawFileName } : {}),
+      selector: driverStep.selector,
     });
   }
 

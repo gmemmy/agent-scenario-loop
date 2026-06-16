@@ -50,7 +50,7 @@ Portable scenario manifests describe the durable app behavior before choosing a 
 - `journey`: human-readable intent, actor, start state, and end state
 - `platforms`: supported runtime targets
 - `requiredCapabilities` and `optionalCapabilities`: runner capability requirements
-- `steps[].driverAction`: optional concrete driver operation required by a step, such as `tap`, `scroll`, `inspectTree`, `screenshot`, `record`, `readLogs`, or `collectPerfSignals`
+- `steps[].driverAction`: optional concrete driver operation required by a step, such as `tap`, `scroll`, `assertVisible`, `inspectTree`, `screenshot`, `record`, `readLogs`, or `collectPerfSignals`
 - `truthEvents`: app-owned milestone events keyed by stable milestone id
 - `milestones`: inspectable milestone list with event names, phases, timeouts, and descriptions
 - `expectedEvents`: event names the runner or log ingest should expect to observe
@@ -66,7 +66,7 @@ Runner capabilities describe ownership, such as launch, session control, command
 
 `buildScenarioExecutionPlan()` turns the same scenario steps into a deterministic adapter-facing work list. Each normalized step records the scenario step id, original kind, required flag, optional driver action, and the runner port method that owns it: `launch`, `executeStep`, `waitForTruthEvent`, or `captureEvidence`.
 
-Android adb capture routes normalized steps with `driverAction: "tap"`, `"scroll"`, `"inspectTree"`, `"screenshot"`, or `"readLogs"` through the adb driver adapter. `adapterOptions.androidAdb` carries action-specific metadata: coordinate fields for tap and scroll, `durationMs` for scroll, `logcatLines` for bounded logs, `waitMs` for capture timing, and `rawFileName` for evidence filename overrides. Log capture keeps `raw/adb-logcat.txt` as the default profile input.
+Android adb capture routes normalized steps with `driverAction: "tap"`, `"scroll"`, `"assertVisible"`, `"inspectTree"`, `"screenshot"`, or `"readLogs"` through the adb driver adapter. `adapterOptions.androidAdb` carries action-specific metadata: coordinate fields for tap and scroll, `durationMs` for scroll, `logcatLines` for bounded logs, `waitMs` for capture timing, and `rawFileName` for evidence filename overrides. `assertVisible` requires a portable selector and verifies it against a UIAutomator tree dump, preserving that XML as raw evidence. Log capture keeps `raw/adb-logcat.txt` as the default profile input.
 
 When Android adb `tap` or `scroll` steps provide a portable selector instead of coordinates, the runner captures `uiautomator dump` output, resolves supported selector kinds against node bounds, and derives adb input coordinates before executing the action. Built-in Android selector resolution supports `testId`, `resourceId`, `accessibilityId`, `accessibilityLabel`, and `text`; `xpath` stays available for external runners with native selector engines.
 
@@ -127,7 +127,7 @@ The package currently supports:
 - Android adb readiness checks
 - Android bounded logcat capture
 - Android package launch plus bounded logcat capture
-- Android adb driver adapter with scenario-routed `tap`, `scroll`, `inspectTree`, `screenshot`, and `readLogs`
+- Android adb driver adapter with scenario-routed `tap`, `scroll`, `assertVisible`, `inspectTree`, `screenshot`, and `readLogs`
 - Android profile artifact generation from explicit event logs, prior adb artifacts, or an owned `--adb-capture` window
 - iOS bounded simulator log capture and stored app truth-event collection through simctl
 - iOS simulator app launch plus storage-backed profile-session and command seeding

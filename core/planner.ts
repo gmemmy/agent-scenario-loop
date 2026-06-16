@@ -402,6 +402,20 @@ function validateAndroidAdbAdapterOptions({
     const androidAdb = asObject(asObject(step.adapterOptions).androidAdb);
     const stepId = getScenarioStepId(step, index);
     if (
+      step.driverAction === 'assertVisible' &&
+      !hasPortableSelector(step)
+    ) {
+      pushInvalidAdapterOption({
+        adapter: 'androidAdb',
+        errors,
+        field: 'selector',
+        message: `Step \`${stepId}\` uses driverAction \`assertVisible\` but a portable selector is required.`,
+        scenario,
+        stepId,
+      });
+    }
+
+    if (
       step.driverAction === 'tap' &&
       !hasPortableSelector(step) &&
       (!isFiniteNumber(androidAdb.x) || !isFiniteNumber(androidAdb.y))

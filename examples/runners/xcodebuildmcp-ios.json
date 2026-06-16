@@ -14,7 +14,7 @@
     "uiTree",
     "accessibility"
   ],
-  "driverActions": ["tap", "scroll", "inspectTree", "screenshot", "record", "readLogs"],
+  "driverActions": ["tap", "scroll", "assertVisible", "inspectTree", "screenshot", "record", "readLogs"],
   "artifactOutputs": ["logs", "signals", "screenshot", "video", "uiTree", "accessibility"],
   "lifecycle": [
     "prepare",

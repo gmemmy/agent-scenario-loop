@@ -9,6 +9,7 @@ type AndroidAdbCommandResult = {
 };
 
 type AndroidAdbDriver = {
+  assertVisible: (options: AndroidAdbAssertVisibleOptions) => Promise<AndroidAdbCommandResult>;
   clearLogs: () => Promise<AndroidAdbCommandResult>;
   inspectTree: (options?: AndroidAdbInspectTreeOptions) => Promise<AndroidAdbCommandResult>;
   launchPackage: (packageName: string) => Promise<AndroidAdbCommandResult>;
@@ -53,6 +54,11 @@ type AndroidAdbReadLogsOptions = {
 
 type AndroidAdbInspectTreeOptions = {
   rawFileName?: string;
+};
+
+type AndroidAdbAssertVisibleOptions = {
+  rawFileName?: string;
+  selector: AndroidSelector;
 };
 
 type AndroidAdbScreenshotOptions = {
@@ -386,6 +392,36 @@ function createAndroidAdbDriver({
       return buildDriverResult({ action: 'inspectTree', rawFileName, result });
     },
 
+    async assertVisible({
+      rawFileName = 'adb-assert-visible.xml',
+      selector,
+    }: AndroidAdbAssertVisibleOptions): Promise<AndroidAdbCommandResult> {
+      const result = await executor(adbPath, [
+        '-s',
+        deviceSerial,
+        'shell',
+        'uiautomator',
+        'dump',
+        '/dev/tty',
+      ]);
+      const resolution = result.exitCode === 0
+        ? resolveAndroidSelectorFromUiTree({ selector, uiTreeXml: result.stdout })
+        : null;
+      return buildDriverResult({
+        action: 'assertVisible',
+        rawFileName,
+        result: {
+          ...result,
+          exitCode: resolution ? 0 : result.exitCode === 0 ? 1 : result.exitCode,
+          stderr: resolution
+            ? result.stderr
+            : [result.stderr, `Android selector ${selector.kind}=${selector.value} was not visible.`]
+                .filter(Boolean)
+                .join('\n'),
+        },
+      });
+    },
+
     async openDeepLink({
       packageName = null,
       rawFileName = 'adb-deep-link.txt',
@@ -479,6 +515,7 @@ export type {
   AndroidAdbDeepLinkOptions,
   AndroidAdbDriver,
   AndroidAdbDriverOptions,
+  AndroidAdbAssertVisibleOptions,
   AndroidAdbInspectTreeOptions,
   AndroidAdbReadLogsOptions,
   AndroidAdbScreenshotOptions,

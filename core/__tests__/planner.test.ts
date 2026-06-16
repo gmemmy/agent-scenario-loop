@@ -207,6 +207,30 @@ test('accepts Android adb tap metadata when a portable selector is present', () 
   );
 });
 
+test('fails when Android adb assertVisible is missing a selector', () => {
+  const scenario = readJson('examples/scenarios/mobile/app-startup.json');
+  const runner = readJson('examples/runners/adb-android.json');
+  scenario.steps.push({
+    id: 'assert-card-visible',
+    kind: 'assertUi',
+    driverAction: 'assertVisible',
+  });
+
+  const result = evaluateRunnerCompatibility({ scenario, runner, platform: 'android' });
+
+  assert.equal(result.compatible, false);
+  assert.deepEqual(
+    result.errors
+      .filter((error: PlannerIssue) => error.code === 'invalid_adapter_options')
+      .map((error: PlannerIssue) => ({
+        adapter: error.adapter,
+        field: error.field,
+        stepId: error.stepId,
+      })),
+    [{ adapter: 'androidAdb', field: 'selector', stepId: 'assert-card-visible' }],
+  );
+});
+
 test('fails when iOS simctl command metadata is malformed', () => {
   const scenario = readJson('examples/scenarios/mobile/app-startup.json');
   const runner = readJson('examples/runners/xcodebuildmcp-ios.json');
@@ -476,7 +500,7 @@ test('collects provider driver actions only from active providers', () => {
       evidenceProviders: [inactiveProvider, androidProvider],
       effectivePlatforms: ['android'],
     }),
-    ['collectPerfSignals', 'inspectTree', 'readLogs', 'screenshot', 'scroll', 'tap'],
+    ['assertVisible', 'collectPerfSignals', 'inspectTree', 'readLogs', 'screenshot', 'scroll', 'tap'],
   );
 });
 

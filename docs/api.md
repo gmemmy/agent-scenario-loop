@@ -37,7 +37,7 @@ Runner subpaths are public when a consuming project needs to compose a workflow 
 | Subpath | Purpose |
 | --- | --- |
 | `agent-scenario-loop/runner/android-adb` | Android adb readiness, launch, profile-session control, driver actions, and logcat capture |
-| `agent-scenario-loop/runner/android-adb-driver` | adb-backed `tap`, `scroll`, `inspectTree`, `screenshot`, and `readLogs` driver adapter |
+| `agent-scenario-loop/runner/android-adb-driver` | adb-backed `tap`, `scroll`, `assertVisible`, `inspectTree`, `screenshot`, and `readLogs` driver adapter |
 | `agent-scenario-loop/runner/check-plan` | scenario/runner/provider compatibility artifact generation |
 | `agent-scenario-loop/runner/compare` | direct baseline/current comparison |
 | `agent-scenario-loop/runner/compare-latest` | latest trusted prior-run comparison |

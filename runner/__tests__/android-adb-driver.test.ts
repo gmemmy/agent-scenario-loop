@@ -103,7 +103,7 @@ test('Android adb driver performs portable UI and capture actions', async () => 
     '-s emulator-5554 shell input tap 120 240': { stdout: '' },
     '-s emulator-5554 shell input swipe 500 1400 500 400 350': { stdout: '' },
     '-s emulator-5554 shell uiautomator dump /dev/tty': {
-      stdout: '<hierarchy><node text="Home" /></hierarchy>\n',
+      stdout: '<hierarchy><node text="Home" resource-id="dev.example:id/home" bounds="[0,0][100,100]" /></hierarchy>\n',
     },
     '-s emulator-5554 exec-out screencap -p': {
       stdout: 'PNG',
@@ -118,6 +118,9 @@ test('Android adb driver performs portable UI and capture actions', async () => 
   const tap = await driver.tap({ x: 120, y: 240 });
   const scroll = await driver.scroll({ durationMs: 350, endX: 500, endY: 400, startX: 500, startY: 1400 });
   const tree = await driver.inspectTree();
+  const visible = await driver.assertVisible({
+    selector: { kind: 'resourceId', value: 'dev.example:id/home' },
+  });
   const screenshot = await driver.screenshot();
 
   assert.equal(tap.action, 'tap');
@@ -127,6 +130,9 @@ test('Android adb driver performs portable UI and capture actions', async () => 
   assert.equal(tree.action, 'inspectTree');
   assert.equal(tree.rawFileName, 'adb-ui-tree.xml');
   assert.match(formatAndroidAdbRawOutput(tree), /hierarchy/u);
+  assert.equal(visible.action, 'assertVisible');
+  assert.equal(visible.exitCode, 0);
+  assert.equal(visible.rawFileName, 'adb-assert-visible.xml');
   assert.equal(screenshot.action, 'screenshot');
   assert.equal(screenshot.rawFileName, 'adb-screenshot.png');
 });

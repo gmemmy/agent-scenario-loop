@@ -629,6 +629,7 @@ test('profile-android validates tap and scroll driver metadata', () => {
     validateAndroidAdbDriverSteps([
       { driverAction: 'tap', stepId: 'tap-card', x: 10, y: 20 },
       { driverAction: 'scroll', endX: 100, endY: 200, startX: 100, startY: 800, stepId: 'scroll-list' },
+      { driverAction: 'assertVisible', selector: { kind: 'text', value: 'Example' }, stepId: 'assert-visible' },
       { driverAction: 'tap', selector: { kind: 'testId', value: 'card' }, stepId: 'tap-selector' },
       { driverAction: 'scroll', selector: { kind: 'resourceId', value: 'feed' }, stepId: 'scroll-selector' },
     ]),
@@ -638,10 +639,12 @@ test('profile-android validates tap and scroll driver metadata', () => {
     validateAndroidAdbDriverSteps([
       { driverAction: 'tap', stepId: 'tap-card' },
       { driverAction: 'scroll', stepId: 'scroll-list', startX: 100, startY: 800 },
+      { driverAction: 'assertVisible', stepId: 'assert-visible' },
     ]),
     [
       'step `tap-card` uses driverAction `tap` but is missing adapterOptions.androidAdb.x/y.',
       'step `scroll-list` uses driverAction `scroll` but is missing adapterOptions.androidAdb.startX/startY/endX/endY.',
+      'step `assert-visible` uses driverAction `assertVisible` but is missing a portable selector.',
     ],
   );
 });
@@ -877,6 +880,12 @@ test('profile-android derives portable adb driver actions from scenario metadata
         driverAction: 'inspectTree',
       },
       {
+        id: 'assert-final',
+        kind: 'assertUi',
+        driverAction: 'assertVisible',
+        selector: { kind: 'text', value: 'Example' },
+      },
+      {
         id: 'capture-final',
         kind: 'captureEvidence',
         artifact: 'screenshot',
@@ -910,6 +919,13 @@ test('profile-android derives portable adb driver actions from scenario metadata
       driverAction: 'inspectTree',
       required: true,
       stepId: 'inspect-final',
+      waitMs: 0,
+    },
+    {
+      driverAction: 'assertVisible',
+      required: true,
+      selector: { kind: 'text', value: 'Example' },
+      stepId: 'assert-final',
       waitMs: 0,
     },
     {

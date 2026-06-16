@@ -234,7 +234,7 @@ function resolveAndroidAdbDriverSteps(scenario: Record<string, any>): AndroidAdb
   let readLogsIndex = 0;
   return executionPlan.steps
     .filter((step: ScenarioExecutionStep) =>
-      ['inspectTree', 'readLogs', 'screenshot', 'scroll', 'tap'].includes(String(step.driverAction)),
+      ['assertVisible', 'inspectTree', 'readLogs', 'screenshot', 'scroll', 'tap'].includes(String(step.driverAction)),
     )
     .map((step: ScenarioExecutionStep) => {
       const androidAdbOptions = readAndroidAdbStepOptions(step);
@@ -282,6 +282,9 @@ function validateAndroidAdbDriverSteps(driverSteps: AndroidAdbDriverStep[]): str
     const stepLabel = step.stepId ? `step \`${step.stepId}\`` : 'unnamed step';
     if (step.driverAction === 'tap' && !step.selector && (typeof step.x !== 'number' || typeof step.y !== 'number')) {
       errors.push(`${stepLabel} uses driverAction \`tap\` but is missing adapterOptions.androidAdb.x/y.`);
+    }
+    if (step.driverAction === 'assertVisible' && !step.selector) {
+      errors.push(`${stepLabel} uses driverAction \`assertVisible\` but is missing a portable selector.`);
     }
     if (
       step.driverAction === 'scroll' &&

@@ -94,7 +94,7 @@ pnpm check-plan -- --scenario examples/scenarios/mobile/app-startup.json --runne
 
 That command does not require Xcode, a simulator, or device artifacts. It validates scenario and runner manifests, writes preflight artifacts, and stops before live execution.
 
-Adapter authors can import `agent-scenario-loop/runner/android-adb-driver` to reuse adb-backed `tap`, `scroll`, `inspectTree`, `screenshot`, and `readLogs` driver actions plus Android lifecycle helpers without depending on the `asl-android-adb` CLI. They can import `agent-scenario-loop/runner/ios-simctl-driver` for simctl-backed `screenshot` and `readLogs` evidence actions plus explicit iOS lifecycle helpers. Built-in profile CLIs route supported scenario `driverAction` steps through those adapters during owned capture windows.
+Adapter authors can import `agent-scenario-loop/runner/android-adb-driver` to reuse adb-backed `tap`, `scroll`, `assertVisible`, `inspectTree`, `screenshot`, and `readLogs` driver actions plus Android lifecycle helpers without depending on the `asl-android-adb` CLI. They can import `agent-scenario-loop/runner/ios-simctl-driver` for simctl-backed `screenshot` and `readLogs` evidence actions plus explicit iOS lifecycle helpers. Built-in profile CLIs route supported scenario `driverAction` steps through those adapters during owned capture windows.
 
 To check Android adb readiness before live scenario execution:
 
@@ -277,6 +277,7 @@ Current package guarantees:
 - installed commands can compare a current run against the latest trusted prior run for a scenario
 - installed adapter subpaths expose proven Android adb and iOS simctl driver helpers for portable evidence actions and explicit lifecycle helpers
 - Android adb capture can resolve supported portable selectors into tap and scroll coordinates from UIAutomator bounds
+- Android adb capture can assert selector visibility from UIAutomator evidence without treating screenshots as truth
 - installed commands expose iOS simctl capture, screenshot preservation, and iOS profile ingestion from simctl artifacts
 - provider evidence attachments are inventoried with stable paths, source filenames, sizes, and sha256 hashes
 - evidence-provider manifests can declare no-shell commands whose outputs are preserved under stable run artifacts
@@ -287,7 +288,7 @@ Current package guarantees:
 
 Remaining hardening:
 
-- extend Android beyond basic selector-backed adb actions into broader semantic driver support
+- extend Android beyond selector-backed adb actions into broader semantic driver support
 - extend iOS beyond log/screenshot capture into richer simulator driver support
 - add richer examples for real external providers without making them package dependencies
 

@@ -89,7 +89,7 @@ Use steps to describe intent and required adapter actions:
 - `gesture`: portable UI gesture intent
 - `assertUi`: UI assertion intent
 
-Use `driverAction` only when the scenario truly requires a concrete operation such as `tap`, `scroll`, `screenshot`, `readLogs`, or `collectPerfSignals`. The planner fails early when no active runner or provider can satisfy a required driver action.
+Use `driverAction` only when the scenario truly requires a concrete operation such as `tap`, `scroll`, `assertVisible`, `screenshot`, `readLogs`, or `collectPerfSignals`. The planner fails early when no active runner or provider can satisfy a required driver action.
 
 Use `selector` to describe the intended app target without committing the scenario to one driver. Supported selector kinds are `testId`, `accessibilityId`, `accessibilityLabel`, `text`, `resourceId`, and `xpath`.
 

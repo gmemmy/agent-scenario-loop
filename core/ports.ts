@@ -20,6 +20,7 @@ const EVIDENCE_PROVIDER_PORT = [
 const DRIVER_PORT = [
   'tap',
   'scroll',
+  'assertVisible',
   'inspectTree',
   'screenshot',
   'record',

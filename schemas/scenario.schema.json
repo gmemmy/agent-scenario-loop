@@ -350,6 +350,7 @@
       "enum": [
         "tap",
         "scroll",
+        "assertVisible",
         "inspectTree",
         "screenshot",
         "record",
