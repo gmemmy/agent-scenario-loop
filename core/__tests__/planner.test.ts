@@ -134,7 +134,7 @@ test('fails when a runner is missing a required capability', () => {
 test('fails when scenario steps require unsupported driver actions', () => {
   const scenario = readJson('examples/scenarios/mobile/scroll-settle.json');
   const runner = readJson('examples/runners/adb-android.json');
-  scenario.steps[1].driverAction = 'scroll';
+  scenario.steps[1].driverAction = 'record';
 
   const result = evaluateRunnerCompatibility({ scenario, runner, platform: 'android' });
 
@@ -143,7 +143,7 @@ test('fails when scenario steps require unsupported driver actions', () => {
     result.errors.map((error: PlannerIssue) => error.code),
     ['missing_required_driver_action'],
   );
-  assert.equal(result.errors[0].driverAction, 'scroll');
+  assert.equal(result.errors[0].driverAction, 'record');
 });
 
 test('accepts scenario steps when the runner declares required driver actions', () => {
@@ -191,7 +191,7 @@ test('argent runner targets satisfy portable driver-action scenarios', () => {
 test('treats optional step driver actions as warnings', () => {
   const scenario = readJson('examples/scenarios/mobile/app-startup.json');
   const runner = readJson('examples/runners/adb-android.json');
-  scenario.steps[2].driverAction = 'screenshot';
+  scenario.steps[2].driverAction = 'record';
   scenario.steps[2].required = false;
 
   const result = evaluateRunnerCompatibility({ scenario, runner, platform: 'android' });
@@ -201,7 +201,7 @@ test('treats optional step driver actions as warnings', () => {
     result.warnings
       .filter((warning: PlannerIssue) => warning.code === 'missing_optional_driver_action')
       .map((warning: PlannerIssue) => warning.driverAction),
-    ['screenshot'],
+    ['record'],
   );
 });
 
@@ -395,7 +395,7 @@ test('collects provider driver actions only from active providers', () => {
       evidenceProviders: [inactiveProvider, androidProvider],
       effectivePlatforms: ['android'],
     }),
-    ['collectPerfSignals', 'readLogs'],
+    ['collectPerfSignals', 'inspectTree', 'readLogs', 'screenshot', 'scroll', 'tap'],
   );
 });
 

@@ -94,7 +94,7 @@ pnpm check-plan -- --scenario examples/scenarios/mobile/app-startup.json --runne
 
 That command does not require Xcode, a simulator, or device artifacts. It validates scenario and runner manifests, writes preflight artifacts, and stops before live execution.
 
-Adapter authors can import `agent-scenario-loop/runner/android-adb-driver` to reuse the adb-backed `readLogs` driver action and Android lifecycle helpers without depending on the `asl-android-adb` CLI. Android profiling also routes scenario steps that declare `driverAction: "readLogs"` through that adapter during owned adb capture.
+Adapter authors can import `agent-scenario-loop/runner/android-adb-driver` to reuse adb-backed `tap`, `scroll`, `inspectTree`, `screenshot`, and `readLogs` driver actions plus Android lifecycle helpers without depending on the `asl-android-adb` CLI. Android profiling routes supported scenario `driverAction` steps through that adapter during owned adb capture.
 
 To check Android adb readiness before live scenario execution:
 
@@ -275,14 +275,14 @@ Current package guarantees:
 - explicit baseline/current run folders can produce schema-checked `comparison.json`
 - artifact roots can be indexed to find trusted prior runs per scenario
 - installed commands can compare a current run against the latest trusted prior run for a scenario
-- installed adapter subpaths expose the proven Android adb driver helper
+- installed adapter subpaths expose the proven Android adb driver helper for log, UI tree, screenshot, tap, and scroll actions
 - installed commands expose iOS simctl capture and iOS profile ingestion from simctl artifacts
 - adapter-target manifests for external tools are schema-checked and planner-tested without bundling those tools
 - package smoke blocks generated artifacts, internal-only paths, and local/product-specific strings from the tarball
 
 Remaining hardening:
 
-- extend Android beyond package launch/log capture into scenario-step driving and richer evidence providers
+- extend Android beyond coordinate-based adb actions into richer evidence providers and app-aware selectors
 - extend iOS beyond launch/deep-link/log capture into richer simulator evidence providers
 - improve runner validation and failure reporting for more adapter classes
 

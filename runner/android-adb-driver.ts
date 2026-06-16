@@ -10,9 +10,13 @@ type AndroidAdbCommandResult = {
 
 type AndroidAdbDriver = {
   clearLogs: () => Promise<AndroidAdbCommandResult>;
+  inspectTree: (options?: AndroidAdbInspectTreeOptions) => Promise<AndroidAdbCommandResult>;
   launchPackage: (packageName: string) => Promise<AndroidAdbCommandResult>;
   openDeepLink: (options: AndroidAdbDeepLinkOptions) => Promise<AndroidAdbCommandResult>;
   readLogs: (options?: AndroidAdbReadLogsOptions) => Promise<AndroidAdbCommandResult>;
+  screenshot: (options?: AndroidAdbScreenshotOptions) => Promise<AndroidAdbCommandResult>;
+  scroll: (options: AndroidAdbScrollOptions) => Promise<AndroidAdbCommandResult>;
+  tap: (options: AndroidAdbTapOptions) => Promise<AndroidAdbCommandResult>;
 };
 
 type AndroidAdbDriverOptions = {
@@ -38,6 +42,29 @@ type AndroidAdbDeepLinkOptions = {
 type AndroidAdbReadLogsOptions = {
   lines?: number;
   rawFileName?: string;
+};
+
+type AndroidAdbInspectTreeOptions = {
+  rawFileName?: string;
+};
+
+type AndroidAdbScreenshotOptions = {
+  rawFileName?: string;
+};
+
+type AndroidAdbScrollOptions = {
+  durationMs?: number;
+  endX: number;
+  endY: number;
+  rawFileName?: string;
+  startX: number;
+  startY: number;
+};
+
+type AndroidAdbTapOptions = {
+  rawFileName?: string;
+  x: number;
+  y: number;
 };
 
 /**
@@ -128,6 +155,20 @@ function createAndroidAdbDriver({
       return buildDriverResult({ action: 'launchPackage', rawFileName, result });
     },
 
+    async inspectTree({
+      rawFileName = 'adb-ui-tree.xml',
+    }: AndroidAdbInspectTreeOptions = {}): Promise<AndroidAdbCommandResult> {
+      const result = await executor(adbPath, [
+        '-s',
+        deviceSerial,
+        'shell',
+        'uiautomator',
+        'dump',
+        '/dev/tty',
+      ]);
+      return buildDriverResult({ action: 'inspectTree', rawFileName, result });
+    },
+
     async openDeepLink({
       packageName = null,
       rawFileName = 'adb-deep-link.txt',
@@ -162,6 +203,45 @@ function createAndroidAdbDriver({
       ]);
       return buildDriverResult({ action: 'readLogs', rawFileName, result });
     },
+
+    async screenshot({
+      rawFileName = 'adb-screenshot.png',
+    }: AndroidAdbScreenshotOptions = {}): Promise<AndroidAdbCommandResult> {
+      const result = await executor(adbPath, ['-s', deviceSerial, 'exec-out', 'screencap', '-p']);
+      return buildDriverResult({ action: 'screenshot', rawFileName, result });
+    },
+
+    async scroll({
+      durationMs = 300,
+      endX,
+      endY,
+      rawFileName = 'adb-scroll.txt',
+      startX,
+      startY,
+    }: AndroidAdbScrollOptions): Promise<AndroidAdbCommandResult> {
+      const result = await executor(adbPath, [
+        '-s',
+        deviceSerial,
+        'shell',
+        'input',
+        'swipe',
+        String(startX),
+        String(startY),
+        String(endX),
+        String(endY),
+        String(durationMs),
+      ]);
+      return buildDriverResult({ action: 'scroll', rawFileName, result });
+    },
+
+    async tap({
+      rawFileName = 'adb-tap.txt',
+      x,
+      y,
+    }: AndroidAdbTapOptions): Promise<AndroidAdbCommandResult> {
+      const result = await executor(adbPath, ['-s', deviceSerial, 'shell', 'input', 'tap', String(x), String(y)]);
+      return buildDriverResult({ action: 'tap', rawFileName, result });
+    },
   };
 }
 
@@ -177,5 +257,9 @@ export type {
   AndroidAdbDeepLinkOptions,
   AndroidAdbDriver,
   AndroidAdbDriverOptions,
+  AndroidAdbInspectTreeOptions,
   AndroidAdbReadLogsOptions,
+  AndroidAdbScreenshotOptions,
+  AndroidAdbScrollOptions,
+  AndroidAdbTapOptions,
 };

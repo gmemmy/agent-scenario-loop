@@ -65,12 +65,19 @@ type AndroidDeepLinkCommand = {
 };
 
 type AndroidAdbDriverStep = {
-  driverAction: 'readLogs';
+  driverAction: 'inspectTree' | 'readLogs' | 'screenshot' | 'scroll' | 'tap';
+  durationMs?: number;
+  endX?: number;
+  endY?: number;
   lines?: number;
   rawFileName?: string;
   required?: boolean;
   stepId?: string;
+  startX?: number;
+  startY?: number;
   waitMs?: number;
+  x?: number;
+  y?: number;
 };
 
 type AndroidPreflightOptions = {
@@ -280,12 +287,12 @@ function buildAndroidVerdict({ runId, health }: { runId: string; health: Record<
 }
 
 /**
- * Builds the readLogs driver steps for this adb capture window.
+ * Builds the driver steps for this adb capture window.
  *
  * @param {{captureLogcat: boolean, driverSteps: AndroidAdbDriverStep[], logcatLines: number, waitMs: number}} options
  * @returns {AndroidAdbDriverStep[]}
  */
-function resolveReadLogDriverSteps({
+function resolveAndroidAdbDriverSteps({
   captureLogcat,
   driverSteps,
   logcatLines,
@@ -296,16 +303,25 @@ function resolveReadLogDriverSteps({
   logcatLines: number;
   waitMs: number;
 }): AndroidAdbDriverStep[] {
-  const readLogSteps = driverSteps.filter((step) => step.driverAction === 'readLogs');
-  if (readLogSteps.length > 0) {
-    return readLogSteps.map((step, index) => ({
-      driverAction: 'readLogs',
-      lines: step.lines ?? logcatLines,
-      rawFileName: step.rawFileName ?? (index === 0 ? 'adb-logcat.txt' : `adb-logcat-${index + 1}.txt`),
-      required: step.required !== false,
-      ...(step.stepId ? { stepId: step.stepId } : {}),
-      ...(typeof step.waitMs === 'number' && step.waitMs > 0 ? { waitMs: step.waitMs } : {}),
-    }));
+  if (driverSteps.length > 0) {
+    let readLogsIndex = 0;
+    return driverSteps.map((step, index) => {
+      const actionIndex = index + 1;
+      if (step.driverAction === 'readLogs') {
+        readLogsIndex += 1;
+      }
+
+      return {
+        ...step,
+        ...(step.driverAction === 'readLogs' ? { lines: step.lines ?? logcatLines } : {}),
+        rawFileName: step.rawFileName ?? defaultAndroidAdbRawFileName({
+          driverAction: step.driverAction,
+          index: actionIndex,
+          readLogsIndex,
+        }),
+        required: step.required !== false,
+      };
+    });
   }
 
   return captureLogcat
@@ -317,6 +333,127 @@ function resolveReadLogDriverSteps({
         ...(waitMs > 0 ? { waitMs } : {}),
       }]
     : [];
+}
+
+/**
+ * Returns the default raw evidence filename for one adb driver action.
+ *
+ * @param {{driverAction: AndroidAdbDriverStep['driverAction'], index: number, readLogsIndex: number}} options
+ * @returns {string}
+ */
+function defaultAndroidAdbRawFileName({
+  driverAction,
+  index,
+  readLogsIndex,
+}: {
+  driverAction: AndroidAdbDriverStep['driverAction'];
+  index: number;
+  readLogsIndex: number;
+}): string {
+  if (driverAction === 'readLogs') {
+    return readLogsIndex === 1 ? 'adb-logcat.txt' : `adb-logcat-${readLogsIndex}.txt`;
+  }
+
+  const suffix = index === 1 ? '' : `-${index}`;
+  if (driverAction === 'inspectTree') {
+    return `adb-ui-tree${suffix}.xml`;
+  }
+  if (driverAction === 'screenshot') {
+    return `adb-screenshot${suffix}.png`;
+  }
+
+  return `adb-${driverAction}${suffix}.txt`;
+}
+
+/**
+ * Builds a stable health code suffix for an adb driver action.
+ *
+ * @param {AndroidAdbDriverStep['driverAction']} driverAction
+ * @returns {string}
+ */
+function androidDriverActionCode(driverAction: AndroidAdbDriverStep['driverAction']): string {
+  return driverAction.replace(/[A-Z]/gu, (letter) => `_${letter.toLowerCase()}`);
+}
+
+/**
+ * Runs one normalized adb driver step through the Android driver adapter.
+ *
+ * @param {{driver: import('./android-adb-driver').AndroidAdbDriver, driverStep: AndroidAdbDriverStep, logcatLines: number}} options
+ * @returns {Promise<import('./android-adb-driver').AndroidAdbCommandResult>}
+ */
+async function runAndroidAdbDriverStep({
+  driver,
+  driverStep,
+  logcatLines,
+}: {
+  driver: import('./android-adb-driver').AndroidAdbDriver;
+  driverStep: AndroidAdbDriverStep;
+  logcatLines: number;
+}): Promise<import('./android-adb-driver').AndroidAdbCommandResult> {
+  if (driverStep.driverAction === 'readLogs') {
+    return driver.readLogs({
+      lines: driverStep.lines ?? logcatLines,
+      ...(typeof driverStep.rawFileName === 'string' ? { rawFileName: driverStep.rawFileName } : {}),
+    });
+  }
+
+  if (driverStep.driverAction === 'inspectTree') {
+    return driver.inspectTree({
+      ...(typeof driverStep.rawFileName === 'string' ? { rawFileName: driverStep.rawFileName } : {}),
+    });
+  }
+
+  if (driverStep.driverAction === 'screenshot') {
+    return driver.screenshot({
+      ...(typeof driverStep.rawFileName === 'string' ? { rawFileName: driverStep.rawFileName } : {}),
+    });
+  }
+
+  if (driverStep.driverAction === 'scroll') {
+    if (
+      typeof driverStep.startX !== 'number' ||
+      typeof driverStep.startY !== 'number' ||
+      typeof driverStep.endX !== 'number' ||
+      typeof driverStep.endY !== 'number'
+    ) {
+      return {
+        action: 'scroll',
+        args: [],
+        command: 'adb',
+        exitCode: 1,
+        rawFileName: driverStep.rawFileName ?? 'adb-scroll.txt',
+        stderr: 'scroll driver action requires startX, startY, endX, and endY.',
+        stdout: '',
+      };
+    }
+
+    return driver.scroll({
+      ...(typeof driverStep.durationMs === 'number' ? { durationMs: driverStep.durationMs } : {}),
+      endX: driverStep.endX,
+      endY: driverStep.endY,
+      ...(typeof driverStep.rawFileName === 'string' ? { rawFileName: driverStep.rawFileName } : {}),
+      startX: driverStep.startX,
+      startY: driverStep.startY,
+    });
+  }
+
+  if (typeof driverStep.x !== 'number' || typeof driverStep.y !== 'number') {
+    return {
+      action: 'tap',
+      args: [],
+      command: 'adb',
+      exitCode: 1,
+      rawFileName: driverStep.rawFileName ?? 'adb-tap.txt',
+      stderr: 'tap driver action requires x and y.',
+      stdout: '',
+    };
+  }
+
+  return driver.tap({
+    ...(typeof driverStep.rawFileName === 'string' ? { rawFileName: driverStep.rawFileName } : {}),
+    x: driverStep.x,
+    y: driverStep.y,
+  });
 }
 
 /**
@@ -395,7 +532,7 @@ async function runAndroidAdbPreflight({
     packageName,
     waitMs,
   };
-  const readLogSteps = resolveReadLogDriverSteps({
+  const resolvedDriverSteps = resolveAndroidAdbDriverSteps({
     captureLogcat,
     driverSteps,
     logcatLines,
@@ -517,47 +654,66 @@ async function runAndroidAdbPreflight({
       }
     }
 
+    const driverActionMetadata: Record<string, unknown>[] = [];
     const logcatMetadata: Record<string, unknown>[] = [];
-    for (const readLogStep of readLogSteps) {
-      if (readLogStep.waitMs && readLogStep.waitMs > 0) {
-        await wait(readLogStep.waitMs);
+    for (const driverStep of resolvedDriverSteps) {
+      if (driverStep.waitMs && driverStep.waitMs > 0) {
+        await wait(driverStep.waitMs);
         checks.push({
           name: 'android_capture_window_waited',
           status: 'passed',
           source: 'runner',
           code: 'android_capture_window_waited',
-          message: `Waited ${readLogStep.waitMs}ms before capturing adb logcat.`,
+          message: `Waited ${driverStep.waitMs}ms before running adb driver action ${driverStep.driverAction}.`,
           metadata: {
-            ...(readLogStep.stepId ? { stepId: readLogStep.stepId } : {}),
+            driverAction: driverStep.driverAction,
+            ...(driverStep.stepId ? { stepId: driverStep.stepId } : {}),
           },
         });
       }
 
-      const logcat = await driver.readLogs({
-        lines: readLogStep.lines ?? logcatLines,
-        rawFileName: readLogStep.rawFileName,
+      const driverResult = await runAndroidAdbDriverStep({
+        driver,
+        driverStep,
+        logcatLines,
       });
-      raw[logcat.rawFileName] = formatAndroidAdbRawOutput(logcat);
-      const failed = logcat.exitCode !== 0;
+      raw[driverResult.rawFileName] = formatAndroidAdbRawOutput(driverResult);
+      const failed = driverResult.exitCode !== 0;
+      const codeSuffix = androidDriverActionCode(driverStep.driverAction);
+      const isReadLogs = driverStep.driverAction === 'readLogs';
       checks.push({
-        name: 'android_logcat_captured',
-        status: failed && readLogStep.required === false ? 'warning' : failed ? 'failed' : 'passed',
+        name: isReadLogs ? 'android_logcat_captured' : `android_${codeSuffix}`,
+        status: failed && driverStep.required === false ? 'warning' : failed ? 'failed' : 'passed',
         source: 'runner',
-        code: logcat.exitCode === 0 ? 'android_logcat_captured' : 'android_logcat_failed',
-        message: logcat.exitCode === 0
-          ? `Captured the last ${readLogStep.lines ?? logcatLines} adb logcat lines.`
-          : 'adb logcat capture failed.',
+        code: isReadLogs
+          ? driverResult.exitCode === 0 ? 'android_logcat_captured' : 'android_logcat_failed'
+          : driverResult.exitCode === 0 ? `android_${codeSuffix}_completed` : `android_${codeSuffix}_failed`,
+        message: isReadLogs
+          ? driverResult.exitCode === 0
+            ? `Captured the last ${driverStep.lines ?? logcatLines} adb logcat lines.`
+            : 'adb logcat capture failed.'
+          : driverResult.exitCode === 0
+            ? `Completed adb driver action ${driverStep.driverAction}.`
+            : `adb driver action ${driverStep.driverAction} failed.`,
         metadata: {
-          driverAction: 'readLogs',
-          ...(readLogStep.stepId ? { stepId: readLogStep.stepId } : {}),
+          driverAction: driverStep.driverAction,
+          ...(driverStep.stepId ? { stepId: driverStep.stepId } : {}),
         },
       });
-      logcatMetadata.push({
-        args: logcat.args,
-        exitCode: logcat.exitCode,
-        rawPath: `raw/${logcat.rawFileName}`,
-        ...(readLogStep.stepId ? { stepId: readLogStep.stepId } : {}),
-      });
+      const actionMetadata = {
+        args: driverResult.args,
+        driverAction: driverStep.driverAction,
+        exitCode: driverResult.exitCode,
+        rawPath: `raw/${driverResult.rawFileName}`,
+        ...(driverStep.stepId ? { stepId: driverStep.stepId } : {}),
+      };
+      driverActionMetadata.push(actionMetadata);
+      if (driverStep.driverAction === 'readLogs') {
+        logcatMetadata.push(actionMetadata);
+      }
+    }
+    if (driverActionMetadata.length > 0) {
+      metadata.driverActions = driverActionMetadata;
     }
     if (logcatMetadata.length === 1) {
       metadata.logcat = logcatMetadata[0];
@@ -575,13 +731,23 @@ async function runAndroidAdbPreflight({
       });
     }
 
-    if (readLogSteps.length > 0) {
+    if (resolvedDriverSteps.some((step) => step.driverAction === 'readLogs')) {
       checks.push({
         name: 'android_logcat_captured',
         status: 'failed',
         source: 'runner',
         code: 'android_logcat_no_device',
         message: 'adb logcat capture was requested, but no online Android device was selected.',
+      });
+    }
+
+    if (resolvedDriverSteps.some((step) => step.driverAction !== 'readLogs')) {
+      checks.push({
+        name: 'android_driver_actions_completed',
+        status: 'failed',
+        source: 'runner',
+        code: 'android_driver_actions_no_device',
+        message: 'adb driver actions were requested, but no online Android device was selected.',
       });
     }
   }
@@ -667,7 +833,8 @@ export {
   parseAdbDevices,
   parseArgs,
   parsePositiveInteger,
-  resolveReadLogDriverSteps,
+  resolveAndroidAdbDriverSteps,
+  runAndroidAdbDriverStep,
   runAndroidAdbPreflight,
   selectDevice,
   usage,

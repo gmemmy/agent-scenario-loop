@@ -481,3 +481,83 @@ test('profile-android derives adb driver steps from normalized execution-plan ev
     },
   ]);
 });
+
+test('profile-android derives portable adb driver actions from scenario metadata', () => {
+  const scenario = {
+    id: 'ui-actions',
+    steps: [
+      {
+        id: 'tap-card',
+        kind: 'gesture',
+        driverAction: 'tap',
+        adapterOptions: {
+          androidAdb: {
+            x: 120,
+            y: 240,
+          },
+        },
+      },
+      {
+        id: 'scroll-feed',
+        kind: 'gesture',
+        driverAction: 'scroll',
+        adapterOptions: {
+          androidAdb: {
+            durationMs: 350,
+            endX: 500,
+            endY: 400,
+            startX: 500,
+            startY: 1400,
+          },
+        },
+      },
+      {
+        id: 'inspect-final',
+        kind: 'captureEvidence',
+        artifact: 'uiTree',
+        driverAction: 'inspectTree',
+      },
+      {
+        id: 'capture-final',
+        kind: 'captureEvidence',
+        artifact: 'screenshot',
+        driverAction: 'screenshot',
+        required: false,
+      },
+    ],
+  };
+
+  assert.deepEqual(resolveAndroidAdbDriverSteps(scenario), [
+    {
+      driverAction: 'tap',
+      required: true,
+      stepId: 'tap-card',
+      waitMs: 0,
+      x: 120,
+      y: 240,
+    },
+    {
+      driverAction: 'scroll',
+      durationMs: 350,
+      endX: 500,
+      endY: 400,
+      required: true,
+      startX: 500,
+      startY: 1400,
+      stepId: 'scroll-feed',
+      waitMs: 0,
+    },
+    {
+      driverAction: 'inspectTree',
+      required: true,
+      stepId: 'inspect-final',
+      waitMs: 0,
+    },
+    {
+      driverAction: 'screenshot',
+      required: false,
+      stepId: 'capture-final',
+      waitMs: 0,
+    },
+  ]);
+});

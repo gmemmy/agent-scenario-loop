@@ -4,7 +4,7 @@ The runner owns host execution. It is the boundary between scenario contracts an
 
 The package ships eleven public runner entrypoints. Package scripts build them into `dist/` before execution:
 
-- `android-adb.ts`: checks adb availability, connected Android device readiness, optional package installation, optional package launch, bounded logcat output, and writes raw adb evidence.
+- `android-adb.ts`: checks adb availability, connected Android device readiness, optional package installation, optional package launch, ordered adb driver actions, bounded logcat output, and raw adb evidence.
 - `check-plan.ts`: validates a scenario manifest, primary runner capability manifest, and optional evidence-provider manifests, then writes schema-checked `health.json`, `verdict.json`, `agent-summary.md`, and `planner-compatibility.json` before execution.
 - `compare.ts`: reads two completed run directories, validates `health.json` and `verdict.json`, then writes or prints a schema-checked `comparison.json`.
 - `compare-latest.ts`: scans an artifact root for the newest trusted prior run for a scenario, rejects unhealthy current runs, then writes or prints a schema-checked `comparison.json`.
@@ -16,9 +16,9 @@ The package ships eleven public runner entrypoints. Package scripts build them i
 - `profile-android.ts`: reads project config and an Android scenario manifest, then profiles explicit event logs, prior adb artifacts, or an owned adb capture window. During profile-session capture, Android-specific command metadata takes precedence; otherwise it derives command steps from `buildScenarioExecutionPlan()`.
 - `profile-ios.ts`: reads project config and an iOS scenario manifest, then profiles explicit event logs, prior simctl artifacts, or an owned simctl capture window. During profile-session capture, iOS-specific command metadata takes precedence; otherwise it derives command steps from `buildScenarioExecutionPlan()`.
 
-The package also exports `runner/android-adb-driver` as a small adapter module. It exposes `readLogs` as the portable driver action currently proven by adb, and keeps Android-specific helpers such as log clearing, package launch, and deep-link execution behind explicit method names.
+The package also exports `runner/android-adb-driver` as a small adapter module. It exposes adb-backed `tap`, `scroll`, `inspectTree`, `screenshot`, and `readLogs` driver actions, and keeps Android-specific helpers such as log clearing, package launch, and deep-link execution behind explicit method names.
 
-When `profile-android` owns an adb capture window, scenario steps with `driverAction: "readLogs"` are normalized through `buildScenarioExecutionPlan()` and routed to that adapter. Step metadata under `adapterOptions.androidAdb` can set `logcatLines`, `rawFileName`, and wait behavior while preserving `raw/adb-logcat.txt` as the default profile input.
+When `profile-android` owns an adb capture window, scenario steps with supported Android `driverAction` values are normalized through `buildScenarioExecutionPlan()` and routed to that adapter. Step metadata under `adapterOptions.androidAdb` can set log bounds, coordinate inputs, raw filenames, and wait behavior while preserving `raw/adb-logcat.txt` as the default profile input for log capture.
 
 The artifact contract separates scenario health, product verdict, baseline comparison, and profile evidence into schema-checked files. `health.json`, `verdict.json`, and optional `comparison.json` provide the interpretation gate; `manifest.json`, `metrics.json`, `causal-run.json`, and `budget-verdict.json` preserve the profile evidence for agents and humans.
 
@@ -26,8 +26,8 @@ What it does not do yet:
 
 - boot or control simulators
 - install or build apps
-- drive full scenario-step UI interactions beyond app launch, storage-backed app commands, and profile-session deep-link helpers
-- capture video, screenshots, UI trees, memory, network, or accessibility evidence from built-in drivers
+- drive semantic UI interactions beyond coordinate-based adb `tap` and `scroll`
+- capture video, memory, network, or accessibility evidence from built-in drivers
 
 Those deeper orchestration capabilities land behind the same artifact contract. Primary runners own one run lifecycle. Evidence providers attach optional or required evidence through a smaller provider interface. Tools such as AXe, XcodeBuildMCP, agent-device, Argent, adb, profilers, accessibility inspectors, and log collectors plug in as adapters, so scenarios and artifacts stay stable while tactical tools change underneath.
 

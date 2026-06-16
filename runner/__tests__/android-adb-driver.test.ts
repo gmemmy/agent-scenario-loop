@@ -93,3 +93,36 @@ test('Android adb driver keeps lifecycle helpers separate from portable driver a
   assert.equal(deepLink.action, 'openDeepLink');
   assert.equal(deepLink.rawFileName, 'adb-deep-link-1.txt');
 });
+
+test('Android adb driver performs portable UI and capture actions', async () => {
+  const executor = createExecutor({
+    '-s emulator-5554 shell input tap 120 240': { stdout: '' },
+    '-s emulator-5554 shell input swipe 500 1400 500 400 350': { stdout: '' },
+    '-s emulator-5554 shell uiautomator dump /dev/tty': {
+      stdout: '<hierarchy><node text="Home" /></hierarchy>\n',
+    },
+    '-s emulator-5554 exec-out screencap -p': {
+      stdout: 'PNG',
+    },
+  });
+  const driver = createAndroidAdbDriver({
+    adbPath: 'fake-adb',
+    deviceSerial: 'emulator-5554',
+    executor,
+  });
+
+  const tap = await driver.tap({ x: 120, y: 240 });
+  const scroll = await driver.scroll({ durationMs: 350, endX: 500, endY: 400, startX: 500, startY: 1400 });
+  const tree = await driver.inspectTree();
+  const screenshot = await driver.screenshot();
+
+  assert.equal(tap.action, 'tap');
+  assert.equal(tap.rawFileName, 'adb-tap.txt');
+  assert.equal(scroll.action, 'scroll');
+  assert.equal(scroll.rawFileName, 'adb-scroll.txt');
+  assert.equal(tree.action, 'inspectTree');
+  assert.equal(tree.rawFileName, 'adb-ui-tree.xml');
+  assert.match(formatAndroidAdbRawOutput(tree), /hierarchy/u);
+  assert.equal(screenshot.action, 'screenshot');
+  assert.equal(screenshot.rawFileName, 'adb-screenshot.png');
+});

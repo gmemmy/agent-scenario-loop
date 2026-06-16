@@ -10,8 +10,8 @@
     "logCapture",
     "artifactWrite"
   ],
-  "driverActions": ["readLogs"],
-  "artifactOutputs": ["logs", "signals"],
+  "driverActions": ["tap", "scroll", "inspectTree", "screenshot", "readLogs"],
+  "artifactOutputs": ["logs", "signals", "screenshot", "uiTree"],
   "lifecycle": [
     "prepare",
     "launch",

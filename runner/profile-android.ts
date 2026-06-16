@@ -178,6 +178,16 @@ function readAndroidAdbStepOptions(step: ScenarioExecutionStep): Record<string, 
 }
 
 /**
+ * Reads a finite number from Android adb adapter metadata.
+ *
+ * @param {unknown} value
+ * @returns {number | undefined}
+ */
+function readFiniteNumber(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+/**
  * Expands portable scenario command steps into Android profile-session commands.
  *
  * @param {Record<string, unknown>} scenario
@@ -205,23 +215,40 @@ function resolveExecutionPlanProfileCommands(scenario: Record<string, any>): And
  */
 function resolveAndroidAdbDriverSteps(scenario: Record<string, any>): AndroidAdbDriverStep[] {
   const executionPlan = buildScenarioExecutionPlan(scenario);
+  let readLogsIndex = 0;
   return executionPlan.steps
-    .filter((step: ScenarioExecutionStep) => step.driverAction === 'readLogs')
-    .map((step: ScenarioExecutionStep, index: number) => {
+    .filter((step: ScenarioExecutionStep) =>
+      ['inspectTree', 'readLogs', 'screenshot', 'scroll', 'tap'].includes(String(step.driverAction)),
+    )
+    .map((step: ScenarioExecutionStep) => {
       const androidAdbOptions = readAndroidAdbStepOptions(step);
+      if (step.driverAction === 'readLogs') {
+        readLogsIndex += 1;
+      }
       const rawFileName = typeof androidAdbOptions.rawFileName === 'string' && androidAdbOptions.rawFileName.length > 0
         ? androidAdbOptions.rawFileName
-        : index === 0
-          ? 'adb-logcat.txt'
-          : `adb-logcat-${index + 1}.txt`;
+        : step.driverAction === 'readLogs'
+          ? readLogsIndex === 1
+            ? 'adb-logcat.txt'
+            : `adb-logcat-${readLogsIndex}.txt`
+        : undefined;
 
       return {
-        driverAction: 'readLogs',
-        lines: readPositiveInteger(androidAdbOptions.logcatLines, 1000),
-        rawFileName,
+        driverAction: step.driverAction as AndroidAdbDriverStep['driverAction'],
+        ...(step.driverAction === 'readLogs' ? { lines: readPositiveInteger(androidAdbOptions.logcatLines, 1000) } : {}),
+        ...(typeof rawFileName === 'string' ? { rawFileName } : {}),
         required: step.required,
         stepId: step.id,
+        ...(typeof readFiniteNumber(androidAdbOptions.durationMs) === 'number'
+          ? { durationMs: readFiniteNumber(androidAdbOptions.durationMs) }
+          : {}),
+        ...(typeof readFiniteNumber(androidAdbOptions.endX) === 'number' ? { endX: readFiniteNumber(androidAdbOptions.endX) } : {}),
+        ...(typeof readFiniteNumber(androidAdbOptions.endY) === 'number' ? { endY: readFiniteNumber(androidAdbOptions.endY) } : {}),
+        ...(typeof readFiniteNumber(androidAdbOptions.startX) === 'number' ? { startX: readFiniteNumber(androidAdbOptions.startX) } : {}),
+        ...(typeof readFiniteNumber(androidAdbOptions.startY) === 'number' ? { startY: readFiniteNumber(androidAdbOptions.startY) } : {}),
         waitMs: readStepWaitMs(step),
+        ...(typeof readFiniteNumber(androidAdbOptions.x) === 'number' ? { x: readFiniteNumber(androidAdbOptions.x) } : {}),
+        ...(typeof readFiniteNumber(androidAdbOptions.y) === 'number' ? { y: readFiniteNumber(androidAdbOptions.y) } : {}),
       };
     });
 }

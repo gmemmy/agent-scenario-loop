@@ -21,8 +21,8 @@ The package is intentionally contract-first: adopt the scenario and artifact sha
 - [runner/profile-android.ts](../runner/profile-android.ts): Android profile runner that can ingest profile-event logs directly, read adb artifact folders, or own a bounded adb capture window before writing the full artifact set
 - [runner/ios-simctl.ts](../runner/ios-simctl.ts): iOS simulator capture runner for launch, profile-session storage seeding, profile-session deep links, bounded logs, stored profile-event collection, and raw simctl evidence
 - [runner/profile-ios.ts](../runner/profile-ios.ts): iOS profile runner that can ingest profile-event logs directly, read simctl artifact folders, or own a bounded simctl capture window before writing the full artifact set
-- [runner/android-adb.ts](../runner/android-adb.ts): Android adb readiness preflight, optional package launch, and bounded logcat capture that write runner health and raw adb evidence
-- [runner/android-adb-driver.ts](../runner/android-adb-driver.ts): adb-backed Android driver adapter for proven log capture plus Android-specific lifecycle helpers
+- [runner/android-adb.ts](../runner/android-adb.ts): Android adb readiness preflight, optional package launch, ordered driver actions, and bounded logcat capture that write runner health and raw adb evidence
+- [runner/android-adb-driver.ts](../runner/android-adb-driver.ts): adb-backed Android driver adapter for tap, scroll, UI tree, screenshot, and log capture plus Android-specific lifecycle helpers
 - [runner/example-ios-live.ts](../runner/example-ios-live.ts): packaged iOS example live proof for simctl preflight plus canonical startup, open-close, and scroll-settle scenarios
 - [runner/demo-loop.ts](../runner/demo-loop.ts): fixture loop that proves preflight, profile history, and latest-trusted comparison without a simulator
 - [examples/event-logs](../examples/event-logs): deterministic profile-event logs for the fixture loop
@@ -64,7 +64,7 @@ Runner capabilities describe ownership, such as launch, session control, command
 
 `buildScenarioExecutionPlan()` turns the same scenario steps into a deterministic adapter-facing work list. Each normalized step records the scenario step id, original kind, required flag, optional driver action, and the runner port method that owns it: `launch`, `executeStep`, `waitForTruthEvent`, or `captureEvidence`.
 
-Android adb capture currently routes normalized steps with `driverAction: "readLogs"` through the adb driver adapter. `adapterOptions.androidAdb.logcatLines` controls the bounded log window, and `adapterOptions.androidAdb.rawFileName` can override the raw evidence filename when the consuming profile path does not require the default `raw/adb-logcat.txt`.
+Android adb capture routes normalized steps with `driverAction: "tap"`, `"scroll"`, `"inspectTree"`, `"screenshot"`, or `"readLogs"` through the adb driver adapter. `adapterOptions.androidAdb` carries action-specific metadata: coordinate fields for tap and scroll, `durationMs` for scroll, `logcatLines` for bounded logs, `waitMs` for capture timing, and `rawFileName` for evidence filename overrides. Log capture keeps `raw/adb-logcat.txt` as the default profile input.
 
 Adapter-target fixtures such as `agent-device-android`, `agent-device-ios`, `argent-ios`, `argent-android`, `argent-react-profiler-provider`, and `axe-accessibility-provider` describe where external tools can plug into the same contract. They are schema-checked and planner-tested capability manifests, not bundled runtime integrations. Argent is modeled from an existing local mobile loop as a trial interaction/evidence target: the iOS and Android manifests represent interaction-runner targets, while the React profiler manifest is a separate Android evidence-provider lane. Active evidence providers can satisfy required evidence artifacts and provider-owned driver actions such as `collectPerfSignals`; providers outside the selected platform do not contribute to the match.
 
@@ -115,7 +115,7 @@ The package currently supports:
 - Android adb readiness checks
 - Android bounded logcat capture
 - Android package launch plus bounded logcat capture
-- Android adb driver adapter with scenario-routed `readLogs` as the currently proven portable driver action
+- Android adb driver adapter with scenario-routed `tap`, `scroll`, `inspectTree`, `screenshot`, and `readLogs`
 - Android profile artifact generation from explicit event logs, prior adb artifacts, or an owned `--adb-capture` window
 - iOS bounded simulator log capture and stored app truth-event collection through simctl
 - iOS simulator app launch plus storage-backed profile-session and command seeding
@@ -127,7 +127,7 @@ Not yet shipped as supported public features:
 
 - app installation or build orchestration
 - full scenario-step UI driving beyond app launch, log capture, and storage-backed app commands
-- video, screenshot, UI-tree, memory, network, or accessibility evidence capture from built-in drivers
+- video, memory, network, or accessibility evidence capture from built-in drivers
 - Computer Use flows
 - product-specific scenarios
 

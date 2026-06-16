@@ -137,6 +137,90 @@ test('captures bounded adb logcat evidence when requested', async (t: TestContex
   );
 });
 
+test('runs portable adb driver actions and writes raw evidence', async (t: TestContext) => {
+  const outputDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-android-adb-driver-actions-'));
+  t.after(async () => {
+    await fsp.rm(outputDir, { recursive: true, force: true });
+  });
+  const executor = createExecutor({
+    version: { stdout: 'Android Debug Bridge version 1.0.41\n' },
+    'devices -l': {
+      stdout: [
+        'List of devices attached',
+        'emulator-5554 device product:sdk_gphone model:Pixel_6 device:emu64',
+      ].join('\n'),
+    },
+    '-s emulator-5554 shell getprop ro.product.model': { stdout: 'Pixel 6\n' },
+    '-s emulator-5554 shell getprop ro.build.version.release': { stdout: '15\n' },
+    '-s emulator-5554 shell getprop ro.build.version.sdk': { stdout: '35\n' },
+    '-s emulator-5554 shell input tap 120 240': { stdout: '' },
+    '-s emulator-5554 shell input swipe 500 1400 500 400 350': { stdout: '' },
+    '-s emulator-5554 shell uiautomator dump /dev/tty': {
+      stdout: '<hierarchy><node text="Example" /></hierarchy>\n',
+    },
+    '-s emulator-5554 exec-out screencap -p': { stdout: 'PNG' },
+  });
+
+  const result = await runAndroidAdbPreflight({
+    driverSteps: [
+      { driverAction: 'tap', stepId: 'tap-card', x: 120, y: 240 },
+      { driverAction: 'scroll', durationMs: 350, endX: 500, endY: 400, startX: 500, startY: 1400, stepId: 'scroll-feed' },
+      { driverAction: 'inspectTree', stepId: 'inspect-final' },
+      { driverAction: 'screenshot', stepId: 'capture-final' },
+    ],
+    executor,
+    outputDir,
+    runId: 'android-driver-actions',
+  });
+
+  const metadata = JSON.parse(fs.readFileSync(path.join(outputDir, 'raw', 'android-metadata.json'), 'utf8'));
+
+  assert.equal(result.health.healthStatus, 'passed', JSON.stringify(result.health.checks, null, 2));
+  assert.ok(fs.existsSync(path.join(outputDir, 'raw', 'adb-tap.txt')));
+  assert.ok(fs.existsSync(path.join(outputDir, 'raw', 'adb-scroll-2.txt')));
+  assert.ok(fs.existsSync(path.join(outputDir, 'raw', 'adb-ui-tree-3.xml')));
+  assert.ok(fs.existsSync(path.join(outputDir, 'raw', 'adb-screenshot-4.png')));
+  assert.deepEqual(
+    (metadata.driverActions as Array<{ driverAction: string }>).map((item) => item.driverAction),
+    ['tap', 'scroll', 'inspectTree', 'screenshot'],
+  );
+  assert.ok(
+    (result.health.checks as Array<{ code: string }>).some((check) => check.code === 'android_tap_completed'),
+  );
+  assert.ok(
+    (result.health.checks as Array<{ code: string }>).some((check) => check.code === 'android_inspect_tree_completed'),
+  );
+});
+
+test('fails required adb tap steps when coordinates are missing', async (t: TestContext) => {
+  const outputDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-android-adb-tap-missing-coordinates-'));
+  t.after(async () => {
+    await fsp.rm(outputDir, { recursive: true, force: true });
+  });
+  const executor = createExecutor({
+    version: { stdout: 'Android Debug Bridge version 1.0.41\n' },
+    'devices -l': {
+      stdout: [
+        'List of devices attached',
+        'emulator-5554 device product:sdk_gphone model:Pixel_6 device:emu64',
+      ].join('\n'),
+    },
+    '-s emulator-5554 shell getprop ro.product.model': { stdout: 'Pixel 6\n' },
+    '-s emulator-5554 shell getprop ro.build.version.release': { stdout: '15\n' },
+    '-s emulator-5554 shell getprop ro.build.version.sdk': { stdout: '35\n' },
+  });
+
+  const result = await runAndroidAdbPreflight({
+    driverSteps: [{ driverAction: 'tap', stepId: 'tap-card' }],
+    executor,
+    outputDir,
+    runId: 'android-missing-tap',
+  });
+
+  assert.equal(result.health.healthStatus, 'failed');
+  assert.ok(fs.readFileSync(path.join(outputDir, 'raw', 'adb-tap.txt'), 'utf8').includes('requires x and y'));
+});
+
 test('clears logs, launches package, waits, and captures a bounded Android window', async (t: TestContext) => {
   const outputDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-android-adb-window-'));
   t.after(async () => {
