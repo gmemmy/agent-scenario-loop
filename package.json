@@ -26,6 +26,7 @@
   },
   "files": [
     "dist",
+    "docs",
     "examples",
     "schemas",
     "README.md",

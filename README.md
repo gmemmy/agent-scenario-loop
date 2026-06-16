@@ -1,132 +1,70 @@
 # Agent Scenario Loop
 
-Scenario orchestration and evidence collection for agent-driven software development.
+Define app scenarios, run them with any agent or automation tool, and preserve the evidence from every run.
 
-Agent runners keep getting better at doing work.
+Agent Scenario Loop is a scenario orchestration and evidence collection framework for agent-driven software development. It sits above tactical runners: it does not replace Codex, Argent, Agent Device, adb, Xcode instrumentation, accessibility tooling, profilers, or your internal scripts. It gives them a shared scenario and evidence contract.
 
-Some drive devices. Some navigate applications. Some run accessibility audits. Some collect traces. Some execute complex workflows.
+**Bring your own runner. Keep your scenarios. Keep your evidence.**
+
+## Start here
+
+| If you want to... | Read this |
+| --- | --- |
+| Understand the idea in plain language | [Concepts](docs/concepts.md) |
+| Understand the project doctrine | [Principles](docs/principles.md) |
+| See the current v1 artifacts and package surface | [V1 contracts](docs/contracts.md) |
+| Validate a scenario/runner plan before execution | [Package use](#package-use) |
+| Inspect runner behavior and current runner limits | [Runner docs](runner/README.md) |
+| See example scenarios and runner manifests | [examples/scenarios](examples/scenarios), [examples/runners](examples/runners) |
+| See a minimal app integration | [examples/minimal-app](examples/minimal-app/README.md) |
+
+## The short version
 
 An agent runner is any tool that can carry out part of a software workflow on your behalf. It might click through an app, run commands, inspect a screen, collect diagnostics, or drive a simulator or device.
 
 The problem is not execution. The problem is everything around execution.
 
-Once you want to mix multiple runners, reuse scenarios, compare results across runs, preserve evidence, or evaluate changes over time, the workflow fragments quickly. Every tool has its own way to define the work, capture results, and preserve context.
+Once you want to mix runners, reuse scenarios, compare results across runs, preserve evidence, or evaluate changes over time, the workflow fragments quickly. Every tool has its own way to define work, capture results, and preserve context.
 
-Agent Scenario Loop sits above that.
+Agent Scenario Loop gives that work a stable shape:
 
-It does not replace your runners. It orchestrates them.
+1. Define a scenario as data.
+2. Attach one or more runners or evidence providers.
+3. Execute the scenario.
+4. Write a stable artifact folder.
+5. Let humans and agents inspect, compare, and act on the evidence.
 
-## What it is
+For the deeper product framing, read [Concepts](docs/concepts.md).
 
-Agent Scenario Loop is a scenario orchestration and evidence collection framework for agent-driven software development.
+## Core ideas
 
-It lets you define application scenarios, execute them with one or more agent runners, collect evidence from those runs, and make that evidence available for analysis and decision making.
+### Scenarios are assets
 
-Think of it as the layer that coordinates the work rather than the thing doing the work.
+Scenarios describe important application behavior: a feed opening, a video upload, a livestream join, a checkout flow, or a large conversation loading. Those concerns should outlive whichever runner happens to execute them today.
 
-**Bring your own runner. Keep your scenarios. Keep your evidence.**
+Read next: [Scenarios become assets](docs/concepts.md#scenarios-become-assets).
 
-## Why it exists
-
-Teams are increasingly using specialized tools to help agents and engineers execute software workflows.
-
-Some tools drive applications. Some inspect accessibility state. Some collect platform traces. Some run profilers. Some are internal scripts built for one company or product.
-
-Examples include Codex, Argent, Agent Device, adb-based automation, accessibility tooling, Xcode instrumentation, profilers, and custom internal runners. You do not need to know any specific one of these tools to use the idea: Agent Scenario Loop treats them all as ways to execute or observe part of a scenario.
-
-Each tool is good at something. Real applications rarely need only one.
-
-You might want an accessibility runner validating UI state, an agent runner navigating the application, a profiler collecting memory data, and platform tooling capturing traces, all within the same scenario.
-
-Agent Scenario Loop makes that possible by keeping scenario definitions, app-emitted truth events, stable artifacts, budgets, and before/after evidence in one contract that different runners can serve over time.
-
-## How it works
-
-You define a scenario. For example:
-
-- opening a media-heavy feed
-- joining a livestream
-- uploading a video
-- loading a large conversation
-- completing a checkout flow
-
-You then attach the runners and instrumentation appropriate for that scenario.
-
-Agent Scenario Loop coordinates execution and collects evidence throughout the run. Evidence can include:
-
-- logs
-- memory metrics
-- profiling traces
-- network activity
-- performance measurements
-- accessibility results
-- custom signals
-
-The collected evidence becomes a permanent artifact of the scenario. Not something buried in a terminal session. Not something lost after a successful run. An artifact that agents and humans can inspect later.
-
-At the contract level:
-
-1. You define a scenario as data: `app-startup`, `open-close-cycle`, or your own.
-2. Your app emits truth events around the real user journey through a thin integration layer (`emitProfileEvent`), so a run's outcome is timestamped fact, not screenshot inference.
-3. A runner executes the scenario and writes one stable artifact folder per run: metrics, budget verdict, summary, raw logs, captures, and optional signals.
-4. You or your agent read the artifacts, compare against the last trusted run, and decide what to change next.
-
-## Vendor-neutral by design
-
-Scenarios should outlive tooling choices.
+### Runners are adapters
 
 The best runner for a task today may not be the best runner six months from now. Agent Scenario Loop treats runners and drivers as interchangeable components behind the scenario/evidence boundary.
 
-You can swap runners, combine runners, introduce new runners, or compare runners without rewriting your scenario definitions.
+Read next: [Vendor-neutral by design](docs/concepts.md#vendor-neutral-by-design) and [Runner docs](runner/README.md).
 
-## What you get out of the box
+### Evidence is durable
 
-V1 ships the contracts and the artifact pipeline:
+A run should leave behind artifacts that can be inspected after the terminal session is gone: logs, metrics, traces, screenshots, accessibility results, budget verdicts, and custom signals.
 
-- `app/profile-session.ts`: thin React Native integration — session control, truth events, signal attachments
-- `core/agent-summary.ts`: the agent-facing summary builder for health, verdict, and comparison state
-- `core/artifact-layout.ts`: the canonical v1 artifact path contract for one run directory
-- `core/artifact-writer.ts`: schema-enforcing writers for stable JSON/text artifacts
-- `core/artifact-contract.ts`: the artifact builders — manifest, metrics, causal run, budget verdict, summary
-- `core/evidence-interpreter.ts`: evidence interpretation helpers that gate timing claims on scenario health
-- `core/planner.ts`: planner compatibility checks between scenario requirements, primary runner capabilities, and evidence providers
-- `core/ports.ts`: ports-and-adapters method surfaces for runners, drivers, providers, writers, and interpreters
-- `core/schema-validator.ts`: dependency-free validation for the JSON Schema subset used by the public v1 contracts
-- `runner/profile-ios.ts`: an iOS runner that turns scenario metadata plus `[profile-event]` logs into the full artifact set
-- `examples/scenarios/ios/`: transition scenario manifests for the current iOS log-ingest runner
-- `examples/scenarios/v1/`: canonical v1 scenario fixtures
-- `examples/runners/`: primary runner and evidence-provider capability fixtures
-- `schemas/`: JSON Schemas for current artifacts plus the v1 scenario and runner capability contracts
+Read next: [V1 contracts](docs/contracts.md).
 
-V1 does not yet ship live simulator orchestration as a supported public feature. The current runner assembles artifacts from event logs you capture; a fully automated runner/adapter loop is the next milestone, and it lands behind the same contract. Adopting the contracts now means that loop drops in later without rewrites.
+### The application stays in control
 
-Also out of v1 scope: Android, physical devices, and Computer Use flows.
+Most evaluation frameworks evaluate agents. Agent Scenario Loop is built to evaluate how software evolves over time. The feed, livestream, upload flow, checkout flow, or conversation is the thing that matters. Tooling orbits the scenario.
 
-## Public contracts
-
-App-side, what your app exposes:
-
-- session control: `startProfileSession`, `stopProfileSession`, `applyProfileSessionUrl`
-- truth events: `emitProfileEvent`
-- signal attachments: `storeProfileSignal`
-
-Artifact layout, what every run produces:
-
-- `health.json` — whether the scenario execution was valid enough to interpret
-- `verdict.json` — budget outcome for product behavior, or `not_evaluated` before evidence is collected
-- `comparison.json` — optional before/after result against a trusted baseline
-- `agent-summary.md` — agent-readable health gate and next-action summary
-- `planner-compatibility.json` — optional preflight detail from runner/provider matching
-- transition runner artifacts: `manifest.json`, `metrics.json`, `budget-verdict.json`, `causal-run.json`, and `summary.md`
-- `raw/`, `captures/`, and optional `signals/js`, `signals/memory`, `signals/network`
-
-The v1 target contract separates scenario health from product verdict: `health.json` records execution validity, `verdict.json` records budget outcome, `comparison.json` records before/after baseline comparison, and `agent-summary.md` gives agents the health gate before they touch code. `core/planner.ts` can already derive initial health and unevaluated verdict artifacts from compatibility results. The current runner still writes `metrics.json` and `budget-verdict.json` as transition artifacts.
-
-Budgets are supported but optional for adoption.
+Read next: [The locus of control](docs/concepts.md#the-locus-of-control).
 
 ## Package use
 
-The package builds to `dist/` and exposes the typed core contracts from the root:
+The package builds to `dist/` and exposes typed core contracts from the root:
 
 ```js
 const {
@@ -146,13 +84,15 @@ pnpm check-plan -- --scenario examples/scenarios/v1/app-startup.json --runner ex
 
 That command does not require Xcode, a simulator, or device artifacts. It validates scenario and runner manifests, writes the v1 preflight artifacts, and stops before live execution.
 
+Read next: [V1 contracts](docs/contracts.md) for the artifact layout and current scope.
+
 ## Quick start
 
-1. Copy `app/profile-session.ts` into your React Native app and wire `useProfileSessionBootstrap()` near the root.
+1. Copy [app/profile-session.ts](app/profile-session.ts) into your React Native app and wire `useProfileSessionBootstrap()` near the root.
 2. Emit truth events around one real user journey. One journey is enough to start.
-3. Copy `core/config-template.json` into project-specific config and fill in your app identifiers.
-4. Start from `examples/scenarios/ios/app-startup.json` or `examples/scenarios/ios/open-close-cycle.json`.
-5. Run the journey on a simulator — manually or with your driver of choice — while capturing device logs, so the log contains your `[profile-event]` lines. Then:
+3. Copy [core/config-template.json](core/config-template.json) into project-specific config and fill in your app identifiers.
+4. Start from [examples/scenarios/ios/app-startup.json](examples/scenarios/ios/app-startup.json) or [examples/scenarios/ios/open-close-cycle.json](examples/scenarios/ios/open-close-cycle.json).
+5. Run the journey on a simulator manually or with your driver of choice while capturing device logs, so the log contains your `[profile-event]` lines. Then:
 
 ```bash
 pnpm profile:ios -- --config <config> --scenario <scenario> --events <event-log>
@@ -166,8 +106,6 @@ To validate a v1 scenario, runner manifest, and initial planning artifacts befor
 pnpm check-plan -- --scenario examples/scenarios/v1/app-startup.json --runner examples/runners/xcodebuildmcp-ios.json --platform ios --out artifacts/plan/app-startup
 ```
 
-This validates the input manifests, writes schema-checked `health.json` and `verdict.json`, writes `agent-summary.md`, and includes the raw planner match in `planner-compatibility.json`.
-
 ## Who this is for
 
 - teams that want deterministic scenario contracts instead of ad-hoc automation scripts
@@ -179,7 +117,7 @@ What it is not:
 
 - an end-to-end UI test framework
 - a generic mobile automation stack
-- a replacement for Codex, Argent, agent-device, adb, XcodeBuildMCP, AXe, or profilers
+- a replacement for Codex, Argent, Agent Device, adb, XcodeBuildMCP, accessibility tooling, or profilers
 - zero-touch: your app emits the truth events, and that is the point
 
 ## Roadmap
@@ -188,7 +126,7 @@ Near-term:
 
 - publish the package boundary and keep exported declarations stable
 - add a neutral example app with canonical startup, open-close, scroll, and media scenarios
-- harden a supported live iOS driver loop — simulator lifecycle, deep-link control, log capture — behind the existing artifact contract
+- harden a supported live iOS driver loop behind the existing artifact contract
 - improve runner validation and failure reporting
 - add historical comparison so agents can report improvement, regression, or inconclusive evidence against the last trusted run
 
