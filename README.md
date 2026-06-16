@@ -21,8 +21,11 @@ V1 ships the contracts and the artifact pipeline:
 
 - `app/profile-session.ts`: thin React Native integration — session control, truth events, signal attachments
 - `core/agent-summary.js`: the agent-facing summary builder for health, verdict, and comparison state
+- `core/artifact-writer.js`: schema-enforcing writers for stable JSON/text artifacts
 - `core/artifact-contract.js`: the artifact builders — manifest, metrics, causal run, budget verdict, summary
+- `core/evidence-interpreter.js`: evidence interpretation helpers that gate timing claims on scenario health
 - `core/planner.js`: planner compatibility checks between scenario requirements, primary runner capabilities, and evidence providers
+- `core/ports.js`: ports-and-adapters method surfaces for runners, drivers, providers, writers, and interpreters
 - `core/schema-validator.js`: dependency-free validation for the JSON Schema subset used by the public v1 contracts
 - `runner/profile-ios.js`: an iOS runner that turns scenario metadata plus `[profile-event]` logs into the full artifact set
 - `examples/scenarios/ios/`: transition scenario manifests for the current iOS log-ingest runner

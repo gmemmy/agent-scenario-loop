@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 
 const fs = require('node:fs');
-const fsp = require('node:fs/promises');
 const path = require('node:path');
 const crypto = require('node:crypto');
+const { writeJsonArtifact } = require('../core/artifact-writer');
 const {
   buildCompatibilityHealth,
   buildUnevaluatedVerdict,
@@ -99,17 +99,6 @@ function readValidatedJson(filePath, schema, label) {
 }
 
 /**
- * Writes a stable, newline-terminated JSON artifact.
- *
- * @param {string} filePath
- * @param {unknown} value
- * @returns {Promise<void>}
- */
-async function writeJson(filePath, value) {
-  await fsp.writeFile(filePath, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
-}
-
-/**
  * Creates a short random run id for ad-hoc plan checks.
  *
  * @returns {string}
@@ -197,10 +186,27 @@ async function main() {
 
   if (typeof args.out === 'string' && args.out.length > 0) {
     const outputDir = path.resolve(args.out);
-    await fsp.mkdir(outputDir, { recursive: true });
-    await writeJson(path.join(outputDir, 'health.json'), artifacts.health);
-    await writeJson(path.join(outputDir, 'verdict.json'), artifacts.verdict);
-    await writeJson(path.join(outputDir, 'planner-compatibility.json'), artifacts.compatibility);
+    await writeJsonArtifact({
+      filePath: path.join(outputDir, 'health.json'),
+      value: artifacts.health,
+      schema: SCHEMAS.health,
+      label: 'Health artifact',
+    });
+    await writeJsonArtifact({
+      filePath: path.join(outputDir, 'verdict.json'),
+      value: artifacts.verdict,
+      schema: SCHEMAS.verdict,
+      label: 'Verdict artifact',
+    });
+    await writeJsonArtifact({
+      filePath: path.join(outputDir, 'planner-compatibility.json'),
+      value: artifacts.compatibility,
+      schema: {
+        type: 'object',
+        additionalProperties: true,
+      },
+      label: 'Planner compatibility artifact',
+    });
     process.stdout.write(`${outputDir}\n`);
     return;
   }
