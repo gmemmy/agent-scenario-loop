@@ -94,6 +94,14 @@ pnpm android:preflight -- --package com.example.app --out artifacts/android-adb-
 
 That command writes runner health, an inconclusive pre-budget verdict, an agent summary, and raw adb evidence. It does not yet install, launch, or drive the app.
 
+To attach a bounded Android logcat snapshot after a manual or agent-driven run:
+
+```bash
+pnpm android:logcat -- --package com.example.app --logcat-lines 1000 --out artifacts/android-adb-logcat
+```
+
+That writes `raw/adb-logcat.txt` beside the adb readiness evidence, so the same log can feed `asl-profile-android` when it contains `[profile-event]` lines.
+
 To compare two completed run folders:
 
 ```bash
@@ -170,7 +178,7 @@ Near-term hardening:
 - compare trusted run folders and emit `comparison.json`
 - keep the fixture loop green as the contract changes
 - harden the neutral Expo example app with canonical startup, open-close, scroll, and media scenarios
-- harden Android adb from readiness checks and log-ingest artifacts into log capture and lifecycle execution
+- harden Android adb from readiness checks, bounded log capture, and log-ingest artifacts into lifecycle execution
 - harden a supported live iOS driver loop behind the existing artifact contract
 - improve runner validation and failure reporting
 - harden historical baseline selection around the comparison artifact

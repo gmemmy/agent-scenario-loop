@@ -18,7 +18,7 @@ The package is intentionally contract-first: adopt the scenario and artifact sha
 - [core/schema-validator.ts](../core/schema-validator.ts): dependency-free validation for the JSON Schema subset used by the public contracts
 - [runner/profile-android.ts](../runner/profile-android.ts): Android log-ingest runner that turns scenario metadata plus `[profile-event]` logs into the full artifact set
 - [runner/profile-ios.ts](../runner/profile-ios.ts): iOS log-ingest runner that turns scenario metadata plus `[profile-event]` logs into the full artifact set
-- [runner/android-adb.ts](../runner/android-adb.ts): Android adb readiness preflight that writes runner health and raw adb evidence
+- [runner/android-adb.ts](../runner/android-adb.ts): Android adb readiness preflight and optional bounded logcat capture that write runner health and raw adb evidence
 - [runner/demo-loop.ts](../runner/demo-loop.ts): fixture loop that proves preflight, profile, and comparison without a simulator
 - [examples/event-logs](../examples/event-logs): deterministic profile-event logs for the fixture loop
 - [examples/mobile-app](../examples/mobile-app): neutral Expo dogfood app with scenario manifests and profile-event evidence fixtures
@@ -73,11 +73,11 @@ Budgets are supported but optional for adoption.
 
 ## Current Scope
 
-Live simulator or device orchestration is not yet a supported public feature. The current Android and iOS profile runners assemble artifacts from event logs you capture. The Android adb runner verifies readiness before live execution. Fully automated runner/adapter loops land behind the same contract.
+Live simulator or device orchestration is not yet a supported public feature. The current Android and iOS profile runners assemble artifacts from event logs you capture. The Android adb runner verifies readiness and can attach bounded logcat evidence before or after manual execution. Fully automated runner/adapter loops land behind the same contract.
 
 Not yet shipped as supported public features:
 
-- full Android scenario execution beyond adb readiness preflight and log-ingest artifact assembly
+- full Android scenario execution beyond adb readiness preflight, bounded logcat capture, and log-ingest artifact assembly
 - physical devices
 - Computer Use flows
 - product-specific scenarios
@@ -110,6 +110,8 @@ The command writes:
 - `raw/android-metadata.json`
 
 If adb, a connected online device, or an optional package check fails, health fails and the verdict remains `inconclusive`.
+
+Add `--capture-logcat --logcat-lines <count>` to write `raw/adb-logcat.txt` in the same artifact folder. If logcat capture is requested and fails, scenario health fails because timing and event evidence would be incomplete.
 
 ## Historical comparison
 

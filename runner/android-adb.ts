@@ -13,6 +13,8 @@ const { hasHelpFlag, writeUsage } = require('./cli');
 
 type CliArgs = {
   adb?: string | boolean;
+  'capture-logcat'?: string | boolean;
+  'logcat-lines'?: string | boolean;
   out?: string | boolean;
   package?: string | boolean;
   'run-id'?: string | boolean;
@@ -51,7 +53,9 @@ type AndroidPreflightResult = {
 
 type AndroidPreflightOptions = {
   adbPath?: string;
+  captureLogcat?: boolean;
   executor?: CommandExecutor;
+  logcatLines?: number;
   outputDir?: string;
   packageName?: string | null;
   runId?: string;
@@ -68,6 +72,7 @@ function usage(output: { write: (message: string) => unknown } = process.stderr)
     'Usage: asl-android-adb [--adb <path>] [--serial <device>] [--package <name>] [--run-id <id>] [--out <dir>]',
     '',
     'Checks adb/device readiness and writes health.json, verdict.json, agent-summary.md, and raw adb evidence.',
+    'Use --capture-logcat [--logcat-lines <count>] to attach a bounded adb logcat snapshot under raw/adb-logcat.txt.',
   ], output);
 }
 
@@ -108,6 +113,22 @@ function parseArgs(argv: string[]): CliArgs {
  */
 function createRunId(): string {
   return crypto.randomBytes(6).toString('hex');
+}
+
+/**
+ * Parses a positive integer CLI value, falling back when absent or invalid.
+ *
+ * @param {string | boolean | undefined} value
+ * @param {number} fallback
+ * @returns {number}
+ */
+function parsePositiveInteger(value: string | boolean | undefined, fallback: number): number {
+  if (typeof value !== 'string') {
+    return fallback;
+  }
+
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
 }
 
 /**
@@ -225,7 +246,9 @@ function buildAndroidVerdict({ runId, health }: { runId: string; health: Record<
  */
 async function runAndroidAdbPreflight({
   adbPath = 'adb',
+  captureLogcat = false,
   executor = execFileCommand,
+  logcatLines = 1000,
   outputDir = path.resolve('artifacts/android-adb-preflight'),
   packageName = null,
   runId = createRunId(),
@@ -274,7 +297,9 @@ async function runAndroidAdbPreflight({
 
   const metadata: Record<string, unknown> = {
     adbPath,
+    captureLogcat,
     devices,
+    logcatLines,
     selectedDevice: device,
     packageName,
   };
@@ -312,6 +337,42 @@ async function runAndroidAdbPreflight({
           : `Package ${packageName} is not installed on ${device.serial}.`,
       });
     }
+
+    if (captureLogcat) {
+      const logcat = await executor(adbPath, [
+        '-s',
+        device.serial,
+        'logcat',
+        '-d',
+        '-v',
+        'time',
+        '-t',
+        String(logcatLines),
+      ]);
+      raw['adb-logcat.txt'] = [logcat.stdout, logcat.stderr].filter(Boolean).join('\n');
+      checks.push({
+        name: 'android_logcat_captured',
+        status: logcat.exitCode === 0 ? 'passed' : 'failed',
+        source: 'runner',
+        code: logcat.exitCode === 0 ? 'android_logcat_captured' : 'android_logcat_failed',
+        message: logcat.exitCode === 0
+          ? `Captured the last ${logcatLines} adb logcat lines.`
+          : 'adb logcat capture failed.',
+      });
+      metadata.logcat = {
+        args: logcat.args,
+        exitCode: logcat.exitCode,
+        rawPath: 'raw/adb-logcat.txt',
+      };
+    }
+  } else if (captureLogcat) {
+    checks.push({
+      name: 'android_logcat_captured',
+      status: 'failed',
+      source: 'runner',
+      code: 'android_logcat_no_device',
+      message: 'adb logcat capture was requested, but no online Android device was selected.',
+    });
   }
 
   const health = buildAndroidHealth({ runId, checks });
@@ -367,6 +428,8 @@ async function main(): Promise<void> {
   const args = parseArgs(argv);
   const result = await runAndroidAdbPreflight({
     ...(typeof args.adb === 'string' ? { adbPath: args.adb } : {}),
+    captureLogcat: args['capture-logcat'] === true || args['capture-logcat'] === 'true',
+    logcatLines: parsePositiveInteger(args['logcat-lines'], 1000),
     ...(typeof args.out === 'string' ? { outputDir: args.out } : {}),
     ...(typeof args.package === 'string' ? { packageName: args.package } : {}),
     ...(typeof args['run-id'] === 'string' ? { runId: args['run-id'] } : {}),
@@ -389,6 +452,7 @@ export {
   main,
   parseAdbDevices,
   parseArgs,
+  parsePositiveInteger,
   runAndroidAdbPreflight,
   selectDevice,
   usage,

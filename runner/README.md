@@ -4,7 +4,7 @@ The runner owns host execution. It is the boundary between scenario contracts an
 
 The package ships six public runner entrypoints. Package scripts build them into `dist/` before execution:
 
-- `android-adb.ts`: checks adb availability, connected Android device readiness, optional package installation, and writes raw adb evidence.
+- `android-adb.ts`: checks adb availability, connected Android device readiness, optional package installation, optionally captures bounded logcat output, and writes raw adb evidence.
 - `check-plan.ts`: validates a scenario manifest, primary runner capability manifest, and optional evidence-provider manifests, then writes schema-checked `health.json`, `verdict.json`, `agent-summary.md`, and `planner-compatibility.json` before execution.
 - `compare.ts`: reads two completed run directories, validates `health.json` and `verdict.json`, then writes or prints a schema-checked `comparison.json`.
 - `demo-loop.ts`: runs the fixture preflight, baseline/current profile logs, and comparison without requiring a simulator.
@@ -41,6 +41,12 @@ To check Android runtime readiness without starting scenario execution:
 
 ```bash
 pnpm android:preflight -- --package com.example.app --out artifacts/android-adb-preflight
+```
+
+To attach raw Android logs around a manual or agent-driven run:
+
+```bash
+pnpm android:logcat -- --package com.example.app --logcat-lines 1000 --out artifacts/android-adb-logcat
 ```
 
 Android is the first live runtime target for the example app while local iOS tooling is unavailable:

@@ -101,6 +101,42 @@ test('writes passed health for an online adb device and installed package', asyn
   assert.match(fs.readFileSync(path.join(outputDir, 'agent-summary.md'), 'utf8'), /Scenario health passed/u);
 });
 
+test('captures bounded adb logcat evidence when requested', async (t: TestContext) => {
+  const outputDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-android-adb-logcat-'));
+  t.after(async () => {
+    await fsp.rm(outputDir, { recursive: true, force: true });
+  });
+  const executor = createExecutor({
+    version: { stdout: 'Android Debug Bridge version 1.0.41\n' },
+    'devices -l': {
+      stdout: [
+        'List of devices attached',
+        'emulator-5554 device product:sdk_gphone model:Pixel_6 device:emu64',
+      ].join('\n'),
+    },
+    '-s emulator-5554 shell getprop ro.product.model': { stdout: 'Pixel 6\n' },
+    '-s emulator-5554 shell getprop ro.build.version.release': { stdout: '15\n' },
+    '-s emulator-5554 shell getprop ro.build.version.sdk': { stdout: '35\n' },
+    '-s emulator-5554 logcat -d -v time -t 25': {
+      stdout: '06-16 10:00:00.000 I/ReactNativeJS(123): [profile-event] {"event":"home_ready"}\n',
+    },
+  });
+
+  const result = await runAndroidAdbPreflight({
+    captureLogcat: true,
+    executor,
+    logcatLines: 25,
+    outputDir,
+    runId: 'android-run-logcat',
+  });
+
+  assert.equal(result.health.healthStatus, 'passed');
+  assert.ok(fs.readFileSync(path.join(outputDir, 'raw', 'adb-logcat.txt'), 'utf8').includes('[profile-event]'));
+  assert.ok(
+    (result.health.checks as Array<{ code: string }>).some((check) => check.code === 'android_logcat_captured'),
+  );
+});
+
 test('fails health when no online adb device is connected', async (t: TestContext) => {
   const outputDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-android-adb-missing-'));
   t.after(async () => {
@@ -125,6 +161,34 @@ test('fails health when no online adb device is connected', async (t: TestContex
   assert.equal(result.health.healthStatus, 'failed');
   assert.equal(result.verdict.verdictStatus, 'inconclusive');
   assert.equal(result.device, null);
+});
+
+test('fails logcat capture when no online Android device is connected', async (t: TestContext) => {
+  const outputDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-android-adb-logcat-missing-'));
+  t.after(async () => {
+    await fsp.rm(outputDir, { recursive: true, force: true });
+  });
+  const executor = createExecutor({
+    version: { stdout: 'Android Debug Bridge version 1.0.41\n' },
+    'devices -l': {
+      stdout: [
+        'List of devices attached',
+        'emulator-5554 offline product:sdk_gphone model:Pixel_6 device:emu64',
+      ].join('\n'),
+    },
+  });
+
+  const result = await runAndroidAdbPreflight({
+    captureLogcat: true,
+    executor,
+    outputDir,
+    runId: 'android-run-logcat-missing',
+  });
+
+  assert.equal(result.health.healthStatus, 'failed');
+  assert.ok(
+    (result.health.checks as Array<{ code: string }>).some((check) => check.code === 'android_logcat_no_device'),
+  );
 });
 
 test('fails health when the requested package is not installed', async (t: TestContext) => {
