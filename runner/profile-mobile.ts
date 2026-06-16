@@ -363,18 +363,17 @@ async function runProfileMobile(args: CliArgs, options: ProfileMobileOptions): P
   const artifactRoot = resolveArtifactRoot({ args, config, configPath, platform: options.platform });
   const runDir = path.join(artifactRoot, scenario.name, runId);
   const layout = createArtifactLayout({ outputDir: runDir });
-  const rawDir = path.join(runDir, 'raw');
-  const capturesDir = path.join(runDir, 'captures');
-  const signalsDir = path.join(runDir, 'signals');
+  const rawDir = layout.raw;
+  const capturesDir = layout.captures;
   const startedAt = new Date().toISOString();
   const eventLogPath = resolveEventLogPath({ args, platform: options.platform });
   const interactionDriver = resolveInteractionDriver({ config, options, scenario });
 
   await ensureDir(rawDir);
   await ensureDir(capturesDir);
-  await ensureDir(path.join(signalsDir, 'js'));
-  await ensureDir(path.join(signalsDir, 'memory'));
-  await ensureDir(path.join(signalsDir, 'network'));
+  await ensureDir(layout.signals.js);
+  await ensureDir(layout.signals.memory);
+  await ensureDir(layout.signals.network);
 
   const eventLogText = eventLogPath ? await fsp.readFile(eventLogPath, 'utf8') : '';
   const events = extractProfileEvents(eventLogText, {
@@ -481,32 +480,35 @@ async function runProfileMobile(args: CliArgs, options: ProfileMobileOptions): P
     content: agentSummary,
   });
   await writeJsonArtifact({
-    filePath: path.join(runDir, 'manifest.json'),
+    filePath: layout.profile.manifest,
     value: manifest,
     schema: SCHEMAS.manifest,
     label: 'Manifest artifact',
   });
   await writeJsonArtifact({
-    filePath: path.join(runDir, 'metrics.json'),
+    filePath: layout.profile.metrics,
     value: metrics,
     schema: SCHEMAS.metrics,
     label: 'Metrics artifact',
   });
   await writeJsonArtifact({
-    filePath: path.join(runDir, 'causal-run.json'),
+    filePath: layout.profile.causalRun,
     value: causalRun,
     schema: SCHEMAS.causalRun,
     label: 'Causal run artifact',
   });
   if (budgetVerdict) {
     await writeJsonArtifact({
-      filePath: path.join(runDir, 'budget-verdict.json'),
+      filePath: layout.profile.budgetVerdict,
       value: budgetVerdict,
       schema: SCHEMAS.budgetVerdict,
       label: 'Budget verdict artifact',
     });
   }
-  await fsp.writeFile(path.join(runDir, 'summary.md'), summary, 'utf8');
+  await writeTextArtifact({
+    filePath: layout.profile.summary,
+    content: summary,
+  });
   if (eventLogPath) {
     await fsp.copyFile(eventLogPath, path.join(rawDir, path.basename(eventLogPath)));
   }
