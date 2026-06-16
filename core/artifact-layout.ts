@@ -18,8 +18,6 @@ const PROFILE_ARTIFACT_FILENAMES = {
   summary: 'summary.md',
 };
 
-const TRANSITION_ARTIFACT_FILENAMES = PROFILE_ARTIFACT_FILENAMES;
-
 type ProfileArtifactPaths = {
   budgetVerdict: string;
   causalRun: string;
@@ -44,7 +42,6 @@ type ArtifactLayout = {
     network: string;
   };
   profile: ProfileArtifactPaths;
-  transition: ProfileArtifactPaths;
 };
 
 /**
@@ -78,7 +75,6 @@ function createArtifactLayout({ outputDir }: { outputDir: string }): ArtifactLay
       network: path.join(outputDir, 'signals', 'network'),
     },
     profile: profileArtifacts,
-    transition: profileArtifacts,
   };
 }
 
@@ -86,7 +82,6 @@ export {
   ARTIFACT_FILENAMES,
   ARTIFACT_LAYOUT_VERSION,
   PROFILE_ARTIFACT_FILENAMES,
-  TRANSITION_ARTIFACT_FILENAMES,
   createArtifactLayout,
 };
 
