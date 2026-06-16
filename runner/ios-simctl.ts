@@ -559,6 +559,7 @@ async function runIosSimctlCapture({
     screenshot: null,
   };
   const checks: Record<string, unknown>[] = [];
+  const deepLinkResults: Record<string, unknown>[] = [];
   const devicesOutput = await executor(xcrunPath, ['simctl', 'list', 'devices']);
   const simctlAvailable = devicesOutput.exitCode === 0;
   raw['ios-simctl-devices.txt'] = [devicesOutput.stdout, devicesOutput.stderr].filter(Boolean).join('\n');
@@ -606,6 +607,7 @@ async function runIosSimctlCapture({
     bundleId,
     collectProfileStorage,
     deepLinks,
+    deepLinkResults,
     launch,
     logLast,
     profileSessionStorage: profileSessionStorage
@@ -826,6 +828,14 @@ async function runIosSimctlCapture({
       const deepLinkResult = await driver.openDeepLink({ rawFileName, url: deepLink.url });
       const deepLinkOpened = deepLinkResult.exitCode === 0;
       raw[deepLinkResult.rawFileName] = formatIosSimctlRawOutput(deepLinkResult);
+      deepLinkResults.push({
+        args: deepLinkResult.args,
+        exitCode: deepLinkResult.exitCode,
+        label: deepLink.label ?? null,
+        rawPath: `raw/${deepLinkResult.rawFileName}`,
+        url: deepLink.url,
+        waitMs: deepLink.waitMs ?? 0,
+      });
       checks.push({
         name: 'ios_deep_link_opened',
         status: deepLinkOpened ? 'passed' : 'failed',
@@ -855,7 +865,6 @@ async function runIosSimctlCapture({
         });
       }
     }
-
     if (waitMs > 0) {
       await wait(waitMs);
       checks.push({

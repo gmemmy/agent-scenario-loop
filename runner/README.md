@@ -22,6 +22,8 @@ When `profile-android` owns an adb capture window, scenario steps with supported
 
 When `profile-ios` owns a simctl capture window, a scenario step with `driverAction: "screenshot"` or `artifact: "screenshot"` requests `captures/ios-screenshot.png`. The profile run attaches that screenshot through the same manifest capture contract used for provider artifacts.
 
+When iOS profile-session commands run through deep links, `ios-simctl` writes one raw file per opened URL and inventories each result in `raw/ios-metadata.json` with the label, URL, argv, exit code, wait, and raw path. A failed deep-link command fails capture health before the profile runner trusts timing evidence.
+
 The artifact contract separates scenario health, product verdict, baseline comparison, and profile evidence into schema-checked files. `health.json`, `verdict.json`, and optional `comparison.json` provide the interpretation gate; `manifest.json`, `metrics.json`, `causal-run.json`, and `budget-verdict.json` preserve the profile evidence for agents and humans.
 
 What it does not do yet:

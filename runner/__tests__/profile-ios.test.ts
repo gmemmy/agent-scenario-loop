@@ -414,6 +414,97 @@ test('profile-ios seeds iOS scenario commands through app storage', async (t: Te
   assert.equal(calls.some((call) => call.startsWith('simctl openurl ')), false);
 });
 
+test('profile-ios executes iOS scenario commands through deep links when storage is disabled', async (t: TestContext) => {
+  const tempRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-ios-command-deeplinks-'));
+  t.after(async () => {
+    await fsp.rm(tempRoot, { recursive: true, force: true });
+  });
+  const simctlCaptureRoot = path.join(tempRoot, 'simctl-capture');
+  const profileRoot = path.join(tempRoot, 'profile');
+  const calls: string[] = [];
+  const executor = async (command: string, args: string[]): Promise<CommandResult> => {
+    const key = args.join(' ');
+    calls.push(key);
+    if (key.startsWith('simctl openurl A692ED28-893E-453F-8866-C69331AE757F asl-example://profile-session/')) {
+      return {
+        command,
+        args,
+        exitCode: 0,
+        stderr: '',
+        stdout: '',
+      };
+    }
+    const responses: Record<string, Partial<CommandResult>> = {
+      'simctl list devices': {
+        stdout: [
+          '== Devices ==',
+          '-- iOS 26.3 --',
+          '    iPhone 17 Pro Max (A692ED28-893E-453F-8866-C69331AE757F) (Booted)',
+        ].join('\n'),
+      },
+      'simctl get_app_container A692ED28-893E-453F-8866-C69331AE757F dev.agent-scenario-loop.example app': {
+        stdout: '/tmp/ASLExampleMobile.app\n',
+      },
+      'simctl launch A692ED28-893E-453F-8866-C69331AE757F dev.agent-scenario-loop.example': {
+        stdout: 'dev.agent-scenario-loop.example: 1234\n',
+      },
+      'simctl spawn A692ED28-893E-453F-8866-C69331AE757F log show --style compact --last 2m --predicate eventMessage CONTAINS "[profile-event]" OR eventMessage CONTAINS "[profile-session]"': {
+        stdout: fs
+          .readFileSync(fixturePath('examples/mobile-app/event-logs/open-close-cycle.log'), 'utf8')
+          .replace(/example-open-close/gu, 'ios-deep-link-open-close'),
+      },
+    };
+    const response = responses[key] ?? { exitCode: 1, stderr: `unexpected command: ${key}` };
+    return {
+      command,
+      args,
+      exitCode: response.exitCode ?? 0,
+      stderr: response.stderr ?? '',
+      stdout: response.stdout ?? '',
+    };
+  };
+  const waits: number[] = [];
+
+  const result = await runProfileIos({
+    config: fixturePath('examples/mobile-app/asl.config.json'),
+    device: 'A692ED28-893E-453F-8866-C69331AE757F',
+    launch: true,
+    out: profileRoot,
+    'profile-session': true,
+    'run-id': 'ios-deep-link-open-close',
+    scenario: fixturePath('examples/mobile-app/scenarios/ios/open-close-cycle.json'),
+    'simctl-capture': true,
+    'simctl-out': simctlCaptureRoot,
+    'wait-ms': '25',
+  }, {
+    delay: async (ms: number) => {
+      waits.push(ms);
+    },
+    executor,
+  });
+
+  const health = readJson(path.join(result.runDir, 'health.json'));
+  const metadata = readJson(path.join(simctlCaptureRoot, 'raw', 'ios-metadata.json'));
+  const openUrlCalls = calls.filter((call) => call.startsWith('simctl openurl '));
+
+  assert.equal(health.healthStatus, 'passed');
+  assert.deepEqual(waits, [250, 300, 300, 300, 300, 300, 300, 25]);
+  assert.equal(openUrlCalls.length, 7);
+  const firstCommandOpenUrl = openUrlCalls[1] as string;
+  assert.match(firstCommandOpenUrl, /command=activate-target%3Aexample-card-1/u);
+  assert.match(openUrlCalls[2] as string, /command=activate-target%3Aclose-card/u);
+  assert.equal((metadata.deepLinkResults as unknown[]).length, 7);
+  assert.deepEqual((metadata.deepLinkResults as Array<Record<string, unknown>>)[1], {
+    args: firstCommandOpenUrl.split(' '),
+    exitCode: 0,
+    label: 'open first example card',
+    rawPath: 'raw/ios-deep-link-2.txt',
+    url: 'asl-example://profile-session/command?runId=ios-deep-link-open-close&scenario=open-close-cycle&command=activate-target%3Aexample-card-1',
+    waitMs: 300,
+  });
+  assert.ok(fs.existsSync(path.join(simctlCaptureRoot, 'raw', 'ios-deep-link-7.txt')));
+});
+
 test('profile-ios writes failed health instead of crashing when simctl capture has no profile events', async (t: TestContext) => {
   const tempRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-ios-empty-simctl-'));
   t.after(async () => {

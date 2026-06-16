@@ -180,6 +180,19 @@ test('captures bounded iOS simulator log evidence', async (t: TestContext) => {
   assert.equal(result.health.healthStatus, 'passed', JSON.stringify(result.health.checks, null, 2));
   assert.deepEqual(waits, [250]);
   assert.equal(result.captures.screenshot, 'captures/ios-screenshot.png');
+  assert.deepEqual((result.metadata.deepLinkResults as Array<Record<string, unknown>>)[0], {
+    args: [
+      'simctl',
+      'openurl',
+      'A692ED28-893E-453F-8866-C69331AE757F',
+      'asl-example://profile-session/start?scenario=app-startup&runId=ios-live',
+    ],
+    exitCode: 0,
+    label: 'profile-session-start',
+    rawPath: 'raw/ios-deep-link-1.txt',
+    url: 'asl-example://profile-session/start?scenario=app-startup&runId=ios-live',
+    waitMs: 0,
+  });
   assert.ok(fs.existsSync(path.join(outputDir, 'captures', 'ios-screenshot.png')));
   assert.ok(fs.readFileSync(path.join(outputDir, 'raw', 'ios-simctl-log.txt'), 'utf8').includes('[profile-event]'));
   assert.ok(calls.indexOf('simctl launch A692ED28-893E-453F-8866-C69331AE757F dev.agent-scenario-loop.example') < calls.indexOf('simctl openurl A692ED28-893E-453F-8866-C69331AE757F asl-example://profile-session/start?scenario=app-startup&runId=ios-live'));
