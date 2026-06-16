@@ -10,6 +10,7 @@ const DIST_ROOT = path.join(__dirname, '..', '..');
 const ROOT = path.join(DIST_ROOT, '..');
 const PROFILE_ANDROID = path.join(DIST_ROOT, 'runner', 'profile-android.js');
 const {
+  resolveAndroidAdbDriverSteps,
   resolveAndroidAdbProfileCommands,
   runProfileAndroid,
 } = require('../profile-android');
@@ -233,6 +234,87 @@ test('profile-android can capture adb logs and profile them in one run', async (
   assert.ok(fs.existsSync(path.join(result.runDir, 'raw', 'adb-logcat.txt')));
 });
 
+test('profile-android routes normalized readLogs evidence steps through adb driver capture', async (t: TestContext) => {
+  const tempRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-android-driver-steps-'));
+  t.after(async () => {
+    await fsp.rm(tempRoot, { recursive: true, force: true });
+  });
+  const scenarioPath = path.join(tempRoot, 'app-startup-readlogs.json');
+  const scenario = readJson(fixturePath('examples/mobile-app/scenarios/android/app-startup.json'));
+  scenario.steps = [
+    {
+      id: 'capture-log-window',
+      kind: 'captureEvidence',
+      artifact: 'logs',
+      driverAction: 'readLogs',
+      adapterOptions: {
+        androidAdb: {
+          logcatLines: 25,
+          rawFileName: 'adb-logcat.txt',
+        },
+      },
+    },
+  ];
+  await fsp.writeFile(scenarioPath, `${JSON.stringify(scenario, null, 2)}\n`, 'utf8');
+  const adbCaptureRoot = path.join(tempRoot, 'adb-capture');
+  const profileRoot = path.join(tempRoot, 'profile');
+  const calls: string[] = [];
+  const executor = async (command: string, args: string[]): Promise<CommandResult> => {
+    const key = args.join(' ');
+    calls.push(key);
+    const responses: Record<string, Partial<CommandResult>> = {
+      version: { stdout: 'Android Debug Bridge version 1.0.41\n' },
+      'devices -l': {
+        stdout: [
+          'List of devices attached',
+          'emulator-5554 device product:sdk_gphone model:Pixel_6 device:emu64',
+        ].join('\n'),
+      },
+      '-s emulator-5554 shell getprop ro.product.model': { stdout: 'Pixel 6\n' },
+      '-s emulator-5554 shell getprop ro.build.version.release': { stdout: '15\n' },
+      '-s emulator-5554 shell getprop ro.build.version.sdk': { stdout: '35\n' },
+      '-s emulator-5554 shell pm path dev.agentscenarioloop.example': {
+        stdout: 'package:/data/app/dev.agentscenarioloop.example/base.apk\n',
+      },
+      '-s emulator-5554 logcat -d -v time -t 25': {
+        stdout: fs
+          .readFileSync(fixturePath('examples/mobile-app/event-logs/android-app-startup.log'), 'utf8')
+          .replace(/android-example-startup/gu, 'android-driver-startup'),
+      },
+    };
+    const response = responses[key] ?? { exitCode: 1, stderr: `unexpected command: ${key}` };
+    return {
+      command,
+      args,
+      exitCode: response.exitCode ?? 0,
+      stderr: response.stderr ?? '',
+      stdout: response.stdout ?? '',
+    };
+  };
+
+  const result = await runProfileAndroid({
+    'adb-capture': true,
+    'adb-out': adbCaptureRoot,
+    config: fixturePath('examples/mobile-app/asl.config.json'),
+    out: profileRoot,
+    'run-id': 'android-driver-startup',
+    scenario: scenarioPath,
+  }, {
+    executor,
+  });
+
+  const health = readJson(path.join(result.runDir, 'health.json'));
+  const adbHealth = readJson(path.join(adbCaptureRoot, 'health.json'));
+  const adbMetadata = readJson(path.join(adbCaptureRoot, 'raw', 'android-metadata.json'));
+  assert.equal(result.runDir, path.join(profileRoot, 'app-startup', 'android-driver-startup'));
+  assert.equal(health.healthStatus, 'passed');
+  assert.equal(adbHealth.healthStatus, 'passed');
+  assert.ok(calls.includes('-s emulator-5554 logcat -d -v time -t 25'));
+  assert.equal((adbMetadata.logcat as { rawPath: string; stepId: string }).rawPath, 'raw/adb-logcat.txt');
+  assert.equal((adbMetadata.logcat as { rawPath: string; stepId: string }).stepId, 'capture-log-window');
+  assert.ok(fs.existsSync(path.join(result.runDir, 'raw', 'adb-logcat.txt')));
+});
+
 test('profile-android starts profile sessions and executes scenario commands during adb capture', async (t: TestContext) => {
   const tempRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-android-profile-session-'));
   t.after(async () => {
@@ -351,5 +433,51 @@ test('profile-android derives commands from normalized execution-plan steps', ()
     { command: 'activate-target:close-card', label: 'close-card', waitMs: 225 },
     { command: 'activate-target:example-card-1', label: 'open-card', waitMs: 125 },
     { command: 'activate-target:close-card', label: 'close-card', waitMs: 225 },
+  ]);
+});
+
+test('profile-android derives adb driver steps from normalized execution-plan evidence steps', () => {
+  const scenario = {
+    id: 'startup',
+    steps: [
+      {
+        id: 'capture-log-window',
+        kind: 'captureEvidence',
+        artifact: 'logs',
+        driverAction: 'readLogs',
+        adapterOptions: {
+          androidAdb: {
+            logcatLines: 40,
+          },
+        },
+        timeoutMs: 125,
+      },
+      {
+        id: 'optional-log-window',
+        kind: 'captureEvidence',
+        artifact: 'logs',
+        driverAction: 'readLogs',
+        required: false,
+      },
+    ],
+  };
+
+  assert.deepEqual(resolveAndroidAdbDriverSteps(scenario), [
+    {
+      driverAction: 'readLogs',
+      lines: 40,
+      rawFileName: 'adb-logcat.txt',
+      required: true,
+      stepId: 'capture-log-window',
+      waitMs: 125,
+    },
+    {
+      driverAction: 'readLogs',
+      lines: 1000,
+      rawFileName: 'adb-logcat-2.txt',
+      required: false,
+      stepId: 'optional-log-window',
+      waitMs: 0,
+    },
   ]);
 });

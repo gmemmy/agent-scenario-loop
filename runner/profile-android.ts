@@ -27,6 +27,7 @@ type AndroidAdbProfileCommand = {
   waitMs?: number;
 };
 
+type AndroidAdbDriverStep = import('./android-adb').AndroidAdbDriverStep;
 type ScenarioExecutionStep = import('../core/execution-plan').ScenarioExecutionStep;
 
 /**
@@ -164,6 +165,19 @@ function readStepWaitMs(step: ScenarioExecutionStep): number {
 }
 
 /**
+ * Reads Android adb adapter metadata from a normalized scenario step.
+ *
+ * @param {import('../core/execution-plan').ScenarioExecutionStep} step
+ * @returns {Record<string, unknown>}
+ */
+function readAndroidAdbStepOptions(step: ScenarioExecutionStep): Record<string, unknown> {
+  const androidAdbOptions = step.adapterOptions?.androidAdb;
+  return androidAdbOptions && typeof androidAdbOptions === 'object' && !Array.isArray(androidAdbOptions)
+    ? androidAdbOptions as Record<string, unknown>
+    : {};
+}
+
+/**
  * Expands portable scenario command steps into Android profile-session commands.
  *
  * @param {Record<string, unknown>} scenario
@@ -181,6 +195,35 @@ function resolveExecutionPlanProfileCommands(scenario: Record<string, any>): And
     }));
 
   return Array.from({ length: repeat }).flatMap(() => commands);
+}
+
+/**
+ * Expands normalized scenario evidence steps into Android adb driver actions.
+ *
+ * @param {Record<string, unknown>} scenario
+ * @returns {import('./android-adb').AndroidAdbDriverStep[]}
+ */
+function resolveAndroidAdbDriverSteps(scenario: Record<string, any>): AndroidAdbDriverStep[] {
+  const executionPlan = buildScenarioExecutionPlan(scenario);
+  return executionPlan.steps
+    .filter((step: ScenarioExecutionStep) => step.driverAction === 'readLogs')
+    .map((step: ScenarioExecutionStep, index: number) => {
+      const androidAdbOptions = readAndroidAdbStepOptions(step);
+      const rawFileName = typeof androidAdbOptions.rawFileName === 'string' && androidAdbOptions.rawFileName.length > 0
+        ? androidAdbOptions.rawFileName
+        : index === 0
+          ? 'adb-logcat.txt'
+          : `adb-logcat-${index + 1}.txt`;
+
+      return {
+        driverAction: 'readLogs',
+        lines: readPositiveInteger(androidAdbOptions.logcatLines, 1000),
+        rawFileName,
+        required: step.required,
+        stepId: step.id,
+        waitMs: readStepWaitMs(step),
+      };
+    });
 }
 
 /**
@@ -295,6 +338,7 @@ async function runProfileAndroid(
     deepLinks: profileSessionDeepLinks,
     ...(options.delay ? { delay: options.delay } : {}),
     ...(options.executor ? { executor: options.executor } : {}),
+    driverSteps: resolveAndroidAdbDriverSteps(scenario),
     launch: isEnabled(args.launch),
     logcatLines: parsePositiveInteger(args['logcat-lines'], 1000),
     outputDir: resolveAdbCaptureOutputDir({ args, runId }),
@@ -356,6 +400,7 @@ export {
   main,
   parseArgs,
   resolveAndroidAdbProfileCommands,
+  resolveAndroidAdbDriverSteps,
   runProfileAndroid,
   summarizeFailedAndroidChecks,
   usage,

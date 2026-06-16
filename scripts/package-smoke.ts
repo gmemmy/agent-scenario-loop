@@ -235,6 +235,7 @@ function writeFakeAdb({
     "  [`-s emulator-5554 shell pm path ${packageName}`, { stdout: `package:/data/app/${packageName}/base.apk\\n` }],",
     "  ['-s emulator-5554 logcat -c', { stdout: '' }],",
     "  [`-s emulator-5554 shell monkey -p ${packageName} -c android.intent.category.LAUNCHER 1`, { stdout: 'Events injected: 1\\n' }],",
+    "  ['-s emulator-5554 logcat -d -v time -t 25', { stdout: logcatText }],",
     "  ['-s emulator-5554 logcat -d -v time -t 1000', { stdout: logcatText }],",
     "]);",
     "const response = responses.get(key);",
@@ -628,6 +629,64 @@ function main(): void {
     assert.equal(adbCaptureRunnerHealth.healthStatus, 'passed');
     assert.equal(fs.existsSync(path.join(adbCaptureProfileRunDir, 'raw', 'adb-logcat.txt')), true);
 
+    const adbDriverStepRunId = 'package-smoke-adb-driver-step';
+    const fakeAdbDriverStepPath = path.join(
+      tempRoot,
+      process.platform === 'win32' ? 'fake-adb-driver-step.cmd' : 'fake-adb-driver-step',
+    );
+    const adbDriverStepProfileRoot = path.join(tempRoot, 'adb-driver-step-profile');
+    const adbDriverStepScenarioPath = path.join(tempRoot, 'android-app-startup-readlogs.json');
+    const adbDriverStepScenario = JSON.parse(
+      fs.readFileSync(path.join(exampleAppRoot, 'scenarios', 'android', 'app-startup.json'), 'utf8'),
+    );
+    adbDriverStepScenario.steps = [
+      {
+        id: 'capture-log-window',
+        kind: 'captureEvidence',
+        artifact: 'logs',
+        driverAction: 'readLogs',
+        adapterOptions: {
+          androidAdb: {
+            logcatLines: 25,
+            rawFileName: 'adb-logcat.txt',
+          },
+        },
+      },
+    ];
+    fs.writeFileSync(adbDriverStepScenarioPath, `${JSON.stringify(adbDriverStepScenario, null, 2)}\n`, 'utf8');
+    writeFakeAdb({
+      filePath: fakeAdbDriverStepPath,
+      logcatText: fs
+        .readFileSync(path.join(exampleAppRoot, 'event-logs', 'android-app-startup.log'), 'utf8')
+        .replace(/android-example-startup/gu, adbDriverStepRunId),
+      packageName: androidPackageName,
+    });
+    const adbDriverStepProfileOutput = run(packageBinPath(installDir, 'asl-profile-android'), [
+      '--config',
+      path.join(exampleAppRoot, 'asl.config.json'),
+      '--scenario',
+      adbDriverStepScenarioPath,
+      '--adb-capture',
+      '--adb',
+      fakeAdbDriverStepPath,
+      '--out',
+      adbDriverStepProfileRoot,
+      '--run-id',
+      adbDriverStepRunId,
+    ], {
+      cwd: installDir,
+      env,
+    });
+    const adbDriverStepProfileRunDir = adbDriverStepProfileOutput.trim();
+    const adbDriverStepCaptureRoot = path.join(adbDriverStepProfileRoot, '_adb-captures', adbDriverStepRunId);
+    const adbDriverStepMetadata = JSON.parse(
+      fs.readFileSync(path.join(adbDriverStepCaptureRoot, 'raw', 'android-metadata.json'), 'utf8'),
+    );
+    const adbDriverStepHealth = JSON.parse(fs.readFileSync(path.join(adbDriverStepProfileRunDir, 'health.json'), 'utf8'));
+    assert.equal(adbDriverStepHealth.healthStatus, 'passed');
+    assert.equal(adbDriverStepMetadata.logcat.rawPath, 'raw/adb-logcat.txt');
+    assert.equal(adbDriverStepMetadata.logcat.stepId, 'capture-log-window');
+
     const exampleLiveRoot = path.join(tempRoot, 'example-android-live-proof');
     const fakeExampleLiveAdbPath = path.join(
       tempRoot,
@@ -883,7 +942,7 @@ function main(): void {
       "import { createAndroidAdbDriver } from 'agent-scenario-loop/runner/android-adb-driver';",
       "import { runExampleAndroidLiveProof } from 'agent-scenario-loop/runner/example-android-live';",
       "import { compareLatestTrustedRun } from 'agent-scenario-loop/runner/compare-latest';",
-      "import { resolveAndroidAdbProfileCommands, runProfileAndroid } from 'agent-scenario-loop/runner/profile-android';",
+      "import { resolveAndroidAdbDriverSteps, resolveAndroidAdbProfileCommands, runProfileAndroid } from 'agent-scenario-loop/runner/profile-android';",
       "import { runProfileIos, type CliArgs } from 'agent-scenario-loop/runner/profile-ios';",
       '',
       "const layout: ArtifactLayout = createArtifactLayout({ outputDir: 'run' });",
@@ -907,6 +966,7 @@ function main(): void {
       "    stdout: '',",
       '  }),',
       '});',
+      "const androidDriverSteps = resolveAndroidAdbDriverSteps({ steps: [{ kind: 'captureEvidence', driverAction: 'readLogs', artifact: 'logs' }] });",
       "const args: CliArgs = { config: 'config.json', scenario: 'scenario.json' };",
       'const comparison = buildComparisonArtifact({',
       "  baselineHealth: { schemaVersion: '1.0.0', scenarioId: 'startup', runId: 'before', healthStatus: 'passed', checks: [] },",
@@ -924,6 +984,7 @@ function main(): void {
       'void runIndex;',
       'void latestTrusted;',
       'void androidDriver;',
+      'void androidDriverSteps;',
       'void args;',
       'void summary;',
       'void compareLatestTrustedRun;',

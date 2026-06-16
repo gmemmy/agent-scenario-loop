@@ -62,6 +62,8 @@ Runner capabilities describe ownership, such as launch, session control, command
 
 `buildScenarioExecutionPlan()` turns the same scenario steps into a deterministic adapter-facing work list. Each normalized step records the scenario step id, original kind, required flag, optional driver action, and the runner port method that owns it: `launch`, `executeStep`, `waitForTruthEvent`, or `captureEvidence`.
 
+Android adb capture currently routes normalized steps with `driverAction: "readLogs"` through the adb driver adapter. `adapterOptions.androidAdb.logcatLines` controls the bounded log window, and `adapterOptions.androidAdb.rawFileName` can override the raw evidence filename when the consuming profile path does not require the default `raw/adb-logcat.txt`.
+
 ## Public artifact layout
 
 Every run should produce a stable artifact folder.
@@ -109,7 +111,7 @@ The package currently supports:
 - Android adb readiness checks
 - Android bounded logcat capture
 - Android package launch plus bounded logcat capture
-- Android adb driver adapter with `readLogs` as the currently proven portable driver action
+- Android adb driver adapter with scenario-routed `readLogs` as the currently proven portable driver action
 - Android profile artifact generation from explicit event logs, prior adb artifacts, or an owned `--adb-capture` window
 - iOS profile artifact generation from explicit event logs
 - trusted baseline/current comparison after scenario health passes

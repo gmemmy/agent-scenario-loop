@@ -64,12 +64,22 @@ type AndroidDeepLinkCommand = {
   waitMs?: number;
 };
 
+type AndroidAdbDriverStep = {
+  driverAction: 'readLogs';
+  lines?: number;
+  rawFileName?: string;
+  required?: boolean;
+  stepId?: string;
+  waitMs?: number;
+};
+
 type AndroidPreflightOptions = {
   adbPath?: string;
   captureLogcat?: boolean;
   clearLogcat?: boolean;
   deepLinks?: AndroidDeepLinkCommand[];
   delay?: (ms: number) => Promise<void>;
+  driverSteps?: AndroidAdbDriverStep[];
   executor?: CommandExecutor;
   launch?: boolean;
   logcatLines?: number;
@@ -270,6 +280,46 @@ function buildAndroidVerdict({ runId, health }: { runId: string; health: Record<
 }
 
 /**
+ * Builds the readLogs driver steps for this adb capture window.
+ *
+ * @param {{captureLogcat: boolean, driverSteps: AndroidAdbDriverStep[], logcatLines: number, waitMs: number}} options
+ * @returns {AndroidAdbDriverStep[]}
+ */
+function resolveReadLogDriverSteps({
+  captureLogcat,
+  driverSteps,
+  logcatLines,
+  waitMs,
+}: {
+  captureLogcat: boolean;
+  driverSteps: AndroidAdbDriverStep[];
+  logcatLines: number;
+  waitMs: number;
+}): AndroidAdbDriverStep[] {
+  const readLogSteps = driverSteps.filter((step) => step.driverAction === 'readLogs');
+  if (readLogSteps.length > 0) {
+    return readLogSteps.map((step, index) => ({
+      driverAction: 'readLogs',
+      lines: step.lines ?? logcatLines,
+      rawFileName: step.rawFileName ?? (index === 0 ? 'adb-logcat.txt' : `adb-logcat-${index + 1}.txt`),
+      required: step.required !== false,
+      ...(step.stepId ? { stepId: step.stepId } : {}),
+      ...(typeof step.waitMs === 'number' && step.waitMs > 0 ? { waitMs: step.waitMs } : {}),
+    }));
+  }
+
+  return captureLogcat
+    ? [{
+        driverAction: 'readLogs',
+        lines: logcatLines,
+        rawFileName: 'adb-logcat.txt',
+        required: true,
+        ...(waitMs > 0 ? { waitMs } : {}),
+      }]
+    : [];
+}
+
+/**
  * Runs Android adb readiness checks and writes the preflight artifact set.
  *
  * @param {AndroidPreflightOptions} options
@@ -281,6 +331,7 @@ async function runAndroidAdbPreflight({
   clearLogcat = false,
   deepLinks = [],
   delay: wait = delay,
+  driverSteps = [],
   executor = execFileCommand,
   launch = false,
   logcatLines = 1000,
@@ -337,12 +388,19 @@ async function runAndroidAdbPreflight({
     clearLogcat,
     deepLinks,
     devices,
+    driverSteps,
     launch,
     logcatLines,
     selectedDevice: device,
     packageName,
     waitMs,
   };
+  const readLogSteps = resolveReadLogDriverSteps({
+    captureLogcat,
+    driverSteps,
+    logcatLines,
+    waitMs,
+  });
 
   if (device && device.state === 'device') {
     const shellPrefix = ['-s', device.serial, 'shell'];
@@ -459,34 +517,52 @@ async function runAndroidAdbPreflight({
       }
     }
 
-    if (waitMs > 0 && captureLogcat) {
-      await wait(waitMs);
-      checks.push({
-        name: 'android_capture_window_waited',
-        status: 'passed',
-        source: 'runner',
-        code: 'android_capture_window_waited',
-        message: `Waited ${waitMs}ms before capturing adb logcat.`,
-      });
-    }
+    const logcatMetadata: Record<string, unknown>[] = [];
+    for (const readLogStep of readLogSteps) {
+      if (readLogStep.waitMs && readLogStep.waitMs > 0) {
+        await wait(readLogStep.waitMs);
+        checks.push({
+          name: 'android_capture_window_waited',
+          status: 'passed',
+          source: 'runner',
+          code: 'android_capture_window_waited',
+          message: `Waited ${readLogStep.waitMs}ms before capturing adb logcat.`,
+          metadata: {
+            ...(readLogStep.stepId ? { stepId: readLogStep.stepId } : {}),
+          },
+        });
+      }
 
-    if (captureLogcat) {
-      const logcat = await driver.readLogs({ lines: logcatLines });
+      const logcat = await driver.readLogs({
+        lines: readLogStep.lines ?? logcatLines,
+        rawFileName: readLogStep.rawFileName,
+      });
       raw[logcat.rawFileName] = formatAndroidAdbRawOutput(logcat);
+      const failed = logcat.exitCode !== 0;
       checks.push({
         name: 'android_logcat_captured',
-        status: logcat.exitCode === 0 ? 'passed' : 'failed',
+        status: failed && readLogStep.required === false ? 'warning' : failed ? 'failed' : 'passed',
         source: 'runner',
         code: logcat.exitCode === 0 ? 'android_logcat_captured' : 'android_logcat_failed',
         message: logcat.exitCode === 0
-          ? `Captured the last ${logcatLines} adb logcat lines.`
+          ? `Captured the last ${readLogStep.lines ?? logcatLines} adb logcat lines.`
           : 'adb logcat capture failed.',
+        metadata: {
+          driverAction: 'readLogs',
+          ...(readLogStep.stepId ? { stepId: readLogStep.stepId } : {}),
+        },
       });
-      metadata.logcat = {
+      logcatMetadata.push({
         args: logcat.args,
         exitCode: logcat.exitCode,
         rawPath: `raw/${logcat.rawFileName}`,
-      };
+        ...(readLogStep.stepId ? { stepId: readLogStep.stepId } : {}),
+      });
+    }
+    if (logcatMetadata.length === 1) {
+      metadata.logcat = logcatMetadata[0];
+    } else if (logcatMetadata.length > 1) {
+      metadata.logcat = logcatMetadata;
     }
   } else {
     if (clearLogcat || launch) {
@@ -499,7 +575,7 @@ async function runAndroidAdbPreflight({
       });
     }
 
-    if (captureLogcat) {
+    if (readLogSteps.length > 0) {
       checks.push({
         name: 'android_logcat_captured',
         status: 'failed',
@@ -591,6 +667,7 @@ export {
   parseAdbDevices,
   parseArgs,
   parsePositiveInteger,
+  resolveReadLogDriverSteps,
   runAndroidAdbPreflight,
   selectDevice,
   usage,
@@ -598,6 +675,7 @@ export {
 
 export type {
   AndroidDevice,
+  AndroidAdbDriverStep,
   AndroidDeepLinkCommand,
   AndroidPreflightOptions,
   AndroidPreflightResult,

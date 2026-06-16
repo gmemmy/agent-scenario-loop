@@ -15,6 +15,8 @@ The package ships eight public runner entrypoints. Package scripts build them in
 
 The package also exports `runner/android-adb-driver` as a small adapter module. It exposes `readLogs` as the portable driver action currently proven by adb, and keeps Android-specific helpers such as log clearing, package launch, and deep-link execution behind explicit method names.
 
+When `profile-android` owns an adb capture window, scenario steps with `driverAction: "readLogs"` are normalized through `buildScenarioExecutionPlan()` and routed to that adapter. Step metadata under `adapterOptions.androidAdb` can set `logcatLines`, `rawFileName`, and wait behavior while preserving `raw/adb-logcat.txt` as the default profile input.
+
 The artifact contract separates scenario health, product verdict, baseline comparison, and profile evidence into schema-checked files. `health.json`, `verdict.json`, and optional `comparison.json` provide the interpretation gate; `manifest.json`, `metrics.json`, `causal-run.json`, and `budget-verdict.json` preserve the profile evidence for agents and humans.
 
 What it does not do yet:

@@ -91,7 +91,7 @@ pnpm check-plan -- --scenario examples/scenarios/mobile/app-startup.json --runne
 
 That command does not require Xcode, a simulator, or device artifacts. It validates scenario and runner manifests, writes preflight artifacts, and stops before live execution.
 
-Adapter authors can import `agent-scenario-loop/runner/android-adb-driver` to reuse the adb-backed `readLogs` driver action and Android lifecycle helpers without depending on the `asl-android-adb` CLI.
+Adapter authors can import `agent-scenario-loop/runner/android-adb-driver` to reuse the adb-backed `readLogs` driver action and Android lifecycle helpers without depending on the `asl-android-adb` CLI. Android profiling also routes scenario steps that declare `driverAction: "readLogs"` through that adapter during owned adb capture.
 
 To check Android adb readiness before live scenario execution:
 
