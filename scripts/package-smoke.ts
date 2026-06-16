@@ -256,6 +256,17 @@ function packageBinPath(installDir: string, name: string): string {
 }
 
 /**
+ * Returns the platform-specific path for the repo-local TypeScript compiler.
+ *
+ * @param {string} repoRoot
+ * @returns {string}
+ */
+function typescriptBinPath(repoRoot: string): string {
+  const suffix = process.platform === 'win32' ? '.cmd' : '';
+  return path.join(repoRoot, 'node_modules', '.bin', `tsc${suffix}`);
+}
+
+/**
  * Packs, installs, and exercises the public package surface from a temp project.
  *
  * @returns {void}
@@ -583,6 +594,66 @@ function main(): void {
       env,
     });
 
+    const typeSmokeSource = [
+      "import {",
+      "  ARTIFACT_LAYOUT_VERSION,",
+      "  DRIVER_PORT,",
+      "  SCHEMAS,",
+      "  buildAgentSummaryMarkdown,",
+      "  buildComparisonArtifact,",
+      "  createArtifactLayout,",
+      "  validateJson,",
+      "  validatePortImplementation,",
+      "  type ArtifactLayout,",
+      "  type PortValidationResult,",
+      "} from 'agent-scenario-loop';",
+      "import { runProfileAndroid } from 'agent-scenario-loop/runner/profile-android';",
+      "import { runProfileIos, type CliArgs } from 'agent-scenario-loop/runner/profile-ios';",
+      '',
+      "const layout: ArtifactLayout = createArtifactLayout({ outputDir: 'run' });",
+      "const validation: PortValidationResult = validatePortImplementation({",
+      "  name: 'driver',",
+      '  implementation: { tap() {}, screenshot() {} },',
+      '  requiredMethods: DRIVER_PORT,',
+      '});',
+      "const args: CliArgs = { config: 'config.json', scenario: 'scenario.json' };",
+      'const comparison = buildComparisonArtifact({',
+      "  baselineHealth: { schemaVersion: '1.0.0', scenarioId: 'startup', runId: 'before', healthStatus: 'passed', checks: [] },",
+      "  baselineVerdict: { schemaVersion: '1.0.0', scenarioId: 'startup', runId: 'before', healthStatus: 'passed', verdictStatus: 'passed' },",
+      "  currentHealth: { schemaVersion: '1.0.0', scenarioId: 'startup', runId: 'after', healthStatus: 'passed', checks: [] },",
+      "  currentVerdict: { schemaVersion: '1.0.0', scenarioId: 'startup', runId: 'after', healthStatus: 'passed', verdictStatus: 'passed' },",
+      '});',
+      "const summary = buildAgentSummaryMarkdown({ health: comparison, verdict: comparison });",
+      "validateJson({ schemaVersion: '1.0.0' }, SCHEMAS.health, 'health');",
+      "void ARTIFACT_LAYOUT_VERSION;",
+      'void layout;',
+      'void validation;',
+      'void args;',
+      'void summary;',
+      'void runProfileAndroid;',
+      'void runProfileIos;',
+      '',
+    ].join('\n');
+    fs.writeFileSync(path.join(installDir, 'package-smoke-types.ts'), typeSmokeSource, 'utf8');
+    fs.writeFileSync(
+      path.join(installDir, 'tsconfig.json'),
+      `${JSON.stringify({
+        compilerOptions: {
+          module: 'Node16',
+          moduleResolution: 'Node16',
+          noEmit: true,
+          strict: true,
+          target: 'ES2022',
+        },
+        include: ['package-smoke-types.ts'],
+      }, null, 2)}\n`,
+      'utf8',
+    );
+    run(typescriptBinPath(repoRoot), ['-p', installDir], {
+      cwd: installDir,
+      env,
+    });
+
     process.stdout.write(`package smoke passed: ${tarballPath}\n`);
     fs.rmSync(tempRoot, { recursive: true, force: true });
   } catch (error) {
@@ -603,5 +674,6 @@ export {
   packageBinPath,
   run,
   runExpectFailure,
+  typescriptBinPath,
   writeFakeAdb,
 };
