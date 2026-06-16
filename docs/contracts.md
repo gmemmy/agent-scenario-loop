@@ -10,6 +10,7 @@ The current package is intentionally contract-first: adopt the scenario and arti
 - [core/agent-summary.ts](../core/agent-summary.ts): agent-facing summary builder for health, verdict, and comparison state
 - [core/artifact-layout.ts](../core/artifact-layout.ts): canonical v1 artifact path contract for one run directory
 - [core/artifact-writer.ts](../core/artifact-writer.ts): schema-enforcing writers for stable JSON/text artifacts
+- [core/comparison.ts](../core/comparison.ts): comparison artifact builder for trusted before/after run folders
 - [core/artifact-contract.ts](../core/artifact-contract.ts): artifact builders for manifest, metrics, causal run, budget verdict, and summary
 - [core/evidence-interpreter.ts](../core/evidence-interpreter.ts): evidence interpretation helpers that gate timing claims on scenario health
 - [core/planner.ts](../core/planner.ts): compatibility checks between scenario requirements, primary runner capabilities, and evidence providers
@@ -85,6 +86,16 @@ pnpm check-plan -- --scenario examples/scenarios/v1/app-startup.json --runner ex
 ```
 
 This validates the input manifests, writes schema-checked `health.json` and `verdict.json`, writes `agent-summary.md`, and includes the raw planner match in `planner-compatibility.json`.
+
+## Historical comparison
+
+Use `compare` to build `comparison.json` from two completed run folders:
+
+```bash
+pnpm compare -- --baseline artifacts/runs/app-startup/baseline --current artifacts/runs/app-startup/current --out artifacts/runs/app-startup/current
+```
+
+The comparison gate is intentionally strict. If either run failed scenario health, or if the scenario ids do not match, the comparison is `inconclusive`. Numeric budget checks are compared only after that health gate passes.
 
 ## Read next
 

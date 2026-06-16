@@ -68,6 +68,7 @@ The package builds to `dist/` and exposes typed core contracts from the root:
 
 ```js
 const {
+  buildComparisonArtifact,
   createArtifactLayout,
   evaluateRunnerCompatibility,
   buildCompatibilityHealth,
@@ -76,13 +77,21 @@ const {
 } = require('agent-scenario-loop');
 ```
 
-The preflight CLI is exported as `agent-scenario-loop` and `asl-check-plan` after package installation. In this repo, use the script form:
+The preflight CLI is exported as `agent-scenario-loop` and `asl-check-plan` after package installation. The comparison CLI is exported as `asl-compare`. In this repo, use the script form:
 
 ```bash
 pnpm check-plan -- --scenario examples/scenarios/v1/app-startup.json --runner examples/runners/xcodebuildmcp-ios.json --platform ios --out artifacts/plan/app-startup
 ```
 
 That command does not require Xcode, a simulator, or device artifacts. It validates scenario and runner manifests, writes the v1 preflight artifacts, and stops before live execution.
+
+To compare two completed run folders:
+
+```bash
+pnpm compare -- --baseline artifacts/runs/app-startup/baseline --current artifacts/runs/app-startup/current --out artifacts/runs/app-startup/current
+```
+
+Comparison only reports better, worse, or unchanged when both runs passed scenario health. Otherwise it writes an inconclusive `comparison.json`.
 
 Read next: [V1 contracts](docs/contracts.md) for the artifact layout and current scope.
 
@@ -125,9 +134,10 @@ What it is not:
 Near-term:
 
 - publish the package boundary and keep exported declarations stable
+- compare trusted run folders and emit `comparison.json`
 - add a neutral example app with canonical startup, open-close, scroll, and media scenarios
 - harden a supported live iOS driver loop behind the existing artifact contract
 - improve runner validation and failure reporting
-- add historical comparison so agents can report improvement, regression, or inconclusive evidence against the last trusted run
+- harden historical baseline selection around the comparison artifact
 
 Explicitly out of v1: Android, physical devices, Computer Use flows, product-specific scenarios.

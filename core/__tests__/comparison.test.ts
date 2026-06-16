@@ -1,0 +1,131 @@
+const assert = require('node:assert/strict');
+const test = require('node:test');
+
+const {
+  buildComparisonArtifact,
+  compareBudgetCheck,
+} = require('../comparison');
+const { SCHEMAS, validateJson } = require('../schema-validator');
+
+type JsonRecord = Record<string, any>;
+
+/**
+ * Builds a schema-valid health artifact for comparison tests.
+ *
+ * @param {{runId: string, healthStatus?: string}} options
+ * @returns {Record<string, unknown>}
+ */
+function health({ runId, healthStatus = 'passed' }: { runId: string; healthStatus?: string }): JsonRecord {
+  return {
+    schemaVersion: '1.0.0',
+    scenarioId: 'open-close-cycle',
+    flowId: 'open-close-cycle',
+    runId,
+    healthStatus,
+    checks: [{ name: 'truth_events_complete', status: healthStatus, source: 'truth' }],
+  };
+}
+
+/**
+ * Builds a schema-valid verdict artifact for comparison tests.
+ *
+ * @param {{runId: string, actual: number, pass?: boolean, verdictStatus?: string}} options
+ * @returns {Record<string, unknown>}
+ */
+function verdict({
+  runId,
+  actual,
+  pass = true,
+  verdictStatus = 'passed',
+}: {
+  runId: string;
+  actual: number;
+  pass?: boolean;
+  verdictStatus?: string;
+}): JsonRecord {
+  return {
+    schemaVersion: '1.0.0',
+    scenarioId: 'open-close-cycle',
+    flowId: 'open-close-cycle',
+    runId,
+    healthStatus: 'passed',
+    verdictStatus,
+    budgetChecks: [
+      {
+        name: 'open p95',
+        source: 'milestone',
+        metric: 'p95',
+        unit: 'ms',
+        expected: 1000,
+        actual,
+        pass,
+      },
+    ],
+  };
+}
+
+test('compares numeric budget actuals with lower values treated as better', () => {
+  assert.deepEqual(
+    compareBudgetCheck(
+      { name: 'open p95', unit: 'ms', actual: 1200, pass: false },
+      { name: 'open p95', unit: 'ms', actual: 900, pass: true },
+    ),
+    {
+      name: 'open p95',
+      unit: 'ms',
+      baseline: 1200,
+      current: 900,
+      delta: -300,
+      status: 'better',
+    },
+  );
+});
+
+test('builds a better comparison only after both runs passed health', () => {
+  const comparison = buildComparisonArtifact({
+    baselineHealth: health({ runId: 'baseline-run' }),
+    baselineVerdict: verdict({ runId: 'baseline-run', actual: 1200, pass: false, verdictStatus: 'failed' }),
+    currentHealth: health({ runId: 'current-run' }),
+    currentVerdict: verdict({ runId: 'current-run', actual: 900 }),
+  });
+
+  assert.equal(comparison.comparisonStatus, 'better');
+  assert.equal(comparison.healthStatus, 'passed');
+  assert.equal(comparison.baselineRunId, 'baseline-run');
+  assert.equal(comparison.runId, 'current-run');
+  assert.equal(comparison.metricComparisons[0].delta, -300);
+  assert.equal(validateJson(comparison, SCHEMAS.comparison, 'Comparison artifact').valid, true);
+});
+
+test('returns inconclusive comparison when scenario health did not pass', () => {
+  const comparison = buildComparisonArtifact({
+    baselineHealth: health({ runId: 'baseline-run' }),
+    baselineVerdict: verdict({ runId: 'baseline-run', actual: 900 }),
+    currentHealth: health({ runId: 'current-run', healthStatus: 'failed' }),
+    currentVerdict: verdict({ runId: 'current-run', actual: 700 }),
+  });
+
+  assert.equal(comparison.comparisonStatus, 'inconclusive');
+  assert.equal(comparison.healthStatus, 'failed');
+  assert.deepEqual(comparison.evidence.missingRequired, ['current health passed']);
+  assert.equal(comparison.metricComparisons, undefined);
+  assert.match(comparison.summary, /required evidence is missing/u);
+});
+
+test('returns inconclusive comparison when no matching budget checks exist', () => {
+  const currentVerdict = verdict({ runId: 'current-run', actual: 900 });
+  currentVerdict.budgetChecks[0].name = 'close p95';
+
+  const comparison = buildComparisonArtifact({
+    baselineHealth: health({ runId: 'baseline-run' }),
+    baselineVerdict: verdict({ runId: 'baseline-run', actual: 900 }),
+    currentHealth: health({ runId: 'current-run' }),
+    currentVerdict,
+  });
+
+  assert.equal(comparison.comparisonStatus, 'inconclusive');
+  assert.deepEqual(comparison.evidence.warnings, [
+    'No baseline budget check matched close p95.',
+    'No comparable budget checks were available.',
+  ]);
+});
