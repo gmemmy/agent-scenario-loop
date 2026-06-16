@@ -190,15 +190,21 @@ What it is not:
 
 ## Production Readiness
 
-Near-term hardening:
+Current package guarantees:
 
-- publish the package boundary and keep exported declarations stable
-- compare trusted run folders and emit `comparison.json`
-- keep the fixture loop green as the contract changes
-- harden the neutral Expo example app with canonical startup, open-close, scroll, and media scenarios
+- the public package is installable from the packed tarball
+- root exports expose the core artifact, planner, comparison, writer, interpreter, and ports contracts
+- installable CLIs print help and run against packaged examples
+- packaged schemas, scenarios, runner manifests, app helper, and config template resolve after install
+- canonical fixture and neutral Expo-app event logs produce passed profile artifacts
+- explicit baseline/current run folders can produce schema-checked `comparison.json`
+- package smoke blocks generated artifacts, internal-only paths, and local/product-specific strings from the tarball
+
+Remaining hardening:
+
 - extend Android beyond package launch/log capture into scenario-step driving and richer evidence providers
 - harden a supported live iOS driver loop behind the existing artifact contract
-- improve runner validation and failure reporting
-- harden historical baseline selection around the comparison artifact
+- improve runner validation and failure reporting for more adapter classes
+- add baseline index conveniences on top of the explicit baseline/current comparison path
 
 The package should remain product-neutral. Product-specific selectors, routes, auth assumptions, and scenario data belong in the consuming app, not in this repository.
