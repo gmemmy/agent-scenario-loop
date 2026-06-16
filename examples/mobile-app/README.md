@@ -32,7 +32,8 @@ pnpm example:app:android
 - `package.json`, `app.json`, `tsconfig.json`: private Expo app configuration
 - `metro.config.js`: allows the app to import the package helper from the repo/package root
 - `asl.config.json`: runner config for example app artifact output
-- `scenarios/ios/*.json`: current iOS log-ingest scenario manifests
+- `scenarios/android/*.json`: Android log-ingest scenario manifests
+- `scenarios/ios/*.json`: iOS log-ingest scenario manifests
 - `event-logs/*.log`: deterministic profile-event evidence fixtures
 
 ## Fixture Proof
@@ -50,4 +51,7 @@ Additional fixture-backed profiles:
 ```bash
 pnpm example:profile:open-close
 pnpm example:profile:scroll
+pnpm example:profile:android:startup
+pnpm example:profile:android:open-close
+pnpm example:profile:android:scroll
 ```

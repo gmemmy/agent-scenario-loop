@@ -37,6 +37,7 @@
     "asl-compare": "dist/runner/compare.js",
     "asl-check-plan": "dist/runner/check-plan.js",
     "asl-demo-loop": "dist/runner/demo-loop.js",
+    "asl-profile-android": "dist/runner/profile-android.js",
     "asl-profile-ios": "dist/runner/profile-ios.js"
   },
   "exports": {
@@ -63,6 +64,10 @@
     "./runner/profile-ios": {
       "types": "./dist/runner/profile-ios.d.ts",
       "require": "./dist/runner/profile-ios.js"
+    },
+    "./runner/profile-android": {
+      "types": "./dist/runner/profile-android.d.ts",
+      "require": "./dist/runner/profile-android.js"
     },
     "./schemas/*": "./schemas/*",
     "./examples/*": "./examples/*",
@@ -95,8 +100,12 @@
     "example:profile:open-close": "pnpm build && node dist/runner/profile-ios.js --config examples/mobile-app/asl.config.json --scenario examples/mobile-app/scenarios/ios/open-close-cycle.json --events examples/mobile-app/event-logs/open-close-cycle.log --out artifacts/example-mobile-app/ios --run-id example-open-close",
     "example:profile:scroll": "pnpm build && node dist/runner/profile-ios.js --config examples/mobile-app/asl.config.json --scenario examples/mobile-app/scenarios/ios/scroll-settle.json --events examples/mobile-app/event-logs/scroll-settle.log --out artifacts/example-mobile-app/ios --run-id example-scroll",
     "example:profile:startup": "pnpm build && node dist/runner/profile-ios.js --config examples/mobile-app/asl.config.json --scenario examples/mobile-app/scenarios/ios/app-startup.json --events examples/mobile-app/event-logs/app-startup.log --out artifacts/example-mobile-app/ios --run-id example-startup",
+    "example:profile:android:open-close": "pnpm build && node dist/runner/profile-android.js --config examples/mobile-app/asl.config.json --scenario examples/mobile-app/scenarios/android/open-close-cycle.json --events examples/mobile-app/event-logs/android-open-close-cycle.log --out artifacts/example-mobile-app/android --run-id android-example-open-close",
+    "example:profile:android:scroll": "pnpm build && node dist/runner/profile-android.js --config examples/mobile-app/asl.config.json --scenario examples/mobile-app/scenarios/android/scroll-settle.json --events examples/mobile-app/event-logs/android-scroll-settle.log --out artifacts/example-mobile-app/android --run-id android-example-scroll",
+    "example:profile:android:startup": "pnpm build && node dist/runner/profile-android.js --config examples/mobile-app/asl.config.json --scenario examples/mobile-app/scenarios/android/app-startup.json --events examples/mobile-app/event-logs/android-app-startup.log --out artifacts/example-mobile-app/android --run-id android-example-startup",
     "example:app:android": "pnpm --dir examples/mobile-app android",
     "example:app:start": "pnpm --dir examples/mobile-app start",
+    "profile:android": "pnpm build && node dist/runner/profile-android.js",
     "profile:ios": "pnpm build && node dist/runner/profile-ios.js",
     "profile:ios:startup": "pnpm build && node dist/runner/profile-ios.js --config core/config-template.json --scenario examples/scenarios/ios/app-startup.json",
     "profile:ios:open-close": "pnpm build && node dist/runner/profile-ios.js --config core/config-template.json --scenario examples/scenarios/ios/open-close-cycle.json"

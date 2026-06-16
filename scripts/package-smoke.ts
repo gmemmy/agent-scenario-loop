@@ -12,25 +12,54 @@ type RunOptions = {
 };
 
 type ExampleProfileRun = {
+  binaryName: string;
   eventLog: string;
+  platform: string;
   runId: string;
   scenario: string;
 };
 
 const EXAMPLE_PROFILE_RUNS: ExampleProfileRun[] = [
   {
+    binaryName: 'asl-profile-ios',
     eventLog: 'app-startup.log',
+    platform: 'ios',
     runId: 'example-startup',
     scenario: 'app-startup.json',
   },
   {
+    binaryName: 'asl-profile-ios',
     eventLog: 'open-close-cycle.log',
+    platform: 'ios',
     runId: 'example-open-close',
     scenario: 'open-close-cycle.json',
   },
   {
+    binaryName: 'asl-profile-ios',
     eventLog: 'scroll-settle.log',
+    platform: 'ios',
     runId: 'example-scroll',
+    scenario: 'scroll-settle.json',
+  },
+  {
+    binaryName: 'asl-profile-android',
+    eventLog: 'android-app-startup.log',
+    platform: 'android',
+    runId: 'android-example-startup',
+    scenario: 'app-startup.json',
+  },
+  {
+    binaryName: 'asl-profile-android',
+    eventLog: 'android-open-close-cycle.log',
+    platform: 'android',
+    runId: 'android-example-open-close',
+    scenario: 'open-close-cycle.json',
+  },
+  {
+    binaryName: 'asl-profile-android',
+    eventLog: 'android-scroll-settle.log',
+    platform: 'android',
+    runId: 'android-example-scroll',
     scenario: 'scroll-settle.json',
   },
 ];
@@ -201,6 +230,7 @@ function main(): void {
       'asl-check-plan',
       'asl-compare',
       'asl-demo-loop',
+      'asl-profile-android',
       'asl-profile-ios',
     ]) {
       const helpText = run(packageBinPath(installDir, binaryName), ['--help'], {
@@ -211,15 +241,15 @@ function main(): void {
     }
 
     for (const exampleRun of EXAMPLE_PROFILE_RUNS) {
-      const output = run(packageBinPath(installDir, 'asl-profile-ios'), [
+      const output = run(packageBinPath(installDir, exampleRun.binaryName), [
         '--config',
         path.join(exampleAppRoot, 'asl.config.json'),
         '--scenario',
-        path.join(exampleAppRoot, 'scenarios', 'ios', exampleRun.scenario),
+        path.join(exampleAppRoot, 'scenarios', exampleRun.platform, exampleRun.scenario),
         '--events',
         path.join(exampleAppRoot, 'event-logs', exampleRun.eventLog),
         '--out',
-        path.join(tempRoot, 'example-mobile-app-artifacts'),
+        path.join(tempRoot, 'example-mobile-app-artifacts', exampleRun.platform),
         '--run-id',
         exampleRun.runId,
       ], {
@@ -227,8 +257,10 @@ function main(): void {
         env,
       });
       const runDir = output.trim();
+      const manifest = JSON.parse(fs.readFileSync(path.join(runDir, 'manifest.json'), 'utf8'));
       const health = JSON.parse(fs.readFileSync(path.join(runDir, 'health.json'), 'utf8'));
       const verdict = JSON.parse(fs.readFileSync(path.join(runDir, 'verdict.json'), 'utf8'));
+      assert.equal(manifest.platform, exampleRun.platform);
       assert.equal(health.healthStatus, 'passed');
       assert.equal(verdict.verdictStatus, 'passed');
     }
@@ -257,6 +289,7 @@ function main(): void {
       "require.resolve('agent-scenario-loop/schemas/scenario.schema.json');",
       "require.resolve('agent-scenario-loop/examples/scenarios/mobile/app-startup.json');",
       "require.resolve('agent-scenario-loop/examples/mobile-app/asl.config.json');",
+      "require.resolve('agent-scenario-loop/runner/profile-android');",
       "require.resolve('agent-scenario-loop/runner/profile-ios');",
       "assert.equal(fs.existsSync('node_modules/agent-scenario-loop/app/profile-session.ts'), true);",
       "assert.equal(fs.existsSync('node_modules/agent-scenario-loop/core/config-template.json'), true);",

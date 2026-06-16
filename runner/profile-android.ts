@@ -2,9 +2,6 @@
 
 const { hasHelpFlag } = require('./cli');
 const {
-  buildProfileHealth,
-  buildProfileVerdict,
-  buildVerdictBudgetChecks,
   parseArgs,
   runProfileCli,
   runProfileMobile,
@@ -12,35 +9,35 @@ const {
 } = require('./profile-mobile');
 
 /**
- * Runs the iOS log-ingest profile artifact pipeline.
+ * Runs the Android log-ingest profile artifact pipeline.
  *
  * @param {import('./profile-mobile').CliArgs} args
  * @returns {Promise<import('./profile-mobile').ProfileRunResult>}
  */
-function runProfileIos(args: import('./profile-mobile').CliArgs): Promise<import('./profile-mobile').ProfileRunResult> {
+function runProfileAndroid(args: import('./profile-mobile').CliArgs): Promise<import('./profile-mobile').ProfileRunResult> {
   return runProfileMobile(args, {
-    defaultDriver: 'xcodebuildmcp',
-    platform: 'ios',
+    defaultDriver: 'adb-logcat',
+    platform: 'android',
   });
 }
 
 /**
- * Runs the profile-ios CLI.
+ * Runs the profile-android CLI.
  *
  * @returns {Promise<void>}
  */
 async function main(): Promise<void> {
   const argv = process.argv.slice(2);
   if (hasHelpFlag(argv)) {
-    usage({ binaryName: 'asl-profile-ios', output: process.stdout, platform: 'ios' });
+    usage({ binaryName: 'asl-profile-android', output: process.stdout, platform: 'android' });
     return;
   }
 
   await runProfileCli({
     argv,
-    binaryName: 'asl-profile-ios',
-    defaultDriver: 'xcodebuildmcp',
-    platform: 'ios',
+    binaryName: 'asl-profile-android',
+    defaultDriver: 'adb-logcat',
+    platform: 'android',
   });
 }
 
@@ -52,16 +49,8 @@ if (require.main === module) {
 }
 
 export {
-  buildProfileHealth,
-  buildProfileVerdict,
-  buildVerdictBudgetChecks,
   main,
   parseArgs,
-  runProfileIos,
+  runProfileAndroid,
   usage,
 };
-
-export type {
-  CliArgs,
-  ProfileRunResult,
-} from './profile-mobile';

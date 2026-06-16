@@ -1,0 +1,37 @@
+{
+  "name": "scroll-settle",
+  "flowId": "example-feed-scroll",
+  "description": "Scroll the Android example feed and measure time until visible content is stable.",
+  "platform": "android",
+  "interactionDriver": "fixture-log-ingest",
+  "trigger": {
+    "kind": "gesture",
+    "label": "Perform one deterministic feed scroll."
+  },
+  "defaultIterations": 3,
+  "timelinePhases": {
+    "feed_scroll_started": "intent",
+    "feed_first_content_visible": "visual",
+    "feed_scroll_settle_requested": "render",
+    "feed_scroll_settled": "completion"
+  },
+  "metricEvents": {
+    "openRequested": "feed_scroll_started",
+    "opened": "feed_first_content_visible",
+    "closeRequested": "feed_scroll_settle_requested",
+    "dismissed": "feed_scroll_settled"
+  },
+  "budgets": {
+    "metric": "example android feed scroll-settle",
+    "pass": {
+      "failures": 0,
+      "timeouts": 0,
+      "scrollP50Ms": 1000,
+      "scrollP95Ms": 1050,
+      "openP50Ms": 450,
+      "openP95Ms": 500,
+      "closeP50Ms": 300,
+      "closeP95Ms": 350
+    }
+  }
+}

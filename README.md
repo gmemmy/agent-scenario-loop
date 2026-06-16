@@ -78,7 +78,7 @@ const {
 } = require('agent-scenario-loop');
 ```
 
-The preflight CLI is exported as `agent-scenario-loop` and `asl-check-plan` after package installation. The Android adb preflight CLI is exported as `asl-android-adb`, the iOS log-ingest CLI is exported as `asl-profile-ios`, the comparison CLI is exported as `asl-compare`, and the fixture loop is exported as `asl-demo-loop`. In this repo, use the script form:
+The preflight CLI is exported as `agent-scenario-loop` and `asl-check-plan` after package installation. The Android adb preflight CLI is exported as `asl-android-adb`, the Android and iOS log-ingest CLIs are exported as `asl-profile-android` and `asl-profile-ios`, the comparison CLI is exported as `asl-compare`, and the fixture loop is exported as `asl-demo-loop`. In this repo, use the script form:
 
 ```bash
 pnpm check-plan -- --scenario examples/scenarios/mobile/app-startup.json --runner examples/runners/xcodebuildmcp-ios.json --platform ios --out artifacts/plan/app-startup
@@ -140,7 +140,7 @@ No simulator available yet? Use the committed fixture logs:
 pnpm demo:loop -- --out artifacts/demo-loop
 ```
 
-To inspect the neutral Expo example app used for package dogfooding, start with [examples/mobile-app](examples/mobile-app/README.md). Its committed event logs are part of `pnpm release:check`, so the package has to prove the example app scenarios can produce passed artifacts before publishing. Android is the first live runtime proving target while iOS local tooling is unavailable.
+To inspect the neutral Expo example app used for package dogfooding, start with [examples/mobile-app](examples/mobile-app/README.md). Its committed Android and iOS event logs are part of `pnpm release:check`, so the package has to prove the example app scenarios can produce passed artifacts before publishing. Android is the first live runtime proving target while iOS local tooling is unavailable.
 
 To validate a portable scenario, runner manifest, and initial planning artifacts before execution:
 
@@ -170,7 +170,7 @@ Near-term hardening:
 - compare trusted run folders and emit `comparison.json`
 - keep the fixture loop green as the contract changes
 - harden the neutral Expo example app with canonical startup, open-close, scroll, and media scenarios
-- harden Android adb from readiness checks into log capture and lifecycle execution
+- harden Android adb from readiness checks and log-ingest artifacts into log capture and lifecycle execution
 - harden a supported live iOS driver loop behind the existing artifact contract
 - improve runner validation and failure reporting
 - harden historical baseline selection around the comparison artifact

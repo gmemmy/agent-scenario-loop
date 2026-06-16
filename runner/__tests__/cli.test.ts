@@ -33,6 +33,10 @@ const HELP_CASES = [
     file: path.join(DIST_ROOT, 'runner', 'profile-ios.js'),
     usage: 'Usage: asl-profile-ios',
   },
+  {
+    file: path.join(DIST_ROOT, 'runner', 'profile-android.js'),
+    usage: 'Usage: asl-profile-android',
+  },
 ];
 
 /**

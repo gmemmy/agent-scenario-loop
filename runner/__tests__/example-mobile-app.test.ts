@@ -8,6 +8,7 @@ const test = require('node:test');
 
 const DIST_ROOT = path.join(__dirname, '..', '..');
 const ROOT = path.join(DIST_ROOT, '..');
+const PROFILE_ANDROID = path.join(DIST_ROOT, 'runner', 'profile-android.js');
 const PROFILE_IOS = path.join(DIST_ROOT, 'runner', 'profile-ios.js');
 
 type ExecOutput = {
@@ -20,18 +21,45 @@ type TestContext = import('node:test').TestContext;
 const EXAMPLE_RUNS = [
   {
     eventLog: 'examples/mobile-app/event-logs/app-startup.log',
+    platform: 'ios',
+    profileRunner: PROFILE_IOS,
     runId: 'example-startup',
     scenario: 'examples/mobile-app/scenarios/ios/app-startup.json',
   },
   {
     eventLog: 'examples/mobile-app/event-logs/open-close-cycle.log',
+    platform: 'ios',
+    profileRunner: PROFILE_IOS,
     runId: 'example-open-close',
     scenario: 'examples/mobile-app/scenarios/ios/open-close-cycle.json',
   },
   {
     eventLog: 'examples/mobile-app/event-logs/scroll-settle.log',
+    platform: 'ios',
+    profileRunner: PROFILE_IOS,
     runId: 'example-scroll',
     scenario: 'examples/mobile-app/scenarios/ios/scroll-settle.json',
+  },
+  {
+    eventLog: 'examples/mobile-app/event-logs/android-app-startup.log',
+    platform: 'android',
+    profileRunner: PROFILE_ANDROID,
+    runId: 'android-example-startup',
+    scenario: 'examples/mobile-app/scenarios/android/app-startup.json',
+  },
+  {
+    eventLog: 'examples/mobile-app/event-logs/android-open-close-cycle.log',
+    platform: 'android',
+    profileRunner: PROFILE_ANDROID,
+    runId: 'android-example-open-close',
+    scenario: 'examples/mobile-app/scenarios/android/open-close-cycle.json',
+  },
+  {
+    eventLog: 'examples/mobile-app/event-logs/android-scroll-settle.log',
+    platform: 'android',
+    profileRunner: PROFILE_ANDROID,
+    runId: 'android-example-scroll',
+    scenario: 'examples/mobile-app/scenarios/android/scroll-settle.json',
   },
 ];
 
@@ -86,7 +114,7 @@ test('example mobile app scenarios produce passed artifacts from committed evide
 
   for (const exampleRun of EXAMPLE_RUNS) {
     const { stdout } = await execFileAsync(process.execPath, [
-      PROFILE_IOS,
+      exampleRun.profileRunner,
       '--config',
       fixturePath('examples/mobile-app/asl.config.json'),
       '--scenario',
@@ -101,9 +129,11 @@ test('example mobile app scenarios produce passed artifacts from committed evide
 
     const runDir = stdout.trim();
     const health = readJson(path.join(runDir, 'health.json'));
+    const manifest = readJson(path.join(runDir, 'manifest.json'));
     const verdict = readJson(path.join(runDir, 'verdict.json'));
     const summary = fs.readFileSync(path.join(runDir, 'agent-summary.md'), 'utf8');
 
+    assert.equal(manifest.platform, exampleRun.platform);
     assert.equal(health.healthStatus, 'passed');
     assert.equal(verdict.verdictStatus, 'passed');
     assert.match(summary, /Scenario health passed/u);

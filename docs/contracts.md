@@ -16,6 +16,7 @@ The package is intentionally contract-first: adopt the scenario and artifact sha
 - [core/planner.ts](../core/planner.ts): compatibility checks between scenario requirements, primary runner capabilities, and evidence providers
 - [core/ports.ts](../core/ports.ts): ports-and-adapters method surfaces for runners, drivers, providers, writers, and interpreters
 - [core/schema-validator.ts](../core/schema-validator.ts): dependency-free validation for the JSON Schema subset used by the public contracts
+- [runner/profile-android.ts](../runner/profile-android.ts): Android log-ingest runner that turns scenario metadata plus `[profile-event]` logs into the full artifact set
 - [runner/profile-ios.ts](../runner/profile-ios.ts): iOS log-ingest runner that turns scenario metadata plus `[profile-event]` logs into the full artifact set
 - [runner/android-adb.ts](../runner/android-adb.ts): Android adb readiness preflight that writes runner health and raw adb evidence
 - [runner/demo-loop.ts](../runner/demo-loop.ts): fixture loop that proves preflight, profile, and comparison without a simulator
@@ -72,11 +73,11 @@ Budgets are supported but optional for adoption.
 
 ## Current Scope
 
-Live simulator orchestration is not yet a supported public feature. The current iOS profile runner assembles artifacts from event logs you capture. The Android adb runner verifies readiness before live execution. Fully automated runner/adapter loops land behind the same contract.
+Live simulator or device orchestration is not yet a supported public feature. The current Android and iOS profile runners assemble artifacts from event logs you capture. The Android adb runner verifies readiness before live execution. Fully automated runner/adapter loops land behind the same contract.
 
 Not yet shipped as supported public features:
 
-- full Android scenario execution beyond adb readiness preflight
+- full Android scenario execution beyond adb readiness preflight and log-ingest artifact assembly
 - physical devices
 - Computer Use flows
 - product-specific scenarios

@@ -14,6 +14,7 @@
   },
   "paths": {
     "artifactRoot": "artifacts/example-mobile-app",
+    "androidArtifactsRoot": "artifacts/example-mobile-app/android",
     "iosArtifactsRoot": "artifacts/example-mobile-app/ios",
     "scenarioRoot": "examples/mobile-app/scenarios/ios"
   },

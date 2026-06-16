@@ -855,6 +855,7 @@ function buildManifest({
  * @returns {string}
  */
 function buildSummaryMarkdown({ manifest, metrics }: { manifest: ArtifactRecord; metrics: ArtifactRecord }): string {
+  const runtimeLabel = manifest.platform === 'android' ? 'Device' : 'Simulator';
   const signalLines = [
     `- JS: ${
       manifest.artifacts.signals.js.length > 0
@@ -878,7 +879,7 @@ function buildSummaryMarkdown({ manifest, metrics }: { manifest: ArtifactRecord;
     `- Status: ${manifest.status}`,
     `- Run ID: \`${manifest.runId}\``,
     `- Interaction driver: \`${manifest.interactionDriver}\``,
-    `- Simulator: ${manifest.simulator.name} (${manifest.simulator.udid})`,
+    `- ${runtimeLabel}: ${manifest.simulator.name} (${manifest.simulator.udid})`,
     `- Bundle ID: \`${manifest.bundleId}\``,
     `- Iterations: ${metrics.iterations}`,
     `- Completed cycles: ${metrics.durationsMs.length}/${metrics.iterations}`,

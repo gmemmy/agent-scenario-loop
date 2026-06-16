@@ -1,0 +1,38 @@
+{
+  "name": "app-startup",
+  "flowId": "example-startup",
+  "description": "Cold-launch the example app on Android and measure time until the home screen is ready and idle.",
+  "type": "app-startup",
+  "platform": "android",
+  "interactionDriver": "fixture-log-ingest",
+  "trigger": {
+    "kind": "cold-launch",
+    "label": "Launch the example app from a terminated state."
+  },
+  "defaultIterations": 1,
+  "timelinePhases": {
+    "app_launch_requested": "intent",
+    "home_ready": "visual",
+    "startup_idle_observed": "render",
+    "startup_complete": "completion"
+  },
+  "metricEvents": {
+    "openRequested": "app_launch_requested",
+    "opened": "home_ready",
+    "closeRequested": "startup_idle_observed",
+    "dismissed": "startup_complete"
+  },
+  "budgets": {
+    "metric": "example android startup ready",
+    "pass": {
+      "failures": 0,
+      "timeouts": 0,
+      "cycleP50Ms": 1700,
+      "cycleP95Ms": 1700,
+      "openP50Ms": 1300,
+      "openP95Ms": 1300,
+      "closeP50Ms": 300,
+      "closeP95Ms": 300
+    }
+  }
+}
