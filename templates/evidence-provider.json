@@ -7,6 +7,21 @@
   "driverActions": ["collectPerfSignals"],
   "artifactOutputs": ["profiler", "signals"],
   "lifecycle": ["prepare", "startWindow", "capture", "stopWindow", "finalize"],
+  "providerCommands": [
+    {
+      "id": "capture-profiler",
+      "phase": "capture",
+      "command": "node",
+      "args": ["scripts/capture-profiler.js", "--out", "{providerDir}/profiler.json"],
+      "outputs": [
+        {
+          "channel": "provider",
+          "kind": "profiler",
+          "path": "{providerDir}/profiler.json"
+        }
+      ]
+    }
+  ],
   "adapterOptionsSchema": {
     "signalPath": "signals/js",
     "window": "scenario"

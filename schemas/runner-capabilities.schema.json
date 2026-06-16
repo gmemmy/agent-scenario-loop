@@ -72,6 +72,12 @@
     "adapterOptionsSchema": {
       "type": "object",
       "additionalProperties": true
+    },
+    "providerCommands": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/providerCommand"
+      }
     }
   },
   "$defs": {
@@ -117,6 +123,76 @@
         "readLogs",
         "collectPerfSignals"
       ]
+    },
+    "providerCommand": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "phase", "command", "outputs"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]*$"
+        },
+        "phase": {
+          "type": "string",
+          "enum": ["prepare", "startWindow", "capture", "stopWindow", "finalize"]
+        },
+        "command": {
+          "type": "string",
+          "minLength": 1
+        },
+        "args": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "cwd": {
+          "type": "string"
+        },
+        "env": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "outputs": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/providerCommandOutput"
+          }
+        }
+      }
+    },
+    "providerCommandOutput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["channel", "kind", "path"],
+      "properties": {
+        "channel": {
+          "type": "string",
+          "enum": ["capture", "provider", "signal"]
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "accessibility",
+            "js",
+            "logs",
+            "memory",
+            "network",
+            "profiler",
+            "screenshot",
+            "uiTree",
+            "video"
+          ]
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
     }
   }
 }

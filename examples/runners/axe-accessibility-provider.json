@@ -5,5 +5,20 @@
   "platforms": ["ios", "android"],
   "capabilities": ["accessibility"],
   "artifactOutputs": ["accessibility"],
-  "lifecycle": ["prepare", "startWindow", "capture", "stopWindow", "finalize"]
+  "lifecycle": ["prepare", "startWindow", "capture", "stopWindow", "finalize"],
+  "providerCommands": [
+    {
+      "id": "capture-accessibility",
+      "phase": "capture",
+      "command": "axe",
+      "args": ["--output", "{providerDir}/accessibility.json"],
+      "outputs": [
+        {
+          "channel": "provider",
+          "kind": "accessibility",
+          "path": "{providerDir}/accessibility.json"
+        }
+      ]
+    }
+  ]
 }

@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+const { execFile } = require('node:child_process');
 const fs = require('node:fs');
 const fsp = require('node:fs/promises');
 const path = require('node:path');
@@ -28,6 +29,7 @@ type CliArgs = {
   scenario?: string | boolean;
   events?: string | boolean;
   out?: string | boolean;
+  provider?: CliArgValue;
   'run-id'?: string | boolean;
   signal?: CliArgValue;
   [key: string]: CliArgValue | undefined;
@@ -45,11 +47,14 @@ type ProfileMobileOptions = {
   platform: ProfilePlatform;
 };
 type CaptureEvidenceKind = 'screenshot' | 'uiTree' | 'video';
+type ProviderEvidenceKind = 'accessibility' | 'logs' | 'profiler';
 type SignalEvidenceKind = 'js' | 'memory' | 'network';
+type EvidenceChannel = 'capture' | 'provider' | 'signal';
+type EvidenceKind = CaptureEvidenceKind | ProviderEvidenceKind | SignalEvidenceKind;
 type EvidenceAttachment = {
-  channel: 'capture' | 'signal';
+  channel: EvidenceChannel;
   destinationPath: string;
-  kind: CaptureEvidenceKind | SignalEvidenceKind;
+  kind: EvidenceKind;
   manifestPath: string;
   sha256: string;
   sourcePath: string;
@@ -57,9 +62,9 @@ type EvidenceAttachment = {
   sizeBytes: number;
 };
 type EvidenceAttachmentInput = {
-  channel: EvidenceAttachment['channel'];
+  channel: EvidenceChannel;
   destinationPath: string;
-  kind: EvidenceAttachment['kind'];
+  kind: EvidenceKind;
   manifestPath: string;
   sourcePath: string;
 };
@@ -73,8 +78,47 @@ type AttachedEvidence = {
   copies: EvidenceAttachment[];
   signals: Record<SignalEvidenceKind, string[]>;
 };
+type ProviderCommandOutput = {
+  channel: EvidenceChannel;
+  kind: EvidenceKind;
+  path: string;
+};
+type ProviderCommand = {
+  args?: string[];
+  command: string;
+  cwd?: string;
+  env?: Record<string, string>;
+  id: string;
+  outputs: ProviderCommandOutput[];
+  phase: 'prepare' | 'startWindow' | 'capture' | 'stopWindow' | 'finalize';
+};
+type ProviderManifest = {
+  kind?: string;
+  providerCommands?: ProviderCommand[];
+  runnerId?: string;
+};
+type ProviderCommandContext = {
+  capturesDir: string;
+  platform: ProfilePlatform;
+  providerDir: string;
+  rawDir: string;
+  runDir: string;
+  runId: string;
+  scenarioId: string;
+};
+type ProviderCommandResult = {
+  args: string[];
+  command: string;
+  exitCode: number;
+  stderr: string;
+  stdout: string;
+};
+type ExecFileError = Error & {
+  code?: number;
+};
 
 const CAPTURE_EVIDENCE_KINDS = new Set(['screenshot', 'uiTree', 'video']);
+const PROVIDER_EVIDENCE_KINDS = new Set(['accessibility', 'logs', 'profiler']);
 const SIGNAL_EVIDENCE_KINDS = new Set(['js', 'memory', 'network']);
 
 /**
@@ -95,6 +139,7 @@ function usage({
     `Usage: ${binaryName} --config <path> --scenario <path> [--events <path>] [--out <dir>] [--run-id <id>]`,
     '',
     `Reads scenario metadata plus profile-event evidence and writes the artifact layout for one ${platform} profile run.`,
+    'Use repeated --provider <manifest> to execute declared evidence-provider commands before artifact writing.',
     'Use repeated --signal <js|memory|network>:<path> to attach provider signal artifacts.',
     'Use repeated --capture <screenshot|video|uiTree>:<path> to attach named capture artifacts.',
   ];
@@ -240,6 +285,248 @@ async function hashFileSha256(filePath: string): Promise<string> {
 }
 
 /**
+ * Runs one provider command without a shell and captures its output.
+ *
+ * @param {{command: string, args: string[], cwd?: string, env?: Record<string, string>}} options
+ * @returns {Promise<ProviderCommandResult>}
+ */
+function execProviderCommand({
+  args,
+  command,
+  cwd,
+  env,
+}: {
+  args: string[];
+  command: string;
+  cwd?: string;
+  env?: Record<string, string>;
+}): Promise<ProviderCommandResult> {
+  return new Promise((resolve) => {
+    execFile(command, args, {
+      ...(cwd ? { cwd } : {}),
+      env: env ? { ...process.env, ...env } : process.env,
+    }, (error: ExecFileError | null, stdout: string, stderr: string) => {
+      resolve({
+        args,
+        command,
+        exitCode: error && typeof error.code === 'number' ? error.code : error ? 1 : 0,
+        stderr,
+        stdout,
+      });
+    });
+  });
+}
+
+/**
+ * Replaces provider command placeholders with run-local paths and ids.
+ *
+ * @param {string} value
+ * @param {ProviderCommandContext} context
+ * @returns {string}
+ */
+function applyProviderPlaceholders(value: string, context: ProviderCommandContext): string {
+  return value
+    .replaceAll('{capturesDir}', context.capturesDir)
+    .replaceAll('{platform}', context.platform)
+    .replaceAll('{providerDir}', context.providerDir)
+    .replaceAll('{rawDir}', context.rawDir)
+    .replaceAll('{runDir}', context.runDir)
+    .replaceAll('{runId}', context.runId)
+    .replaceAll('{scenarioId}', context.scenarioId);
+}
+
+/**
+ * Resolves a provider command path after placeholder expansion.
+ *
+ * @param {{context: ProviderCommandContext, manifestDir: string, value: string}} options
+ * @returns {string}
+ */
+function resolveProviderPath({
+  context,
+  manifestDir,
+  value,
+}: {
+  context: ProviderCommandContext;
+  manifestDir: string;
+  value: string;
+}): string {
+  const resolved = applyProviderPlaceholders(value, context);
+  return path.isAbsolute(resolved) ? resolved : path.resolve(manifestDir, resolved);
+}
+
+/**
+ * Makes a provider id safe for run-local raw artifact filenames.
+ *
+ * @param {string} value
+ * @returns {string}
+ */
+function safeProviderSegment(value: string): string {
+  return value.replace(/[^a-z0-9-]+/giu, '-').replace(/^-|-$/gu, '') || 'provider';
+}
+
+/**
+ * Converts one provider-declared output into an attachment copy plan.
+ *
+ * @param {{layout: ReturnType<typeof createArtifactLayout>, output: ProviderCommandOutput, providerId: string, sourcePath: string}} options
+ * @returns {EvidenceAttachmentInput}
+ */
+function buildProviderEvidenceInput({
+  layout,
+  output,
+  providerId,
+  sourcePath,
+}: {
+  layout: ReturnType<typeof createArtifactLayout>;
+  output: ProviderCommandOutput;
+  providerId: string;
+  sourcePath: string;
+}): EvidenceAttachmentInput {
+  const fileName = path.basename(sourcePath);
+  if (output.channel === 'signal') {
+    if (!SIGNAL_EVIDENCE_KINDS.has(output.kind)) {
+      throw new Error(`Provider output ${providerId}/${output.path} uses signal channel with unsupported kind "${output.kind}".`);
+    }
+
+    const kind = output.kind as SignalEvidenceKind;
+    return {
+      channel: 'signal',
+      destinationPath: path.join(layout.signals[kind], fileName),
+      kind,
+      manifestPath: `signals/${kind}/${fileName}`,
+      sourcePath,
+    };
+  }
+
+  if (output.channel === 'capture') {
+    if (!CAPTURE_EVIDENCE_KINDS.has(output.kind)) {
+      throw new Error(`Provider output ${providerId}/${output.path} uses capture channel with unsupported kind "${output.kind}".`);
+    }
+
+    return {
+      channel: 'capture',
+      destinationPath: path.join(layout.captures, fileName),
+      kind: output.kind as CaptureEvidenceKind,
+      manifestPath: `captures/${fileName}`,
+      sourcePath,
+    };
+  }
+
+  if (!PROVIDER_EVIDENCE_KINDS.has(output.kind) && !SIGNAL_EVIDENCE_KINDS.has(output.kind)) {
+    throw new Error(`Provider output ${providerId}/${output.path} uses unsupported provider kind "${output.kind}".`);
+  }
+
+  return {
+    channel: 'provider',
+    destinationPath: path.join(layout.raw, 'providers', providerId, fileName),
+    kind: output.kind,
+    manifestPath: `raw/providers/${providerId}/${fileName}`,
+    sourcePath,
+  };
+}
+
+/**
+ * Executes declared evidence-provider commands and returns their output attachments.
+ *
+ * @param {{args: CliArgs, layout: ReturnType<typeof createArtifactLayout>, platform: ProfilePlatform, runDir: string, runId: string, scenarioId: string}} options
+ * @returns {Promise<EvidenceAttachmentInput[]>}
+ */
+async function executeProviderCommands({
+  args,
+  layout,
+  platform,
+  runDir,
+  runId,
+  scenarioId,
+}: {
+  args: CliArgs;
+  layout: ReturnType<typeof createArtifactLayout>;
+  platform: ProfilePlatform;
+  runDir: string;
+  runId: string;
+  scenarioId: string;
+}): Promise<EvidenceAttachmentInput[]> {
+  const inputs: EvidenceAttachmentInput[] = [];
+  const providerManifestPaths = readRepeatableArgValues(args, 'provider');
+  if (providerManifestPaths.length === 0) {
+    return inputs;
+  }
+
+  const commandRecordDir = path.join(layout.raw, 'provider-commands');
+  await ensureDir(commandRecordDir);
+
+  for (const providerManifestPath of providerManifestPaths) {
+    const absoluteManifestPath = path.resolve(providerManifestPath);
+    const manifestDir = path.dirname(absoluteManifestPath);
+    const provider = assertValidJson(
+      readJson(absoluteManifestPath),
+      SCHEMAS.runnerCapabilities,
+      'Evidence provider manifest',
+    ) as ProviderManifest;
+    if (provider.kind !== 'evidenceProvider') {
+      throw new Error(`Provider manifest must use kind "evidenceProvider": ${absoluteManifestPath}`);
+    }
+
+    const providerId = safeProviderSegment(String(provider.runnerId ?? path.basename(absoluteManifestPath, '.json')));
+    const providerDir = path.join(layout.raw, 'providers', providerId);
+    await ensureDir(providerDir);
+    const context = {
+      capturesDir: layout.captures,
+      platform,
+      providerDir,
+      rawDir: layout.raw,
+      runDir,
+      runId,
+      scenarioId,
+    };
+
+    for (const providerCommand of provider.providerCommands ?? []) {
+      const resolvedCommand = applyProviderPlaceholders(providerCommand.command, context);
+      const resolvedArgs = (providerCommand.args ?? []).map((arg) => applyProviderPlaceholders(arg, context));
+      const resolvedCwd = providerCommand.cwd
+        ? resolveProviderPath({ context, manifestDir, value: providerCommand.cwd })
+        : manifestDir;
+      const resolvedEnv = Object.fromEntries(
+        Object.entries(providerCommand.env ?? {}).map(([key, value]) => [key, applyProviderPlaceholders(value, context)]),
+      );
+      const commandResult = await execProviderCommand({
+        args: resolvedArgs,
+        command: resolvedCommand,
+        cwd: resolvedCwd,
+        env: resolvedEnv,
+      });
+      const commandRecordPath = path.join(commandRecordDir, `${providerId}-${providerCommand.id}.json`);
+      await fsp.writeFile(
+        commandRecordPath,
+        `${JSON.stringify({
+          args: commandResult.args,
+          command: commandResult.command,
+          exitCode: commandResult.exitCode,
+          phase: providerCommand.phase,
+          providerId,
+          stderr: commandResult.stderr,
+          stdout: commandResult.stdout,
+        }, null, 2)}\n`,
+        'utf8',
+      );
+      if (commandResult.exitCode !== 0) {
+        throw new Error(`Evidence provider command ${providerId}/${providerCommand.id} failed; inspect raw/provider-commands/${providerId}-${providerCommand.id}.json.`);
+      }
+
+      for (const output of providerCommand.outputs) {
+        inputs.push(buildProviderEvidenceInput({
+          layout,
+          output,
+          providerId,
+          sourcePath: resolveProviderPath({ context, manifestDir, value: output.path }),
+        }));
+      }
+    }
+  }
+
+  return inputs;
+}
+
+/**
  * Converts internal attachment copy plans into manifest-safe metadata.
  *
  * @param {EvidenceAttachment[]} attachments
@@ -259,15 +546,17 @@ function buildEvidenceAttachmentManifest(attachments: EvidenceAttachment[]): Rec
 /**
  * Validates provider artifact files and resolves their stable run destinations.
  *
- * @param {{args: CliArgs, layout: ReturnType<typeof createArtifactLayout>}} options
+ * @param {{args: CliArgs, layout: ReturnType<typeof createArtifactLayout>, providerInputs?: EvidenceAttachmentInput[]}} options
  * @returns {Promise<AttachedEvidence>}
  */
 async function resolveAttachedEvidence({
   args,
   layout,
+  providerInputs = [],
 }: {
   args: CliArgs;
   layout: ReturnType<typeof createArtifactLayout>;
+  providerInputs?: EvidenceAttachmentInput[];
 }): Promise<AttachedEvidence> {
   const attached: AttachedEvidence = {
     attachments: [],
@@ -316,6 +605,33 @@ async function resolveAttachedEvidence({
     attached.copies.push(attachment);
   };
 
+  const addAttachmentInput = async (input: EvidenceAttachmentInput): Promise<void> => {
+    if (input.channel === 'signal') {
+      if (!SIGNAL_EVIDENCE_KINDS.has(input.kind)) {
+        throw new Error(`Signal evidence kind "${input.kind}" is not supported.`);
+      }
+
+      attached.signals[input.kind as SignalEvidenceKind].push(input.manifestPath);
+    } else if (input.channel === 'capture') {
+      if (input.kind === 'screenshot') {
+        attached.captures.screenshots.push(input.manifestPath);
+      } else if (input.kind === 'uiTree' || input.kind === 'video') {
+        if (attached.captures[input.kind]) {
+          throw new Error(`Duplicate capture kind "${input.kind}".`);
+        }
+        attached.captures[input.kind] = input.manifestPath;
+      } else {
+        throw new Error(`Capture evidence kind "${input.kind}" is not supported.`);
+      }
+    }
+
+    await addCopy(input);
+  };
+
+  for (const input of providerInputs) {
+    await addAttachmentInput(input);
+  }
+
   for (const value of readRepeatableArgValues(args, 'signal')) {
     const parsed = parseEvidenceArg({
       allowedKinds: SIGNAL_EVIDENCE_KINDS,
@@ -324,8 +640,7 @@ async function resolveAttachedEvidence({
     }) as { kind: SignalEvidenceKind; sourcePath: string };
     const fileName = path.basename(parsed.sourcePath);
     const manifestPath = `signals/${parsed.kind}/${fileName}`;
-    attached.signals[parsed.kind].push(manifestPath);
-    await addCopy({
+    await addAttachmentInput({
       channel: 'signal',
       destinationPath: path.join(layout.signals[parsed.kind], fileName),
       kind: parsed.kind,
@@ -343,8 +658,7 @@ async function resolveAttachedEvidence({
     const fileName = path.basename(parsed.sourcePath);
     const manifestPath = `captures/${fileName}`;
     if (parsed.kind === 'screenshot') {
-      attached.captures.screenshots.push(manifestPath);
-      await addCopy({
+      await addAttachmentInput({
         channel: 'capture',
         destinationPath: path.join(layout.captures, fileName),
         kind: parsed.kind,
@@ -358,8 +672,7 @@ async function resolveAttachedEvidence({
       throw new Error(`Duplicate --capture kind "${parsed.kind}".`);
     }
 
-    attached.captures[parsed.kind] = manifestPath;
-    await addCopy({
+    await addAttachmentInput({
       channel: 'capture',
       destinationPath: path.join(layout.captures, fileName),
       kind: parsed.kind,
@@ -379,6 +692,10 @@ async function resolveAttachedEvidence({
  */
 async function copyAttachedEvidence(copies: EvidenceAttachment[]): Promise<void> {
   for (const copy of copies) {
+    if (path.resolve(copy.sourcePath) === path.resolve(copy.destinationPath)) {
+      continue;
+    }
+
     await fsp.copyFile(copy.sourcePath, copy.destinationPath);
   }
 }
@@ -650,7 +967,15 @@ async function runProfileMobile(args: CliArgs, options: ProfileMobileOptions): P
   await ensureDir(layout.signals.js);
   await ensureDir(layout.signals.memory);
   await ensureDir(layout.signals.network);
-  const attachedEvidence = await resolveAttachedEvidence({ args, layout });
+  const providerInputs = await executeProviderCommands({
+    args,
+    layout,
+    platform: options.platform,
+    runDir,
+    runId,
+    scenarioId: scenario.name,
+  });
+  const attachedEvidence = await resolveAttachedEvidence({ args, layout, providerInputs });
 
   const eventLogText = eventLogPath ? await fsp.readFile(eventLogPath, 'utf8') : '';
   const events = extractProfileEvents(eventLogText, {

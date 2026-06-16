@@ -31,11 +31,11 @@ What it does not do yet:
 - drive semantic UI interactions beyond coordinate-based adb `tap` and `scroll`
 - capture video, memory, network, or accessibility evidence from built-in drivers
 
-Those deeper orchestration capabilities land behind the same artifact contract. Primary runners own one run lifecycle. Evidence providers attach optional or required evidence through a smaller provider interface. Tools such as AXe, XcodeBuildMCP, agent-device, Argent, adb, profilers, accessibility inspectors, and log collectors plug in as adapters, so scenarios and artifacts stay stable while tactical tools change underneath.
+Those deeper orchestration capabilities land behind the same artifact contract. Primary runners own one run lifecycle. Evidence providers attach optional or required evidence through a smaller provider interface. Provider manifests can declare no-shell commands and output files; profile runners preserve those outputs through `artifacts.evidenceAttachments` without bundling the provider tool. Tools such as axe, XcodeBuildMCP, agent-device, Argent, adb, profilers, accessibility inspectors, and log collectors plug in as adapters, so scenarios and artifacts stay stable while tactical tools change underneath.
 
 Runner manifests separate `capabilities` from `driverActions`. Capabilities say the runner can own parts of the lifecycle or evidence contract. Driver actions say the underlying adapter can perform concrete operations such as `tap`, `scroll`, `inspectTree`, `screenshot`, `record`, `readLogs`, or `collectPerfSignals`. `check-plan` fails before execution when a required scenario step declares a `driverAction` no active runner or provider supports.
 
-`examples/runners` includes adapter-target manifests for `agent-device` and `axe`. These fixtures are intentionally just contracts: they let the planner prove capability matching without adding vendor dependencies or pretending the package has bundled those runtime integrations.
+`examples/runners` includes adapter-target manifests for `agent-device` and axe-style accessibility evidence. These fixtures are intentionally just contracts: they let the planner prove capability matching without adding vendor dependencies or pretending the package has bundled those runtime integrations.
 
 After planning passes, `buildScenarioExecutionPlan()` normalizes scenario steps into the adapter-facing work list. It preserves app commands and milestones, records required versus optional steps, and maps step kinds to the runner port method that owns execution.
 

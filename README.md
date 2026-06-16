@@ -279,14 +279,15 @@ Current package guarantees:
 - Android adb capture can resolve supported portable selectors into tap and scroll coordinates from UIAutomator bounds
 - installed commands expose iOS simctl capture, screenshot preservation, and iOS profile ingestion from simctl artifacts
 - provider evidence attachments are inventoried with stable paths, source filenames, sizes, and sha256 hashes
+- evidence-provider manifests can declare no-shell commands whose outputs are preserved under stable run artifacts
 - failed adb, simctl, package, selector, and capture checks emit scalar next-action hints into health metadata and `agent-summary.md`
 - adapter-target manifests for external tools are schema-checked and planner-tested without bundling those tools
 - package smoke blocks generated artifacts, internal-only paths, and local/product-specific strings from the tarball
 
 Remaining hardening:
 
-- extend Android beyond basic selector-backed adb actions into richer evidence providers and broader semantic driver support
-- extend iOS beyond log/screenshot capture into richer simulator evidence providers
-- improve runner validation and failure reporting for more adapter classes
+- extend Android beyond basic selector-backed adb actions into broader semantic driver support
+- extend iOS beyond log/screenshot capture into richer simulator driver support
+- expand provider-command failure handling into schema-checked failed health artifacts
 
 The package should remain product-neutral. Product-specific selectors, routes, auth assumptions, and scenario data belong in the consuming app, not in this repository.

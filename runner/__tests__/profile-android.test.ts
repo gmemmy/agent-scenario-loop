@@ -228,6 +228,100 @@ test('profile-android attaches provider signal and capture artifacts', async (t:
   assert.match(summary, /signal\/js/u);
 });
 
+test('profile-android executes declared evidence provider commands', async (t: TestContext) => {
+  const artifactRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-android-provider-command-'));
+  const providerRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-provider-command-'));
+  t.after(async () => {
+    await fsp.rm(artifactRoot, { recursive: true, force: true });
+    await fsp.rm(providerRoot, { recursive: true, force: true });
+  });
+  const providerScript = path.join(providerRoot, 'write-accessibility.js');
+  await fsp.writeFile(
+    providerScript,
+    [
+      "const fs = require('node:fs');",
+      "const path = require('node:path');",
+      "const outputPath = process.argv[2];",
+      "fs.mkdirSync(path.dirname(outputPath), { recursive: true });",
+      "fs.writeFileSync(outputPath, JSON.stringify({ violations: [] }) + '\\n');",
+    ].join('\n'),
+    'utf8',
+  );
+  const providerManifestPath = path.join(providerRoot, 'provider.json');
+  await fsp.writeFile(
+    providerManifestPath,
+    `${JSON.stringify({
+      schemaVersion: '1.0.0',
+      runnerId: 'local-accessibility-provider',
+      kind: 'evidenceProvider',
+      platforms: ['android'],
+      capabilities: ['accessibility'],
+      artifactOutputs: ['accessibility'],
+      lifecycle: ['capture'],
+      providerCommands: [
+        {
+          id: 'capture-accessibility',
+          phase: 'capture',
+          command: process.execPath,
+          args: [providerScript, '{providerDir}/accessibility.json'],
+          outputs: [
+            {
+              channel: 'provider',
+              kind: 'accessibility',
+              path: '{providerDir}/accessibility.json',
+            },
+          ],
+        },
+      ],
+    }, null, 2)}\n`,
+    'utf8',
+  );
+
+  const { stdout } = await execFileAsync(process.execPath, [
+    PROFILE_ANDROID,
+    '--config',
+    fixturePath('examples/mobile-app/asl.config.json'),
+    '--scenario',
+    fixturePath('examples/mobile-app/scenarios/android/app-startup.json'),
+    '--events',
+    fixturePath('examples/mobile-app/event-logs/android-app-startup.log'),
+    '--provider',
+    providerManifestPath,
+    '--out',
+    artifactRoot,
+    '--run-id',
+    'android-provider-command',
+  ]);
+
+  const runDir = stdout.trim();
+  const providerOutputPath = path.join(runDir, 'raw', 'providers', 'local-accessibility-provider', 'accessibility.json');
+  const manifest = readJson(path.join(runDir, 'manifest.json'));
+  const artifacts = manifest.artifacts as {
+    evidenceAttachments: Array<{
+      channel: string;
+      kind: string;
+      path: string;
+      sha256: string;
+      sourceFileName: string;
+    }>;
+  };
+  const summary = fs.readFileSync(path.join(runDir, 'summary.md'), 'utf8');
+
+  assert.ok(fs.existsSync(providerOutputPath));
+  assert.ok(fs.existsSync(path.join(runDir, 'raw', 'provider-commands', 'local-accessibility-provider-capture-accessibility.json')));
+  assert.deepEqual(artifacts.evidenceAttachments, [
+    {
+      channel: 'provider',
+      kind: 'accessibility',
+      path: 'raw/providers/local-accessibility-provider/accessibility.json',
+      sha256: sha256File(providerOutputPath),
+      sizeBytes: fs.statSync(providerOutputPath).size,
+      sourceFileName: 'accessibility.json',
+    },
+  ]);
+  assert.match(summary, /provider\/accessibility/u);
+});
+
 test('profile-android reads logcat from adb artifact folders', async (t: TestContext) => {
   const tempRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-android-adb-artifacts-'));
   t.after(async () => {

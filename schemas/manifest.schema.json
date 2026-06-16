@@ -162,11 +162,11 @@
             "properties": {
               "channel": {
                 "type": "string",
-                "enum": ["capture", "signal"]
+                "enum": ["capture", "provider", "signal"]
               },
               "kind": {
                 "type": "string",
-                "enum": ["js", "memory", "network", "screenshot", "uiTree", "video"]
+                "enum": ["accessibility", "js", "logs", "memory", "network", "profiler", "screenshot", "uiTree", "video"]
               },
               "path": {
                 "type": "string"

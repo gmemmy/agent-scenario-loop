@@ -733,6 +733,75 @@ function main(): void {
     assert.equal(fs.existsSync(path.join(providerProfileRunDir, 'signals', 'network', 'network-capture.har')), true);
     assert.equal(fs.existsSync(path.join(providerProfileRunDir, 'captures', 'ui-tree.json')), true);
 
+    const providerCommandRoot = path.join(tempRoot, 'provider-command');
+    const providerCommandProfileRoot = path.join(tempRoot, 'provider-command-profile');
+    fs.mkdirSync(providerCommandRoot, { recursive: true });
+    const providerCommandScript = path.join(providerCommandRoot, 'write-accessibility.js');
+    fs.writeFileSync(providerCommandScript, [
+      "const fs = require('node:fs');",
+      "const path = require('node:path');",
+      "const outputPath = process.argv[2];",
+      "fs.mkdirSync(path.dirname(outputPath), { recursive: true });",
+      "fs.writeFileSync(outputPath, JSON.stringify({ violations: [] }) + '\\n');",
+    ].join('\n'));
+    const providerCommandManifestPath = path.join(providerCommandRoot, 'provider.json');
+    fs.writeFileSync(providerCommandManifestPath, `${JSON.stringify({
+      schemaVersion: '1.0.0',
+      runnerId: 'smoke-accessibility-provider',
+      kind: 'evidenceProvider',
+      platforms: ['android'],
+      capabilities: ['accessibility'],
+      artifactOutputs: ['accessibility'],
+      lifecycle: ['capture'],
+      providerCommands: [
+        {
+          id: 'capture-accessibility',
+          phase: 'capture',
+          command: process.execPath,
+          args: [providerCommandScript, '{providerDir}/accessibility.json'],
+          outputs: [
+            {
+              channel: 'provider',
+              kind: 'accessibility',
+              path: '{providerDir}/accessibility.json',
+            },
+          ],
+        },
+      ],
+    }, null, 2)}\n`);
+    const providerCommandProfileOutput = run(packageBinPath(installDir, 'asl-profile-android'), [
+      '--config',
+      path.join(exampleAppRoot, 'asl.config.json'),
+      '--scenario',
+      path.join(exampleAppRoot, 'scenarios', 'android', 'app-startup.json'),
+      '--events',
+      path.join(exampleAppRoot, 'event-logs', 'android-app-startup.log'),
+      '--provider',
+      providerCommandManifestPath,
+      '--out',
+      providerCommandProfileRoot,
+      '--run-id',
+      'android-provider-command',
+    ], {
+      cwd: installDir,
+      env,
+    });
+    const providerCommandRunDir = providerCommandProfileOutput.trim();
+    const providerCommandManifest = JSON.parse(fs.readFileSync(path.join(providerCommandRunDir, 'manifest.json'), 'utf8'));
+    const providerCommandOutput = path.join(providerCommandRunDir, 'raw', 'providers', 'smoke-accessibility-provider', 'accessibility.json');
+    assert.equal(fs.existsSync(providerCommandOutput), true);
+    assert.equal(fs.existsSync(path.join(providerCommandRunDir, 'raw', 'provider-commands', 'smoke-accessibility-provider-capture-accessibility.json')), true);
+    assert.deepEqual(providerCommandManifest.artifacts.evidenceAttachments, [
+      {
+        channel: 'provider',
+        kind: 'accessibility',
+        path: 'raw/providers/smoke-accessibility-provider/accessibility.json',
+        sha256: sha256File(providerCommandOutput),
+        sizeBytes: fs.statSync(providerCommandOutput).size,
+        sourceFileName: 'accessibility.json',
+      },
+    ]);
+
     const adbArtifactRoot = path.join(tempRoot, 'adb-artifacts');
     fs.mkdirSync(path.join(adbArtifactRoot, 'raw'), { recursive: true });
     fs.copyFileSync(
