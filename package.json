@@ -8,6 +8,7 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "bin": {
+    "asl-android-adb": "dist/runner/android-adb.js",
     "agent-scenario-loop": "dist/runner/check-plan.js",
     "asl-compare": "dist/runner/compare.js",
     "asl-check-plan": "dist/runner/check-plan.js",
@@ -17,6 +18,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "require": "./dist/index.js"
+    },
+    "./runner/android-adb": {
+      "types": "./dist/runner/android-adb.d.ts",
+      "require": "./dist/runner/android-adb.js"
     },
     "./runner/check-plan": {
       "types": "./dist/runner/check-plan.d.ts",
@@ -48,6 +53,7 @@
     "prepack": "npm run clean && npm run build",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "pnpm clean && pnpm typecheck && pnpm exec tsc -p tsconfig.json && node --test dist/core/__tests__/*.test.js dist/runner/__tests__/*.test.js",
+    "android:preflight": "pnpm build && node dist/runner/android-adb.js",
     "compare": "pnpm build && node dist/runner/compare.js",
     "check-plan": "pnpm build && node dist/runner/check-plan.js",
     "demo:loop": "pnpm build && node dist/runner/demo-loop.js",

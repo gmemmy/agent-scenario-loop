@@ -1,0 +1,398 @@
+#!/usr/bin/env node
+
+const { execFile } = require('node:child_process');
+const crypto = require('node:crypto');
+const fsp = require('node:fs/promises');
+const path = require('node:path');
+
+const { buildAgentSummaryMarkdown } = require('../core/agent-summary');
+const { createArtifactLayout } = require('../core/artifact-layout');
+const { writeJsonArtifact, writeTextArtifact } = require('../core/artifact-writer');
+const { SCHEMAS, assertValidJson } = require('../core/schema-validator');
+
+type CliArgs = {
+  adb?: string | boolean;
+  out?: string | boolean;
+  package?: string | boolean;
+  'run-id'?: string | boolean;
+  serial?: string | boolean;
+  [key: string]: string | boolean | undefined;
+};
+
+type CommandResult = {
+  command: string;
+  args: string[];
+  exitCode: number;
+  stderr: string;
+  stdout: string;
+};
+
+type CommandExecutor = (command: string, args: string[]) => Promise<CommandResult>;
+type ExecFileError = Error & {
+  code?: number;
+};
+
+type AndroidDevice = {
+  serial: string;
+  state: string;
+  description: string;
+};
+
+type AndroidPreflightResult = {
+  agentSummary: string;
+  device: AndroidDevice | null;
+  health: Record<string, unknown>;
+  metadata: Record<string, unknown>;
+  raw: Record<string, string>;
+  runDir: string;
+  verdict: Record<string, unknown>;
+};
+
+type AndroidPreflightOptions = {
+  adbPath?: string;
+  executor?: CommandExecutor;
+  outputDir?: string;
+  packageName?: string | null;
+  runId?: string;
+  serial?: string | null;
+};
+
+/**
+ * Prints CLI usage to stderr.
+ *
+ * @returns {void}
+ */
+function usage(): void {
+  console.error(
+    [
+      'Usage: node runner/android-adb.js [--adb <path>] [--serial <device>] [--package <name>] [--run-id <id>] [--out <dir>]',
+      '',
+      'Checks adb/device readiness and writes health.json, verdict.json, agent-summary.md, and raw adb evidence.',
+    ].join('\n'),
+  );
+}
+
+/**
+ * Parses `--key value` arguments for the Android adb preflight CLI.
+ *
+ * @param {string[]} argv
+ * @returns {CliArgs}
+ */
+function parseArgs(argv: string[]): CliArgs {
+  const args: CliArgs = {};
+  for (let index = 0; index < argv.length; index += 1) {
+    const token = argv[index];
+    if (token === '--') {
+      continue;
+    }
+    if (!token || !token.startsWith('--')) {
+      continue;
+    }
+
+    const key = token.slice(2);
+    const value = argv[index + 1];
+    if (value && !value.startsWith('--')) {
+      args[key] = value;
+      index += 1;
+    } else {
+      args[key] = true;
+    }
+  }
+
+  return args;
+}
+
+/**
+ * Creates a short random run id for Android preflight runs.
+ *
+ * @returns {string}
+ */
+function createRunId(): string {
+  return crypto.randomBytes(6).toString('hex');
+}
+
+/**
+ * Runs a command and captures stdout, stderr, and exit code without throwing.
+ *
+ * @param {string} command
+ * @param {string[]} args
+ * @returns {Promise<CommandResult>}
+ */
+function execFileCommand(command: string, args: string[]): Promise<CommandResult> {
+  return new Promise((resolve) => {
+    execFile(command, args, (error: ExecFileError | null, stdout: string, stderr: string) => {
+      resolve({
+        command,
+        args,
+        exitCode: error && typeof error.code === 'number' ? error.code : error ? 1 : 0,
+        stderr,
+        stdout,
+      });
+    });
+  });
+}
+
+/**
+ * Parses `adb devices -l` output into device rows.
+ *
+ * @param {string} output
+ * @returns {AndroidDevice[]}
+ */
+function parseAdbDevices(output: string): AndroidDevice[] {
+  return String(output)
+    .split(/\r?\n/u)
+    .slice(1)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const [serial = '', state = '', ...rest] = line.split(/\s+/u);
+      return {
+        serial,
+        state,
+        description: rest.join(' '),
+      };
+    })
+    .filter((device) => device.serial.length > 0);
+}
+
+/**
+ * Selects an Android device by explicit serial or first online device.
+ *
+ * @param {AndroidDevice[]} devices
+ * @param {string | null | undefined} serial
+ * @returns {AndroidDevice | null}
+ */
+function selectDevice(devices: AndroidDevice[], serial?: string | null): AndroidDevice | null {
+  if (serial) {
+    return devices.find((device) => device.serial === serial) ?? null;
+  }
+
+  return devices.find((device) => device.state === 'device') ?? null;
+}
+
+/**
+ * Builds a runner health artifact from adb preflight checks.
+ *
+ * @param {{runId: string, checks: Record<string, unknown>[]}} options
+ * @returns {Record<string, unknown>}
+ */
+function buildAndroidHealth({ runId, checks }: { runId: string; checks: Record<string, unknown>[] }): Record<string, unknown> {
+  const failed = checks.some((check) => check.status === 'failed');
+  return assertValidJson(
+    {
+      schemaVersion: '1.0.0',
+      scenarioId: 'android-adb-preflight',
+      flowId: 'android-adb-preflight',
+      runId,
+      healthStatus: failed ? 'failed' : 'passed',
+      checks,
+    },
+    SCHEMAS.health,
+    'Health artifact',
+  ) as Record<string, unknown>;
+}
+
+/**
+ * Builds a verdict artifact for adb preflight readiness.
+ *
+ * @param {{runId: string, health: Record<string, unknown>}} options
+ * @returns {Record<string, unknown>}
+ */
+function buildAndroidVerdict({ runId, health }: { runId: string; health: Record<string, unknown> }): Record<string, unknown> {
+  const passed = health.healthStatus === 'passed';
+  return assertValidJson(
+    {
+      schemaVersion: '1.0.0',
+      scenarioId: 'android-adb-preflight',
+      flowId: 'android-adb-preflight',
+      runId,
+      healthStatus: health.healthStatus,
+      verdictStatus: passed ? 'not_evaluated' : 'inconclusive',
+      budgetChecks: [],
+      summary: passed
+        ? 'Android adb preflight passed; no product budget has been evaluated.'
+        : 'Android adb preflight failed; runtime scenario execution is not ready.',
+    },
+    SCHEMAS.verdict,
+    'Verdict artifact',
+  ) as Record<string, unknown>;
+}
+
+/**
+ * Runs Android adb readiness checks and writes the v1 preflight artifact set.
+ *
+ * @param {AndroidPreflightOptions} options
+ * @returns {Promise<AndroidPreflightResult>}
+ */
+async function runAndroidAdbPreflight({
+  adbPath = 'adb',
+  executor = execFileCommand,
+  outputDir = path.resolve('artifacts/android-adb-preflight'),
+  packageName = null,
+  runId = createRunId(),
+  serial = null,
+}: AndroidPreflightOptions = {}): Promise<AndroidPreflightResult> {
+  const runDir = path.resolve(outputDir);
+  const layout = createArtifactLayout({ outputDir: runDir });
+  const rawDir = layout.raw;
+  await fsp.mkdir(rawDir, { recursive: true });
+
+  const raw: Record<string, string> = {};
+  const checks: Record<string, unknown>[] = [];
+  const version = await executor(adbPath, ['version']);
+  raw['adb-version.txt'] = [version.stdout, version.stderr].filter(Boolean).join('\n');
+  checks.push({
+    name: 'adb_available',
+    status: version.exitCode === 0 ? 'passed' : 'failed',
+    source: 'runner',
+    code: version.exitCode === 0 ? 'adb_available' : 'adb_unavailable',
+    message: version.exitCode === 0 ? 'adb command is available.' : 'adb command could not be executed.',
+  });
+
+  const devicesOutput = version.exitCode === 0
+    ? await executor(adbPath, ['devices', '-l'])
+    : {
+        command: adbPath,
+        args: ['devices', '-l'],
+        exitCode: 1,
+        stderr: 'adb unavailable',
+        stdout: '',
+      };
+  raw['adb-devices.txt'] = [devicesOutput.stdout, devicesOutput.stderr].filter(Boolean).join('\n');
+  const devices = parseAdbDevices(devicesOutput.stdout);
+  const device = selectDevice(devices, serial);
+  checks.push({
+    name: 'android_device_connected',
+    status: device && device.state === 'device' ? 'passed' : 'failed',
+    source: 'runner',
+    code: device && device.state === 'device' ? 'android_device_connected' : 'android_device_missing',
+    message: device && device.state === 'device'
+      ? `Selected Android device ${device.serial}.`
+      : serial
+        ? `No online Android device matched serial ${serial}.`
+        : 'No online Android device was found.',
+  });
+
+  const metadata: Record<string, unknown> = {
+    adbPath,
+    devices,
+    selectedDevice: device,
+    packageName,
+  };
+
+  if (device && device.state === 'device') {
+    const shellPrefix = ['-s', device.serial, 'shell'];
+    const [model, release, sdk] = await Promise.all([
+      executor(adbPath, [...shellPrefix, 'getprop', 'ro.product.model']),
+      executor(adbPath, [...shellPrefix, 'getprop', 'ro.build.version.release']),
+      executor(adbPath, [...shellPrefix, 'getprop', 'ro.build.version.sdk']),
+    ]);
+    metadata.deviceProperties = {
+      model: model.stdout.trim(),
+      release: release.stdout.trim(),
+      sdk: sdk.stdout.trim(),
+    };
+    raw['adb-device-properties.txt'] = [
+      `model=${model.stdout.trim()}`,
+      `release=${release.stdout.trim()}`,
+      `sdk=${sdk.stdout.trim()}`,
+    ].join('\n');
+
+    if (packageName) {
+      const packageCheck = await executor(adbPath, [...shellPrefix, 'pm', 'path', packageName]);
+      raw['adb-package.txt'] = [packageCheck.stdout, packageCheck.stderr].filter(Boolean).join('\n');
+      checks.push({
+        name: 'android_package_installed',
+        status: packageCheck.exitCode === 0 && packageCheck.stdout.includes('package:') ? 'passed' : 'failed',
+        source: 'runner',
+        code: packageCheck.exitCode === 0 && packageCheck.stdout.includes('package:')
+          ? 'android_package_installed'
+          : 'android_package_missing',
+        message: packageCheck.exitCode === 0 && packageCheck.stdout.includes('package:')
+          ? `Package ${packageName} is installed.`
+          : `Package ${packageName} is not installed on ${device.serial}.`,
+      });
+    }
+  }
+
+  const health = buildAndroidHealth({ runId, checks });
+  const verdict = buildAndroidVerdict({ runId, health });
+  const agentSummary = buildAgentSummaryMarkdown({ health, verdict });
+
+  await Promise.all(
+    Object.entries(raw).map(([fileName, content]) =>
+      fsp.writeFile(path.join(rawDir, fileName), `${content.trimEnd()}\n`, 'utf8'),
+    ),
+  );
+  await fsp.writeFile(path.join(rawDir, 'android-metadata.json'), `${JSON.stringify(metadata, null, 2)}\n`, 'utf8');
+  await writeJsonArtifact({
+    filePath: layout.health,
+    value: health,
+    schema: SCHEMAS.health,
+    label: 'Health artifact',
+  });
+  await writeJsonArtifact({
+    filePath: layout.verdict,
+    value: verdict,
+    schema: SCHEMAS.verdict,
+    label: 'Verdict artifact',
+  });
+  await writeTextArtifact({
+    filePath: layout.agentSummary,
+    content: agentSummary,
+  });
+
+  return {
+    agentSummary,
+    device,
+    health,
+    metadata,
+    raw,
+    runDir,
+    verdict,
+  };
+}
+
+/**
+ * Runs the android-adb preflight CLI.
+ *
+ * @returns {Promise<void>}
+ */
+async function main(): Promise<void> {
+  const args = parseArgs(process.argv.slice(2));
+  const result = await runAndroidAdbPreflight({
+    ...(typeof args.adb === 'string' ? { adbPath: args.adb } : {}),
+    ...(typeof args.out === 'string' ? { outputDir: args.out } : {}),
+    ...(typeof args.package === 'string' ? { packageName: args.package } : {}),
+    ...(typeof args['run-id'] === 'string' ? { runId: args['run-id'] } : {}),
+    ...(typeof args.serial === 'string' ? { serial: args.serial } : {}),
+  });
+  process.stdout.write(`${result.runDir}\n`);
+}
+
+if (require.main === module) {
+  main().catch((error: unknown) => {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exitCode = 1;
+  });
+}
+
+export {
+  buildAndroidHealth,
+  buildAndroidVerdict,
+  execFileCommand,
+  main,
+  parseAdbDevices,
+  parseArgs,
+  runAndroidAdbPreflight,
+  selectDevice,
+};
+
+export type {
+  AndroidDevice,
+  AndroidPreflightOptions,
+  AndroidPreflightResult,
+  CliArgs,
+  CommandExecutor,
+  CommandResult,
+};

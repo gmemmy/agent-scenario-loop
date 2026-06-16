@@ -17,6 +17,7 @@ The current package is intentionally contract-first: adopt the scenario and arti
 - [core/ports.ts](../core/ports.ts): ports-and-adapters method surfaces for runners, drivers, providers, writers, and interpreters
 - [core/schema-validator.ts](../core/schema-validator.ts): dependency-free validation for the JSON Schema subset used by the public v1 contracts
 - [runner/profile-ios.ts](../runner/profile-ios.ts): iOS log-ingest runner that turns scenario metadata plus `[profile-event]` logs into the full artifact set
+- [runner/android-adb.ts](../runner/android-adb.ts): Android adb readiness preflight that writes runner health and raw adb evidence
 - [runner/demo-loop.ts](../runner/demo-loop.ts): fixture loop that proves preflight, profile, and comparison without a simulator
 - [examples/event-logs](../examples/event-logs): deterministic profile-event logs for the fixture loop
 - [examples/scenarios/ios](../examples/scenarios/ios): transition scenario manifests for the current iOS log-ingest runner
@@ -74,7 +75,7 @@ V1 does not yet ship live simulator orchestration as a supported public feature.
 
 Out of v1 scope:
 
-- Android
+- full Android scenario execution beyond adb readiness preflight
 - physical devices
 - Computer Use flows
 - product-specific scenarios
@@ -88,6 +89,25 @@ pnpm check-plan -- --scenario examples/scenarios/v1/app-startup.json --runner ex
 ```
 
 This validates the input manifests, writes schema-checked `health.json` and `verdict.json`, writes `agent-summary.md`, and includes the raw planner match in `planner-compatibility.json`.
+
+## Android adb readiness
+
+Use `android:preflight` to verify adb and connected-device readiness before adding live Android scenario execution:
+
+```bash
+pnpm android:preflight -- --package com.example.app --out artifacts/android-adb-preflight
+```
+
+The command writes:
+
+- `health.json`
+- `verdict.json`
+- `agent-summary.md`
+- `raw/adb-version.txt`
+- `raw/adb-devices.txt`
+- `raw/android-metadata.json`
+
+If adb, a connected online device, or an optional package check fails, health fails and the verdict remains `inconclusive`.
 
 ## Historical comparison
 

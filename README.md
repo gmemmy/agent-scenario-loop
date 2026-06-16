@@ -77,13 +77,21 @@ const {
 } = require('agent-scenario-loop');
 ```
 
-The preflight CLI is exported as `agent-scenario-loop` and `asl-check-plan` after package installation. The comparison CLI is exported as `asl-compare`, and the fixture loop is exported as `asl-demo-loop`. In this repo, use the script form:
+The preflight CLI is exported as `agent-scenario-loop` and `asl-check-plan` after package installation. The Android adb preflight CLI is exported as `asl-android-adb`, the comparison CLI is exported as `asl-compare`, and the fixture loop is exported as `asl-demo-loop`. In this repo, use the script form:
 
 ```bash
 pnpm check-plan -- --scenario examples/scenarios/v1/app-startup.json --runner examples/runners/xcodebuildmcp-ios.json --platform ios --out artifacts/plan/app-startup
 ```
 
 That command does not require Xcode, a simulator, or device artifacts. It validates scenario and runner manifests, writes the v1 preflight artifacts, and stops before live execution.
+
+To check Android adb readiness before live scenario execution:
+
+```bash
+pnpm android:preflight -- --package com.example.app --out artifacts/android-adb-preflight
+```
+
+That command writes runner health, an inconclusive pre-budget verdict, an agent summary, and raw adb evidence. It does not yet install, launch, or drive the app.
 
 To compare two completed run folders:
 
@@ -151,8 +159,9 @@ Near-term:
 - compare trusted run folders and emit `comparison.json`
 - keep the fixture loop green as the contract changes
 - add a neutral example app with canonical startup, open-close, scroll, and media scenarios
+- harden Android adb from readiness checks into log capture and lifecycle execution
 - harden a supported live iOS driver loop behind the existing artifact contract
 - improve runner validation and failure reporting
 - harden historical baseline selection around the comparison artifact
 
-Explicitly out of v1: Android, physical devices, Computer Use flows, product-specific scenarios.
+Explicitly out of v1: full Android scenario execution, physical devices, Computer Use flows, product-specific scenarios.
