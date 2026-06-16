@@ -28,8 +28,6 @@ V1 ships the contracts and the artifact pipeline:
 - `examples/scenarios/v1/`: canonical v1 scenario fixtures
 - `examples/runners/`: primary runner and evidence-provider capability fixtures
 - `schemas/`: JSON Schemas for current artifacts plus the v1 scenario and runner capability contracts
-- `docs/direction.md`: the product direction and extraction boundary for the public project
-- `docs/v1-contract-plan.md`: the resolved v1 contract plan before runner migration
 
 V1 does not yet ship live simulator orchestration as a supported public feature. The current runner assembles artifacts from event logs you capture; a fully automated runner/adapter loop is the next milestone, and it lands behind the same contract. Adopting the contracts now means that loop drops in later without rewrites.
 
