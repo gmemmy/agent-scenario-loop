@@ -2,9 +2,26 @@
 
 Start with one journey that matters. A good scenario is boring, repeatable, inspectable, and portable.
 
+## Init Command
+
+After installing the package, scaffold the starter layout with:
+
+```bash
+asl-init --out . --scenario first-journey
+```
+
+That creates:
+
+- `asl.config.json`
+- `scenarios/mobile/first-journey.json`
+- `runner-manifests/primary-runner.json`
+- `runner-manifests/evidence-provider.json`
+
+The command refuses to overwrite existing files unless `--force` is provided. Use `--dry-run` to preview the file list without writing.
+
 ## Templates
 
-Copy these files into a consuming app and rename them as needed:
+You can also copy these files manually and rename them as needed:
 
 | Template | Use |
 | --- | --- |

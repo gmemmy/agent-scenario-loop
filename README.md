@@ -86,7 +86,7 @@ const {
 } = require('agent-scenario-loop');
 ```
 
-The preflight CLI is exported as `agent-scenario-loop` and `asl-check-plan` after package installation. The Android adb runner is exported as `asl-android-adb`, Android profiling is exported as `asl-profile-android`, the iOS simctl capture helper is exported as `asl-ios-simctl`, the packaged Android and iOS example proofs are exported as `asl-example-android-live` and `asl-example-ios-live`, iOS profiling is exported as `asl-profile-ios`, comparison is exported as `asl-compare` and `asl-compare-latest`, and the fixture loop is exported as `asl-demo-loop`. In this repo, use the script form:
+The preflight CLI is exported as `agent-scenario-loop` and `asl-check-plan` after package installation. The template scaffold command is exported as `asl-init`. The Android adb runner is exported as `asl-android-adb`, Android profiling is exported as `asl-profile-android`, the iOS simctl capture helper is exported as `asl-ios-simctl`, the packaged Android and iOS example proofs are exported as `asl-example-android-live` and `asl-example-ios-live`, iOS profiling is exported as `asl-profile-ios`, comparison is exported as `asl-compare` and `asl-compare-latest`, and the fixture loop is exported as `asl-demo-loop`. In this repo, use the script form:
 
 ```bash
 pnpm check-plan -- --scenario examples/scenarios/mobile/app-startup.json --runner examples/runners/xcodebuildmcp-ios.json --platform ios --out artifacts/plan/app-startup
@@ -222,8 +222,8 @@ Read next: [Contracts](docs/contracts.md) for the artifact layout and supported 
 
 1. Copy [app/profile-session.ts](app/profile-session.ts) into your React Native app and wire `useProfileSessionBootstrap()` once near the root.
 2. Emit truth events around one real user journey. One journey is enough to start.
-3. Copy [templates/project.config.json](templates/project.config.json) into project-specific config and fill in your app identifiers.
-4. Start from [examples/scenarios/ios/app-startup.json](examples/scenarios/ios/app-startup.json) or [examples/scenarios/ios/open-close-cycle.json](examples/scenarios/ios/open-close-cycle.json).
+3. Run `asl-init --out . --scenario first-journey`, or copy files from [templates](templates), then fill in your app identifiers.
+4. Start from the scaffolded scenario or from [examples/scenarios/ios/app-startup.json](examples/scenarios/ios/app-startup.json) and [examples/scenarios/ios/open-close-cycle.json](examples/scenarios/ios/open-close-cycle.json).
 5. Run the journey on a simulator manually or with your driver of choice while capturing device logs, so the log contains your `[profile-event]` lines. Then:
 
 ```bash
@@ -246,7 +246,7 @@ To validate a portable scenario, runner manifest, and initial planning artifacts
 pnpm check-plan -- --scenario examples/scenarios/mobile/app-startup.json --runner examples/runners/xcodebuildmcp-ios.json --platform ios --out artifacts/plan/app-startup
 ```
 
-To start from clean templates instead of existing examples, copy files from [templates](templates) and follow [Scenario Authoring](docs/authoring.md).
+To start from clean templates instead of existing examples, run `asl-init` or copy files from [templates](templates), then follow [Scenario Authoring](docs/authoring.md).
 
 ## Who this is for
 
@@ -269,6 +269,7 @@ Current package guarantees:
 - the public package is installable from the packed tarball
 - root exports expose the core artifact, planner, comparison, writer, interpreter, and ports contracts
 - installable CLIs print help and run against packaged examples, including Android and iOS example-live proof paths
+- `asl-init` scaffolds package templates into a consuming app layout from the installed tarball
 - packaged schemas, scenarios, runner manifests, templates, docs, and app helper resolve after install
 - canonical fixture and neutral Expo-app event logs produce passed profile artifacts
 - explicit baseline/current run folders can produce schema-checked `comparison.json`

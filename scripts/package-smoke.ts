@@ -600,6 +600,30 @@ function main(): void {
     assert.equal(packageJson.publishConfig?.access, 'public');
     assert.equal(packageJson.scripts?.prepublishOnly, 'pnpm release:check');
 
+    const initOutputDir = path.join(tempRoot, 'initialized-app');
+    const initOutput = run(packageBinPath(installDir, 'asl-init'), [
+      '--out',
+      initOutputDir,
+      '--scenario',
+      'Checkout Submit',
+    ], {
+      cwd: installDir,
+      env,
+    });
+    assert.match(initOutput, /Agent Scenario Loop files initialized/u);
+    assert.equal(fs.existsSync(path.join(initOutputDir, 'asl.config.json')), true);
+    assert.equal(fs.existsSync(path.join(initOutputDir, 'scenarios', 'mobile', 'checkout-submit.json')), true);
+    assert.equal(fs.existsSync(path.join(initOutputDir, 'runner-manifests', 'primary-runner.json')), true);
+    assert.equal(fs.existsSync(path.join(initOutputDir, 'runner-manifests', 'evidence-provider.json')), true);
+    assert.equal(
+      JSON.parse(fs.readFileSync(path.join(initOutputDir, 'asl.config.json'), 'utf8')).projectName,
+      'replace-me',
+    );
+    assert.equal(
+      JSON.parse(fs.readFileSync(path.join(initOutputDir, 'scenarios', 'mobile', 'checkout-submit.json'), 'utf8')).id,
+      'checkout-submit',
+    );
+
     for (const binaryName of Object.keys(packageJson.bin).sort()) {
       const helpText = run(packageBinPath(installDir, binaryName), ['--help'], {
         cwd: installDir,
@@ -1089,6 +1113,7 @@ function main(): void {
       "import { createAndroidAdbDriver } from 'agent-scenario-loop/runner/android-adb-driver';",
       "import { runExampleAndroidLiveProof } from 'agent-scenario-loop/runner/example-android-live';",
       "import { runExampleIosLiveProof } from 'agent-scenario-loop/runner/example-ios-live';",
+      "import { initProject } from 'agent-scenario-loop/runner/init-project';",
       "import { compareLatestTrustedRun } from 'agent-scenario-loop/runner/compare-latest';",
       "import { runIosSimctlCapture } from 'agent-scenario-loop/runner/ios-simctl';",
       "import { resolveAndroidAdbDriverSteps, resolveAndroidAdbProfileCommands, runProfileAndroid } from 'agent-scenario-loop/runner/profile-android';",
@@ -1139,6 +1164,7 @@ function main(): void {
       'void compareLatestTrustedRun;',
       'void runExampleAndroidLiveProof;',
       'void runExampleIosLiveProof;',
+      'void initProject;',
       'void runIosSimctlCapture;',
       'void resolveAndroidAdbProfileCommands;',
       'void runProfileAndroid;',
