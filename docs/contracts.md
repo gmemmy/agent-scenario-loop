@@ -16,6 +16,7 @@ The package is intentionally contract-first: adopt the scenario and artifact sha
 - [core/execution-plan.ts](../core/execution-plan.ts): scenario-step normalizer that maps portable steps to runner port methods before adapter execution
 - [core/planner.ts](../core/planner.ts): compatibility checks between scenario requirements, primary runner capabilities, and evidence providers
 - [core/ports.ts](../core/ports.ts): ports-and-adapters method surfaces for runners, drivers, providers, writers, and interpreters
+- [core/run-index.ts](../core/run-index.ts): read-only artifact root index for finding trusted prior runs
 - [core/schema-validator.ts](../core/schema-validator.ts): dependency-free validation for the JSON Schema subset used by the public contracts
 - [runner/profile-android.ts](../runner/profile-android.ts): Android profile runner that can ingest profile-event logs directly, read adb artifact folders, or own a bounded adb capture window before writing the full artifact set
 - [runner/profile-ios.ts](../runner/profile-ios.ts): iOS log-ingest runner that turns scenario metadata plus `[profile-event]` logs into the full artifact set
@@ -95,6 +96,8 @@ The artifact contract separates scenario health from product verdict: `health.js
 The current profile runner writes health, verdict, agent summary, metrics, causal-run, and budget-verdict artifacts.
 
 Budgets are supported but optional for adoption.
+
+`buildRunIndex()` can scan an artifact root after runs complete. It indexes folders that contain both `health.json` and `verdict.json`, marks a run trusted only when health and verdict both passed, and lets agents find the latest trusted prior run for a scenario without relying on terminal history.
 
 ## Supported Runner Surface
 

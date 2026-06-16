@@ -78,6 +78,8 @@ const {
   buildAgentSummaryMarkdown,
   buildScenarioExecutionPlan,
   collectScenarioDriverActions,
+  buildRunIndex,
+  findLatestTrustedRun,
 } = require('agent-scenario-loop');
 ```
 
@@ -229,6 +231,7 @@ Current package guarantees:
 - packaged schemas, scenarios, runner manifests, app helper, and config template resolve after install
 - canonical fixture and neutral Expo-app event logs produce passed profile artifacts
 - explicit baseline/current run folders can produce schema-checked `comparison.json`
+- artifact roots can be indexed to find trusted prior runs per scenario
 - package smoke blocks generated artifacts, internal-only paths, and local/product-specific strings from the tarball
 
 Remaining hardening:
@@ -236,6 +239,6 @@ Remaining hardening:
 - extend Android beyond package launch/log capture into scenario-step driving and richer evidence providers
 - harden a supported live iOS driver loop behind the existing artifact contract
 - improve runner validation and failure reporting for more adapter classes
-- add baseline index conveniences on top of the explicit baseline/current comparison path
+- add automatic compare-against-latest-trusted commands on top of the run index
 
 The package should remain product-neutral. Product-specific selectors, routes, auth assumptions, and scenario data belong in the consuming app, not in this repository.

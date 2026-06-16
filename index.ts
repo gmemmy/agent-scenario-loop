@@ -7,4 +7,5 @@ export * from './core/evidence-interpreter';
 export * from './core/execution-plan';
 export * from './core/planner';
 export * from './core/ports';
+export * from './core/run-index';
 export * from './core/schema-validator';
