@@ -71,8 +71,12 @@ function loadSchema(relativePath: string): JsonSchema {
 }
 
 const SCHEMAS = {
+  budgetVerdict: loadSchema('budget-verdict.schema.json'),
+  causalRun: loadSchema('causal-run.schema.json'),
   comparison: loadSchema('comparison.schema.json'),
   health: loadSchema('health.schema.json'),
+  manifest: loadSchema('manifest.schema.json'),
+  metrics: loadSchema('metrics.schema.json'),
   scenario: loadSchema('scenario.schema.json'),
   runnerCapabilities: loadSchema('runner-capabilities.schema.json'),
   verdict: loadSchema('verdict.schema.json'),
@@ -166,6 +170,10 @@ function resolveLocalRef(rootSchema: JsonSchema, ref: string): JsonSchema {
  * @returns {boolean}
  */
 function isType(value: unknown, type: string): boolean {
+  if (type === 'null') {
+    return value === null;
+  }
+
   if (type === 'array') {
     return Array.isArray(value);
   }

@@ -1,0 +1,137 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-scenario-loop.dev/schemas/metrics.schema.json",
+  "title": "Agent Scenario Loop Profile Metrics",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "scenario",
+    "runId",
+    "status",
+    "iterations",
+    "durationsMs",
+    "p50Ms",
+    "p95Ms",
+    "failures",
+    "timeouts",
+    "openDurationsMs",
+    "closeDurationsMs",
+    "incompleteIterations",
+    "artifacts"
+  ],
+  "properties": {
+    "scenario": {
+      "type": "string"
+    },
+    "runId": {
+      "type": "string"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["passed", "failed"]
+    },
+    "iterations": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "durationsMs": {
+      "type": "array",
+      "items": {
+        "type": "number",
+        "minimum": 0
+      }
+    },
+    "p50Ms": {
+      "type": ["number", "null"],
+      "minimum": 0
+    },
+    "p95Ms": {
+      "type": ["number", "null"],
+      "minimum": 0
+    },
+    "failures": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "timeouts": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "openDurationsMs": {
+      "type": "array",
+      "items": {
+        "type": "number",
+        "minimum": 0
+      }
+    },
+    "closeDurationsMs": {
+      "type": "array",
+      "items": {
+        "type": "number",
+        "minimum": 0
+      }
+    },
+    "incompleteIterations": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "integer",
+        "minimum": 1
+      }
+    },
+    "artifacts": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "budgetEvaluation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["metric", "pass", "checks", "failedChecks"],
+      "properties": {
+        "metric": {
+          "type": "string"
+        },
+        "pass": {
+          "type": "boolean"
+        },
+        "checks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/budgetCheck"
+          }
+        },
+        "failedChecks": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "budgetCheck": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "actual", "limit", "pass", "unit"],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "actual": {
+          "type": ["number", "integer", "boolean", "null"]
+        },
+        "limit": {
+          "type": ["number", "integer", "boolean"]
+        },
+        "pass": {
+          "type": "boolean"
+        },
+        "unit": {
+          "type": "string",
+          "enum": ["ms", "count", "bytes", "percent", "boolean"]
+        }
+      }
+    }
+  }
+}

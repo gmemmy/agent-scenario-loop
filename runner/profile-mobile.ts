@@ -15,7 +15,6 @@ const {
   buildMetricsFromProfileEvents,
   buildSummaryMarkdown,
   extractProfileEvents,
-  sortValue,
 } = require('../core/artifact-contract');
 const { SCHEMAS, assertValidJson } = require('../core/schema-validator');
 const { writeUsage } = require('./cli');
@@ -113,17 +112,6 @@ function readJson(filePath: string): Record<string, any> {
  */
 async function ensureDir(dirPath: string): Promise<void> {
   await fsp.mkdir(dirPath, { recursive: true });
-}
-
-/**
- * Writes a stable, newline-terminated JSON artifact.
- *
- * @param {string} filePath
- * @param {unknown} value
- * @returns {Promise<void>}
- */
-async function writeJson(filePath: string, value: unknown): Promise<void> {
-  await fsp.writeFile(filePath, `${JSON.stringify(sortValue(value), null, 2)}\n`, 'utf8');
 }
 
 /**
@@ -404,6 +392,7 @@ async function runProfileMobile(args: CliArgs, options: ProfileMobileOptions): P
       budgetVerdict: 'budget-verdict.json',
       manifest: 'manifest.json',
       metrics: 'metrics.json',
+      summary: 'summary.md',
       scenario: toPortablePathReference(scenarioPath),
       raw: {
         interactionLog: eventLogPath ? `raw/${path.basename(eventLogPath)}` : 'raw/interaction.log',
@@ -470,11 +459,31 @@ async function runProfileMobile(args: CliArgs, options: ProfileMobileOptions): P
     filePath: layout.agentSummary,
     content: agentSummary,
   });
-  await writeJson(path.join(runDir, 'manifest.json'), manifest);
-  await writeJson(path.join(runDir, 'metrics.json'), metrics);
-  await writeJson(path.join(runDir, 'causal-run.json'), causalRun);
+  await writeJsonArtifact({
+    filePath: path.join(runDir, 'manifest.json'),
+    value: manifest,
+    schema: SCHEMAS.manifest,
+    label: 'Manifest artifact',
+  });
+  await writeJsonArtifact({
+    filePath: path.join(runDir, 'metrics.json'),
+    value: metrics,
+    schema: SCHEMAS.metrics,
+    label: 'Metrics artifact',
+  });
+  await writeJsonArtifact({
+    filePath: path.join(runDir, 'causal-run.json'),
+    value: causalRun,
+    schema: SCHEMAS.causalRun,
+    label: 'Causal run artifact',
+  });
   if (budgetVerdict) {
-    await writeJson(path.join(runDir, 'budget-verdict.json'), budgetVerdict);
+    await writeJsonArtifact({
+      filePath: path.join(runDir, 'budget-verdict.json'),
+      value: budgetVerdict,
+      schema: SCHEMAS.budgetVerdict,
+      label: 'Budget verdict artifact',
+    });
   }
   await fsp.writeFile(path.join(runDir, 'summary.md'), summary, 'utf8');
   if (eventLogPath) {

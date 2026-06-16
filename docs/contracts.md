@@ -74,6 +74,8 @@ Transition runner artifacts:
 - `causal-run.json`
 - `summary.md`
 
+`manifest.json`, `metrics.json`, `budget-verdict.json`, and `causal-run.json` are schema-checked before the runner writes them. This keeps transition artifacts stable while the live runner layer matures.
+
 Evidence folders:
 
 - `raw/`

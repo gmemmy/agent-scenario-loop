@@ -316,6 +316,8 @@ function main(): void {
       "assert.equal(Object.prototype.hasOwnProperty.call(asl, 'V1_ARTIFACT_LAYOUT_VERSION'), false);",
       "assert.equal(Object.prototype.hasOwnProperty.call(asl, 'V1_ARTIFACT_FILENAMES'), false);",
       "require.resolve('agent-scenario-loop/schemas/scenario.schema.json');",
+      "require.resolve('agent-scenario-loop/schemas/manifest.schema.json');",
+      "require.resolve('agent-scenario-loop/schemas/metrics.schema.json');",
       "require.resolve('agent-scenario-loop/examples/scenarios/mobile/app-startup.json');",
       "require.resolve('agent-scenario-loop/examples/mobile-app/asl.config.json');",
       "require.resolve('agent-scenario-loop/runner/profile-android');",

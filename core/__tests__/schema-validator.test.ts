@@ -179,6 +179,128 @@ test('accepts comparison artifacts with metric and evidence details', () => {
   assert.equal(result.valid, true, result.message);
 });
 
+test('accepts manifest and metrics transition artifacts', () => {
+  const manifest = {
+    scenario: 'app-startup',
+    runId: 'run-1',
+    platform: 'android',
+    status: 'passed',
+    startedAt: '2026-01-01T00:00:00.000Z',
+    endedAt: '2026-01-01T00:00:01.000Z',
+    durationMs: 1000,
+    interactionDriver: 'adb-logcat',
+    simulator: {
+      name: 'Pixel',
+      udid: 'emulator-5554',
+    },
+    bundleId: 'com.example.app',
+    gitSha: 'unknown',
+    toolVersions: {
+      node: 'v25.0.0',
+    },
+    artifacts: {
+      causalRun: 'causal-run.json',
+      budgetVerdict: 'budget-verdict.json',
+      manifest: 'manifest.json',
+      metrics: 'metrics.json',
+      summary: 'summary.md',
+      scenario: 'scenarios/android/app-startup.json',
+      raw: {
+        interactionLog: 'raw/adb-logcat.txt',
+        deviceLog: 'raw/device.log',
+      },
+      captures: {
+        video: 'captures/run.mp4',
+        uiTree: 'captures/ui-tree.json',
+      },
+      signals: {
+        js: [],
+        memory: [],
+        network: [],
+      },
+    },
+    failureReason: null,
+  };
+  const metrics = {
+    scenario: 'app-startup',
+    runId: 'run-1',
+    status: 'passed',
+    iterations: 1,
+    durationsMs: [1000],
+    p50Ms: 1000,
+    p95Ms: 1000,
+    failures: 0,
+    timeouts: 0,
+    openDurationsMs: [800],
+    closeDurationsMs: [100],
+    incompleteIterations: [],
+    artifacts: {},
+    budgetEvaluation: {
+      metric: 'startup',
+      pass: true,
+      checks: [
+        {
+          name: 'cycle p95',
+          actual: 1000,
+          limit: 1500,
+          pass: true,
+          unit: 'ms',
+        },
+      ],
+      failedChecks: [],
+    },
+  };
+
+  assert.equal(validateJson(manifest, SCHEMAS.manifest, 'Manifest artifact').valid, true);
+  assert.equal(validateJson(metrics, SCHEMAS.metrics, 'Metrics artifact').valid, true);
+});
+
+test('accepts null schema types', () => {
+  const manifest = {
+    scenario: 'app-startup',
+    runId: 'run-1',
+    platform: 'android',
+    status: 'passed',
+    startedAt: '2026-01-01T00:00:00.000Z',
+    endedAt: '2026-01-01T00:00:01.000Z',
+    durationMs: 1000,
+    interactionDriver: 'adb-logcat',
+    simulator: {
+      name: 'Pixel',
+      udid: 'emulator-5554',
+    },
+    bundleId: 'com.example.app',
+    gitSha: 'unknown',
+    toolVersions: {},
+    artifacts: {
+      causalRun: 'causal-run.json',
+      budgetVerdict: 'budget-verdict.json',
+      manifest: 'manifest.json',
+      metrics: 'metrics.json',
+      summary: 'summary.md',
+      scenario: 'scenarios/android/app-startup.json',
+      raw: {
+        interactionLog: 'raw/adb-logcat.txt',
+        deviceLog: 'raw/device.log',
+      },
+      captures: {
+        video: 'captures/run.mp4',
+        uiTree: 'captures/ui-tree.json',
+      },
+      signals: {
+        js: [],
+        memory: [],
+        network: [],
+      },
+    },
+    failureReason: null,
+  };
+
+  const result = validateJson(manifest, SCHEMAS.manifest, 'Manifest artifact');
+
+  assert.equal(result.valid, true, result.message);
+});
+
 test('rejects comparison artifacts with unknown comparison status', () => {
   const comparison = {
     schemaVersion: '1.0.0',

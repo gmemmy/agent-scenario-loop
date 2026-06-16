@@ -1,0 +1,156 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-scenario-loop.dev/schemas/manifest.schema.json",
+  "title": "Agent Scenario Loop Run Manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "scenario",
+    "runId",
+    "platform",
+    "status",
+    "startedAt",
+    "endedAt",
+    "durationMs",
+    "interactionDriver",
+    "simulator",
+    "bundleId",
+    "gitSha",
+    "toolVersions",
+    "artifacts",
+    "failureReason"
+  ],
+  "properties": {
+    "scenario": {
+      "type": "string"
+    },
+    "runId": {
+      "type": "string"
+    },
+    "platform": {
+      "type": "string",
+      "enum": ["ios", "android"]
+    },
+    "status": {
+      "type": "string",
+      "enum": ["passed", "failed"]
+    },
+    "startedAt": {
+      "type": "string"
+    },
+    "endedAt": {
+      "type": "string"
+    },
+    "durationMs": {
+      "type": "number",
+      "minimum": 0
+    },
+    "interactionDriver": {
+      "type": "string"
+    },
+    "simulator": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "udid"],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "udid": {
+          "type": "string"
+        }
+      }
+    },
+    "bundleId": {
+      "type": "string"
+    },
+    "gitSha": {
+      "type": "string"
+    },
+    "toolVersions": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "artifacts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["causalRun", "budgetVerdict", "manifest", "metrics", "summary", "scenario", "raw", "captures", "signals"],
+      "properties": {
+        "causalRun": {
+          "type": "string"
+        },
+        "budgetVerdict": {
+          "type": "string"
+        },
+        "manifest": {
+          "type": "string"
+        },
+        "metrics": {
+          "type": "string"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "scenario": {
+          "type": "string"
+        },
+        "raw": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["interactionLog", "deviceLog"],
+          "properties": {
+            "interactionLog": {
+              "type": "string"
+            },
+            "deviceLog": {
+              "type": "string"
+            }
+          }
+        },
+        "captures": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["video", "uiTree"],
+          "properties": {
+            "video": {
+              "type": "string"
+            },
+            "uiTree": {
+              "type": "string"
+            }
+          }
+        },
+        "signals": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["js", "memory", "network"],
+          "properties": {
+            "js": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "memory": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "network": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "failureReason": {
+      "type": ["string", "null"]
+    }
+  }
+}

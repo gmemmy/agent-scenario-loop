@@ -46,8 +46,7 @@
           "type": "string"
         },
         "driver": {
-          "type": "string",
-          "enum": ["xcodebuildmcp", "axe", "manual", "unknown"]
+          "type": "string"
         },
         "iterations": {
           "type": "integer",
@@ -133,7 +132,7 @@
           "type": "string"
         },
         "screenshot": {
-          "type": "string"
+          "type": ["string", "null"]
         },
         "nativeTrace": {
           "type": "string"
