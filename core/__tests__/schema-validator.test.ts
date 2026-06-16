@@ -354,6 +354,11 @@ test('accepts aggregate live proof artifacts', () => {
         summaryPath: 'artifacts/example-mobile-app/android/app-startup/android-live-startup-after-change/agent-summary.md',
       },
     ],
+    comparisonStatus: 'inconclusive',
+    nextAction: {
+      code: 'inspect_inconclusive',
+      summary: 'Some comparisons are incomplete; inspect linked evidence.',
+    },
     comparisons: [
       {
         label: 'startup',

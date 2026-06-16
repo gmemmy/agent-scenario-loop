@@ -182,6 +182,8 @@ test('runs the packaged iOS example live proof with a fake simctl executor', asy
   const aggregate = JSON.parse(fs.readFileSync(result.aggregateSummary.liveProofPath, 'utf8'));
   assert.equal(aggregate.platform, 'ios');
   assert.equal(aggregate.runId, 'ios-live-proof-pr-123');
+  assert.equal(aggregate.comparisonStatus, 'unchanged');
+  assert.equal(aggregate.nextAction.code, 'inspect_summary');
   assert.equal(aggregate.profiles.length, 3);
   assert.equal(aggregate.comparisons.length, 3);
 });

@@ -13,6 +13,8 @@
     "preflight",
     "profiles",
     "comparisons",
+    "comparisonStatus",
+    "nextAction",
     "summary"
   ],
   "properties": {
@@ -48,6 +50,13 @@
       "items": {
         "$ref": "#/$defs/comparisonPointer"
       }
+    },
+    "comparisonStatus": {
+      "type": "string",
+      "enum": ["baseline_missing", "improved", "inconclusive", "not_compared", "regressed", "unchanged"]
+    },
+    "nextAction": {
+      "$ref": "#/$defs/nextAction"
     },
     "summary": {
       "type": "string"
@@ -130,6 +139,20 @@
         },
         "reason": {
           "type": ["string", "null"]
+        }
+      }
+    },
+    "nextAction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "summary"],
+      "properties": {
+        "code": {
+          "type": "string",
+          "enum": ["establish_baseline", "inspect_inconclusive", "inspect_regressions", "inspect_summary"]
+        },
+        "summary": {
+          "type": "string"
         }
       }
     }

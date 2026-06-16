@@ -188,6 +188,8 @@ test('runs the packaged Android example live proof with a fake adb executor', as
   const aggregate = JSON.parse(fs.readFileSync(result.aggregateSummary.liveProofPath, 'utf8'));
   assert.equal(aggregate.platform, 'android');
   assert.equal(aggregate.runId, 'android-live-proof-pr-123');
+  assert.equal(aggregate.comparisonStatus, 'unchanged');
+  assert.equal(aggregate.nextAction.code, 'inspect_summary');
   assert.equal(aggregate.profiles.length, 3);
   assert.equal(aggregate.comparisons.length, 3);
 });

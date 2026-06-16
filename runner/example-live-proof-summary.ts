@@ -26,6 +26,8 @@ type LiveProofComparisonPointer = {
 
 type LiveProofArtifact = {
   comparisons: LiveProofComparisonPointer[];
+  comparisonStatus: LiveProofComparisonStatus;
+  nextAction: LiveProofNextAction;
   outputDir: string;
   platform: LiveProofPlatform;
   preflight: {
@@ -37,6 +39,20 @@ type LiveProofArtifact = {
   runId: string;
   schemaVersion: '1.0.0';
   status: 'passed' | 'failed';
+  summary: string;
+};
+
+type LiveProofComparisonStatus = (
+  'baseline_missing' |
+  'improved' |
+  'inconclusive' |
+  'not_compared' |
+  'regressed' |
+  'unchanged'
+);
+
+type LiveProofNextAction = {
+  code: 'establish_baseline' | 'inspect_inconclusive' | 'inspect_regressions' | 'inspect_summary';
   summary: string;
 };
 
@@ -64,17 +80,90 @@ type WriteLiveProofSummaryOptions = {
  */
 function buildLiveProofSummary({
   comparisonCount,
+  comparisonStatus,
   platform,
   profileCount,
 }: {
   comparisonCount: number;
+  comparisonStatus: LiveProofComparisonStatus;
   platform: string;
   profileCount: number;
 }): string {
   const comparisonText = comparisonCount > 0
-    ? `with ${comparisonCount} comparison result(s)`
+    ? `with ${comparisonCount} comparison result(s): ${comparisonStatus}`
     : 'without comparison results';
   return `${platform} live proof passed ${profileCount} profile run(s) ${comparisonText}.`;
+}
+
+/**
+ * Collapses per-scenario comparison results into one batch status.
+ *
+ * @param {LiveProofComparisonPointer[]} comparisons
+ * @returns {LiveProofComparisonStatus}
+ */
+function buildLiveProofComparisonStatus(
+  comparisons: LiveProofComparisonPointer[],
+): LiveProofComparisonStatus {
+  if (comparisons.length === 0) {
+    return 'not_compared';
+  }
+
+  const statuses = comparisons.map((comparison) => comparison.status);
+  if (statuses.includes('worse')) {
+    return 'regressed';
+  }
+
+  if (statuses.includes('inconclusive')) {
+    return 'inconclusive';
+  }
+
+  if (statuses.every((status) => status === 'skipped')) {
+    return 'baseline_missing';
+  }
+
+  if (statuses.includes('skipped')) {
+    return 'inconclusive';
+  }
+
+  if (statuses.includes('better')) {
+    return 'improved';
+  }
+
+  return 'unchanged';
+}
+
+/**
+ * Builds the next action an agent should take after reading the batch proof.
+ *
+ * @param {LiveProofComparisonStatus} comparisonStatus
+ * @returns {LiveProofNextAction}
+ */
+function buildLiveProofNextAction(comparisonStatus: LiveProofComparisonStatus): LiveProofNextAction {
+  if (comparisonStatus === 'regressed') {
+    return {
+      code: 'inspect_regressions',
+      summary: 'One or more scenario comparisons regressed; inspect comparison summaries before claiming improvement.',
+    };
+  }
+
+  if (comparisonStatus === 'baseline_missing') {
+    return {
+      code: 'establish_baseline',
+      summary: 'No trusted prior run was available; keep this proof as a baseline before making before/after claims.',
+    };
+  }
+
+  if (comparisonStatus === 'inconclusive') {
+    return {
+      code: 'inspect_inconclusive',
+      summary: 'Some comparisons are inconclusive or incomplete; inspect scenario health and missing baseline details.',
+    };
+  }
+
+  return {
+    code: 'inspect_summary',
+    summary: 'Scenario health passed; inspect the live-proof summary and linked evidence before reporting the result.',
+  };
 }
 
 /**
@@ -89,6 +178,8 @@ function buildLiveProofMarkdown(artifact: LiveProofArtifact): string {
     '',
     `Status: ${artifact.status}`,
     `Run: ${artifact.runId}`,
+    `Comparison status: ${artifact.comparisonStatus}`,
+    `Next action: ${artifact.nextAction.code} - ${artifact.nextAction.summary}`,
     `Summary: ${artifact.summary}`,
     '',
     '## Preflight',
@@ -135,8 +226,11 @@ async function writeLiveProofSummary({
 }: WriteLiveProofSummaryOptions): Promise<LiveProofSummaryResult> {
   const liveProofDir = path.join(outputDir, '_live-proof', runId);
   const layout = createArtifactLayout({ outputDir: liveProofDir });
+  const comparisonStatus = buildLiveProofComparisonStatus(comparisons);
   const artifact: LiveProofArtifact = {
     comparisons,
+    comparisonStatus,
+    nextAction: buildLiveProofNextAction(comparisonStatus),
     outputDir,
     platform,
     preflight: {
@@ -156,6 +250,7 @@ async function writeLiveProofSummary({
     status: 'passed',
     summary: buildLiveProofSummary({
       comparisonCount: comparisons.length,
+      comparisonStatus,
       platform,
       profileCount: profiles.length,
     }),
@@ -180,7 +275,9 @@ async function writeLiveProofSummary({
 }
 
 export {
+  buildLiveProofComparisonStatus,
   buildLiveProofMarkdown,
+  buildLiveProofNextAction,
   buildLiveProofSummary,
   writeLiveProofSummary,
 };
@@ -188,6 +285,8 @@ export {
 export type {
   LiveProofArtifact,
   LiveProofComparisonPointer,
+  LiveProofComparisonStatus,
+  LiveProofNextAction,
   LiveProofPlatform,
   LiveProofProfilePointer,
   LiveProofSummaryResult,
