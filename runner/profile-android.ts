@@ -94,7 +94,7 @@ function resolveAndroidPackageName({
 }
 
 /**
- * Runs the Android log-ingest profile artifact pipeline.
+ * Runs the Android profile artifact pipeline.
  *
  * @param {import('./profile-mobile').CliArgs} args
  * @param {AndroidProfileOptions} [options]

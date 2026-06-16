@@ -78,7 +78,7 @@ const {
 } = require('agent-scenario-loop');
 ```
 
-The preflight CLI is exported as `agent-scenario-loop` and `asl-check-plan` after package installation. The Android adb preflight CLI is exported as `asl-android-adb`, the Android and iOS log-ingest CLIs are exported as `asl-profile-android` and `asl-profile-ios`, the comparison CLI is exported as `asl-compare`, and the fixture loop is exported as `asl-demo-loop`. In this repo, use the script form:
+The preflight CLI is exported as `agent-scenario-loop` and `asl-check-plan` after package installation. The Android adb runner is exported as `asl-android-adb`, Android profiling is exported as `asl-profile-android`, iOS log-ingest profiling is exported as `asl-profile-ios`, the comparison CLI is exported as `asl-compare`, and the fixture loop is exported as `asl-demo-loop`. In this repo, use the script form:
 
 ```bash
 pnpm check-plan -- --scenario examples/scenarios/mobile/app-startup.json --runner examples/runners/xcodebuildmcp-ios.json --platform ios --out artifacts/plan/app-startup
@@ -196,7 +196,7 @@ Near-term hardening:
 - compare trusted run folders and emit `comparison.json`
 - keep the fixture loop green as the contract changes
 - harden the neutral Expo example app with canonical startup, open-close, scroll, and media scenarios
-- harden Android adb from readiness checks, bounded log capture, and log-ingest artifact assembly into lifecycle execution
+- extend Android beyond package launch/log capture into scenario-step driving and richer evidence providers
 - harden a supported live iOS driver loop behind the existing artifact contract
 - improve runner validation and failure reporting
 - harden historical baseline selection around the comparison artifact

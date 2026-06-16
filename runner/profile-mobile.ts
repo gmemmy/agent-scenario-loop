@@ -57,7 +57,7 @@ function usage({
   const lines = [
     `Usage: ${binaryName} --config <path> --scenario <path> [--events <path>] [--out <dir>] [--run-id <id>]`,
     '',
-    `Reads scenario metadata plus profile-event logs and writes the artifact layout for one ${platform} log-ingest run.`,
+    `Reads scenario metadata plus profile-event evidence and writes the artifact layout for one ${platform} profile run.`,
   ];
   if (platform === 'android') {
     lines.push('Use --adb-artifacts <dir> to read raw/adb-logcat.txt from a prior asl-android-adb capture.');
