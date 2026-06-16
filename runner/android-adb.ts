@@ -9,6 +9,7 @@ const { buildAgentSummaryMarkdown } = require('../core/agent-summary');
 const { createArtifactLayout } = require('../core/artifact-layout');
 const { writeJsonArtifact, writeTextArtifact } = require('../core/artifact-writer');
 const { SCHEMAS, assertValidJson } = require('../core/schema-validator');
+const { hasHelpFlag, writeUsage } = require('./cli');
 
 type CliArgs = {
   adb?: string | boolean;
@@ -62,14 +63,12 @@ type AndroidPreflightOptions = {
  *
  * @returns {void}
  */
-function usage(): void {
-  console.error(
-    [
-      'Usage: node runner/android-adb.js [--adb <path>] [--serial <device>] [--package <name>] [--run-id <id>] [--out <dir>]',
-      '',
-      'Checks adb/device readiness and writes health.json, verdict.json, agent-summary.md, and raw adb evidence.',
-    ].join('\n'),
-  );
+function usage(output: { write: (message: string) => unknown } = process.stderr): void {
+  writeUsage([
+    'Usage: asl-android-adb [--adb <path>] [--serial <device>] [--package <name>] [--run-id <id>] [--out <dir>]',
+    '',
+    'Checks adb/device readiness and writes health.json, verdict.json, agent-summary.md, and raw adb evidence.',
+  ], output);
 }
 
 /**
@@ -359,7 +358,13 @@ async function runAndroidAdbPreflight({
  * @returns {Promise<void>}
  */
 async function main(): Promise<void> {
-  const args = parseArgs(process.argv.slice(2));
+  const argv = process.argv.slice(2);
+  if (hasHelpFlag(argv)) {
+    usage(process.stdout);
+    return;
+  }
+
+  const args = parseArgs(argv);
   const result = await runAndroidAdbPreflight({
     ...(typeof args.adb === 'string' ? { adbPath: args.adb } : {}),
     ...(typeof args.out === 'string' ? { outputDir: args.out } : {}),
@@ -386,6 +391,7 @@ export {
   parseArgs,
   runAndroidAdbPreflight,
   selectDevice,
+  usage,
 };
 
 export type {

@@ -18,14 +18,15 @@ const {
   sortValue,
 } = require('../core/artifact-contract');
 const { SCHEMAS, assertValidJson } = require('../core/schema-validator');
+const { hasHelpFlag, writeUsage } = require('./cli');
 
 type CliArgs = {
-  config?: string;
-  scenario?: string;
-  events?: string;
-  out?: string;
-  'run-id'?: string;
-  [key: string]: string | undefined;
+  config?: string | boolean;
+  scenario?: string | boolean;
+  events?: string | boolean;
+  out?: string | boolean;
+  'run-id'?: string | boolean;
+  [key: string]: string | boolean | undefined;
 };
 
 type ProfileRunResult = {
@@ -39,17 +40,19 @@ type ProfileRunResult = {
  *
  * @returns {void}
  */
-function usage() {
-  console.error(
-    'Usage: node runner/profile-ios.js --config <path> --scenario <path> [--events <path>] [--out <dir>] [--run-id <id>]',
-  );
+function usage(output: { write: (message: string) => unknown } = process.stderr): void {
+  writeUsage([
+    'Usage: asl-profile-ios --config <path> --scenario <path> [--events <path>] [--out <dir>] [--run-id <id>]',
+    '',
+    'Reads scenario metadata plus profile-event logs and writes the artifact layout for one iOS log-ingest run.',
+  ], output);
 }
 
 /**
  * Parses `--key value` arguments for the iOS profile runner.
  *
  * @param {string[]} argv
- * @returns {Record<string, string>}
+ * @returns {CliArgs}
  */
 function parseArgs(argv: string[]): CliArgs {
   const args: CliArgs = {};
@@ -63,8 +66,12 @@ function parseArgs(argv: string[]): CliArgs {
     }
     const key = token.slice(2);
     const value = argv[index + 1];
-    args[key] = value;
-    index += 1;
+    if (value && !value.startsWith('--')) {
+      args[key] = value;
+      index += 1;
+    } else {
+      args[key] = true;
+    }
   }
   return args;
 }
@@ -249,7 +256,7 @@ function buildProfileVerdict({
  * @returns {Promise<ProfileRunResult>}
  */
 async function runProfileIos(args: CliArgs): Promise<ProfileRunResult> {
-  if (!args.config || !args.scenario) {
+  if (typeof args.config !== 'string' || typeof args.scenario !== 'string') {
     throw new Error('Both --config and --scenario are required.');
   }
 
@@ -257,9 +264,9 @@ async function runProfileIos(args: CliArgs): Promise<ProfileRunResult> {
   const scenarioPath = path.resolve(args.scenario);
   const config = readJson(configPath);
   const scenario = readJson(scenarioPath);
-  const runId = args['run-id'] || createRunId();
+  const runId = typeof args['run-id'] === 'string' ? args['run-id'] : createRunId();
   const artifactRoot = path.resolve(
-    args.out || path.join(path.dirname(configPath), config.paths?.iosArtifactsRoot || 'artifacts/ios'),
+    typeof args.out === 'string' ? args.out : path.join(path.dirname(configPath), config.paths?.iosArtifactsRoot || 'artifacts/ios'),
   );
   const runDir = path.join(artifactRoot, scenario.name, runId);
   const layout = createArtifactLayout({ outputDir: runDir });
@@ -274,7 +281,7 @@ async function runProfileIos(args: CliArgs): Promise<ProfileRunResult> {
   await ensureDir(path.join(signalsDir, 'memory'));
   await ensureDir(path.join(signalsDir, 'network'));
 
-  const eventLogText = args.events ? await fsp.readFile(path.resolve(args.events), 'utf8') : '';
+  const eventLogText = typeof args.events === 'string' ? await fsp.readFile(path.resolve(args.events), 'utf8') : '';
   const events = extractProfileEvents(eventLogText, {
     scenario: scenario.name,
     runId,
@@ -313,7 +320,7 @@ async function runProfileIos(args: CliArgs): Promise<ProfileRunResult> {
       metrics: 'metrics.json',
       scenario: toPortablePathReference(scenarioPath),
       raw: {
-        interactionLog: args.events ? `raw/${path.basename(args.events)}` : 'raw/interaction.log',
+        interactionLog: typeof args.events === 'string' ? `raw/${path.basename(args.events)}` : 'raw/interaction.log',
         deviceLog: 'raw/device.log',
       },
       captures: {
@@ -384,7 +391,7 @@ async function runProfileIos(args: CliArgs): Promise<ProfileRunResult> {
     await writeJson(path.join(runDir, 'budget-verdict.json'), budgetVerdict);
   }
   await fsp.writeFile(path.join(runDir, 'summary.md'), summary, 'utf8');
-  if (args.events) {
+  if (typeof args.events === 'string') {
     await fsp.copyFile(path.resolve(args.events), path.join(rawDir, path.basename(args.events)));
   }
 
@@ -401,8 +408,14 @@ async function runProfileIos(args: CliArgs): Promise<ProfileRunResult> {
  * @returns {Promise<void>}
  */
 async function main(): Promise<void> {
-  const args = parseArgs(process.argv.slice(2));
-  if (!args.config || !args.scenario) {
+  const argv = process.argv.slice(2);
+  if (hasHelpFlag(argv)) {
+    usage(process.stdout);
+    return;
+  }
+
+  const args = parseArgs(argv);
+  if (typeof args.config !== 'string' || typeof args.scenario !== 'string') {
     usage();
     process.exitCode = 1;
     return;
@@ -426,6 +439,7 @@ export {
   main,
   parseArgs,
   runProfileIos,
+  usage,
 };
 
 export type {

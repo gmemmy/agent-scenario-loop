@@ -8,6 +8,7 @@ const { writeJsonArtifact, writeTextArtifact } = require('../core/artifact-write
 const { compareRunDirectories, readRunArtifacts } = require('../core/comparison');
 const { SCHEMAS } = require('../core/schema-validator');
 const { buildPlanArtifacts } = require('./check-plan');
+const { hasHelpFlag, writeUsage } = require('./cli');
 const { runProfileIos } = require('./profile-ios');
 
 type CliArgs = {
@@ -22,6 +23,20 @@ type DemoLoopResult = {
   outputDir: string;
   preflightDir: string;
 };
+
+/**
+ * Prints CLI usage.
+ *
+ * @param {{write: (message: string) => unknown}} [output]
+ * @returns {void}
+ */
+function usage(output: { write: (message: string) => unknown } = process.stderr): void {
+  writeUsage([
+    'Usage: asl-demo-loop [--out <dir>]',
+    '',
+    'Runs the fixture preflight, baseline/current profile logs, and comparison without a simulator.',
+  ], output);
+}
 
 /**
  * Parses `--key value` arguments for the fixture demo loop.
@@ -152,7 +167,13 @@ async function runDemoLoop({ outputDir = path.resolve('artifacts/demo-loop') }: 
  * @returns {Promise<void>}
  */
 async function main(): Promise<void> {
-  const args = parseArgs(process.argv.slice(2));
+  const argv = process.argv.slice(2);
+  if (hasHelpFlag(argv)) {
+    usage(process.stdout);
+    return;
+  }
+
+  const args = parseArgs(argv);
   const result = await runDemoLoop({
     ...(typeof args.out === 'string' ? { outputDir: args.out } : {}),
   });
@@ -171,6 +192,7 @@ export {
   main,
   parseArgs,
   runDemoLoop,
+  usage,
 };
 
 export type {

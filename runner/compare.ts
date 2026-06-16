@@ -7,6 +7,7 @@ const { compareRunDirectories, readRunArtifacts } = require('../core/comparison'
 const { createArtifactLayout } = require('../core/artifact-layout');
 const { writeJsonArtifact, writeTextArtifact } = require('../core/artifact-writer');
 const { SCHEMAS } = require('../core/schema-validator');
+const { hasHelpFlag, writeUsage } = require('./cli');
 
 type CliArgs = {
   baseline?: string | boolean;
@@ -20,15 +21,13 @@ type CliArgs = {
  *
  * @returns {void}
  */
-function usage(): void {
-  console.error(
-    [
-      'Usage: node runner/compare.js --baseline <run-dir> --current <run-dir> [--out <comparison.json|run-dir>]',
-      '',
-      'Without --out, prints comparison.json to stdout.',
-      'When --out points at a directory, writes comparison.json and agent-summary.md there.',
-    ].join('\n'),
-  );
+function usage(output: { write: (message: string) => unknown } = process.stderr): void {
+  writeUsage([
+    'Usage: asl-compare --baseline <run-dir> --current <run-dir> [--out <comparison.json|run-dir>]',
+    '',
+    'Without --out, prints comparison.json to stdout.',
+    'When --out points at a directory, writes comparison.json and agent-summary.md there.',
+  ], output);
 }
 
 /**
@@ -88,7 +87,13 @@ function resolveOutput(out: string): { comparisonPath: string; summaryPath: stri
  * @returns {Promise<void>}
  */
 async function main(): Promise<void> {
-  const args = parseArgs(process.argv.slice(2));
+  const argv = process.argv.slice(2);
+  if (hasHelpFlag(argv)) {
+    usage(process.stdout);
+    return;
+  }
+
+  const args = parseArgs(argv);
   if (typeof args.baseline !== 'string' || typeof args.current !== 'string') {
     usage();
     process.exitCode = 1;
@@ -138,4 +143,5 @@ export {
   main,
   parseArgs,
   resolveOutput,
+  usage,
 };

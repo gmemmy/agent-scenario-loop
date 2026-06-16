@@ -16,6 +16,7 @@ const {
   SchemaValidationError,
   assertValidJson,
 } = require('../core/schema-validator');
+const { hasHelpFlag, writeUsage } = require('./cli');
 
 type CliArgs = {
   providers: string[];
@@ -39,15 +40,14 @@ type PlanArtifacts = {
  *
  * @returns {void}
  */
-function usage() {
-  console.error(
-    [
-      'Usage: node runner/check-plan.js --scenario <path> --runner <path> [--provider <path> ...] [--platform <ios|android>] [--run-id <id>] [--out <dir>]',
-      '',
-      'Writes health.json and verdict.json to --out when provided.',
-      'Without --out, prints the planned artifacts as JSON.',
-    ].join('\n'),
-  );
+function usage(output: { write: (message: string) => unknown } = process.stderr) {
+  writeUsage([
+    'Usage: agent-scenario-loop --scenario <path> --runner <path> [--provider <path> ...] [--platform <ios|android>] [--run-id <id>] [--out <dir>]',
+    '',
+    'Aliases: asl-check-plan',
+    'Writes health.json and verdict.json to --out when provided.',
+    'Without --out, prints the planned artifacts as JSON.',
+  ], output);
 }
 
 /**
@@ -203,7 +203,13 @@ async function buildPlanArtifacts({
  * @returns {Promise<void>}
  */
 async function main() {
-  const args = parseArgs(process.argv.slice(2));
+  const argv = process.argv.slice(2);
+  if (hasHelpFlag(argv)) {
+    usage(process.stdout);
+    return;
+  }
+
+  const args = parseArgs(argv);
   if (typeof args.scenario !== 'string' || typeof args.runner !== 'string') {
     usage();
     process.exitCode = 1;
@@ -267,4 +273,5 @@ if (require.main === module) {
 export {
   buildPlanArtifacts,
   parseArgs,
+  usage,
 };

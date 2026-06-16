@@ -33,7 +33,8 @@
     "agent-scenario-loop": "dist/runner/check-plan.js",
     "asl-compare": "dist/runner/compare.js",
     "asl-check-plan": "dist/runner/check-plan.js",
-    "asl-demo-loop": "dist/runner/demo-loop.js"
+    "asl-demo-loop": "dist/runner/demo-loop.js",
+    "asl-profile-ios": "dist/runner/profile-ios.js"
   },
   "exports": {
     ".": {
@@ -55,6 +56,10 @@
     "./runner/demo-loop": {
       "types": "./dist/runner/demo-loop.d.ts",
       "require": "./dist/runner/demo-loop.js"
+    },
+    "./runner/profile-ios": {
+      "types": "./dist/runner/profile-ios.d.ts",
+      "require": "./dist/runner/profile-ios.js"
     },
     "./schemas/*": "./schemas/*",
     "./examples/*": "./examples/*",

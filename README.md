@@ -77,7 +77,7 @@ const {
 } = require('agent-scenario-loop');
 ```
 
-The preflight CLI is exported as `agent-scenario-loop` and `asl-check-plan` after package installation. The Android adb preflight CLI is exported as `asl-android-adb`, the comparison CLI is exported as `asl-compare`, and the fixture loop is exported as `asl-demo-loop`. In this repo, use the script form:
+The preflight CLI is exported as `agent-scenario-loop` and `asl-check-plan` after package installation. The Android adb preflight CLI is exported as `asl-android-adb`, the iOS log-ingest CLI is exported as `asl-profile-ios`, the comparison CLI is exported as `asl-compare`, and the fixture loop is exported as `asl-demo-loop`. In this repo, use the script form:
 
 ```bash
 pnpm check-plan -- --scenario examples/scenarios/mobile/app-startup.json --runner examples/runners/xcodebuildmcp-ios.json --platform ios --out artifacts/plan/app-startup

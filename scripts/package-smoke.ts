@@ -111,6 +111,21 @@ function main(): void {
       env,
     });
 
+    for (const binaryName of [
+      'agent-scenario-loop',
+      'asl-android-adb',
+      'asl-check-plan',
+      'asl-compare',
+      'asl-demo-loop',
+      'asl-profile-ios',
+    ]) {
+      const helpText = run(packageBinPath(installDir, binaryName), ['--help'], {
+        cwd: installDir,
+        env,
+      });
+      assert.match(helpText, /Usage:/u, `${binaryName} did not print usage`);
+    }
+
     const health = JSON.parse(fs.readFileSync(path.join(artifactDir, 'health.json'), 'utf8'));
     assert.equal(health.scenarioId, 'app-startup');
     assert.equal(health.runId, 'package-smoke');
@@ -129,6 +144,7 @@ function main(): void {
       "assert.equal(Object.prototype.hasOwnProperty.call(asl, 'V1_ARTIFACT_FILENAMES'), false);",
       "require.resolve('agent-scenario-loop/schemas/scenario.schema.json');",
       "require.resolve('agent-scenario-loop/examples/scenarios/mobile/app-startup.json');",
+      "require.resolve('agent-scenario-loop/runner/profile-ios');",
       "assert.equal(fs.existsSync('node_modules/agent-scenario-loop/app/profile-session.ts'), true);",
       "assert.equal(fs.existsSync('node_modules/agent-scenario-loop/core/config-template.json'), true);",
     ].join('\n');
