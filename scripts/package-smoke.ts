@@ -11,6 +11,18 @@ type RunOptions = {
   env: NodeJS.ProcessEnv;
 };
 
+type FailedRunOutput = {
+  status: number | null;
+  stderr: string;
+  stdout: string;
+};
+
+type ExecFileSyncError = Error & {
+  status?: number | null;
+  stderr?: Buffer | string;
+  stdout?: Buffer | string;
+};
+
 type ExampleProfileRun = {
   binaryName: string;
   eventLog: string;
@@ -123,6 +135,37 @@ function run(command: string, args: string[], options: RunOptions): string {
     env: options.env,
     stdio: ['ignore', 'pipe', 'inherit'],
   });
+}
+
+/**
+ * Runs a command that is expected to fail and returns captured output.
+ *
+ * @param {string} command
+ * @param {string[]} args
+ * @param {RunOptions} options
+ * @returns {FailedRunOutput}
+ */
+function runExpectFailure(command: string, args: string[], options: RunOptions): FailedRunOutput {
+  try {
+    const stdout = execFileSync(command, args, {
+      cwd: options.cwd,
+      encoding: 'utf8',
+      env: options.env,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    throw new Error(`Expected command to fail, but it passed with stdout: ${stdout}`);
+  } catch (error) {
+    const failed = error as ExecFileSyncError;
+    if (failed.message.startsWith('Expected command to fail')) {
+      throw failed;
+    }
+
+    return {
+      status: failed.status ?? null,
+      stderr: Buffer.isBuffer(failed.stderr) ? failed.stderr.toString('utf8') : String(failed.stderr ?? ''),
+      stdout: Buffer.isBuffer(failed.stdout) ? failed.stdout.toString('utf8') : String(failed.stdout ?? ''),
+    };
+  }
 }
 
 /**
@@ -294,6 +337,38 @@ function main(): void {
     assert.equal(adbArtifactHealth.healthStatus, 'passed');
     assert.equal(adbArtifactVerdict.verdictStatus, 'passed');
 
+    const missingAdbRunId = 'package-smoke-missing-adb';
+    const missingAdbProfileRoot = path.join(tempRoot, 'missing-adb-profile');
+    const missingAdb = runExpectFailure(packageBinPath(installDir, 'asl-profile-android'), [
+      '--config',
+      path.join(exampleAppRoot, 'asl.config.json'),
+      '--scenario',
+      path.join(exampleAppRoot, 'scenarios', 'android', 'app-startup.json'),
+      '--adb-capture',
+      '--adb',
+      path.join(tempRoot, 'missing-adb'),
+      '--clear-logcat',
+      '--launch',
+      '--wait-ms',
+      '1',
+      '--out',
+      missingAdbProfileRoot,
+      '--run-id',
+      missingAdbRunId,
+    ], {
+      cwd: installDir,
+      env,
+    });
+    const missingAdbCaptureRoot = path.join(missingAdbProfileRoot, '_adb-captures', missingAdbRunId);
+    const missingAdbHealth = JSON.parse(fs.readFileSync(path.join(missingAdbCaptureRoot, 'health.json'), 'utf8'));
+    assert.equal(missingAdb.status, 1);
+    assert.match(missingAdb.stderr, /Android adb capture failed/u);
+    assert.equal(missingAdbHealth.healthStatus, 'failed');
+    assert.equal(
+      missingAdbHealth.checks.some((check: { code: string }) => check.code === 'adb_unavailable'),
+      true,
+    );
+
     const health = JSON.parse(fs.readFileSync(path.join(artifactDir, 'health.json'), 'utf8'));
     assert.equal(health.scenarioId, 'app-startup');
     assert.equal(health.runId, 'package-smoke');
@@ -350,4 +425,5 @@ export {
   main,
   packageBinPath,
   run,
+  runExpectFailure,
 };
