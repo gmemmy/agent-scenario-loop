@@ -1,0 +1,37 @@
+{
+  "name": "open-close-cycle",
+  "flowId": "example-card-open-close",
+  "description": "Repeatedly open and dismiss a neutral detail card in the example app.",
+  "platform": "ios",
+  "interactionDriver": "fixture-log-ingest",
+  "trigger": {
+    "kind": "tap",
+    "label": "Tap the first example card from a stable home state."
+  },
+  "defaultIterations": 3,
+  "timelinePhases": {
+    "card_open_requested": "intent",
+    "card_opened": "navigation",
+    "card_close_requested": "intent",
+    "card_dismissed": "completion"
+  },
+  "metricEvents": {
+    "openRequested": "card_open_requested",
+    "opened": "card_opened",
+    "closeRequested": "card_close_requested",
+    "dismissed": "card_dismissed"
+  },
+  "budgets": {
+    "metric": "example card open-close",
+    "pass": {
+      "failures": 0,
+      "timeouts": 0,
+      "cycleP50Ms": 1200,
+      "cycleP95Ms": 1300,
+      "openP50Ms": 500,
+      "openP95Ms": 600,
+      "closeP50Ms": 400,
+      "closeP95Ms": 500
+    }
+  }
+}

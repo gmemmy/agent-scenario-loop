@@ -92,6 +92,11 @@
     "compare": "pnpm build && node dist/runner/compare.js",
     "check-plan": "pnpm build && node dist/runner/check-plan.js",
     "demo:loop": "pnpm build && node dist/runner/demo-loop.js",
+    "example:profile:open-close": "pnpm build && node dist/runner/profile-ios.js --config examples/mobile-app/asl.config.json --scenario examples/mobile-app/scenarios/ios/open-close-cycle.json --events examples/mobile-app/event-logs/open-close-cycle.log --out artifacts/example-mobile-app/ios --run-id example-open-close",
+    "example:profile:scroll": "pnpm build && node dist/runner/profile-ios.js --config examples/mobile-app/asl.config.json --scenario examples/mobile-app/scenarios/ios/scroll-settle.json --events examples/mobile-app/event-logs/scroll-settle.log --out artifacts/example-mobile-app/ios --run-id example-scroll",
+    "example:profile:startup": "pnpm build && node dist/runner/profile-ios.js --config examples/mobile-app/asl.config.json --scenario examples/mobile-app/scenarios/ios/app-startup.json --events examples/mobile-app/event-logs/app-startup.log --out artifacts/example-mobile-app/ios --run-id example-startup",
+    "example:app:android": "pnpm --dir examples/mobile-app android",
+    "example:app:start": "pnpm --dir examples/mobile-app start",
     "profile:ios": "pnpm build && node dist/runner/profile-ios.js",
     "profile:ios:startup": "pnpm build && node dist/runner/profile-ios.js --config core/config-template.json --scenario examples/scenarios/ios/app-startup.json",
     "profile:ios:open-close": "pnpm build && node dist/runner/profile-ios.js --config core/config-template.json --scenario examples/scenarios/ios/open-close-cycle.json"

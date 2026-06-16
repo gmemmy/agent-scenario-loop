@@ -16,7 +16,8 @@ Agent Scenario Loop is a scenario orchestration and evidence collection framewor
 | Validate a scenario/runner plan before execution | [Package use](#package-use) |
 | Inspect runner behavior and current runner limits | [Runner docs](runner/README.md) |
 | See example scenarios and runner manifests | [examples/scenarios](examples/scenarios), [examples/runners](examples/runners) |
-| See a minimal app integration | [examples/minimal-app](examples/minimal-app/README.md) |
+| See the neutral Expo dogfood app | [examples/mobile-app](examples/mobile-app/README.md) |
+| See a minimal app integration note | [examples/minimal-app](examples/minimal-app/README.md) |
 
 ## The short version
 
@@ -139,6 +140,8 @@ No simulator available yet? Use the committed fixture logs:
 pnpm demo:loop -- --out artifacts/demo-loop
 ```
 
+To inspect the neutral Expo example app used for package dogfooding, start with [examples/mobile-app](examples/mobile-app/README.md). Its committed event logs are part of `pnpm release:check`, so the package has to prove the example app scenarios can produce passed artifacts before publishing. Android is the first live runtime proving target while iOS local tooling is unavailable.
+
 To validate a portable scenario, runner manifest, and initial planning artifacts before execution:
 
 ```bash
@@ -166,7 +169,7 @@ Near-term hardening:
 - publish the package boundary and keep exported declarations stable
 - compare trusted run folders and emit `comparison.json`
 - keep the fixture loop green as the contract changes
-- add a neutral example app with canonical startup, open-close, scroll, and media scenarios
+- harden the neutral Expo example app with canonical startup, open-close, scroll, and media scenarios
 - harden Android adb from readiness checks into log capture and lifecycle execution
 - harden a supported live iOS driver loop behind the existing artifact contract
 - improve runner validation and failure reporting

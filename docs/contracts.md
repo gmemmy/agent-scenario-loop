@@ -20,6 +20,7 @@ The package is intentionally contract-first: adopt the scenario and artifact sha
 - [runner/android-adb.ts](../runner/android-adb.ts): Android adb readiness preflight that writes runner health and raw adb evidence
 - [runner/demo-loop.ts](../runner/demo-loop.ts): fixture loop that proves preflight, profile, and comparison without a simulator
 - [examples/event-logs](../examples/event-logs): deterministic profile-event logs for the fixture loop
+- [examples/mobile-app](../examples/mobile-app): neutral Expo dogfood app with scenario manifests and profile-event evidence fixtures
 - [examples/scenarios/ios](../examples/scenarios/ios): transition scenario manifests for the current iOS log-ingest runner
 - [examples/scenarios/mobile](../examples/scenarios/mobile): canonical portable scenario fixtures
 - [examples/runners](../examples/runners): primary runner and evidence-provider capability fixtures

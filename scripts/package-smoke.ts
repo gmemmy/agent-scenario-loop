@@ -11,6 +11,53 @@ type RunOptions = {
   env: NodeJS.ProcessEnv;
 };
 
+type ExampleProfileRun = {
+  eventLog: string;
+  runId: string;
+  scenario: string;
+};
+
+const EXAMPLE_PROFILE_RUNS: ExampleProfileRun[] = [
+  {
+    eventLog: 'app-startup.log',
+    runId: 'example-startup',
+    scenario: 'app-startup.json',
+  },
+  {
+    eventLog: 'open-close-cycle.log',
+    runId: 'example-open-close',
+    scenario: 'open-close-cycle.json',
+  },
+  {
+    eventLog: 'scroll-settle.log',
+    runId: 'example-scroll',
+    scenario: 'scroll-settle.json',
+  },
+];
+
+/**
+ * Lists every file under a directory using relative POSIX-style paths.
+ *
+ * @param {string} rootDir
+ * @param {string} [relativeDir]
+ * @returns {string[]}
+ */
+function listFiles(rootDir: string, relativeDir = ''): string[] {
+  const absoluteDir = path.join(rootDir, relativeDir);
+  return fs.readdirSync(absoluteDir, { withFileTypes: true }).flatMap((entry: import('node:fs').Dirent) => {
+    const relativePath = path.join(relativeDir, entry.name);
+    if (entry.isDirectory()) {
+      return listFiles(rootDir, relativePath);
+    }
+
+    if (!entry.isFile()) {
+      return [];
+    }
+
+    return [relativePath.split(path.sep).join('/')];
+  });
+}
+
 /**
  * Creates a clean npm environment for repeatable package smoke checks.
  *
@@ -93,8 +140,45 @@ function main(): void {
     });
 
     const packageRoot = path.join(installDir, 'node_modules', 'agent-scenario-loop');
+    const packedFiles = listFiles(packageRoot);
+    const forbiddenPathPatterns = [
+      /^\.github\//u,
+      /^artifacts\//u,
+      /^dist\/scripts\//u,
+      /^node_modules\//u,
+      /^runner\/__tests__\//u,
+      /^scripts\//u,
+      /internal-roadmap/u,
+    ];
+    for (const filePath of packedFiles) {
+      assert.equal(
+        forbiddenPathPatterns.some((pattern) => pattern.test(filePath)),
+        false,
+        `unexpected file shipped in package: ${filePath}`,
+      );
+    }
+
+    for (const filePath of packedFiles) {
+      const content = fs.readFileSync(path.join(packageRoot, filePath), 'utf8');
+      const productName = ['Help', 'Bnk'].join('');
+      const productSlug = ['help', 'bnk'].join('');
+      const applicationsPath = ['/', 'Applications'].join('');
+      const localUserPath = ['/', 'Users', 'sensei'].join('/');
+      const privateTempPath = ['private', 'tmp'].join('/');
+      const forbiddenContentPattern = new RegExp(
+        `${productName}|${productSlug}|${applicationsPath}|${localUserPath}|${privateTempPath}`,
+        'u',
+      );
+      assert.equal(
+        forbiddenContentPattern.test(content),
+        false,
+        `local or product-specific content leaked into ${filePath}`,
+      );
+    }
+
     const scenarioPath = path.join(packageRoot, 'examples', 'scenarios', 'mobile', 'app-startup.json');
     const runnerPath = path.join(packageRoot, 'examples', 'runners', 'xcodebuildmcp-ios.json');
+    const exampleAppRoot = path.join(packageRoot, 'examples', 'mobile-app');
     run(packageBinPath(installDir, 'asl-check-plan'), [
       '--scenario',
       scenarioPath,
@@ -126,6 +210,29 @@ function main(): void {
       assert.match(helpText, /Usage:/u, `${binaryName} did not print usage`);
     }
 
+    for (const exampleRun of EXAMPLE_PROFILE_RUNS) {
+      const output = run(packageBinPath(installDir, 'asl-profile-ios'), [
+        '--config',
+        path.join(exampleAppRoot, 'asl.config.json'),
+        '--scenario',
+        path.join(exampleAppRoot, 'scenarios', 'ios', exampleRun.scenario),
+        '--events',
+        path.join(exampleAppRoot, 'event-logs', exampleRun.eventLog),
+        '--out',
+        path.join(tempRoot, 'example-mobile-app-artifacts'),
+        '--run-id',
+        exampleRun.runId,
+      ], {
+        cwd: installDir,
+        env,
+      });
+      const runDir = output.trim();
+      const health = JSON.parse(fs.readFileSync(path.join(runDir, 'health.json'), 'utf8'));
+      const verdict = JSON.parse(fs.readFileSync(path.join(runDir, 'verdict.json'), 'utf8'));
+      assert.equal(health.healthStatus, 'passed');
+      assert.equal(verdict.verdictStatus, 'passed');
+    }
+
     const health = JSON.parse(fs.readFileSync(path.join(artifactDir, 'health.json'), 'utf8'));
     assert.equal(health.scenarioId, 'app-startup');
     assert.equal(health.runId, 'package-smoke');
@@ -149,6 +256,7 @@ function main(): void {
       "assert.equal(Object.prototype.hasOwnProperty.call(asl, 'V1_ARTIFACT_FILENAMES'), false);",
       "require.resolve('agent-scenario-loop/schemas/scenario.schema.json');",
       "require.resolve('agent-scenario-loop/examples/scenarios/mobile/app-startup.json');",
+      "require.resolve('agent-scenario-loop/examples/mobile-app/asl.config.json');",
       "require.resolve('agent-scenario-loop/runner/profile-ios');",
       "assert.equal(fs.existsSync('node_modules/agent-scenario-loop/app/profile-session.ts'), true);",
       "assert.equal(fs.existsSync('node_modules/agent-scenario-loop/core/config-template.json'), true);",
@@ -172,6 +280,7 @@ if (require.main === module) {
 
 export {
   createSmokeEnv,
+  listFiles,
   main,
   packageBinPath,
   run,

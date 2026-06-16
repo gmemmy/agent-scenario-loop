@@ -29,8 +29,20 @@ To exercise the full current loop without device runtime setup:
 pnpm demo:loop -- --out artifacts/demo-loop
 ```
 
+To prove the neutral example app scenarios through committed app evidence:
+
+```bash
+pnpm example:profile:startup
+```
+
 To check Android runtime readiness without starting scenario execution:
 
 ```bash
 pnpm android:preflight -- --package com.example.app --out artifacts/android-adb-preflight
+```
+
+Android is the first live runtime target for the example app while local iOS tooling is unavailable:
+
+```bash
+pnpm example:app:android
 ```

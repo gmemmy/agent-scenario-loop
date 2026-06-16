@@ -1,0 +1,35 @@
+{
+  "projectName": "asl-example-mobile-app",
+  "app": {
+    "displayName": "ASL Example",
+    "scheme": "asl-example",
+    "profileSessionScheme": "asl-example",
+    "iosBundleId": "dev.agent-scenario-loop.example",
+    "androidPackage": "dev.agent_scenario_loop.example",
+    "ios": {
+      "xcodeScheme": "ASL Example",
+      "launchConfiguration": "Debug",
+      "profileConfiguration": "Release"
+    }
+  },
+  "paths": {
+    "artifactRoot": "artifacts/example-mobile-app",
+    "iosArtifactsRoot": "artifacts/example-mobile-app/ios",
+    "scenarioRoot": "examples/mobile-app/scenarios/ios"
+  },
+  "drivers": {
+    "default": "fixture-log-ingest",
+    "supported": ["fixture-log-ingest", "xcodebuildmcp", "adb"]
+  },
+  "versionControl": {
+    "commit": [
+      "examples/mobile-app/**",
+      "examples/scenarios/**",
+      "schemas/**"
+    ],
+    "ignore": [
+      "artifacts/example-mobile-app/**",
+      "local simulator recordings, screenshots, and profiler exports"
+    ]
+  }
+}
