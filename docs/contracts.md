@@ -13,6 +13,7 @@ The package is intentionally contract-first: adopt the scenario and artifact sha
 - [core/comparison.ts](../core/comparison.ts): comparison artifact builder for trusted before/after run folders
 - [core/artifact-contract.ts](../core/artifact-contract.ts): artifact builders for manifest, metrics, causal run, budget verdict, and summary
 - [core/evidence-interpreter.ts](../core/evidence-interpreter.ts): evidence interpretation helpers that gate timing claims on scenario health
+- [core/execution-plan.ts](../core/execution-plan.ts): scenario-step normalizer that maps portable steps to runner port methods before adapter execution
 - [core/planner.ts](../core/planner.ts): compatibility checks between scenario requirements, primary runner capabilities, and evidence providers
 - [core/ports.ts](../core/ports.ts): ports-and-adapters method surfaces for runners, drivers, providers, writers, and interpreters
 - [core/schema-validator.ts](../core/schema-validator.ts): dependency-free validation for the JSON Schema subset used by the public contracts
@@ -56,6 +57,8 @@ Portable scenario manifests describe the durable app behavior before choosing a 
 The scenario contract is intentionally runner-neutral. Runners can map steps to adb, XcodeBuildMCP, agent-device, accessibility tools, profilers, or custom scripts while preserving the same journey, milestones, budgets, and expected events.
 
 Runner capabilities describe ownership, such as launch, session control, command execution, log capture, artifact writing, or profiler support. Driver actions describe the concrete operations an adapter can perform inside a run. A runner may be able to own a scenario lifecycle without supporting every driver action; the planner fails only when a required step declares a `driverAction` that the selected runner does not declare in `driverActions`.
+
+`buildScenarioExecutionPlan()` turns the same scenario steps into a deterministic adapter-facing work list. Each normalized step records the scenario step id, original kind, required flag, optional driver action, and the runner port method that owns it: `launch`, `executeStep`, `waitForTruthEvent`, or `captureEvidence`.
 
 ## Public artifact layout
 
