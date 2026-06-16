@@ -29,6 +29,9 @@
     "description": {
       "type": "string"
     },
+    "journey": {
+      "$ref": "#/$defs/journey"
+    },
     "platforms": {
       "type": "array",
       "minItems": 1,
@@ -59,6 +62,24 @@
       "additionalProperties": {
         "$ref": "#/$defs/truthMilestone"
       }
+    },
+    "milestones": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/milestone"
+      }
+    },
+    "expectedEvents": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string"
+      }
+    },
+    "cycles": {
+      "$ref": "#/$defs/cycles"
     },
     "budgets": {
       "type": "array",
@@ -98,6 +119,46 @@
     }
   },
   "$defs": {
+    "journey": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "intent"],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "intent": {
+          "type": "string"
+        },
+        "actor": {
+          "type": "string"
+        },
+        "startState": {
+          "type": "string"
+        },
+        "endState": {
+          "type": "string"
+        }
+      }
+    },
+    "cycles": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "iterations": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "warmupIterations": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "stopOnFailure": {
+          "type": "boolean",
+          "default": true
+        }
+      }
+    },
     "capability": {
       "type": "string",
       "enum": [
@@ -135,6 +196,45 @@
       "required": ["event"],
       "properties": {
         "event": {
+          "type": "string"
+        },
+        "required": {
+          "type": "boolean",
+          "default": true
+        },
+        "timeoutMs": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "phase": {
+          "type": "string",
+          "enum": [
+            "intent",
+            "navigation",
+            "domain",
+            "query",
+            "network",
+            "render",
+            "native",
+            "visual",
+            "completion"
+          ]
+        }
+      }
+    },
+    "milestone": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "event"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]*$"
+        },
+        "event": {
+          "type": "string"
+        },
+        "description": {
           "type": "string"
         },
         "required": {

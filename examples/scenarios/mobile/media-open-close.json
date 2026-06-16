@@ -3,6 +3,13 @@
   "id": "media-open-close",
   "flowId": "media-open-close",
   "description": "Open media, wait for visual readiness, then dismiss cleanly.",
+  "journey": {
+    "name": "Open and dismiss media",
+    "intent": "Open a media surface, prove visual readiness, then dismiss it cleanly.",
+    "actor": "app user",
+    "startState": "media entry point visible",
+    "endState": "media surface dismissed"
+  },
   "platforms": ["ios", "android"],
   "requiredCapabilities": ["launch", "sessionControl", "command", "logCapture", "artifactWrite"],
   "optionalCapabilities": ["screenshot", "video", "memory", "network"],
@@ -29,6 +36,49 @@
       "timeoutMs": 3000,
       "phase": "completion"
     }
+  },
+  "milestones": [
+    {
+      "id": "openRequested",
+      "event": "media_open_requested",
+      "description": "The app received the command to open media.",
+      "required": true,
+      "phase": "intent"
+    },
+    {
+      "id": "mediaReady",
+      "event": "media_visual_ready",
+      "description": "The media surface is visually ready.",
+      "required": true,
+      "timeoutMs": 5000,
+      "phase": "visual"
+    },
+    {
+      "id": "closeRequested",
+      "event": "media_close_requested",
+      "description": "The app received the command to dismiss media.",
+      "required": true,
+      "phase": "intent"
+    },
+    {
+      "id": "dismissed",
+      "event": "media_dismissed",
+      "description": "The media surface was dismissed cleanly.",
+      "required": true,
+      "timeoutMs": 3000,
+      "phase": "completion"
+    }
+  ],
+  "expectedEvents": [
+    "media_open_requested",
+    "media_visual_ready",
+    "media_close_requested",
+    "media_dismissed"
+  ],
+  "cycles": {
+    "iterations": 3,
+    "warmupIterations": 0,
+    "stopOnFailure": true
   },
   "budgets": [
     {

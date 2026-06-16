@@ -3,6 +3,13 @@
   "id": "app-startup",
   "flowId": "startup",
   "description": "Launch the app and wait for the first usable screen milestone.",
+  "journey": {
+    "name": "App startup",
+    "intent": "Open the app from a cold state and prove the first usable screen is ready.",
+    "actor": "returning user",
+    "startState": "app not running",
+    "endState": "first usable screen visible"
+  },
   "platforms": ["ios", "android"],
   "requiredCapabilities": ["launch", "sessionControl", "logCapture", "artifactWrite"],
   "optionalCapabilities": ["screenshot", "video"],
@@ -13,6 +20,22 @@
       "timeoutMs": 8000,
       "phase": "visual"
     }
+  },
+  "milestones": [
+    {
+      "id": "firstUsable",
+      "event": "app_first_usable_screen",
+      "description": "The first app-owned screen is visible and usable.",
+      "required": true,
+      "timeoutMs": 8000,
+      "phase": "visual"
+    }
+  ],
+  "expectedEvents": ["app_first_usable_screen"],
+  "cycles": {
+    "iterations": 1,
+    "warmupIterations": 0,
+    "stopOnFailure": true
   },
   "budgets": [
     {

@@ -37,6 +37,23 @@ App-side, your app exposes:
 
 The app integration is intentionally thin. The application emits truth; runners and providers collect evidence around it.
 
+## Public scenario contract
+
+Portable scenario manifests describe the durable app behavior before choosing a runner:
+
+- `journey`: human-readable intent, actor, start state, and end state
+- `platforms`: supported runtime targets
+- `requiredCapabilities` and `optionalCapabilities`: runner capability requirements
+- `truthEvents`: app-owned milestone events keyed by stable milestone id
+- `milestones`: inspectable milestone list with event names, phases, timeouts, and descriptions
+- `expectedEvents`: event names the runner or log ingest should expect to observe
+- `cycles`: repeat count, warmup count, and failure policy for repeated journeys
+- `budgets`: product thresholds evaluated only after scenario health passes
+- `steps`: runner-facing launch, command, wait, gesture, and capture actions
+- `artifacts`: required and optional evidence outputs
+
+The scenario contract is intentionally runner-neutral. Runners can map steps to adb, XcodeBuildMCP, agent-device, accessibility tools, profilers, or custom scripts while preserving the same journey, milestones, budgets, and expected events.
+
 ## Public artifact layout
 
 Every run should produce a stable artifact folder.

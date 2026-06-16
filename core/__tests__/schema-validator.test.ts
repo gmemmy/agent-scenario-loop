@@ -60,6 +60,17 @@ test('accepts all canonical mobile scenario manifests', () => {
   }
 });
 
+test('canonical mobile scenarios expose journey, milestones, cycles, and expected events', () => {
+  for (const fixture of listJsonFiles('examples/scenarios/mobile')) {
+    const scenario = readJson(fixture);
+
+    assert.equal(typeof scenario.journey?.intent, 'string', `${fixture} is missing journey intent`);
+    assert.ok(Array.isArray(scenario.milestones), `${fixture} is missing milestones`);
+    assert.ok(Array.isArray(scenario.expectedEvents), `${fixture} is missing expectedEvents`);
+    assert.equal(typeof scenario.cycles?.iterations, 'number', `${fixture} is missing cycle iterations`);
+  }
+});
+
 test('accepts all runner capability manifests', () => {
   for (const fixture of listJsonFiles('examples/runners')) {
     const result = validateJson(readJson(fixture), SCHEMAS.runnerCapabilities, fixture);
@@ -99,6 +110,16 @@ test('rejects invalid enum values through local schema refs', () => {
   assert.equal(result.valid, false);
   assert.ok(result.errors.some((error: ValidationIssue) => error.path === '$.requiredCapabilities[4]'));
   assert.ok(result.message.includes('telepathy') === false);
+});
+
+test('rejects invalid scenario cycle counts', () => {
+  const scenario = readJson('examples/scenarios/mobile/open-close-cycle.json');
+  scenario.cycles.iterations = 0;
+
+  const result = validateJson(scenario, SCHEMAS.scenario, 'Scenario manifest');
+
+  assert.equal(result.valid, false);
+  assert.ok(result.errors.some((error: ValidationIssue) => error.path === '$.cycles.iterations'));
 });
 
 test('rejects duplicate unique array items', () => {

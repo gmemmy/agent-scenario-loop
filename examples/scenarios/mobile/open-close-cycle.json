@@ -3,6 +3,13 @@
   "id": "open-close-cycle",
   "flowId": "open-close-cycle",
   "description": "Open and dismiss a target surface repeatedly using app-owned commands and truth milestones.",
+  "journey": {
+    "name": "Open and close target surface",
+    "intent": "Open a stable target surface, prove it rendered, dismiss it, and prove return to the prior state.",
+    "actor": "app user",
+    "startState": "home surface stable",
+    "endState": "target surface dismissed"
+  },
   "platforms": ["ios", "android"],
   "requiredCapabilities": ["launch", "sessionControl", "command", "logCapture", "artifactWrite"],
   "optionalCapabilities": ["screenshot", "video", "uiTree"],
@@ -29,6 +36,49 @@
       "timeoutMs": 2500,
       "phase": "completion"
     }
+  },
+  "milestones": [
+    {
+      "id": "openRequested",
+      "event": "surface_open_requested",
+      "description": "The app received the command to open the target surface.",
+      "required": true,
+      "phase": "intent"
+    },
+    {
+      "id": "opened",
+      "event": "surface_opened",
+      "description": "The target surface is visually ready.",
+      "required": true,
+      "timeoutMs": 2500,
+      "phase": "visual"
+    },
+    {
+      "id": "closeRequested",
+      "event": "surface_close_requested",
+      "description": "The app received the command to dismiss the target surface.",
+      "required": true,
+      "phase": "intent"
+    },
+    {
+      "id": "dismissed",
+      "event": "surface_dismissed",
+      "description": "The target surface was dismissed cleanly.",
+      "required": true,
+      "timeoutMs": 2500,
+      "phase": "completion"
+    }
+  ],
+  "expectedEvents": [
+    "surface_open_requested",
+    "surface_opened",
+    "surface_close_requested",
+    "surface_dismissed"
+  ],
+  "cycles": {
+    "iterations": 3,
+    "warmupIterations": 0,
+    "stopOnFailure": true
   },
   "budgets": [
     {
