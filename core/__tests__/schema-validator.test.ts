@@ -53,8 +53,8 @@ function listJsonFiles(relativeDir: string): string[] {
     .map((name: string) => path.join(relativeDir, name));
 }
 
-test('accepts all canonical v1 scenario manifests', () => {
-  for (const fixture of listJsonFiles('examples/scenarios/v1')) {
+test('accepts all canonical mobile scenario manifests', () => {
+  for (const fixture of listJsonFiles('examples/scenarios/mobile')) {
     const result = validateJson(readJson(fixture), SCHEMAS.scenario, fixture);
     assert.equal(result.valid, true, result.message);
   }
@@ -67,8 +67,8 @@ test('accepts all runner capability manifests', () => {
   }
 });
 
-test('accepts canonical v1 scenario manifests', () => {
-  const scenario = readJson('examples/scenarios/v1/app-startup.json');
+test('accepts canonical mobile scenario manifests', () => {
+  const scenario = readJson('examples/scenarios/mobile/app-startup.json');
 
   const result = validateJson(scenario, SCHEMAS.scenario, 'Scenario manifest');
 
@@ -77,7 +77,7 @@ test('accepts canonical v1 scenario manifests', () => {
 });
 
 test('rejects missing required scenario properties', () => {
-  const scenario = readJson('examples/scenarios/v1/app-startup.json');
+  const scenario = readJson('examples/scenarios/mobile/app-startup.json');
   delete scenario.truthEvents;
 
   const result = validateJson(scenario, SCHEMAS.scenario, 'Scenario manifest');
@@ -91,7 +91,7 @@ test('rejects missing required scenario properties', () => {
 });
 
 test('rejects invalid enum values through local schema refs', () => {
-  const scenario = readJson('examples/scenarios/v1/app-startup.json');
+  const scenario = readJson('examples/scenarios/mobile/app-startup.json');
   scenario.requiredCapabilities.push('telepathy');
 
   const result = validateJson(scenario, SCHEMAS.scenario, 'Scenario manifest');
@@ -177,7 +177,7 @@ test('rejects comparison artifacts with unknown comparison status', () => {
 });
 
 test('assertValidJson throws a path-specific schema error', () => {
-  const scenario = clone(readJson('examples/scenarios/v1/app-startup.json'));
+  const scenario = clone(readJson('examples/scenarios/mobile/app-startup.json'));
   scenario.steps[1].timeoutMs = 0;
 
   assert.throws(

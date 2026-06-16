@@ -129,7 +129,7 @@ function toPortablePathReference(targetPath: string): string {
 }
 
 /**
- * Builds v1 scenario health from profile metrics.
+ * Builds scenario health from profile metrics.
  *
  * @param {{scenario: Record<string, unknown>, runId: string, metrics: Record<string, unknown>}} options
  * @returns {Record<string, unknown>}
@@ -173,7 +173,7 @@ function buildProfileHealth({
 }
 
 /**
- * Converts profile budget evaluation checks into v1 verdict budget checks.
+ * Converts profile budget evaluation checks into verdict budget checks.
  *
  * @param {Record<string, unknown> | null | undefined} budgetEvaluation
  * @returns {Record<string, unknown>[]}
@@ -195,7 +195,7 @@ function buildVerdictBudgetChecks(budgetEvaluation: Record<string, any> | null |
 }
 
 /**
- * Builds v1 product verdict from profile metrics and budget evaluation.
+ * Builds product verdict from profile metrics and budget evaluation.
  *
  * @param {{scenario: Record<string, unknown>, runId: string, health: Record<string, unknown>, metrics: Record<string, unknown>}} options
  * @returns {Record<string, unknown>}

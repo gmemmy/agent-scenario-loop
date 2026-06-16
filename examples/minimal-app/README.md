@@ -1,6 +1,6 @@
 # Minimal App Integration
 
-This example is intentionally documentation-only: the entire v1 app contract is one file, `../../app/profile-session.ts`. Copy it into your app and wire it as shown below.
+This example is intentionally documentation-only: the app integration contract is one file, `../../app/profile-session.ts`. Copy it into your app and wire it as shown below.
 
 ## Startup wiring
 

@@ -12,7 +12,7 @@ Agent Scenario Loop is a scenario orchestration and evidence collection framewor
 | --- | --- |
 | Understand the idea in plain language | [Concepts](docs/concepts.md) |
 | Understand the project doctrine | [Principles](docs/principles.md) |
-| See the current v1 artifacts and package surface | [V1 contracts](docs/contracts.md) |
+| See the current artifacts and package surface | [Contracts](docs/contracts.md) |
 | Validate a scenario/runner plan before execution | [Package use](#package-use) |
 | Inspect runner behavior and current runner limits | [Runner docs](runner/README.md) |
 | See example scenarios and runner manifests | [examples/scenarios](examples/scenarios), [examples/runners](examples/runners) |
@@ -54,7 +54,7 @@ Read next: [Vendor-neutral by design](docs/concepts.md#vendor-neutral-by-design)
 
 A run should leave behind artifacts that can be inspected after the terminal session is gone: logs, metrics, traces, screenshots, accessibility results, budget verdicts, and custom signals.
 
-Read next: [V1 contracts](docs/contracts.md).
+Read next: [Contracts](docs/contracts.md).
 
 ### The application stays in control
 
@@ -80,10 +80,10 @@ const {
 The preflight CLI is exported as `agent-scenario-loop` and `asl-check-plan` after package installation. The Android adb preflight CLI is exported as `asl-android-adb`, the comparison CLI is exported as `asl-compare`, and the fixture loop is exported as `asl-demo-loop`. In this repo, use the script form:
 
 ```bash
-pnpm check-plan -- --scenario examples/scenarios/v1/app-startup.json --runner examples/runners/xcodebuildmcp-ios.json --platform ios --out artifacts/plan/app-startup
+pnpm check-plan -- --scenario examples/scenarios/mobile/app-startup.json --runner examples/runners/xcodebuildmcp-ios.json --platform ios --out artifacts/plan/app-startup
 ```
 
-That command does not require Xcode, a simulator, or device artifacts. It validates scenario and runner manifests, writes the v1 preflight artifacts, and stops before live execution.
+That command does not require Xcode, a simulator, or device artifacts. It validates scenario and runner manifests, writes preflight artifacts, and stops before live execution.
 
 To check Android adb readiness before live scenario execution:
 
@@ -107,9 +107,9 @@ To run the complete fixture loop without a simulator:
 pnpm demo:loop -- --out artifacts/demo-loop
 ```
 
-That command runs preflight, profiles baseline/current event logs, writes v1 run artifacts, compares the runs, and refreshes the current run's `agent-summary.md`.
+That command runs preflight, profiles baseline/current event logs, writes run artifacts, compares the runs, and refreshes the current run's `agent-summary.md`.
 
-Read next: [V1 contracts](docs/contracts.md) for the artifact layout and current scope.
+Read next: [Contracts](docs/contracts.md) for the artifact layout and current scope.
 
 ## Quick start
 
@@ -131,10 +131,10 @@ No simulator available yet? Use the committed fixture logs:
 pnpm demo:loop -- --out artifacts/demo-loop
 ```
 
-To validate a v1 scenario, runner manifest, and initial planning artifacts before execution:
+To validate a portable scenario, runner manifest, and initial planning artifacts before execution:
 
 ```bash
-pnpm check-plan -- --scenario examples/scenarios/v1/app-startup.json --runner examples/runners/xcodebuildmcp-ios.json --platform ios --out artifacts/plan/app-startup
+pnpm check-plan -- --scenario examples/scenarios/mobile/app-startup.json --runner examples/runners/xcodebuildmcp-ios.json --platform ios --out artifacts/plan/app-startup
 ```
 
 ## Who this is for
@@ -151,9 +151,9 @@ What it is not:
 - a replacement for Codex, Argent, Agent Device, adb, XcodeBuildMCP, accessibility tooling, or profilers
 - zero-touch: your app emits the truth events, and that is the point
 
-## Roadmap
+## Production Readiness
 
-Near-term:
+Near-term hardening:
 
 - publish the package boundary and keep exported declarations stable
 - compare trusted run folders and emit `comparison.json`
@@ -164,4 +164,4 @@ Near-term:
 - improve runner validation and failure reporting
 - harden historical baseline selection around the comparison artifact
 
-Explicitly out of v1: full Android scenario execution, physical devices, Computer Use flows, product-specific scenarios.
+The package should remain product-neutral. Product-specific selectors, routes, auth assumptions, and scenario data belong in the consuming app, not in this repository.

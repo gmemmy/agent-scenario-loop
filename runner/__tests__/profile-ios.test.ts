@@ -60,7 +60,7 @@ function readJson(filePath: string): Record<string, any> {
   return JSON.parse(fs.readFileSync(filePath, 'utf8'));
 }
 
-test('profile-ios writes v1 artifacts from fixture event logs', async (t: TestContext) => {
+test('profile-ios writes artifacts from fixture event logs', async (t: TestContext) => {
   const artifactRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-ios-'));
   t.after(async () => {
     await fsp.rm(artifactRoot, { recursive: true, force: true });

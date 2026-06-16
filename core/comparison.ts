@@ -37,7 +37,7 @@ type CompareRunDirectoriesOptions = {
 };
 
 /**
- * Reads and validates the v1 health and verdict artifacts from a run directory.
+ * Reads and validates the health and verdict artifacts from a run directory.
  *
  * @param {string} runDir
  * @returns {{health: Record<string, unknown>, verdict: Record<string, unknown>}}
@@ -155,7 +155,7 @@ function resolveComparisonStatus(
 }
 
 /**
- * Builds a v1 comparison artifact from two validated run artifact sets.
+ * Builds a comparison artifact from two validated run artifact sets.
  *
  * @param {BuildComparisonOptions} options
  * @returns {Record<string, unknown>}
@@ -236,7 +236,7 @@ function buildComparisonArtifact({
 }
 
 /**
- * Reads two run directories and builds a validated v1 comparison artifact.
+ * Reads two run directories and builds a validated comparison artifact.
  *
  * @param {CompareRunDirectoriesOptions} options
  * @returns {Record<string, unknown>}

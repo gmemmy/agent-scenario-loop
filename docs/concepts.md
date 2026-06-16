@@ -88,5 +88,5 @@ That is a different philosophy from frameworks that primarily evaluate agents. A
 ## Read next
 
 - [Principles](principles.md) for the project doctrine
-- [V1 contracts](contracts.md) for the current artifact and package surface
+- [Contracts](contracts.md) for the current artifact and package surface
 - [Runner docs](../runner/README.md) for the host execution boundary

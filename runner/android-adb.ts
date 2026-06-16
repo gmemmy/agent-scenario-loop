@@ -219,7 +219,7 @@ function buildAndroidVerdict({ runId, health }: { runId: string; health: Record<
 }
 
 /**
- * Runs Android adb readiness checks and writes the v1 preflight artifact set.
+ * Runs Android adb readiness checks and writes the preflight artifact set.
  *
  * @param {AndroidPreflightOptions} options
  * @returns {Promise<AndroidPreflightResult>}

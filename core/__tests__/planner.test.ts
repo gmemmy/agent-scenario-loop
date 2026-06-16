@@ -58,8 +58,8 @@ function listJsonFiles(relativeDir: string): string[] {
     .map((name: string) => path.join(relativeDir, name));
 }
 
-test('all canonical v1 scenarios have at least one compatible primary runner', () => {
-  const scenarios = listJsonFiles('examples/scenarios/v1').map((fixture: string) => readJson(fixture));
+test('all canonical mobile scenarios have at least one compatible primary runner', () => {
+  const scenarios = listJsonFiles('examples/scenarios/mobile').map((fixture: string) => readJson(fixture));
   const primaryRunners = listJsonFiles('examples/runners')
     .map((fixture: string) => readJson(fixture))
     .filter((runner: JsonRecord) => runner.kind === 'primary' && runner.runnerId !== 'manual-log-ingest');
@@ -85,7 +85,7 @@ test('all canonical v1 scenarios have at least one compatible primary runner', (
 });
 
 test('manual log-ingest is intentionally incompatible with live canonical scenarios', () => {
-  const scenarios = listJsonFiles('examples/scenarios/v1').map((fixture: string) => readJson(fixture));
+  const scenarios = listJsonFiles('examples/scenarios/mobile').map((fixture: string) => readJson(fixture));
   const runner = readJson('examples/runners/manual-log-ingest.json');
 
   for (const scenario of scenarios) {
@@ -100,7 +100,7 @@ test('manual log-ingest is intentionally incompatible with live canonical scenar
 });
 
 test('accepts a compatible primary runner for a canonical scenario', () => {
-  const scenario = readJson('examples/scenarios/v1/open-close-cycle.json');
+  const scenario = readJson('examples/scenarios/mobile/open-close-cycle.json');
   const runner = readJson('examples/runners/xcodebuildmcp-ios.json');
 
   const result = evaluateRunnerCompatibility({ scenario, runner, platform: 'ios' });
@@ -113,7 +113,7 @@ test('accepts a compatible primary runner for a canonical scenario', () => {
 });
 
 test('fails when a runner is missing a required capability', () => {
-  const scenario = readJson('examples/scenarios/v1/open-close-cycle.json');
+  const scenario = readJson('examples/scenarios/mobile/open-close-cycle.json');
   const runner = readJson('examples/runners/xcodebuildmcp-ios.json');
   runner.capabilities = runner.capabilities.filter((capability: string) => capability !== 'logCapture');
 
@@ -128,7 +128,7 @@ test('fails when a runner is missing a required capability', () => {
 });
 
 test('fails early when a manual log-ingest runner cannot own live scenario lifecycle', () => {
-  const scenario = readJson('examples/scenarios/v1/media-open-close.json');
+  const scenario = readJson('examples/scenarios/mobile/media-open-close.json');
   const runner = readJson('examples/runners/manual-log-ingest.json');
 
   const result = evaluateRunnerCompatibility({ scenario, runner, platform: 'ios' });
@@ -143,7 +143,7 @@ test('fails early when a manual log-ingest runner cannot own live scenario lifec
 });
 
 test('treats missing optional evidence as warnings, not incompatibility', () => {
-  const scenario = readJson('examples/scenarios/v1/app-startup.json');
+  const scenario = readJson('examples/scenarios/mobile/app-startup.json');
   const runner = readJson('examples/runners/xcodebuildmcp-ios.json');
   runner.capabilities = runner.capabilities.filter(
     (capability: string) => capability !== 'screenshot' && capability !== 'video',
@@ -165,7 +165,7 @@ test('treats missing optional evidence as warnings, not incompatibility', () => 
 });
 
 test('fails when required evidence cannot be produced by the runner or providers', () => {
-  const scenario = readJson('examples/scenarios/v1/scroll-settle.json');
+  const scenario = readJson('examples/scenarios/mobile/scroll-settle.json');
   const runner = readJson('examples/runners/xcodebuildmcp-ios.json');
   scenario.artifacts.required.push('profiler');
 
@@ -180,7 +180,7 @@ test('fails when required evidence cannot be produced by the runner or providers
 });
 
 test('allows an evidence provider to satisfy required evidence', () => {
-  const scenario = readJson('examples/scenarios/v1/scroll-settle.json');
+  const scenario = readJson('examples/scenarios/mobile/scroll-settle.json');
   const runner = readJson('examples/runners/xcodebuildmcp-ios.json');
   const profilerProvider = readJson('examples/runners/rozenite-profiler-provider.json');
   scenario.artifacts.required.push('profiler');
@@ -199,7 +199,7 @@ test('allows an evidence provider to satisfy required evidence', () => {
 });
 
 test('rejects a selected platform that the runner does not support', () => {
-  const scenario = readJson('examples/scenarios/v1/app-startup.json');
+  const scenario = readJson('examples/scenarios/mobile/app-startup.json');
   const runner = readJson('examples/runners/xcodebuildmcp-ios.json');
 
   const result = evaluateRunnerCompatibility({ scenario, runner, platform: 'android' });
@@ -209,7 +209,7 @@ test('rejects a selected platform that the runner does not support', () => {
 });
 
 test('does not mutate caller-owned manifests', () => {
-  const scenario = readJson('examples/scenarios/v1/app-startup.json');
+  const scenario = readJson('examples/scenarios/mobile/app-startup.json');
   const runner = readJson('examples/runners/xcodebuildmcp-ios.json');
   const originalScenario = clone(scenario);
   const originalRunner = clone(runner);
@@ -221,7 +221,7 @@ test('does not mutate caller-owned manifests', () => {
 });
 
 test('maps compatible planner output to passed health', () => {
-  const scenario = readJson('examples/scenarios/v1/app-startup.json');
+  const scenario = readJson('examples/scenarios/mobile/app-startup.json');
   const runner = readJson('examples/runners/xcodebuildmcp-ios.json');
   const compatibility = evaluateRunnerCompatibility({ scenario, runner, platform: 'ios' });
 
@@ -244,7 +244,7 @@ test('maps compatible planner output to passed health', () => {
 });
 
 test('maps planner warnings into health warnings without failing health', () => {
-  const scenario = readJson('examples/scenarios/v1/app-startup.json');
+  const scenario = readJson('examples/scenarios/mobile/app-startup.json');
   const runner = readJson('examples/runners/xcodebuildmcp-ios.json');
   runner.capabilities = runner.capabilities.filter((capability: string) => capability !== 'video');
   runner.artifactOutputs = runner.artifactOutputs.filter((artifact: string) => artifact !== 'video');
@@ -264,7 +264,7 @@ test('maps planner warnings into health warnings without failing health', () => 
 });
 
 test('maps incompatible planner output to failed health checks', () => {
-  const scenario = readJson('examples/scenarios/v1/open-close-cycle.json');
+  const scenario = readJson('examples/scenarios/mobile/open-close-cycle.json');
   const runner = readJson('examples/runners/manual-log-ingest.json');
   const compatibility = evaluateRunnerCompatibility({ scenario, runner, platform: 'ios' });
 
@@ -281,7 +281,7 @@ test('maps incompatible planner output to failed health checks', () => {
 });
 
 test('creates a not-evaluated verdict when health passes before budget evaluation', () => {
-  const scenario = readJson('examples/scenarios/v1/app-startup.json');
+  const scenario = readJson('examples/scenarios/mobile/app-startup.json');
   const runner = readJson('examples/runners/xcodebuildmcp-ios.json');
   const compatibility = evaluateRunnerCompatibility({ scenario, runner, platform: 'ios' });
   const health = buildCompatibilityHealth({ scenario, runId: 'run-4', compatibility });
@@ -296,7 +296,7 @@ test('creates a not-evaluated verdict when health passes before budget evaluatio
 });
 
 test('creates an inconclusive verdict when health fails', () => {
-  const scenario = readJson('examples/scenarios/v1/open-close-cycle.json');
+  const scenario = readJson('examples/scenarios/mobile/open-close-cycle.json');
   const runner = readJson('examples/runners/manual-log-ingest.json');
   const compatibility = evaluateRunnerCompatibility({ scenario, runner, platform: 'ios' });
   const health = buildCompatibilityHealth({ scenario, runId: 'run-5', compatibility });

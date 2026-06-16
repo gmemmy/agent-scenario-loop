@@ -63,13 +63,13 @@ async function runDemoLoop({ outputDir = path.resolve('artifacts/demo-loop') }: 
   const profileRoot = path.join(resolvedOutputDir, 'profile-runs');
   const configPath = path.join(root, 'core/config-template.json');
   const transitionScenarioPath = path.join(root, 'examples/scenarios/ios/app-startup.json');
-  const v1ScenarioPath = path.join(root, 'examples/scenarios/v1/app-startup.json');
+  const mobileScenarioPath = path.join(root, 'examples/scenarios/mobile/app-startup.json');
   const runnerPath = path.join(root, 'examples/runners/xcodebuildmcp-ios.json');
   const baselineLogPath = path.join(root, 'examples/event-logs/app-startup-baseline.log');
   const currentLogPath = path.join(root, 'examples/event-logs/app-startup-current.log');
 
   const preflight = await buildPlanArtifacts({
-    scenarioPath: v1ScenarioPath,
+    scenarioPath: mobileScenarioPath,
     runnerPath,
     platform: 'ios',
     runId: 'demo-preflight',

@@ -41,6 +41,6 @@ Use taps, swipes, and full UI interaction for realism checks and last-mile valid
 
 ## Read next
 
-- [V1 contracts](contracts.md) for the current artifact and package surface
+- [Contracts](contracts.md) for the current artifact and package surface
 - [Runner docs](../runner/README.md) for the host execution boundary
 - [README](../README.md) for the project entrypoint

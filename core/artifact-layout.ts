@@ -43,7 +43,7 @@ type ArtifactLayout = {
 };
 
 /**
- * Builds the stable v1 artifact path contract for one run directory.
+ * Builds the stable artifact path contract for one run directory.
  *
  * @param {{outputDir: string}} options
  * @returns {ArtifactLayout}

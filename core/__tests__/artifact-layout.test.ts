@@ -9,7 +9,7 @@ const {
   createArtifactLayout,
 } = require('../artifact-layout');
 
-test('builds the stable v1 artifact layout for one run directory', () => {
+test('builds the stable artifact layout for one run directory', () => {
   const outputDir = path.join('artifacts', 'runs', 'app-startup', 'run-1');
 
   const layout = createArtifactLayout({ outputDir });

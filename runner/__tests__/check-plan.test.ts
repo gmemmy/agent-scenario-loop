@@ -69,7 +69,7 @@ test('prints health and verdict artifacts for a compatible plan', async () => {
   const { stdout } = await execFileAsync(process.execPath, [
     CHECK_PLAN,
     '--scenario',
-    fixturePath('examples/scenarios/v1/app-startup.json'),
+    fixturePath('examples/scenarios/mobile/app-startup.json'),
     '--runner',
     fixturePath('examples/runners/xcodebuildmcp-ios.json'),
     '--platform',
@@ -96,7 +96,7 @@ test('writes health, verdict, and compatibility artifacts to an output directory
   const { stdout } = await execFileAsync(process.execPath, [
     CHECK_PLAN,
     '--scenario',
-    fixturePath('examples/scenarios/v1/open-close-cycle.json'),
+    fixturePath('examples/scenarios/mobile/open-close-cycle.json'),
     '--runner',
     fixturePath('examples/runners/xcodebuildmcp-ios.json'),
     '--platform',
@@ -128,7 +128,7 @@ test('writes failed health and inconclusive verdict for incompatible plans', asy
   await execFileAsync(process.execPath, [
     CHECK_PLAN,
     '--scenario',
-    fixturePath('examples/scenarios/v1/media-open-close.json'),
+    fixturePath('examples/scenarios/mobile/media-open-close.json'),
     '--runner',
     fixturePath('examples/runners/manual-log-ingest.json'),
     '--platform',
@@ -150,7 +150,7 @@ test('writes failed health and inconclusive verdict for incompatible plans', asy
 
 test('allows evidence providers to satisfy required evidence in CLI plans', async () => {
   const { buildPlanArtifacts } = require('../check-plan');
-  const scenario = readJson(fixturePath('examples/scenarios/v1/scroll-settle.json'));
+  const scenario = readJson(fixturePath('examples/scenarios/mobile/scroll-settle.json'));
   const scenarioPath = path.join(os.tmpdir(), `asl-scroll-settle-${Date.now()}.json`);
   scenario.artifacts.required.push('profiler');
   await fsp.writeFile(scenarioPath, `${JSON.stringify(scenario, null, 2)}\n`, 'utf8');
@@ -173,7 +173,7 @@ test('allows evidence providers to satisfy required evidence in CLI plans', asyn
 });
 
 test('fails before planning when the scenario manifest does not match the schema', async (t: TestContext) => {
-  const scenario = readJson(fixturePath('examples/scenarios/v1/app-startup.json'));
+  const scenario = readJson(fixturePath('examples/scenarios/mobile/app-startup.json'));
   scenario.steps[0].kind = 'summon';
   const scenarioPath = path.join(os.tmpdir(), `asl-invalid-scenario-${Date.now()}.json`);
   await fsp.writeFile(scenarioPath, `${JSON.stringify(scenario, null, 2)}\n`, 'utf8');
@@ -216,7 +216,7 @@ test('fails before planning when an evidence provider manifest does not match th
     execFileAsync(process.execPath, [
       CHECK_PLAN,
       '--scenario',
-      fixturePath('examples/scenarios/v1/scroll-settle.json'),
+      fixturePath('examples/scenarios/mobile/scroll-settle.json'),
       '--runner',
       fixturePath('examples/runners/xcodebuildmcp-ios.json'),
       '--provider',

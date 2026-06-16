@@ -4,9 +4,30 @@
   "private": false,
   "description": "Scenario orchestration and evidence collection for agent-driven software development. Bring your own runner. Keep your scenarios. Keep your evidence.",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gmemmy/agent-scenario-loop.git"
+  },
+  "bugs": {
+    "url": "https://github.com/gmemmy/agent-scenario-loop/issues"
+  },
+  "homepage": "https://github.com/gmemmy/agent-scenario-loop#readme",
+  "keywords": [
+    "agent",
+    "automation",
+    "evidence",
+    "mobile",
+    "profiling",
+    "react-native",
+    "scenario"
+  ],
   "type": "commonjs",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "packageManager": "pnpm@10.28.0",
+  "engines": {
+    "node": ">=20"
+  },
   "bin": {
     "asl-android-adb": "dist/runner/android-adb.js",
     "agent-scenario-loop": "dist/runner/check-plan.js",
@@ -40,6 +61,8 @@
     "./package.json": "./package.json"
   },
   "files": [
+    "app/profile-session.ts",
+    "core/config-template.json",
     "dist",
     "docs",
     "examples",
