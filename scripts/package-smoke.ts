@@ -324,8 +324,9 @@ function main(): void {
       const applicationsPath = ['/', 'Applications'].join('');
       const localUserPath = ['/', 'Users', 'sensei'].join('/');
       const privateTempPath = ['private', 'tmp'].join('/');
+      const legacyStorageSuffix = ['\\.', 'v', '1', '\\b'].join('');
       const forbiddenContentPattern = new RegExp(
-        `${productName}|${productSlug}|${applicationsPath}|${localUserPath}|${privateTempPath}`,
+        `${productName}|${productSlug}|${applicationsPath}|${localUserPath}|${privateTempPath}|${legacyStorageSuffix}`,
         'u',
       );
       assert.equal(
@@ -573,8 +574,10 @@ function main(): void {
       "assert.deepEqual(driverValidation.implementedMethods, ['screenshot', 'tap']);",
       "assert.deepEqual(driverValidation.missingMethods, ['scroll', 'inspectTree', 'record', 'readLogs', 'collectPerfSignals']);",
       "assert.equal(driverValidation.message, 'driver is missing required method(s): scroll, inspectTree, record, readLogs, collectPerfSignals');",
-      "assert.equal(Object.prototype.hasOwnProperty.call(asl, 'V1_ARTIFACT_LAYOUT_VERSION'), false);",
-      "assert.equal(Object.prototype.hasOwnProperty.call(asl, 'V1_ARTIFACT_FILENAMES'), false);",
+      "const legacyLayoutVersionExport = ['V', '1', '_ARTIFACT_LAYOUT_VERSION'].join('');",
+      "const legacyFilenamesExport = ['V', '1', '_ARTIFACT_FILENAMES'].join('');",
+      "assert.equal(Object.prototype.hasOwnProperty.call(asl, legacyLayoutVersionExport), false);",
+      "assert.equal(Object.prototype.hasOwnProperty.call(asl, legacyFilenamesExport), false);",
       "assert.equal(Object.prototype.hasOwnProperty.call(asl, 'TRANSITION_ARTIFACT_FILENAMES'), false);",
       "assert.equal(Object.prototype.hasOwnProperty.call(layout, 'transition'), false);",
       "require.resolve('agent-scenario-loop/schemas/budget-verdict.schema.json');",
