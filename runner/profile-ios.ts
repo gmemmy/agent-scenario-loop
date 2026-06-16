@@ -4,6 +4,9 @@ const fs = require('node:fs');
 const fsp = require('node:fs/promises');
 const path = require('node:path');
 const crypto = require('node:crypto');
+const { buildAgentSummaryMarkdown } = require('../core/agent-summary');
+const { createArtifactLayout } = require('../core/artifact-layout');
+const { writeJsonArtifact, writeTextArtifact } = require('../core/artifact-writer');
 const {
   buildBudgetVerdict,
   buildCausalRun,
@@ -14,6 +17,7 @@ const {
   extractProfileEvents,
   sortValue,
 } = require('../core/artifact-contract');
+const { SCHEMAS, assertValidJson } = require('../core/schema-validator');
 
 type CliArgs = {
   config?: string;
@@ -22,6 +26,12 @@ type CliArgs = {
   out?: string;
   'run-id'?: string;
   [key: string]: string | undefined;
+};
+
+type ProfileRunResult = {
+  runDir: string;
+  health: Record<string, unknown>;
+  verdict: Record<string, unknown>;
 };
 
 /**
@@ -119,16 +129,128 @@ function toPortablePathReference(targetPath: string): string {
 }
 
 /**
+ * Builds v1 scenario health from profile metrics.
+ *
+ * @param {{scenario: Record<string, unknown>, runId: string, metrics: Record<string, unknown>}} options
+ * @returns {Record<string, unknown>}
+ */
+function buildProfileHealth({
+  scenario,
+  runId,
+  metrics,
+}: {
+  scenario: Record<string, any>;
+  runId: string;
+  metrics: Record<string, any>;
+}): Record<string, unknown> {
+  const passed = metrics.status === 'passed';
+  return assertValidJson(
+    {
+      schemaVersion: '1.0.0',
+      scenarioId: scenario.name,
+      ...(typeof scenario.flowId === 'string' ? { flowId: scenario.flowId } : {}),
+      runId,
+      healthStatus: passed ? 'passed' : 'failed',
+      checks: [
+        {
+          name: 'truth_events_complete',
+          status: passed ? 'passed' : 'failed',
+          source: 'truth',
+          code: passed ? 'truth_events_complete' : 'truth_events_incomplete',
+          message: passed
+            ? 'Profile events completed every expected iteration.'
+            : 'Profile events did not complete every expected iteration.',
+          metadata: {
+            failures: typeof metrics.failures === 'number' ? metrics.failures : null,
+            timeouts: typeof metrics.timeouts === 'number' ? metrics.timeouts : null,
+          },
+        },
+      ],
+    },
+    SCHEMAS.health,
+    'Health artifact',
+  ) as Record<string, unknown>;
+}
+
+/**
+ * Converts profile budget evaluation checks into v1 verdict budget checks.
+ *
+ * @param {Record<string, unknown> | null | undefined} budgetEvaluation
+ * @returns {Record<string, unknown>[]}
+ */
+function buildVerdictBudgetChecks(budgetEvaluation: Record<string, any> | null | undefined): Record<string, unknown>[] {
+  if (!Array.isArray(budgetEvaluation?.checks)) {
+    return [];
+  }
+
+  return budgetEvaluation.checks.map((check: Record<string, any>) => ({
+    name: String(check.name ?? 'unknown budget'),
+    source: 'milestone',
+    metric: String(budgetEvaluation.metric ?? check.name ?? 'profile budget'),
+    unit: check.unit === 'count' ? 'count' : 'ms',
+    expected: check.limit,
+    actual: check.actual ?? null,
+    pass: Boolean(check.pass),
+  }));
+}
+
+/**
+ * Builds v1 product verdict from profile metrics and budget evaluation.
+ *
+ * @param {{scenario: Record<string, unknown>, runId: string, health: Record<string, unknown>, metrics: Record<string, unknown>}} options
+ * @returns {Record<string, unknown>}
+ */
+function buildProfileVerdict({
+  scenario,
+  runId,
+  health,
+  metrics,
+}: {
+  scenario: Record<string, any>;
+  runId: string;
+  health: Record<string, any>;
+  metrics: Record<string, any>;
+}): Record<string, unknown> {
+  const healthPassed = health.healthStatus === 'passed';
+  const budgetEvaluation = metrics.budgetEvaluation;
+  const budgetChecks = buildVerdictBudgetChecks(budgetEvaluation);
+  const verdictStatus = !healthPassed
+    ? 'inconclusive'
+    : budgetEvaluation
+      ? budgetEvaluation.pass
+        ? 'passed'
+        : 'failed'
+      : 'not_evaluated';
+
+  return assertValidJson(
+    {
+      schemaVersion: '1.0.0',
+      scenarioId: scenario.name,
+      ...(typeof scenario.flowId === 'string' ? { flowId: scenario.flowId } : {}),
+      runId,
+      healthStatus: health.healthStatus,
+      verdictStatus,
+      ...(budgetChecks.length > 0 ? { budgetChecks } : {}),
+      summary: !healthPassed
+        ? 'Scenario health did not pass; do not compare or optimize from this run.'
+        : budgetEvaluation
+          ? `Profile budgets ${budgetEvaluation.pass ? 'passed' : 'failed'}.`
+          : 'Scenario health passed; no profile budgets were configured.',
+    },
+    SCHEMAS.verdict,
+    'Verdict artifact',
+  ) as Record<string, unknown>;
+}
+
+/**
  * Runs the iOS log-ingest profile artifact pipeline.
  *
- * @returns {Promise<void>}
+ * @param {CliArgs} args
+ * @returns {Promise<ProfileRunResult>}
  */
-async function main() {
-  const args = parseArgs(process.argv.slice(2));
+async function runProfileIos(args: CliArgs): Promise<ProfileRunResult> {
   if (!args.config || !args.scenario) {
-    usage();
-    process.exitCode = 1;
-    return;
+    throw new Error('Both --config and --scenario are required.');
   }
 
   const configPath = path.resolve(args.config);
@@ -140,6 +262,7 @@ async function main() {
     args.out || path.join(path.dirname(configPath), config.paths?.iosArtifactsRoot || 'artifacts/ios'),
   );
   const runDir = path.join(artifactRoot, scenario.name, runId);
+  const layout = createArtifactLayout({ outputDir: runDir });
   const rawDir = path.join(runDir, 'raw');
   const capturesDir = path.join(runDir, 'captures');
   const signalsDir = path.join(runDir, 'signals');
@@ -233,8 +356,27 @@ async function main() {
     budgetEvaluation: metrics.budgetEvaluation ?? null,
   });
 
+  const health = buildProfileHealth({ scenario, runId, metrics });
+  const verdict = buildProfileVerdict({ scenario, runId, health, metrics });
+  const agentSummary = buildAgentSummaryMarkdown({ health, verdict });
   const summary = buildSummaryMarkdown({ manifest, metrics });
 
+  await writeJsonArtifact({
+    filePath: layout.health,
+    value: health,
+    schema: SCHEMAS.health,
+    label: 'Health artifact',
+  });
+  await writeJsonArtifact({
+    filePath: layout.verdict,
+    value: verdict,
+    schema: SCHEMAS.verdict,
+    label: 'Verdict artifact',
+  });
+  await writeTextArtifact({
+    filePath: layout.agentSummary,
+    content: agentSummary,
+  });
   await writeJson(path.join(runDir, 'manifest.json'), manifest);
   await writeJson(path.join(runDir, 'metrics.json'), metrics);
   await writeJson(path.join(runDir, 'causal-run.json'), causalRun);
@@ -246,10 +388,47 @@ async function main() {
     await fsp.copyFile(path.resolve(args.events), path.join(rawDir, path.basename(args.events)));
   }
 
-  process.stdout.write(`${runDir}\n`);
+  return {
+    runDir,
+    health,
+    verdict,
+  };
 }
 
-main().catch((error) => {
-  console.error(error instanceof Error ? error.message : String(error));
-  process.exitCode = 1;
-});
+/**
+ * Runs the profile-ios CLI.
+ *
+ * @returns {Promise<void>}
+ */
+async function main(): Promise<void> {
+  const args = parseArgs(process.argv.slice(2));
+  if (!args.config || !args.scenario) {
+    usage();
+    process.exitCode = 1;
+    return;
+  }
+
+  const result = await runProfileIos(args);
+  process.stdout.write(`${result.runDir}\n`);
+}
+
+if (require.main === module) {
+  main().catch((error) => {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exitCode = 1;
+  });
+}
+
+export {
+  buildProfileHealth,
+  buildProfileVerdict,
+  buildVerdictBudgetChecks,
+  main,
+  parseArgs,
+  runProfileIos,
+};
+
+export type {
+  CliArgs,
+  ProfileRunResult,
+};

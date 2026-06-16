@@ -77,7 +77,7 @@ const {
 } = require('agent-scenario-loop');
 ```
 
-The preflight CLI is exported as `agent-scenario-loop` and `asl-check-plan` after package installation. The comparison CLI is exported as `asl-compare`. In this repo, use the script form:
+The preflight CLI is exported as `agent-scenario-loop` and `asl-check-plan` after package installation. The comparison CLI is exported as `asl-compare`, and the fixture loop is exported as `asl-demo-loop`. In this repo, use the script form:
 
 ```bash
 pnpm check-plan -- --scenario examples/scenarios/v1/app-startup.json --runner examples/runners/xcodebuildmcp-ios.json --platform ios --out artifacts/plan/app-startup
@@ -92,6 +92,14 @@ pnpm compare -- --baseline artifacts/runs/app-startup/baseline --current artifac
 ```
 
 Comparison only reports better, worse, or unchanged when both runs passed scenario health. Otherwise it writes an inconclusive `comparison.json`.
+
+To run the complete fixture loop without a simulator:
+
+```bash
+pnpm demo:loop -- --out artifacts/demo-loop
+```
+
+That command runs preflight, profiles baseline/current event logs, writes v1 run artifacts, compares the runs, and refreshes the current run's `agent-summary.md`.
 
 Read next: [V1 contracts](docs/contracts.md) for the artifact layout and current scope.
 
@@ -108,6 +116,12 @@ pnpm profile:ios -- --config <config> --scenario <scenario> --events <event-log>
 ```
 
 The runner prints the run folder. Read `summary.md` first.
+
+No simulator available yet? Use the committed fixture logs:
+
+```bash
+pnpm demo:loop -- --out artifacts/demo-loop
+```
 
 To validate a v1 scenario, runner manifest, and initial planning artifacts before execution:
 
@@ -135,6 +149,7 @@ Near-term:
 
 - publish the package boundary and keep exported declarations stable
 - compare trusted run folders and emit `comparison.json`
+- keep the fixture loop green as the contract changes
 - add a neutral example app with canonical startup, open-close, scroll, and media scenarios
 - harden a supported live iOS driver loop behind the existing artifact contract
 - improve runner validation and failure reporting

@@ -1,0 +1,4 @@
+2026-01-01T00:00:00.000Z demo [profile-event] {"event":"surface_open_requested","scenario":"app-startup","runId":"demo-baseline","iteration":1,"atMs":0}
+2026-01-01T00:00:01.800Z demo [profile-event] {"event":"app_first_usable_screen","scenario":"app-startup","runId":"demo-baseline","iteration":1,"atMs":1800}
+2026-01-01T00:00:02.000Z demo [profile-event] {"event":"surface_close_requested","scenario":"app-startup","runId":"demo-baseline","iteration":1,"atMs":2000}
+2026-01-01T00:00:02.400Z demo [profile-event] {"event":"surface_dismissed","scenario":"app-startup","runId":"demo-baseline","iteration":1,"atMs":2400}

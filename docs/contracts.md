@@ -17,6 +17,8 @@ The current package is intentionally contract-first: adopt the scenario and arti
 - [core/ports.ts](../core/ports.ts): ports-and-adapters method surfaces for runners, drivers, providers, writers, and interpreters
 - [core/schema-validator.ts](../core/schema-validator.ts): dependency-free validation for the JSON Schema subset used by the public v1 contracts
 - [runner/profile-ios.ts](../runner/profile-ios.ts): iOS log-ingest runner that turns scenario metadata plus `[profile-event]` logs into the full artifact set
+- [runner/demo-loop.ts](../runner/demo-loop.ts): fixture loop that proves preflight, profile, and comparison without a simulator
+- [examples/event-logs](../examples/event-logs): deterministic profile-event logs for the fixture loop
 - [examples/scenarios/ios](../examples/scenarios/ios): transition scenario manifests for the current iOS log-ingest runner
 - [examples/scenarios/v1](../examples/scenarios/v1): canonical v1 scenario fixtures
 - [examples/runners](../examples/runners): primary runner and evidence-provider capability fixtures
@@ -62,7 +64,7 @@ Evidence folders:
 
 The target v1 contract separates scenario health from product verdict: `health.json` records execution validity, `verdict.json` records budget outcome, `comparison.json` records before/after baseline comparison, and `agent-summary.md` gives agents the health gate before they touch code.
 
-The current runner still writes `metrics.json` and `budget-verdict.json` as transition artifacts.
+The current profile runner writes the v1 health, verdict, and agent summary artifacts plus transition `metrics.json` and `budget-verdict.json` artifacts.
 
 Budgets are supported but optional for adoption.
 
@@ -96,6 +98,25 @@ pnpm compare -- --baseline artifacts/runs/app-startup/baseline --current artifac
 ```
 
 The comparison gate is intentionally strict. If either run failed scenario health, or if the scenario ids do not match, the comparison is `inconclusive`. Numeric budget checks are compared only after that health gate passes.
+
+## Fixture loop
+
+Use `demo:loop` to run the current contract without a simulator:
+
+```bash
+pnpm demo:loop -- --out artifacts/demo-loop
+```
+
+The fixture loop writes:
+
+- `preflight/app-startup/health.json`
+- `preflight/app-startup/verdict.json`
+- `preflight/app-startup/agent-summary.md`
+- `profile-runs/app-startup/demo-baseline/*`
+- `profile-runs/app-startup/demo-current/*`
+- `profile-runs/app-startup/demo-current/comparison.json`
+
+This is not a replacement for live device proof. It is a stable contract check that keeps the evidence loop reproducible while iOS or Android runtime setup is unavailable.
 
 ## Read next
 

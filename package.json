@@ -10,7 +10,8 @@
   "bin": {
     "agent-scenario-loop": "dist/runner/check-plan.js",
     "asl-compare": "dist/runner/compare.js",
-    "asl-check-plan": "dist/runner/check-plan.js"
+    "asl-check-plan": "dist/runner/check-plan.js",
+    "asl-demo-loop": "dist/runner/demo-loop.js"
   },
   "exports": {
     ".": {
@@ -24,6 +25,10 @@
     "./runner/compare": {
       "types": "./dist/runner/compare.d.ts",
       "require": "./dist/runner/compare.js"
+    },
+    "./runner/demo-loop": {
+      "types": "./dist/runner/demo-loop.d.ts",
+      "require": "./dist/runner/demo-loop.js"
     },
     "./schemas/*": "./schemas/*",
     "./examples/*": "./examples/*",
@@ -45,6 +50,7 @@
     "test": "pnpm clean && pnpm typecheck && pnpm exec tsc -p tsconfig.json && node --test dist/core/__tests__/*.test.js dist/runner/__tests__/*.test.js",
     "compare": "pnpm build && node dist/runner/compare.js",
     "check-plan": "pnpm build && node dist/runner/check-plan.js",
+    "demo:loop": "pnpm build && node dist/runner/demo-loop.js",
     "profile:ios": "pnpm build && node dist/runner/profile-ios.js",
     "profile:ios:startup": "pnpm build && node dist/runner/profile-ios.js --config core/config-template.json --scenario examples/scenarios/ios/app-startup.json",
     "profile:ios:open-close": "pnpm build && node dist/runner/profile-ios.js --config core/config-template.json --scenario examples/scenarios/ios/open-close-cycle.json"
