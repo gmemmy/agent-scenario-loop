@@ -131,6 +131,11 @@ function main(): void {
     assert.equal(health.runId, 'package-smoke');
     assert.equal(health.healthStatus, 'passed');
 
+    const packageJson = JSON.parse(fs.readFileSync(path.join(packageRoot, 'package.json'), 'utf8'));
+    assert.equal(packageJson.private, false);
+    assert.equal(packageJson.publishConfig?.access, 'public');
+    assert.equal(packageJson.scripts?.prepublishOnly, 'pnpm release:check');
+
     const resolveSmokeScript = [
       "const assert = require('node:assert/strict');",
       "const fs = require('node:fs');",

@@ -38,8 +38,5 @@ jobs:
       - name: install
         run: pnpm install --frozen-lockfile
 
-      - name: test
-        run: pnpm test
-
-      - name: package smoke
-        run: pnpm package:smoke
+      - name: release check
+        run: pnpm release:check

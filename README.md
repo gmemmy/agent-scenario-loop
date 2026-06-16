@@ -109,13 +109,13 @@ pnpm demo:loop -- --out artifacts/demo-loop
 
 That command runs preflight, profiles baseline/current event logs, writes run artifacts, compares the runs, and refreshes the current run's `agent-summary.md`.
 
-To verify the installable package surface before publishing:
+To verify the full release gate before publishing:
 
 ```bash
-pnpm package:smoke
+pnpm release:check
 ```
 
-That command packs the repo, installs the tarball into a temporary project, runs the installed `asl-check-plan` binary against packaged examples, checks root exports, and verifies that schemas, examples, the app helper, and the config template ship in the package.
+That command runs the test suite, packs the repo, installs the tarball into a temporary project, runs installed binaries against packaged examples, checks root exports, and verifies that schemas, examples, the app helper, and the config template ship in the package. `npm publish` runs the same gate through `prepublishOnly`.
 
 Read next: [Contracts](docs/contracts.md) for the artifact layout and current scope.
 

@@ -28,6 +28,9 @@
   "engines": {
     "node": ">=20"
   },
+  "publishConfig": {
+    "access": "public"
+  },
   "bin": {
     "asl-android-adb": "dist/runner/android-adb.js",
     "agent-scenario-loop": "dist/runner/check-plan.js",
@@ -81,6 +84,8 @@
     "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
     "prepack": "npm run clean && npm run build",
     "package:smoke": "pnpm build && node dist/scripts/package-smoke.js",
+    "prepublishOnly": "pnpm release:check",
+    "release:check": "pnpm test && pnpm package:smoke",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "pnpm clean && pnpm typecheck && pnpm exec tsc -p tsconfig.json && node --test dist/core/__tests__/*.test.js dist/runner/__tests__/*.test.js",
     "android:preflight": "pnpm build && node dist/runner/android-adb.js",
