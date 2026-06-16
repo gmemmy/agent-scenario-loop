@@ -52,6 +52,12 @@
             "type": "string"
           }
         },
+        "driverActions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
         "artifacts": {
           "type": "array",
           "items": {

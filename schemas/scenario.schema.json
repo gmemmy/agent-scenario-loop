@@ -322,6 +322,9 @@
         "artifact": {
           "$ref": "#/$defs/artifactKind"
         },
+        "driverAction": {
+          "$ref": "#/$defs/driverAction"
+        },
         "timeoutMs": {
           "type": "integer",
           "minimum": 1
@@ -338,6 +341,18 @@
     "adapterOptions": {
       "type": "object",
       "additionalProperties": true
+    },
+    "driverAction": {
+      "type": "string",
+      "enum": [
+        "tap",
+        "scroll",
+        "inspectTree",
+        "screenshot",
+        "record",
+        "readLogs",
+        "collectPerfSignals"
+      ]
     }
   }
 }

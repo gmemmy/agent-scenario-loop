@@ -6,6 +6,7 @@ const test = require('node:test');
 const {
   buildCompatibilityHealth,
   buildUnevaluatedVerdict,
+  collectScenarioDriverActions,
   evaluateRunnerCompatibility,
 } = require('../planner');
 
@@ -16,6 +17,7 @@ type PlannerIssue = {
   artifact?: string;
   capability?: string;
   code?: string;
+  driverAction?: string;
   status?: string;
 };
 type HealthCheck = {
@@ -109,6 +111,7 @@ test('accepts a compatible primary runner for a canonical scenario', () => {
   assert.deepEqual(result.errors, []);
   assert.deepEqual(result.matched.platforms, ['ios']);
   assert.ok(result.matched.capabilities.includes('command'));
+  assert.ok(result.matched.driverActions.includes('tap'));
   assert.ok(result.matched.artifacts.includes('logs'));
 });
 
@@ -125,6 +128,63 @@ test('fails when a runner is missing a required capability', () => {
     ['missing_required_capability'],
   );
   assert.equal(result.errors[0].capability, 'logCapture');
+});
+
+test('fails when scenario steps require unsupported driver actions', () => {
+  const scenario = readJson('examples/scenarios/mobile/scroll-settle.json');
+  const runner = readJson('examples/runners/adb-android.json');
+  scenario.steps[1].driverAction = 'scroll';
+
+  const result = evaluateRunnerCompatibility({ scenario, runner, platform: 'android' });
+
+  assert.equal(result.compatible, false);
+  assert.deepEqual(
+    result.errors.map((error: PlannerIssue) => error.code),
+    ['missing_required_driver_action'],
+  );
+  assert.equal(result.errors[0].driverAction, 'scroll');
+});
+
+test('accepts scenario steps when the runner declares required driver actions', () => {
+  const scenario = readJson('examples/scenarios/mobile/scroll-settle.json');
+  const runner = readJson('examples/runners/xcodebuildmcp-ios.json');
+  scenario.steps[1].driverAction = 'scroll';
+
+  const result = evaluateRunnerCompatibility({ scenario, runner, platform: 'ios' });
+
+  assert.equal(result.compatible, true);
+  assert.deepEqual(result.errors, []);
+  assert.ok(result.matched.driverActions.includes('scroll'));
+});
+
+test('treats optional step driver actions as warnings', () => {
+  const scenario = readJson('examples/scenarios/mobile/app-startup.json');
+  const runner = readJson('examples/runners/adb-android.json');
+  scenario.steps[2].driverAction = 'screenshot';
+  scenario.steps[2].required = false;
+
+  const result = evaluateRunnerCompatibility({ scenario, runner, platform: 'android' });
+
+  assert.equal(result.compatible, true);
+  assert.deepEqual(
+    result.warnings
+      .filter((warning: PlannerIssue) => warning.code === 'missing_optional_driver_action')
+      .map((warning: PlannerIssue) => warning.driverAction),
+    ['screenshot'],
+  );
+});
+
+test('collects required and optional scenario driver actions deterministically', () => {
+  const scenario = readJson('examples/scenarios/mobile/app-startup.json');
+  scenario.steps.push(
+    { id: 'inspect', kind: 'captureEvidence', artifact: 'uiTree', driverAction: 'inspectTree' },
+    { id: 'optional-screenshot', kind: 'captureEvidence', artifact: 'screenshot', driverAction: 'screenshot', required: false },
+  );
+
+  assert.deepEqual(collectScenarioDriverActions(scenario), {
+    required: ['inspectTree'],
+    optional: ['screenshot'],
+  });
 });
 
 test('fails early when a manual log-ingest runner cannot own live scenario lifecycle', () => {
@@ -241,6 +301,7 @@ test('maps compatible planner output to passed health', () => {
     ['passed'],
   );
   assert.ok(health.matched.capabilities.includes('launch'));
+  assert.ok(health.matched.driverActions.includes('screenshot'));
 });
 
 test('maps planner warnings into health warnings without failing health', () => {

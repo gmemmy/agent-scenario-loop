@@ -76,6 +76,7 @@ const {
   buildCompatibilityHealth,
   buildUnevaluatedVerdict,
   buildAgentSummaryMarkdown,
+  collectScenarioDriverActions,
 } = require('agent-scenario-loop');
 ```
 

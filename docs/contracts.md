@@ -44,6 +44,7 @@ Portable scenario manifests describe the durable app behavior before choosing a 
 - `journey`: human-readable intent, actor, start state, and end state
 - `platforms`: supported runtime targets
 - `requiredCapabilities` and `optionalCapabilities`: runner capability requirements
+- `steps[].driverAction`: optional concrete driver operation required by a step, such as `tap`, `scroll`, `inspectTree`, `screenshot`, `record`, `readLogs`, or `collectPerfSignals`
 - `truthEvents`: app-owned milestone events keyed by stable milestone id
 - `milestones`: inspectable milestone list with event names, phases, timeouts, and descriptions
 - `expectedEvents`: event names the runner or log ingest should expect to observe
@@ -53,6 +54,8 @@ Portable scenario manifests describe the durable app behavior before choosing a 
 - `artifacts`: required and optional evidence outputs
 
 The scenario contract is intentionally runner-neutral. Runners can map steps to adb, XcodeBuildMCP, agent-device, accessibility tools, profilers, or custom scripts while preserving the same journey, milestones, budgets, and expected events.
+
+Runner capabilities describe ownership, such as launch, session control, command execution, log capture, artifact writing, or profiler support. Driver actions describe the concrete operations an adapter can perform inside a run. A runner may be able to own a scenario lifecycle without supporting every driver action; the planner fails only when a required step declares a `driverAction` that the selected runner does not declare in `driverActions`.
 
 ## Public artifact layout
 

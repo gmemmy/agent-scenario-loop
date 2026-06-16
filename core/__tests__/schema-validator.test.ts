@@ -112,6 +112,26 @@ test('rejects invalid enum values through local schema refs', () => {
   assert.ok(result.message.includes('telepathy') === false);
 });
 
+test('rejects invalid scenario driver actions', () => {
+  const scenario = readJson('examples/scenarios/mobile/app-startup.json');
+  scenario.steps[0].driverAction = 'shake';
+
+  const result = validateJson(scenario, SCHEMAS.scenario, 'Scenario manifest');
+
+  assert.equal(result.valid, false);
+  assert.ok(result.errors.some((error: ValidationIssue) => error.path === '$.steps[0].driverAction'));
+});
+
+test('rejects invalid runner driver actions', () => {
+  const runner = readJson('examples/runners/adb-android.json');
+  runner.driverActions.push('teleport');
+
+  const result = validateJson(runner, SCHEMAS.runnerCapabilities, 'Runner capability manifest');
+
+  assert.equal(result.valid, false);
+  assert.ok(result.errors.some((error: ValidationIssue) => error.path === '$.driverActions[1]'));
+});
+
 test('rejects invalid scenario cycle counts', () => {
   const scenario = readJson('examples/scenarios/mobile/open-close-cycle.json');
   scenario.cycles.iterations = 0;

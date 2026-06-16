@@ -8,12 +8,10 @@
     "sessionControl",
     "command",
     "logCapture",
-    "artifactWrite",
-    "screenshot",
-    "video",
-    "uiTree"
+    "artifactWrite"
   ],
-  "artifactOutputs": ["logs", "signals", "screenshot", "video", "uiTree"],
+  "driverActions": ["readLogs"],
+  "artifactOutputs": ["logs", "signals"],
   "lifecycle": [
     "prepare",
     "launch",

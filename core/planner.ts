@@ -13,9 +13,15 @@ type CompatibilityResult = {
   matched: {
     platforms: string[];
     capabilities: string[];
+    driverActions: string[];
     artifacts: string[];
     evidenceProviders: string[];
   };
+};
+
+type ScenarioStep = ManifestRecord & {
+  driverAction?: unknown;
+  required?: unknown;
 };
 
 type ScenarioManifest = ManifestRecord & {
@@ -25,6 +31,7 @@ type ScenarioManifest = ManifestRecord & {
   platforms?: unknown[];
   requiredCapabilities?: unknown[];
   optionalCapabilities?: unknown[];
+  steps?: ScenarioStep[];
   artifacts?: {
     required?: unknown[];
     optional?: unknown[];
@@ -37,6 +44,7 @@ type RunnerManifest = ManifestRecord & {
   kind?: string;
   platforms?: unknown[];
   capabilities?: unknown[];
+  driverActions?: unknown[];
   artifactOutputs?: unknown[];
 };
 
@@ -232,6 +240,35 @@ function collectProvidedCapabilities({
 }
 
 /**
+ * Collects driver operations required by scenario steps.
+ *
+ * @param {Record<string, unknown>} scenario
+ * @returns {{required: string[], optional: string[]}}
+ */
+function collectScenarioDriverActions(scenario: ScenarioManifest): { required: string[]; optional: string[] } {
+  const steps = Array.isArray(scenario.steps) ? scenario.steps : [];
+  const required: unknown[] = [];
+  const optional: unknown[] = [];
+
+  for (const step of steps) {
+    if (!step || typeof step !== 'object' || typeof step.driverAction !== 'string') {
+      continue;
+    }
+
+    if (step.required === false) {
+      optional.push(step.driverAction);
+    } else {
+      required.push(step.driverAction);
+    }
+  }
+
+  return {
+    required: uniqueSorted(required),
+    optional: uniqueSorted(optional),
+  };
+}
+
+/**
  * Adds planner errors when the selected runner cannot own a run lifecycle.
  *
  * @param {{runner: Record<string, unknown>, errors: Record<string, unknown>[]}} options
@@ -322,7 +359,7 @@ function resolveEffectivePlatforms({
  * Evaluates whether a scenario can be served by a primary runner plus evidence providers.
  *
  * @param {{scenario?: Record<string, unknown>, runner?: Record<string, unknown>, evidenceProviders?: Record<string, unknown>[], platform?: string | null}} [options]
- * @returns {{compatible: boolean, errors: Record<string, unknown>[], warnings: Record<string, unknown>[], matched: {platforms: string[], capabilities: string[], artifacts: string[], evidenceProviders: string[]}}}
+ * @returns {{compatible: boolean, errors: Record<string, unknown>[], warnings: Record<string, unknown>[], matched: {platforms: string[], capabilities: string[], driverActions: string[], artifacts: string[], evidenceProviders: string[]}}}
  */
 function evaluateRunnerCompatibility({
   scenario,
@@ -350,6 +387,7 @@ function evaluateRunnerCompatibility({
       matched: {
         platforms: [],
         capabilities: [],
+        driverActions: [],
         artifacts: [],
         evidenceProviders: [],
       },
@@ -396,6 +434,36 @@ function evaluateRunnerCompatibility({
     );
   }
 
+  const runnerDriverActions = uniqueSorted(asArray(primaryRunner.driverActions));
+  const scenarioDriverActions = collectScenarioDriverActions(scenario);
+  for (const driverAction of includesAll(runnerDriverActions, scenarioDriverActions.required)) {
+    errors.push(
+      createIssue(
+        'missing_required_driver_action',
+        `Runner \`${getRunnerId(primaryRunner)}\` is missing required driver action \`${driverAction}\`.`,
+        {
+          runnerId: getRunnerId(primaryRunner),
+          scenarioId: getScenarioId(scenario),
+          driverAction,
+        },
+      ),
+    );
+  }
+
+  for (const driverAction of includesAll(runnerDriverActions, scenarioDriverActions.optional)) {
+    warnings.push(
+      createIssue(
+        'missing_optional_driver_action',
+        `Runner \`${getRunnerId(primaryRunner)}\` does not declare optional driver action \`${driverAction}\`.`,
+        {
+          runnerId: getRunnerId(primaryRunner),
+          scenarioId: getScenarioId(scenario),
+          driverAction,
+        },
+      ),
+    );
+  }
+
   const { activeProviders, artifacts } = collectProvidedArtifacts({
     runner: primaryRunner,
     evidenceProviders,
@@ -429,6 +497,7 @@ function evaluateRunnerCompatibility({
     matched: {
       platforms: effectivePlatforms,
       capabilities: providedCapabilities,
+      driverActions: runnerDriverActions,
       artifacts,
       evidenceProviders: activeProviders.map((provider) => getRunnerId(provider)),
     },
@@ -480,6 +549,7 @@ function buildCompatibilityHealth({
     matched: {
       platforms: uniqueSorted(asArray(compatibility?.matched?.platforms)),
       capabilities: uniqueSorted(asArray(compatibility?.matched?.capabilities)),
+      driverActions: uniqueSorted(asArray(compatibility?.matched?.driverActions)),
       artifacts: uniqueSorted(asArray(compatibility?.matched?.artifacts)),
       evidenceProviders: uniqueSorted(asArray(compatibility?.matched?.evidenceProviders)),
     },
@@ -532,6 +602,7 @@ function buildUnevaluatedVerdict({
 export {
   buildCompatibilityHealth,
   buildUnevaluatedVerdict,
+  collectScenarioDriverActions,
   evaluateRunnerCompatibility,
   intersection,
   uniqueSorted,

@@ -116,6 +116,8 @@ test('writes health, verdict, and compatibility artifacts to an output directory
   assert.equal(health.healthStatus, 'passed');
   assert.equal(verdict.verdictStatus, 'not_evaluated');
   assert.equal(compatibility.compatible, true);
+  assert.ok(health.matched.driverActions.includes('tap'));
+  assert.ok(compatibility.matched.driverActions.includes('tap'));
   assert.match(agentSummary, /Scenario health passed/u);
 });
 

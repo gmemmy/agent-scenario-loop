@@ -35,6 +35,13 @@
         "$ref": "#/$defs/capability"
       }
     },
+    "driverActions": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/driverAction"
+      }
+    },
     "artifactOutputs": {
       "type": "array",
       "uniqueItems": true,
@@ -97,6 +104,18 @@
         "profiler",
         "accessibility",
         "signals"
+      ]
+    },
+    "driverAction": {
+      "type": "string",
+      "enum": [
+        "tap",
+        "scroll",
+        "inspectTree",
+        "screenshot",
+        "record",
+        "readLogs",
+        "collectPerfSignals"
       ]
     }
   }
