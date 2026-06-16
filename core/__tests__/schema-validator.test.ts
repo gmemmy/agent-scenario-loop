@@ -132,6 +132,33 @@ test('rejects invalid scenario driver actions', () => {
   assert.ok(result.errors.some((error: ValidationIssue) => error.path === '$.steps[0].driverAction'));
 });
 
+test('accepts portable scenario step selectors', () => {
+  const scenario = readJson('examples/scenarios/mobile/app-startup.json');
+  scenario.steps[1].selector = {
+    kind: 'accessibilityLabel',
+    match: 'contains',
+    platforms: ['ios', 'android'],
+    value: 'Start',
+  };
+
+  const result = validateJson(scenario, SCHEMAS.scenario, 'Scenario manifest');
+
+  assert.equal(result.valid, true, result.message);
+});
+
+test('rejects invalid scenario step selectors', () => {
+  const scenario = readJson('examples/scenarios/mobile/app-startup.json');
+  scenario.steps[1].selector = {
+    kind: 'css',
+    value: 'button.primary',
+  };
+
+  const result = validateJson(scenario, SCHEMAS.scenario, 'Scenario manifest');
+
+  assert.equal(result.valid, false);
+  assert.ok(result.errors.some((error: ValidationIssue) => error.path === '$.steps[1].selector.kind'));
+});
+
 test('rejects invalid runner driver actions', () => {
   const runner = readJson('examples/runners/adb-android.json');
   runner.driverActions.push('teleport');

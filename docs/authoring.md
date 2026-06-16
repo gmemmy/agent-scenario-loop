@@ -91,6 +91,22 @@ Use steps to describe intent and required adapter actions:
 
 Use `driverAction` only when the scenario truly requires a concrete operation such as `tap`, `scroll`, `screenshot`, `readLogs`, or `collectPerfSignals`. The planner fails early when no active runner or provider can satisfy a required driver action.
 
+Use `selector` to describe the intended app target without committing the scenario to one driver. Supported selector kinds are `testId`, `accessibilityId`, `accessibilityLabel`, `text`, `resourceId`, and `xpath`.
+
+```json
+{
+  "id": "start-journey",
+  "kind": "gesture",
+  "driverAction": "tap",
+  "selector": {
+    "kind": "testId",
+    "value": "first-journey-start"
+  }
+}
+```
+
+Adapters may resolve selectors through accessibility trees, test ids, native UI inspection, or tool-specific selector engines. Coordinates belong in adapter metadata only when the driver cannot resolve a durable selector.
+
 ## Runners And Providers
 
 Primary runners own the run lifecycle: prepare, launch, start session, execute commands, wait, capture evidence, stop, and finalize.

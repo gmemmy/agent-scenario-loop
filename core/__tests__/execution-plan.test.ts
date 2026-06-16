@@ -88,6 +88,22 @@ test('preserves required and optional driver actions in execution plans', () => 
   );
 });
 
+test('preserves portable selectors in execution plans', () => {
+  const step = normalizeScenarioStep({
+    driverAction: 'tap',
+    kind: 'gesture',
+    selector: {
+      kind: 'testId',
+      value: 'start-journey',
+    },
+  }, 0);
+
+  assert.deepEqual(step.selector, {
+    kind: 'testId',
+    value: 'start-journey',
+  });
+});
+
 test('normalizes unnamed steps with deterministic ids', () => {
   const step = normalizeScenarioStep({ kind: 'gesture', driverAction: 'scroll' }, 1);
 

@@ -27,6 +27,7 @@ type ScenarioExecutionStep = {
   command?: string;
   driverAction?: string;
   milestone?: string;
+  selector?: Record<string, unknown>;
   timeoutMs?: number;
 };
 
@@ -105,6 +106,9 @@ function normalizeScenarioStep(step: Record<string, unknown>, index: number): Sc
     ...(typeof step.command === 'string' ? { command: step.command } : {}),
     ...(typeof step.driverAction === 'string' ? { driverAction: step.driverAction } : {}),
     ...(typeof step.milestone === 'string' ? { milestone: step.milestone } : {}),
+    ...(step.selector && typeof step.selector === 'object' && !Array.isArray(step.selector)
+      ? { selector: step.selector as Record<string, unknown> }
+      : {}),
     ...(typeof step.timeoutMs === 'number' && Number.isFinite(step.timeoutMs) ? { timeoutMs: step.timeoutMs } : {}),
   };
 }

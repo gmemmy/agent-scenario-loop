@@ -56,6 +56,7 @@ Portable scenario manifests describe the durable app behavior before choosing a 
 - `cycles`: repeat count, warmup count, and failure policy for repeated journeys
 - `budgets`: product thresholds evaluated only after scenario health passes
 - `steps`: runner-facing launch, command, wait, gesture, and capture actions
+- `selector`: optional app target on a step, such as a test id, accessibility id, label, text, resource id, or xpath
 - `artifacts`: required and optional evidence outputs
 
 The scenario contract is intentionally runner-neutral. Runners can map steps to adb, XcodeBuildMCP, agent-device, accessibility tools, profilers, or custom scripts while preserving the same journey, milestones, budgets, and expected events.

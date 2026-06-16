@@ -79,6 +79,10 @@
       "kind": "command",
       "command": "activate-target:first-journey",
       "driverAction": "tap",
+      "selector": {
+        "kind": "testId",
+        "value": "first-journey-start"
+      },
       "timeoutMs": 3000
     },
     {
