@@ -185,6 +185,28 @@ test('fails when Android adb tap metadata is missing coordinates', () => {
   );
 });
 
+test('accepts Android adb tap metadata when a portable selector is present', () => {
+  const scenario = readJson('examples/scenarios/mobile/app-startup.json');
+  const runner = readJson('examples/runners/adb-android.json');
+  scenario.steps.push({
+    id: 'tap-card',
+    kind: 'gesture',
+    driverAction: 'tap',
+    selector: {
+      kind: 'testId',
+      value: 'example-card-1',
+    },
+  });
+
+  const result = evaluateRunnerCompatibility({ scenario, runner, platform: 'android' });
+
+  assert.equal(result.compatible, true);
+  assert.deepEqual(
+    result.errors.filter((error: PlannerIssue) => error.code === 'invalid_adapter_options'),
+    [],
+  );
+});
+
 test('fails when iOS simctl command metadata is malformed', () => {
   const scenario = readJson('examples/scenarios/mobile/app-startup.json');
   const runner = readJson('examples/runners/xcodebuildmcp-ios.json');

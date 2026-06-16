@@ -11,8 +11,10 @@ const { writeJsonArtifact, writeTextArtifact } = require('../core/artifact-write
 const { SCHEMAS, assertValidJson } = require('../core/schema-validator');
 const { hasHelpFlag, writeUsage } = require('./cli');
 const {
+  buildAndroidScrollCoordinatesFromBounds,
   createAndroidAdbDriver,
   formatAndroidAdbRawOutput,
+  resolveAndroidSelectorFromUiTree,
 } = require('./android-adb-driver');
 
 type CliArgs = {
@@ -72,12 +74,22 @@ type AndroidAdbDriverStep = {
   lines?: number;
   rawFileName?: string;
   required?: boolean;
+  selector?: import('./android-adb-driver').AndroidSelector;
   stepId?: string;
   startX?: number;
   startY?: number;
   waitMs?: number;
   x?: number;
   y?: number;
+};
+
+type AndroidSelectorResolutionMetadata = {
+  bounds?: import('./android-adb-driver').AndroidAdbBounds;
+  driverAction: AndroidAdbDriverStep['driverAction'];
+  rawPath: string;
+  selector?: import('./android-adb-driver').AndroidSelector;
+  status: 'failed' | 'passed';
+  stepId?: string;
 };
 
 type AndroidPreflightOptions = {
@@ -376,6 +388,84 @@ function androidDriverActionCode(driverAction: AndroidAdbDriverStep['driverActio
 }
 
 /**
+ * Returns whether a driver step can derive missing coordinates from a selector.
+ *
+ * @param {AndroidAdbDriverStep} driverStep
+ * @returns {boolean}
+ */
+function needsAndroidSelectorResolution(driverStep: AndroidAdbDriverStep): boolean {
+  if (!driverStep.selector) {
+    return false;
+  }
+
+  if (driverStep.driverAction === 'tap') {
+    return typeof driverStep.x !== 'number' || typeof driverStep.y !== 'number';
+  }
+
+  return driverStep.driverAction === 'scroll' && (
+    typeof driverStep.startX !== 'number' ||
+    typeof driverStep.startY !== 'number' ||
+    typeof driverStep.endX !== 'number' ||
+    typeof driverStep.endY !== 'number'
+  );
+}
+
+/**
+ * Applies a resolved selector to one tap or scroll driver step.
+ *
+ * @param {{driverStep: AndroidAdbDriverStep, resolution: import('./android-adb-driver').AndroidSelectorResolution}} options
+ * @returns {AndroidAdbDriverStep}
+ */
+function applyAndroidSelectorResolution({
+  driverStep,
+  resolution,
+}: {
+  driverStep: AndroidAdbDriverStep;
+  resolution: import('./android-adb-driver').AndroidSelectorResolution;
+}): AndroidAdbDriverStep {
+  if (driverStep.driverAction === 'tap') {
+    return {
+      ...driverStep,
+      x: driverStep.x ?? resolution.centerX,
+      y: driverStep.y ?? resolution.centerY,
+    };
+  }
+
+  if (driverStep.driverAction === 'scroll') {
+    const coordinates = buildAndroidScrollCoordinatesFromBounds(resolution.bounds);
+    return {
+      ...driverStep,
+      endX: driverStep.endX ?? coordinates.endX,
+      endY: driverStep.endY ?? coordinates.endY,
+      startX: driverStep.startX ?? coordinates.startX,
+      startY: driverStep.startY ?? coordinates.startY,
+    };
+  }
+
+  return driverStep;
+}
+
+/**
+ * Converts a selector into scalar health-check metadata fields.
+ *
+ * @param {import('./android-adb-driver').AndroidSelector | undefined} selector
+ * @returns {Record<string, string>}
+ */
+function buildAndroidSelectorHealthMetadata(
+  selector: import('./android-adb-driver').AndroidSelector | undefined,
+): Record<string, string> {
+  if (!selector) {
+    return {};
+  }
+
+  return {
+    selectorKind: selector.kind,
+    selectorValue: selector.value,
+    ...(selector.match ? { selectorMatch: selector.match } : {}),
+  };
+}
+
+/**
  * Runs one normalized adb driver step through the Android driver adapter.
  *
  * @param {{driver: import('./android-adb-driver').AndroidAdbDriver, driverStep: AndroidAdbDriverStep, logcatLines: number}} options
@@ -656,7 +746,8 @@ async function runAndroidAdbPreflight({
 
     const driverActionMetadata: Record<string, unknown>[] = [];
     const logcatMetadata: Record<string, unknown>[] = [];
-    for (const driverStep of resolvedDriverSteps) {
+    const selectorResolutionMetadata: AndroidSelectorResolutionMetadata[] = [];
+    for (const [index, driverStep] of resolvedDriverSteps.entries()) {
       if (driverStep.waitMs && driverStep.waitMs > 0) {
         await wait(driverStep.waitMs);
         checks.push({
@@ -672,9 +763,51 @@ async function runAndroidAdbPreflight({
         });
       }
 
+      let executableDriverStep = driverStep;
+      if (needsAndroidSelectorResolution(driverStep)) {
+        const selectorRawFileName = `adb-selector-tree-${index + 1}.xml`;
+        const treeResult = await driver.inspectTree({ rawFileName: selectorRawFileName });
+        raw[treeResult.rawFileName] = formatAndroidAdbRawOutput(treeResult);
+        const resolution = treeResult.exitCode === 0 && driverStep.selector
+          ? resolveAndroidSelectorFromUiTree({
+              selector: driverStep.selector,
+              uiTreeXml: treeResult.stdout,
+            })
+          : null;
+        const resolved = Boolean(resolution);
+        if (resolution) {
+          executableDriverStep = applyAndroidSelectorResolution({
+            driverStep,
+            resolution,
+          });
+        }
+        checks.push({
+          name: 'android_selector_resolved',
+          status: resolved ? 'passed' : driverStep.required === false ? 'warning' : 'failed',
+          source: 'runner',
+          code: resolved ? 'android_selector_resolved' : 'android_selector_resolution_failed',
+          message: resolved
+            ? `Resolved Android selector for adb driver action ${driverStep.driverAction}.`
+            : `Failed to resolve Android selector for adb driver action ${driverStep.driverAction}.`,
+          metadata: {
+            driverAction: driverStep.driverAction,
+            ...buildAndroidSelectorHealthMetadata(driverStep.selector),
+            ...(driverStep.stepId ? { stepId: driverStep.stepId } : {}),
+          },
+        });
+        selectorResolutionMetadata.push({
+          ...(resolution ? { bounds: resolution.bounds } : {}),
+          driverAction: driverStep.driverAction,
+          rawPath: `raw/${treeResult.rawFileName}`,
+          ...(driverStep.selector ? { selector: driverStep.selector } : {}),
+          status: resolved ? 'passed' : 'failed',
+          ...(driverStep.stepId ? { stepId: driverStep.stepId } : {}),
+        });
+      }
+
       const driverResult = await runAndroidAdbDriverStep({
         driver,
-        driverStep,
+        driverStep: executableDriverStep,
         logcatLines,
       });
       raw[driverResult.rawFileName] = formatAndroidAdbRawOutput(driverResult);
@@ -696,21 +829,26 @@ async function runAndroidAdbPreflight({
             ? `Completed adb driver action ${driverStep.driverAction}.`
             : `adb driver action ${driverStep.driverAction} failed.`,
         metadata: {
-          driverAction: driverStep.driverAction,
-          ...(driverStep.stepId ? { stepId: driverStep.stepId } : {}),
+          driverAction: executableDriverStep.driverAction,
+          ...buildAndroidSelectorHealthMetadata(executableDriverStep.selector),
+          ...(executableDriverStep.stepId ? { stepId: executableDriverStep.stepId } : {}),
         },
       });
       const actionMetadata = {
         args: driverResult.args,
-        driverAction: driverStep.driverAction,
+        driverAction: executableDriverStep.driverAction,
         exitCode: driverResult.exitCode,
         rawPath: `raw/${driverResult.rawFileName}`,
-        ...(driverStep.stepId ? { stepId: driverStep.stepId } : {}),
+        ...(executableDriverStep.selector ? { selector: executableDriverStep.selector } : {}),
+        ...(executableDriverStep.stepId ? { stepId: executableDriverStep.stepId } : {}),
       };
       driverActionMetadata.push(actionMetadata);
-      if (driverStep.driverAction === 'readLogs') {
+      if (executableDriverStep.driverAction === 'readLogs') {
         logcatMetadata.push(actionMetadata);
       }
+    }
+    if (selectorResolutionMetadata.length > 0) {
+      metadata.selectorResolutions = selectorResolutionMetadata;
     }
     if (driverActionMetadata.length > 0) {
       metadata.driverActions = driverActionMetadata;
@@ -834,6 +972,9 @@ export {
   parseArgs,
   parsePositiveInteger,
   resolveAndroidAdbDriverSteps,
+  applyAndroidSelectorResolution,
+  buildAndroidSelectorHealthMetadata,
+  needsAndroidSelectorResolution,
   runAndroidAdbDriverStep,
   runAndroidAdbPreflight,
   selectDevice,

@@ -24,6 +24,7 @@ type ScenarioStep = ManifestRecord & {
   driverAction?: unknown;
   id?: unknown;
   required?: unknown;
+  selector?: unknown;
 };
 
 type ScenarioManifest = ManifestRecord & {
@@ -151,6 +152,17 @@ function isPositiveInteger(value: unknown): boolean {
  */
 function getScenarioStepId(step: ScenarioStep, index: number): string {
   return typeof step.id === 'string' && step.id.length > 0 ? step.id : `step-${index + 1}`;
+}
+
+/**
+ * Returns true when a scenario step has a portable selector object.
+ *
+ * @param {Record<string, unknown>} step
+ * @returns {boolean}
+ */
+function hasPortableSelector(step: ScenarioStep): boolean {
+  const selector = asObject(step.selector);
+  return typeof selector.kind === 'string' && typeof selector.value === 'string' && selector.value.length > 0;
 }
 
 /**
@@ -389,7 +401,11 @@ function validateAndroidAdbAdapterOptions({
 
     const androidAdb = asObject(asObject(step.adapterOptions).androidAdb);
     const stepId = getScenarioStepId(step, index);
-    if (step.driverAction === 'tap' && (!isFiniteNumber(androidAdb.x) || !isFiniteNumber(androidAdb.y))) {
+    if (
+      step.driverAction === 'tap' &&
+      !hasPortableSelector(step) &&
+      (!isFiniteNumber(androidAdb.x) || !isFiniteNumber(androidAdb.y))
+    ) {
       pushInvalidAdapterOption({
         adapter: 'androidAdb',
         errors,
@@ -402,6 +418,7 @@ function validateAndroidAdbAdapterOptions({
 
     if (
       step.driverAction === 'scroll' &&
+      !hasPortableSelector(step) &&
       (
         !isFiniteNumber(androidAdb.startX) ||
         !isFiniteNumber(androidAdb.startY) ||

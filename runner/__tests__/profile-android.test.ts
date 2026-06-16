@@ -407,6 +407,8 @@ test('profile-android validates tap and scroll driver metadata', () => {
     validateAndroidAdbDriverSteps([
       { driverAction: 'tap', stepId: 'tap-card', x: 10, y: 20 },
       { driverAction: 'scroll', endX: 100, endY: 200, startX: 100, startY: 800, stepId: 'scroll-list' },
+      { driverAction: 'tap', selector: { kind: 'testId', value: 'card' }, stepId: 'tap-selector' },
+      { driverAction: 'scroll', selector: { kind: 'resourceId', value: 'feed' }, stepId: 'scroll-selector' },
     ]),
     [],
   );
@@ -420,6 +422,34 @@ test('profile-android validates tap and scroll driver metadata', () => {
       'step `scroll-list` uses driverAction `scroll` but is missing adapterOptions.androidAdb.startX/startY/endX/endY.',
     ],
   );
+});
+
+test('profile-android preserves portable selectors in adb driver steps', () => {
+  const scenario = readJson(fixturePath('examples/mobile-app/scenarios/android/app-startup.json'));
+  scenario.steps = [
+    {
+      id: 'tap-card',
+      kind: 'gesture',
+      driverAction: 'tap',
+      selector: {
+        kind: 'testId',
+        value: 'example-card-1',
+      },
+    },
+  ];
+
+  assert.deepEqual(resolveAndroidAdbDriverSteps(scenario), [
+    {
+      driverAction: 'tap',
+      required: true,
+      selector: {
+        kind: 'testId',
+        value: 'example-card-1',
+      },
+      stepId: 'tap-card',
+      waitMs: 0,
+    },
+  ]);
 });
 
 test('profile-android starts profile sessions and executes scenario commands during adb capture', async (t: TestContext) => {

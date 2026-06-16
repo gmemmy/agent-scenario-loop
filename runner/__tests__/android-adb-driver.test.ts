@@ -2,9 +2,13 @@ const assert = require('node:assert/strict');
 const test = require('node:test');
 
 const {
+  buildAndroidScrollCoordinatesFromBounds,
   createAndroidAdbDriver,
   formatAndroidAdbRawOutput,
+  parseAndroidAdbBounds,
+  parseAndroidUiAutomatorNodes,
   quoteAndroidShellArg,
+  resolveAndroidSelectorFromUiTree,
 } = require('../android-adb-driver');
 
 type CommandResult = {
@@ -125,4 +129,56 @@ test('Android adb driver performs portable UI and capture actions', async () => 
   assert.match(formatAndroidAdbRawOutput(tree), /hierarchy/u);
   assert.equal(screenshot.action, 'screenshot');
   assert.equal(screenshot.rawFileName, 'adb-screenshot.png');
+});
+
+test('Android adb driver resolves portable selectors from UIAutomator trees', () => {
+  const uiTreeXml = [
+    '<hierarchy>',
+    '<node text="Open" resource-id="dev.example:id/open_card" content-desc="Open card" bounds="[10,100][210,260]" />',
+    '<node text="Close" resource-id="dev.example:id/close_card" content-desc="Close card" bounds="[20,300][220,380]" />',
+    '<node text="Escaped &amp; ready" resource-id="" content-desc="" bounds="[30,400][230,520]" />',
+    '</hierarchy>',
+  ].join('');
+
+  assert.deepEqual(parseAndroidAdbBounds('[10,100][210,260]'), {
+    bottom: 260,
+    left: 10,
+    right: 210,
+    top: 100,
+  });
+  assert.equal(parseAndroidUiAutomatorNodes(uiTreeXml).length, 3);
+  assert.deepEqual(
+    resolveAndroidSelectorFromUiTree({
+      selector: { kind: 'testId', value: 'open_card' },
+      uiTreeXml,
+    })?.bounds,
+    { bottom: 260, left: 10, right: 210, top: 100 },
+  );
+  assert.equal(
+    resolveAndroidSelectorFromUiTree({
+      selector: { kind: 'accessibilityLabel', value: 'Close card' },
+      uiTreeXml,
+    })?.centerY,
+    340,
+  );
+  assert.equal(
+    resolveAndroidSelectorFromUiTree({
+      selector: { kind: 'text', match: 'contains', value: 'ready' },
+      uiTreeXml,
+    })?.centerX,
+    130,
+  );
+  assert.equal(
+    resolveAndroidSelectorFromUiTree({
+      selector: { kind: 'xpath', value: '//node[1]' },
+      uiTreeXml,
+    }),
+    null,
+  );
+  assert.deepEqual(buildAndroidScrollCoordinatesFromBounds({ bottom: 500, left: 100, right: 500, top: 100 }), {
+    endX: 300,
+    endY: 180,
+    startX: 300,
+    startY: 420,
+  });
 });

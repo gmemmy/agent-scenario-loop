@@ -192,6 +192,84 @@ test('runs portable adb driver actions and writes raw evidence', async (t: TestC
   );
 });
 
+test('resolves portable selectors into adb tap and scroll coordinates', async (t: TestContext) => {
+  const outputDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-android-adb-selector-actions-'));
+  t.after(async () => {
+    await fsp.rm(outputDir, { recursive: true, force: true });
+  });
+  const uiTreeXml = [
+    '<hierarchy>',
+    '<node text="Open" resource-id="dev.example:id/open_card" content-desc="Open card" bounds="[10,100][210,260]" />',
+    '<node text="Feed" resource-id="dev.example:id/feed" content-desc="Feed" bounds="[100,400][500,1000]" />',
+    '</hierarchy>',
+  ].join('');
+  const calls: string[] = [];
+  const executor = async (command: string, args: string[]): Promise<CommandResult> => {
+    const key = args.join(' ');
+    calls.push(key);
+    const responses: Record<string, Partial<CommandResult>> = {
+      version: { stdout: 'Android Debug Bridge version 1.0.41\n' },
+      'devices -l': {
+        stdout: [
+          'List of devices attached',
+          'emulator-5554 device product:sdk_gphone model:Pixel_6 device:emu64',
+        ].join('\n'),
+      },
+      '-s emulator-5554 shell getprop ro.product.model': { stdout: 'Pixel 6\n' },
+      '-s emulator-5554 shell getprop ro.build.version.release': { stdout: '15\n' },
+      '-s emulator-5554 shell getprop ro.build.version.sdk': { stdout: '35\n' },
+      '-s emulator-5554 shell uiautomator dump /dev/tty': {
+        stdout: uiTreeXml,
+      },
+      '-s emulator-5554 shell input tap 110 180': { stdout: '' },
+      '-s emulator-5554 shell input swipe 300 880 300 520 300': { stdout: '' },
+    };
+    const response = responses[key] ?? { exitCode: 1, stderr: `unexpected command: ${key}` };
+    return {
+      command,
+      args,
+      exitCode: response.exitCode ?? 0,
+      stderr: response.stderr ?? '',
+      stdout: response.stdout ?? '',
+    };
+  };
+
+  const result = await runAndroidAdbPreflight({
+    driverSteps: [
+      {
+        driverAction: 'tap',
+        selector: { kind: 'testId', value: 'open_card' },
+        stepId: 'tap-open-card',
+      },
+      {
+        driverAction: 'scroll',
+        selector: { kind: 'resourceId', value: 'dev.example:id/feed' },
+        stepId: 'scroll-feed',
+      },
+    ],
+    executor,
+    outputDir,
+    runId: 'android-selector-actions',
+  });
+
+  const metadata = JSON.parse(fs.readFileSync(path.join(outputDir, 'raw', 'android-metadata.json'), 'utf8'));
+
+  assert.equal(result.health.healthStatus, 'passed', JSON.stringify(result.health.checks, null, 2));
+  assert.ok(calls.includes('-s emulator-5554 shell input tap 110 180'));
+  assert.ok(calls.includes('-s emulator-5554 shell input swipe 300 880 300 520 300'));
+  assert.ok(fs.existsSync(path.join(outputDir, 'raw', 'adb-selector-tree-1.xml')));
+  assert.deepEqual(
+    (metadata.selectorResolutions as Array<{ status: string; stepId: string }>).map((item) => ({
+      status: item.status,
+      stepId: item.stepId,
+    })),
+    [
+      { status: 'passed', stepId: 'tap-open-card' },
+      { status: 'passed', stepId: 'scroll-feed' },
+    ],
+  );
+});
+
 test('fails required adb tap steps when coordinates are missing', async (t: TestContext) => {
   const outputDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-android-adb-tap-missing-coordinates-'));
   t.after(async () => {

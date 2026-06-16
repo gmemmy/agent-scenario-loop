@@ -105,7 +105,7 @@ Use `selector` to describe the intended app target without committing the scenar
 }
 ```
 
-Adapters may resolve selectors through accessibility trees, test ids, native UI inspection, or tool-specific selector engines. Coordinates belong in adapter metadata only when the driver cannot resolve a durable selector.
+Adapters may resolve selectors through accessibility trees, test ids, native UI inspection, or tool-specific selector engines. Android adb resolves `testId`, `resourceId`, `accessibilityId`, `accessibilityLabel`, and `text` selectors from UIAutomator bounds for tap and scroll actions. Coordinates belong in adapter metadata only when the selected runner cannot resolve a durable selector.
 
 ## Runners And Providers
 

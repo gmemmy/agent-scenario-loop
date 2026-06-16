@@ -19,6 +19,13 @@ type AndroidAdbDriver = {
   tap: (options: AndroidAdbTapOptions) => Promise<AndroidAdbCommandResult>;
 };
 
+type AndroidAdbBounds = {
+  bottom: number;
+  left: number;
+  right: number;
+  top: number;
+};
+
 type AndroidAdbDriverOptions = {
   adbPath: string;
   deviceSerial: string;
@@ -65,6 +72,24 @@ type AndroidAdbTapOptions = {
   rawFileName?: string;
   x: number;
   y: number;
+};
+
+type AndroidSelector = {
+  kind: string;
+  match?: string;
+  value: string;
+};
+
+type AndroidUiNode = {
+  attributes: Record<string, string>;
+  bounds: AndroidAdbBounds;
+};
+
+type AndroidSelectorResolution = {
+  bounds: AndroidAdbBounds;
+  centerX: number;
+  centerY: number;
+  node: AndroidUiNode;
 };
 
 /**
@@ -114,6 +139,198 @@ function buildDriverResult({
  */
 function formatAndroidAdbRawOutput(result: { stdout: string; stderr: string }): string {
   return [result.stdout, result.stderr].filter(Boolean).join('\n');
+}
+
+/**
+ * Decodes XML attribute entities emitted by `uiautomator dump`.
+ *
+ * @param {string} value
+ * @returns {string}
+ */
+function decodeXmlAttribute(value: string): string {
+  return value
+    .replace(/&quot;/gu, '"')
+    .replace(/&apos;/gu, "'")
+    .replace(/&lt;/gu, '<')
+    .replace(/&gt;/gu, '>')
+    .replace(/&amp;/gu, '&');
+}
+
+/**
+ * Parses Android UIAutomator bounds such as `[0,100][300,240]`.
+ *
+ * @param {unknown} value
+ * @returns {AndroidAdbBounds | null}
+ */
+function parseAndroidAdbBounds(value: unknown): AndroidAdbBounds | null {
+  if (typeof value !== 'string') {
+    return null;
+  }
+
+  const match = /^\[(?<left>-?\d+),(?<top>-?\d+)\]\[(?<right>-?\d+),(?<bottom>-?\d+)\]$/u.exec(value);
+  if (!match?.groups) {
+    return null;
+  }
+
+  const bounds = {
+    bottom: Number(match.groups.bottom),
+    left: Number(match.groups.left),
+    right: Number(match.groups.right),
+    top: Number(match.groups.top),
+  };
+  if (
+    !Number.isFinite(bounds.left) ||
+    !Number.isFinite(bounds.top) ||
+    !Number.isFinite(bounds.right) ||
+    !Number.isFinite(bounds.bottom) ||
+    bounds.right <= bounds.left ||
+    bounds.bottom <= bounds.top
+  ) {
+    return null;
+  }
+
+  return bounds;
+}
+
+/**
+ * Extracts UIAutomator nodes that have usable bounds.
+ *
+ * @param {string} xml
+ * @returns {AndroidUiNode[]}
+ */
+function parseAndroidUiAutomatorNodes(xml: string): AndroidUiNode[] {
+  const nodes: AndroidUiNode[] = [];
+  for (const nodeMatch of String(xml).matchAll(/<node\b(?<attributes>[^>]*)\/?>/gu)) {
+    const attributesText = nodeMatch.groups?.attributes ?? '';
+    const attributes: Record<string, string> = {};
+    for (const attributeMatch of attributesText.matchAll(/\s(?<name>[\w:-]+)="(?<value>[^"]*)"/gu)) {
+      if (attributeMatch.groups?.name && attributeMatch.groups.value !== undefined) {
+        attributes[attributeMatch.groups.name] = decodeXmlAttribute(attributeMatch.groups.value);
+      }
+    }
+
+    const bounds = parseAndroidAdbBounds(attributes.bounds);
+    if (bounds) {
+      nodes.push({ attributes, bounds });
+    }
+  }
+
+  return nodes;
+}
+
+/**
+ * Returns true when a UI attribute satisfies a portable selector match.
+ *
+ * @param {{actual: string | undefined, expected: string, match: string | undefined}} options
+ * @returns {boolean}
+ */
+function matchesSelectorValue({
+  actual = '',
+  expected,
+  match = 'exact',
+}: {
+  actual: string | undefined;
+  expected: string;
+  match: string | undefined;
+}): boolean {
+  if (match === 'contains') {
+    return actual.includes(expected);
+  }
+  if (match === 'regex') {
+    try {
+      return new RegExp(expected, 'u').test(actual);
+    } catch {
+      return false;
+    }
+  }
+
+  return actual === expected;
+}
+
+/**
+ * Resolves a portable selector against Android UIAutomator XML.
+ *
+ * @param {{selector: AndroidSelector, uiTreeXml: string}} options
+ * @returns {AndroidSelectorResolution | null}
+ */
+function resolveAndroidSelectorFromUiTree({
+  selector,
+  uiTreeXml,
+}: {
+  selector: AndroidSelector;
+  uiTreeXml: string;
+}): AndroidSelectorResolution | null {
+  const nodes = parseAndroidUiAutomatorNodes(uiTreeXml);
+  const node = nodes.find((candidate) => {
+    if (selector.kind === 'resourceId') {
+      return matchesSelectorValue({
+        actual: candidate.attributes['resource-id'],
+        expected: selector.value,
+        match: selector.match,
+      });
+    }
+
+    if (selector.kind === 'testId') {
+      const resourceId = candidate.attributes['resource-id'] ?? '';
+      return matchesSelectorValue({
+        actual: resourceId,
+        expected: selector.value,
+        match: selector.match,
+      }) || resourceId.endsWith(`:id/${selector.value}`);
+    }
+
+    if (selector.kind === 'accessibilityId' || selector.kind === 'accessibilityLabel') {
+      return matchesSelectorValue({
+        actual: candidate.attributes['content-desc'],
+        expected: selector.value,
+        match: selector.match,
+      });
+    }
+
+    if (selector.kind === 'text') {
+      return matchesSelectorValue({
+        actual: candidate.attributes.text,
+        expected: selector.value,
+        match: selector.match,
+      });
+    }
+
+    return false;
+  });
+  if (!node) {
+    return null;
+  }
+
+  return {
+    bounds: node.bounds,
+    centerX: Math.round((node.bounds.left + node.bounds.right) / 2),
+    centerY: Math.round((node.bounds.top + node.bounds.bottom) / 2),
+    node,
+  };
+}
+
+/**
+ * Derives an in-bounds vertical scroll gesture from one resolved selector.
+ *
+ * @param {AndroidAdbBounds} bounds
+ * @returns {{endX: number, endY: number, startX: number, startY: number}}
+ */
+function buildAndroidScrollCoordinatesFromBounds(bounds: AndroidAdbBounds): {
+  endX: number;
+  endY: number;
+  startX: number;
+  startY: number;
+} {
+  const width = bounds.right - bounds.left;
+  const height = bounds.bottom - bounds.top;
+  const x = Math.round(bounds.left + width / 2);
+
+  return {
+    endX: x,
+    endY: Math.round(bounds.top + height * 0.2),
+    startX: x,
+    startY: Math.round(bounds.top + height * 0.8),
+  };
 }
 
 /**
@@ -246,12 +463,17 @@ function createAndroidAdbDriver({
 }
 
 export {
+  buildAndroidScrollCoordinatesFromBounds,
   createAndroidAdbDriver,
   formatAndroidAdbRawOutput,
+  parseAndroidAdbBounds,
+  parseAndroidUiAutomatorNodes,
   quoteAndroidShellArg,
+  resolveAndroidSelectorFromUiTree,
 };
 
 export type {
+  AndroidAdbBounds,
   AndroidAdbCommandExecutor,
   AndroidAdbCommandResult,
   AndroidAdbDeepLinkOptions,
@@ -261,5 +483,8 @@ export type {
   AndroidAdbReadLogsOptions,
   AndroidAdbScreenshotOptions,
   AndroidAdbScrollOptions,
+  AndroidSelector,
+  AndroidSelectorResolution,
+  AndroidUiNode,
   AndroidAdbTapOptions,
 };

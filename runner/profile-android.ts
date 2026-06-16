@@ -189,6 +189,21 @@ function readFiniteNumber(value: unknown): number | undefined {
 }
 
 /**
+ * Returns true when a normalized execution step has a portable selector adb can try to resolve.
+ *
+ * @param {unknown} value
+ * @returns {value is import('./android-adb-driver').AndroidSelector}
+ */
+function isAndroidSelector(value: unknown): value is import('./android-adb-driver').AndroidSelector {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return false;
+  }
+
+  const selector = value as Record<string, unknown>;
+  return typeof selector.kind === 'string' && typeof selector.value === 'string' && selector.value.length > 0;
+}
+
+/**
  * Expands portable scenario command steps into Android profile-session commands.
  *
  * @param {Record<string, unknown>} scenario
@@ -239,6 +254,7 @@ function resolveAndroidAdbDriverSteps(scenario: Record<string, any>): AndroidAdb
         ...(step.driverAction === 'readLogs' ? { lines: readPositiveInteger(androidAdbOptions.logcatLines, 1000) } : {}),
         ...(typeof rawFileName === 'string' ? { rawFileName } : {}),
         required: step.required,
+        ...(isAndroidSelector(step.selector) ? { selector: step.selector } : {}),
         stepId: step.id,
         ...(typeof readFiniteNumber(androidAdbOptions.durationMs) === 'number'
           ? { durationMs: readFiniteNumber(androidAdbOptions.durationMs) }
@@ -264,11 +280,12 @@ function validateAndroidAdbDriverSteps(driverSteps: AndroidAdbDriverStep[]): str
   const errors: string[] = [];
   for (const step of driverSteps) {
     const stepLabel = step.stepId ? `step \`${step.stepId}\`` : 'unnamed step';
-    if (step.driverAction === 'tap' && (typeof step.x !== 'number' || typeof step.y !== 'number')) {
+    if (step.driverAction === 'tap' && !step.selector && (typeof step.x !== 'number' || typeof step.y !== 'number')) {
       errors.push(`${stepLabel} uses driverAction \`tap\` but is missing adapterOptions.androidAdb.x/y.`);
     }
     if (
       step.driverAction === 'scroll' &&
+      !step.selector &&
       (
         typeof step.startX !== 'number' ||
         typeof step.startY !== 'number' ||

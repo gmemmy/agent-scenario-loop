@@ -276,13 +276,14 @@ Current package guarantees:
 - artifact roots can be indexed to find trusted prior runs per scenario
 - installed commands can compare a current run against the latest trusted prior run for a scenario
 - installed adapter subpaths expose proven Android adb and iOS simctl driver helpers for portable evidence actions and explicit lifecycle helpers
+- Android adb capture can resolve supported portable selectors into tap and scroll coordinates from UIAutomator bounds
 - installed commands expose iOS simctl capture, screenshot preservation, and iOS profile ingestion from simctl artifacts
 - adapter-target manifests for external tools are schema-checked and planner-tested without bundling those tools
 - package smoke blocks generated artifacts, internal-only paths, and local/product-specific strings from the tarball
 
 Remaining hardening:
 
-- extend Android beyond coordinate-based adb actions into richer evidence providers and app-aware selectors
+- extend Android beyond basic selector-backed adb actions into richer evidence providers and broader semantic driver support
 - extend iOS beyond log/screenshot capture into richer simulator evidence providers
 - improve runner validation and failure reporting for more adapter classes
 
