@@ -54,3 +54,17 @@ Deep links are the control plane: the runner starts, commands, and stops profile
 - `example-app://profile-session/start?scenario=open-close-cycle&runId=run-123`
 - `example-app://profile-session/command?scenario=open-close-cycle&runId=run-123&command=activate-target:composer-open-button`
 - `example-app://profile-session/stop`
+
+## Command targets
+
+For runner-owned flows, register stable command targets near the component that owns the behavior:
+
+```ts
+import { registerProfileCommandTargetHandler } from '../../app/profile-session';
+
+export function wireComposerProfileTargets(openComposer: () => void) {
+  return registerProfileCommandTargetHandler('composer-open-button', openComposer);
+}
+```
+
+The matching scenario command is `activate-target:composer-open-button`. The target name is the portable contract; the consuming app decides how to perform the action.

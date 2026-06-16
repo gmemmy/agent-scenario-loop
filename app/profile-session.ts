@@ -353,7 +353,10 @@ function stopProfileSessionInternal() {
   });
 }
 
-export function startProfileSession(params: { scenario: string; runId: string; startedAt?: number }) {
+/**
+ * Starts a profile session from app code or a parsed control URL.
+ */
+export function startProfileSession(params: { scenario: string; runId: string; startedAt?: number }): void {
   startProfileSessionInternal({
     active: true,
     scenario: params.scenario,
@@ -362,10 +365,16 @@ export function startProfileSession(params: { scenario: string; runId: string; s
   });
 }
 
-export function stopProfileSession() {
+/**
+ * Stops the active profile session and clears pending runner commands.
+ */
+export function stopProfileSession(): void {
   stopProfileSessionInternal();
 }
 
+/**
+ * Applies one profile-session deep link to the in-app control plane.
+ */
 export function applyProfileSessionUrl(url: string | null | undefined): boolean {
   if (!url) {
     return false;
@@ -416,7 +425,10 @@ export function applyProfileSessionUrl(url: string | null | undefined): boolean 
   return true;
 }
 
-export function emitProfileEvent(event: string, metadata?: ProfileEventMetadata) {
+/**
+ * Emits one app-owned truth event for the active profile session.
+ */
+export function emitProfileEvent(event: string, metadata?: ProfileEventMetadata): void {
   const session = profileSessionState;
   if (!session.active || !session.scenario || !session.runId) {
     return;
@@ -443,6 +455,9 @@ export function emitProfileEvent(event: string, metadata?: ProfileEventMetadata)
   appendStoredProfileEvent(eventPayload);
 }
 
+/**
+ * Stores one app-owned measurement signal for the active profile session.
+ */
 export function storeProfileSignal(
   kind: ProfileSignalKind,
   name: string,
@@ -479,7 +494,10 @@ export function storeProfileSignal(
   return true;
 }
 
-export function useProfileSession() {
+/**
+ * Subscribes React components to the current profile session state.
+ */
+export function useProfileSession(): ProfileSessionState {
   return useSyncExternalStore(
     (listener) => {
       listeners.add(listener);
@@ -492,7 +510,10 @@ export function useProfileSession() {
   );
 }
 
-export function subscribeToProfileCommands(listener: (command: ProfileSessionCommand) => void) {
+/**
+ * Subscribes to runner commands delivered through profile-session deep links.
+ */
+export function subscribeToProfileCommands(listener: (command: ProfileSessionCommand) => void): () => void {
   profileCommandListeners.add(listener);
   flushPendingProfileCommands(listener);
   return () => {
@@ -500,7 +521,10 @@ export function subscribeToProfileCommands(listener: (command: ProfileSessionCom
   };
 }
 
-export function registerProfileCommandTargetHandler(targetId: string, handler: () => void) {
+/**
+ * Registers a named command target for `activate-target:<targetId>` commands.
+ */
+export function registerProfileCommandTargetHandler(targetId: string, handler: () => void): () => void {
   profileCommandTargetHandlers.set(targetId, handler);
   return () => {
     const currentHandler = profileCommandTargetHandlers.get(targetId);
@@ -510,7 +534,10 @@ export function registerProfileCommandTargetHandler(targetId: string, handler: (
   };
 }
 
-export function useProfileSessionBootstrap() {
+/**
+ * Boots the profile-session deep-link and storage bridge near the app root.
+ */
+export function useProfileSessionBootstrap(): void {
   useEffect(() => {
     let isMounted = true;
 

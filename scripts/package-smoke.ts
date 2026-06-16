@@ -361,6 +361,7 @@ function main(): void {
       'asl-check-plan',
       'asl-compare',
       'asl-demo-loop',
+      'asl-example-android-live',
       'asl-profile-android',
       'asl-profile-ios',
     ]) {
@@ -626,6 +627,7 @@ function main(): void {
       "  type ArtifactLayout,",
       "  type PortValidationResult,",
       "} from 'agent-scenario-loop';",
+      "import { runExampleAndroidLiveProof } from 'agent-scenario-loop/runner/example-android-live';",
       "import { runProfileAndroid } from 'agent-scenario-loop/runner/profile-android';",
       "import { runProfileIos, type CliArgs } from 'agent-scenario-loop/runner/profile-ios';",
       '',
@@ -649,6 +651,7 @@ function main(): void {
       'void validation;',
       'void args;',
       'void summary;',
+      'void runExampleAndroidLiveProof;',
       'void runProfileAndroid;',
       'void runProfileIos;',
       '',

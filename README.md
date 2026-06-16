@@ -16,6 +16,7 @@ Agent Scenario Loop is a scenario orchestration and evidence collection framewor
 | Validate a scenario/runner plan before execution | [Package use](#package-use) |
 | Inspect runner behavior and current runner limits | [Runner docs](runner/README.md) |
 | See example scenarios and runner manifests | [examples/scenarios](examples/scenarios), [examples/runners](examples/runners) |
+| Run the Android live proof path | [Android live proof](#android-live-proof) |
 | See the neutral Expo dogfood app | [examples/mobile-app](examples/mobile-app/README.md) |
 | See a minimal app integration note | [examples/minimal-app](examples/minimal-app/README.md) |
 
@@ -78,7 +79,7 @@ const {
 } = require('agent-scenario-loop');
 ```
 
-The preflight CLI is exported as `agent-scenario-loop` and `asl-check-plan` after package installation. The Android adb runner is exported as `asl-android-adb`, Android profiling is exported as `asl-profile-android`, iOS log-ingest profiling is exported as `asl-profile-ios`, the comparison CLI is exported as `asl-compare`, and the fixture loop is exported as `asl-demo-loop`. In this repo, use the script form:
+The preflight CLI is exported as `agent-scenario-loop` and `asl-check-plan` after package installation. The Android adb runner is exported as `asl-android-adb`, Android profiling is exported as `asl-profile-android`, the packaged Android example proof is exported as `asl-example-android-live`, iOS log-ingest profiling is exported as `asl-profile-ios`, the comparison CLI is exported as `asl-compare`, and the fixture loop is exported as `asl-demo-loop`. In this repo, use the script form:
 
 ```bash
 pnpm check-plan -- --scenario examples/scenarios/mobile/app-startup.json --runner examples/runners/xcodebuildmcp-ios.json --platform ios --out artifacts/plan/app-startup
@@ -94,7 +95,25 @@ pnpm example:android:preflight
 
 That command writes runner health, an inconclusive pre-budget verdict, an agent summary, and raw adb evidence. It does not install the app or drive arbitrary scenario steps.
 
-With the Expo example app installed on an online Android emulator or device, run live profile proof through the same scenario/artifact contract:
+## Android live proof
+
+With the Expo example app installed on an online Android emulator or device, run the full Android proof path:
+
+```bash
+pnpm example:app:android
+pnpm example:android:live
+```
+
+`example:app:android` builds, installs, and opens the private example app. Keep Metro running. `example:android:live` then checks adb/package readiness and runs startup, open-close, and scroll-settle through the same scenario/artifact contract. It prints the `agent-summary.md` entrypoint for each run.
+
+The proof command writes:
+
+- adb preflight health under `artifacts/example-mobile-app/android/_preflight/android-live-preflight`
+- startup artifacts under `artifacts/example-mobile-app/android/app-startup/android-live-startup`
+- open-close artifacts under `artifacts/example-mobile-app/android/open-close-cycle/android-live-open-close`
+- scroll artifacts under `artifacts/example-mobile-app/android/scroll-settle/android-live-scroll`
+
+The underlying profile commands remain available when you want to isolate one scenario:
 
 ```bash
 pnpm example:profile:android:live:startup
@@ -102,7 +121,7 @@ pnpm example:profile:android:live:open-close
 pnpm example:profile:android:live:scroll
 ```
 
-Those commands start a profile session through the app scheme, execute scenario-declared Android commands where needed, capture bounded logcat evidence, and write the standard `health.json`, `verdict.json`, `agent-summary.md`, `manifest.json`, `metrics.json`, `causal-run.json`, `budget-verdict.json`, and raw evidence files. If adb, the app package, or the device is unavailable, the capture writes failed health and the profile runner stops before making timing claims.
+These commands start a profile session through the app scheme, execute scenario-declared Android commands where needed, capture bounded logcat evidence, and write the standard `health.json`, `verdict.json`, `agent-summary.md`, `manifest.json`, `metrics.json`, `causal-run.json`, `budget-verdict.json`, and raw evidence files. If adb, the app package, or the device is unavailable, the capture writes failed health and the profile runner stops before making timing claims.
 
 To attach a bounded Android logcat snapshot after a manual or agent-driven run:
 
@@ -158,7 +177,7 @@ Read next: [Contracts](docs/contracts.md) for the artifact layout and supported 
 
 ## Quick start
 
-1. Copy [app/profile-session.ts](app/profile-session.ts) into your React Native app and wire `useProfileSessionBootstrap()` near the root.
+1. Copy [app/profile-session.ts](app/profile-session.ts) into your React Native app and wire `useProfileSessionBootstrap()` once near the root.
 2. Emit truth events around one real user journey. One journey is enough to start.
 3. Copy [core/config-template.json](core/config-template.json) into project-specific config and fill in your app identifiers.
 4. Start from [examples/scenarios/ios/app-startup.json](examples/scenarios/ios/app-startup.json) or [examples/scenarios/ios/open-close-cycle.json](examples/scenarios/ios/open-close-cycle.json).

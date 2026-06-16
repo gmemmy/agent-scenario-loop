@@ -174,6 +174,27 @@ function resolveAndroidAdbProfileCommands(scenario: Record<string, any>): Androi
 }
 
 /**
+ * Summarizes failed adb capture checks for CLI errors.
+ *
+ * @param {Record<string, unknown>} health
+ * @returns {string}
+ */
+function summarizeFailedAndroidChecks(health: Record<string, unknown>): string {
+  const checks = Array.isArray(health.checks) ? health.checks : [];
+  const failedChecks = checks
+    .filter((check: Record<string, unknown>) => check?.status === 'failed')
+    .map((check: Record<string, unknown>) => (
+      typeof check.message === 'string'
+        ? check.message
+        : typeof check.code === 'string'
+          ? check.code
+          : 'unknown failure'
+    ));
+
+  return failedChecks.length > 0 ? ` Failed checks: ${failedChecks.join(' ')}` : '';
+}
+
+/**
  * Runs the Android profile artifact pipeline.
  *
  * @param {import('./profile-mobile').CliArgs} args
@@ -243,7 +264,9 @@ async function runProfileAndroid(
   });
 
   if (adbCapture.health.healthStatus !== 'passed') {
-    throw new Error(`Android adb capture failed; see ${adbCapture.runDir}`);
+    throw new Error(
+      `Android adb capture failed; inspect ${adbCapture.runDir}/agent-summary.md.${summarizeFailedAndroidChecks(adbCapture.health)}`,
+    );
   }
 
   return runProfileMobile({
@@ -292,5 +315,6 @@ export {
   main,
   parseArgs,
   runProfileAndroid,
+  summarizeFailedAndroidChecks,
   usage,
 };

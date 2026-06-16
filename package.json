@@ -37,6 +37,7 @@
     "asl-compare": "dist/runner/compare.js",
     "asl-check-plan": "dist/runner/check-plan.js",
     "asl-demo-loop": "dist/runner/demo-loop.js",
+    "asl-example-android-live": "dist/runner/example-android-live.js",
     "asl-profile-android": "dist/runner/profile-android.js",
     "asl-profile-ios": "dist/runner/profile-ios.js"
   },
@@ -60,6 +61,10 @@
     "./runner/demo-loop": {
       "types": "./dist/runner/demo-loop.d.ts",
       "require": "./dist/runner/demo-loop.js"
+    },
+    "./runner/example-android-live": {
+      "types": "./dist/runner/example-android-live.d.ts",
+      "require": "./dist/runner/example-android-live.js"
     },
     "./runner/profile-ios": {
       "types": "./dist/runner/profile-ios.d.ts",
@@ -114,6 +119,7 @@
     "example:profile:android:live:scroll": "pnpm build && node dist/runner/profile-android.js --config examples/mobile-app/asl.config.json --scenario examples/mobile-app/scenarios/android/scroll-settle.json --adb-capture --profile-session --clear-logcat --launch --wait-ms 1000 --out artifacts/example-mobile-app/android --run-id android-live-scroll",
     "example:profile:android:live:startup": "pnpm build && node dist/runner/profile-android.js --config examples/mobile-app/asl.config.json --scenario examples/mobile-app/scenarios/android/app-startup.json --adb-capture --profile-session --clear-logcat --launch --wait-ms 1000 --out artifacts/example-mobile-app/android --run-id android-live-startup",
     "example:android:preflight": "pnpm build && node dist/runner/android-adb.js --package dev.agentscenarioloop.example --out artifacts/example-mobile-app/android-live-preflight --run-id android-live-preflight",
+    "example:android:live": "pnpm build && node dist/runner/example-android-live.js",
     "example:app:android": "pnpm --dir examples/mobile-app android",
     "example:app:start": "pnpm --dir examples/mobile-app start",
     "profile:android": "pnpm build && node dist/runner/profile-android.js",

@@ -10,7 +10,7 @@ The app surface is intentionally small:
 
 Release checks use the committed Android and iOS profile-event logs in `event-logs/` so package validation stays deterministic. Android adb capture can also launch the package, collect a bounded logcat window, and feed the same scenario artifacts through `profile:android --adb-capture`.
 
-The app is intentionally private and minimal. It uses Expo Router so iOS and Android drivers can launch the same app surface without creating product-specific fixtures.
+The app is intentionally private and minimal. It uses a direct Expo entrypoint, a safe-area provider, and one screen so iOS and Android drivers can launch the same app surface without creating product-specific fixtures.
 
 Android is the first live runtime target while iOS local tooling is unavailable:
 
@@ -25,9 +25,11 @@ From the package root, the same launch command is available as:
 pnpm example:app:android
 ```
 
+Keep Metro running after this command opens the app.
+
 ## Files
 
-- `app/`: Expo Router routes for the example app
+- `index.ts`: direct Expo entrypoint and safe-area provider
 - `src/example-screen.tsx`: scenario surface wired to `app/profile-session.ts`
 - `package.json`, `app.json`, `tsconfig.json`: private Expo app configuration
 - `metro.config.js`: allows the app to import the package helper from the repo/package root
@@ -58,7 +60,13 @@ pnpm example:profile:android:scroll
 
 ## Android Capture
 
-With an emulator or device online and the example app installed, the Android runner can own the capture window before writing profile artifacts. The live commands start an app profile session through the configured scheme, send scenario-declared Android commands, collect a bounded logcat window, and then write the same artifact contract as fixture runs:
+With an emulator or device online and the example app installed, the Android runner can own the capture window before writing profile artifacts. The full proof command starts with adb/package preflight, runs every canonical Android example scenario, and prints the `agent-summary.md` path for each run:
+
+```bash
+pnpm example:android:live
+```
+
+The individual live commands remain useful while debugging one scenario:
 
 ```bash
 pnpm example:profile:android:live:startup
