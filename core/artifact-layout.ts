@@ -1,8 +1,8 @@
 const path = require('node:path');
 
-const V1_ARTIFACT_LAYOUT_VERSION = '1.0.0';
+const ARTIFACT_LAYOUT_VERSION = '1.0.0';
 
-const V1_ARTIFACT_FILENAMES = {
+const ARTIFACT_FILENAMES = {
   agentSummary: 'agent-summary.md',
   comparison: 'comparison.json',
   health: 'health.json',
@@ -50,13 +50,13 @@ type ArtifactLayout = {
  */
 function createArtifactLayout({ outputDir }: { outputDir: string }): ArtifactLayout {
   return {
-    version: V1_ARTIFACT_LAYOUT_VERSION,
+    version: ARTIFACT_LAYOUT_VERSION,
     root: outputDir,
-    health: path.join(outputDir, V1_ARTIFACT_FILENAMES.health),
-    verdict: path.join(outputDir, V1_ARTIFACT_FILENAMES.verdict),
-    comparison: path.join(outputDir, V1_ARTIFACT_FILENAMES.comparison),
-    agentSummary: path.join(outputDir, V1_ARTIFACT_FILENAMES.agentSummary),
-    plannerCompatibility: path.join(outputDir, V1_ARTIFACT_FILENAMES.plannerCompatibility),
+    health: path.join(outputDir, ARTIFACT_FILENAMES.health),
+    verdict: path.join(outputDir, ARTIFACT_FILENAMES.verdict),
+    comparison: path.join(outputDir, ARTIFACT_FILENAMES.comparison),
+    agentSummary: path.join(outputDir, ARTIFACT_FILENAMES.agentSummary),
+    plannerCompatibility: path.join(outputDir, ARTIFACT_FILENAMES.plannerCompatibility),
     raw: path.join(outputDir, 'raw'),
     captures: path.join(outputDir, 'captures'),
     signals: {
@@ -76,8 +76,8 @@ function createArtifactLayout({ outputDir }: { outputDir: string }): ArtifactLay
 
 export {
   TRANSITION_ARTIFACT_FILENAMES,
-  V1_ARTIFACT_FILENAMES,
-  V1_ARTIFACT_LAYOUT_VERSION,
+  ARTIFACT_FILENAMES,
+  ARTIFACT_LAYOUT_VERSION,
   createArtifactLayout,
 };
 
