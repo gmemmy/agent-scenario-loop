@@ -44,7 +44,7 @@ Run one example scenario through the package runner:
 pnpm example:profile:startup
 ```
 
-The runner writes `health.json`, `verdict.json`, `agent-summary.md`, transition metrics, causal run, and raw evidence under the printed run directory.
+The runner writes `health.json`, `verdict.json`, `agent-summary.md`, `metrics.json`, `causal-run.json`, and raw evidence under the printed run directory.
 
 Additional fixture-backed profiles:
 

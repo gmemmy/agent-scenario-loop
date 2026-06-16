@@ -3,9 +3,10 @@ const path = require('node:path');
 const test = require('node:test');
 
 const {
-  TRANSITION_ARTIFACT_FILENAMES,
   ARTIFACT_FILENAMES,
   ARTIFACT_LAYOUT_VERSION,
+  PROFILE_ARTIFACT_FILENAMES,
+  TRANSITION_ARTIFACT_FILENAMES,
   createArtifactLayout,
 } = require('../artifact-layout');
 
@@ -20,5 +21,7 @@ test('builds the stable artifact layout for one run directory', () => {
   assert.equal(layout.agentSummary, path.join(outputDir, ARTIFACT_FILENAMES.agentSummary));
   assert.equal(layout.plannerCompatibility, path.join(outputDir, ARTIFACT_FILENAMES.plannerCompatibility));
   assert.equal(layout.signals.memory, path.join(outputDir, 'signals', 'memory'));
-  assert.equal(layout.transition.metrics, path.join(outputDir, TRANSITION_ARTIFACT_FILENAMES.metrics));
+  assert.equal(layout.profile.metrics, path.join(outputDir, PROFILE_ARTIFACT_FILENAMES.metrics));
+  assert.equal(TRANSITION_ARTIFACT_FILENAMES.metrics, PROFILE_ARTIFACT_FILENAMES.metrics);
+  assert.equal(layout.transition, layout.profile);
 });

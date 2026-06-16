@@ -179,7 +179,7 @@ test('accepts comparison artifacts with metric and evidence details', () => {
   assert.equal(result.valid, true, result.message);
 });
 
-test('accepts manifest and metrics transition artifacts', () => {
+test('accepts manifest and metrics profile artifacts', () => {
   const manifest = {
     scenario: 'app-startup',
     runId: 'run-1',

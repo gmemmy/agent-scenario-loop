@@ -22,7 +22,7 @@ The package is intentionally contract-first: adopt the scenario and artifact sha
 - [runner/demo-loop.ts](../runner/demo-loop.ts): fixture loop that proves preflight, profile, and comparison without a simulator
 - [examples/event-logs](../examples/event-logs): deterministic profile-event logs for the fixture loop
 - [examples/mobile-app](../examples/mobile-app): neutral Expo dogfood app with scenario manifests and profile-event evidence fixtures
-- [examples/scenarios/ios](../examples/scenarios/ios): transition scenario manifests for the current iOS log-ingest runner
+- [examples/scenarios/ios](../examples/scenarios/ios): iOS profile scenario manifests for the current log-ingest runner
 - [examples/scenarios/mobile](../examples/scenarios/mobile): canonical portable scenario fixtures
 - [examples/runners](../examples/runners): primary runner and evidence-provider capability fixtures
 - [schemas](../schemas): JSON Schemas for current artifacts plus the scenario and runner capability contracts
@@ -66,7 +66,7 @@ Core artifacts:
 - `agent-summary.md`: agent-readable health gate and next-action summary
 - `planner-compatibility.json`: optional preflight detail from runner/provider matching
 
-Transition runner artifacts:
+Profile runner artifacts:
 
 - `manifest.json`
 - `metrics.json`
@@ -74,7 +74,7 @@ Transition runner artifacts:
 - `causal-run.json`
 - `summary.md`
 
-`manifest.json`, `metrics.json`, `budget-verdict.json`, and `causal-run.json` are schema-checked before the runner writes them. This keeps transition artifacts stable while the live runner layer matures.
+`manifest.json`, `metrics.json`, `budget-verdict.json`, and `causal-run.json` are schema-checked before the runner writes them. This keeps profile artifacts stable while the live runner layer matures.
 
 Evidence folders:
 
@@ -86,7 +86,7 @@ Evidence folders:
 
 The artifact contract separates scenario health from product verdict: `health.json` records execution validity, `verdict.json` records budget outcome, `comparison.json` records before/after baseline comparison, and `agent-summary.md` gives agents the health gate before they touch code.
 
-The current profile runner writes health, verdict, and agent summary artifacts plus transition `metrics.json` and `budget-verdict.json` artifacts.
+The current profile runner writes health, verdict, agent summary, metrics, causal-run, and budget-verdict artifacts.
 
 Budgets are supported but optional for adoption.
 

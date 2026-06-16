@@ -10,12 +10,22 @@ const ARTIFACT_FILENAMES = {
   verdict: 'verdict.json',
 };
 
-const TRANSITION_ARTIFACT_FILENAMES = {
+const PROFILE_ARTIFACT_FILENAMES = {
   budgetVerdict: 'budget-verdict.json',
   causalRun: 'causal-run.json',
   manifest: 'manifest.json',
   metrics: 'metrics.json',
   summary: 'summary.md',
+};
+
+const TRANSITION_ARTIFACT_FILENAMES = PROFILE_ARTIFACT_FILENAMES;
+
+type ProfileArtifactPaths = {
+  budgetVerdict: string;
+  causalRun: string;
+  manifest: string;
+  metrics: string;
+  summary: string;
 };
 
 type ArtifactLayout = {
@@ -33,13 +43,8 @@ type ArtifactLayout = {
     memory: string;
     network: string;
   };
-  transition: {
-    budgetVerdict: string;
-    causalRun: string;
-    manifest: string;
-    metrics: string;
-    summary: string;
-  };
+  profile: ProfileArtifactPaths;
+  transition: ProfileArtifactPaths;
 };
 
 /**
@@ -49,6 +54,14 @@ type ArtifactLayout = {
  * @returns {ArtifactLayout}
  */
 function createArtifactLayout({ outputDir }: { outputDir: string }): ArtifactLayout {
+  const profileArtifacts = {
+    budgetVerdict: path.join(outputDir, PROFILE_ARTIFACT_FILENAMES.budgetVerdict),
+    causalRun: path.join(outputDir, PROFILE_ARTIFACT_FILENAMES.causalRun),
+    manifest: path.join(outputDir, PROFILE_ARTIFACT_FILENAMES.manifest),
+    metrics: path.join(outputDir, PROFILE_ARTIFACT_FILENAMES.metrics),
+    summary: path.join(outputDir, PROFILE_ARTIFACT_FILENAMES.summary),
+  };
+
   return {
     version: ARTIFACT_LAYOUT_VERSION,
     root: outputDir,
@@ -64,23 +77,20 @@ function createArtifactLayout({ outputDir }: { outputDir: string }): ArtifactLay
       memory: path.join(outputDir, 'signals', 'memory'),
       network: path.join(outputDir, 'signals', 'network'),
     },
-    transition: {
-      budgetVerdict: path.join(outputDir, TRANSITION_ARTIFACT_FILENAMES.budgetVerdict),
-      causalRun: path.join(outputDir, TRANSITION_ARTIFACT_FILENAMES.causalRun),
-      manifest: path.join(outputDir, TRANSITION_ARTIFACT_FILENAMES.manifest),
-      metrics: path.join(outputDir, TRANSITION_ARTIFACT_FILENAMES.metrics),
-      summary: path.join(outputDir, TRANSITION_ARTIFACT_FILENAMES.summary),
-    },
+    profile: profileArtifacts,
+    transition: profileArtifacts,
   };
 }
 
 export {
-  TRANSITION_ARTIFACT_FILENAMES,
   ARTIFACT_FILENAMES,
   ARTIFACT_LAYOUT_VERSION,
+  PROFILE_ARTIFACT_FILENAMES,
+  TRANSITION_ARTIFACT_FILENAMES,
   createArtifactLayout,
 };
 
 export type {
   ArtifactLayout,
+  ProfileArtifactPaths,
 };

@@ -77,7 +77,7 @@ async function runDemoLoop({ outputDir = path.resolve('artifacts/demo-loop') }: 
   const preflightDir = path.join(resolvedOutputDir, 'preflight', 'app-startup');
   const profileRoot = path.join(resolvedOutputDir, 'profile-runs');
   const configPath = path.join(root, 'core/config-template.json');
-  const transitionScenarioPath = path.join(root, 'examples/scenarios/ios/app-startup.json');
+  const profileScenarioPath = path.join(root, 'examples/scenarios/ios/app-startup.json');
   const mobileScenarioPath = path.join(root, 'examples/scenarios/mobile/app-startup.json');
   const runnerPath = path.join(root, 'examples/runners/xcodebuildmcp-ios.json');
   const baselineLogPath = path.join(root, 'examples/event-logs/app-startup-baseline.log');
@@ -120,14 +120,14 @@ async function runDemoLoop({ outputDir = path.resolve('artifacts/demo-loop') }: 
     config: configPath,
     events: baselineLogPath,
     out: profileRoot,
-    scenario: transitionScenarioPath,
+    scenario: profileScenarioPath,
     'run-id': 'demo-baseline',
   });
   const current = await runProfileIos({
     config: configPath,
     events: currentLogPath,
     out: profileRoot,
-    scenario: transitionScenarioPath,
+    scenario: profileScenarioPath,
     'run-id': 'demo-current',
   });
   const comparison = compareRunDirectories({

@@ -11,7 +11,7 @@ The package ships six public runner entrypoints. Package scripts build them into
 - `profile-android.ts`: reads project config, an Android scenario manifest, and an event log containing `[profile-event]` entries, then writes the current public artifact layout.
 - `profile-ios.ts`: reads project config, an iOS scenario manifest, and an event log containing `[profile-event]` entries, then writes the current public artifact layout.
 
-The artifact contract separates scenario health, product verdict, and baseline comparison into `health.json`, `verdict.json`, and optional `comparison.json`. `metrics.json` and `budget-verdict.json` remain transition artifacts while the profile runner migrates.
+The artifact contract separates scenario health, product verdict, baseline comparison, and profile evidence into schema-checked files. `health.json`, `verdict.json`, and optional `comparison.json` provide the interpretation gate; `manifest.json`, `metrics.json`, `causal-run.json`, and `budget-verdict.json` preserve the profile evidence for agents and humans.
 
 What it does not do yet:
 

@@ -651,7 +651,7 @@ function buildCausalTimeline({
 }
 
 /**
- * Builds the transition `budget-verdict.json` artifact from budget evaluation.
+ * Builds the `budget-verdict.json` profile artifact from budget evaluation.
  *
  * @param {{flowId: string, runId: string, budgetEvaluation?: Record<string, unknown> | null, visualOutcome?: Record<string, unknown> | null, baselineRunId?: string | null}} options
  * @returns {Record<string, unknown> | null}
@@ -753,7 +753,7 @@ function normalizeBudgetsForCausalRun(budgets: ArtifactRecord | null | undefined
 }
 
 /**
- * Builds the transition `causal-run.json` artifact.
+ * Builds the `causal-run.json` profile artifact.
  *
  * @param {Record<string, unknown>} options
  * @returns {Record<string, unknown>}
