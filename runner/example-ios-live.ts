@@ -8,9 +8,14 @@ const {
   parseArgs,
   runIosSimctlCapture,
 } = require('./ios-simctl');
+const {
+  compareLiveProfilesToLatest,
+  isEnabledFlag,
+} = require('./example-live-comparison');
 const { runProfileIos } = require('./profile-ios');
 
 type CliArgs = import('./ios-simctl').CliArgs;
+type ExampleLiveComparisonResult = import('./example-live-comparison').ExampleLiveComparisonResult;
 type IosLiveProofOptions = {
   delay?: (ms: number) => Promise<void>;
   executor?: import('./ios-simctl').CommandExecutor;
@@ -21,8 +26,10 @@ type IosLiveProfile = {
   runDir: string;
   runId: string;
   scenario: string;
+  scenarioId: string;
 };
 type IosLiveProofResult = {
+  comparisons: ExampleLiveComparisonResult[];
   outputDir: string;
   preflightDir: string;
   profiles: IosLiveProfile[];
@@ -33,16 +40,19 @@ const EXAMPLE_PROFILES = [
     label: 'startup',
     runId: 'ios-live-startup',
     scenario: 'app-startup.json',
+    scenarioId: 'app-startup',
   },
   {
     label: 'open-close',
     runId: 'ios-live-open-close',
     scenario: 'open-close-cycle.json',
+    scenarioId: 'open-close-cycle',
   },
   {
     label: 'scroll',
     runId: 'ios-live-scroll',
     scenario: 'scroll-settle.json',
+    scenarioId: 'scroll-settle',
   },
 ];
 
@@ -54,11 +64,12 @@ const EXAMPLE_PROFILES = [
  */
 function usage(output: { write: (message: string) => unknown } = process.stderr): void {
   writeUsage([
-    'Usage: asl-example-ios-live [--config <path>] [--out <dir>] [--bundle <id>] [--device <udid|booted>] [--xcrun <path>] [--run-suffix <label>]',
+    'Usage: asl-example-ios-live [--config <path>] [--out <dir>] [--bundle <id>] [--device <udid|booted>] [--xcrun <path>] [--run-suffix <label>] [--compare-latest]',
     '',
     'Runs the packaged example iOS live proof: simctl preflight, startup, open-close, and scroll-settle.',
     'The example app must already be installed on a booted iOS simulator and connected to Metro.',
     'Use --run-suffix to preserve multiple live proof artifact sets without changing deterministic default run ids.',
+    'Use --compare-latest to compare each passed scenario against the latest trusted prior run under the artifact root.',
   ], output);
 }
 
@@ -250,10 +261,16 @@ async function runExampleIosLiveProof(
       runDir: result.runDir,
       runId: profileRunId,
       scenario: profile.scenario,
+      scenarioId: profile.scenarioId,
     });
   }
 
+  const comparisons = isEnabledFlag(args['compare-latest'])
+    ? await compareLiveProfilesToLatest({ outputDir, profiles })
+    : [];
+
   return {
+    comparisons,
     outputDir,
     preflightDir: preflight.runDir,
     profiles,
@@ -273,6 +290,18 @@ function formatResult(result: IosLiveProofResult): string {
     ...result.profiles.map((profile) => (
       `${profile.label}: ${profile.runDir}/agent-summary.md`
     )),
+    ...(
+      result.comparisons.length > 0
+        ? [
+          'Comparisons:',
+          ...result.comparisons.map((comparison) => (
+            comparison.status === 'skipped'
+              ? `${comparison.label}: skipped - ${comparison.reason}`
+              : `${comparison.label}: ${comparison.status} ${comparison.summaryPath}`
+          )),
+        ]
+        : []
+    ),
     `Artifact root: ${result.outputDir}`,
   ].join('\n');
 }

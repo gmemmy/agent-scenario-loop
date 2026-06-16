@@ -127,12 +127,19 @@ Pass `--run-suffix <label>` to preserve multiple live proof runs for comparison 
 pnpm example:android:live -- --run-suffix before-change
 ```
 
+Add `--compare-latest` to compare each passed scenario against the latest trusted prior run under the Android artifact root. If a scenario has no prior trusted run yet, comparison is reported as skipped and the live proof still passes:
+
+```bash
+pnpm example:android:live -- --run-suffix after-change --compare-latest
+```
+
 The proof command writes:
 
 - adb preflight health under `artifacts/example-mobile-app/android/_preflight/android-live-preflight`
 - startup artifacts under `artifacts/example-mobile-app/android/app-startup/android-live-startup`
 - open-close artifacts under `artifacts/example-mobile-app/android/open-close-cycle/android-live-open-close`
 - scroll artifacts under `artifacts/example-mobile-app/android/scroll-settle/android-live-scroll`
+- optional comparison artifacts under `artifacts/example-mobile-app/android/comparisons/<scenario-id>/<run-id>`
 
 The underlying profile commands remain available when you want to isolate one scenario:
 
@@ -193,6 +200,14 @@ Pass `--run-suffix <label>` to keep multiple iOS live proof artifact sets:
 ```bash
 pnpm example:ios:live -- --run-suffix after-change
 ```
+
+Add `--compare-latest` when the aggregate proof should also compare each passed scenario against the latest trusted prior iOS run:
+
+```bash
+pnpm example:ios:live -- --run-suffix after-change --compare-latest
+```
+
+Comparison artifacts are written under `artifacts/example-mobile-app/ios/comparisons/<scenario-id>/<run-id>`.
 
 The lower-level command is:
 

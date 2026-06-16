@@ -111,6 +111,15 @@ pnpm example:android:live -- --run-suffix before-change
 pnpm example:ios:live -- --run-suffix after-change
 ```
 
+Add `--compare-latest` to have the aggregate command compare each passed scenario against the latest trusted prior run for that platform:
+
+```bash
+pnpm example:android:live -- --run-suffix after-change --compare-latest
+pnpm example:ios:live -- --run-suffix after-change --compare-latest
+```
+
+The comparison step writes `comparison.json` and `agent-summary.md` under `artifacts/example-mobile-app/<platform>/comparisons/<scenario-id>/<run-id>`. A missing prior trusted run is reported as skipped without failing an otherwise healthy live proof.
+
 The individual iOS profile commands remain useful while debugging one scenario:
 
 ```bash

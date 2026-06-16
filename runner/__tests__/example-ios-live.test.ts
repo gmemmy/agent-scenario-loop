@@ -133,7 +133,17 @@ test('runs the packaged iOS example live proof with a fake simctl executor', asy
     return { command, args, exitCode: 1, stderr: `unexpected command: ${key}`, stdout: '' };
   };
 
+  await runExampleIosLiveProof({
+    device: DEVICE_ID,
+    out: outputDir,
+  }, {
+    delay: async () => {},
+    executor,
+    packageRoot: ROOT,
+  });
+
   const result = await runExampleIosLiveProof({
+    'compare-latest': true,
     device: DEVICE_ID,
     out: outputDir,
     'run-suffix': 'PR 123',
@@ -144,7 +154,9 @@ test('runs the packaged iOS example live proof with a fake simctl executor', asy
   });
 
   assert.equal(result.profiles.length, 3);
+  assert.equal(result.comparisons.length, 3);
   assert.match(formatResult(result), /iOS example live proof passed/u);
+  assert.match(formatResult(result), /Comparisons:/u);
   assert.ok(calls.some((call) => call === `simctl launch ${DEVICE_ID} ${BUNDLE_ID}`));
   assert.deepEqual(
     result.profiles.map((profile: { runId: string }) => profile.runId),
@@ -156,5 +168,11 @@ test('runs the packaged iOS example live proof with a fake simctl executor', asy
     const verdict = JSON.parse(fs.readFileSync(path.join(profile.runDir, 'verdict.json'), 'utf8'));
     assert.equal(health.healthStatus, 'passed');
     assert.equal(verdict.verdictStatus, 'passed');
+  }
+
+  for (const comparison of result.comparisons) {
+    assert.equal(comparison.status, 'unchanged');
+    assert.equal(fs.existsSync(path.join(comparison.comparisonDir, 'comparison.json')), true);
+    assert.equal(fs.existsSync(path.join(comparison.comparisonDir, 'agent-summary.md')), true);
   }
 });

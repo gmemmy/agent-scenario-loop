@@ -1052,6 +1052,23 @@ function main(): void {
       fs.existsSync(path.join(exampleLiveRoot, '_preflight', 'android-live-preflight', 'raw', 'adb-react-native-debug-host.txt')),
       true,
     );
+    const exampleLiveCompareOutput = run(packageBinPath(installDir, 'asl-example-android-live'), [
+      '--adb',
+      fakeExampleLiveAdbPath,
+      '--out',
+      exampleLiveRoot,
+      '--wait-ms',
+      '1',
+      '--command-wait-ms',
+      '1',
+      '--run-suffix',
+      'smoke',
+      '--compare-latest',
+    ], {
+      cwd: installDir,
+      env,
+    });
+    assert.match(exampleLiveCompareOutput, /Comparisons:/u);
     for (const [scenarioDir, runId] of [
       ['app-startup', 'android-live-startup'],
       ['open-close-cycle', 'android-live-open-close'],
@@ -1063,6 +1080,15 @@ function main(): void {
       assert.equal(health.healthStatus, 'passed');
       assert.equal(verdict.verdictStatus, 'passed');
       assert.equal(fs.existsSync(path.join(runDir, 'agent-summary.md')), true);
+    }
+    for (const [scenarioDir, runId] of [
+      ['app-startup', 'android-live-startup-smoke'],
+      ['open-close-cycle', 'android-live-open-close-smoke'],
+      ['scroll-settle', 'android-live-scroll-smoke'],
+    ]) {
+      const comparisonDir = path.join(exampleLiveRoot, 'comparisons', scenarioDir, runId);
+      assert.equal(fs.existsSync(path.join(comparisonDir, 'comparison.json')), true);
+      assert.equal(fs.existsSync(path.join(comparisonDir, 'agent-summary.md')), true);
     }
 
     const exampleIosLiveRoot = path.join(tempRoot, 'example-ios-live-proof');
@@ -1109,6 +1135,23 @@ function main(): void {
       fs.readFileSync(path.join(exampleIosLiveRoot, '_preflight', 'ios-live-preflight', 'health.json'), 'utf8'),
     );
     assert.equal(exampleIosLivePreflightHealth.healthStatus, 'passed');
+    const exampleIosLiveCompareOutput = run(packageBinPath(installDir, 'asl-example-ios-live'), [
+      '--xcrun',
+      fakeExampleLiveXcrunPath,
+      '--device',
+      iosDeviceId,
+      '--out',
+      exampleIosLiveRoot,
+      '--wait-ms',
+      '1',
+      '--run-suffix',
+      'smoke',
+      '--compare-latest',
+    ], {
+      cwd: installDir,
+      env,
+    });
+    assert.match(exampleIosLiveCompareOutput, /Comparisons:/u);
     for (const [scenarioDir, runId] of [
       ['app-startup', 'ios-live-startup'],
       ['open-close-cycle', 'ios-live-open-close'],
@@ -1121,6 +1164,15 @@ function main(): void {
       assert.equal(verdict.verdictStatus, 'passed');
       assert.equal(fs.existsSync(path.join(runDir, 'agent-summary.md')), true);
       assert.equal(fs.existsSync(path.join(runDir, 'raw', 'ios-profile-events.log')), true);
+    }
+    for (const [scenarioDir, runId] of [
+      ['app-startup', 'ios-live-startup-smoke'],
+      ['open-close-cycle', 'ios-live-open-close-smoke'],
+      ['scroll-settle', 'ios-live-scroll-smoke'],
+    ]) {
+      const comparisonDir = path.join(exampleIosLiveRoot, 'comparisons', scenarioDir, runId);
+      assert.equal(fs.existsSync(path.join(comparisonDir, 'comparison.json')), true);
+      assert.equal(fs.existsSync(path.join(comparisonDir, 'agent-summary.md')), true);
     }
 
     const missingAdbRunId = 'package-smoke-missing-adb';

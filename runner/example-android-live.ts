@@ -8,9 +8,14 @@ const {
   parseArgs,
   runAndroidAdbPreflight,
 } = require('./android-adb');
+const {
+  compareLiveProfilesToLatest,
+  isEnabledFlag,
+} = require('./example-live-comparison');
 const { runProfileAndroid } = require('./profile-android');
 
 type CliArgs = import('./android-adb').CliArgs;
+type ExampleLiveComparisonResult = import('./example-live-comparison').ExampleLiveComparisonResult;
 type AndroidLiveProofOptions = {
   delay?: (ms: number) => Promise<void>;
   executor?: import('./android-adb').CommandExecutor;
@@ -21,8 +26,10 @@ type AndroidLiveProfile = {
   runDir: string;
   runId: string;
   scenario: string;
+  scenarioId: string;
 };
 type AndroidLiveProofResult = {
+  comparisons: ExampleLiveComparisonResult[];
   outputDir: string;
   preflightDir: string;
   profiles: AndroidLiveProfile[];
@@ -33,16 +40,19 @@ const EXAMPLE_PROFILES = [
     label: 'startup',
     runId: 'android-live-startup',
     scenario: 'app-startup.json',
+    scenarioId: 'app-startup',
   },
   {
     label: 'open-close',
     runId: 'android-live-open-close',
     scenario: 'open-close-cycle.json',
+    scenarioId: 'open-close-cycle',
   },
   {
     label: 'scroll',
     runId: 'android-live-scroll',
     scenario: 'scroll-settle.json',
+    scenarioId: 'scroll-settle',
   },
 ];
 const DEFAULT_REACT_NATIVE_DEBUG_HOST = 'localhost:8097';
@@ -55,12 +65,13 @@ const DEFAULT_REACT_NATIVE_DEBUG_HOST = 'localhost:8097';
  */
 function usage(output: { write: (message: string) => unknown } = process.stderr): void {
   writeUsage([
-    'Usage: asl-example-android-live [--config <path>] [--out <dir>] [--package <name>] [--serial <device>] [--react-native-debug-host <host:port>] [--run-suffix <label>]',
+    'Usage: asl-example-android-live [--config <path>] [--out <dir>] [--package <name>] [--serial <device>] [--react-native-debug-host <host:port>] [--run-suffix <label>] [--compare-latest]',
     '',
     'Runs the packaged example Android live proof: adb preflight, startup, open-close, and scroll-settle.',
     'The example app must already be installed and reachable on an online Android emulator or device.',
     `By default, the runner sets the app React Native debug host to ${DEFAULT_REACT_NATIVE_DEBUG_HOST} for the isolated Metro server.`,
     'Use --run-suffix to preserve multiple live proof artifact sets without changing deterministic default run ids.',
+    'Use --compare-latest to compare each passed scenario against the latest trusted prior run under the artifact root.',
   ], output);
 }
 
@@ -258,10 +269,16 @@ async function runExampleAndroidLiveProof(
       runDir: result.runDir,
       runId: profileRunId,
       scenario: profile.scenario,
+      scenarioId: profile.scenarioId,
     });
   }
 
+  const comparisons = isEnabledFlag(args['compare-latest'])
+    ? await compareLiveProfilesToLatest({ outputDir, profiles })
+    : [];
+
   return {
+    comparisons,
     outputDir,
     preflightDir: preflight.runDir,
     profiles,
@@ -281,6 +298,18 @@ function formatResult(result: AndroidLiveProofResult): string {
     ...result.profiles.map((profile) => (
       `${profile.label}: ${profile.runDir}/agent-summary.md`
     )),
+    ...(
+      result.comparisons.length > 0
+        ? [
+          'Comparisons:',
+          ...result.comparisons.map((comparison) => (
+            comparison.status === 'skipped'
+              ? `${comparison.label}: skipped - ${comparison.reason}`
+              : `${comparison.label}: ${comparison.status} ${comparison.summaryPath}`
+          )),
+        ]
+        : []
+    ),
     `Artifact root: ${result.outputDir}`,
   ].join('\n');
 }

@@ -104,6 +104,12 @@ Pass a run suffix when you want preserved live artifact directories for before/a
 pnpm example:android:live -- --run-suffix before-change
 ```
 
+After a baseline exists, add `--compare-latest` to run every canonical Android scenario and write comparison summaries in the same command:
+
+```bash
+pnpm example:android:live -- --run-suffix after-change --compare-latest
+```
+
 The individual live commands remain useful while debugging one scenario:
 
 ```bash
@@ -136,6 +142,12 @@ Pass a run suffix when you want preserved iOS live artifact directories:
 
 ```bash
 pnpm example:ios:live -- --run-suffix after-change
+```
+
+After a baseline exists, add `--compare-latest` to compare each passed iOS scenario against the latest trusted prior run:
+
+```bash
+pnpm example:ios:live -- --run-suffix after-change --compare-latest
 ```
 
 Each command writes simctl capture evidence under `artifacts/example-mobile-app/ios/_ios-simctl-captures/<run-id>`, collects stored app truth events into `raw/ios-profile-events.log`, then writes scenario artifacts under the matching scenario run directory.

@@ -137,8 +137,18 @@ test('runs the packaged Android example live proof with a fake adb executor', as
     return { command, args, exitCode: 1, stderr: `unexpected command: ${key}`, stdout: '' };
   };
 
+  await runExampleAndroidLiveProof({
+    adb: 'fake-adb',
+    out: outputDir,
+  }, {
+    delay: async () => {},
+    executor,
+    packageRoot: ROOT,
+  });
+
   const result = await runExampleAndroidLiveProof({
     adb: 'fake-adb',
+    'compare-latest': true,
     out: outputDir,
     'run-suffix': 'PR 123',
   }, {
@@ -148,7 +158,9 @@ test('runs the packaged Android example live proof with a fake adb executor', as
   });
 
   assert.equal(result.profiles.length, 3);
+  assert.equal(result.comparisons.length, 3);
   assert.match(formatResult(result), /Android example live proof passed/u);
+  assert.match(formatResult(result), /Comparisons:/u);
   assert.ok(calls.some((call) => call.includes('profile-session/start')));
   assert.ok(calls.some((call) => call === '-s emulator-5554 reverse tcp:8097 tcp:8097'));
   assert.ok(calls.some((call) => call.includes('debug_http_host')));
@@ -162,5 +174,11 @@ test('runs the packaged Android example live proof with a fake adb executor', as
     const verdict = JSON.parse(fs.readFileSync(path.join(profile.runDir, 'verdict.json'), 'utf8'));
     assert.equal(health.healthStatus, 'passed');
     assert.equal(verdict.verdictStatus, 'passed');
+  }
+
+  for (const comparison of result.comparisons) {
+    assert.equal(comparison.status, 'unchanged');
+    assert.equal(fs.existsSync(path.join(comparison.comparisonDir, 'comparison.json')), true);
+    assert.equal(fs.existsSync(path.join(comparison.comparisonDir, 'agent-summary.md')), true);
   }
 });
