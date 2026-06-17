@@ -184,8 +184,8 @@ test('agent-device capture preserves structured CLI errors in health metadata', 
     agentDeviceErrorHint: 'Use a different --session name or close this session first.',
     agentDeviceErrorMessage: 'Session "default" is bound to ios device and cannot be used with --platform=android.',
     driverAction: 'assertVisible',
-    nextAction: 'Inspect raw/agent-device-assert-visible.txt, confirm the device is interactive and the action metadata is valid, then rerun the capture.',
-    nextActionCode: 'inspect_agent_device_driver_action',
+    nextAction: 'The selected agent-device session is bound to another platform or device. Use a platform-specific --agent-device-session, close the bound session, or rerun without the conflicting session.',
+    nextActionCode: 'select_agent_device_session',
     selectorKind: 'testId',
     selectorValue: 'asl-example-title',
     stepId: 'assert-home-visible',
@@ -194,6 +194,48 @@ test('agent-device capture preserves structured CLI errors in health metadata', 
     fs.readFileSync(path.join(tempDir, 'raw', 'agent-device-assert-visible.txt'), 'utf8'),
     /INVALID_ARGS/u,
   );
+});
+
+test('agent-device capture points device-in-use failures at the owning session', async (t: TestContext) => {
+  const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-agent-device-device-in-use-'));
+  t.after(async () => {
+    await fsp.rm(tempDir, { recursive: true, force: true });
+  });
+  const stdout = JSON.stringify({
+    success: false,
+    error: {
+      code: 'DEVICE_IN_USE',
+      message: 'Device is already in use by session "android-example".',
+      hint: 'Retry with --debug and inspect diagnostics log for details.',
+      diagnosticId: 'diag-device-in-use',
+    },
+  });
+
+  await runAgentDeviceCapture({
+    app: 'dev.example.app',
+    executor: async (command: string, args: string[]): Promise<CommandResult> => ({
+      args,
+      command,
+      exitCode: 1,
+      stderr: '',
+      stdout,
+    }),
+    open: true,
+    outputDir: tempDir,
+    platform: 'android',
+    runId: 'agent-device-device-in-use',
+    serial: 'emulator-5554',
+  });
+
+  const health = readJson(path.join(tempDir, 'health.json'));
+  assert.deepEqual(health.checks[0].metadata, {
+    agentDeviceDiagnosticId: 'diag-device-in-use',
+    agentDeviceErrorCode: 'DEVICE_IN_USE',
+    agentDeviceErrorHint: 'Retry with --debug and inspect diagnostics log for details.',
+    agentDeviceErrorMessage: 'Device is already in use by session "android-example".',
+    nextAction: 'Device is already owned by agent-device session "android-example". Reuse that session with --agent-device-session android-example, close it, or choose another device before rerunning.',
+    nextActionCode: 'reuse_agent_device_session',
+  });
 });
 
 test('agent-device capture lets named sessions own target selection', async (t: TestContext) => {

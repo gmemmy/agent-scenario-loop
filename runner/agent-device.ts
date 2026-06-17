@@ -110,6 +110,12 @@ type AgentDeviceErrorMetadata = {
   agentDeviceErrorHint?: string;
   agentDeviceErrorMessage?: string;
 };
+type AgentDeviceFailureHintOptions = {
+  defaultNextAction: string;
+  defaultNextActionCode: string;
+  errorMetadata: AgentDeviceErrorMetadata;
+  rawFileName: string;
+};
 
 /**
  * Prints CLI usage.
@@ -306,6 +312,69 @@ function readAgentDeviceErrorMetadata(result: {stdout: string; stderr: string}):
   }
 
   return {};
+}
+
+/**
+ * Reads a quoted agent-device session name from a diagnostic message.
+ *
+ * @param {string | undefined} message
+ * @returns {string | null}
+ */
+function readDiagnosticSessionName(message: string | undefined): string | null {
+  if (!message) {
+    return null;
+  }
+
+  return /session "([^"]+)"/u.exec(message)?.[1] ?? null;
+}
+
+/**
+ * Builds the most specific next-action hint available from an agent-device failure.
+ *
+ * @param {AgentDeviceFailureHintOptions} options
+ * @returns {NextActionHint}
+ */
+function buildAgentDeviceFailureHint({
+  defaultNextAction,
+  defaultNextActionCode,
+  errorMetadata,
+  rawFileName,
+}: AgentDeviceFailureHintOptions): NextActionHint {
+  const errorCode = errorMetadata.agentDeviceErrorCode;
+  const errorMessage = errorMetadata.agentDeviceErrorMessage;
+  const sessionName = readDiagnosticSessionName(errorMessage);
+
+  if (errorCode === 'DEVICE_IN_USE') {
+    return nextActionHint(
+      'reuse_agent_device_session',
+      sessionName
+        ? `Device is already owned by agent-device session "${sessionName}". Reuse that session with --agent-device-session ${sessionName}, close it, or choose another device before rerunning.`
+        : 'Device is already owned by another agent-device session. Reuse the owning session with --agent-device-session, close it, or choose another device before rerunning.',
+    );
+  }
+
+  if (errorMessage && /bound to .* cannot be used with --platform=/u.test(errorMessage)) {
+    return nextActionHint(
+      'select_agent_device_session',
+      'The selected agent-device session is bound to another platform or device. Use a platform-specific --agent-device-session, close the bound session, or rerun without the conflicting session.',
+    );
+  }
+
+  if (errorMessage && /No active session\. Run open first/u.test(errorMessage)) {
+    return nextActionHint(
+      'open_agent_device_session',
+      `agent-device has no active session for this action. Inspect raw/${rawFileName}, make the app open step pass, or pass an existing --agent-device-session before rerunning.`,
+    );
+  }
+
+  if (errorMessage && /session lock policy/u.test(errorMessage)) {
+    return nextActionHint(
+      'fix_agent_device_session_lock',
+      'agent-device rejected the command because session lock policy conflicts with target selectors. Reuse the locked session directly, remove conflicting target selectors, or close the session before rerunning.',
+    );
+  }
+
+  return nextActionHint(defaultNextActionCode, defaultNextAction);
 }
 
 /**
@@ -662,6 +731,7 @@ async function runAgentDeviceCapture({
     } else {
       const openResult = await driver.open({ appOrUrl: app });
       raw[openResult.rawFileName] = formatAgentDeviceRawOutput(openResult);
+      const errorMetadata = openResult.exitCode !== 0 ? readAgentDeviceErrorMetadata(openResult) : {};
       checks.push({
         name: 'agent_device_opened',
         status: openResult.exitCode === 0 ? 'passed' : 'failed',
@@ -671,11 +741,13 @@ async function runAgentDeviceCapture({
         ...(openResult.exitCode !== 0
           ? {
               metadata: {
-                ...nextActionHint(
-                  'inspect_agent_device_open',
-                  `Inspect raw/${openResult.rawFileName}, confirm the selected device is available, and rerun the capture.`,
-                ),
-                ...readAgentDeviceErrorMetadata(openResult),
+                ...buildAgentDeviceFailureHint({
+                  defaultNextAction: `Inspect raw/${openResult.rawFileName}, confirm the selected device is available, and rerun the capture.`,
+                  defaultNextActionCode: 'inspect_agent_device_open',
+                  errorMetadata,
+                  rawFileName: openResult.rawFileName,
+                }),
+                ...errorMetadata,
               },
             }
           : {}),
@@ -717,6 +789,7 @@ async function runAgentDeviceCapture({
     });
     raw[driverResult.rawFileName] = formatAgentDeviceRawOutput(driverResult);
     const failed = driverResult.exitCode !== 0;
+    const errorMetadata = failed ? readAgentDeviceErrorMetadata(driverResult) : {};
     const codeSuffix = agentDeviceDriverActionCode(driverStep.driverAction);
     checks.push({
       name: `agent_device_${codeSuffix}`,
@@ -729,12 +802,14 @@ async function runAgentDeviceCapture({
       metadata: {
         driverAction: driverStep.driverAction,
         ...(failed
-          ? nextActionHint(
-              'inspect_agent_device_driver_action',
-              `Inspect raw/${driverResult.rawFileName}, confirm the device is interactive and the action metadata is valid, then rerun the capture.`,
-            )
+          ? buildAgentDeviceFailureHint({
+              defaultNextAction: `Inspect raw/${driverResult.rawFileName}, confirm the device is interactive and the action metadata is valid, then rerun the capture.`,
+              defaultNextActionCode: 'inspect_agent_device_driver_action',
+              errorMetadata,
+              rawFileName: driverResult.rawFileName,
+            })
           : {}),
-        ...(failed ? readAgentDeviceErrorMetadata(driverResult) : {}),
+        ...(failed ? errorMetadata : {}),
         ...buildAgentDeviceSelectorHealthMetadata(driverStep.selector),
         ...(driverStep.stepId ? { stepId: driverStep.stepId } : {}),
       },
