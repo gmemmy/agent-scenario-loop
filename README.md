@@ -277,7 +277,7 @@ To compare the current run against the newest trusted prior run for the same sce
 pnpm compare:latest -- --root artifacts/runs --scenario app-startup --current artifacts/runs/app-startup/current --out artifacts/runs/app-startup/current
 ```
 
-A trusted prior run must have passed both `health.json` and `verdict.json`. The current run must pass scenario health before timing or budget evidence is compared, so a broken scenario cannot accidentally become a performance claim. If the current run manifest declares `comparisonLane`, latest-trusted selection only considers trusted prior runs in that same lane. Latest-trusted comparisons also record selection counts in `comparisonBasis.selection`, including inspected candidates, trusted candidates, trusted prior candidates, trusted comparable candidates when lane-scoped, and whether the current run was skipped.
+A trusted prior run must have passed both `health.json` and `verdict.json`. The current run must pass scenario health before timing or budget evidence is compared, so a broken scenario cannot accidentally become a performance claim. If the current run manifest declares `comparisonLane`, latest-trusted selection only considers trusted prior runs in that same lane. If the current run has no lane, selection only considers unlabeled trusted prior runs. Latest-trusted comparisons also record selection counts in `comparisonBasis.selection`, including inspected candidates, trusted candidates, trusted prior candidates, trusted comparable candidates, and whether the current run was skipped.
 
 To run the complete fixture loop without a simulator:
 

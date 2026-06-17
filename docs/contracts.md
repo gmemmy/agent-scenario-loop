@@ -224,7 +224,7 @@ Use `compare:latest` when an artifact root contains run history and the agent sh
 pnpm compare:latest -- --root artifacts/runs --scenario app-startup --current artifacts/runs/app-startup/current --out artifacts/runs/app-startup/current
 ```
 
-The latest-trusted command excludes the exact current run directory from baseline selection. Baseline trust requires passed health and passed verdict. Current runs must pass scenario health before the command will compare timing or budget evidence. If the current manifest declares `comparisonLane`, baseline selection is scoped to trusted prior runs with the same lane; this keeps proof modes such as plain live proof and live proof plus agent-device sidecar from comparing against each other. Latest-trusted artifacts set `comparisonBasis.strategy` to `latest_trusted_prior` and record selection counts for inspected, trusted, trusted-prior, and lane-comparable candidates.
+The latest-trusted command excludes the exact current run directory from baseline selection. Baseline trust requires passed health and passed verdict. Current runs must pass scenario health before the command will compare timing or budget evidence. If the current manifest declares `comparisonLane`, baseline selection is scoped to trusted prior runs with the same lane; if the current manifest has no lane, selection stays within unlabeled trusted prior runs. This keeps proof modes such as plain live proof and live proof plus agent-device sidecar from comparing against each other. Latest-trusted artifacts set `comparisonBasis.strategy` to `latest_trusted_prior` and record selection counts for inspected, trusted, trusted-prior, and lane-comparable candidates.
 
 ## Fixture loop
 

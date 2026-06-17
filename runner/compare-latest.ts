@@ -105,6 +105,18 @@ function assertComparableCurrentRun({
 }
 
 /**
+ * Returns whether a historical run belongs to the requested comparison lane.
+ * Runs without an explicit lane are compared only with other unlabeled runs.
+ *
+ * @param {RunIndexEntry} entry
+ * @param {string | undefined} comparisonLane
+ * @returns {boolean}
+ */
+function isComparableLane(entry: RunIndexEntry, comparisonLane: string | undefined): boolean {
+  return comparisonLane ? entry.comparisonLane === comparisonLane : entry.comparisonLane === undefined;
+}
+
+/**
  * Finds the newest trusted run for a scenario while excluding the current run directory.
  *
  * @param {{index: RunIndex, scenarioId: string, currentDir: string, comparisonLane?: string}} options
@@ -124,7 +136,7 @@ function findLatestTrustedPriorRun({
   const resolvedCurrentDir = path.resolve(currentDir);
   return index.trusted.find((entry) => (
     entry.scenarioId === scenarioId &&
-    (comparisonLane ? entry.comparisonLane === comparisonLane : true) &&
+    isComparableLane(entry, comparisonLane) &&
     path.resolve(entry.runDir) !== resolvedCurrentDir
   )) ?? null;
 }
@@ -155,9 +167,9 @@ function buildLatestTrustedSelection({
     entry.scenarioId === scenarioId &&
     path.resolve(entry.runDir) !== resolvedCurrentDir
   ));
-  const trustedComparableCandidates = comparisonLane
-    ? trustedPriorCandidates.filter((entry) => entry.comparisonLane === comparisonLane)
-    : trustedPriorCandidates;
+  const trustedComparableCandidates = trustedPriorCandidates.filter((entry) => (
+    isComparableLane(entry, comparisonLane)
+  ));
 
   return {
     artifactRoot: rootDir,
@@ -168,7 +180,7 @@ function buildLatestTrustedSelection({
     skippedCurrentRun: index.entries.some((entry) => path.resolve(entry.runDir) === resolvedCurrentDir),
     ...(comparisonLane ? { comparisonLane } : {}),
     trustedCandidates: index.trusted.length,
-    ...(comparisonLane ? { trustedComparableCandidates: trustedComparableCandidates.length } : {}),
+    trustedComparableCandidates: trustedComparableCandidates.length,
     trustedPriorCandidates: trustedPriorCandidates.length,
   };
 }
@@ -199,7 +211,9 @@ function compareLatestTrustedRun({
     currentDir: resolvedCurrentDir,
   });
   if (!baseline) {
-    const laneSuffix = resolvedComparisonLane ? ` in comparison lane '${resolvedComparisonLane}'` : '';
+    const laneSuffix = resolvedComparisonLane
+      ? ` in comparison lane '${resolvedComparisonLane}'`
+      : ' without a comparison lane';
     throw new Error(
       `No trusted prior run found for scenario '${scenarioId}'${laneSuffix} under ${resolvedRootDir}; inspected ${index.entries.length} candidate run(s), ${index.trusted.length} trusted.`,
     );

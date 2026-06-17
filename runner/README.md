@@ -134,7 +134,7 @@ pnpm example:android:live -- --run-suffix after-change --compare-latest
 pnpm example:ios:live -- --run-suffix after-change --compare-latest
 ```
 
-The comparison step writes `comparison.json` and `agent-summary.md` under `artifacts/example-mobile-app/<platform>/comparisons/<scenario-id>/<run-id>`. The comparison artifact records `comparisonBasis`, including explicit baseline/current run folders or latest-trusted selection counts. Example live profiles also write a `comparisonLane` into `manifest.json`; latest-trusted comparison uses it to keep plain runs and agent-device-backed aggregate runs in separate baseline pools. A missing prior trusted run is reported as skipped without failing an otherwise healthy live proof.
+The comparison step writes `comparison.json` and `agent-summary.md` under `artifacts/example-mobile-app/<platform>/comparisons/<scenario-id>/<run-id>`. The comparison artifact records `comparisonBasis`, including explicit baseline/current run folders or latest-trusted selection counts. Example live profiles also write a `comparisonLane` into `manifest.json`; latest-trusted comparison uses it to keep plain runs and agent-device-backed aggregate runs in separate baseline pools. Runs without a lane compare only against other unlabeled trusted runs. A missing prior trusted run is reported as skipped without failing an otherwise healthy live proof.
 
 When the external `agent-device` CLI is available, add `--agent-device-proof` or run the package scripts below to attach the shared startup UI assertion to the aggregate proof. If `agent-device session list` shows the target device is already owned by a named session, pass `--agent-device-session <name>` so the aggregate proof reuses that session instead of contending for the device.
 

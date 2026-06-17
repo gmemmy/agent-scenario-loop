@@ -181,9 +181,54 @@ test('compares current run against latest trusted prior run', async (t: TestCont
       selectedRunId: 'older-trusted-run',
       skippedCurrentRun: true,
       trustedCandidates: 2,
+      trustedComparableCandidates: 1,
       trustedPriorCandidates: 1,
     },
   });
+});
+
+test('keeps unlabeled current runs out of labeled comparison lanes', async (t: TestContext) => {
+  const rootDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-compare-latest-unlabeled-'));
+  t.after(async () => {
+    await fsp.rm(rootDir, { recursive: true, force: true });
+  });
+  await writeRun({
+    root: rootDir,
+    runId: 'older-unlabeled-run',
+    actual: 990,
+    endedAt: '2026-06-16T10:00:00.000Z',
+  });
+  await writeRun({
+    root: rootDir,
+    runId: 'newer-labeled-run',
+    actual: 120,
+    endedAt: '2026-06-16T10:05:00.000Z',
+    comparisonLane: 'example-android-live',
+  });
+  const currentDir = await writeRun({
+    root: rootDir,
+    runId: 'current-unlabeled-run',
+    actual: 800,
+    endedAt: '2026-06-16T10:10:00.000Z',
+  });
+
+  const { stdout } = await execFileAsync(process.execPath, [
+    COMPARE_LATEST,
+    '--root',
+    rootDir,
+    '--scenario',
+    'open-close-cycle',
+    '--current',
+    currentDir,
+  ]);
+
+  const comparison = JSON.parse(stdout);
+  assert.equal(comparison.baselineRunId, 'older-unlabeled-run');
+  assert.equal(comparison.runId, 'current-unlabeled-run');
+  assert.equal(comparison.comparisonStatus, 'better');
+  assert.equal(comparison.comparisonBasis.selection.trustedPriorCandidates, 2);
+  assert.equal(comparison.comparisonBasis.selection.trustedComparableCandidates, 1);
+  assert.equal(comparison.comparisonBasis.selection.comparisonLane, undefined);
 });
 
 test('filters latest trusted prior runs by current comparison lane', async (t: TestContext) => {
