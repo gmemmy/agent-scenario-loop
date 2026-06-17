@@ -140,7 +140,7 @@ pnpm example:android:live -- --run-suffix after-change --compare-latest
 When `agent-device` is available, the stronger aggregate path attaches the shared startup UI assertion as an interaction proof. If `agent-device session list` shows the emulator is already owned by a named session, pass that session with `--agent-device-session <name>`:
 
 ```bash
-pnpm example:android:live:agent-device
+pnpm example:android:live:agent-device -- --agent-device-session <name> --run-suffix after-change --compare-latest
 ```
 
 The proof command writes:
@@ -231,7 +231,7 @@ pnpm example:ios:live -- --run-suffix after-change --compare-latest
 When `agent-device` is available, the stronger aggregate path attaches the same startup UI assertion used by Android. Reuse the active agent-device session with `--agent-device-session <name>` when the simulator is already owned by one:
 
 ```bash
-pnpm example:ios:live:agent-device
+pnpm example:ios:live:agent-device -- --agent-device-session <name> --run-suffix after-change --compare-latest
 ```
 
 Comparison artifacts are written under `artifacts/example-mobile-app/ios/comparisons/<scenario-id>/<run-id>`.

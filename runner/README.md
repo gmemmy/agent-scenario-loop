@@ -137,8 +137,8 @@ The comparison step writes `comparison.json` and `agent-summary.md` under `artif
 When the external `agent-device` CLI is available, add `--agent-device-proof` or run the package scripts below to attach the shared startup UI assertion to the aggregate proof. If `agent-device session list` shows the target device is already owned by a named session, pass `--agent-device-session <name>` so the aggregate proof reuses that session instead of contending for the device.
 
 ```bash
-pnpm example:android:live:agent-device
-pnpm example:ios:live:agent-device
+pnpm example:android:live:agent-device -- --agent-device-session <name> --run-suffix after-change --compare-latest
+pnpm example:ios:live:agent-device -- --agent-device-session <name> --run-suffix after-change --compare-latest
 ```
 
 Each aggregate live proof also writes `_live-proof/<run-id>/live-proof.json` and `_live-proof/<run-id>/agent-summary.md`, giving agents one batch entrypoint that links preflight evidence, scenario run summaries, per-profile health/verdict statuses, optional interaction proofs, optional comparisons, and aggregate comparison counts.
