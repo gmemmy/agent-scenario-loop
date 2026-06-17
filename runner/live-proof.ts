@@ -41,6 +41,11 @@ type LiveProofArtifact = {
     verdictStatus: string;
   }>;
   platform: string;
+  preflight: {
+    healthStatus: string;
+    runId: string;
+    verdictStatus: string;
+  };
   profiles: Array<{
     healthStatus: string;
     label: string;
@@ -312,6 +317,7 @@ function formatLiveProof(proof: LiveProofArtifact): string {
     `Live proof: ${proof.platform} ${proof.runId}`,
     `Status: ${proof.status}`,
     `Comparison status: ${proof.comparisonStatus}`,
+    `Preflight: ${proof.preflight.runId} health=${proof.preflight.healthStatus} verdict=${proof.preflight.verdictStatus}`,
     `Profiles: ${proof.profiles.length}`,
     ...proof.profiles.map((profile) => (
       `- ${profile.label} (${profile.scenarioId}/${profile.runId}): health=${profile.healthStatus} verdict=${profile.verdictStatus}`

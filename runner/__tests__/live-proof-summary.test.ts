@@ -141,6 +141,8 @@ test('writes optional interaction proof pointers into aggregate live proof artif
     }),
     'utf8',
   );
+  await fsp.writeFile(path.join(preflightDir, 'health.json'), '{"healthStatus":"passed"}\n', 'utf8');
+  await fsp.writeFile(path.join(preflightDir, 'verdict.json'), '{"verdictStatus":"not_evaluated"}\n', 'utf8');
 
   const result = await writeLiveProofSummary({
     comparisons: [],
@@ -170,6 +172,16 @@ test('writes optional interaction proof pointers into aggregate live proof artif
 
   const artifact = JSON.parse(fs.readFileSync(result.liveProofPath, 'utf8'));
   assert.equal(artifact.summary, 'android live proof passed 1 profile run(s) and 1 interaction proof(s) without comparison results.');
+  assert.deepEqual(
+    {
+      healthStatus: artifact.preflight.healthStatus,
+      verdictStatus: artifact.preflight.verdictStatus,
+    },
+    {
+      healthStatus: 'passed',
+      verdictStatus: 'not_evaluated',
+    },
+  );
   assert.deepEqual(
     artifact.interactionProofs.map((proof: { captures?: { screenshots: string[] }; healthStatus: string; label: string; runnerId: string; summaryPath: string }) => ({
       captures: proof.captures,

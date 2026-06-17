@@ -66,9 +66,11 @@ type LiveProofArtifact = {
   platform: LiveProofPlatform;
   interactionProofs?: Array<LiveProofInteractionProofPointer & { summaryPath: string }>;
   preflight: {
+    healthStatus: string;
     runDir: string;
     runId: string;
     summaryPath: string;
+    verdictStatus: string;
   };
   profiles: Array<LiveProofProfilePointer & { summaryPath: string }>;
   runId: string;
@@ -439,6 +441,7 @@ async function writeLiveProofSummary({
         }
       : {}),
     preflight: {
+      ...readProfileRunStatus(preflightDir),
       runDir: preflightDir,
       runId: preflightRunId,
       summaryPath: path.join(preflightDir, 'agent-summary.md'),

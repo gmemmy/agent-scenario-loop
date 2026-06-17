@@ -574,9 +574,11 @@ test('accepts aggregate live proof artifacts', () => {
     status: 'passed',
     outputDir: 'artifacts/example-mobile-app/android',
     preflight: {
+      healthStatus: 'passed',
       runId: 'android-live-preflight-after-change',
       runDir: 'artifacts/example-mobile-app/android/_preflight/android-live-preflight-after-change',
       summaryPath: 'artifacts/example-mobile-app/android/_preflight/android-live-preflight-after-change/agent-summary.md',
+      verdictStatus: 'not_evaluated',
     },
     profiles: [
       {

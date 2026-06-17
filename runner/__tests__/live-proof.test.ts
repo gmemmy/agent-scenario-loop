@@ -36,9 +36,11 @@ function buildProof(comparisonStatus: 'mixed' | 'regressed' | 'unchanged'): Reco
     status: 'passed',
     outputDir: 'artifacts/example-mobile-app/android',
     preflight: {
+      healthStatus: 'passed',
       runId: 'android-live-preflight',
       runDir: 'artifacts/example-mobile-app/android/_preflight/android-live-preflight',
       summaryPath: 'artifacts/example-mobile-app/android/_preflight/android-live-preflight/agent-summary.md',
+      verdictStatus: 'not_evaluated',
     },
     profiles: [
       {
@@ -274,6 +276,7 @@ test('reads, validates, and formats live-proof artifacts', async (t: TestContext
 
   assert.equal(proof.comparisonStatus, 'unchanged');
   assert.match(output, /Live proof: android android-live-proof/u);
+  assert.match(output, /Preflight: android-live-preflight health=passed verdict=not_evaluated/u);
   assert.match(output, /startup \(app-startup\/android-live-startup\): health=passed verdict=passed/u);
   assert.match(output, /startup-ui \(agent-device\/app-startup\/agent-device-startup\): health=passed verdict=not_evaluated screenshots=1/u);
   assert.match(output, /Comparison counts: better=0 worse=0 unchanged=1 mixed=0 inconclusive=0 skipped=0/u);

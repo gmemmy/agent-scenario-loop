@@ -76,7 +76,7 @@
     "runPointer": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["runId", "runDir", "summaryPath"],
+      "required": ["runId", "runDir", "summaryPath", "healthStatus", "verdictStatus"],
       "properties": {
         "runId": {
           "type": "string"
@@ -86,6 +86,14 @@
         },
         "summaryPath": {
           "type": "string"
+        },
+        "healthStatus": {
+          "type": "string",
+          "enum": ["passed", "failed", "partial"]
+        },
+        "verdictStatus": {
+          "type": "string",
+          "enum": ["passed", "failed", "inconclusive", "not_evaluated"]
         }
       }
     },
