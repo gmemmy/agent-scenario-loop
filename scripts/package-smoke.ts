@@ -521,6 +521,40 @@ function writeSmokeRun({
 }
 
 /**
+ * Asserts that an installed-package comparison carries latest-trusted provenance.
+ *
+ * @param {{artifactRoot: string, baselineRunDir: string, baselineRunId: string, comparison: Record<string, any>, currentRunDir: string, currentRunId: string}} options
+ * @returns {void}
+ */
+function assertLatestTrustedComparisonBasis({
+  artifactRoot,
+  baselineRunDir,
+  baselineRunId,
+  comparison,
+  currentRunDir,
+  currentRunId,
+}: {
+  artifactRoot: string;
+  baselineRunDir: string;
+  baselineRunId: string;
+  comparison: Record<string, any>;
+  currentRunDir: string;
+  currentRunId: string;
+}): void {
+  assert.equal(comparison.comparisonBasis.strategy, 'latest_trusted_prior');
+  assert.equal(comparison.comparisonBasis.baseline.runId, baselineRunId);
+  assert.equal(comparison.comparisonBasis.baseline.runDir, baselineRunDir);
+  assert.equal(comparison.comparisonBasis.current.runId, currentRunId);
+  assert.equal(comparison.comparisonBasis.current.runDir, currentRunDir);
+  assert.equal(comparison.comparisonBasis.selection.artifactRoot, artifactRoot);
+  assert.equal(comparison.comparisonBasis.selection.selectedRunId, baselineRunId);
+  assert.equal(comparison.comparisonBasis.selection.selectedRunDir, baselineRunDir);
+  assert.equal(comparison.comparisonBasis.selection.scenarioId, comparison.scenarioId);
+  assert.equal(comparison.comparisonBasis.selection.skippedCurrentRun, true);
+  assert.equal(comparison.comparisonBasis.selection.trustedPriorCandidates >= 1, true);
+}
+
+/**
  * Returns the platform-specific path for a package binary in a temp install.
  *
  * @param {string} installDir
@@ -1255,9 +1289,19 @@ function main(): void {
       ['app-startup', 'android-live-startup-smoke'],
       ['open-close-cycle', 'android-live-open-close-smoke'],
       ['scroll-settle', 'android-live-scroll-smoke'],
-    ]) {
+    ] as const) {
+      const baselineRunId = runId.replace(/-smoke$/u, '');
       const comparisonDir = path.join(exampleLiveRoot, 'comparisons', scenarioDir, runId);
-      assert.equal(fs.existsSync(path.join(comparisonDir, 'comparison.json')), true);
+      const comparisonPath = path.join(comparisonDir, 'comparison.json');
+      const comparison = JSON.parse(fs.readFileSync(comparisonPath, 'utf8'));
+      assertLatestTrustedComparisonBasis({
+        artifactRoot: exampleLiveRoot,
+        baselineRunDir: path.join(exampleLiveRoot, scenarioDir, baselineRunId),
+        baselineRunId,
+        comparison,
+        currentRunDir: path.join(exampleLiveRoot, scenarioDir, runId),
+        currentRunId: runId,
+      });
       assert.equal(fs.existsSync(path.join(comparisonDir, 'agent-summary.md')), true);
     }
 
@@ -1379,9 +1423,19 @@ function main(): void {
       ['app-startup', 'ios-live-startup-smoke'],
       ['open-close-cycle', 'ios-live-open-close-smoke'],
       ['scroll-settle', 'ios-live-scroll-smoke'],
-    ]) {
+    ] as const) {
+      const baselineRunId = runId.replace(/-smoke$/u, '');
       const comparisonDir = path.join(exampleIosLiveRoot, 'comparisons', scenarioDir, runId);
-      assert.equal(fs.existsSync(path.join(comparisonDir, 'comparison.json')), true);
+      const comparisonPath = path.join(comparisonDir, 'comparison.json');
+      const comparison = JSON.parse(fs.readFileSync(comparisonPath, 'utf8'));
+      assertLatestTrustedComparisonBasis({
+        artifactRoot: exampleIosLiveRoot,
+        baselineRunDir: path.join(exampleIosLiveRoot, scenarioDir, baselineRunId),
+        baselineRunId,
+        comparison,
+        currentRunDir: path.join(exampleIosLiveRoot, scenarioDir, runId),
+        currentRunId: runId,
+      });
       assert.equal(fs.existsSync(path.join(comparisonDir, 'agent-summary.md')), true);
     }
 
@@ -1464,6 +1518,14 @@ function main(): void {
     assert.equal(latestComparison.baselineRunId, 'baseline-run');
     assert.equal(latestComparison.runId, 'current-run');
     assert.equal(latestComparison.comparisonStatus, 'better');
+    assertLatestTrustedComparisonBasis({
+      artifactRoot: latestCompareRoot,
+      baselineRunDir: path.join(latestCompareRoot, 'app-startup', 'baseline-run'),
+      baselineRunId: 'baseline-run',
+      comparison: latestComparison,
+      currentRunDir: latestCompareCurrentDir,
+      currentRunId: 'current-run',
+    });
     assert.equal(fs.existsSync(path.join(latestCompareOutputDir, 'agent-summary.md')), true);
 
     const resolveSmokeScript = [
