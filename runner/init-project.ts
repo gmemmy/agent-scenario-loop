@@ -38,6 +38,7 @@ type InitProjectResult = {
 const TEMPLATE_FILES = {
   config: 'project.config.json',
   evidenceProvider: 'evidence-provider.json',
+  gitignoreSnippet: 'gitignore-snippet',
   integrationReadme: 'integration-readme.md',
   packageScripts: 'package-scripts.json',
   primaryRunner: 'primary-runner.json',
@@ -170,6 +171,10 @@ function buildScaffoldFiles({
       destination: path.join(targetDir, 'asl', 'package-scripts.json'),
       scenarioId,
       transform: 'template',
+    },
+    {
+      source: path.join(templatesRoot, TEMPLATE_FILES.gitignoreSnippet),
+      destination: path.join(targetDir, 'asl', 'gitignore-snippet'),
     },
     {
       source: path.join(packageRoot, 'app', 'profile-session.ts'),

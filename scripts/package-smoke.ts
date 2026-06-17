@@ -111,7 +111,7 @@ const PACKED_FILE_ALLOWLIST = [
   /^docs\/[a-z-]+\.md$/u,
   /^examples\/.+/u,
   /^schemas\/[a-z-]+\.schema\.json$/u,
-  /^templates\/[a-z0-9.-]+\.(?:json|md)$/u,
+  /^templates\/[a-z0-9.-]+(?:\.(?:json|md))?$/u,
 ];
 
 /**
@@ -629,6 +629,7 @@ function main(): void {
     assert.equal(fs.existsSync(path.join(initOutputDir, 'runner-manifests', 'primary-runner.json')), true);
     assert.equal(fs.existsSync(path.join(initOutputDir, 'runner-manifests', 'evidence-provider.json')), true);
     assert.equal(fs.existsSync(path.join(initOutputDir, 'asl', 'README.md')), true);
+    assert.equal(fs.existsSync(path.join(initOutputDir, 'asl', 'gitignore-snippet')), true);
     assert.equal(fs.existsSync(path.join(initOutputDir, 'asl', 'package-scripts.json')), true);
     assert.equal(fs.existsSync(path.join(initOutputDir, 'src', 'devtools', 'profile-session.ts')), true);
     assert.equal(
@@ -647,6 +648,27 @@ function main(): void {
       JSON.parse(fs.readFileSync(path.join(initOutputDir, 'asl', 'package-scripts.json'), 'utf8'))['asl:check:ios'],
       /checkout-submit/u,
     );
+    assert.match(
+      fs.readFileSync(path.join(initOutputDir, 'asl', 'gitignore-snippet'), 'utf8'),
+      /artifacts\/asl\//u,
+    );
+    for (const platform of ['ios', 'android']) {
+      run(packageBinPath(installDir, 'asl-check-plan'), [
+        '--scenario',
+        path.join(initOutputDir, 'scenarios', 'mobile', 'checkout-submit.json'),
+        '--runner',
+        path.join(initOutputDir, 'runner-manifests', 'primary-runner.json'),
+        '--platform',
+        platform,
+        '--run-id',
+        `initialized-${platform}`,
+        '--out',
+        path.join(initOutputDir, 'artifacts', 'asl', 'plan', `checkout-submit-${platform}`),
+      ], {
+        cwd: initOutputDir,
+        env,
+      });
+    }
 
     for (const binaryName of Object.keys(packageJson.bin).sort()) {
       const helpText = run(packageBinPath(installDir, binaryName), ['--help'], {
@@ -1395,6 +1417,7 @@ function main(): void {
       "require.resolve('agent-scenario-loop/templates/mobile-scenario.json');",
       "require.resolve('agent-scenario-loop/templates/primary-runner.json');",
       "require.resolve('agent-scenario-loop/templates/evidence-provider.json');",
+      "require.resolve('agent-scenario-loop/templates/gitignore-snippet');",
       "require.resolve('agent-scenario-loop/templates/integration-readme.md');",
       "require.resolve('agent-scenario-loop/templates/package-scripts.json');",
       "for (const scenarioFixture of listJsonFiles('examples/scenarios/mobile')) {",

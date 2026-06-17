@@ -19,8 +19,9 @@ That creates:
 - `src/devtools/profile-session.ts`
 - `asl/README.md`
 - `asl/package-scripts.json`
+- `asl/gitignore-snippet`
 
-The command refuses to overwrite existing files unless `--force` is provided. Use `--dry-run` to preview the file list without writing. It does not edit your existing `package.json`; merge the generated script snippets intentionally.
+The command refuses to overwrite existing files unless `--force` is provided. Use `--dry-run` to preview the file list without writing. It does not edit your existing `package.json` or `.gitignore`; merge the generated script and ignore snippets intentionally.
 
 ## Templates
 
