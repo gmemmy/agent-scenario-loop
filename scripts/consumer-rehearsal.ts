@@ -17,6 +17,12 @@ type ExecFileSyncError = Error & {
   stdout?: Buffer | string;
 };
 
+type FailedRunOutput = {
+  status: number | null;
+  stderr: string;
+  stdout: string;
+};
+
 /**
  * Creates a clean npm environment for local tarball install rehearsals.
  *
@@ -58,6 +64,37 @@ function run(command: string, args: string[], options: RunOptions): string {
     const failed = error as ExecFileSyncError;
     const stdout = Buffer.isBuffer(failed.stdout) ? failed.stdout.toString('utf8') : String(failed.stdout ?? '');
     throw new Error(`${command} ${args.join(' ')} failed with status ${failed.status ?? 'unknown'}\n${stdout}`);
+  }
+}
+
+/**
+ * Runs a command that must fail and returns captured output.
+ *
+ * @param {string} command
+ * @param {string[]} args
+ * @param {RunOptions} options
+ * @returns {FailedRunOutput}
+ */
+function runExpectFailure(command: string, args: string[], options: RunOptions): FailedRunOutput {
+  try {
+    const stdout = execFileSync(command, args, {
+      cwd: options.cwd,
+      encoding: 'utf8',
+      env: options.env,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    throw new Error(`Expected command to fail, but it passed with stdout: ${stdout}`);
+  } catch (error) {
+    const failed = error as ExecFileSyncError;
+    if (failed.message.startsWith('Expected command to fail')) {
+      throw failed;
+    }
+
+    return {
+      status: failed.status ?? null,
+      stderr: Buffer.isBuffer(failed.stderr) ? failed.stderr.toString('utf8') : String(failed.stderr ?? ''),
+      stdout: Buffer.isBuffer(failed.stdout) ? failed.stdout.toString('utf8') : String(failed.stdout ?? ''),
+    };
   }
 }
 
@@ -253,6 +290,56 @@ function replaceConfigPlaceholders(appRoot: string): void {
 }
 
 /**
+ * Asserts that installed project validation rejects stale merged package scripts.
+ *
+ * @param {{appRoot: string, env: NodeJS.ProcessEnv}} options
+ * @returns {void}
+ */
+function assertPackageScriptDriftFails({
+  appRoot,
+  env,
+}: {
+  appRoot: string;
+  env: NodeJS.ProcessEnv;
+}): void {
+  const packagePath = path.join(appRoot, 'package.json');
+  const packageJson = readJson(packagePath) as { scripts: Record<string, string> };
+  packageJson.scripts['asl:profile:android'] = [
+    'asl-profile-android',
+    '--config asl.config.json',
+    '--scenario scenarios/mobile/account-overview.json',
+    '--comparison-lane stale-android',
+    '--out artifacts/asl/android/stale',
+    '--run-id stale-android',
+  ].join(' ');
+  writeJson(packagePath, packageJson);
+
+  const outDir = path.join(appRoot, 'artifacts', 'asl', 'project-validation-drift');
+  const failure = runExpectFailure(packageBinPath(appRoot, 'asl-validate-project'), [
+    '--root',
+    appRoot,
+    '--platform',
+    'all',
+    '--out',
+    outDir,
+  ], {
+    cwd: appRoot,
+    env,
+  });
+  assert.notEqual(failure.status, 0);
+  assert.match(failure.stdout, /project validation failed/u);
+  assert.match(failure.stdout, /App package\.json ASL script\(s\) differ/u);
+
+  const validation = readJson(path.join(outDir, 'project-validation.json')) as Record<string, any>;
+  assert.equal(validation.status, 'failed');
+  assert.deepEqual(validation.scripts.mismatchedPackageJsonScripts, ['asl:profile:android']);
+  assert.equal(
+    validation.nextActions.some((action: { code: string }) => action.code === 'merge_package_scripts'),
+    true,
+  );
+}
+
+/**
  * Asserts that the installed package can initialize and validate an existing app.
  *
  * @param {{appRoot: string, env: NodeJS.ProcessEnv, tarballPath: string}} options
@@ -406,6 +493,8 @@ function rehearseConsumerInstall({
       ],
     );
   }
+
+  assertPackageScriptDriftFails({ appRoot, env });
 }
 
 /**
@@ -456,6 +545,7 @@ export {
   rehearseConsumerInstall,
   replaceConfigPlaceholders,
   run,
+  runExpectFailure,
   writeExistingAppFixture,
   writeProfileEventFixtures,
   writeJson,
