@@ -288,7 +288,7 @@ To rehearse adoption in an existing app-shaped project from the packed tarball:
 pnpm consumer:rehearse
 ```
 
-That command creates a temporary existing app, installs the packed package, runs `asl-init`, merges `asl/package-scripts.json` into the app `package.json`, replaces scaffold placeholders with app identifiers, runs both platform plan scripts, and validates the initialized project through the installed `asl-validate-project` binary. The generated script contract includes fixture profile, portable agent-device interaction proof, live profile, compare, and live-proof inspection commands.
+That command creates a temporary existing app, installs the packed package, runs `asl-init`, merges `asl/package-scripts.json` into the app `package.json`, replaces scaffold placeholders with app identifiers, runs both platform plan scripts, runs generated fixture profile scripts against deterministic event logs, and validates the initialized project through the installed `asl-validate-project` binary. The generated script contract includes fixture profile, portable agent-device interaction proof, live profile, compare, and live-proof inspection commands.
 
 Read next: [Contracts](docs/contracts.md) for the artifact layout and supported runner surface.
 
