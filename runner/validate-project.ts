@@ -31,9 +31,12 @@ type ProjectValidationAppHelper = {
 };
 
 type ProjectValidationConfig = {
+  customDrivers: string[];
+  externalTargetDrivers: string[];
   invalidFields: string[];
   missingFields: string[];
   missingSupportedDrivers: string[];
+  packageSupportedDrivers: string[];
   path: string;
   status: 'present' | 'missing' | 'incomplete';
   supportedDrivers: string[];
@@ -315,6 +318,10 @@ const REQUIRED_SUPPORTED_DRIVERS = [
   'argent',
 ];
 
+const KNOWN_EXTERNAL_TARGET_DRIVERS = [
+  'xcodebuildmcp',
+];
+
 /**
  * Prints CLI usage.
  *
@@ -575,9 +582,12 @@ function validateProjectConfig({
 }): ProjectValidationConfig {
   if (!fs.existsSync(configPath)) {
     return {
+      customDrivers: [],
+      externalTargetDrivers: [],
       invalidFields: [],
       missingFields: [],
       missingSupportedDrivers: REQUIRED_SUPPORTED_DRIVERS,
+      packageSupportedDrivers: [],
       path: configPath,
       status: 'missing',
       supportedDrivers: [],
@@ -616,11 +626,23 @@ function validateProjectConfig({
     : [];
   const missingSupportedDrivers = REQUIRED_SUPPORTED_DRIVERS
     .filter((driver) => !supportedDrivers.includes(driver));
+  const packageSupportedDrivers = supportedDrivers
+    .filter((driver) => REQUIRED_SUPPORTED_DRIVERS.includes(driver));
+  const externalTargetDrivers = supportedDrivers
+    .filter((driver) => KNOWN_EXTERNAL_TARGET_DRIVERS.includes(driver));
+  const customDrivers = supportedDrivers
+    .filter((driver) => (
+      !REQUIRED_SUPPORTED_DRIVERS.includes(driver) &&
+      !KNOWN_EXTERNAL_TARGET_DRIVERS.includes(driver)
+    ));
 
   return {
+    customDrivers,
+    externalTargetDrivers,
     invalidFields,
     missingFields,
     missingSupportedDrivers,
+    packageSupportedDrivers,
     path: configPath,
     status: missingFields.length > 0 || invalidFields.length > 0 || missingSupportedDrivers.length > 0
       ? 'incomplete'
@@ -1352,6 +1374,9 @@ function formatResult(result: ProjectValidationResult): string {
     `Config: ${result.configPath}`,
     `Config status: ${result.config.status}`,
     `Supported drivers: ${result.config.supportedDrivers.length > 0 ? result.config.supportedDrivers.join(', ') : 'none'}`,
+    `Package-supported drivers: ${result.config.packageSupportedDrivers.length > 0 ? result.config.packageSupportedDrivers.join(', ') : 'none'}`,
+    `External target drivers: ${result.config.externalTargetDrivers.length > 0 ? result.config.externalTargetDrivers.join(', ') : 'none'}`,
+    `Custom drivers: ${result.config.customDrivers.length > 0 ? result.config.customDrivers.join(', ') : 'none'}`,
     `App helper: ${result.appHelper.status}`,
     `Gitignore: ${result.gitignore.status}`,
     `Package scripts: ${result.scripts.status}`,

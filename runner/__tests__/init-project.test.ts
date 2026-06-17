@@ -68,7 +68,7 @@ test('init-project scaffolds templates into a consuming app layout', async (t: T
   assert.equal(readJson(path.join(targetDir, 'asl.config.json')).projectName, 'replace-me');
   assert.deepEqual(readJson(path.join(targetDir, 'asl.config.json')).drivers, {
     default: 'fixture-log-ingest',
-    supported: ['fixture-log-ingest', 'adb', 'ios-simctl', 'agent-device', 'argent'],
+    supported: ['fixture-log-ingest', 'adb', 'ios-simctl', 'agent-device', 'argent', 'xcodebuildmcp'],
   });
   assert.equal(readJson(path.join(targetDir, 'scenarios', 'mobile', 'checkout-submit.json')).id, 'checkout-submit');
   assert.equal(readJson(path.join(targetDir, 'scenarios', 'mobile', 'checkout-submit.json')).flowId, 'checkout-submit');

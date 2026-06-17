@@ -507,7 +507,10 @@ function rehearseConsumerInstall({
   const validation = readJson(validationPath) as Record<string, any>;
   assert.equal(validation.status, 'passed');
   assert.equal(validation.appHelper.status, 'present');
-  assert.deepEqual(validation.config.supportedDrivers, ['adb', 'agent-device', 'argent', 'fixture-log-ingest', 'ios-simctl']);
+  assert.deepEqual(validation.config.customDrivers, []);
+  assert.deepEqual(validation.config.externalTargetDrivers, ['xcodebuildmcp']);
+  assert.deepEqual(validation.config.packageSupportedDrivers, ['adb', 'agent-device', 'argent', 'fixture-log-ingest', 'ios-simctl']);
+  assert.deepEqual(validation.config.supportedDrivers, ['adb', 'agent-device', 'argent', 'fixture-log-ingest', 'ios-simctl', 'xcodebuildmcp']);
   assert.deepEqual(validation.config.missingSupportedDrivers, []);
   assert.equal(validation.scripts.status, 'present');
   assert.equal(validation.scripts.packageJsonStatus, 'present');

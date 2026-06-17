@@ -86,8 +86,11 @@ test('validates an initialized project for iOS and Android', async (t: TestConte
 
   assert.equal(result.status, 'passed');
   assert.equal(result.config.status, 'present');
+  assert.deepEqual(result.config.customDrivers, []);
+  assert.deepEqual(result.config.externalTargetDrivers, ['xcodebuildmcp']);
   assert.deepEqual(result.config.missingSupportedDrivers, []);
-  assert.deepEqual(result.config.supportedDrivers, ['adb', 'agent-device', 'argent', 'fixture-log-ingest', 'ios-simctl']);
+  assert.deepEqual(result.config.packageSupportedDrivers, ['adb', 'agent-device', 'argent', 'fixture-log-ingest', 'ios-simctl']);
+  assert.deepEqual(result.config.supportedDrivers, ['adb', 'agent-device', 'argent', 'fixture-log-ingest', 'ios-simctl', 'xcodebuildmcp']);
   assert.equal(result.appHelper.status, 'present');
   assert.equal(result.gitignore.status, 'missing');
   assert.equal(result.scripts.status, 'present');
@@ -199,10 +202,11 @@ test('validates platform-specific project config fields', async (t: TestContext)
   );
   assert.equal(actionCodes(result).includes('fix_project_config'), true);
 
-  config.drivers.supported = ['fixture-log-ingest', 'adb', 'ios-simctl', 'agent-device', 'argent'];
+  config.drivers.supported = ['fixture-log-ingest', 'adb', 'ios-simctl', 'agent-device', 'argent', 'custom-driver'];
   await fsp.writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
   result = await validateProject({ rootDir: targetDir });
   assert.equal(result.status, 'passed');
+  assert.deepEqual(result.config.customDrivers, ['custom-driver']);
 
   config.drivers.supported = 'adb';
   await fsp.writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8');

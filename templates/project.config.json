@@ -20,7 +20,7 @@
   },
   "drivers": {
     "default": "fixture-log-ingest",
-    "supported": ["fixture-log-ingest", "adb", "ios-simctl", "agent-device", "argent"]
+    "supported": ["fixture-log-ingest", "adb", "ios-simctl", "agent-device", "argent", "xcodebuildmcp"]
   },
   "versionControl": {
     "commit": [

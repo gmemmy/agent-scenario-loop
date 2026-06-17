@@ -135,8 +135,20 @@
     "config": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["invalidFields", "missingFields", "missingSupportedDrivers", "path", "status", "supportedDrivers"],
+      "required": ["customDrivers", "externalTargetDrivers", "invalidFields", "missingFields", "missingSupportedDrivers", "packageSupportedDrivers", "path", "status", "supportedDrivers"],
       "properties": {
+        "customDrivers": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "externalTargetDrivers": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
         "invalidFields": {
           "type": "array",
           "items": {
@@ -150,6 +162,12 @@
           }
         },
         "missingSupportedDrivers": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "packageSupportedDrivers": {
           "type": "array",
           "items": {
             "type": "string"

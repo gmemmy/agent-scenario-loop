@@ -779,7 +779,7 @@ function main(): void {
     const initializedConfig = JSON.parse(
       fs.readFileSync(path.join(initOutputDir, 'asl.config.json'), 'utf8'),
     );
-    assert.deepEqual(initializedConfig.drivers?.supported, ['fixture-log-ingest', 'adb', 'ios-simctl', 'agent-device', 'argent']);
+    assert.deepEqual(initializedConfig.drivers?.supported, ['fixture-log-ingest', 'adb', 'ios-simctl', 'agent-device', 'argent', 'xcodebuildmcp']);
     fs.writeFileSync(
       path.join(initOutputDir, 'package.json'),
       `${JSON.stringify({
@@ -911,7 +911,10 @@ function main(): void {
     );
     assert.equal(initializedValidation.scripts.status, 'present');
     assert.equal(initializedValidation.scripts.packageJsonStatus, 'present');
-    assert.deepEqual(initializedValidation.config.supportedDrivers, ['adb', 'agent-device', 'argent', 'fixture-log-ingest', 'ios-simctl']);
+    assert.deepEqual(initializedValidation.config.customDrivers, []);
+    assert.deepEqual(initializedValidation.config.externalTargetDrivers, ['xcodebuildmcp']);
+    assert.deepEqual(initializedValidation.config.packageSupportedDrivers, ['adb', 'agent-device', 'argent', 'fixture-log-ingest', 'ios-simctl']);
+    assert.deepEqual(initializedValidation.config.supportedDrivers, ['adb', 'agent-device', 'argent', 'fixture-log-ingest', 'ios-simctl', 'xcodebuildmcp']);
     assert.deepEqual(initializedValidation.config.missingSupportedDrivers, []);
     assert.equal(
       initializedValidation.nextActions.some((action: { code: string }) => action.code === 'replace_config_placeholders'),
