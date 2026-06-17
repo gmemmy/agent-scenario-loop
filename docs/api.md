@@ -13,6 +13,7 @@ const {
   buildRunIndex,
   compareRunDirectories,
   createArtifactLayout,
+  dispatchDriverAction,
   evaluateRunnerCompatibility,
   validateJson,
 } = require('agent-scenario-loop');
@@ -24,13 +25,15 @@ The root package is for stable, runner-neutral behavior:
 - profile-event parsing, metrics, manifests, causal runs, budget verdicts, and summaries
 - scenario execution-plan normalization
 - scenario/runner/provider compatibility checks
-- port validation helpers
+- port validation and driver dispatch helpers
 - typed port contracts for primary runners, drivers, evidence providers, artifact writers, and interpreters
 - evidence interpretation gates
 - run indexing and lane-aware latest-trusted comparison selection
 - comparison artifacts
 - aggregate live-proof artifacts
 - schema validation
+
+Use `dispatchDriverAction()` when a runner has already normalized a scenario step and needs to call the active `DriverPort` implementation without binding to adb, simctl, agent-device, Argent, or another concrete tool.
 
 ## Runner Subpaths
 
