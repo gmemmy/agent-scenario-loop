@@ -3,9 +3,9 @@
   "runnerId": "example-profiler-provider",
   "kind": "evidenceProvider",
   "platforms": ["ios", "android"],
-  "capabilities": ["profiler"],
+  "capabilities": ["memory", "network", "profiler"],
   "driverActions": ["collectPerfSignals"],
-  "artifactOutputs": ["profiler", "signals"],
+  "artifactOutputs": ["memory", "network", "profiler", "signals"],
   "lifecycle": ["prepare", "startWindow", "capture", "stopWindow", "finalize"],
   "providerCommands": [
     {
@@ -22,7 +22,11 @@
         "--run-id",
         "{runId}",
         "--out",
-        "{providerDir}/profiler.json"
+        "{providerDir}/profiler.json",
+        "--memory-out",
+        "{providerDir}/memory.json",
+        "--network-out",
+        "{providerDir}/network.har"
       ],
       "outputs": [
         {
@@ -34,6 +38,16 @@
           "channel": "signal",
           "kind": "js",
           "path": "{providerDir}/profiler.json"
+        },
+        {
+          "channel": "signal",
+          "kind": "memory",
+          "path": "{providerDir}/memory.json"
+        },
+        {
+          "channel": "signal",
+          "kind": "network",
+          "path": "{providerDir}/network.har"
         }
       ]
     }

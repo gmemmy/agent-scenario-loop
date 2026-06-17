@@ -299,7 +299,7 @@ test('example mobile app provider manifest writes stable evidence attachments', 
     const manifest = readJson(path.join(runDir, 'manifest.json')) as {
       artifacts?: {
         evidenceAttachments?: Array<{ channel: string; kind: string; path: string; sourceFileName: string }>;
-        signals?: { js?: string[] };
+        signals?: { js?: string[]; memory?: string[]; network?: string[] };
       };
     };
     const commandRecord = readJson(
@@ -308,6 +308,8 @@ test('example mobile app provider manifest writes stable evidence attachments', 
 
     assert.equal(commandRecord.exitCode, 0);
     assert.deepEqual(manifest.artifacts?.signals?.js, ['signals/js/profiler.json']);
+    assert.deepEqual(manifest.artifacts?.signals?.memory, ['signals/memory/memory.json']);
+    assert.deepEqual(manifest.artifacts?.signals?.network, ['signals/network/network.har']);
     assert.deepEqual(
       manifest.artifacts?.evidenceAttachments?.map((attachment) => ({
         channel: attachment.channel,
@@ -327,6 +329,18 @@ test('example mobile app provider manifest writes stable evidence attachments', 
           kind: 'js',
           path: 'signals/js/profiler.json',
           sourceFileName: 'profiler.json',
+        },
+        {
+          channel: 'signal',
+          kind: 'memory',
+          path: 'signals/memory/memory.json',
+          sourceFileName: 'memory.json',
+        },
+        {
+          channel: 'signal',
+          kind: 'network',
+          path: 'signals/network/network.har',
+          sourceFileName: 'network.har',
         },
       ],
     );

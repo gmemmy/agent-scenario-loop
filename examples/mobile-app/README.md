@@ -20,7 +20,7 @@ The example app also carries the same project-local files a consuming app gets f
 
 - `src/devtools/profile-session.ts`: local app helper entrypoint used by the screen
 - `runner-manifests/primary-runner.json`: portable iOS and Android runner capability manifest
-- `runner-manifests/evidence-provider.json`: optional profiler provider manifest
+- `runner-manifests/evidence-provider.json`: optional profiler, memory, and network provider manifest
 - `scenarios/mobile/app-startup.json`: portable startup scenario used for project validation
 - `asl/package-scripts.json`: public CLI snippets that a consuming app can merge into `package.json`
 

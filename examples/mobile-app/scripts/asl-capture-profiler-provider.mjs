@@ -45,31 +45,61 @@ function requireStringArg(args, key) {
 }
 
 /**
- * Writes deterministic profiler evidence for the example-app provider command.
+ * Writes a formatted JSON artifact.
  *
- * @param {{outPath: string, platform: string, runId: string, scenarioId: string}} options
+ * @param {string} outPath
+ * @param {Record<string, unknown>} payload
  * @returns {void}
  */
-function writeProfilerEvidence({
+function writeJsonArtifact(outPath, payload) {
+  fs.mkdirSync(path.dirname(outPath), { recursive: true });
+  fs.writeFileSync(outPath, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
+}
+
+/**
+ * Writes deterministic evidence for the example-app provider command.
+ *
+ * @param {{memoryOutPath: string, networkOutPath: string, outPath: string, platform: string, runId: string, scenarioId: string}} options
+ * @returns {void}
+ */
+function writeProviderEvidence({
+  memoryOutPath,
+  networkOutPath,
   outPath,
   platform,
   runId,
   scenarioId,
 }) {
-  fs.mkdirSync(path.dirname(outPath), { recursive: true });
-  fs.writeFileSync(
-    outPath,
-    `${JSON.stringify({
-      schemaVersion: '1.0.0',
-      providerId: 'example-mobile-app-profiler-provider',
-      platform,
-      scenarioId,
-      runId,
-      samples: [],
-      summary: 'Deterministic example profiler evidence for package and consumer rehearsal.',
-    }, null, 2)}\n`,
-    'utf8',
-  );
+  const shared = {
+    platform,
+    providerId: 'example-mobile-app-profiler-provider',
+    runId,
+    scenarioId,
+    schemaVersion: '1.0.0',
+  };
+
+  writeJsonArtifact(outPath, {
+    ...shared,
+    samples: [],
+    summary: 'Deterministic example profiler evidence for package and consumer rehearsal.',
+  });
+  writeJsonArtifact(memoryOutPath, {
+    ...shared,
+    jsHeapBytes: null,
+    nativeHeapBytes: null,
+    summary: 'Deterministic example memory signal for package and consumer rehearsal.',
+  });
+  writeJsonArtifact(networkOutPath, {
+    log: {
+      creator: {
+        name: 'agent-scenario-loop example provider',
+        version: '1.0.0',
+      },
+      entries: [],
+      version: '1.2',
+    },
+    ...shared,
+  });
 }
 
 /**
@@ -79,7 +109,9 @@ function writeProfilerEvidence({
  */
 function main() {
   const args = parseArgs(process.argv.slice(2));
-  writeProfilerEvidence({
+  writeProviderEvidence({
+    memoryOutPath: requireStringArg(args, 'memory-out'),
+    networkOutPath: requireStringArg(args, 'network-out'),
     outPath: requireStringArg(args, 'out'),
     platform: requireStringArg(args, 'platform'),
     runId: requireStringArg(args, 'run-id'),

@@ -358,10 +358,12 @@ function rehearseConsumerInstall({
     const providerManifest = readJson(path.join(providerRunDir, 'manifest.json')) as {
       artifacts?: {
         evidenceAttachments?: Array<{ channel: string; kind: string; path: string; sourceFileName: string }>;
-        signals?: { js?: string[] };
+        signals?: { js?: string[]; memory?: string[]; network?: string[] };
       };
     };
     assert.deepEqual(providerManifest.artifacts?.signals?.js, ['signals/js/profiler.json']);
+    assert.deepEqual(providerManifest.artifacts?.signals?.memory, ['signals/memory/memory.json']);
+    assert.deepEqual(providerManifest.artifacts?.signals?.network, ['signals/network/network.har']);
     assert.deepEqual(
       providerManifest.artifacts?.evidenceAttachments?.map((attachment) => ({
         channel: attachment.channel,
@@ -381,6 +383,18 @@ function rehearseConsumerInstall({
           kind: 'js',
           path: 'signals/js/profiler.json',
           sourceFileName: 'profiler.json',
+        },
+        {
+          channel: 'signal',
+          kind: 'memory',
+          path: 'signals/memory/memory.json',
+          sourceFileName: 'memory.json',
+        },
+        {
+          channel: 'signal',
+          kind: 'network',
+          path: 'signals/network/network.har',
+          sourceFileName: 'network.har',
         },
       ],
     );

@@ -75,9 +75,13 @@ test('init-project scaffolds templates into a consuming app layout', async (t: T
   assert.match(readJson(path.join(targetDir, 'asl', 'package-scripts.json'))['asl:agent-device:ios'], /checkout-submit-ios-agent-device/u);
   assert.match(readJson(path.join(targetDir, 'asl', 'package-scripts.json'))['asl:agent-device:android'], /checkout-submit-android-agent-device/u);
   assert.equal(readJson(path.join(targetDir, 'asl', 'package-scripts.json'))['asl:profile:ios:live'], 'asl-profile-ios --config asl.config.json --scenario scenarios/mobile/checkout-submit.json --simctl-capture --profile-session --profile-session-storage --launch --wait-ms 5000 --comparison-lane checkout-submit-ios-live --out artifacts/asl/ios --run-id checkout-submit-ios-live');
+  assert.deepEqual(readJson(path.join(targetDir, 'runner-manifests', 'evidence-provider.json')).capabilities, ['memory', 'network', 'profiler']);
   assert.match(fs.readFileSync(path.join(targetDir, 'asl', 'README.md'), 'utf8'), /checkout-submit/u);
   assert.match(fs.readFileSync(path.join(targetDir, 'asl', 'gitignore-snippet'), 'utf8'), /artifacts\/asl\//u);
-  assert.match(fs.readFileSync(path.join(targetDir, 'scripts', 'asl-capture-profiler-provider.mjs'), 'utf8'), /writeProfilerEvidence/u);
+  const providerScript = fs.readFileSync(path.join(targetDir, 'scripts', 'asl-capture-profiler-provider.mjs'), 'utf8');
+  assert.match(providerScript, /writeProviderEvidence/u);
+  assert.match(providerScript, /memory-out/u);
+  assert.match(providerScript, /network-out/u);
   assert.match(fs.readFileSync(path.join(targetDir, 'src', 'devtools', 'profile-session.ts'), 'utf8'), /useProfileSessionBootstrap/u);
   assert.match(formatResult(result), /created:/u);
 });
