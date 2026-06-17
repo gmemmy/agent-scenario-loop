@@ -96,7 +96,7 @@ The built-in adb and simctl adapters show the expected boundary:
 
 - `runner/android-adb-driver.ts`: adb-backed tap, scroll, assertion, UI tree, screenshot, record, and log actions
 - `runner/ios-simctl-driver.ts`: simctl-backed screenshot and log actions
-- `runner/argent.ts`: Argent-backed ASL artifact runner for launch, coordinate-backed gestures, screenshots, and UI descriptions
+- `runner/argent.ts`: Argent-backed ASL artifact runner for launch, coordinate-backed gestures, screenshot requests, and UI descriptions
 - `runner/argent-driver.ts`: optional Argent-backed driver adapter without bundling Argent
 - `runner/profile-android.ts` and `runner/profile-ios.ts`: profile artifact pipelines that turn raw evidence into health, metrics, verdicts, and summaries
 

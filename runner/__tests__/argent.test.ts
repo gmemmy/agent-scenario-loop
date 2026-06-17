@@ -320,6 +320,45 @@ test('Argent capture points command timeouts at runner configuration', async (t:
   assert.equal(health.checks[0].metadata.nextActionCode, 'fix_argent_command_timeout');
 });
 
+test('Argent capture points simulator-server screenshot warnings at the tool dependency', async (t: TestContext) => {
+  const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-argent-simulator-server-'));
+  t.after(async () => {
+    await fsp.rm(tempDir, { recursive: true, force: true });
+  });
+
+  await runArgentCapture({
+    deviceId: 'SIM-123',
+    executor: async (command: string, args: string[]): Promise<CommandResult> => ({
+      args,
+      command,
+      exitCode: 1,
+      stderr: '[Tool:screenshot] Service dependency failed: [SimulatorServer:SIM-123] simulator-server exited with code before becoming ready',
+      stdout: '',
+    }),
+    outputDir: tempDir,
+    platform: 'ios',
+    runId: 'argent-simulator-server',
+    scenario: {
+      id: 'argent-simulator-server-flow',
+      steps: [
+        {
+          id: 'capture-final',
+          kind: 'captureEvidence',
+          artifact: 'screenshot',
+          driverAction: 'screenshot',
+          required: false,
+        },
+      ],
+    },
+  });
+
+  const health = readJson(path.join(tempDir, 'health.json'));
+  assert.equal(health.healthStatus, 'passed');
+  assert.equal(health.checks[0].status, 'warning');
+  assert.equal(health.checks[0].metadata.argentDiagnostic, 'argent_simulator_server_unavailable');
+  assert.equal(health.checks[0].metadata.nextActionCode, 'fix_argent_simulator_server');
+});
+
 test('Argent driver step expansion validates coordinate-backed metadata', () => {
   const scenario = {
     id: 'portable-argent-actions',

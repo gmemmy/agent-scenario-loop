@@ -533,6 +533,14 @@ function buildArgentFailureMetadata({
     };
   }
 
+  if (/SimulatorServer|simulator-server/iu.test(output)) {
+    return {
+      argentDiagnostic: 'argent_simulator_server_unavailable',
+      nextAction: `Argent could not start its simulator-server dependency for ${driverAction}. Inspect raw/${rawFileName}, verify the selected simulator is accessible to Argent, and use simctl or another screenshot provider when screenshot evidence is required.`,
+      nextActionCode: 'fix_argent_simulator_server',
+    };
+  }
+
   if (rootOnlyDescription) {
     return {
       argentDiagnostic: 'root_only_description',
