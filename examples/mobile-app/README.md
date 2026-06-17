@@ -226,9 +226,7 @@ With the example app installed on a booted iOS simulator and Metro connected, th
 pnpm example:ios:live
 ```
 
-The aggregate command runs simctl preflight, startup, open-close, and scroll-settle. The individual scenario commands remain useful while debugging one scenario:
-
-It also writes `_live-proof/ios-live-proof/live-proof.json` and `_live-proof/ios-live-proof/agent-summary.md` under the iOS artifact root as the batch entrypoint.
+The aggregate command runs simctl preflight, startup, open-close, and scroll-settle. It also writes `_live-proof/ios-live-proof/live-proof.json` and `_live-proof/ios-live-proof/agent-summary.md` under the iOS artifact root as the batch entrypoint.
 
 When `agent-device` or Argent is available, attach the same startup interaction assertion as a sidecar proof:
 
@@ -240,7 +238,7 @@ pnpm example:ios:live:runners -- --agent-device-session <name>
 
 For Argent without a global binary, set `ASL_ARGENT_BIN=/path/to/argent` to the installed executable. The `npx --yes @swmansion/argent run` wrapper shape is supported through `ASL_ARGENT_BIN=npx` and `ASL_ARGENT_BASE_ARGS="--yes @swmansion/argent run"`, but verify it with `pnpm asl:argent:check` before relying on it.
 
-The simctl profile scenarios run before sidecar proofs. This keeps stored app truth events, screenshots, metrics, and verdicts independent from any UI automation session opened by agent-device or Argent.
+The simctl profile scenarios run before sidecar proofs. This keeps stored app truth events, screenshots, metrics, and verdicts independent from any UI automation session opened by agent-device or Argent. When Argent can launch and inspect the iOS app but its screenshot backend is unavailable, the iOS live proof keeps the Argent warning and attaches a simctl screenshot fallback under the same interaction proof captures.
 
 ```bash
 pnpm example:profile:ios:live:startup

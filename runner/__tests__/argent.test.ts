@@ -439,6 +439,71 @@ test('Argent capture points simulator-server screenshot warnings at the tool dep
   assert.equal(health.checks[0].metadata.nextActionCode, 'fix_argent_simulator_server');
 });
 
+test('Argent capture can recover iOS screenshot evidence through simctl fallback', async (t: TestContext) => {
+  const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-argent-ios-simctl-fallback-'));
+  t.after(async () => {
+    await fsp.rm(tempDir, { recursive: true, force: true });
+  });
+  const simctlCalls: string[] = [];
+
+  await runArgentCapture({
+    deviceId: 'SIM-123',
+    executor: async (command: string, args: string[]): Promise<CommandResult> => ({
+      args,
+      command,
+      exitCode: 1,
+      stderr: '[Tool:screenshot] Service dependency failed: [SimulatorServer:SIM-123] simulator-server exited with code before becoming ready',
+      stdout: '',
+    }),
+    iosSimctlExecutor: async (command: string, args: string[]): Promise<CommandResult> => {
+      simctlCalls.push(`${command} ${args.join(' ')}`);
+      const outputPath = args.at(-1);
+      if (typeof outputPath === 'string') {
+        await fsp.writeFile(outputPath, 'fake simctl screenshot', 'utf8');
+      }
+      return {
+        args,
+        command,
+        exitCode: 0,
+        stderr: '',
+        stdout: `Wrote screenshot to: ${outputPath}\n`,
+      };
+    },
+    iosSimctlScreenshotFallback: true,
+    outputDir: tempDir,
+    platform: 'ios',
+    runId: 'argent-ios-simctl-fallback',
+    scenario: {
+      id: 'argent-ios-simctl-fallback-flow',
+      steps: [
+        {
+          id: 'capture-final',
+          kind: 'captureEvidence',
+          artifact: 'screenshot',
+          driverAction: 'screenshot',
+        },
+      ],
+    },
+    xcrunPath: '/Applications/Xcode.app/Contents/Developer/usr/bin/xcrun',
+  });
+
+  const health = readJson(path.join(tempDir, 'health.json'));
+  const metadata = readJson(path.join(tempDir, 'raw', 'argent-metadata.json'));
+  assert.equal(health.healthStatus, 'passed');
+  assert.equal(health.checks[0].status, 'warning');
+  assert.equal(health.checks[0].metadata.argentDiagnostic, 'argent_simulator_server_unavailable');
+  assert.equal(health.checks[0].metadata.fallbackProvider, 'ios-simctl');
+  assert.equal(health.checks[1].status, 'passed');
+  assert.equal(health.checks[1].code, 'ios_simctl_screenshot_fallback_completed');
+  assert.deepEqual(metadata.captures.screenshots, ['captures/ios-simctl-capture-final.png']);
+  assert.equal(metadata.driverActions[0].captureProvider, 'ios-simctl');
+  assert.equal(fs.existsSync(path.join(tempDir, 'captures', 'ios-simctl-capture-final.png')), true);
+  assert.equal(fs.existsSync(path.join(tempDir, 'raw', 'ios-simctl-capture-final-screenshot.txt')), true);
+  assert.deepEqual(simctlCalls, [
+    `/Applications/Xcode.app/Contents/Developer/usr/bin/xcrun simctl io SIM-123 screenshot ${path.join(tempDir, 'captures', 'ios-simctl-capture-final.png')}`,
+  ]);
+});
+
 test('Argent driver step expansion validates coordinate-backed metadata', () => {
   const scenario = {
     id: 'portable-argent-actions',

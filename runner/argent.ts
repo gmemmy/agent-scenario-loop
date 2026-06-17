@@ -17,6 +17,10 @@ const {
   formatArgentRawOutput,
   isArgentRootOnlyDescription,
 } = require('./argent-driver');
+const {
+  createIosSimctlDriver,
+  formatIosSimctlRawOutput,
+} = require('./ios-simctl-driver');
 
 type CliArgs = {
   app?: string | boolean;
@@ -27,6 +31,7 @@ type CliArgs = {
   'command-timeout-ms'?: string | boolean;
   device?: string | boolean;
   'device-flag'?: string | boolean;
+  'ios-simctl-screenshot-fallback'?: string | boolean;
   out?: string | boolean;
   platform?: string | boolean;
   'run-id'?: string | boolean;
@@ -36,6 +41,7 @@ type CliArgs = {
   'screen-width'?: string | boolean;
   udid?: string | boolean;
   'wait-ms'?: string | boolean;
+  xcrun?: string | boolean;
   [key: string]: string | boolean | undefined;
 };
 
@@ -110,6 +116,8 @@ type ArgentCaptureOptions = {
   deviceFlag?: string;
   deviceId: string;
   executor?: CommandExecutor;
+  iosSimctlExecutor?: CommandExecutor;
+  iosSimctlScreenshotFallback?: boolean;
   outputDir?: string;
   platform: 'android' | 'ios';
   resolveBootedIosSimulatorUdid?: () => Promise<string | null>;
@@ -117,6 +125,7 @@ type ArgentCaptureOptions = {
   scenario: Record<string, unknown>;
   screenSize?: import('./argent-driver').ArgentScreenSize;
   waitMs?: number;
+  xcrunPath?: string;
 };
 
 type ArgentCaptureResult = {
@@ -132,10 +141,16 @@ type ArgentCaptureResult = {
 };
 type ArgentFailureHintOptions = {
   driverAction: ArgentDriverStep['driverAction'];
+  fallbackCapturePath?: string;
   missingRequiredScreenshot: boolean;
   rawFileName: string;
   result: import('./argent-driver').ArgentCommandResult;
   rootOnlyDescription: boolean;
+};
+type IosSimctlScreenshotFallbackResult = {
+  capturePath?: string;
+  rawFileName: string;
+  result: CommandResult;
 };
 
 const DASH_VALUE_KEYS = new Set(['app-flag', 'base-args', 'device-flag']);
@@ -165,6 +180,8 @@ function usage(output: {write: (message: string) => unknown} = process.stderr): 
     'Use --argent <binary> and --base-args "<args>" to adapt local Argent installs without bundling Argent.',
     'Use --device-flag and --app-flag when your Argent command expects platform-specific flag names.',
     'Use --command-timeout-ms <ms> to bound each external Argent invocation.',
+    'Use --ios-simctl-screenshot-fallback on iOS when simctl should provide screenshot evidence if Argent screenshot is unavailable.',
+    'Use --xcrun <path> to route the iOS simctl screenshot fallback through a specific xcrun binary.',
   ], output);
 }
 
@@ -473,6 +490,29 @@ function defaultArgentRawFileName({
 }
 
 /**
+ * Converts a scenario step id into a safe artifact filename segment.
+ *
+ * @param {string} value
+ * @returns {string}
+ */
+function sanitizeArtifactFileSegment(value: string): string {
+  const sanitized = value.replace(/[^a-z0-9._-]+/giu, '-').replace(/^-+|-+$/gu, '');
+  return sanitized || 'step';
+}
+
+/**
+ * Returns the simctl fallback screenshot filename for an Argent screenshot step.
+ *
+ * @param {ArgentDriverStep} driverStep
+ * @returns {string}
+ */
+function defaultIosSimctlFallbackScreenshotFileName(driverStep: ArgentDriverStep): string {
+  return driverStep.captureFileName && driverStep.captureFileName.length > 0
+    ? driverStep.captureFileName
+    : `ios-simctl-${sanitizeArtifactFileSegment(driverStep.stepId)}.png`;
+}
+
+/**
  * Expands normalized scenario steps into Argent driver actions.
  *
  * @param {Record<string, unknown>} scenario
@@ -587,6 +627,7 @@ function buildArgentSelectorHealthMetadata(
  */
 function buildArgentFailureMetadata({
   driverAction,
+  fallbackCapturePath,
   missingRequiredScreenshot,
   rawFileName,
   result,
@@ -613,7 +654,10 @@ function buildArgentFailureMetadata({
   if (/SimulatorServer|simulator-server/iu.test(output)) {
     return {
       argentDiagnostic: 'argent_simulator_server_unavailable',
-      nextAction: `Argent could not start its simulator-server dependency for ${driverAction}. Inspect raw/${rawFileName}, verify the selected simulator is accessible to Argent, and use simctl or another screenshot provider when screenshot evidence is required.`,
+      ...(fallbackCapturePath ? { fallbackCapturePath, fallbackProvider: 'ios-simctl' } : {}),
+      nextAction: fallbackCapturePath
+        ? `Argent could not start its simulator-server dependency for ${driverAction}, but iOS simctl fallback captured ${fallbackCapturePath}. Inspect raw/${rawFileName} before relying on Argent screenshot evidence.`
+        : `Argent could not start its simulator-server dependency for ${driverAction}. Inspect raw/${rawFileName}, verify the selected simulator is accessible to Argent, and use simctl or another screenshot provider when screenshot evidence is required.`,
       nextActionCode: 'fix_argent_simulator_server',
     };
   }
@@ -698,6 +742,54 @@ async function runArgentDriverStep({
   }
 
   throw new Error(`Unsupported Argent driver action: ${driverStep.driverAction}`);
+}
+
+/**
+ * Captures an iOS screenshot through simctl when Argent's iOS screenshot backend is unavailable.
+ *
+ * @param {{capturesDir: string, deviceId: string, driverStep: ArgentDriverStep, executor?: CommandExecutor, xcrunPath: string}} options
+ * @returns {Promise<IosSimctlScreenshotFallbackResult>}
+ */
+async function runIosSimctlScreenshotFallback({
+  capturesDir,
+  deviceId,
+  driverStep,
+  executor = execFileCommandWithTimeout,
+  xcrunPath,
+}: {
+  capturesDir: string;
+  deviceId: string;
+  driverStep: ArgentDriverStep;
+  executor?: CommandExecutor;
+  xcrunPath: string;
+}): Promise<IosSimctlScreenshotFallbackResult> {
+  const fileName = defaultIosSimctlFallbackScreenshotFileName(driverStep);
+  const outputPath = path.join(capturesDir, fileName);
+  const rawFileName = `ios-simctl-${sanitizeArtifactFileSegment(driverStep.stepId)}-screenshot.txt`;
+  const driver = createIosSimctlDriver({
+    deviceUdid: deviceId,
+    executor,
+    xcrunPath,
+  });
+  const result = await driver.screenshot({
+    outputPath,
+    rawFileName,
+  });
+
+  try {
+    await fsp.access(outputPath);
+  } catch {
+    return {
+      rawFileName,
+      result,
+    };
+  }
+
+  return {
+    capturePath: `captures/${fileName}`,
+    rawFileName,
+    result,
+  };
 }
 
 /**
@@ -977,6 +1069,8 @@ async function runArgentCapture({
   deviceFlag,
   deviceId,
   executor,
+  iosSimctlExecutor,
+  iosSimctlScreenshotFallback = false,
   outputDir = path.resolve('artifacts/argent-capture'),
   platform,
   resolveBootedIosSimulatorUdid: resolveBooted,
@@ -984,6 +1078,7 @@ async function runArgentCapture({
   scenario,
   screenSize,
   waitMs = 0,
+  xcrunPath = 'xcrun',
 }: ArgentCaptureOptions): Promise<ArgentCaptureResult> {
   const runDir = path.resolve(outputDir);
   const layout = createArtifactLayout({ outputDir: runDir });
@@ -1071,8 +1166,8 @@ async function runArgentCapture({
       driverStep.required;
     const failed = driverResult.exitCode !== 0 || rootOnlyDescription || missingRequiredScreenshot;
     const codeSuffix = argentDriverActionCode(driverStep.driverAction);
-    const status = failed && driverStep.required === false ? 'warning' : failed ? 'failed' : 'passed';
     let stableCapturePath: string | null = null;
+    let fallbackCapture: IosSimctlScreenshotFallbackResult | null = null;
     if (driverStep.driverAction === 'screenshot' && driverResult.exitCode === 0 && driverResult.capturePath) {
       stableCapturePath = await copyArgentCapture({
         capturePath: driverResult.capturePath,
@@ -1083,6 +1178,31 @@ async function runArgentCapture({
         captures.screenshots.push(stableCapturePath);
       }
     }
+    if (
+      driverStep.driverAction === 'screenshot' &&
+      failed &&
+      platform === 'ios' &&
+      iosSimctlScreenshotFallback
+    ) {
+      fallbackCapture = await runIosSimctlScreenshotFallback({
+        capturesDir: layout.captures,
+        deviceId: resolvedDevice.deviceId,
+        driverStep,
+        ...(iosSimctlExecutor ? { executor: iosSimctlExecutor } : {}),
+        xcrunPath,
+      });
+      raw[fallbackCapture.rawFileName] = formatIosSimctlRawOutput(fallbackCapture.result);
+      if (fallbackCapture.capturePath) {
+        stableCapturePath = fallbackCapture.capturePath;
+        captures.screenshots.push(fallbackCapture.capturePath);
+      }
+    }
+    const recoveredByFallback = Boolean(fallbackCapture?.capturePath);
+    const status = failed && (driverStep.required === false || recoveredByFallback)
+      ? 'warning'
+      : failed
+        ? 'failed'
+        : 'passed';
 
     checks.push({
       name: `argent_${codeSuffix}`,
@@ -1097,6 +1217,7 @@ async function runArgentCapture({
         ...(failed
           ? buildArgentFailureMetadata({
               driverAction: driverStep.driverAction,
+              ...(fallbackCapture?.capturePath ? { fallbackCapturePath: fallbackCapture.capturePath } : {}),
               missingRequiredScreenshot,
               rawFileName: driverResult.rawFileName,
               result: driverResult,
@@ -1107,12 +1228,33 @@ async function runArgentCapture({
         stepId: driverStep.stepId,
       },
     });
+    if (fallbackCapture) {
+      checks.push({
+        name: 'ios_simctl_screenshot_fallback',
+        status: fallbackCapture.capturePath ? 'passed' : driverStep.required ? 'failed' : 'warning',
+        source: 'runner',
+        code: fallbackCapture.capturePath
+          ? 'ios_simctl_screenshot_fallback_completed'
+          : 'ios_simctl_screenshot_fallback_failed',
+        message: fallbackCapture.capturePath
+          ? 'Captured iOS screenshot through simctl after Argent screenshot was unavailable.'
+          : 'iOS simctl screenshot fallback failed after Argent screenshot was unavailable.',
+        metadata: {
+          driverAction: driverStep.driverAction,
+          provider: 'ios-simctl',
+          rawPath: `raw/${fallbackCapture.rawFileName}`,
+          ...(fallbackCapture.capturePath ? { capturePath: fallbackCapture.capturePath } : {}),
+          stepId: driverStep.stepId,
+        },
+      });
+    }
 
     driverActionMetadata.push({
       args: driverResult.args,
       driverAction: driverStep.driverAction,
       exitCode: driverResult.exitCode,
       ...(stableCapturePath ? { capturePath: stableCapturePath } : {}),
+      ...(fallbackCapture?.capturePath ? { captureProvider: 'ios-simctl' } : {}),
       rawPath: `raw/${driverResult.rawFileName}`,
       ...(driverStep.selector ? { selector: driverStep.selector } : {}),
       stepId: driverStep.stepId,
@@ -1230,12 +1372,15 @@ async function main(): Promise<void> {
       ? { deviceFlag: args['device-flag'] }
       : {}),
     deviceId,
+    iosSimctlScreenshotFallback: args['ios-simctl-screenshot-fallback'] === true ||
+      args['ios-simctl-screenshot-fallback'] === 'true',
     ...(typeof args.out === 'string' ? { outputDir: args.out } : {}),
     platform: args.platform as 'android' | 'ios',
     ...(typeof args['run-id'] === 'string' ? { runId: args['run-id'] } : {}),
     scenario: readJson(path.resolve(args.scenario)),
     ...(screenSize ? { screenSize } : {}),
     waitMs: readPositiveInteger(args['wait-ms'], 0),
+    ...(typeof args.xcrun === 'string' ? { xcrunPath: args.xcrun } : {}),
   });
   process.stdout.write(`${result.runDir}\n`);
   if (result.health.healthStatus !== 'passed') {
@@ -1259,6 +1404,7 @@ export {
   checkArgentAvailability,
   copyArgentCapture,
   defaultArgentRawFileName,
+  defaultIosSimctlFallbackScreenshotFileName,
   deriveArgentRootArgs,
   execFileCommand,
   execFileCommandWithTimeout,
@@ -1271,6 +1417,8 @@ export {
   resolveArgentDriverSteps,
   runArgentCapture,
   runArgentDriverStep,
+  runIosSimctlScreenshotFallback,
+  sanitizeArtifactFileSegment,
   usage,
   validateArgentDriverSteps,
 };

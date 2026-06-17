@@ -91,7 +91,7 @@ function usage(output: { write: (message: string) => unknown } = process.stderr)
     'Use --compare-latest to compare each passed scenario against the latest trusted prior run under the artifact root.',
     'Use --fail-on-regression with --compare-latest to exit nonzero after writing evidence when any comparison regressed.',
     'Use --agent-device-proof to attach the shared startup UI assertion through agent-device; pass --agent-device-session to reuse an active named session.',
-    'Use --argent-proof to attach the shared startup UI assertion through Argent; set ASL_ARGENT_BIN and ASL_ARGENT_BASE_ARGS for non-global installs.',
+    'Use --argent-proof to attach the shared startup UI assertion through Argent; set ASL_ARGENT_BIN and ASL_ARGENT_BASE_ARGS for non-global installs. iOS Argent screenshots fall back to simctl when Argent screenshot is unavailable.',
   ], output);
 }
 
@@ -413,6 +413,8 @@ async function runExampleIosLiveProof(
       deviceId,
       ...(options.delay ? { delay: options.delay } : {}),
       ...(options.argentExecutor ? { executor: options.argentExecutor } : {}),
+      iosSimctlScreenshotFallback: true,
+      ...(options.executor ? { iosSimctlExecutor: options.executor } : {}),
       outputDir: path.join(outputDir, '_argent-captures', argentRunId),
       platform: 'ios',
       runId: argentRunId,

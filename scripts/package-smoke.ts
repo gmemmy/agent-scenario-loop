@@ -676,6 +676,11 @@ function main(): void {
       true,
       'packed package must include iOS example app scenarios',
     );
+    const packedExampleScripts = JSON.parse(
+      fs.readFileSync(path.join(packageRoot, 'examples', 'mobile-app', 'asl', 'package-scripts.json'), 'utf8'),
+    );
+    assert.match(packedExampleScripts['asl:argent:ios'], /ASL_ARGENT_IOS_SIMCTL_SCREENSHOT_FALLBACK/u);
+    assert.match(packedExampleScripts['asl:argent:ios'], /ASL_XCRUN_PATH/u);
     const forbiddenPathPatterns = [
       /^\.github\//u,
       /^artifacts\//u,
@@ -869,6 +874,8 @@ function main(): void {
     assert.match(initializedScripts['asl:argent:android'], /ASL_ARGENT_BASE_ARGS/u);
     assert.match(initializedScripts['asl:argent:ios'], /ASL_ARGENT_COMMAND_TIMEOUT_MS/u);
     assert.match(initializedScripts['asl:argent:android'], /ASL_ARGENT_COMMAND_TIMEOUT_MS/u);
+    assert.match(initializedScripts['asl:argent:ios'], /ASL_ARGENT_IOS_SIMCTL_SCREENSHOT_FALLBACK/u);
+    assert.match(initializedScripts['asl:argent:ios'], /ASL_XCRUN_PATH/u);
     assert.match(initializedScripts['asl:ios:live'], /^asl-live-ios /u);
     assert.match(initializedScripts['asl:ios:live'], /--scenario scenarios\/mobile\/checkout-submit\.json/u);
     assert.match(initializedScripts['asl:ios:live'], /--compare-latest --fail-on-regression/u);

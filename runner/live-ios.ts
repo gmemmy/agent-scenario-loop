@@ -38,7 +38,7 @@ function usage(output: { write: (message: string) => unknown } = process.stderr)
     '',
     'Runs one generic iOS live proof: simctl preflight, profile-session simctl capture, optional sidecars, optional latest-trusted comparison, and aggregate live-proof artifacts.',
     'Use --agent-device-proof to attach scenario-declared portable driver actions through agent-device.',
-    'Use --argent-proof to attach scenario-declared Argent-compatible driver actions; set ASL_ARGENT_BIN and ASL_ARGENT_BASE_ARGS for non-global installs.',
+    'Use --argent-proof to attach scenario-declared Argent-compatible driver actions; set ASL_ARGENT_BIN and ASL_ARGENT_BASE_ARGS for non-global installs. iOS Argent screenshots fall back to simctl when Argent screenshot is unavailable.',
   ], output);
 }
 
@@ -379,6 +379,8 @@ async function runIosLiveProof(
       deviceId: typeof args.device === 'string' ? args.device : 'booted',
       ...(options.delay ? { delay: options.delay } : {}),
       ...(options.argentExecutor ? { executor: options.argentExecutor } : {}),
+      iosSimctlScreenshotFallback: true,
+      ...(options.executor ? { iosSimctlExecutor: options.executor } : {}),
       outputDir: path.join(outputDir, '_argent-captures', argentRunId),
       platform: 'ios',
       runId: argentRunId,
