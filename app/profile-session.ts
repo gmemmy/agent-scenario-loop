@@ -213,6 +213,41 @@ function setProfileSessionState(nextState: ProfileSessionState) {
   notifyListeners();
 }
 
+/**
+ * Returns the numeric start time for a profile session when one is available.
+ *
+ * @param {ProfileSessionState | null} session
+ * @returns {number | null}
+ */
+function readProfileSessionStartedAt(session: ProfileSessionState | null): number | null {
+  return typeof session?.startedAt === 'number' && Number.isFinite(session.startedAt)
+    ? session.startedAt
+    : null;
+}
+
+/**
+ * Guards the in-memory session from older AsyncStorage snapshots.
+ *
+ * @param {ProfileSessionState} storedSession
+ * @returns {boolean}
+ */
+function shouldApplyStoredProfileSession(storedSession: ProfileSessionState): boolean {
+  if (!profileSessionState.active || !profileSessionState.scenario || !profileSessionState.runId) {
+    return true;
+  }
+
+  if (
+    profileSessionState.scenario === storedSession.scenario &&
+    profileSessionState.runId === storedSession.runId
+  ) {
+    return false;
+  }
+
+  const storedStartedAt = readProfileSessionStartedAt(storedSession);
+  const activeStartedAt = readProfileSessionStartedAt(profileSessionState);
+  return storedStartedAt !== null && activeStartedAt !== null && storedStartedAt > activeStartedAt;
+}
+
 function logProfileSession(kind: 'start' | 'stop' | 'command', payload: Record<string, unknown>) {
   writeProfileLog(buildLogLine('profile-session', { kind, ...payload }));
 
@@ -397,7 +432,7 @@ export function applyProfileSessionUrl(url: string | null | undefined): boolean 
         active: true,
         scenario: route.scenario,
         runId: route.runId,
-        startedAt: profileSessionState.startedAt ?? Date.now(),
+        startedAt: Date.now(),
       });
     }
 
@@ -554,9 +589,10 @@ export function useProfileSessionBootstrap(): void {
         typeof storedSession.runId === 'string'
       ) {
         const shouldStartFromStorage =
-          !profileSessionState.active ||
-          profileSessionState.scenario !== storedSession.scenario ||
-          profileSessionState.runId !== storedSession.runId;
+          shouldApplyStoredProfileSession(storedSession) &&
+          (!profileSessionState.active ||
+            profileSessionState.scenario !== storedSession.scenario ||
+            profileSessionState.runId !== storedSession.runId);
 
         if (shouldStartFromStorage) {
           startProfileSessionInternal({
