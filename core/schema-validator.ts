@@ -3,6 +3,13 @@ const path = require('node:path');
 
 type JsonSchema = Record<string, unknown> & {
   $ref?: string;
+  allOf?: JsonSchema[];
+  const?: unknown;
+  description?: string;
+  else?: JsonSchema;
+  if?: JsonSchema;
+  not?: JsonSchema;
+  then?: JsonSchema;
   type?: string | string[];
   enum?: unknown[];
   pattern?: string;
@@ -165,6 +172,18 @@ function resolveLocalRef(rootSchema: JsonSchema, ref: string): JsonSchema {
 }
 
 /**
+ * Returns true when a value satisfies a schema without recording validation errors.
+ *
+ * @param {unknown} value
+ * @param {Record<string, unknown>} schema
+ * @param {Record<string, unknown>} rootSchema
+ * @returns {boolean}
+ */
+function matchesSchema(value: unknown, schema: JsonSchema, rootSchema: JsonSchema): boolean {
+  return validateSchema(value, schema, rootSchema, [], []).length === 0;
+}
+
+/**
  * Checks a JavaScript value against one JSON Schema primitive type.
  *
  * @param {unknown} value
@@ -248,6 +267,34 @@ function validateSchema(
 
   if (schema.$ref) {
     validateSchema(value, resolveLocalRef(rootSchema, schema.$ref), rootSchema, pathSegments, errors);
+  }
+
+  for (const childSchema of schema.allOf ?? []) {
+    validateSchema(value, childSchema, rootSchema, pathSegments, errors);
+  }
+
+  if ('const' in schema && !Object.is(schema.const, value)) {
+    errors.push({
+      code: 'invalid_const',
+      path: formatPath(pathSegments),
+      message: `Expected ${JSON.stringify(schema.const)}.`,
+    });
+  }
+
+  if (schema.if && matchesSchema(value, schema.if, rootSchema)) {
+    if (schema.then) {
+      validateSchema(value, schema.then, rootSchema, pathSegments, errors);
+    }
+  } else if (schema.if && schema.else) {
+    validateSchema(value, schema.else, rootSchema, pathSegments, errors);
+  }
+
+  if (schema.not && matchesSchema(value, schema.not, rootSchema)) {
+    errors.push({
+      code: 'schema_not',
+      path: formatPath(pathSegments),
+      message: schema.not.description ?? 'Value must not match the disallowed schema.',
+    });
   }
 
   if (schema.type && !validateType({ value, expectedType: schema.type, pathSegments, errors })) {

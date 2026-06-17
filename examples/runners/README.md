@@ -33,6 +33,7 @@ They do not mean the package bundles every named tool. A fixture describes what 
 - Keep `capabilities` about lifecycle or evidence ownership.
 - Keep `driverActions` about concrete operations the adapter can perform.
 - Do not add a capability or driver action until a runner or provider can produce the corresponding evidence.
+- Keep `providerCommands` on evidence-provider manifests; primary runners should own lifecycle orchestration, not provider command wrappers.
 - When a tool writes files independently, attach them through `--signal`, `--capture`, or a `providerCommands` manifest so the run keeps stable artifact paths.
 - Treat these manifests as starting contracts; consuming apps can narrow them to match the exact adapter they install.
 

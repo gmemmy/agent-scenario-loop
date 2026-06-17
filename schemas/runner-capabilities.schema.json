@@ -5,6 +5,24 @@
   "type": "object",
   "additionalProperties": false,
   "required": ["schemaVersion", "runnerId", "kind", "platforms", "capabilities"],
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "primary"
+          }
+        },
+        "required": ["kind"]
+      },
+      "then": {
+        "not": {
+          "description": "Primary runner manifests cannot declare providerCommands; use an evidenceProvider manifest for command-backed evidence.",
+          "required": ["providerCommands"]
+        }
+      }
+    }
+  ],
   "properties": {
     "schemaVersion": {
       "type": "string",

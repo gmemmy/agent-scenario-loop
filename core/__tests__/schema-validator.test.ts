@@ -207,6 +207,35 @@ test('rejects invalid runner driver actions', () => {
   assert.ok(result.errors.some((error: ValidationIssue) => error.path === `$.driverActions[${runner.driverActions.length - 1}]`));
 });
 
+test('rejects provider commands on primary runner manifests', () => {
+  const runner = readJson('templates/primary-runner.json');
+  runner.providerCommands = [
+    {
+      id: 'capture-profiler',
+      phase: 'capture',
+      command: 'capture-profiler',
+      outputs: [
+        {
+          channel: 'provider',
+          kind: 'profiler',
+          path: '{providerDir}/profiler.json',
+        },
+      ],
+    },
+  ];
+
+  const result = validateJson(runner, SCHEMAS.runnerCapabilities, 'Runner capability manifest');
+
+  assert.equal(result.valid, false);
+  assert.deepEqual(
+    result.errors
+      .filter((error: ValidationIssue) => error.code === 'schema_not')
+      .map((error: ValidationIssue) => error.path),
+    ['$'],
+  );
+  assert.match(result.message, /Primary runner manifests cannot declare providerCommands/u);
+});
+
 test('rejects invalid scenario cycle counts', () => {
   const scenario = readJson('examples/scenarios/mobile/open-close-cycle.json');
   scenario.cycles.iterations = 0;
@@ -225,6 +254,48 @@ test('rejects duplicate unique array items', () => {
 
   assert.equal(result.valid, false);
   assert.ok(result.errors.some((error: ValidationIssue) => error.code === 'duplicate_item'));
+});
+
+test('applies conditional schema constraints', () => {
+  const schema = {
+    type: 'object',
+    allOf: [
+      {
+        if: {
+          properties: {
+            kind: {
+              const: 'primary',
+            },
+          },
+          required: ['kind'],
+        },
+        then: {
+          not: {
+            description: 'primary values cannot include providerOnly',
+            required: ['providerOnly'],
+          },
+        },
+      },
+    ],
+    properties: {
+      kind: {
+        enum: ['primary', 'evidenceProvider'],
+        type: 'string',
+      },
+      providerOnly: {
+        type: 'boolean',
+      },
+    },
+    required: ['kind'],
+  };
+
+  assert.deepEqual(validateJson({ kind: 'primary' }, schema, 'Conditional fixture').errors, []);
+  assert.deepEqual(validateJson({ kind: 'evidenceProvider', providerOnly: true }, schema, 'Conditional fixture').errors, []);
+  const result = validateJson({ kind: 'primary', providerOnly: true }, schema, 'Conditional fixture');
+
+  assert.equal(result.valid, false);
+  assert.deepEqual(result.errors.map((error: ValidationIssue) => error.code), ['schema_not']);
+  assert.match(result.message, /primary values cannot include providerOnly/u);
 });
 
 test('rejects additional properties in strict objects', () => {
