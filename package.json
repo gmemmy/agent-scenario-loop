@@ -213,6 +213,7 @@
     "example:ios:live:argent": "if [ -n \"${ASL_EXAMPLE_XCODE_DEVELOPER_DIR:-}\" ]; then export DEVELOPER_DIR=\"$ASL_EXAMPLE_XCODE_DEVELOPER_DIR\"; fi; pnpm build && node dist/runner/example-ios-live.js --argent-proof --compare-latest --fail-on-regression",
     "example:ios:live:runners": "if [ -n \"${ASL_EXAMPLE_XCODE_DEVELOPER_DIR:-}\" ]; then export DEVELOPER_DIR=\"$ASL_EXAMPLE_XCODE_DEVELOPER_DIR\"; fi; pnpm build && node dist/runner/example-ios-live.js --agent-device-proof --argent-proof --compare-latest --fail-on-regression",
     "example:app:android": "pnpm --dir examples/mobile-app android",
+    "example:app:ios": "if [ -n \"${ASL_EXAMPLE_XCODE_DEVELOPER_DIR:-}\" ]; then export DEVELOPER_DIR=\"$ASL_EXAMPLE_XCODE_DEVELOPER_DIR\"; fi; pnpm --dir examples/mobile-app ios",
     "example:app:ios:prebuild": "pnpm --dir examples/mobile-app ios:prebuild",
     "example:app:android:metro-port": "pnpm build && node dist/runner/android-adb.js --package ${ASL_EXAMPLE_ANDROID_APP_ID:-dev.agentscenarioloop.example} --react-native-debug-host ${ASL_EXAMPLE_ANDROID_DEBUG_HOST:-localhost:8097} --out artifacts/example-mobile-app/android-metro-port --run-id android-metro-port",
     "example:app:ios:metro-port": "if [ -n \"${ASL_EXAMPLE_XCODE_DEVELOPER_DIR:-}\" ]; then export DEVELOPER_DIR=\"$ASL_EXAMPLE_XCODE_DEVELOPER_DIR\"; fi; xcrun simctl spawn ${ASL_EXAMPLE_IOS_DEVICE:-booted} defaults write ${ASL_EXAMPLE_IOS_APP_ID:-dev.agent-scenario-loop.example} RCT_jsLocation ${ASL_EXAMPLE_METRO_HOST:-localhost}:${ASL_EXAMPLE_METRO_PORT:-8097}",

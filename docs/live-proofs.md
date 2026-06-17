@@ -88,6 +88,7 @@ With the neutral Expo example app installed on a booted iOS simulator and Metro 
 ```bash
 pnpm example:app:ios:prebuild
 pnpm example:app:start:isolated
+pnpm example:app:ios
 pnpm example:ios:live
 ```
 

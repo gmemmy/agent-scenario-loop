@@ -158,10 +158,12 @@ test('example mobile app satisfies initialized consumer validation', async () =>
 });
 
 test('example mobile app exposes consumer package scripts', () => {
+  const rootPackageJson = readJson(fixturePath('package.json'));
   const packageJson = readJson(fixturePath('examples/mobile-app/package.json'));
   const snippetScripts = readJson(fixturePath('examples/mobile-app/asl/package-scripts.json')) as Record<string, string>;
   const templateScripts = readJson(fixturePath('templates/package-scripts.json')) as Record<string, string>;
   const scripts = packageJson.scripts as Record<string, string>;
+  const rootScripts = rootPackageJson.scripts as Record<string, string>;
 
   for (const scriptName of [
     'asl:validate',
@@ -224,6 +226,9 @@ test('example mobile app exposes consumer package scripts', () => {
   assert.match(snippetScripts['asl:ios:live'], /--compare-latest --fail-on-regression/u);
   assert.match(snippetScripts['asl:android:live:runners'], /--agent-device-proof --argent-proof --compare-latest --fail-on-regression/u);
   assert.match(snippetScripts['asl:ios:live:runners'], /--agent-device-proof --argent-proof --compare-latest --fail-on-regression/u);
+  assert.match(rootScripts['example:app:android'], /pnpm --dir examples\/mobile-app android/u);
+  assert.match(rootScripts['example:app:ios'], /pnpm --dir examples\/mobile-app ios/u);
+  assert.match(rootScripts['example:app:ios'], /ASL_EXAMPLE_XCODE_DEVELOPER_DIR/u);
 
   assert.deepEqual(
     Object.keys(templateScripts).sort(),

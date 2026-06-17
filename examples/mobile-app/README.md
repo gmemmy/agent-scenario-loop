@@ -63,6 +63,14 @@ pnpm example:app:ios:prebuild
 
 The generated `ios/` directory stays ignored. Commit the Expo config, package metadata, scenarios, patches, and config plugins that reproduce it, not the generated native output.
 
+Run the generated iOS app from the package root with:
+
+```bash
+pnpm example:app:ios
+```
+
+Set `ASL_EXAMPLE_XCODE_DEVELOPER_DIR` before this command when the local default Xcode is not the Xcode you want the example app to use.
+
 For an isolated Metro server that does not collide with another React Native app on `8081`, start Metro from the package root with:
 
 ```bash
