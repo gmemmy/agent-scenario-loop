@@ -122,6 +122,8 @@ pnpm asl:ios:live
 pnpm asl:live-proof:ios
 ```
 
+The live-proof scripts pass `--fail-on-regression`, so a comparison status of `regressed` exits nonzero. This keeps the dogfood example aligned with the package scaffold and makes regression evidence a real gate by default.
+
 For suffixed live runs, point the inspection script at the generated proof file:
 
 ```bash

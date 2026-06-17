@@ -167,6 +167,10 @@ test('example mobile app exposes consumer package scripts', () => {
   ]) {
     assert.equal(typeof scripts[scriptName], 'string', `${scriptName} should be defined`);
   }
+
+  for (const scriptName of ['asl:live-proof:android', 'asl:live-proof:ios']) {
+    assert.match(scripts[scriptName], /--fail-on-regression/u, `${scriptName} should fail strict gates on regressions`);
+  }
 });
 
 test('example mobile app declares reproducible iOS build compatibility inputs', () => {
