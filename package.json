@@ -60,6 +60,10 @@
       "types": "./dist/runner/android-adb-driver.d.ts",
       "require": "./dist/runner/android-adb-driver.js"
     },
+    "./runner/agent-device-driver": {
+      "types": "./dist/runner/agent-device-driver.d.ts",
+      "require": "./dist/runner/agent-device-driver.js"
+    },
     "./runner/check-plan": {
       "types": "./dist/runner/check-plan.d.ts",
       "require": "./dist/runner/check-plan.js"

@@ -10,7 +10,7 @@ They do not mean the package bundles every named tool. A fixture describes what 
 | --- | --- | --- | --- |
 | `adb-android.json` | Android | Built-in adb runner target | Matches the bundled adb driver and Android profile capture path. |
 | `xcodebuildmcp-ios.json` | iOS | XcodeBuildMCP target | Models an iOS simulator driver with UI, screenshot, video, log, and accessibility evidence. |
-| `agent-device-android.json` | Android | agent-device target | Models a portable interaction runner that can tap, scroll, inspect UI trees, screenshot, and read logs. |
+| `agent-device-android.json` | Android | agent-device target | Matches the bundled agent-device driver adapter's portable interaction subset. |
 | `agent-device-ios.json` | iOS | agent-device target | Same portable interaction contract on iOS. |
 | `argent-android.json` | Android | Argent target | Models Argent as an interaction runner with adb-backed fallback evidence options. |
 | `argent-ios.json` | iOS | Argent target | Models Argent as an interaction runner with native-devtools and restart-health expectations. |
@@ -38,4 +38,4 @@ They do not mean the package bundles every named tool. A fixture describes what 
 
 ## Tool Surface Notes
 
-The agent-device CLI may expose more commands than the fixture declares, including recording, performance, network, trace, batch, and React DevTools operations. Keep those out of the primary runner manifest until an adapter maps them into stable Agent Scenario Loop artifacts. For example, performance or React DevTools output should usually start as an evidence provider or signal attachment, while `record` should only be declared once video capture is wired into `captures.video`.
+The bundled `agent-device` driver adapter maps the declared portable subset: app open/close, alert inspection, `tap`, `scroll`, `assertVisible`, `inspectTree`, `screenshot`, and `readLogs`. The agent-device CLI may expose more commands than the fixture declares, including recording, performance, network, trace, batch, and React DevTools operations. Keep those out of the primary runner manifest until an adapter maps them into stable Agent Scenario Loop artifacts. For example, performance or React DevTools output should usually start as an evidence provider or signal attachment, while `record` should only be declared once video capture is wired into `captures.video`.
