@@ -172,9 +172,14 @@ const REQUIRED_PLATFORM_SCRIPT_PAIRS: Array<[string, string]> = [
   ['asl:profile:ios', 'asl:profile:android'],
   ['asl:profile:ios:provider', 'asl:profile:android:provider'],
   ['asl:profile:ios:live', 'asl:profile:android:live'],
+  ['asl:ios:live', 'asl:android:live'],
+  ['asl:ios:live:agent-device', 'asl:android:live:agent-device'],
+  ['asl:ios:live:argent', 'asl:android:live:argent'],
+  ['asl:ios:live:runners', 'asl:android:live:runners'],
   ['asl:agent-device:ios', 'asl:agent-device:android'],
   ['asl:argent:ios', 'asl:argent:android'],
   ['asl:compare:ios', 'asl:compare:android'],
+  ['asl:live-proof:ios', 'asl:live-proof:android'],
 ];
 
 /**

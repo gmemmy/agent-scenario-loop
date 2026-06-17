@@ -152,6 +152,7 @@ test('example mobile app satisfies initialized consumer validation', async () =>
 test('example mobile app exposes consumer package scripts', () => {
   const packageJson = readJson(fixturePath('examples/mobile-app/package.json'));
   const snippetScripts = readJson(fixturePath('examples/mobile-app/asl/package-scripts.json')) as Record<string, string>;
+  const templateScripts = readJson(fixturePath('templates/package-scripts.json')) as Record<string, string>;
   const scripts = packageJson.scripts as Record<string, string>;
 
   for (const scriptName of [
@@ -201,6 +202,12 @@ test('example mobile app exposes consumer package scripts', () => {
   }
   assert.match(snippetScripts['asl:android:live:runners'], /--agent-device-proof --argent-proof/u);
   assert.match(snippetScripts['asl:ios:live:runners'], /--agent-device-proof --argent-proof/u);
+
+  assert.deepEqual(
+    Object.keys(templateScripts).sort(),
+    Object.keys(snippetScripts).sort(),
+    'example package-script snippets should expose the same public script names as the scaffold template',
+  );
 });
 
 test('example mobile app declares reproducible iOS build compatibility inputs', () => {

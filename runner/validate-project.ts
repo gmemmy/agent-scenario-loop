@@ -108,10 +108,20 @@ const REQUIRED_PACKAGE_SCRIPT_NAMES = [
   'asl:agent-device:android',
   'asl:argent:ios',
   'asl:argent:android',
+  'asl:ios:live',
+  'asl:android:live',
+  'asl:ios:live:agent-device',
+  'asl:android:live:agent-device',
+  'asl:ios:live:argent',
+  'asl:android:live:argent',
+  'asl:ios:live:runners',
+  'asl:android:live:runners',
   'asl:profile:ios:live',
   'asl:profile:android:live',
   'asl:compare:ios',
   'asl:compare:android',
+  'asl:live-proof:ios',
+  'asl:live-proof:android',
   'asl:live-proof',
 ];
 
@@ -173,6 +183,46 @@ const REQUIRED_PACKAGE_SCRIPT_SHAPES = {
     flags: ['--platform', '--scenario', '--app', '--device', '--out', '--run-id'],
     values: { '--platform': 'android' },
   },
+  'asl:ios:live': {
+    command: 'asl-example-ios-live',
+    flags: ['--config', '--out'],
+    values: {},
+  },
+  'asl:android:live': {
+    command: 'asl-example-android-live',
+    flags: ['--config', '--out'],
+    values: {},
+  },
+  'asl:ios:live:agent-device': {
+    command: 'asl-example-ios-live',
+    flags: ['--config', '--out', '--agent-device-proof'],
+    values: {},
+  },
+  'asl:android:live:agent-device': {
+    command: 'asl-example-android-live',
+    flags: ['--config', '--out', '--agent-device-proof'],
+    values: {},
+  },
+  'asl:ios:live:argent': {
+    command: 'asl-example-ios-live',
+    flags: ['--config', '--out', '--argent-proof'],
+    values: {},
+  },
+  'asl:android:live:argent': {
+    command: 'asl-example-android-live',
+    flags: ['--config', '--out', '--argent-proof'],
+    values: {},
+  },
+  'asl:ios:live:runners': {
+    command: 'asl-example-ios-live',
+    flags: ['--config', '--out', '--agent-device-proof', '--argent-proof'],
+    values: {},
+  },
+  'asl:android:live:runners': {
+    command: 'asl-example-android-live',
+    flags: ['--config', '--out', '--agent-device-proof', '--argent-proof'],
+    values: {},
+  },
   'asl:profile:ios:live': {
     command: 'asl-profile-ios',
     flags: ['--config', '--scenario', '--simctl-capture', '--profile-session', '--launch', '--comparison-lane', '--out', '--run-id'],
@@ -191,6 +241,16 @@ const REQUIRED_PACKAGE_SCRIPT_SHAPES = {
   'asl:compare:android': {
     command: 'asl-compare-latest',
     flags: ['--root', '--scenario', '--current', '--out', '--fail-on-regression'],
+    values: {},
+  },
+  'asl:live-proof:ios': {
+    command: 'asl-live-proof',
+    flags: ['--file', '--fail-on-regression'],
+    values: {},
+  },
+  'asl:live-proof:android': {
+    command: 'asl-live-proof',
+    flags: ['--file', '--fail-on-regression'],
     values: {},
   },
   'asl:live-proof': {

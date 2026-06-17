@@ -779,13 +779,23 @@ function main(): void {
     assert.deepEqual(Object.keys(initializedScripts).sort(), [
       'asl:agent-device:android',
       'asl:agent-device:ios',
+      'asl:android:live',
+      'asl:android:live:agent-device',
+      'asl:android:live:argent',
+      'asl:android:live:runners',
       'asl:argent:android',
       'asl:argent:ios',
       'asl:check:android',
       'asl:check:ios',
       'asl:compare:android',
       'asl:compare:ios',
+      'asl:ios:live',
+      'asl:ios:live:agent-device',
+      'asl:ios:live:argent',
+      'asl:ios:live:runners',
       'asl:live-proof',
+      'asl:live-proof:android',
+      'asl:live-proof:ios',
       'asl:profile:android',
       'asl:profile:android:live',
       'asl:profile:android:provider',
@@ -816,10 +826,14 @@ function main(): void {
     assert.match(initializedScripts['asl:argent:android'], /ASL_ARGENT_BASE_ARGS/u);
     assert.match(initializedScripts['asl:argent:ios'], /ASL_ARGENT_COMMAND_TIMEOUT_MS/u);
     assert.match(initializedScripts['asl:argent:android'], /ASL_ARGENT_COMMAND_TIMEOUT_MS/u);
+    assert.match(initializedScripts['asl:ios:live:runners'], /--agent-device-proof --argent-proof/u);
+    assert.match(initializedScripts['asl:android:live:runners'], /--agent-device-proof --argent-proof/u);
     assert.match(initializedScripts['asl:compare:ios'], /--fail-on-regression/u);
     assert.match(initializedScripts['asl:compare:android'], /--fail-on-regression/u);
     assert.match(initializedScripts['asl:compare:ios'], /\$\{ASL_COMPARE_IOS_CURRENT:\?set_ASL_COMPARE_IOS_CURRENT\}/u);
     assert.match(initializedScripts['asl:compare:android'], /\$\{ASL_COMPARE_ANDROID_CURRENT:\?set_ASL_COMPARE_ANDROID_CURRENT\}/u);
+    assert.match(initializedScripts['asl:live-proof:ios'], /artifacts\/asl\/ios-live\/_live-proof\/ios-live-proof\/live-proof\.json/u);
+    assert.match(initializedScripts['asl:live-proof:android'], /artifacts\/asl\/android-live\/_live-proof\/android-live-proof\/live-proof\.json/u);
     assert.match(initializedScripts['asl:live-proof'], /\$\{ASL_LIVE_PROOF:\?set_ASL_LIVE_PROOF\}/u);
     assert.equal(Object.values(initializedScripts).some((script) => String(script).includes('<run-dir>')), false);
     assert.equal(Object.values(initializedScripts).some((script) => String(script).includes('<live-proof.json>')), false);
