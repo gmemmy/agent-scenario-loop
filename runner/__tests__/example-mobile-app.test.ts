@@ -309,8 +309,17 @@ test('example mobile app provider manifest writes stable evidence attachments', 
     const commandRecord = readJson(
       path.join(runDir, 'raw', 'provider-commands', 'example-mobile-app-profiler-provider-capture-profiler.json'),
     ) as { exitCode?: number };
+    const accessibilityCommandRecord = readJson(
+      path.join(runDir, 'raw', 'provider-commands', 'example-mobile-app-profiler-provider-capture-accessibility.json'),
+    ) as { exitCode?: number };
+    const accessibilityEvidence = readJson(
+      path.join(runDir, 'raw', 'providers', 'example-mobile-app-profiler-provider', 'accessibility.json'),
+    ) as { providerId?: string; violations?: unknown[] };
 
     assert.equal(commandRecord.exitCode, 0);
+    assert.equal(accessibilityCommandRecord.exitCode, 0);
+    assert.equal(accessibilityEvidence.providerId, 'example-mobile-app-accessibility-provider');
+    assert.deepEqual(accessibilityEvidence.violations, []);
     assert.deepEqual(manifest.artifacts?.signals?.js, ['signals/js/profiler.json']);
     assert.deepEqual(manifest.artifacts?.signals?.memory, ['signals/memory/memory.json']);
     assert.deepEqual(manifest.artifacts?.signals?.network, ['signals/network/network.har']);
@@ -322,6 +331,12 @@ test('example mobile app provider manifest writes stable evidence attachments', 
         sourceFileName: attachment.sourceFileName,
       })),
       [
+        {
+          channel: 'provider',
+          kind: 'accessibility',
+          path: 'raw/providers/example-mobile-app-profiler-provider/accessibility.json',
+          sourceFileName: 'accessibility.json',
+        },
         {
           channel: 'provider',
           kind: 'profiler',

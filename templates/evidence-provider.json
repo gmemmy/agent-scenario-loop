@@ -3,11 +3,35 @@
   "runnerId": "example-profiler-provider",
   "kind": "evidenceProvider",
   "platforms": ["ios", "android"],
-  "capabilities": ["memory", "network", "profiler"],
+  "capabilities": ["accessibility", "memory", "network", "profiler"],
   "driverActions": ["collectPerfSignals"],
-  "artifactOutputs": ["memory", "network", "profiler", "signals"],
+  "artifactOutputs": ["accessibility", "memory", "network", "profiler", "signals"],
   "lifecycle": ["prepare", "startWindow", "capture", "stopWindow", "finalize"],
   "providerCommands": [
+    {
+      "id": "capture-accessibility",
+      "phase": "capture",
+      "command": "node",
+      "cwd": "..",
+      "args": [
+        "scripts/asl-capture-accessibility-provider.mjs",
+        "--platform",
+        "{platform}",
+        "--scenario",
+        "{scenarioId}",
+        "--run-id",
+        "{runId}",
+        "--out",
+        "{providerDir}/accessibility.json"
+      ],
+      "outputs": [
+        {
+          "channel": "provider",
+          "kind": "accessibility",
+          "path": "{providerDir}/accessibility.json"
+        }
+      ]
+    },
     {
       "id": "capture-profiler",
       "phase": "capture",

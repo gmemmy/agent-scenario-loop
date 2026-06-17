@@ -60,6 +60,7 @@ test('init-project scaffolds templates into a consuming app layout', async (t: T
     'runner-manifests/evidence-provider.json',
     'runner-manifests/primary-runner.json',
     'scenarios/mobile/checkout-submit.json',
+    'scripts/asl-capture-accessibility-provider.mjs',
     'scripts/asl-capture-profiler-provider.mjs',
     'src/devtools/profile-session.ts',
   ]);
@@ -79,9 +80,12 @@ test('init-project scaffolds templates into a consuming app layout', async (t: T
   assert.equal(readJson(path.join(targetDir, 'asl', 'package-scripts.json'))['asl:profile:ios:live'], 'asl-profile-ios --config asl.config.json --scenario scenarios/mobile/checkout-submit.json --simctl-capture --profile-session --profile-session-storage --launch --wait-ms 5000 --comparison-lane checkout-submit-ios-live --out artifacts/asl/ios --run-id checkout-submit-ios-live');
   assert.match(readJson(path.join(targetDir, 'asl', 'package-scripts.json'))['asl:compare:ios'], /--fail-on-regression/u);
   assert.match(readJson(path.join(targetDir, 'asl', 'package-scripts.json'))['asl:compare:android'], /--fail-on-regression/u);
-  assert.deepEqual(readJson(path.join(targetDir, 'runner-manifests', 'evidence-provider.json')).capabilities, ['memory', 'network', 'profiler']);
+  assert.deepEqual(readJson(path.join(targetDir, 'runner-manifests', 'evidence-provider.json')).capabilities, ['accessibility', 'memory', 'network', 'profiler']);
   assert.match(fs.readFileSync(path.join(targetDir, 'asl', 'README.md'), 'utf8'), /checkout-submit/u);
   assert.match(fs.readFileSync(path.join(targetDir, 'asl', 'gitignore-snippet'), 'utf8'), /artifacts\/asl\//u);
+  const accessibilityProviderScript = fs.readFileSync(path.join(targetDir, 'scripts', 'asl-capture-accessibility-provider.mjs'), 'utf8');
+  assert.match(accessibilityProviderScript, /writeAccessibilityEvidence/u);
+  assert.match(accessibilityProviderScript, /violations/u);
   const providerScript = fs.readFileSync(path.join(targetDir, 'scripts', 'asl-capture-profiler-provider.mjs'), 'utf8');
   assert.match(providerScript, /writeProviderEvidence/u);
   assert.match(providerScript, /memory-out/u);
@@ -105,6 +109,7 @@ test('init-project skips existing files unless force is enabled', async (t: Test
     'scenarios/mobile/first-journey.json',
     'runner-manifests/primary-runner.json',
     'runner-manifests/evidence-provider.json',
+    'scripts/asl-capture-accessibility-provider.mjs',
     'scripts/asl-capture-profiler-provider.mjs',
     'asl/README.md',
     'asl/package-scripts.json',
@@ -130,6 +135,6 @@ test('init-project dry run reports files without writing them', async (t: TestCo
     packageRoot: ROOT,
   });
 
-  assert.equal(result.created.length, 9);
+  assert.equal(result.created.length, 10);
   assert.equal(fs.existsSync(path.join(targetDir, 'asl.config.json')), false);
 });

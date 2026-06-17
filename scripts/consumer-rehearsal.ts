@@ -374,6 +374,12 @@ function rehearseConsumerInstall({
       [
         {
           channel: 'provider',
+          kind: 'accessibility',
+          path: 'raw/providers/example-profiler-provider/accessibility.json',
+          sourceFileName: 'accessibility.json',
+        },
+        {
+          channel: 'provider',
           kind: 'profiler',
           path: 'raw/providers/example-profiler-provider/profiler.json',
           sourceFileName: 'profiler.json',

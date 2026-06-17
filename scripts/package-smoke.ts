@@ -805,6 +805,11 @@ function main(): void {
       fs.readFileSync(path.join(initOutputDir, 'asl', 'gitignore-snippet'), 'utf8'),
       /artifacts\/asl\//u,
     );
+    assert.deepEqual(
+      JSON.parse(fs.readFileSync(path.join(initOutputDir, 'runner-manifests', 'evidence-provider.json'), 'utf8')).capabilities,
+      ['accessibility', 'memory', 'network', 'profiler'],
+    );
+    assert.equal(fs.existsSync(path.join(initOutputDir, 'scripts', 'asl-capture-accessibility-provider.mjs')), true);
     assert.equal(fs.existsSync(path.join(initOutputDir, 'scripts', 'asl-capture-profiler-provider.mjs')), true);
     for (const platform of ['ios', 'android']) {
       run(packageBinPath(installDir, 'asl-check-plan'), [
@@ -1805,6 +1810,7 @@ function main(): void {
       "require.resolve('agent-scenario-loop/templates/gitignore-snippet');",
       "require.resolve('agent-scenario-loop/templates/integration-readme.md');",
       "require.resolve('agent-scenario-loop/templates/package-scripts.json');",
+      "require.resolve('agent-scenario-loop/templates/scripts/asl-capture-accessibility-provider.mjs');",
       "require.resolve('agent-scenario-loop/templates/scripts/asl-capture-profiler-provider.mjs');",
       "for (const scenarioFixture of listJsonFiles('examples/scenarios/mobile')) {",
       "  const result = asl.validateJson(readJson(scenarioFixture), asl.SCHEMAS.scenario, scenarioFixture);",

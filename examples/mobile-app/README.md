@@ -20,7 +20,7 @@ The example app also carries the same project-local files a consuming app gets f
 
 - `src/devtools/profile-session.ts`: local app helper entrypoint used by the screen
 - `runner-manifests/primary-runner.json`: portable iOS and Android runner capability manifest
-- `runner-manifests/evidence-provider.json`: optional profiler, memory, and network provider manifest
+- `runner-manifests/evidence-provider.json`: optional accessibility, profiler, memory, and network provider manifest
 - `scenarios/mobile/app-startup.json`: portable startup scenario used for project validation
 - `asl/package-scripts.json`: public CLI snippets that a consuming app can merge into `package.json`
 
@@ -90,7 +90,8 @@ If a selected Xcode beta cannot run the current Expo/RN toolchain cleanly, point
 - `asl.config.json`: runner config for example app artifact output
 - `asl/package-scripts.json`: consumer-facing package-script snippets, including portable agent-device and Argent interaction proof commands
 - `runner-manifests/*.json`: project-local runner and provider capability manifests
-- `scripts/asl-capture-profiler-provider.mjs`: deterministic provider command used by provider-profile scripts
+- `scripts/asl-capture-accessibility-provider.mjs`: deterministic accessibility provider command used by provider-profile scripts
+- `scripts/asl-capture-profiler-provider.mjs`: deterministic profiler, memory, and network provider command used by provider-profile scripts
 - `scenarios/mobile/app-startup.json`: portable consumer-validation scenario
 - `scenarios/android/*.json`: Android profile scenario manifests
 - `scenarios/ios/*.json`: iOS profile scenario manifests
@@ -120,7 +121,7 @@ pnpm asl:argent:ios
 pnpm asl:argent:android
 ```
 
-The `*:provider` scripts execute `runner-manifests/evidence-provider.json`, which runs `scripts/asl-capture-profiler-provider.mjs` and inventories generated profiler, memory, and network evidence in `manifest.artifacts.evidenceAttachments`.
+The `*:provider` scripts execute `runner-manifests/evidence-provider.json`, which runs the deterministic provider scripts and inventories generated accessibility, profiler, memory, and network evidence in `manifest.artifacts.evidenceAttachments`.
 
 The `asl:agent-device:*` and `asl:argent:*` scripts are portable interaction proof lanes. They require the corresponding external tool and a running device or simulator, but they write the same ASL health, verdict, raw, capture, and summary artifacts.
 
