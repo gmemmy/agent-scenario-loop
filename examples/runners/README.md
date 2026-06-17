@@ -35,3 +35,7 @@ They do not mean the package bundles every named tool. A fixture describes what 
 - Do not add a capability or driver action until a runner or provider can produce the corresponding evidence.
 - When a tool writes files independently, attach them through `--signal`, `--capture`, or a `providerCommands` manifest so the run keeps stable artifact paths.
 - Treat these manifests as starting contracts; consuming apps can narrow them to match the exact adapter they install.
+
+## Tool Surface Notes
+
+The agent-device CLI may expose more commands than the fixture declares, including recording, performance, network, trace, batch, and React DevTools operations. Keep those out of the primary runner manifest until an adapter maps them into stable Agent Scenario Loop artifacts. For example, performance or React DevTools output should usually start as an evidence provider or signal attachment, while `record` should only be declared once video capture is wired into `captures.video`.
