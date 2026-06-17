@@ -6,6 +6,8 @@ const path = require('node:path');
 const test = require('node:test');
 
 const {
+  parseArgs,
+  parseBaseArgs,
   resolveArgentDriverSteps,
   runArgentCapture,
   validateArgentDriverSteps,
@@ -19,6 +21,23 @@ type CommandResult = {
   stdout: string;
 };
 type TestContext = import('node:test').TestContext;
+
+test('Argent CLI parser accepts dash-leading adapter flag values', () => {
+  const args = parseArgs([
+    '--argent',
+    'npx',
+    '--base-args',
+    '--yes @swmansion/argent run',
+    '--device-flag',
+    '--udid',
+    '--app-flag=--bundleId',
+  ]);
+
+  assert.equal(args.argent, 'npx');
+  assert.deepEqual(parseBaseArgs(args['base-args']), ['--yes', '@swmansion/argent', 'run']);
+  assert.equal(args['device-flag'], '--udid');
+  assert.equal(args['app-flag'], '--bundleId');
+});
 
 /**
  * Reads a JSON artifact.
@@ -202,6 +221,43 @@ test('Argent capture points missing command failures at command configuration', 
   assert.equal(health.checks[0].metadata.nextActionCode, 'configure_argent_command');
 });
 
+test('Argent capture points command timeouts at runner configuration', async (t: TestContext) => {
+  const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-argent-timeout-'));
+  t.after(async () => {
+    await fsp.rm(tempDir, { recursive: true, force: true });
+  });
+
+  await runArgentCapture({
+    deviceId: 'SIM-123',
+    executor: async (command: string, args: string[]): Promise<CommandResult> => ({
+      args,
+      command,
+      exitCode: 1,
+      stderr: 'Argent command timed out after 1000ms.',
+      stdout: '',
+    }),
+    outputDir: tempDir,
+    platform: 'ios',
+    runId: 'argent-timeout',
+    scenario: {
+      id: 'argent-timeout-flow',
+      steps: [
+        {
+          id: 'capture-final',
+          kind: 'captureEvidence',
+          artifact: 'screenshot',
+          driverAction: 'screenshot',
+        },
+      ],
+    },
+  });
+
+  const health = readJson(path.join(tempDir, 'health.json'));
+  assert.equal(health.healthStatus, 'failed');
+  assert.equal(health.checks[0].metadata.argentDiagnostic, 'argent_command_timeout');
+  assert.equal(health.checks[0].metadata.nextActionCode, 'fix_argent_command_timeout');
+});
+
 test('Argent driver step expansion validates coordinate-backed metadata', () => {
   const scenario = {
     id: 'portable-argent-actions',
@@ -218,6 +274,23 @@ test('Argent driver step expansion validates coordinate-backed metadata', () => 
           argent: {
             x: 100,
             y: 200,
+          },
+        },
+      },
+      {
+        id: 'assert-title',
+        kind: 'assertUi',
+        driverAction: 'assertVisible',
+        selector: {
+          kind: 'testId',
+          value: 'title-id',
+        },
+        adapterOptions: {
+          argent: {
+            selector: {
+              kind: 'text',
+              value: 'Title',
+            },
           },
         },
       },
@@ -256,11 +329,22 @@ test('Argent driver step expansion validates coordinate-backed metadata', () => 
       y: 200,
     },
     {
+      driverAction: 'assertVisible',
+      rawFileName: 'argent-assertVisible-3.txt',
+      required: true,
+      selector: {
+        kind: 'text',
+        value: 'Title',
+      },
+      stepId: 'assert-title',
+      waitMs: 0,
+    },
+    {
       driverAction: 'scroll',
       durationMs: 350,
       endX: 100,
       endY: 200,
-      rawFileName: 'argent-scroll-3.txt',
+      rawFileName: 'argent-scroll-4.txt',
       required: true,
       startX: 100,
       startY: 700,

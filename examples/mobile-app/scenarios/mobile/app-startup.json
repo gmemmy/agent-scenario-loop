@@ -66,6 +66,14 @@
         "kind": "testId",
         "value": "asl-example-title"
       },
+      "adapterOptions": {
+        "argent": {
+          "selector": {
+            "kind": "text",
+            "value": "Example Mobile App"
+          }
+        }
+      },
       "timeoutMs": 3000
     },
     {

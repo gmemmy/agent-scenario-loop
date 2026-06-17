@@ -6,9 +6,11 @@ const {
   createArgentDriver,
   extractArgentScreenshotPath,
   formatArgentRawOutput,
+  hasCompletedArgentOutput,
   isArgentRootOnlyDescription,
   matchesArgentSelector,
   normalizeArgentPoint,
+  normalizeArgentResultExitCode,
   parseArgentRunJson,
 } = require('../argent-driver');
 
@@ -54,11 +56,20 @@ test('argent driver builds stable run args for npx and global binaries', () => {
   assert.deepEqual(
     buildArgentRunArgs({
       argentCommand: 'argent',
-      deviceFlag: '--serial',
       deviceId: 'emulator-5554',
       executor: createExecutor({}),
     }, 'gesture-tap', ['--x', '0.5', '--y', '0.25']),
-    ['run', 'gesture-tap', '--serial', 'emulator-5554', '--x', '0.5', '--y', '0.25'],
+    ['run', 'gesture-tap', '--udid', 'emulator-5554', '--x', '0.5', '--y', '0.25'],
+  );
+
+  assert.deepEqual(
+    buildArgentRunArgs({
+      argentCommand: 'argent',
+      deviceFlag: '--serial',
+      deviceId: 'legacy-emulator',
+      executor: createExecutor({}),
+    }, 'gesture-tap', ['--x', '0.5', '--y', '0.25']),
+    ['run', 'gesture-tap', '--serial', 'legacy-emulator', '--x', '0.5', '--y', '0.25'],
   );
 });
 
@@ -78,8 +89,50 @@ test('argent driver parses structured output and screenshot paths', () => {
   assert.deepEqual(parseArgentRunJson('{"description":"Ready"}\n'), { description: 'Ready' });
   assert.equal(extractArgentScreenshotPath('Saved screenshot: /tmp/argent-screen.png\n'), '/tmp/argent-screen.png');
   assert.equal(extractArgentScreenshotPath('{"path":"/tmp/argent-json.png"}'), '/tmp/argent-json.png');
+  assert.equal(extractArgentScreenshotPath('{"image":"/tmp/argent-image.png"}'), '/tmp/argent-image.png');
   assert.equal(isArgentRootOnlyDescription('{"description":"ROOT"}'), true);
   assert.equal(isArgentRootOnlyDescription('{"description":"Ready"}'), false);
+});
+
+test('argent driver treats completed output before wrapper timeout as successful', async () => {
+  const driver = createArgentDriver({
+    appId: 'dev.example.app',
+    argentCommand: 'npx',
+    baseArgs: ['--yes', '@swmansion/argent', 'run'],
+    deviceId: 'SIM-123',
+    executor: createExecutor({
+      '--yes @swmansion/argent run launch-app --udid SIM-123 --bundleId dev.example.app': {
+        exitCode: 1,
+        stderr: 'Argent command timed out after 1000ms.',
+        stdout: '{"launched":true,"bundleId":"dev.example.app"}\n',
+      },
+      '--yes @swmansion/argent run screenshot --udid SIM-123 --includeImageInContext false': {
+        exitCode: 1,
+        stderr: 'Argent command timed out after 1000ms.',
+        stdout: '{"image":"/tmp/argent-image.png"}\n',
+      },
+    }),
+  });
+
+  const launch = await driver.launchApp();
+  const screenshot = await driver.screenshot();
+
+  assert.equal(launch.exitCode, 0);
+  assert.equal(screenshot.exitCode, 0);
+  assert.equal(screenshot.capturePath, '/tmp/argent-image.png');
+  assert.equal(hasCompletedArgentOutput('launch', launch.stdout), true);
+  assert.equal(
+    normalizeArgentResultExitCode({
+      action: 'tap',
+      args: [],
+      command: 'argent',
+      exitCode: 1,
+      rawFileName: 'tap.txt',
+      stderr: 'Argent command timed out after 1000ms.',
+      stdout: '',
+    }).exitCode,
+    1,
+  );
 });
 
 test('argent driver maps lifecycle, gestures, screenshots, and descriptions', async () => {

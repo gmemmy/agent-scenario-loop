@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-const { execFile } = require('node:child_process');
+const { spawn } = require('node:child_process');
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const fsp = require('node:fs/promises');
@@ -23,6 +23,7 @@ type CliArgs = {
   'app-flag'?: string | boolean;
   argent?: string | boolean;
   'base-args'?: string | boolean;
+  'command-timeout-ms'?: string | boolean;
   device?: string | boolean;
   'device-flag'?: string | boolean;
   out?: string | boolean;
@@ -46,7 +47,7 @@ type CommandResult = {
 };
 
 type CommandExecutor = (command: string, args: string[]) => Promise<CommandResult>;
-type ExecFileError = Error & {
+type SpawnError = Error & {
   code?: number | string;
 };
 type ScenarioExecutionStep = import('../core/execution-plan').ScenarioExecutionStep;
@@ -75,6 +76,7 @@ type ArgentCaptureOptions = {
   appFlag?: string;
   argentCommand?: string;
   baseArgs?: string[];
+  commandTimeoutMs?: number;
   delay?: (ms: number) => Promise<void>;
   deviceFlag?: string;
   deviceId: string;
@@ -106,6 +108,8 @@ type ArgentFailureHintOptions = {
   rootOnlyDescription: boolean;
 };
 
+const DASH_VALUE_KEYS = new Set(['app-flag', 'base-args', 'device-flag']);
+
 /**
  * Prints CLI usage.
  *
@@ -120,6 +124,7 @@ function usage(output: {write: (message: string) => unknown} = process.stderr): 
     'Writes health.json, verdict.json, agent-summary.md, raw command transcripts, and screenshot captures.',
     'Use --argent <binary> and --base-args "<args>" to adapt local Argent installs without bundling Argent.',
     'Use --device-flag and --app-flag when your Argent command expects platform-specific flag names.',
+    'Use --command-timeout-ms <ms> to bound each external Argent invocation.',
   ], output);
 }
 
@@ -140,9 +145,15 @@ function parseArgs(argv: string[]): CliArgs {
       continue;
     }
 
+    const equalsIndex = token.indexOf('=');
+    if (equalsIndex > 2) {
+      args[token.slice(2, equalsIndex)] = token.slice(equalsIndex + 1);
+      continue;
+    }
+
     const key = token.slice(2);
     const value = argv[index + 1];
-    if (value && !value.startsWith('--')) {
+    if (value && (!value.startsWith('--') || DASH_VALUE_KEYS.has(key))) {
       args[key] = value;
       index += 1;
     } else {
@@ -201,13 +212,91 @@ function createRunId(): string {
  * @returns {Promise<CommandResult>}
  */
 function execFileCommand(command: string, args: string[]): Promise<CommandResult> {
+  return execFileCommandWithTimeout(command, args);
+}
+
+/**
+ * Runs a command with a bounded timeout and captures stdout, stderr, and exit code without throwing.
+ *
+ * @param {string} command
+ * @param {string[]} args
+ * @param {number} [timeoutMs]
+ * @returns {Promise<CommandResult>}
+ */
+function execFileCommandWithTimeout(command: string, args: string[], timeoutMs = 60_000): Promise<CommandResult> {
   return new Promise((resolve) => {
-    execFile(command, args, (error: ExecFileError | null, stdout: string, stderr: string) => {
-      resolve({
+    const child = spawn(command, args, {
+      detached: process.platform !== 'win32',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    let stdout = '';
+    let stderr = '';
+    let settled = false;
+    let timedOut = false;
+    let forceKillTimer: NodeJS.Timeout | null = null;
+    const timeout = setTimeout(() => {
+      timedOut = true;
+      if (typeof child.pid === 'number') {
+        try {
+          if (process.platform === 'win32') {
+            child.kill('SIGTERM');
+          } else {
+            process.kill(-child.pid, 'SIGTERM');
+          }
+        } catch {
+          child.kill('SIGTERM');
+        }
+      }
+      forceKillTimer = setTimeout(() => {
+        if (typeof child.pid === 'number') {
+          try {
+            if (process.platform === 'win32') {
+              child.kill('SIGKILL');
+            } else {
+              process.kill(-child.pid, 'SIGKILL');
+            }
+          } catch {
+            child.kill('SIGKILL');
+          }
+        }
+      }, 1500);
+    }, timeoutMs);
+
+    const finish = (result: CommandResult): void => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimeout(timeout);
+      if (forceKillTimer) {
+        clearTimeout(forceKillTimer);
+      }
+      resolve(result);
+    };
+
+    child.stdout?.setEncoding('utf8');
+    child.stderr?.setEncoding('utf8');
+    child.stdout?.on('data', (chunk: string) => {
+      stdout += chunk;
+    });
+    child.stderr?.on('data', (chunk: string) => {
+      stderr += chunk;
+    });
+    child.on('error', (error: SpawnError) => {
+      finish({
         command,
         args,
-        exitCode: error && typeof error.code === 'number' ? error.code : error ? 1 : 0,
-        stderr: stderr || (error ? error.message : ''),
+        exitCode: 1,
+        stderr: stderr || error.message,
+        stdout,
+      });
+    });
+    child.on('close', (code: number | null, signal: NodeJS.Signals | null) => {
+      finish({
+        command,
+        args,
+        exitCode: typeof code === 'number' ? code : signal ? 1 : 0,
+        stderr: [stderr, timedOut ? `Argent command timed out after ${timeoutMs}ms.` : ''].filter(Boolean).join('\n'),
         stdout,
       });
     });
@@ -306,7 +395,11 @@ function resolveArgentDriverSteps(
           : defaultArgentRawFileName({ driverAction: action, index: actionIndex }),
         required: step.required !== false,
         ...(screenSize ? { screenSize } : {}),
-        ...(isArgentSelector(step.selector) ? { selector: step.selector } : {}),
+        ...(isArgentSelector(argentOptions.selector)
+          ? { selector: argentOptions.selector }
+          : isArgentSelector(step.selector)
+            ? { selector: step.selector }
+            : {}),
         ...(typeof readFiniteNumber(argentOptions.startX) === 'number' ? { startX: readFiniteNumber(argentOptions.startX) } : {}),
         ...(typeof readFiniteNumber(argentOptions.startY) === 'number' ? { startY: readFiniteNumber(argentOptions.startY) } : {}),
         stepId: step.id,
@@ -393,6 +486,14 @@ function buildArgentFailureMetadata({
       argentDiagnostic: 'argent_command_unavailable',
       nextAction: 'Install Argent, pass --argent with the local Argent command, or set --base-args/--device-flag/--app-flag to match the installed command before rerunning.',
       nextActionCode: 'configure_argent_command',
+    };
+  }
+
+  if (/timed out after \d+ms/iu.test(output)) {
+    return {
+      argentDiagnostic: 'argent_command_timeout',
+      nextAction: 'Confirm the Argent command can run without package-manager or device-control prompts, increase --command-timeout-ms if the command is legitimately slow, then rerun.',
+      nextActionCode: 'fix_argent_command_timeout',
     };
   }
 
@@ -638,10 +739,11 @@ async function runArgentCapture({
   appFlag,
   argentCommand = 'argent',
   baseArgs,
+  commandTimeoutMs = 60_000,
   delay: wait = delay,
   deviceFlag,
   deviceId,
-  executor = execFileCommand,
+  executor,
   outputDir = path.resolve('artifacts/argent-capture'),
   platform,
   runId = createRunId(),
@@ -675,7 +777,7 @@ async function runArgentCapture({
     ...(baseArgs ? { baseArgs } : {}),
     ...(deviceFlag ? { deviceFlag } : {}),
     deviceId,
-    executor,
+    executor: executor ?? ((command, args) => execFileCommandWithTimeout(command, args, commandTimeoutMs)),
     ...(screenSize ? { screenSize } : {}),
   });
 
@@ -684,6 +786,7 @@ async function runArgentCapture({
     argentCommand,
     baseArgs: baseArgs ?? ['run'],
     captures,
+    commandTimeoutMs,
     deviceId,
     driverActions: [],
     platform,
@@ -861,15 +964,17 @@ async function main(): Promise<void> {
   }
 
   const baseArgs = parseBaseArgs(args['base-args']);
+  const commandTimeoutMs = readPositiveInteger(args['command-timeout-ms'], 60_000);
   const screenSize = readScreenSize({ height: args['screen-height'], width: args['screen-width'] });
   const result = await runArgentCapture({
     ...(typeof args.app === 'string' ? { app: args.app } : {}),
     ...(typeof args['app-flag'] === 'string' ? { appFlag: args['app-flag'] } : {}),
     ...(typeof args.argent === 'string' ? { argentCommand: args.argent } : {}),
     ...(baseArgs ? { baseArgs } : {}),
+    commandTimeoutMs,
     ...(typeof args['device-flag'] === 'string'
       ? { deviceFlag: args['device-flag'] }
-      : { deviceFlag: args.platform === 'android' ? '--serial' : '--udid' }),
+      : {}),
     deviceId,
     ...(typeof args.out === 'string' ? { outputDir: args.out } : {}),
     platform: args.platform as 'android' | 'ios',
@@ -899,6 +1004,7 @@ export {
   copyArgentCapture,
   defaultArgentRawFileName,
   execFileCommand,
+  execFileCommandWithTimeout,
   isArgentSelector,
   main,
   parseArgs,

@@ -396,7 +396,7 @@ function writeFakeArgent(filePath: string): void {
     "const path = require('node:path');",
     "const args = process.argv.slice(2);",
     "const key = args.join(' ');",
-    "function ok(stdout = '{\"description\":\"Home Ready asl-example-title\"}\\n') { process.stdout.write(stdout); process.exit(0); }",
+    "function ok(stdout = '{\"description\":\"Home Ready asl-example-title Example Mobile App\"}\\n') { process.stdout.write(stdout); process.exit(0); }",
     "if (args.includes('launch-app')) ok('{\"success\":true}\\n');",
     "if (args.includes('describe')) ok();",
     "if (args.includes('screenshot')) {",
@@ -812,6 +812,10 @@ function main(): void {
     assert.match(initializedScripts['asl:agent-device:android'], /checkout-submit-android-agent-device/u);
     assert.match(initializedScripts['asl:argent:ios'], /checkout-submit-ios-argent/u);
     assert.match(initializedScripts['asl:argent:android'], /checkout-submit-android-argent/u);
+    assert.match(initializedScripts['asl:argent:ios'], /ASL_ARGENT_BASE_ARGS/u);
+    assert.match(initializedScripts['asl:argent:android'], /ASL_ARGENT_BASE_ARGS/u);
+    assert.match(initializedScripts['asl:argent:ios'], /ASL_ARGENT_COMMAND_TIMEOUT_MS/u);
+    assert.match(initializedScripts['asl:argent:android'], /ASL_ARGENT_COMMAND_TIMEOUT_MS/u);
     assert.match(initializedScripts['asl:compare:ios'], /--fail-on-regression/u);
     assert.match(initializedScripts['asl:compare:android'], /--fail-on-regression/u);
     assert.match(initializedScripts['asl:compare:ios'], /\$\{ASL_COMPARE_IOS_CURRENT:\?set_ASL_COMPARE_IOS_CURRENT\}/u);

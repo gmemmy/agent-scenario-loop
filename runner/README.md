@@ -80,9 +80,10 @@ To wrap an existing Argent install in ASL artifacts:
 ```bash
 ASL_EXAMPLE_IOS_UDID=<simulator-udid> pnpm example:argent:ios:startup
 ASL_EXAMPLE_ANDROID_SERIAL=<emulator-serial> pnpm example:argent:android:startup
+ASL_ARGENT_BIN=npx ASL_ARGENT_BASE_ARGS="--yes @swmansion/argent run" ASL_EXAMPLE_ANDROID_SERIAL=<emulator-serial> pnpm example:argent:android:startup
 ```
 
-Pass `--argent`, `--base-args`, `--device-flag`, or `--app-flag` when your local Argent command shape differs from the default `argent run ...` invocation. Argent tap and scroll steps require coordinate metadata under `adapterOptions.argent`; visibility checks use the portable selector against Argent's app description output.
+Pass `--argent`, `--base-args`, `--device-flag`, or `--app-flag` when your local Argent command shape differs from the default `argent run ...` invocation. The verified no-global-binary path is `npx --yes @swmansion/argent run ...`; set `ASL_ARGENT_BIN=npx` and `ASL_ARGENT_BASE_ARGS="--yes @swmansion/argent run"` to use it from package scripts. Argent uses `--udid` for both iOS simulators and Android emulators. Each Argent command is bounded by `--command-timeout-ms` so package-manager or device-control stalls produce failed ASL health instead of hanging forever. Argent tap and scroll steps require coordinate metadata under `adapterOptions.argent`; visibility checks use the portable selector against Argent's app description output.
 
 To check Android runtime readiness without starting scenario execution:
 

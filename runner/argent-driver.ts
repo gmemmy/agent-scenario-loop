@@ -133,6 +133,51 @@ function buildArgentResult({
 }
 
 /**
+ * Returns true when Argent emitted a complete action result before a wrapper timeout.
+ *
+ * @param {string} action
+ * @param {string} stdout
+ * @param {string | undefined} capturePath
+ * @returns {boolean}
+ */
+function hasCompletedArgentOutput(action: string, stdout: string, capturePath?: string): boolean {
+  const parsed = parseArgentRunJson(stdout);
+  if (action === 'screenshot') {
+    return typeof capturePath === 'string' && capturePath.length > 0;
+  }
+  if (['assertVisible', 'inspectTree'].includes(action)) {
+    return readArgentDescription(stdout).trim().length > 0;
+  }
+  if (parsed?.success === true || parsed?.launched === true) {
+    return true;
+  }
+  if (action === 'launch' && typeof parsed?.bundleId === 'string') {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Keeps successful Argent output from being failed only because a wrapper helper lingered.
+ *
+ * @param {ArgentCommandResult} result
+ * @returns {ArgentCommandResult}
+ */
+function normalizeArgentResultExitCode(result: ArgentCommandResult): ArgentCommandResult {
+  if (
+    result.exitCode !== 0 &&
+    /timed out after \d+ms/iu.test(result.stderr) &&
+    hasCompletedArgentOutput(result.action, result.stdout, result.capturePath)
+  ) {
+    return {
+      ...result,
+      exitCode: 0,
+    };
+  }
+  return result;
+}
+
+/**
  * Combines stdout and stderr into raw evidence text.
  *
  * @param {{stdout: string, stderr: string}} result
@@ -168,9 +213,12 @@ function buildArgentRunArgs(options: ArgentDriverOptions, tool: string, args: st
  * @returns {string | null}
  */
 function extractArgentScreenshotPath(text: string): string | null {
-  const jsonPath = parseArgentRunJson(text)?.path;
-  if (typeof jsonPath === 'string' && jsonPath.length > 0) {
-    return jsonPath;
+  const parsed = parseArgentRunJson(text);
+  for (const key of ['path', 'image']) {
+    const jsonPath = parsed?.[key];
+    if (typeof jsonPath === 'string' && jsonPath.length > 0) {
+      return jsonPath;
+    }
   }
 
   const savedMatch = /(?:Saved screenshot|Screenshot saved(?: to)?):\s*(?<path>\S.+)$/imu.exec(text);
@@ -306,12 +354,12 @@ function createArgentDriver(options: ArgentDriverOptions): ArgentDriver {
     capturePath?: string,
   ): Promise<ArgentCommandResult> => {
     const result = await options.executor(options.argentCommand, buildArgentRunArgs(options, tool, args));
-    return buildArgentResult({
+    return normalizeArgentResultExitCode(buildArgentResult({
       action,
       rawFileName,
       result,
       ...(capturePath ? { capturePath } : {}),
-    });
+    }));
   };
 
   const appArgs = (appId?: string): string[] => {
@@ -364,7 +412,7 @@ function createArgentDriver(options: ArgentDriverOptions): ArgentDriver {
     }: ArgentScreenshotOptions = {}): Promise<ArgentCommandResult> {
       const result = await run('screenshot', 'screenshot', rawFileName, ['--includeImageInContext', 'false']);
       const capturePath = extractArgentScreenshotPath(result.stdout);
-      return capturePath ? { ...result, capturePath } : result;
+      return normalizeArgentResultExitCode(capturePath ? { ...result, capturePath } : result);
     },
 
     async scroll({
@@ -421,9 +469,11 @@ export {
   createArgentDriver,
   extractArgentScreenshotPath,
   formatArgentRawOutput,
+  hasCompletedArgentOutput,
   isArgentRootOnlyDescription,
   matchesArgentSelector,
   normalizeArgentPoint,
+  normalizeArgentResultExitCode,
   parseArgentRunJson,
   readArgentDescription,
 };
