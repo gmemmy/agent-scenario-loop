@@ -59,6 +59,16 @@
       "timeoutMs": 8000
     },
     {
+      "id": "assert-home-visible",
+      "kind": "assertUi",
+      "driverAction": "assertVisible",
+      "selector": {
+        "kind": "testId",
+        "value": "asl-example-title"
+      },
+      "timeoutMs": 3000
+    },
+    {
       "id": "capture-final-screen",
       "kind": "captureEvidence",
       "artifact": "screenshot",

@@ -169,7 +169,7 @@ export function ExampleScreen(): React.ReactElement {
           <Text selectable style={styles.eyebrow}>
             agent scenario loop
           </Text>
-          <Text selectable style={styles.title}>
+          <Text selectable style={styles.title} testID="asl-example-title">
             Example Mobile App
           </Text>
           <Text selectable style={styles.subtitle}>
