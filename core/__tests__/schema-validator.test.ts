@@ -347,11 +347,13 @@ test('accepts aggregate live proof artifacts', () => {
     },
     profiles: [
       {
+        healthStatus: 'passed',
         label: 'startup',
         scenarioId: 'app-startup',
         runId: 'android-live-startup-after-change',
         runDir: 'artifacts/example-mobile-app/android/app-startup/android-live-startup-after-change',
         summaryPath: 'artifacts/example-mobile-app/android/app-startup/android-live-startup-after-change/agent-summary.md',
+        verdictStatus: 'passed',
       },
     ],
     comparisonStatus: 'inconclusive',

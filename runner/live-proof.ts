@@ -20,7 +20,13 @@ type LiveProofArtifact = {
     summary: string;
   };
   platform: string;
-  profiles: unknown[];
+  profiles: Array<{
+    healthStatus: string;
+    label: string;
+    runId: string;
+    scenarioId: string;
+    verdictStatus: string;
+  }>;
   runId: string;
   status: string;
   summary: string;
@@ -95,6 +101,9 @@ function formatLiveProof(proof: LiveProofArtifact): string {
     `Status: ${proof.status}`,
     `Comparison status: ${proof.comparisonStatus}`,
     `Profiles: ${proof.profiles.length}`,
+    ...proof.profiles.map((profile) => (
+      `- ${profile.label} (${profile.scenarioId}/${profile.runId}): health=${profile.healthStatus} verdict=${profile.verdictStatus}`
+    )),
     `Comparisons: ${proof.comparisons.length}`,
     `Next action: ${proof.nextAction.code} - ${proof.nextAction.summary}`,
     `Summary: ${proof.summary}`,

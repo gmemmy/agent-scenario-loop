@@ -34,11 +34,13 @@ function buildProof(comparisonStatus: 'regressed' | 'unchanged'): Record<string,
     },
     profiles: [
       {
+        healthStatus: 'passed',
         label: 'startup',
         scenarioId: 'app-startup',
         runId: 'android-live-startup',
         runDir: 'artifacts/example-mobile-app/android/app-startup/android-live-startup',
         summaryPath: 'artifacts/example-mobile-app/android/app-startup/android-live-startup/agent-summary.md',
+        verdictStatus: 'passed',
       },
     ],
     comparisons: [
@@ -82,6 +84,7 @@ test('reads, validates, and formats live-proof artifacts', async (t: TestContext
 
   assert.equal(proof.comparisonStatus, 'unchanged');
   assert.match(output, /Live proof: android android-live-proof/u);
+  assert.match(output, /startup \(app-startup\/android-live-startup\): health=passed verdict=passed/u);
   assert.match(output, /Next action: inspect_summary/u);
   assert.equal(shouldFailOnRegression({ failOnRegression: true, proof }), false);
 });

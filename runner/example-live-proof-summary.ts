@@ -1,3 +1,4 @@
+const fs = require('node:fs');
 const path = require('node:path');
 
 const { createArtifactLayout } = require('../core/artifact-layout');
@@ -7,10 +8,12 @@ const { SCHEMAS } = require('../core/schema-validator');
 type LiveProofPlatform = 'android' | 'ios';
 
 type LiveProofProfilePointer = {
+  healthStatus?: string;
   label: string;
   runDir: string;
   runId: string;
   scenarioId: string;
+  verdictStatus?: string;
 };
 
 type LiveProofComparisonPointer = {
@@ -71,6 +74,21 @@ type WriteLiveProofSummaryOptions = {
   profiles: LiveProofProfilePointer[];
   runId: string;
 };
+
+/**
+ * Reads the profile run status fields that agents need at the aggregate entrypoint.
+ *
+ * @param {string} runDir
+ * @returns {{healthStatus: string, verdictStatus: string}}
+ */
+function readProfileRunStatus(runDir: string): {healthStatus: string; verdictStatus: string} {
+  const health = JSON.parse(fs.readFileSync(path.join(runDir, 'health.json'), 'utf8'));
+  const verdict = JSON.parse(fs.readFileSync(path.join(runDir, 'verdict.json'), 'utf8'));
+  return {
+    healthStatus: String(health.healthStatus ?? 'unknown'),
+    verdictStatus: String(verdict.verdictStatus ?? 'unknown'),
+  };
+}
 
 /**
  * Builds a compact summary sentence for an aggregate live proof.
@@ -189,7 +207,7 @@ function buildLiveProofMarkdown(artifact: LiveProofArtifact): string {
     '## Profiles',
     '',
     ...artifact.profiles.map((profile) => (
-      `- ${profile.label} (${profile.scenarioId}): ${profile.summaryPath}`
+      `- ${profile.label} (${profile.scenarioId}): health=${profile.healthStatus} verdict=${profile.verdictStatus} - ${profile.summaryPath}`
     )),
   ];
 
@@ -239,6 +257,7 @@ async function writeLiveProofSummary({
       summaryPath: path.join(preflightDir, 'agent-summary.md'),
     },
     profiles: profiles.map((profile) => ({
+      ...readProfileRunStatus(profile.runDir),
       label: profile.label,
       runDir: profile.runDir,
       runId: profile.runId,
@@ -279,6 +298,7 @@ export {
   buildLiveProofMarkdown,
   buildLiveProofNextAction,
   buildLiveProofSummary,
+  readProfileRunStatus,
   writeLiveProofSummary,
 };
 

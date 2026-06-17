@@ -191,5 +191,16 @@ test('runs the packaged Android example live proof with a fake adb executor', as
   assert.equal(aggregate.comparisonStatus, 'unchanged');
   assert.equal(aggregate.nextAction.code, 'inspect_summary');
   assert.equal(aggregate.profiles.length, 3);
+  assert.deepEqual(
+    aggregate.profiles.map((profile: { healthStatus: string; verdictStatus: string }) => ({
+      healthStatus: profile.healthStatus,
+      verdictStatus: profile.verdictStatus,
+    })),
+    [
+      { healthStatus: 'passed', verdictStatus: 'passed' },
+      { healthStatus: 'passed', verdictStatus: 'passed' },
+      { healthStatus: 'passed', verdictStatus: 'passed' },
+    ],
+  );
   assert.equal(aggregate.comparisons.length, 3);
 });

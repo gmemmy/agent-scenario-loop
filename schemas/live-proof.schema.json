@@ -82,7 +82,7 @@
     "profilePointer": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["label", "scenarioId", "runId", "runDir", "summaryPath"],
+      "required": ["label", "scenarioId", "runId", "runDir", "summaryPath", "healthStatus", "verdictStatus"],
       "properties": {
         "label": {
           "type": "string"
@@ -98,6 +98,14 @@
         },
         "summaryPath": {
           "type": "string"
+        },
+        "healthStatus": {
+          "type": "string",
+          "enum": ["passed", "failed", "partial"]
+        },
+        "verdictStatus": {
+          "type": "string",
+          "enum": ["passed", "failed", "inconclusive", "not_evaluated"]
         }
       }
     },
