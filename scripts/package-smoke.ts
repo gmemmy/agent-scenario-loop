@@ -580,6 +580,7 @@ function main(): void {
       /^\.github\//u,
       /^artifacts\//u,
       /^dist\/scripts\//u,
+      /^examples\/mobile-app\/(?:\.expo|android|artifacts|ios|node_modules)(?:\/|$)/u,
       /^node_modules\//u,
       /^runner\/__tests__\//u,
       /^scripts\//u,
