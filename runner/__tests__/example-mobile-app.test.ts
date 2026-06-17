@@ -44,7 +44,7 @@ const EXAMPLE_RUNS = [
     platform: 'ios',
     profileRunner: PROFILE_IOS,
     runId: 'example-scroll',
-    scenario: 'examples/mobile-app/scenarios/ios/scroll-settle.json',
+    scenario: 'examples/mobile-app/scenarios/mobile/scroll-settle.json',
   },
   {
     eventLog: 'examples/mobile-app/event-logs/android-app-startup.log',
@@ -65,7 +65,7 @@ const EXAMPLE_RUNS = [
     platform: 'android',
     profileRunner: PROFILE_ANDROID,
     runId: 'android-example-scroll',
-    scenario: 'examples/mobile-app/scenarios/android/scroll-settle.json',
+    scenario: 'examples/mobile-app/scenarios/mobile/scroll-settle.json',
   },
 ];
 
@@ -131,7 +131,7 @@ test('example mobile app satisfies initialized consumer validation', async () =>
   assert.equal(result.status, 'passed');
   assert.equal(result.appHelper.status, 'present');
   assert.equal(result.scripts.status, 'present');
-  assert.equal(result.scenarioPaths.length, 2);
+  assert.equal(result.scenarioPaths.length, 3);
   assert.equal(result.providerPaths.length, 1);
   assert.deepEqual(
     result.plans.map((plan: { healthStatus: string; platform: string; scenarioId: string }) => ({
@@ -145,8 +145,10 @@ test('example mobile app satisfies initialized consumer validation', async () =>
     [
       { healthStatus: 'passed', platform: 'android', scenarioId: 'app-startup' },
       { healthStatus: 'passed', platform: 'android', scenarioId: 'open-close-cycle' },
+      { healthStatus: 'passed', platform: 'android', scenarioId: 'scroll-settle' },
       { healthStatus: 'passed', platform: 'ios', scenarioId: 'app-startup' },
       { healthStatus: 'passed', platform: 'ios', scenarioId: 'open-close-cycle' },
+      { healthStatus: 'passed', platform: 'ios', scenarioId: 'scroll-settle' },
     ],
   );
 });

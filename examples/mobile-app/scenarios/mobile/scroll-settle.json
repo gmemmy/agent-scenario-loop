@@ -1,0 +1,148 @@
+{
+  "schemaVersion": "1.0.0",
+  "id": "scroll-settle",
+  "flowId": "example-feed-scroll",
+  "description": "Scroll the example feed and measure app-owned evidence until visible content settles.",
+  "journey": {
+    "name": "Example feed scroll settle",
+    "intent": "Trigger a deterministic feed scroll, prove content became visible, and prove the feed reached a settled state.",
+    "actor": "mobile app user",
+    "startState": "example app feed visible and idle",
+    "endState": "example app feed settled after scroll"
+  },
+  "platforms": ["ios", "android"],
+  "requiredCapabilities": ["launch", "sessionControl", "command", "logCapture", "artifactWrite"],
+  "optionalCapabilities": ["screenshot", "video", "uiTree", "profiler"],
+  "truthEvents": {
+    "openRequested": {
+      "event": "feed_scroll_started",
+      "required": true,
+      "phase": "intent"
+    },
+    "opened": {
+      "event": "feed_first_content_visible",
+      "required": true,
+      "timeoutMs": 2500,
+      "phase": "visual"
+    },
+    "closeRequested": {
+      "event": "feed_scroll_settle_requested",
+      "required": true,
+      "phase": "render"
+    },
+    "dismissed": {
+      "event": "feed_scroll_settled",
+      "required": true,
+      "timeoutMs": 2500,
+      "phase": "completion"
+    }
+  },
+  "milestones": [
+    {
+      "id": "openRequested",
+      "event": "feed_scroll_started",
+      "description": "The app started the deterministic feed scroll.",
+      "required": true,
+      "phase": "intent"
+    },
+    {
+      "id": "opened",
+      "event": "feed_first_content_visible",
+      "description": "The first target content became visible after scrolling.",
+      "required": true,
+      "timeoutMs": 2500,
+      "phase": "visual"
+    },
+    {
+      "id": "closeRequested",
+      "event": "feed_scroll_settle_requested",
+      "description": "The app requested a settled-state check for the feed.",
+      "required": true,
+      "phase": "render"
+    },
+    {
+      "id": "dismissed",
+      "event": "feed_scroll_settled",
+      "description": "The feed reached a stable settled state.",
+      "required": true,
+      "timeoutMs": 2500,
+      "phase": "completion"
+    }
+  ],
+  "expectedEvents": [
+    "feed_scroll_started",
+    "feed_first_content_visible",
+    "feed_scroll_settle_requested",
+    "feed_scroll_settled"
+  ],
+  "cycles": {
+    "iterations": 3,
+    "warmupIterations": 0,
+    "stopOnFailure": true
+  },
+  "budgets": [
+    {
+      "name": "scroll settle p95",
+      "source": "milestone",
+      "metric": "p95",
+      "unit": "ms",
+      "limit": 1050,
+      "fromMilestone": "openRequested",
+      "toMilestone": "dismissed"
+    },
+    {
+      "name": "first content visible p95",
+      "source": "milestone",
+      "metric": "p95",
+      "unit": "ms",
+      "limit": 500,
+      "fromMilestone": "openRequested",
+      "toMilestone": "opened"
+    },
+    {
+      "name": "settle completion p95",
+      "source": "milestone",
+      "metric": "p95",
+      "unit": "ms",
+      "limit": 350,
+      "fromMilestone": "closeRequested",
+      "toMilestone": "dismissed"
+    }
+  ],
+  "steps": [
+    {
+      "id": "launch",
+      "kind": "launch"
+    },
+    {
+      "id": "scroll-example-feed",
+      "kind": "command",
+      "command": "activate-target:scroll-feed",
+      "adapterOptions": {
+        "androidAdb": {
+          "waitMs": 300
+        },
+        "iosSimctl": {
+          "waitMs": 300
+        }
+      }
+    },
+    {
+      "id": "wait-feed-settled",
+      "kind": "waitForMilestone",
+      "milestone": "dismissed",
+      "timeoutMs": 2500
+    },
+    {
+      "id": "capture-final-screen",
+      "kind": "captureEvidence",
+      "artifact": "screenshot",
+      "driverAction": "screenshot",
+      "required": false
+    }
+  ],
+  "artifacts": {
+    "required": ["logs", "signals"],
+    "optional": ["screenshot", "video", "uiTree", "profiler"]
+  }
+}
