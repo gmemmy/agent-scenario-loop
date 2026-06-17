@@ -136,6 +136,7 @@ The package currently supports:
 - Android bounded logcat capture
 - Android package launch plus bounded logcat capture
 - Android adb driver adapter with scenario-routed `tap`, `scroll`, `assertVisible`, `inspectTree`, `screenshot`, and `readLogs`
+- Android adb screenrecord capture through scenario-routed `record` driver actions
 - Android profile artifact generation from explicit event logs, prior adb artifacts, or an owned `--adb-capture` window
 - iOS bounded simulator log capture and stored app truth-event collection through simctl
 - iOS simulator app launch plus storage-backed profile-session and command seeding
@@ -147,8 +148,8 @@ The package currently supports:
 Not yet shipped as supported public features:
 
 - app installation or build orchestration
-- full scenario-step UI driving beyond app launch, log capture, and storage-backed app commands
-- video, memory, network, or accessibility evidence capture from built-in drivers
+- broad semantic UI workflow driving beyond the shipped portable driver-action subset
+- memory, network, or accessibility evidence capture from built-in drivers
 - Computer Use flows
 - product-specific scenarios
 

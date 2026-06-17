@@ -59,14 +59,14 @@ Prefer Android first when iOS tooling is unstable:
 
 ```bash
 asl-check-plan --scenario scenarios/mobile/first-journey.json --runner runner-manifests/primary-runner.json --platform android --out artifacts/asl/plan/first-journey-android
-asl-profile-android --config asl.config.json --scenario scenarios/mobile/first-journey.json --adb-capture --profile-session --clear-logcat --launch --wait-ms 5000 --out artifacts/asl/android --run-id first-journey-android-live
+asl-profile-android --config asl.config.json --scenario scenarios/mobile/first-journey.json --adb-capture --profile-session --clear-logcat --launch --wait-ms 5000 --out artifacts/asl/android --run-id first-journey-android-live --comparison-lane first-journey-android-live
 ```
 
 Use iOS once the app is installed on a booted simulator:
 
 ```bash
 asl-check-plan --scenario scenarios/mobile/first-journey.json --runner runner-manifests/primary-runner.json --platform ios --out artifacts/asl/plan/first-journey-ios
-asl-profile-ios --config asl.config.json --scenario scenarios/mobile/first-journey.json --simctl-capture --profile-session --profile-session-storage --launch --wait-ms 5000 --out artifacts/asl/ios --run-id first-journey-ios-live
+asl-profile-ios --config asl.config.json --scenario scenarios/mobile/first-journey.json --simctl-capture --profile-session --profile-session-storage --launch --wait-ms 5000 --out artifacts/asl/ios --run-id first-journey-ios-live --comparison-lane first-journey-ios-live
 ```
 
 ## 5. Compare Only Trusted Runs
@@ -79,6 +79,8 @@ asl-compare-latest --root artifacts/asl/android --scenario first-journey --curre
 
 Do not make improvement or regression claims when scenario health failed or the comparison is inconclusive.
 
+Keep each proof mode in its own comparison lane. Fixture, Android live, iOS live, adb-only, simctl-only, and sidecar-backed runs can share a scenario id, but they should not borrow each other's baselines.
+
 ## 6. Decide Adoption Scope
 
 Before expanding beyond the first journey, confirm:
@@ -87,6 +89,7 @@ Before expanding beyond the first journey, confirm:
 - the scenario is boring and repeatable
 - app-owned truth events are stable
 - artifacts are ignored locally and not packed or committed
+- every durable runtime proof has an explicit comparison lane
 - `agent-summary.md` gives enough context for a coding agent to act
 - failed setup produces concrete next actions
 - at least one platform has a passed live proof
