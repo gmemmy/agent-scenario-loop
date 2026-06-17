@@ -420,7 +420,7 @@ function formatStoredProfileEventLog(events: Record<string, unknown>[]): string 
  */
 function execFileCommand(command: string, args: string[]): Promise<CommandResult> {
   return new Promise((resolve) => {
-    execFile(command, args, (error: ExecFileError | null, stdout: string, stderr: string) => {
+    execFile(command, args, { encoding: 'utf8' }, (error: ExecFileError | null, stdout: string, stderr: string) => {
       resolve({
         command,
         args,
@@ -1123,6 +1123,9 @@ async function main(): Promise<void> {
     ...(typeof args.xcrun === 'string' ? { xcrunPath: args.xcrun } : {}),
   });
   process.stdout.write(`${result.runDir}\n`);
+  if (result.health.healthStatus !== 'passed') {
+    process.exitCode = 1;
+  }
 }
 
 if (require.main === module) {

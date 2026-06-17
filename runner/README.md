@@ -158,3 +158,5 @@ pnpm example:profile:ios:live:scroll
 ```
 
 The iOS live commands seed the app-owned profile session into native AsyncStorage before launch. Command scenarios also seed a command queue into the same storage contract. After the capture window, the runner collects stored profile events from the simulator app data container. When stored events are present, `profile-ios` ingests `raw/ios-profile-events.log`; otherwise it falls back to bounded `raw/ios-simctl-log.txt` from the simctl capture artifact.
+
+When multiple Xcode versions are installed, set `DEVELOPER_DIR` before invoking the Node runner to scope `xcrun simctl` to a specific Xcode without changing global `xcode-select`.

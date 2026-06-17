@@ -218,6 +218,12 @@ After a baseline exists, add `--compare-latest` to compare each passed iOS scena
 pnpm example:ios:live -- --run-suffix after-change --compare-latest
 ```
 
+If global `xcode-select` points at a beta Xcode whose simulator services are not ready, set `DEVELOPER_DIR` before the Node runner starts:
+
+```bash
+DEVELOPER_DIR=<xcode-app>/Contents/Developer pnpm example:ios:live -- --device <booted-simulator-udid>
+```
+
 Each command writes simctl capture evidence under `artifacts/example-mobile-app/ios/_ios-simctl-captures/<run-id>`, collects stored app truth events into `raw/ios-profile-events.log`, then writes scenario artifacts under the matching scenario run directory.
 
 The command targets live in the scenario `adapterOptions.iosSimctl.commands` block, while the app handles them through `registerProfileCommandTargetHandler`. If simctl, the installed app, or the simulator is unavailable, the simctl capture folder gets a failed `health.json` and the profile run stops before making timing claims.
