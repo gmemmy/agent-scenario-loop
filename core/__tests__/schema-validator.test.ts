@@ -691,6 +691,7 @@ test('accepts project validation artifacts', () => {
       invalidScripts: [],
       missingPaths: [],
       missingPackageJsonScripts: [],
+      mismatchedPackageJsonScripts: [],
       missingScripts: [],
       packageJsonPath: '/app/package.json',
       packageJsonStatus: 'present',

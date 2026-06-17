@@ -35,6 +35,7 @@ type ProjectValidationScripts = {
   invalidPackageJsonScripts: string[];
   missingPaths: string[];
   missingPackageJsonScripts: string[];
+  mismatchedPackageJsonScripts: string[];
   missingScripts: string[];
   packageJsonPath: string;
   packageJsonStatus: 'present' | 'missing' | 'incomplete';
@@ -585,13 +586,14 @@ function validatePackageScripts({
 }): ProjectValidationScripts {
   const scriptPath = path.join(rootDir, 'asl', 'package-scripts.json');
   const packageJsonPath = path.join(rootDir, 'package.json');
-  const packageScripts = validatePackageJsonScripts({ packageJsonPath });
   if (!fs.existsSync(scriptPath)) {
+    const packageScripts = validatePackageJsonScripts({ packageJsonPath });
     return {
       invalidScripts: [],
       invalidPackageJsonScripts: packageScripts.invalidPackageJsonScripts,
       missingPaths: [],
       missingPackageJsonScripts: packageScripts.missingPackageJsonScripts,
+      mismatchedPackageJsonScripts: packageScripts.mismatchedPackageJsonScripts,
       missingScripts: REQUIRED_PACKAGE_SCRIPT_NAMES,
       packageJsonPath,
       packageJsonStatus: packageScripts.packageJsonStatus,
@@ -603,6 +605,10 @@ function validatePackageScripts({
   }
 
   const scripts = readJson(scriptPath);
+  const packageScripts = validatePackageJsonScripts({
+    expectedScripts: scripts,
+    packageJsonPath,
+  });
   const binNames = readPackageBinNames(packageRoot);
   const scriptNames = Object.keys(scripts).sort();
   const missingScripts = REQUIRED_PACKAGE_SCRIPT_NAMES.filter((scriptName) => !(scriptName in scripts));
@@ -649,6 +655,7 @@ function validatePackageScripts({
     invalidPackageJsonScripts: packageScripts.invalidPackageJsonScripts,
     missingPaths: [...missingPaths].sort(),
     missingPackageJsonScripts: packageScripts.missingPackageJsonScripts,
+    mismatchedPackageJsonScripts: packageScripts.mismatchedPackageJsonScripts,
     missingScripts,
     packageJsonPath,
     packageJsonStatus: packageScripts.packageJsonStatus,
@@ -658,6 +665,7 @@ function validatePackageScripts({
       missingPaths.size > 0 ||
       unknownCommands.length > 0 ||
       invalidScripts.length > 0 ||
+      packageScripts.mismatchedPackageJsonScripts.length > 0 ||
       packageScripts.packageJsonStatus !== 'present'
       ? 'incomplete'
       : 'present',
@@ -672,22 +680,29 @@ function validatePackageScripts({
  * proves the app exposes runnable script names so teams do not leave the
  * snippets stranded under `asl/`.
  *
- * @param {{packageJsonPath: string}} options
- * @returns {{invalidPackageJsonScripts: string[], missingPackageJsonScripts: string[], packageJsonStatus: 'present' | 'missing' | 'incomplete'}}
+ * Direct installed-bin scripts are also compared against the generated
+ * snippets, catching stale merges while allowing source-tree wrappers.
+ *
+ * @param {{expectedScripts?: Record<string, unknown>, packageJsonPath: string}} options
+ * @returns {{invalidPackageJsonScripts: string[], missingPackageJsonScripts: string[], mismatchedPackageJsonScripts: string[], packageJsonStatus: 'present' | 'missing' | 'incomplete'}}
  */
 function validatePackageJsonScripts({
+  expectedScripts = {},
   packageJsonPath,
 }: {
+  expectedScripts?: Record<string, unknown>;
   packageJsonPath: string;
 }): {
   invalidPackageJsonScripts: string[];
   missingPackageJsonScripts: string[];
+  mismatchedPackageJsonScripts: string[];
   packageJsonStatus: 'present' | 'missing' | 'incomplete';
 } {
   if (!fs.existsSync(packageJsonPath)) {
     return {
       invalidPackageJsonScripts: [],
       missingPackageJsonScripts: REQUIRED_PACKAGE_SCRIPT_NAMES,
+      mismatchedPackageJsonScripts: [],
       packageJsonStatus: 'missing',
     };
   }
@@ -698,6 +713,7 @@ function validatePackageJsonScripts({
     return {
       invalidPackageJsonScripts: [],
       missingPackageJsonScripts: REQUIRED_PACKAGE_SCRIPT_NAMES,
+      mismatchedPackageJsonScripts: [],
       packageJsonStatus: 'incomplete',
     };
   }
@@ -707,11 +723,29 @@ function validatePackageJsonScripts({
   const invalidPackageJsonScripts = REQUIRED_PACKAGE_SCRIPT_NAMES.filter((scriptName) => (
     scriptName in record && typeof record[scriptName] !== 'string'
   ));
+  const mismatchedPackageJsonScripts = REQUIRED_PACKAGE_SCRIPT_NAMES.filter((scriptName) => {
+    const actual = record[scriptName];
+    const expected = expectedScripts[scriptName];
+    if (typeof actual !== 'string' || typeof expected !== 'string') {
+      return false;
+    }
+
+    const actualTokens = tokenizeScript(actual);
+    const expectedTokens = tokenizeScript(expected);
+    if (!actualTokens[0]?.startsWith('asl-') || actualTokens[0] !== expectedTokens[0]) {
+      return false;
+    }
+
+    return actual.trim() !== expected.trim();
+  });
 
   return {
     invalidPackageJsonScripts,
     missingPackageJsonScripts,
-    packageJsonStatus: missingPackageJsonScripts.length > 0 || invalidPackageJsonScripts.length > 0
+    mismatchedPackageJsonScripts,
+    packageJsonStatus: missingPackageJsonScripts.length > 0 ||
+      invalidPackageJsonScripts.length > 0 ||
+      mismatchedPackageJsonScripts.length > 0
       ? 'incomplete'
       : 'present',
   };
@@ -1031,6 +1065,9 @@ async function validateProject(options: {
   }
   if (scripts.invalidPackageJsonScripts.length > 0) {
     errors.push(`App package.json has non-string ASL script(s): ${scripts.invalidPackageJsonScripts.join(', ')}.`);
+  }
+  if (scripts.mismatchedPackageJsonScripts.length > 0) {
+    errors.push(`App package.json ASL script(s) differ from asl/package-scripts.json: ${scripts.mismatchedPackageJsonScripts.join(', ')}.`);
   }
 
   if (providerCommandMissingPaths.length > 0) {

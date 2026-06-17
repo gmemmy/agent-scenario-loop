@@ -180,6 +180,7 @@
         "invalidPackageJsonScripts",
         "missingPaths",
         "missingPackageJsonScripts",
+        "mismatchedPackageJsonScripts",
         "missingScripts",
         "packageJsonPath",
         "packageJsonStatus",
@@ -208,6 +209,12 @@
           }
         },
         "missingPackageJsonScripts": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "mismatchedPackageJsonScripts": {
           "type": "array",
           "items": {
             "type": "string"

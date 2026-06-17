@@ -293,6 +293,7 @@ test('validates app package json exposes generated package scripts', async (t: T
   assert.equal(result.status, 'passed');
   assert.equal(result.scripts.packageJsonStatus, 'present');
   assert.equal(validatePackageJsonScripts({
+    expectedScripts: JSON.parse(await fsp.readFile(path.join(targetDir, 'asl', 'package-scripts.json'), 'utf8')),
     packageJsonPath: path.join(targetDir, 'package.json'),
   }).packageJsonStatus, 'present');
 
@@ -300,8 +301,21 @@ test('validates app package json exposes generated package scripts', async (t: T
   const packageJson = JSON.parse(await fsp.readFile(packageJsonPath, 'utf8')) as {
     scripts: Record<string, string | number>;
   };
+
+  packageJson.scripts['asl:profile:android'] = 'asl-profile-android --config asl.config.json --scenario scenarios/mobile/checkout-submit.json --comparison-lane stale --out artifacts/asl/android/stale --run-id stale';
+  await fsp.writeFile(packageJsonPath, `${JSON.stringify(packageJson, null, 2)}\n`, 'utf8');
+
+  result = await validateProject({ rootDir: targetDir });
+  assert.equal(result.status, 'failed');
+  assert.equal(result.scripts.packageJsonStatus, 'incomplete');
+  assert.deepEqual(result.scripts.mismatchedPackageJsonScripts, ['asl:profile:android']);
+  assert.equal(result.errors.some((error: string) => error.includes('App package.json ASL script(s) differ from asl/package-scripts.json: asl:profile:android')), true);
+
   delete packageJson.scripts['asl:validate'];
   packageJson.scripts['asl:check:ios'] = 42;
+  packageJson.scripts['asl:profile:android'] = JSON.parse(
+    await fsp.readFile(path.join(targetDir, 'asl', 'package-scripts.json'), 'utf8'),
+  )['asl:profile:android'];
   await fsp.writeFile(packageJsonPath, `${JSON.stringify(packageJson, null, 2)}\n`, 'utf8');
 
   result = await validateProject({ rootDir: targetDir });
