@@ -324,7 +324,7 @@ Read next: [Contracts](docs/contracts.md) for the artifact layout and supported 
 3. Emit truth events around one real user journey. One journey is enough to start.
 4. Merge the generated `asl/package-scripts.json` snippets into your app `package.json` intentionally.
 5. Start from the scaffolded scenario or from [examples/scenarios/ios/app-startup.json](examples/scenarios/ios/app-startup.json) and [examples/scenarios/ios/open-close-cycle.json](examples/scenarios/ios/open-close-cycle.json).
-6. Run `asl-validate-project --root . --platform all` before live device proof. It checks the scaffolded helper, package-script snippets, scenarios, runners, and planner compatibility, then reports warnings and structured next actions.
+6. Run `asl-validate-project --root . --platform all` before live device proof. It checks the scaffolded helper, package-script snippets, scenarios, runners, local provider-command scripts, and planner compatibility, then reports warnings and structured next actions.
 7. Run the journey on a simulator manually or with your driver of choice while capturing device logs, so the log contains your `[profile-event]` lines. Then:
 
 ```bash
