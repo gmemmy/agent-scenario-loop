@@ -151,6 +151,7 @@ test('example mobile app satisfies initialized consumer validation', async () =>
 
 test('example mobile app exposes consumer package scripts', () => {
   const packageJson = readJson(fixturePath('examples/mobile-app/package.json'));
+  const snippetScripts = readJson(fixturePath('examples/mobile-app/asl/package-scripts.json')) as Record<string, string>;
   const scripts = packageJson.scripts as Record<string, string>;
 
   for (const scriptName of [
@@ -188,6 +189,18 @@ test('example mobile app exposes consumer package scripts', () => {
   for (const scriptName of ['asl:live-proof:android', 'asl:live-proof:ios']) {
     assert.match(scripts[scriptName], /--fail-on-regression/u, `${scriptName} should fail strict gates on regressions`);
   }
+
+  const appAslScripts = Object.keys(scripts).filter((scriptName) => scriptName.startsWith('asl:')).sort();
+  assert.deepEqual(
+    Object.keys(snippetScripts).sort(),
+    appAslScripts,
+    'public ASL package-script snippets should cover every app-local asl:* script',
+  );
+  for (const [scriptName, command] of Object.entries(snippetScripts)) {
+    assert.doesNotMatch(command, /\.\.\/\.\.|dist\/runner|pnpm --dir/u, `${scriptName} should use public package commands`);
+  }
+  assert.match(snippetScripts['asl:android:live:runners'], /--agent-device-proof --argent-proof/u);
+  assert.match(snippetScripts['asl:ios:live:runners'], /--agent-device-proof --argent-proof/u);
 });
 
 test('example mobile app declares reproducible iOS build compatibility inputs', () => {
