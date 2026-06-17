@@ -155,6 +155,23 @@ test('runs the packaged Android example live proof with a fake adb executor', as
     if (key.includes('profile-session/command')) {
       return { command, args, exitCode: 0, stderr: '', stdout: 'Starting: Intent\n' };
     }
+    if (key.endsWith('shell rm -f /sdcard/agent-scenario-loop-ui.xml; uiautomator dump /sdcard/agent-scenario-loop-ui.xml >/dev/null; cat /sdcard/agent-scenario-loop-ui.xml; status=$?; rm -f /sdcard/agent-scenario-loop-ui.xml; exit $status')) {
+      return {
+        command,
+        args,
+        exitCode: 0,
+        stderr: '',
+        stdout: [
+          '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>',
+          '<hierarchy rotation="0">',
+          '<node index="0" text="Example Mobile App" resource-id="dev.agentscenarioloop.example:id/asl-example-title" bounds="[32,96][720,180]" />',
+          '</hierarchy>',
+        ].join('\n'),
+      };
+    }
+    if (key.endsWith('exec-out screencap -p')) {
+      return { command, args, exitCode: 0, stderr: '', stdout: 'fake png bytes' };
+    }
     if (key.endsWith('logcat -d -v time -t 1000')) {
       return {
         command,
@@ -266,12 +283,12 @@ test('runs the packaged Android example live proof with a fake adb executor', as
   const firstProfileSessionStart = orderedCalls.findIndex((call) => call.includes('profile-session/start'));
   assert.ok(firstProfileSessionStart > -1, 'expected profile session start command');
   assert.ok(
-    orderedCalls.findIndex((call) => call.includes('agent-device:open dev.agentscenarioloop.example')) < firstProfileSessionStart,
-    'agent-device startup proof should run before profile scenarios mutate app state',
+    orderedCalls.findIndex((call) => call.includes('agent-device:open dev.agentscenarioloop.example')) > firstProfileSessionStart,
+    'agent-device startup proof should run after profile evidence capture',
   );
   assert.ok(
-    orderedCalls.findIndex((call) => call.includes('argent:run launch-app --udid emulator-5554 --bundleId dev.agentscenarioloop.example')) < firstProfileSessionStart,
-    'Argent startup proof should run before profile scenarios mutate app state',
+    orderedCalls.findIndex((call) => call.includes('argent:run launch-app --udid emulator-5554 --bundleId dev.agentscenarioloop.example')) > firstProfileSessionStart,
+    'Argent startup proof should run after profile evidence capture',
   );
   assert.deepEqual(
     result.profiles.map((profile: { runId: string }) => profile.runId),
@@ -338,7 +355,7 @@ test('runs the packaged Android example live proof with a fake adb executor', as
         counts: {
           better: 0,
           worse: 0,
-          unchanged: 8,
+          unchanged: 1,
           inconclusive: 0,
         },
         notableMetrics: [],
@@ -347,7 +364,7 @@ test('runs the packaged Android example live proof with a fake adb executor', as
         counts: {
           better: 0,
           worse: 0,
-          unchanged: 8,
+          unchanged: 3,
           inconclusive: 0,
         },
         notableMetrics: [],
@@ -356,7 +373,7 @@ test('runs the packaged Android example live proof with a fake adb executor', as
         counts: {
           better: 0,
           worse: 0,
-          unchanged: 8,
+          unchanged: 3,
           inconclusive: 0,
         },
         notableMetrics: [],

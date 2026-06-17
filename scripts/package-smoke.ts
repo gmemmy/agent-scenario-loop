@@ -248,6 +248,8 @@ function writeFakeAdb({
     "  [`-s emulator-5554 shell pm path ${packageName}`, { stdout: `package:/data/app/${packageName}/base.apk\\n` }],",
     "  ['-s emulator-5554 logcat -c', { stdout: '' }],",
     "  [`-s emulator-5554 shell monkey -p ${packageName} -c android.intent.category.LAUNCHER 1`, { stdout: 'Events injected: 1\\n' }],",
+    "  ['-s emulator-5554 shell rm -f /sdcard/agent-scenario-loop-ui.xml; uiautomator dump /sdcard/agent-scenario-loop-ui.xml >/dev/null; cat /sdcard/agent-scenario-loop-ui.xml; status=$?; rm -f /sdcard/agent-scenario-loop-ui.xml; exit $status', { stdout: '<?xml version=\"1.0\" encoding=\"UTF-8\"?><hierarchy><node resource-id=\"dev.agentscenarioloop.example:id/asl-example-title\" text=\"Example Mobile App\" bounds=\"[10,20][300,80]\" /></hierarchy>\\n' }],",
+    "  ['-s emulator-5554 exec-out screencap -p', { stdout: 'fake png' }],",
     "  ['-s emulator-5554 logcat -d -v time -t 25', { stdout: logcatText }],",
     "  ['-s emulator-5554 logcat -d -v time -t 1000', { stdout: logcatText }],",
     "]);",
@@ -314,7 +316,7 @@ function writeFakeExampleLiveAdb({
     "if (key === '-s emulator-5554 reverse tcp:8097 tcp:8097') ok('');",
     "if (key.includes(`shell run-as ${packageName} sh -c`) && key.includes('debug_http_host') && key.includes('localhost:8097')) ok('');",
     "if (key.endsWith(`shell monkey -p ${packageName} -c android.intent.category.LAUNCHER 1`)) ok('Events injected: 1\\n');",
-    "if (key.endsWith('shell uiautomator dump /dev/tty')) ok('<?xml version=\"1.0\" encoding=\"UTF-8\"?><hierarchy><node resource-id=\"dev.agentscenarioloop.example:id/asl-example-title\" text=\"Example Mobile App\" bounds=\"[10,20][300,80]\" /></hierarchy>\\n');",
+    "if (key.endsWith('shell rm -f /sdcard/agent-scenario-loop-ui.xml; uiautomator dump /sdcard/agent-scenario-loop-ui.xml >/dev/null; cat /sdcard/agent-scenario-loop-ui.xml; status=$?; rm -f /sdcard/agent-scenario-loop-ui.xml; exit $status')) ok('<?xml version=\"1.0\" encoding=\"UTF-8\"?><hierarchy><node resource-id=\"dev.agentscenarioloop.example:id/asl-example-title\" text=\"Example Mobile App\" bounds=\"[10,20][300,80]\" /></hierarchy>\\n');",
     "if (key.endsWith('exec-out screencap -p')) ok('fake png');",
     "if (key.endsWith('logcat -c')) ok('');",
     "if (key.includes('profile-session/start')) {",
@@ -967,7 +969,7 @@ function main(): void {
         '--config',
         path.join(exampleAppRoot, 'asl.config.json'),
         '--scenario',
-        path.join(exampleAppRoot, 'scenarios', exampleRun.platform, exampleRun.scenario),
+        path.join(exampleAppRoot, 'scenarios', 'mobile', exampleRun.scenario),
         '--events',
         path.join(exampleAppRoot, 'event-logs', exampleRun.eventLog),
         '--out',
@@ -1577,7 +1579,7 @@ function main(): void {
     });
     assert.match(exampleLiveProofOutput, /Comparison status: unchanged/u);
     assert.match(exampleLiveProofOutput, /Comparison counts: better=0 worse=0 unchanged=3 mixed=0 inconclusive=0 skipped=0/u);
-    assert.match(exampleLiveProofOutput, /startup \(app-startup\/android-live-startup-smoke\): unchanged \(metrics better=0 worse=0 unchanged=8 inconclusive=0\)/u);
+    assert.match(exampleLiveProofOutput, /startup \(app-startup\/android-live-startup-smoke\): unchanged \(metrics better=0 worse=0 unchanged=1 inconclusive=0\)/u);
     assert.match(exampleLiveProofOutput, /startup \(app-startup\/android-live-startup-smoke\): health=passed verdict=passed/u);
     assert.match(exampleLiveProofOutput, /startup-ui \(agent-device\/app-startup\/android-agent-device-startup-smoke\): health=passed verdict=not_evaluated/u);
     assert.match(exampleLiveProofOutput, /startup-ui-argent \(argent\/app-startup\/android-argent-startup-smoke\): health=passed verdict=not_evaluated/u);
@@ -1595,11 +1597,16 @@ function main(): void {
         { healthStatus: 'passed', runnerId: 'argent' },
       ],
     );
-    assert.equal(
-      exampleLiveProof.comparisons.every((comparison: { metricSummary?: { counts?: { unchanged?: number }; notableMetrics?: unknown[] } }) =>
-        comparison.metricSummary?.counts?.unchanged === 8 && comparison.metricSummary?.notableMetrics?.length === 0
-      ),
-      true,
+    assert.deepEqual(
+      exampleLiveProof.comparisons.map((comparison: { metricSummary?: { counts?: { unchanged?: number }; notableMetrics?: unknown[] } }) => ({
+        notableMetrics: comparison.metricSummary?.notableMetrics?.length ?? 0,
+        unchanged: comparison.metricSummary?.counts?.unchanged,
+      })),
+      [
+        { notableMetrics: 0, unchanged: 1 },
+        { notableMetrics: 0, unchanged: 3 },
+        { notableMetrics: 0, unchanged: 3 },
+      ],
     );
     for (const [scenarioDir, runId] of [
       ['app-startup', 'android-live-startup'],
@@ -1814,7 +1821,7 @@ function main(): void {
       env,
     });
     assert.match(exampleIosLiveProofOutput, /Comparison status: unchanged/u);
-    assert.match(exampleIosLiveProofOutput, /startup \(app-startup\/ios-live-startup-smoke\): unchanged \(metrics better=0 worse=0 unchanged=8 inconclusive=0\)/u);
+    assert.match(exampleIosLiveProofOutput, /startup \(app-startup\/ios-live-startup-smoke\): unchanged \(metrics better=0 worse=0 unchanged=1 inconclusive=0\)/u);
     assert.match(exampleIosLiveProofOutput, /startup-ui \(agent-device\/app-startup\/ios-agent-device-startup-smoke\): health=passed verdict=not_evaluated/u);
     assert.match(exampleIosLiveProofOutput, /startup-ui-argent \(argent\/app-startup\/ios-argent-startup-smoke\): health=passed verdict=not_evaluated/u);
     const exampleIosLiveProof = JSON.parse(
@@ -1830,11 +1837,16 @@ function main(): void {
         { healthStatus: 'passed', runnerId: 'argent' },
       ],
     );
-    assert.equal(
-      exampleIosLiveProof.comparisons.every((comparison: { metricSummary?: { counts?: { unchanged?: number }; notableMetrics?: unknown[] } }) =>
-        comparison.metricSummary?.counts?.unchanged === 8 && comparison.metricSummary?.notableMetrics?.length === 0
-      ),
-      true,
+    assert.deepEqual(
+      exampleIosLiveProof.comparisons.map((comparison: { metricSummary?: { counts?: { unchanged?: number }; notableMetrics?: unknown[] } }) => ({
+        notableMetrics: comparison.metricSummary?.notableMetrics?.length ?? 0,
+        unchanged: comparison.metricSummary?.counts?.unchanged,
+      })),
+      [
+        { notableMetrics: 0, unchanged: 1 },
+        { notableMetrics: 0, unchanged: 3 },
+        { notableMetrics: 0, unchanged: 3 },
+      ],
     );
     for (const [scenarioDir, runId] of [
       ['app-startup', 'ios-live-startup'],

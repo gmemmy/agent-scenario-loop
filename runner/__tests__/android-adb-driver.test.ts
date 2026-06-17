@@ -108,7 +108,7 @@ test('Android adb driver performs portable UI and capture actions', async () => 
     const fallbackExecutor = createExecutor({
       '-s emulator-5554 shell input tap 120 240': { stdout: '' },
       '-s emulator-5554 shell input swipe 500 1400 500 400 350': { stdout: '' },
-      '-s emulator-5554 shell uiautomator dump /dev/tty': {
+      '-s emulator-5554 shell rm -f /sdcard/agent-scenario-loop-ui.xml; uiautomator dump /sdcard/agent-scenario-loop-ui.xml >/dev/null; cat /sdcard/agent-scenario-loop-ui.xml; status=$?; rm -f /sdcard/agent-scenario-loop-ui.xml; exit $status': {
         stdout: '<hierarchy><node text="Home" resource-id="dev.example:id/home" bounds="[0,0][100,100]" /></hierarchy>\n',
       },
       '-s emulator-5554 exec-out screencap -p': {

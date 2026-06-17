@@ -110,6 +110,8 @@ type AndroidSelectorResolution = {
   node: AndroidUiNode;
 };
 
+const UI_AUTOMATOR_DUMP_PATH = '/sdcard/agent-scenario-loop-ui.xml';
+
 /**
  * Quotes one argument for the Android device shell.
  *
@@ -121,6 +123,26 @@ type AndroidSelectorResolution = {
  */
 function quoteAndroidShellArg(value: string): string {
   return `'${value.replace(/'/g, "'\\''")}'`;
+}
+
+/**
+ * Builds a shell command that returns UIAutomator XML on stdout.
+ *
+ * Some emulator images do not stream XML for `uiautomator dump /dev/tty`;
+ * dumping to a remote file and then reading it gives the selector resolver a
+ * stable XML payload.
+ *
+ * @returns {string}
+ */
+function buildUiAutomatorDumpCommand(): string {
+  return [
+    `rm -f ${UI_AUTOMATOR_DUMP_PATH}`,
+    `uiautomator dump ${UI_AUTOMATOR_DUMP_PATH} >/dev/null`,
+    `cat ${UI_AUTOMATOR_DUMP_PATH}`,
+    'status=$?',
+    `rm -f ${UI_AUTOMATOR_DUMP_PATH}`,
+    'exit $status',
+  ].join('; ');
 }
 
 /**
@@ -416,9 +438,7 @@ function createAndroidAdbDriver({
         '-s',
         deviceSerial,
         'shell',
-        'uiautomator',
-        'dump',
-        '/dev/tty',
+        buildUiAutomatorDumpCommand(),
       ]);
       return buildDriverResult({ action: 'inspectTree', rawFileName, result });
     },
@@ -431,9 +451,7 @@ function createAndroidAdbDriver({
         '-s',
         deviceSerial,
         'shell',
-        'uiautomator',
-        'dump',
-        '/dev/tty',
+        buildUiAutomatorDumpCommand(),
       ]);
       const resolution = result.exitCode === 0
         ? resolveAndroidSelectorFromUiTree({ selector, uiTreeXml: result.stdout })

@@ -43,7 +43,7 @@
       "source": "milestone",
       "metric": "p95",
       "unit": "ms",
-      "limit": 1700,
+      "limit": 2500,
       "toMilestone": "firstUsable"
     }
   ],

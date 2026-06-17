@@ -157,6 +157,12 @@ test('runs the packaged iOS example live proof with a fake simctl executor', asy
       writeCurrentSessionEvents(dataContainer);
       return { command, args, exitCode: 0, stderr: '', stdout: `${BUNDLE_ID}: 1234\n` };
     }
+    if (key.startsWith(`simctl io ${DEVICE_ID} screenshot `)) {
+      const screenshotPath = args.at(-1);
+      assert.equal(typeof screenshotPath, 'string');
+      await fsp.writeFile(screenshotPath, 'fake screenshot', 'utf8');
+      return { command, args, exitCode: 0, stderr: '', stdout: `Wrote screenshot to ${screenshotPath}\n` };
+    }
     if (key === `simctl spawn ${DEVICE_ID} log show --style compact --last 2m --predicate eventMessage CONTAINS "[profile-event]" OR eventMessage CONTAINS "[profile-session]"`) {
       return { command, args, exitCode: 0, stderr: '', stdout: 'Timestamp Ty Process[PID:TID]\n' };
     }
@@ -260,12 +266,12 @@ test('runs the packaged iOS example live proof with a fake simctl executor', asy
   const firstProfileLaunch = orderedCalls.findIndex((call) => call === `simctl:simctl launch ${DEVICE_ID} ${BUNDLE_ID}`);
   assert.ok(firstProfileLaunch > -1, 'expected iOS profile launch command');
   assert.ok(
-    orderedCalls.findIndex((call) => call.includes(`agent-device:open ${BUNDLE_ID}`)) < firstProfileLaunch,
-    'agent-device startup proof should run before profile scenarios mutate app state',
+    orderedCalls.findIndex((call) => call.includes(`agent-device:open ${BUNDLE_ID}`)) > firstProfileLaunch,
+    'agent-device startup proof should run after profile evidence capture',
   );
   assert.ok(
-    orderedCalls.findIndex((call) => call.includes(`argent:run launch-app --udid ${DEVICE_ID} --bundleId ${BUNDLE_ID}`)) < firstProfileLaunch,
-    'Argent startup proof should run before profile scenarios mutate app state',
+    orderedCalls.findIndex((call) => call.includes(`argent:run launch-app --udid ${DEVICE_ID} --bundleId ${BUNDLE_ID}`)) > firstProfileLaunch,
+    'Argent startup proof should run after profile evidence capture',
   );
   assert.deepEqual(
     result.profiles.map((profile: { runId: string }) => profile.runId),
@@ -332,7 +338,7 @@ test('runs the packaged iOS example live proof with a fake simctl executor', asy
         counts: {
           better: 0,
           worse: 0,
-          unchanged: 8,
+          unchanged: 1,
           inconclusive: 0,
         },
         notableMetrics: [],
@@ -341,7 +347,7 @@ test('runs the packaged iOS example live proof with a fake simctl executor', asy
         counts: {
           better: 0,
           worse: 0,
-          unchanged: 8,
+          unchanged: 3,
           inconclusive: 0,
         },
         notableMetrics: [],
@@ -350,7 +356,7 @@ test('runs the packaged iOS example live proof with a fake simctl executor', asy
         counts: {
           better: 0,
           worse: 0,
-          unchanged: 8,
+          unchanged: 3,
           inconclusive: 0,
         },
         notableMetrics: [],

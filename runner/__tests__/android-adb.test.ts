@@ -231,7 +231,7 @@ test('runs portable adb driver actions and writes raw evidence', async (t: TestC
     '-s emulator-5554 shell getprop ro.build.version.sdk': { stdout: '35\n' },
     '-s emulator-5554 shell input tap 120 240': { stdout: '' },
     '-s emulator-5554 shell input swipe 500 1400 500 400 350': { stdout: '' },
-    '-s emulator-5554 shell uiautomator dump /dev/tty': {
+    '-s emulator-5554 shell rm -f /sdcard/agent-scenario-loop-ui.xml; uiautomator dump /sdcard/agent-scenario-loop-ui.xml >/dev/null; cat /sdcard/agent-scenario-loop-ui.xml; status=$?; rm -f /sdcard/agent-scenario-loop-ui.xml; exit $status': {
       stdout: '<hierarchy><node text="Example" resource-id="dev.example:id/example" bounds="[10,100][210,260]" /></hierarchy>\n',
     },
     '-s emulator-5554 exec-out screencap -p': { stdout: 'PNG' },
@@ -332,7 +332,7 @@ test('resolves portable selectors into adb tap and scroll coordinates', async (t
       '-s emulator-5554 shell getprop ro.product.model': { stdout: 'Pixel 6\n' },
       '-s emulator-5554 shell getprop ro.build.version.release': { stdout: '15\n' },
       '-s emulator-5554 shell getprop ro.build.version.sdk': { stdout: '35\n' },
-      '-s emulator-5554 shell uiautomator dump /dev/tty': {
+      '-s emulator-5554 shell rm -f /sdcard/agent-scenario-loop-ui.xml; uiautomator dump /sdcard/agent-scenario-loop-ui.xml >/dev/null; cat /sdcard/agent-scenario-loop-ui.xml; status=$?; rm -f /sdcard/agent-scenario-loop-ui.xml; exit $status': {
         stdout: uiTreeXml,
       },
       '-s emulator-5554 shell input tap 110 180': { stdout: '' },
