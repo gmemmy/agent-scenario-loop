@@ -1,0 +1,87 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-scenario-loop.dev/schemas/project-validation.schema.json",
+  "title": "Agent Scenario Loop Project Validation",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "configPath",
+    "errors",
+    "platform",
+    "plans",
+    "providerPaths",
+    "rootDir",
+    "runnerPath",
+    "scenarioPaths",
+    "status"
+  ],
+  "properties": {
+    "configPath": {
+      "type": "string"
+    },
+    "errors": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "platform": {
+      "type": "string",
+      "enum": ["ios", "android", "all"]
+    },
+    "plans": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/plan"
+      }
+    },
+    "providerPaths": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "rootDir": {
+      "type": "string"
+    },
+    "runnerPath": {
+      "type": "string"
+    },
+    "scenarioPaths": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "status": {
+      "type": "string",
+      "enum": ["passed", "failed"]
+    }
+  },
+  "$defs": {
+    "plan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["healthStatus", "platform", "runId", "scenarioId", "scenarioPath"],
+      "properties": {
+        "healthStatus": {
+          "type": "string",
+          "enum": ["passed", "failed", "partial"]
+        },
+        "platform": {
+          "type": "string",
+          "enum": ["ios", "android"]
+        },
+        "runId": {
+          "type": "string"
+        },
+        "scenarioId": {
+          "type": "string"
+        },
+        "scenarioPath": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

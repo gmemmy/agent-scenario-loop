@@ -8,6 +8,7 @@ const ARTIFACT_FILENAMES = {
   health: 'health.json',
   liveProof: 'live-proof.json',
   plannerCompatibility: 'planner-compatibility.json',
+  projectValidation: 'project-validation.json',
   verdict: 'verdict.json',
 };
 
@@ -36,6 +37,7 @@ type ArtifactLayout = {
   agentSummary: string;
   liveProof: string;
   plannerCompatibility: string;
+  projectValidation: string;
   raw: string;
   captures: string;
   signals: {
@@ -70,6 +72,7 @@ function createArtifactLayout({ outputDir }: { outputDir: string }): ArtifactLay
     agentSummary: path.join(outputDir, ARTIFACT_FILENAMES.agentSummary),
     liveProof: path.join(outputDir, ARTIFACT_FILENAMES.liveProof),
     plannerCompatibility: path.join(outputDir, ARTIFACT_FILENAMES.plannerCompatibility),
+    projectValidation: path.join(outputDir, ARTIFACT_FILENAMES.projectValidation),
     raw: path.join(outputDir, 'raw'),
     captures: path.join(outputDir, 'captures'),
     signals: {

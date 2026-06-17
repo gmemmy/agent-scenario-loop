@@ -78,6 +78,7 @@ const SCHEMAS = {
   liveProof: loadSchema('live-proof.schema.json'),
   manifest: loadSchema('manifest.schema.json'),
   metrics: loadSchema('metrics.schema.json'),
+  projectValidation: loadSchema('project-validation.schema.json'),
   scenario: loadSchema('scenario.schema.json'),
   runnerCapabilities: loadSchema('runner-capabilities.schema.json'),
   verdict: loadSchema('verdict.schema.json'),

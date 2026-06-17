@@ -389,6 +389,32 @@ test('accepts aggregate live proof artifacts', () => {
   assert.equal(result.valid, true, result.message);
 });
 
+test('accepts project validation artifacts', () => {
+  const validation = {
+    configPath: '/app/asl.config.json',
+    errors: [],
+    platform: 'all',
+    plans: [
+      {
+        healthStatus: 'passed',
+        platform: 'ios',
+        runId: 'validate-ios-checkout-submit',
+        scenarioId: 'checkout-submit',
+        scenarioPath: '/app/scenarios/mobile/checkout-submit.json',
+      },
+    ],
+    providerPaths: ['/app/runner-manifests/evidence-provider.json'],
+    rootDir: '/app',
+    runnerPath: '/app/runner-manifests/primary-runner.json',
+    scenarioPaths: ['/app/scenarios/mobile/checkout-submit.json'],
+    status: 'passed',
+  };
+
+  const result = validateJson(validation, SCHEMAS.projectValidation, 'Project validation artifact');
+
+  assert.equal(result.valid, true, result.message);
+});
+
 test('accepts null schema types', () => {
   const manifest = {
     scenario: 'app-startup',

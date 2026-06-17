@@ -4,6 +4,8 @@ const fs = require('node:fs');
 const fsp = require('node:fs/promises');
 const path = require('node:path');
 
+const { writeJsonArtifact, writeTextArtifact } = require('../core/artifact-writer');
+const { SCHEMAS } = require('../core/schema-validator');
 const { hasHelpFlag, writeUsage } = require('./cli');
 const { buildPlanArtifacts } = require('./check-plan');
 
@@ -270,8 +272,16 @@ async function main(): Promise<void> {
   if (typeof args.out === 'string' && args.out.length > 0) {
     const outDir = path.resolve(args.out);
     await fsp.mkdir(outDir, { recursive: true });
-    await fsp.writeFile(path.join(outDir, 'project-validation.json'), `${JSON.stringify(result, null, 2)}\n`, 'utf8');
-    await fsp.writeFile(path.join(outDir, 'agent-summary.md'), `${formatResult(result)}\n`, 'utf8');
+    await writeJsonArtifact({
+      filePath: path.join(outDir, 'project-validation.json'),
+      value: result,
+      schema: SCHEMAS.projectValidation,
+      label: 'Project validation artifact',
+    });
+    await writeTextArtifact({
+      filePath: path.join(outDir, 'agent-summary.md'),
+      content: `${formatResult(result)}\n`,
+    });
   }
 
   process.stdout.write(`${formatResult(result)}\n`);
