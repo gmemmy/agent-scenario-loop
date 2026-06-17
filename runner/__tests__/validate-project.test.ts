@@ -187,7 +187,7 @@ test('validates app profile-session helper exports', async (t: TestContext) => {
   const helperPath = path.join(helperDir, 'profile-session.ts');
   await fsp.writeFile(helperPath, 'export function emitProfileEvent() {}\n', 'utf8');
 
-  const helper = validateAppHelper(targetDir);
+  let helper = validateAppHelper(targetDir);
 
   assert.equal(helper.status, 'incomplete');
   assert.deepEqual(helper.missingExports, [
@@ -195,6 +195,38 @@ test('validates app profile-session helper exports', async (t: TestContext) => {
     'useProfileSessionBootstrap',
   ]);
   assert.equal(fs.existsSync(helper.path), true);
+
+  await fsp.writeFile(
+    helperPath,
+    [
+      '// registerProfileCommandTargetHandler and useProfileSessionBootstrap are mentioned here only.',
+      'export function emitProfileEvent() {}',
+      '',
+    ].join('\n'),
+    'utf8',
+  );
+  helper = validateAppHelper(targetDir);
+  assert.equal(helper.status, 'incomplete');
+  assert.deepEqual(helper.missingExports, [
+    'registerProfileCommandTargetHandler',
+    'useProfileSessionBootstrap',
+  ]);
+
+  await fsp.writeFile(
+    helperPath,
+    [
+      'export {',
+      '  emitProfileEvent,',
+      '  registerProfileCommandTargetHandler,',
+      '  useProfileSessionBootstrap,',
+      "} from 'agent-scenario-loop/app/profile-session';",
+      '',
+    ].join('\n'),
+    'utf8',
+  );
+  helper = validateAppHelper(targetDir);
+  assert.equal(helper.status, 'present');
+  assert.deepEqual(helper.missingExports, []);
 });
 
 test('validates generated package-script snippets', async (t: TestContext) => {

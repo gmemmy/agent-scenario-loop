@@ -355,6 +355,54 @@ function buildValidationRunId({
 }
 
 /**
+ * Escapes a string for use inside a regular expression.
+ *
+ * @param {string} value
+ * @returns {string}
+ */
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
+}
+
+/**
+ * Returns whether source text declares or re-exports a named symbol.
+ *
+ * This intentionally avoids a full TypeScript parser while still rejecting
+ * comments or unrelated strings that only mention the helper name.
+ *
+ * @param {string} source
+ * @param {string} exportName
+ * @returns {boolean}
+ */
+function hasNamedExport(source: string, exportName: string): boolean {
+  const escapedName = escapeRegExp(exportName);
+  const directExport = new RegExp(
+    `^\\s*export\\s+(?:async\\s+)?(?:function|const|let|var)\\s+${escapedName}\\b`,
+    'mu',
+  );
+  if (directExport.test(source)) {
+    return true;
+  }
+
+  for (const match of source.matchAll(/^\s*export\s*\{(?<names>[\s\S]*?)\}\s*(?:from\s+['"][^'"]+['"])?\s*;?/gmu)) {
+    const names = match.groups?.names ?? '';
+    const exportedNames = names
+      .split(',')
+      .map((name) => name.trim())
+      .filter(Boolean)
+      .map((name) => {
+        const aliasMatch = /^(?<local>[A-Za-z_$][\w$]*)\s+as\s+(?<exported>[A-Za-z_$][\w$]*)$/u.exec(name);
+        return aliasMatch?.groups?.exported ?? name;
+      });
+    if (exportedNames.includes(exportName)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/**
  * Validates that the generated app helper is present and still exposes the expected integration API.
  *
  * @param {string} rootDir
@@ -371,7 +419,7 @@ function validateAppHelper(rootDir: string): ProjectValidationAppHelper {
   }
 
   const source = fs.readFileSync(helperPath, 'utf8');
-  const missingExports = REQUIRED_APP_HELPER_EXPORTS.filter((exportName) => !source.includes(exportName));
+  const missingExports = REQUIRED_APP_HELPER_EXPORTS.filter((exportName) => !hasNamedExport(source, exportName));
   return {
     missingExports,
     path: helperPath,
