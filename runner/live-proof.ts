@@ -38,6 +38,8 @@ type LiveProofArtifact = {
   status: string;
   summary: string;
 };
+type LiveProofComparisonCounts = LiveProofArtifact['comparisonCounts'];
+type LiveProofComparisonStatus = keyof LiveProofComparisonCounts;
 
 /**
  * Prints CLI usage.
@@ -86,6 +88,46 @@ function parseArgs(argv: string[]): CliArgs {
 }
 
 /**
+ * Counts comparison outcomes from one live-proof comparison list.
+ *
+ * @param {Array<{status?: string}>} comparisons
+ * @returns {LiveProofComparisonCounts}
+ */
+function countLiveProofComparisons(comparisons: Array<{status?: string}>): LiveProofComparisonCounts {
+  const counts: LiveProofComparisonCounts = {
+    better: 0,
+    inconclusive: 0,
+    skipped: 0,
+    unchanged: 0,
+    worse: 0,
+  };
+  for (const comparison of comparisons) {
+    const status = comparison.status as LiveProofComparisonStatus | undefined;
+    if (status && Object.prototype.hasOwnProperty.call(counts, status)) {
+      counts[status] += 1;
+    }
+  }
+  return counts;
+}
+
+/**
+ * Verifies that aggregate comparison counts match the comparison pointers.
+ *
+ * @param {LiveProofArtifact} proof
+ * @returns {void}
+ */
+function assertLiveProofComparisonCounts(proof: LiveProofArtifact): void {
+  const actual = countLiveProofComparisons(proof.comparisons as Array<{status?: string}>);
+  for (const key of Object.keys(actual) as LiveProofComparisonStatus[]) {
+    if (actual[key] !== proof.comparisonCounts[key]) {
+      throw new Error(
+        `Live proof artifact comparisonCounts.${key} expected ${actual[key]} from comparisons but found ${proof.comparisonCounts[key]}.`,
+      );
+    }
+  }
+}
+
+/**
  * Reads and validates a live-proof artifact.
  *
  * @param {string} filePath
@@ -93,7 +135,9 @@ function parseArgs(argv: string[]): CliArgs {
  */
 function readLiveProof(filePath: string): LiveProofArtifact {
   const proof = JSON.parse(fs.readFileSync(path.resolve(filePath), 'utf8'));
-  return assertValidJson(proof, SCHEMAS.liveProof, 'Live proof artifact') as LiveProofArtifact;
+  const validated = assertValidJson(proof, SCHEMAS.liveProof, 'Live proof artifact') as LiveProofArtifact;
+  assertLiveProofComparisonCounts(validated);
+  return validated;
 }
 
 /**
@@ -171,6 +215,8 @@ if (require.main === module) {
 }
 
 export {
+  assertLiveProofComparisonCounts,
+  countLiveProofComparisons,
   formatLiveProof,
   main,
   parseArgs,

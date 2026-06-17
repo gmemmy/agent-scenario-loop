@@ -6,6 +6,7 @@ const path = require('node:path');
 const test = require('node:test');
 
 const {
+  countLiveProofComparisons,
   formatLiveProof,
   parseArgs,
   readLiveProof,
@@ -84,6 +85,42 @@ test('parses live-proof CLI arguments', () => {
     file: 'live-proof.json',
     'fail-on-regression': true,
   });
+});
+
+test('counts live-proof comparison statuses from pointers', () => {
+  assert.deepEqual(
+    countLiveProofComparisons([
+      { status: 'better' },
+      { status: 'worse' },
+      { status: 'unchanged' },
+      { status: 'unchanged' },
+      { status: 'inconclusive' },
+      { status: 'skipped' },
+    ]),
+    {
+      better: 1,
+      inconclusive: 1,
+      skipped: 1,
+      unchanged: 2,
+      worse: 1,
+    },
+  );
+});
+
+test('rejects live-proof artifacts with inconsistent comparison counts', async (t: TestContext) => {
+  const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-live-proof-counts-'));
+  t.after(async () => {
+    await fsp.rm(tempDir, { recursive: true, force: true });
+  });
+  const proof = buildProof('unchanged');
+  (proof.comparisonCounts as Record<string, number>).worse = 1;
+  const proofPath = path.join(tempDir, 'live-proof.json');
+  fs.writeFileSync(proofPath, `${JSON.stringify(proof, null, 2)}\n`, 'utf8');
+
+  assert.throws(
+    () => readLiveProof(proofPath),
+    /comparisonCounts\.unchanged expected 1 from comparisons but found 0|comparisonCounts\.worse expected 0 from comparisons but found 1/u,
+  );
 });
 
 test('reads, validates, and formats live-proof artifacts', async (t: TestContext) => {
