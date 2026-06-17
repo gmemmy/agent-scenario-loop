@@ -29,7 +29,7 @@ After filling in app identifiers, validate the whole initialized project before 
 asl-validate-project --root . --platform all --out artifacts/asl/project-validation
 ```
 
-Project validation checks the app-side profile-session helper, package-script snippets, project config, scenario manifests, runner manifests, provider manifests, and planner compatibility. Placeholder app identity values are reported as warnings so a fresh scaffold can still prove installability while real app setup remains visible before live proof.
+Project validation checks the app-side profile-session helper, package-script snippets, project config, scenario manifests, runner manifests, provider manifests, and planner compatibility. Placeholder app identity values are reported as warnings so a fresh scaffold can still prove installability while real app setup remains visible before live proof. The JSON artifact also includes structured `nextActions` for agents.
 
 ## Templates
 

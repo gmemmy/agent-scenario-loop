@@ -398,6 +398,14 @@ test('accepts project validation artifacts', () => {
     },
     configPath: '/app/asl.config.json',
     errors: [],
+    nextActions: [
+      {
+        code: 'replace_config_placeholders',
+        message: 'Replace scaffold placeholder values in asl.config.json before relying on live device proof.',
+        severity: 'warning',
+        target: '/app/asl.config.json',
+      },
+    ],
     platform: 'all',
     plans: [
       {

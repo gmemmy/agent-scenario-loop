@@ -21,6 +21,10 @@ type TestContext = import('node:test').TestContext;
 
 const ROOT = path.join(__dirname, '..', '..', '..');
 
+function actionCodes(result: { nextActions: Array<{ code: string }> }): string[] {
+  return result.nextActions.map((action) => action.code).sort();
+}
+
 test('parses project validation arguments', () => {
   assert.deepEqual(parseArgs(['--root', 'app', '--platform', 'ios', '--out', 'artifacts/validation']), {
     out: 'artifacts/validation',
@@ -64,6 +68,7 @@ test('validates an initialized project for iOS and Android', async (t: TestConte
   assert.equal(result.scripts.status, 'present');
   assert.equal(result.scripts.scriptNames.includes('asl:validate'), true);
   assert.equal(result.warnings.some((warning: string) => warning.includes('projectName')), true);
+  assert.deepEqual(actionCodes(result), ['replace_config_placeholders']);
   assert.equal(result.scenarioPaths.length, 1);
   assert.equal(result.providerPaths.length, 1);
   assert.deepEqual(
@@ -82,6 +87,7 @@ test('validates an initialized project for iOS and Android', async (t: TestConte
   );
   assert.match(formatResult(result), /project validation passed/u);
   assert.match(formatResult(result), /Warnings:/u);
+  assert.match(formatResult(result), /Next actions:/u);
 });
 
 test('fails validation when initialized project files are missing', async (t: TestContext) => {
@@ -98,6 +104,13 @@ test('fails validation when initialized project files are missing', async (t: Te
   assert.ok(result.errors.some((error: string) => error.includes('No scenario manifests found')));
   assert.ok(result.errors.some((error: string) => error.includes('Missing app profile-session helper')));
   assert.ok(result.errors.some((error: string) => error.includes('Missing package-script snippets')));
+  assert.deepEqual(actionCodes(result), [
+    'add_mobile_scenario',
+    'add_package_script_snippets',
+    'add_primary_runner_manifest',
+    'add_profile_session_helper',
+    'add_project_config',
+  ]);
 });
 
 test('validates app profile-session helper exports', async (t: TestContext) => {

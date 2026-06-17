@@ -39,10 +39,18 @@ type ProjectValidationScripts = {
   unknownCommands: string[];
 };
 
+type ProjectValidationNextAction = {
+  code: string;
+  message: string;
+  severity: 'error' | 'warning';
+  target: string;
+};
+
 type ProjectValidationResult = {
   appHelper: ProjectValidationAppHelper;
   configPath: string;
   errors: string[];
+  nextActions: ProjectValidationNextAction[];
   platform: string;
   plans: ProjectValidationPlan[];
   providerPaths: string[];
@@ -386,6 +394,123 @@ function validatePackageScripts({
 }
 
 /**
+ * Builds stable agent-readable next actions from project validation facts.
+ *
+ * @param {{appHelper: ProjectValidationAppHelper, configPath: string, plans: ProjectValidationPlan[], requestedPlatform: string, rootDir: string, runnerPath: string, scenarioPaths: string[], scripts: ProjectValidationScripts, warnings: string[]}} options
+ * @returns {ProjectValidationNextAction[]}
+ */
+function buildNextActions({
+  appHelper,
+  configPath,
+  plans,
+  requestedPlatform,
+  rootDir,
+  runnerPath,
+  scenarioPaths,
+  scripts,
+  warnings,
+}: {
+  appHelper: ProjectValidationAppHelper;
+  configPath: string;
+  plans: ProjectValidationPlan[];
+  requestedPlatform: string;
+  rootDir: string;
+  runnerPath: string;
+  scenarioPaths: string[];
+  scripts: ProjectValidationScripts;
+  warnings: string[];
+}): ProjectValidationNextAction[] {
+  const actions: ProjectValidationNextAction[] = [];
+  if (!['ios', 'android', 'all'].includes(requestedPlatform)) {
+    actions.push({
+      code: 'choose_supported_platform',
+      message: 'Rerun project validation with --platform ios, --platform android, or --platform all.',
+      severity: 'error',
+      target: 'platform',
+    });
+  }
+
+  if (!fs.existsSync(configPath)) {
+    actions.push({
+      code: 'add_project_config',
+      message: 'Create asl.config.json from the package template and fill in app identifiers.',
+      severity: 'error',
+      target: configPath,
+    });
+  }
+
+  if (!fs.existsSync(runnerPath)) {
+    actions.push({
+      code: 'add_primary_runner_manifest',
+      message: 'Create runner-manifests/primary-runner.json or rerun asl-init for the scaffolded runner manifest.',
+      severity: 'error',
+      target: runnerPath,
+    });
+  }
+
+  if (scenarioPaths.length === 0) {
+    actions.push({
+      code: 'add_mobile_scenario',
+      message: 'Add at least one scenario manifest under scenarios/mobile.',
+      severity: 'error',
+      target: path.join(rootDir, 'scenarios', 'mobile'),
+    });
+  }
+
+  if (appHelper.status === 'missing') {
+    actions.push({
+      code: 'add_profile_session_helper',
+      message: 'Copy app/profile-session.ts into src/devtools/profile-session.ts and mount useProfileSessionBootstrap near the app root.',
+      severity: 'error',
+      target: appHelper.path,
+    });
+  } else if (appHelper.status === 'incomplete') {
+    actions.push({
+      code: 'restore_profile_session_exports',
+      message: `Restore missing profile-session export(s): ${appHelper.missingExports.join(', ')}.`,
+      severity: 'error',
+      target: appHelper.path,
+    });
+  }
+
+  if (scripts.status === 'missing') {
+    actions.push({
+      code: 'add_package_script_snippets',
+      message: 'Create asl/package-scripts.json from the package template and merge needed snippets into package.json.',
+      severity: 'error',
+      target: scripts.path,
+    });
+  } else if (scripts.status === 'incomplete') {
+    actions.push({
+      code: 'fix_package_script_snippets',
+      message: 'Fix missing package-script snippets, unknown CLI commands, or missing project-local paths before live proof.',
+      severity: 'error',
+      target: scripts.path,
+    });
+  }
+
+  for (const plan of plans.filter((candidate) => candidate.healthStatus !== 'passed')) {
+    actions.push({
+      code: 'fix_planner_compatibility',
+      message: `Fix runner/provider compatibility for ${plan.platform} ${plan.scenarioId}.`,
+      severity: 'error',
+      target: plan.scenarioPath,
+    });
+  }
+
+  if (warnings.length > 0) {
+    actions.push({
+      code: 'replace_config_placeholders',
+      message: 'Replace scaffold placeholder values in asl.config.json before relying on live device proof.',
+      severity: 'warning',
+      target: configPath,
+    });
+  }
+
+  return actions;
+}
+
+/**
  * Validates a generated or hand-authored Agent Scenario Loop project.
  *
  * @param {{rootDir?: string, platform?: string}} [options]
@@ -478,10 +603,23 @@ async function validateProject(options: {
     }
   }
 
+  const nextActions = buildNextActions({
+    appHelper,
+    configPath,
+    plans,
+    requestedPlatform,
+    rootDir,
+    runnerPath,
+    scenarioPaths,
+    scripts,
+    warnings,
+  });
+
   return {
     appHelper,
     configPath,
     errors,
+    nextActions,
     platform: requestedPlatform,
     plans,
     providerPaths,
@@ -513,6 +651,12 @@ function formatResult(result: ProjectValidationResult): string {
       ? [
         'Warnings:',
         ...result.warnings.map((warning) => `- ${warning}`),
+      ]
+      : []),
+    ...(result.nextActions.length > 0
+      ? [
+        'Next actions:',
+        ...result.nextActions.map((action) => `- ${action.severity} ${action.code}: ${action.message}`),
       ]
       : []),
     ...(result.plans.length > 0
@@ -583,6 +727,7 @@ export {
   parseArgs,
   resolvePlatforms,
   usage,
+  buildNextActions,
   validateConfigPlaceholders,
   validateProject,
   validateAppHelper,
@@ -592,6 +737,7 @@ export {
 export type {
   CliArgs,
   ProjectValidationAppHelper,
+  ProjectValidationNextAction,
   ProjectValidationPlan,
   ProjectValidationResult,
   ProjectValidationScripts,
