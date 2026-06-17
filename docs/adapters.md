@@ -25,7 +25,7 @@ A scenario should have one primary runner. Evidence providers can satisfy requir
 
 ## Describe Capabilities
 
-Create a runner manifest under `runner-manifests/` or use the fixtures in `examples/runners/` as a starting point.
+Create a runner manifest under `runner-manifests/` or use the fixtures in `examples/runners/` as a starting point. The shipped [runner and provider target matrix](../examples/runners/README.md) describes which fixtures are bundled adapters, external-tool targets, or project-local provider patterns.
 
 Primary runner shape:
 
@@ -51,7 +51,6 @@ Evidence provider shape:
   "kind": "evidenceProvider",
   "platforms": ["ios", "android"],
   "capabilities": ["accessibility"],
-  "driverActions": ["inspectAccessibility"],
   "artifactOutputs": ["accessibility"],
   "lifecycle": ["prepare", "startWindow", "capture", "stopWindow", "finalize"]
 }

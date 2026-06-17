@@ -352,7 +352,7 @@ Current package guarantees:
 - package-neutral script-provider examples cover accessibility, profiler, memory, and network evidence wrappers
 - failed adb, simctl, package, selector, and capture checks emit scalar next-action hints into health metadata and `agent-summary.md`
 - iOS simctl capture inventories every profile-session deep link with labels, raw paths, argv, exit codes, URLs, and waits
-- adapter-target manifests for external tools are schema-checked and planner-tested without bundling those tools
+- adapter-target manifests for external tools are schema-checked, planner-tested, documented in [examples/runners](examples/runners/README.md), and shipped without bundling those tools
 - package smoke blocks generated artifacts, internal-only paths, and local/product-specific strings from the tarball
 
 Remaining hardening:
