@@ -95,6 +95,47 @@ function formatFailedBudgets(budgetChecks: unknown[]): string[] {
 }
 
 /**
+ * Formats comparison provenance for agent-readable summaries.
+ *
+ * @param {SummaryRecord} comparison
+ * @returns {string[]}
+ */
+function formatComparisonBasis(comparison: SummaryRecord): string[] {
+  const basis = comparison.comparisonBasis;
+  if (!basis || typeof basis !== 'object' || Array.isArray(basis)) {
+    return [];
+  }
+
+  const basisRecord = basis as SummaryRecord;
+  const baseline = basisRecord.baseline;
+  const current = basisRecord.current;
+  if (!baseline || typeof baseline !== 'object' || !current || typeof current !== 'object') {
+    return [];
+  }
+
+  const baselineRecord = baseline as SummaryRecord;
+  const currentRecord = current as SummaryRecord;
+  const lines = [
+    '',
+    '## comparison basis',
+    '',
+    `- Strategy: ${code(firstString([basisRecord.strategy], 'unknown'))}`,
+    `- Baseline: ${code(firstString([baselineRecord.runId], 'unknown-baseline'))} at ${code(firstString([baselineRecord.runDir], 'unknown-dir'))}`,
+    `- Current: ${code(firstString([currentRecord.runId], 'unknown-current'))} at ${code(firstString([currentRecord.runDir], 'unknown-dir'))}`,
+  ];
+
+  const selection = basisRecord.selection;
+  if (selection && typeof selection === 'object' && !Array.isArray(selection)) {
+    const selectionRecord = selection as SummaryRecord;
+    lines.push(
+      `- Selection: inspected ${selectionRecord.candidatesInspected ?? 'unknown'}, trusted ${selectionRecord.trustedCandidates ?? 'unknown'}, trusted prior ${selectionRecord.trustedPriorCandidates ?? 'unknown'}, skipped current ${selectionRecord.skippedCurrentRun ?? 'unknown'}`,
+    );
+  }
+
+  return lines;
+}
+
+/**
  * Builds the minimum agent-facing markdown summary for a run.
  *
  * @param {{health: Record<string, unknown>, verdict: Record<string, unknown>, comparison?: Record<string, unknown> | null}} options
@@ -149,6 +190,7 @@ function buildAgentSummaryMarkdown({ health, verdict, comparison = null }: Agent
 
   if (comparison) {
     lines.push('', '## comparison', '', firstString([comparison.summary], 'No comparison summary provided.'));
+    lines.push(...formatComparisonBasis(comparison));
   }
 
   return `${lines.join('\n')}\n`;

@@ -19,6 +19,23 @@ test('builds a passed-health agent summary with comparison context', () => {
     },
     comparison: {
       comparisonStatus: 'unchanged',
+      comparisonBasis: {
+        strategy: 'latest_trusted_prior',
+        baseline: {
+          runId: 'baseline-run',
+          runDir: 'artifacts/asl/android/app-startup/baseline-run',
+        },
+        current: {
+          runId: 'run-1',
+          runDir: 'artifacts/asl/android/app-startup/run-1',
+        },
+        selection: {
+          candidatesInspected: 3,
+          skippedCurrentRun: true,
+          trustedCandidates: 2,
+          trustedPriorCandidates: 1,
+        },
+      },
       summary: 'Current run matched the explicit baseline.',
     },
   });
@@ -27,6 +44,10 @@ test('builds a passed-health agent summary with comparison context', () => {
   assert.match(summary, /Scenario: `app-startup`/u);
   assert.match(summary, /Health: passed/u);
   assert.match(summary, /Comparison: unchanged/u);
+  assert.match(summary, /## comparison basis/u);
+  assert.match(summary, /Strategy: `latest_trusted_prior`/u);
+  assert.match(summary, /Baseline: `baseline-run` at `artifacts\/asl\/android\/app-startup\/baseline-run`/u);
+  assert.match(summary, /Selection: inspected 3, trusted 2, trusted prior 1, skipped current true/u);
   assert.match(summary, /Optimization claims still require verdict or comparison evidence/u);
 });
 
