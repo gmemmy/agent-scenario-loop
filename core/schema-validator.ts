@@ -84,6 +84,7 @@ const SCHEMAS = {
   comparison: loadSchema('comparison.schema.json'),
   health: loadSchema('health.schema.json'),
   liveProof: loadSchema('live-proof.schema.json'),
+  liveProofSet: loadSchema('live-proof-set.schema.json'),
   manifest: loadSchema('manifest.schema.json'),
   metrics: loadSchema('metrics.schema.json'),
   projectValidation: loadSchema('project-validation.schema.json'),

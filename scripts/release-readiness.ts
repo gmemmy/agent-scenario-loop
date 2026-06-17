@@ -338,6 +338,7 @@ function assertReleaseScripts(packageJson: Record<string, unknown>): void {
     assert.match(scripts[scriptName], /--fail-on-regression/u, `${scriptName} must fail on regressions by default`);
   }
   assert.match(scripts['example:mobile:live-proof'], /--require-platforms android,ios/u);
+  assert.match(scripts['example:mobile:live-proof'], /--out artifacts\/example-mobile-app\/live-proof-set/u);
   assert.match(scripts['example:mobile:live-proof'], /--fail-on-regression/u);
 }
 

@@ -228,7 +228,7 @@ test('example mobile app exposes consumer package scripts', () => {
   assert.match(snippetScripts['asl:ios:live'], /--compare-latest --fail-on-regression/u);
   assert.match(snippetScripts['asl:android:live:runners'], /--agent-device-proof --argent-proof --compare-latest --fail-on-regression/u);
   assert.match(snippetScripts['asl:ios:live:runners'], /--agent-device-proof --argent-proof --compare-latest --fail-on-regression/u);
-  assert.match(snippetScripts['asl:live-proof:both'], /--require-platforms android,ios --fail-on-regression/u);
+  assert.match(snippetScripts['asl:live-proof:both'], /--require-platforms android,ios --out artifacts\/asl\/live-proof-set --fail-on-regression/u);
   assert.match(rootScripts['example:app:android'], /pnpm --dir examples\/mobile-app android/u);
   assert.match(rootScripts['example:app:ios'], /pnpm --dir examples\/mobile-app ios/u);
   assert.match(rootScripts['example:app:ios'], /ASL_EXAMPLE_XCODE_DEVELOPER_DIR/u);

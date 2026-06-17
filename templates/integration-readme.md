@@ -86,4 +86,12 @@ If your project adds an aggregate batch runner that writes `live-proof.json`, in
 ASL_LIVE_PROOF=artifacts/asl/<platform>/_live-proof/<run-id>/live-proof.json pnpm asl:live-proof
 ```
 
+After Android and iOS live proofs have both written aggregate artifacts, run the generated platform-set gate:
+
+```bash
+pnpm asl:live-proof:both
+```
+
+That script requires both platform proofs, writes `artifacts/asl/live-proof-set/live-proof-set.json` plus `agent-summary.md`, and exits nonzero when either platform is missing, failed, or regressed.
+
 The package-script snippets in `asl/package-scripts.json` include fixture, portable agent-device and Argent interaction proof, live profile, compare, and proof-inspection commands. Merge the snippets you use into your app `package.json` so future agents can run the loop without rediscovering command arguments.

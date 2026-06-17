@@ -1,0 +1,144 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-scenario-loop.dev/schemas/live-proof-set.schema.json",
+  "title": "Agent Scenario Loop Live Proof Set",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "runId",
+    "status",
+    "proofCount",
+    "requiredPlatforms",
+    "presentPlatforms",
+    "missingPlatforms",
+    "proofs",
+    "failureReasons",
+    "nextAction",
+    "summary"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "type": "string",
+      "pattern": "^1\\.0\\.0$"
+    },
+    "runId": {
+      "type": "string"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["passed", "failed"]
+    },
+    "proofCount": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "requiredPlatforms": {
+      "$ref": "#/$defs/platformList"
+    },
+    "presentPlatforms": {
+      "$ref": "#/$defs/platformList"
+    },
+    "missingPlatforms": {
+      "$ref": "#/$defs/platformList"
+    },
+    "proofs": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/proofPointer"
+      }
+    },
+    "failureReasons": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "nextAction": {
+      "$ref": "#/$defs/nextAction"
+    },
+    "summary": {
+      "type": "string"
+    }
+  },
+  "$defs": {
+    "platform": {
+      "type": "string",
+      "enum": ["android", "ios"]
+    },
+    "platformList": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/platform"
+      },
+      "uniqueItems": true
+    },
+    "proofPointer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "filePath",
+        "platform",
+        "runId",
+        "status",
+        "comparisonStatus",
+        "summaryPath",
+        "profileCount",
+        "interactionProofCount",
+        "interactionWarningCount",
+        "nextAction"
+      ],
+      "properties": {
+        "filePath": {
+          "type": "string"
+        },
+        "platform": {
+          "$ref": "#/$defs/platform"
+        },
+        "runId": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["passed", "failed"]
+        },
+        "comparisonStatus": {
+          "type": "string",
+          "enum": ["baseline_missing", "improved", "inconclusive", "mixed", "not_compared", "regressed", "unchanged"]
+        },
+        "summaryPath": {
+          "type": "string"
+        },
+        "profileCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "interactionProofCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "interactionWarningCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "nextAction": {
+          "$ref": "#/$defs/nextAction"
+        }
+      }
+    },
+    "nextAction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "summary"],
+      "properties": {
+        "code": {
+          "type": "string"
+        },
+        "summary": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

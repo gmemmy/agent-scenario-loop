@@ -3,13 +3,17 @@
 const fs = require('node:fs');
 const path = require('node:path');
 
+const { createArtifactLayout } = require('../core/artifact-layout');
+const { writeJsonArtifact, writeTextArtifact } = require('../core/artifact-writer');
 const { SCHEMAS, assertValidJson } = require('../core/schema-validator');
 const { hasHelpFlag, writeUsage } = require('./cli');
 
 type CliArgs = {
   file?: string | string[] | boolean;
   'fail-on-regression'?: string | boolean;
+  out?: string | boolean;
   'require-platforms'?: string | boolean;
+  'run-id'?: string | boolean;
   [key: string]: string | string[] | boolean | undefined;
 };
 
@@ -110,6 +114,37 @@ type LiveProofAggregateStatus = (
   'unchanged'
 );
 type LiveProofNextActionCode = LiveProofArtifact['nextAction']['code'];
+type LiveProofSetArtifact = {
+  failureReasons: string[];
+  missingPlatforms: LiveProofPlatform[];
+  nextAction: {
+    code: string;
+    summary: string;
+  };
+  presentPlatforms: LiveProofPlatform[];
+  proofCount: number;
+  proofs: LiveProofSetProofPointer[];
+  requiredPlatforms: LiveProofPlatform[];
+  runId: string;
+  schemaVersion: '1.0.0';
+  status: 'failed' | 'passed';
+  summary: string;
+};
+type LiveProofSetProofPointer = {
+  comparisonStatus: string;
+  filePath: string;
+  interactionProofCount: number;
+  interactionWarningCount: number;
+  nextAction: {
+    code: string;
+    summary: string;
+  };
+  platform: LiveProofPlatform;
+  profileCount: number;
+  runId: string;
+  status: string;
+  summaryPath: string;
+};
 
 /**
  * Prints CLI usage.
@@ -119,10 +154,11 @@ type LiveProofNextActionCode = LiveProofArtifact['nextAction']['code'];
  */
 function usage(output: { write: (message: string) => unknown } = process.stderr): void {
   writeUsage([
-    'Usage: asl-live-proof --file <live-proof.json> [--file <live-proof.json> ...] [--require-platforms android,ios] [--fail-on-regression]',
+    'Usage: asl-live-proof --file <live-proof.json> [--file <live-proof.json> ...] [--require-platforms android,ios] [--out <dir>] [--run-id <id>] [--fail-on-regression]',
     '',
     'Validates one or more aggregate live-proof artifacts and prints status and next action details.',
     'Use --require-platforms to fail when a platform proof is missing from a multi-artifact gate.',
+    'Use --out to write live-proof-set.json and agent-summary.md for a durable platform-set gate.',
     'Use --fail-on-regression to exit nonzero when comparisonStatus is regressed.',
   ], output);
 }
@@ -463,6 +499,257 @@ function readLiveProofSet({
 }
 
 /**
+ * Resolves the optional proof-set artifact output directory.
+ *
+ * @param {CliArgs} args
+ * @returns {string | null}
+ */
+function resolveLiveProofSetOutputDir(args: CliArgs): string | null {
+  return typeof args.out === 'string' ? path.resolve(args.out) : null;
+}
+
+/**
+ * Resolves the proof-set run id used for written artifacts.
+ *
+ * @param {CliArgs} args
+ * @returns {string}
+ */
+function resolveLiveProofSetRunId(args: CliArgs): string {
+  if (typeof args['run-id'] !== 'string') {
+    return 'live-proof-set';
+  }
+
+  const normalized = args['run-id']
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/gu, '-')
+    .replace(/^-+|-+$/gu, '')
+    .slice(0, 96);
+  return normalized.length > 0 ? normalized : 'live-proof-set';
+}
+
+/**
+ * Counts interaction warnings preserved by one live-proof artifact.
+ *
+ * @param {LiveProofArtifact} proof
+ * @returns {number}
+ */
+function countInteractionWarnings(proof: LiveProofArtifact): number {
+  return (proof.interactionProofs ?? []).reduce((sum, interactionProof) => (
+    sum + (interactionProof.warnings?.count ?? 0)
+  ), 0);
+}
+
+/**
+ * Builds the compact pointer for one platform live-proof artifact.
+ *
+ * @param {{filePath: string, proof: LiveProofArtifact}} options
+ * @returns {LiveProofSetProofPointer}
+ */
+function buildLiveProofSetProofPointer({
+  filePath,
+  proof,
+}: {
+  filePath: string;
+  proof: LiveProofArtifact;
+}): LiveProofSetProofPointer {
+  return {
+    comparisonStatus: proof.comparisonStatus,
+    filePath,
+    interactionProofCount: proof.interactionProofs?.length ?? 0,
+    interactionWarningCount: countInteractionWarnings(proof),
+    nextAction: proof.nextAction,
+    platform: proof.platform,
+    profileCount: proof.profiles.length,
+    runId: proof.runId,
+    status: proof.status,
+    summaryPath: path.join(path.dirname(path.resolve(filePath)), 'agent-summary.md'),
+  };
+}
+
+/**
+ * Builds human-readable failure reasons for one proof set.
+ *
+ * @param {{failOnRegression: boolean, missingPlatforms: LiveProofPlatform[], proofs: LiveProofArtifact[]}} options
+ * @returns {string[]}
+ */
+function buildLiveProofSetFailureReasons({
+  failOnRegression,
+  missingPlatforms,
+  proofs,
+}: {
+  failOnRegression: boolean;
+  missingPlatforms: LiveProofPlatform[];
+  proofs: LiveProofArtifact[];
+}): string[] {
+  return [
+    ...missingPlatforms.map((platform) => `Missing required platform proof: ${platform}.`),
+    ...proofs
+      .filter((proof) => proof.status === 'failed')
+      .map((proof) => `${proof.platform} proof ${proof.runId} failed.`),
+    ...(
+      failOnRegression
+        ? proofs
+          .filter((proof) => proof.comparisonStatus === 'regressed')
+          .map((proof) => `${proof.platform} proof ${proof.runId} regressed.`)
+        : []
+    ),
+  ];
+}
+
+/**
+ * Builds the next action for a proof-set artifact.
+ *
+ * @param {{failureReasons: string[], missingPlatforms: LiveProofPlatform[], proofs: LiveProofArtifact[]}} options
+ * @returns {{code: string, summary: string}}
+ */
+function buildLiveProofSetNextAction({
+  failureReasons,
+  missingPlatforms,
+  proofs,
+}: {
+  failureReasons: string[];
+  missingPlatforms: LiveProofPlatform[];
+  proofs: LiveProofArtifact[];
+}): {code: string; summary: string} {
+  if (missingPlatforms.length > 0) {
+    return {
+      code: 'collect_missing_platform_proofs',
+      summary: `Run the missing platform proof(s): ${missingPlatforms.join(', ')}.`,
+    };
+  }
+  if (proofs.some((proof) => proof.status === 'failed')) {
+    return {
+      code: 'inspect_failed_run',
+      summary: 'Inspect failed live-proof artifacts before trusting the platform set.',
+    };
+  }
+  if (proofs.some((proof) => proof.comparisonStatus === 'regressed')) {
+    return {
+      code: 'inspect_regressions',
+      summary: 'Inspect regressed platform proof comparisons before claiming improvement.',
+    };
+  }
+  if (failureReasons.length > 0) {
+    return {
+      code: 'inspect_failed_set',
+      summary: 'Inspect failed proof-set reasons before trusting the platform set.',
+    };
+  }
+  return {
+    code: 'inspect_summary',
+    summary: 'Platform proof set is complete; inspect linked artifacts for detail.',
+  };
+}
+
+/**
+ * Builds the durable platform proof-set artifact.
+ *
+ * @param {{failOnRegression: boolean, files: string[], proofs: LiveProofArtifact[], requiredPlatforms?: LiveProofPlatform[], runId?: string}} options
+ * @returns {LiveProofSetArtifact}
+ */
+function buildLiveProofSetArtifact({
+  failOnRegression,
+  files,
+  proofs,
+  requiredPlatforms = [],
+  runId = 'live-proof-set',
+}: {
+  failOnRegression: boolean;
+  files: string[];
+  proofs: LiveProofArtifact[];
+  requiredPlatforms?: LiveProofPlatform[];
+  runId?: string;
+}): LiveProofSetArtifact {
+  const presentPlatforms = Array.from(new Set(proofs.map((proof) => proof.platform))).sort() as LiveProofPlatform[];
+  const missingPlatforms = requiredPlatforms.filter((platform) => !presentPlatforms.includes(platform));
+  const failureReasons = buildLiveProofSetFailureReasons({
+    failOnRegression,
+    missingPlatforms,
+    proofs,
+  });
+  const status = failureReasons.length > 0 ? 'failed' : 'passed';
+  const nextAction = buildLiveProofSetNextAction({
+    failureReasons,
+    missingPlatforms,
+    proofs,
+  });
+  return {
+    failureReasons,
+    missingPlatforms,
+    nextAction,
+    presentPlatforms,
+    proofCount: proofs.length,
+    proofs: proofs.map((proof, index) => buildLiveProofSetProofPointer({
+      filePath: path.resolve(files[index] ?? ''),
+      proof,
+    })),
+    requiredPlatforms,
+    runId,
+    schemaVersion: '1.0.0',
+    status,
+    summary: status === 'passed'
+      ? `live proof set passed for ${presentPlatforms.join(', ')}.`
+      : `live proof set failed: ${failureReasons.join(' ')}`,
+  };
+}
+
+/**
+ * Formats a proof-set artifact for agent-readable markdown.
+ *
+ * @param {LiveProofSetArtifact} artifact
+ * @returns {string}
+ */
+function formatLiveProofSetArtifactMarkdown(artifact: LiveProofSetArtifact): string {
+  return [
+    `# Live Proof Set ${artifact.runId}`,
+    '',
+    `Status: ${artifact.status}`,
+    `Required platforms: ${artifact.requiredPlatforms.join(', ') || 'none'}`,
+    `Present platforms: ${artifact.presentPlatforms.join(', ') || 'none'}`,
+    `Missing platforms: ${artifact.missingPlatforms.join(', ') || 'none'}`,
+    `Proofs: ${artifact.proofCount}`,
+    ...artifact.proofs.map((proof) => (
+      `- ${proof.platform} ${proof.runId}: status=${proof.status} comparison=${proof.comparisonStatus} profiles=${proof.profileCount} interactionProofs=${proof.interactionProofCount} warnings=${proof.interactionWarningCount} summary=${proof.summaryPath}`
+    )),
+    `Failure reasons: ${artifact.failureReasons.length > 0 ? artifact.failureReasons.join(' ') : 'none'}`,
+    `Next action: ${artifact.nextAction.code} - ${artifact.nextAction.summary}`,
+    '',
+    artifact.summary,
+  ].join('\n');
+}
+
+/**
+ * Writes durable proof-set artifacts under an output directory.
+ *
+ * @param {{artifact: LiveProofSetArtifact, outputDir: string}} options
+ * @returns {Promise<{liveProofSetPath: string, summaryPath: string}>}
+ */
+async function writeLiveProofSetArtifact({
+  artifact,
+  outputDir,
+}: {
+  artifact: LiveProofSetArtifact;
+  outputDir: string;
+}): Promise<{liveProofSetPath: string; summaryPath: string}> {
+  const layout = createArtifactLayout({ outputDir });
+  await writeJsonArtifact({
+    filePath: layout.liveProofSet,
+    label: 'Live proof set artifact',
+    schema: SCHEMAS.liveProofSet,
+    value: artifact,
+  });
+  await writeTextArtifact({
+    filePath: layout.agentSummary,
+    content: formatLiveProofSetArtifactMarkdown(artifact),
+  });
+  return {
+    liveProofSetPath: layout.liveProofSet,
+    summaryPath: layout.agentSummary,
+  };
+}
+
+/**
  * Formats a live-proof artifact for CLI output.
  *
  * @param {LiveProofArtifact} proof
@@ -578,12 +865,30 @@ async function main(): Promise<void> {
   }
 
   const requiredPlatforms = parseRequiredPlatforms(args['require-platforms']);
-  const proofs = readLiveProofSet({ files, requiredPlatforms });
-  process.stdout.write(`${formatLiveProofSet({ proofs, requiredPlatforms })}\n`);
-  if (shouldFailLiveProofSet({
-    failOnRegression: args['fail-on-regression'] === true || args['fail-on-regression'] === 'true',
+  const proofs = files.map(readLiveProof);
+  const failOnRegression = args['fail-on-regression'] === true || args['fail-on-regression'] === 'true';
+  const proofSet = buildLiveProofSetArtifact({
+    failOnRegression,
+    files,
     proofs,
-  })) {
+    requiredPlatforms,
+    runId: resolveLiveProofSetRunId(args),
+  });
+  process.stdout.write(`${formatLiveProofSet({ proofs, requiredPlatforms })}\n`);
+  if (proofSet.failureReasons.length > 0) {
+    process.stdout.write(`Proof set status: ${proofSet.status}\n`);
+    for (const reason of proofSet.failureReasons) {
+      process.stdout.write(`- ${reason}\n`);
+    }
+    process.stdout.write(`Next action: ${proofSet.nextAction.code} - ${proofSet.nextAction.summary}\n`);
+  }
+  const outputDir = resolveLiveProofSetOutputDir(args);
+  if (outputDir) {
+    const written = await writeLiveProofSetArtifact({ artifact: proofSet, outputDir });
+    process.stdout.write(`Live proof set artifact: ${written.liveProofSetPath}\n`);
+    process.stdout.write(`Live proof set summary: ${written.summaryPath}\n`);
+  }
+  if (proofSet.status === 'failed') {
     process.exitCode = 2;
   }
 }
@@ -599,6 +904,9 @@ export {
   assertLiveProofAggregateSignals,
   assertLiveProofComparisonCounts,
   assertLiveProofSetRequiredPlatforms,
+  buildLiveProofSetArtifact,
+  buildLiveProofSetFailureReasons,
+  buildLiveProofSetNextAction,
   countLiveProofComparisons,
   deriveLiveProofComparisonStatus,
   expectedLiveProofNextActionCode,
@@ -607,18 +915,24 @@ export {
   formatInteractionProofWarnings,
   formatLiveProof,
   formatLiveProofSet,
+  formatLiveProofSetArtifactMarkdown,
   main,
   parseArgs,
   parseRequiredPlatforms,
   readLiveProof,
   readLiveProofSet,
+  resolveLiveProofSetOutputDir,
   resolveLiveProofFiles,
+  resolveLiveProofSetRunId,
   shouldFailLiveProofSet,
   shouldFailOnRegression,
   usage,
+  writeLiveProofSetArtifact,
 };
 
 export type {
   CliArgs,
   LiveProofArtifact,
+  LiveProofSetArtifact,
+  LiveProofSetProofPointer,
 };

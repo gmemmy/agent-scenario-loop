@@ -892,7 +892,7 @@ function main(): void {
     assert.match(initializedScripts['asl:compare:android'], /\$\{ASL_COMPARE_ANDROID_CURRENT:\?set_ASL_COMPARE_ANDROID_CURRENT\}/u);
     assert.match(initializedScripts['asl:live-proof:ios'], /artifacts\/asl\/ios-live\/_live-proof\/ios-live-proof\/live-proof\.json/u);
     assert.match(initializedScripts['asl:live-proof:android'], /artifacts\/asl\/android-live\/_live-proof\/android-live-proof\/live-proof\.json/u);
-    assert.match(initializedScripts['asl:live-proof:both'], /--require-platforms android,ios/u);
+    assert.match(initializedScripts['asl:live-proof:both'], /--require-platforms android,ios --out artifacts\/asl\/live-proof-set --fail-on-regression/u);
     assert.match(initializedScripts['asl:live-proof'], /\$\{ASL_LIVE_PROOF:\?set_ASL_LIVE_PROOF\}/u);
     assert.equal(Object.values(initializedScripts).some((script) => String(script).includes('<run-dir>')), false);
     assert.equal(Object.values(initializedScripts).some((script) => String(script).includes('<live-proof.json>')), false);
@@ -2056,7 +2056,7 @@ function main(): void {
       "assert.deepEqual(documentedRunnerSubpaths(), exportedRunnerSubpaths(), 'installed docs/api.md runner subpaths must match package exports');",
       "assert.equal(asl.ARTIFACT_LAYOUT_VERSION, '1.0.0');",
       "assert.equal(asl.ARTIFACT_FILENAMES.health, 'health.json');",
-      "assert.deepEqual(asl.ARTIFACT_FILENAMES, { agentSummary: 'agent-summary.md', comparison: 'comparison.json', health: 'health.json', liveProof: 'live-proof.json', plannerCompatibility: 'planner-compatibility.json', projectValidation: 'project-validation.json', verdict: 'verdict.json' });",
+      "assert.deepEqual(asl.ARTIFACT_FILENAMES, { agentSummary: 'agent-summary.md', comparison: 'comparison.json', health: 'health.json', liveProof: 'live-proof.json', liveProofSet: 'live-proof-set.json', plannerCompatibility: 'planner-compatibility.json', projectValidation: 'project-validation.json', verdict: 'verdict.json' });",
       "assert.equal(asl.PROFILE_ARTIFACT_FILENAMES.metrics, 'metrics.json');",
       "assert.deepEqual(asl.PROFILE_ARTIFACT_FILENAMES, { budgetVerdict: 'budget-verdict.json', causalRun: 'causal-run.json', manifest: 'manifest.json', metrics: 'metrics.json', summary: 'summary.md' });",
       "assert.equal(typeof asl.createArtifactLayout, 'function');",
@@ -2066,6 +2066,7 @@ function main(): void {
       "assert.equal(layout.comparison, 'run/comparison.json');",
       "assert.equal(layout.agentSummary, 'run/agent-summary.md');",
       "assert.equal(layout.liveProof, 'run/live-proof.json');",
+      "assert.equal(layout.liveProofSet, 'run/live-proof-set.json');",
       "assert.equal(layout.plannerCompatibility, 'run/planner-compatibility.json');",
       "assert.equal(layout.projectValidation, 'run/project-validation.json');",
       "assert.equal(layout.raw, 'run/raw');",
@@ -2124,6 +2125,7 @@ function main(): void {
       "require.resolve('agent-scenario-loop/schemas/comparison.schema.json');",
       "require.resolve('agent-scenario-loop/schemas/health.schema.json');",
       "require.resolve('agent-scenario-loop/schemas/live-proof.schema.json');",
+      "require.resolve('agent-scenario-loop/schemas/live-proof-set.schema.json');",
       "require.resolve('agent-scenario-loop/schemas/scenario.schema.json');",
       "require.resolve('agent-scenario-loop/schemas/manifest.schema.json');",
       "require.resolve('agent-scenario-loop/schemas/metrics.schema.json');",

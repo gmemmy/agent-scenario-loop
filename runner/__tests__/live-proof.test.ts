@@ -6,16 +6,19 @@ const path = require('node:path');
 const test = require('node:test');
 
 const {
+  buildLiveProofSetArtifact,
   countLiveProofComparisons,
   deriveLiveProofComparisonStatus,
   expectedLiveProofNextActionCode,
   formatLiveProof,
   formatLiveProofSet,
+  formatLiveProofSetArtifactMarkdown,
   parseArgs,
   parseRequiredPlatforms,
   readLiveProof,
   readLiveProofSet,
   resolveLiveProofFiles,
+  writeLiveProofSetArtifact,
   shouldFailLiveProofSet,
   shouldFailOnRegression,
 } = require('../live-proof');
@@ -206,13 +209,19 @@ test('parses live-proof CLI arguments', () => {
     'ios-live-proof.json',
     '--require-platforms',
     'android,ios',
+    '--out',
+    'artifacts/asl/live-proof-set',
+    '--run-id',
+    'current-platform-set',
     '--fail-on-regression',
   ]);
 
   assert.deepEqual(args, {
     file: ['android-live-proof.json', 'ios-live-proof.json'],
     'fail-on-regression': true,
+    out: 'artifacts/asl/live-proof-set',
     'require-platforms': 'android,ios',
+    'run-id': 'current-platform-set',
   });
   assert.deepEqual(resolveLiveProofFiles(args), ['android-live-proof.json', 'ios-live-proof.json']);
   assert.deepEqual(parseRequiredPlatforms(args['require-platforms']), ['android', 'ios']);
@@ -345,6 +354,83 @@ test('rejects a live-proof set when a required platform is missing', async (t: T
     }),
     /missing required platform\(s\): ios\. Present platform\(s\): android/u,
   );
+});
+
+test('builds a durable live-proof-set artifact for Android and iOS proofs', async (t: TestContext) => {
+  const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-live-proof-set-artifact-'));
+  t.after(async () => {
+    await fsp.rm(tempDir, { recursive: true, force: true });
+  });
+  const androidProofPath = writeProof(tempDir, buildProof('unchanged', 'passed', 'android'));
+  const iosProofPath = path.join(tempDir, 'ios-live-proof.json');
+  fs.writeFileSync(iosProofPath, `${JSON.stringify(buildProof('unchanged', 'passed', 'ios'), null, 2)}\n`, 'utf8');
+  const proofs = [readLiveProof(androidProofPath), readLiveProof(iosProofPath)];
+
+  const artifact = buildLiveProofSetArtifact({
+    failOnRegression: true,
+    files: [androidProofPath, iosProofPath],
+    proofs,
+    requiredPlatforms: ['android', 'ios'],
+    runId: 'both-platforms',
+  });
+  const markdown = formatLiveProofSetArtifactMarkdown(artifact);
+
+  assert.equal(artifact.status, 'passed');
+  assert.equal(artifact.proofCount, 2);
+  assert.deepEqual(artifact.presentPlatforms, ['android', 'ios']);
+  assert.deepEqual(artifact.missingPlatforms, []);
+  assert.deepEqual(artifact.failureReasons, []);
+  assert.equal(artifact.proofs[0].interactionWarningCount, 1);
+  assert.match(markdown, /Status: passed/u);
+  assert.match(markdown, /- android android-live-proof: status=passed comparison=unchanged/u);
+  assert.match(markdown, /- ios ios-live-proof: status=passed comparison=unchanged/u);
+});
+
+test('builds a failed live-proof-set artifact when a required platform is missing', async (t: TestContext) => {
+  const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-live-proof-set-missing-artifact-'));
+  t.after(async () => {
+    await fsp.rm(tempDir, { recursive: true, force: true });
+  });
+  const proofPath = writeProof(tempDir, buildProof('unchanged', 'passed', 'android'));
+
+  const artifact = buildLiveProofSetArtifact({
+    failOnRegression: true,
+    files: [proofPath],
+    proofs: [readLiveProof(proofPath)],
+    requiredPlatforms: ['android', 'ios'],
+    runId: 'missing-ios',
+  });
+
+  assert.equal(artifact.status, 'failed');
+  assert.deepEqual(artifact.missingPlatforms, ['ios']);
+  assert.deepEqual(artifact.failureReasons, ['Missing required platform proof: ios.']);
+  assert.equal(artifact.nextAction.code, 'collect_missing_platform_proofs');
+});
+
+test('writes live-proof-set artifact and agent summary', async (t: TestContext) => {
+  const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-live-proof-set-write-'));
+  t.after(async () => {
+    await fsp.rm(tempDir, { recursive: true, force: true });
+  });
+  const proofPath = writeProof(tempDir, buildProof('unchanged', 'passed', 'android'));
+  const outputDir = path.join(tempDir, 'proof-set');
+  const artifact = buildLiveProofSetArtifact({
+    failOnRegression: false,
+    files: [proofPath],
+    proofs: [readLiveProof(proofPath)],
+    requiredPlatforms: ['android'],
+    runId: 'android-only',
+  });
+
+  const written = await writeLiveProofSetArtifact({ artifact, outputDir });
+  const writtenJson = JSON.parse(fs.readFileSync(written.liveProofSetPath, 'utf8'));
+  const writtenSummary = fs.readFileSync(written.summaryPath, 'utf8');
+
+  assert.equal(written.liveProofSetPath, path.join(outputDir, 'live-proof-set.json'));
+  assert.equal(written.summaryPath, path.join(outputDir, 'agent-summary.md'));
+  assert.equal(writtenJson.runId, 'android-only');
+  assert.equal(writtenJson.status, 'passed');
+  assert.match(writtenSummary, /Live Proof Set android-only/u);
 });
 
 test('accepts failed live-proof artifacts with skipped interaction proofs', async (t: TestContext) => {

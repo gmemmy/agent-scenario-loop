@@ -142,7 +142,7 @@ For a consumer app scaffolded with `asl-init`, the equivalent script is:
 pnpm asl:live-proof:both
 ```
 
-Both commands call `asl-live-proof` with two `--file` values, `--require-platforms android,ios`, and `--fail-on-regression`. The gate exits nonzero when a required platform proof is missing, when any proof artifact has `status: failed`, or when a required regression gate reports `comparisonStatus: regressed`. Use `ASL_ANDROID_LIVE_PROOF` and `ASL_IOS_LIVE_PROOF` in consumer apps, or `ASL_EXAMPLE_ANDROID_LIVE_PROOF` and `ASL_EXAMPLE_IOS_LIVE_PROOF` in the checked-in example app, to point at suffixed proof files.
+Both commands call `asl-live-proof` with two `--file` values, `--require-platforms android,ios`, `--out`, and `--fail-on-regression`. The gate writes `live-proof-set.json` and `agent-summary.md` under the proof-set artifact directory, then exits nonzero when a required platform proof is missing, when any proof artifact has `status: failed`, or when a required regression gate reports `comparisonStatus: regressed`. Use `ASL_ANDROID_LIVE_PROOF` and `ASL_IOS_LIVE_PROOF` in consumer apps, or `ASL_EXAMPLE_ANDROID_LIVE_PROOF` and `ASL_EXAMPLE_IOS_LIVE_PROOF` in the checked-in example app, to point at suffixed proof files.
 
 ## Comparison
 

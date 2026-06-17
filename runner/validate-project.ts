@@ -273,7 +273,7 @@ const REQUIRED_PACKAGE_SCRIPT_SHAPES = {
   },
   'asl:live-proof:both': {
     command: 'asl-live-proof',
-    flags: ['--file', '--require-platforms', '--fail-on-regression'],
+    flags: ['--file', '--require-platforms', '--out', '--fail-on-regression'],
     values: { '--require-platforms': 'android,ios' },
   },
   'asl:live-proof': {

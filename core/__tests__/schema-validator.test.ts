@@ -145,6 +145,61 @@ test('accepts scenario-authored comparison lanes', () => {
   assert.deepEqual(result.errors, []);
 });
 
+test('accepts aggregate live proof set artifacts', () => {
+  const artifact = {
+    schemaVersion: '1.0.0',
+    runId: 'live-proof-set',
+    status: 'passed',
+    proofCount: 2,
+    requiredPlatforms: ['android', 'ios'],
+    presentPlatforms: ['android', 'ios'],
+    missingPlatforms: [],
+    proofs: [
+      {
+        filePath: '/tmp/android/live-proof.json',
+        platform: 'android',
+        runId: 'android-live-proof',
+        status: 'passed',
+        comparisonStatus: 'not_compared',
+        summaryPath: '/tmp/android/agent-summary.md',
+        profileCount: 3,
+        interactionProofCount: 1,
+        interactionWarningCount: 0,
+        nextAction: {
+          code: 'inspect_summary',
+          summary: 'Inspect linked evidence.',
+        },
+      },
+      {
+        filePath: '/tmp/ios/live-proof.json',
+        platform: 'ios',
+        runId: 'ios-live-proof',
+        status: 'passed',
+        comparisonStatus: 'not_compared',
+        summaryPath: '/tmp/ios/agent-summary.md',
+        profileCount: 3,
+        interactionProofCount: 1,
+        interactionWarningCount: 1,
+        nextAction: {
+          code: 'inspect_summary',
+          summary: 'Inspect linked evidence.',
+        },
+      },
+    ],
+    failureReasons: [],
+    nextAction: {
+      code: 'inspect_summary',
+      summary: 'Platform proof set is complete; inspect linked artifacts for detail.',
+    },
+    summary: 'live proof set passed for android, ios.',
+  };
+
+  const result = validateJson(artifact, SCHEMAS.liveProofSet, 'Live proof set artifact');
+
+  assert.equal(result.valid, true, result.message);
+  assert.deepEqual(result.errors, []);
+});
+
 test('rejects missing required scenario properties', () => {
   const scenario = readJson('examples/scenarios/mobile/app-startup.json');
   delete scenario.truthEvents;
