@@ -16,6 +16,7 @@ type LiveProofArtifact = {
   comparisonCounts: {
     better: number;
     inconclusive: number;
+    mixed: number;
     skipped: number;
     unchanged: number;
     worse: number;
@@ -54,6 +55,7 @@ type LiveProofAggregateStatus = (
   'baseline_missing' |
   'improved' |
   'inconclusive' |
+  'mixed' |
   'not_compared' |
   'regressed' |
   'unchanged'
@@ -116,6 +118,7 @@ function countLiveProofComparisons(comparisons: Array<{status?: string}>): LiveP
   const counts: LiveProofComparisonCounts = {
     better: 0,
     inconclusive: 0,
+    mixed: 0,
     skipped: 0,
     unchanged: 0,
     worse: 0,
@@ -153,6 +156,9 @@ function deriveLiveProofComparisonStatus(comparisons: Array<{status?: string}>):
   if (statuses.includes('skipped')) {
     return 'inconclusive';
   }
+  if (statuses.includes('mixed')) {
+    return 'mixed';
+  }
   if (statuses.includes('better')) {
     return 'improved';
   }
@@ -174,6 +180,9 @@ function expectedLiveProofNextActionCode(comparisonStatus: LiveProofAggregateSta
   }
   if (comparisonStatus === 'inconclusive') {
     return 'inspect_inconclusive';
+  }
+  if (comparisonStatus === 'mixed') {
+    return 'inspect_mixed';
   }
   return 'inspect_summary';
 }
@@ -251,7 +260,7 @@ function formatLiveProof(proof: LiveProofArtifact): string {
       `- ${proofPointer.label} (${proofPointer.runnerId}/${proofPointer.scenarioId}/${proofPointer.runId}): health=${proofPointer.healthStatus} verdict=${proofPointer.verdictStatus}`
     )),
     `Comparisons: ${proof.comparisons.length}`,
-    `Comparison counts: better=${proof.comparisonCounts.better} worse=${proof.comparisonCounts.worse} unchanged=${proof.comparisonCounts.unchanged} inconclusive=${proof.comparisonCounts.inconclusive} skipped=${proof.comparisonCounts.skipped}`,
+    `Comparison counts: better=${proof.comparisonCounts.better} worse=${proof.comparisonCounts.worse} unchanged=${proof.comparisonCounts.unchanged} mixed=${proof.comparisonCounts.mixed} inconclusive=${proof.comparisonCounts.inconclusive} skipped=${proof.comparisonCounts.skipped}`,
     `Next action: ${proof.nextAction.code} - ${proof.nextAction.summary}`,
     `Summary: ${proof.summary}`,
   ].join('\n');

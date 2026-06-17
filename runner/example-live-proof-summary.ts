@@ -33,7 +33,7 @@ type LiveProofComparisonPointer = {
   reason: string | null;
   runId: string;
   scenarioId: string;
-  status: 'better' | 'worse' | 'unchanged' | 'inconclusive' | 'skipped';
+  status: 'better' | 'worse' | 'unchanged' | 'mixed' | 'inconclusive' | 'skipped';
   summaryPath: string | null;
 };
 
@@ -61,6 +61,7 @@ type LiveProofComparisonStatus = (
   'baseline_missing' |
   'improved' |
   'inconclusive' |
+  'mixed' |
   'not_compared' |
   'regressed' |
   'unchanged'
@@ -69,13 +70,14 @@ type LiveProofComparisonStatus = (
 type LiveProofComparisonCounts = {
   better: number;
   inconclusive: number;
+  mixed: number;
   skipped: number;
   unchanged: number;
   worse: number;
 };
 
 type LiveProofNextAction = {
-  code: 'establish_baseline' | 'inspect_inconclusive' | 'inspect_regressions' | 'inspect_summary';
+  code: 'establish_baseline' | 'inspect_inconclusive' | 'inspect_mixed' | 'inspect_regressions' | 'inspect_summary';
   summary: string;
 };
 
@@ -169,6 +171,10 @@ function buildLiveProofComparisonStatus(
     return 'inconclusive';
   }
 
+  if (statuses.includes('mixed')) {
+    return 'mixed';
+  }
+
   if (statuses.includes('better')) {
     return 'improved';
   }
@@ -188,6 +194,7 @@ function buildLiveProofComparisonCounts(
   const counts: LiveProofComparisonCounts = {
     better: 0,
     inconclusive: 0,
+    mixed: 0,
     skipped: 0,
     unchanged: 0,
     worse: 0,
@@ -226,6 +233,13 @@ function buildLiveProofNextAction(comparisonStatus: LiveProofComparisonStatus): 
     };
   }
 
+  if (comparisonStatus === 'mixed') {
+    return {
+      code: 'inspect_mixed',
+      summary: 'Some timing metrics improved while others worsened; inspect comparison details before claiming improvement or regression.',
+    };
+  }
+
   return {
     code: 'inspect_summary',
     summary: 'Scenario health passed; inspect the live-proof summary and linked evidence before reporting the result.',
@@ -245,7 +259,7 @@ function buildLiveProofMarkdown(artifact: LiveProofArtifact): string {
     `Status: ${artifact.status}`,
     `Run: ${artifact.runId}`,
     `Comparison status: ${artifact.comparisonStatus}`,
-    `Comparison counts: better=${artifact.comparisonCounts.better} worse=${artifact.comparisonCounts.worse} unchanged=${artifact.comparisonCounts.unchanged} inconclusive=${artifact.comparisonCounts.inconclusive} skipped=${artifact.comparisonCounts.skipped}`,
+    `Comparison counts: better=${artifact.comparisonCounts.better} worse=${artifact.comparisonCounts.worse} unchanged=${artifact.comparisonCounts.unchanged} mixed=${artifact.comparisonCounts.mixed} inconclusive=${artifact.comparisonCounts.inconclusive} skipped=${artifact.comparisonCounts.skipped}`,
     `Next action: ${artifact.nextAction.code} - ${artifact.nextAction.summary}`,
     `Summary: ${artifact.summary}`,
     '',

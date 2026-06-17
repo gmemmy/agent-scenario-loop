@@ -103,7 +103,7 @@ Profile runner artifacts:
 
 `manifest.json`, `metrics.json`, `budget-verdict.json`, and `causal-run.json` are schema-checked before the runner writes them. This keeps profile artifacts stable across fixture logs, adb-captured logs, and future runner adapters.
 
-Aggregate example live proof commands write `live-proof.json` and `agent-summary.md` under `_live-proof/<run-id>`. The live-proof artifact points to preflight evidence, every scenario run, optional interaction proofs from tools such as agent-device, and optional latest-trusted comparison outputs, giving agents one stable batch entrypoint after a multi-scenario proof. Each profile and interaction pointer includes health and verdict status from the linked run artifacts, so agents can see what passed before opening deeper evidence. The aggregate artifact also records `comparisonStatus`, `comparisonCounts`, and a `nextAction` hint so agents can distinguish regressions, missing baselines, inconclusive comparisons, and clean summaries without scraping prose.
+Aggregate example live proof commands write `live-proof.json` and `agent-summary.md` under `_live-proof/<run-id>`. The live-proof artifact points to preflight evidence, every scenario run, optional interaction proofs from tools such as agent-device, and optional latest-trusted comparison outputs, giving agents one stable batch entrypoint after a multi-scenario proof. Each profile and interaction pointer includes health and verdict status from the linked run artifacts, so agents can see what passed before opening deeper evidence. The aggregate artifact also records `comparisonStatus`, `comparisonCounts`, and a `nextAction` hint so agents can distinguish regressions, mixed metric movement, missing baselines, inconclusive comparisons, and clean summaries without scraping prose.
 
 Provider or custom-script evidence attached with `--signal` or `--capture` is copied into stable run folders and inventoried in `manifest.artifacts.evidenceAttachments`. Each inventory entry records the evidence channel, kind, run-relative path, source filename, byte size, and sha256 hash; it does not preserve local absolute source paths.
 
@@ -140,7 +140,7 @@ The package currently supports:
 - iOS simulator app launch plus storage-backed profile-session and command seeding
 - iOS profile artifact generation from explicit event logs, prior simctl artifacts, or an owned `--simctl-capture` window
 - evidence-provider command execution through `--provider <manifest>`, with declared outputs inventoried as stable evidence attachments and nonzero exits written as failed health gates
-- trusted baseline/current comparison after scenario health passes, with millisecond timing noise treated as unchanged inside a small tolerance
+- trusted baseline/current comparison after scenario health passes, with millisecond timing noise treated as unchanged inside a small tolerance and opposite metric directions surfaced as `mixed`
 - latest trusted prior-run comparison from an artifact root
 
 Not yet shipped as supported public features:

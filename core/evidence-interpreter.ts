@@ -71,6 +71,10 @@ function interpretEvidence({
     if (comparison?.comparisonStatus === 'worse') {
       recommendations.push('investigate regression against baseline comparison');
     }
+
+    if (comparison?.comparisonStatus === 'mixed') {
+      recommendations.push('inspect mixed baseline comparison signals before claiming improvement');
+    }
   }
 
   return {

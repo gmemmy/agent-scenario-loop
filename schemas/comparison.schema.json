@@ -33,7 +33,7 @@
     },
     "comparisonStatus": {
       "type": "string",
-      "enum": ["better", "worse", "unchanged", "inconclusive"]
+      "enum": ["better", "worse", "unchanged", "mixed", "inconclusive"]
     },
     "healthStatus": {
       "type": "string",

@@ -557,6 +557,7 @@ test('accepts aggregate live proof artifacts', () => {
     comparisonCounts: {
       better: 1,
       inconclusive: 0,
+      mixed: 0,
       skipped: 1,
       unchanged: 0,
       worse: 0,

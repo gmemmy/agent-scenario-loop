@@ -20,10 +20,15 @@ type TestContext = import('node:test').TestContext;
 /**
  * Builds a minimal valid live-proof artifact for CLI tests.
  *
- * @param {'regressed' | 'unchanged'} comparisonStatus
+ * @param {'mixed' | 'regressed' | 'unchanged'} comparisonStatus
  * @returns {Record<string, unknown>}
  */
-function buildProof(comparisonStatus: 'regressed' | 'unchanged'): Record<string, unknown> {
+function buildProof(comparisonStatus: 'mixed' | 'regressed' | 'unchanged'): Record<string, unknown> {
+  const comparisonPointerStatus = comparisonStatus === 'regressed'
+    ? 'worse'
+    : comparisonStatus === 'mixed'
+      ? 'mixed'
+      : 'unchanged';
   return {
     schemaVersion: '1.0.0',
     platform: 'android',
@@ -63,7 +68,7 @@ function buildProof(comparisonStatus: 'regressed' | 'unchanged'): Record<string,
         label: 'startup',
         scenarioId: 'app-startup',
         runId: 'android-live-startup',
-        status: comparisonStatus === 'regressed' ? 'worse' : 'unchanged',
+        status: comparisonPointerStatus,
         baselineDir: 'artifacts/example-mobile-app/android/app-startup/android-live-startup-baseline',
         comparisonDir: 'artifacts/example-mobile-app/android/comparisons/app-startup/android-live-startup',
         summaryPath: 'artifacts/example-mobile-app/android/comparisons/app-startup/android-live-startup/agent-summary.md',
@@ -74,20 +79,35 @@ function buildProof(comparisonStatus: 'regressed' | 'unchanged'): Record<string,
       ? {
           better: 0,
           inconclusive: 0,
+          mixed: 0,
           skipped: 0,
           unchanged: 0,
           worse: 1,
         }
-      : {
-          better: 0,
-          inconclusive: 0,
-          skipped: 0,
-          unchanged: 1,
-          worse: 0,
-        },
+      : comparisonStatus === 'mixed'
+        ? {
+            better: 0,
+            inconclusive: 0,
+            mixed: 1,
+            skipped: 0,
+            unchanged: 0,
+            worse: 0,
+          }
+        : {
+            better: 0,
+            inconclusive: 0,
+            mixed: 0,
+            skipped: 0,
+            unchanged: 1,
+            worse: 0,
+          },
     comparisonStatus,
     nextAction: {
-      code: comparisonStatus === 'regressed' ? 'inspect_regressions' : 'inspect_summary',
+      code: comparisonStatus === 'regressed'
+        ? 'inspect_regressions'
+        : comparisonStatus === 'mixed'
+          ? 'inspect_mixed'
+          : 'inspect_summary',
       summary: 'Inspect linked evidence.',
     },
     summary: `android live proof ${comparisonStatus}.`,
@@ -119,6 +139,7 @@ test('counts live-proof comparison statuses from pointers', () => {
     countLiveProofComparisons([
       { status: 'better' },
       { status: 'worse' },
+      { status: 'mixed' },
       { status: 'unchanged' },
       { status: 'unchanged' },
       { status: 'inconclusive' },
@@ -127,6 +148,7 @@ test('counts live-proof comparison statuses from pointers', () => {
     {
       better: 1,
       inconclusive: 1,
+      mixed: 1,
       skipped: 1,
       unchanged: 2,
       worse: 1,
@@ -139,6 +161,7 @@ test('derives aggregate status and next action from comparisons', () => {
   assert.equal(deriveLiveProofComparisonStatus([{ status: 'skipped' }]), 'baseline_missing');
   assert.equal(deriveLiveProofComparisonStatus([{ status: 'better' }, { status: 'skipped' }]), 'inconclusive');
   assert.equal(deriveLiveProofComparisonStatus([{ status: 'inconclusive' }]), 'inconclusive');
+  assert.equal(deriveLiveProofComparisonStatus([{ status: 'mixed' }]), 'mixed');
   assert.equal(deriveLiveProofComparisonStatus([{ status: 'better' }, { status: 'unchanged' }]), 'improved');
   assert.equal(deriveLiveProofComparisonStatus([{ status: 'unchanged' }]), 'unchanged');
   assert.equal(deriveLiveProofComparisonStatus([{ status: 'better' }, { status: 'worse' }]), 'regressed');
@@ -146,6 +169,7 @@ test('derives aggregate status and next action from comparisons', () => {
   assert.equal(expectedLiveProofNextActionCode('regressed'), 'inspect_regressions');
   assert.equal(expectedLiveProofNextActionCode('baseline_missing'), 'establish_baseline');
   assert.equal(expectedLiveProofNextActionCode('inconclusive'), 'inspect_inconclusive');
+  assert.equal(expectedLiveProofNextActionCode('mixed'), 'inspect_mixed');
   assert.equal(expectedLiveProofNextActionCode('improved'), 'inspect_summary');
   assert.equal(expectedLiveProofNextActionCode('unchanged'), 'inspect_summary');
   assert.equal(expectedLiveProofNextActionCode('not_compared'), 'inspect_summary');
@@ -210,8 +234,14 @@ test('reads, validates, and formats live-proof artifacts', async (t: TestContext
   assert.match(output, /Live proof: android android-live-proof/u);
   assert.match(output, /startup \(app-startup\/android-live-startup\): health=passed verdict=passed/u);
   assert.match(output, /startup-ui \(agent-device\/app-startup\/agent-device-startup\): health=passed verdict=not_evaluated/u);
-  assert.match(output, /Comparison counts: better=0 worse=0 unchanged=1 inconclusive=0 skipped=0/u);
+  assert.match(output, /Comparison counts: better=0 worse=0 unchanged=1 mixed=0 inconclusive=0 skipped=0/u);
   assert.match(output, /Next action: inspect_summary/u);
+  assert.equal(shouldFailOnRegression({ failOnRegression: true, proof }), false);
+});
+
+test('does not treat mixed comparison movement as a fail-on-regression failure', () => {
+  const proof = buildProof('mixed') as ReturnType<typeof readLiveProof>;
+
   assert.equal(shouldFailOnRegression({ failOnRegression: true, proof }), false);
 });
 

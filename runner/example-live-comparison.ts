@@ -21,7 +21,7 @@ type ExampleLiveComparisonResult = {
   reason: string | null;
   runId: string;
   scenarioId: string;
-  status: 'better' | 'worse' | 'unchanged' | 'inconclusive' | 'skipped';
+  status: 'better' | 'worse' | 'unchanged' | 'mixed' | 'inconclusive' | 'skipped';
   summaryPath: string | null;
 };
 

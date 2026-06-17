@@ -53,3 +53,19 @@ test('emits budget and comparison hints only after scenario health passed', () =
     'investigate regression against baseline comparison',
   ]);
 });
+
+test('emits a distinct hint for mixed comparison movement', () => {
+  const result = interpretEvidence({
+    health: {
+      healthStatus: 'passed',
+      checks: [{ name: 'truth_events_complete', status: 'passed' }],
+    },
+    comparison: {
+      comparisonStatus: 'mixed',
+    },
+  });
+
+  assert.deepEqual(result.recommendations, [
+    'inspect mixed baseline comparison signals before claiming improvement',
+  ]);
+});

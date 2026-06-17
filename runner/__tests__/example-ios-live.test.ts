@@ -223,6 +223,7 @@ test('runs the packaged iOS example live proof with a fake simctl executor', asy
   assert.deepEqual(aggregate.comparisonCounts, {
     better: 0,
     inconclusive: 0,
+    mixed: 0,
     skipped: 0,
     unchanged: 3,
     worse: 0,

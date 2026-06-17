@@ -22,7 +22,7 @@ type MetricComparison = {
   notes?: string;
 };
 
-type ComparisonStatus = MetricComparison['status'];
+type ComparisonStatus = MetricComparison['status'] | 'mixed';
 
 type BuildComparisonOptions = {
   baselineHealth: ComparisonRecord;
@@ -167,11 +167,18 @@ function resolveComparisonStatus(
     currentVerdictStatus?: unknown;
   },
 ): ComparisonStatus {
-  if (metricComparisons.some((metric) => metric.status === 'worse')) {
+  const hasBetterMetric = metricComparisons.some((metric) => metric.status === 'better');
+  const hasWorseMetric = metricComparisons.some((metric) => metric.status === 'worse');
+
+  if (hasBetterMetric && hasWorseMetric) {
+    return 'mixed';
+  }
+
+  if (hasWorseMetric) {
     return 'worse';
   }
 
-  if (metricComparisons.some((metric) => metric.status === 'better')) {
+  if (hasBetterMetric) {
     return 'better';
   }
 
@@ -322,6 +329,10 @@ function summarizeComparison({
 
   if (comparisonStatus === 'worse') {
     return 'Current run regressed against the explicit baseline.';
+  }
+
+  if (comparisonStatus === 'mixed') {
+    return 'Current run has mixed metric movement against the explicit baseline.';
   }
 
   if (comparisonStatus === 'unchanged') {

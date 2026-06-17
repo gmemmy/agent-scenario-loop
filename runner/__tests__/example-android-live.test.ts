@@ -229,6 +229,7 @@ test('runs the packaged Android example live proof with a fake adb executor', as
   assert.deepEqual(aggregate.comparisonCounts, {
     better: 0,
     inconclusive: 0,
+    mixed: 0,
     skipped: 0,
     unchanged: 3,
     worse: 0,

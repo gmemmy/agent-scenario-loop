@@ -132,6 +132,49 @@ test('builds a better comparison only after both runs passed health', () => {
   assert.equal(validateJson(comparison, SCHEMAS.comparison, 'Comparison artifact').valid, true);
 });
 
+test('classifies opposite metric directions as mixed instead of a hard regression', () => {
+  const baselineVerdict = verdict({ runId: 'baseline-run', actual: 420 });
+  baselineVerdict.budgetChecks.push({
+    name: 'close p50',
+    source: 'milestone',
+    metric: 'p50',
+    unit: 'ms',
+    expected: 1000,
+    actual: 10,
+    pass: true,
+  });
+
+  const currentVerdict = verdict({ runId: 'current-run', actual: 398 });
+  currentVerdict.budgetChecks.push({
+    name: 'close p50',
+    source: 'milestone',
+    metric: 'p50',
+    unit: 'ms',
+    expected: 1000,
+    actual: 16,
+    pass: true,
+  });
+
+  const comparison = buildComparisonArtifact({
+    baselineHealth: health({ runId: 'baseline-run' }),
+    baselineVerdict,
+    currentHealth: health({ runId: 'current-run' }),
+    currentVerdict,
+  });
+
+  assert.equal(comparison.comparisonStatus, 'mixed');
+  assert.equal(comparison.healthStatus, 'passed');
+  assert.deepEqual(
+    comparison.metricComparisons.map((metric: { name: string; status: string }) => [metric.name, metric.status]),
+    [
+      ['open p95', 'better'],
+      ['close p50', 'worse'],
+    ],
+  );
+  assert.match(comparison.summary, /mixed metric movement/u);
+  assert.equal(validateJson(comparison, SCHEMAS.comparison, 'Comparison artifact').valid, true);
+});
+
 test('returns inconclusive comparison when scenario health did not pass', () => {
   const comparison = buildComparisonArtifact({
     baselineHealth: health({ runId: 'baseline-run' }),

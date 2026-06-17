@@ -17,10 +17,10 @@ type TestContext = import('node:test').TestContext;
 /**
  * Builds a minimal comparison pointer for status aggregation tests.
  *
- * @param {'better' | 'worse' | 'unchanged' | 'inconclusive' | 'skipped'} status
+ * @param {'better' | 'worse' | 'unchanged' | 'mixed' | 'inconclusive' | 'skipped'} status
  * @returns {Record<string, unknown>}
  */
-function comparison(status: 'better' | 'worse' | 'unchanged' | 'inconclusive' | 'skipped'): Record<string, unknown> {
+function comparison(status: 'better' | 'worse' | 'unchanged' | 'mixed' | 'inconclusive' | 'skipped'): Record<string, unknown> {
   return {
     baselineDir: status === 'skipped' ? null : 'baseline',
     comparisonDir: status === 'skipped' ? null : 'comparison',
@@ -38,6 +38,7 @@ test('collapses live proof comparisons into aggregate statuses', () => {
   assert.equal(buildLiveProofComparisonStatus([comparison('skipped')]), 'baseline_missing');
   assert.equal(buildLiveProofComparisonStatus([comparison('better'), comparison('skipped')]), 'inconclusive');
   assert.equal(buildLiveProofComparisonStatus([comparison('inconclusive')]), 'inconclusive');
+  assert.equal(buildLiveProofComparisonStatus([comparison('mixed')]), 'mixed');
   assert.equal(buildLiveProofComparisonStatus([comparison('better'), comparison('unchanged')]), 'improved');
   assert.equal(buildLiveProofComparisonStatus([comparison('unchanged')]), 'unchanged');
   assert.equal(buildLiveProofComparisonStatus([comparison('better'), comparison('worse')]), 'regressed');
@@ -48,6 +49,7 @@ test('counts live proof comparison outcomes', () => {
     buildLiveProofComparisonCounts([
       comparison('better'),
       comparison('worse'),
+      comparison('mixed'),
       comparison('unchanged'),
       comparison('unchanged'),
       comparison('inconclusive'),
@@ -56,6 +58,7 @@ test('counts live proof comparison outcomes', () => {
     {
       better: 1,
       inconclusive: 1,
+      mixed: 1,
       skipped: 1,
       unchanged: 2,
       worse: 1,
@@ -67,6 +70,7 @@ test('maps aggregate live proof statuses to next actions', () => {
   assert.equal(buildLiveProofNextAction('regressed').code, 'inspect_regressions');
   assert.equal(buildLiveProofNextAction('baseline_missing').code, 'establish_baseline');
   assert.equal(buildLiveProofNextAction('inconclusive').code, 'inspect_inconclusive');
+  assert.equal(buildLiveProofNextAction('mixed').code, 'inspect_mixed');
   assert.equal(buildLiveProofNextAction('improved').code, 'inspect_summary');
   assert.equal(buildLiveProofNextAction('unchanged').code, 'inspect_summary');
   assert.equal(buildLiveProofNextAction('not_compared').code, 'inspect_summary');

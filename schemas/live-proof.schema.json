@@ -63,7 +63,7 @@
     },
     "comparisonStatus": {
       "type": "string",
-      "enum": ["baseline_missing", "improved", "inconclusive", "not_compared", "regressed", "unchanged"]
+      "enum": ["baseline_missing", "improved", "inconclusive", "mixed", "not_compared", "regressed", "unchanged"]
     },
     "nextAction": {
       "$ref": "#/$defs/nextAction"
@@ -177,7 +177,7 @@
         },
         "status": {
           "type": "string",
-          "enum": ["better", "worse", "unchanged", "inconclusive", "skipped"]
+          "enum": ["better", "worse", "unchanged", "mixed", "inconclusive", "skipped"]
         },
         "baselineDir": {
           "type": ["string", "null"]
@@ -196,7 +196,7 @@
     "comparisonCounts": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["better", "worse", "unchanged", "inconclusive", "skipped"],
+      "required": ["better", "worse", "unchanged", "mixed", "inconclusive", "skipped"],
       "properties": {
         "better": {
           "type": "integer",
@@ -207,6 +207,10 @@
           "minimum": 0
         },
         "unchanged": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "mixed": {
           "type": "integer",
           "minimum": 0
         },
@@ -227,7 +231,7 @@
       "properties": {
         "code": {
           "type": "string",
-          "enum": ["establish_baseline", "inspect_inconclusive", "inspect_regressions", "inspect_summary"]
+          "enum": ["establish_baseline", "inspect_inconclusive", "inspect_mixed", "inspect_regressions", "inspect_summary"]
         },
         "summary": {
           "type": "string"
