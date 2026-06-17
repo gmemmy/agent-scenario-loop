@@ -649,6 +649,12 @@ test('accepts project validation artifacts', () => {
     },
     configPath: '/app/asl.config.json',
     errors: [],
+    gitignore: {
+      missingPatterns: [],
+      path: '/app/.gitignore',
+      snippetPath: '/app/asl/gitignore-snippet',
+      status: 'present',
+    },
     nextActions: [
       {
         code: 'replace_config_placeholders',

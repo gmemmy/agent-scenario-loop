@@ -8,6 +8,7 @@
     "appHelper",
     "configPath",
     "errors",
+    "gitignore",
     "nextActions",
     "platform",
     "plans",
@@ -31,6 +32,9 @@
       "items": {
         "type": "string"
       }
+    },
+    "gitignore": {
+      "$ref": "#/$defs/gitignore"
     },
     "nextActions": {
       "type": "array",
@@ -93,6 +97,29 @@
           }
         },
         "path": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["present", "missing", "incomplete"]
+        }
+      }
+    },
+    "gitignore": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["missingPatterns", "path", "snippetPath", "status"],
+      "properties": {
+        "missingPatterns": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "path": {
+          "type": "string"
+        },
+        "snippetPath": {
           "type": "string"
         },
         "status": {

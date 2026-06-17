@@ -12,6 +12,7 @@ const {
   parseArgs,
   resolvePlatforms,
   validateConfigPlaceholders,
+  validateGitignore,
   validateAppHelper,
   validatePackageScriptShape,
   validatePackageScripts,
@@ -66,10 +67,12 @@ test('validates an initialized project for iOS and Android', async (t: TestConte
 
   assert.equal(result.status, 'passed');
   assert.equal(result.appHelper.status, 'present');
+  assert.equal(result.gitignore.status, 'missing');
   assert.equal(result.scripts.status, 'present');
   assert.equal(result.scripts.scriptNames.includes('asl:validate'), true);
   assert.equal(result.warnings.some((warning: string) => warning.includes('projectName')), true);
-  assert.deepEqual(actionCodes(result), ['replace_config_placeholders']);
+  assert.equal(result.warnings.some((warning: string) => warning.includes('Runtime artifact gitignore')), true);
+  assert.deepEqual(actionCodes(result), ['ignore_runtime_artifacts', 'replace_config_placeholders']);
   assert.equal(result.scenarioPaths.length, 1);
   assert.equal(result.providerPaths.length, 1);
   assert.deepEqual(
@@ -111,7 +114,46 @@ test('fails validation when initialized project files are missing', async (t: Te
     'add_primary_runner_manifest',
     'add_profile_session_helper',
     'add_project_config',
+    'ignore_runtime_artifacts',
   ]);
+});
+
+test('validates runtime artifact gitignore patterns', async (t: TestContext) => {
+  const targetDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-validate-project-gitignore-'));
+  t.after(async () => {
+    await fsp.rm(targetDir, { recursive: true, force: true });
+  });
+
+  let gitignore = validateGitignore(targetDir);
+  assert.equal(gitignore.status, 'missing');
+  assert.equal(gitignore.missingPatterns.includes('artifacts/asl/'), true);
+
+  await fsp.writeFile(path.join(targetDir, '.gitignore'), 'node_modules/\nartifacts/asl/\n', 'utf8');
+  gitignore = validateGitignore(targetDir);
+  assert.equal(gitignore.status, 'incomplete');
+  assert.deepEqual(gitignore.missingPatterns, [
+    'artifacts/example-mobile-app/',
+    '*.memgraph',
+    '*.trace',
+    '*.xcresult',
+  ]);
+
+  await fsp.writeFile(
+    path.join(targetDir, '.gitignore'),
+    [
+      'node_modules/',
+      'artifacts/asl/',
+      'artifacts/example-mobile-app/',
+      '*.memgraph',
+      '*.trace',
+      '*.xcresult',
+      '',
+    ].join('\n'),
+    'utf8',
+  );
+  gitignore = validateGitignore(targetDir);
+  assert.equal(gitignore.status, 'present');
+  assert.deepEqual(gitignore.missingPatterns, []);
 });
 
 test('validates app profile-session helper exports', async (t: TestContext) => {

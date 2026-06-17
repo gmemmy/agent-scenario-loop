@@ -31,6 +31,8 @@ asl-validate-project --root . --platform all --out artifacts/asl/project-validat
 
 Project validation checks the app-side profile-session helper, package-script snippets, project config, scenario manifests, runner manifests, provider manifests, and planner compatibility. Placeholder app identity values are reported as warnings so a fresh scaffold can still prove installability while real app setup remains visible before live proof. The JSON artifact also includes structured `nextActions` for agents.
 
+Project validation also checks whether `.gitignore` includes the generated `asl/gitignore-snippet` patterns for runtime artifacts, traces, and local proof captures. Missing patterns are warnings with an `ignore_runtime_artifacts` next action; they do not block setup, but they should be fixed before running live scenarios repeatedly.
+
 ## Templates
 
 You can also copy these files manually and rename them as needed:

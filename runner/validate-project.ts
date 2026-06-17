@@ -40,6 +40,13 @@ type ProjectValidationScripts = {
   unknownCommands: string[];
 };
 
+type ProjectValidationGitignore = {
+  missingPatterns: string[];
+  path: string;
+  snippetPath: string;
+  status: 'present' | 'missing' | 'incomplete';
+};
+
 type ProjectValidationNextAction = {
   code: string;
   message: string;
@@ -51,6 +58,7 @@ type ProjectValidationResult = {
   appHelper: ProjectValidationAppHelper;
   configPath: string;
   errors: string[];
+  gitignore: ProjectValidationGitignore;
   nextActions: ProjectValidationNextAction[];
   platform: string;
   plans: ProjectValidationPlan[];
@@ -178,6 +186,14 @@ const CONFIG_PLACEHOLDER_VALUES = [
     path: ['app', 'ios', 'xcodeScheme'],
     values: ['Example App'],
   },
+];
+
+const REQUIRED_GITIGNORE_PATTERNS = [
+  'artifacts/asl/',
+  'artifacts/example-mobile-app/',
+  '*.memgraph',
+  '*.trace',
+  '*.xcresult',
 ];
 
 /**
@@ -359,6 +375,40 @@ function validateConfigPlaceholders(config: Record<string, unknown>): string[] {
 }
 
 /**
+ * Validates that runtime proof artifacts are ignored by the consuming app.
+ *
+ * @param {string} rootDir
+ * @returns {ProjectValidationGitignore}
+ */
+function validateGitignore(rootDir: string): ProjectValidationGitignore {
+  const gitignorePath = path.join(rootDir, '.gitignore');
+  const snippetPath = path.join(rootDir, 'asl', 'gitignore-snippet');
+  if (!fs.existsSync(gitignorePath)) {
+    return {
+      missingPatterns: REQUIRED_GITIGNORE_PATTERNS,
+      path: gitignorePath,
+      snippetPath,
+      status: 'missing',
+    };
+  }
+
+  const lines = new Set(
+    fs.readFileSync(gitignorePath, 'utf8')
+      .split(/\r?\n/u)
+      .map((line: string) => line.trim())
+      .filter((line: string) => line.length > 0 && !line.startsWith('#')),
+  );
+  const missingPatterns = REQUIRED_GITIGNORE_PATTERNS.filter((pattern) => !lines.has(pattern));
+
+  return {
+    missingPatterns,
+    path: gitignorePath,
+    snippetPath,
+    status: missingPatterns.length > 0 ? 'incomplete' : 'present',
+  };
+}
+
+/**
  * Reads public package binary names from package.json.
  *
  * @param {string} packageRoot
@@ -532,12 +582,13 @@ function validatePackageScripts({
 /**
  * Builds stable agent-readable next actions from project validation facts.
  *
- * @param {{appHelper: ProjectValidationAppHelper, configPath: string, plans: ProjectValidationPlan[], requestedPlatform: string, rootDir: string, runnerPath: string, scenarioPaths: string[], scripts: ProjectValidationScripts, warnings: string[]}} options
+ * @param {{appHelper: ProjectValidationAppHelper, configPath: string, gitignore: ProjectValidationGitignore, plans: ProjectValidationPlan[], requestedPlatform: string, rootDir: string, runnerPath: string, scenarioPaths: string[], scripts: ProjectValidationScripts, warnings: string[]}} options
  * @returns {ProjectValidationNextAction[]}
  */
 function buildNextActions({
   appHelper,
   configPath,
+  gitignore,
   plans,
   requestedPlatform,
   rootDir,
@@ -548,6 +599,7 @@ function buildNextActions({
 }: {
   appHelper: ProjectValidationAppHelper;
   configPath: string;
+  gitignore: ProjectValidationGitignore;
   plans: ProjectValidationPlan[];
   requestedPlatform: string;
   rootDir: string;
@@ -634,12 +686,21 @@ function buildNextActions({
     });
   }
 
-  if (warnings.length > 0) {
+  if (warnings.some((warning) => warning.startsWith('Config field '))) {
     actions.push({
       code: 'replace_config_placeholders',
       message: 'Replace scaffold placeholder values in asl.config.json before relying on live device proof.',
       severity: 'warning',
       target: configPath,
+    });
+  }
+
+  if (gitignore.status !== 'present') {
+    actions.push({
+      code: 'ignore_runtime_artifacts',
+      message: 'Merge asl/gitignore-snippet into .gitignore so runtime artifacts, traces, and local proof captures stay out of source control.',
+      severity: 'warning',
+      target: gitignore.path,
     });
   }
 
@@ -665,6 +726,7 @@ async function validateProject(options: {
     .filter((filePath) => path.basename(filePath) !== 'primary-runner.json');
   const scenarioPaths = listJsonFiles(path.join(rootDir, 'scenarios', 'mobile'));
   const appHelper = validateAppHelper(rootDir);
+  const gitignore = validateGitignore(rootDir);
   const scripts = validatePackageScripts({
     ...(options.packageRoot ? { packageRoot: options.packageRoot } : {}),
     rootDir,
@@ -681,6 +743,10 @@ async function validateProject(options: {
     errors.push(`Missing config: ${configPath}`);
   } else {
     warnings.push(...validateConfigPlaceholders(readJson(configPath)));
+  }
+
+  if (gitignore.status !== 'present') {
+    warnings.push(`Runtime artifact gitignore is missing pattern(s): ${gitignore.missingPatterns.join(', ')}.`);
   }
 
   if (!fs.existsSync(runnerPath)) {
@@ -745,6 +811,7 @@ async function validateProject(options: {
   const nextActions = buildNextActions({
     appHelper,
     configPath,
+    gitignore,
     plans,
     requestedPlatform,
     rootDir,
@@ -758,6 +825,7 @@ async function validateProject(options: {
     appHelper,
     configPath,
     errors,
+    gitignore,
     nextActions,
     platform: requestedPlatform,
     plans,
@@ -783,6 +851,7 @@ function formatResult(result: ProjectValidationResult): string {
     `Root: ${result.rootDir}`,
     `Config: ${result.configPath}`,
     `App helper: ${result.appHelper.status}`,
+    `Gitignore: ${result.gitignore.status}`,
     `Package scripts: ${result.scripts.status}`,
     `Scenarios: ${result.scenarioPaths.length}`,
     `Providers: ${result.providerPaths.length}`,
@@ -868,6 +937,7 @@ export {
   usage,
   buildNextActions,
   validateConfigPlaceholders,
+  validateGitignore,
   validateProject,
   validateAppHelper,
   validatePackageScriptShape,
@@ -877,6 +947,7 @@ export {
 export type {
   CliArgs,
   ProjectValidationAppHelper,
+  ProjectValidationGitignore,
   ProjectValidationNextAction,
   ProjectValidationPlan,
   ProjectValidationResult,

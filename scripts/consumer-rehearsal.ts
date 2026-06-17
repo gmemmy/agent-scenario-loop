@@ -211,6 +211,23 @@ function mergeGeneratedScripts(appRoot: string): Record<string, string> {
 }
 
 /**
+ * Merges the generated runtime-artifact ignore snippet into the fixture app.
+ *
+ * @param {string} appRoot
+ * @returns {void}
+ */
+function mergeGitignoreSnippet(appRoot: string): void {
+  const gitignorePath = path.join(appRoot, '.gitignore');
+  const snippet = fs.readFileSync(path.join(appRoot, 'asl', 'gitignore-snippet'), 'utf8').trim();
+  const existing = fs.existsSync(gitignorePath) ? fs.readFileSync(gitignorePath, 'utf8').trim() : '';
+  fs.writeFileSync(
+    gitignorePath,
+    `${[existing, snippet].filter(Boolean).join('\n\n')}\n`,
+    'utf8',
+  );
+}
+
+/**
  * Replaces scaffold placeholders with realistic app identifiers before validation.
  *
  * @param {string} appRoot
@@ -261,6 +278,7 @@ function rehearseConsumerInstall({
   });
 
   const generatedScripts = mergeGeneratedScripts(appRoot);
+  mergeGitignoreSnippet(appRoot);
   replaceConfigPlaceholders(appRoot);
   const profileEvents = writeProfileEventFixtures(appRoot);
 

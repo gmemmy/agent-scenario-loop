@@ -793,7 +793,15 @@ function main(): void {
       initializedValidation.nextActions.some((action: { code: string }) => action.code === 'replace_config_placeholders'),
       true,
     );
+    assert.equal(
+      initializedValidation.nextActions.some((action: { code: string }) => action.code === 'ignore_runtime_artifacts'),
+      true,
+    );
     assert.equal(initializedValidation.warnings.some((warning: string) => warning.includes('projectName')), true);
+    assert.equal(
+      initializedValidation.warnings.some((warning: string) => warning.includes('Runtime artifact gitignore')),
+      true,
+    );
 
     for (const binaryName of Object.keys(packageJson.bin).sort()) {
       const helpText = run(packageBinPath(installDir, binaryName), ['--help'], {
