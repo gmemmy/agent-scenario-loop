@@ -47,7 +47,7 @@ type CommandResult = {
 
 type CommandExecutor = (command: string, args: string[]) => Promise<CommandResult>;
 type ExecFileError = Error & {
-  code?: number;
+  code?: number | string;
 };
 type ScenarioExecutionStep = import('../core/execution-plan').ScenarioExecutionStep;
 
@@ -97,6 +97,13 @@ type ArgentCaptureResult = {
   raw: Record<string, string>;
   runDir: string;
   verdict: Record<string, unknown>;
+};
+type ArgentFailureHintOptions = {
+  driverAction: ArgentDriverStep['driverAction'];
+  missingRequiredScreenshot: boolean;
+  rawFileName: string;
+  result: import('./argent-driver').ArgentCommandResult;
+  rootOnlyDescription: boolean;
 };
 
 /**
@@ -200,7 +207,7 @@ function execFileCommand(command: string, args: string[]): Promise<CommandResult
         command,
         args,
         exitCode: error && typeof error.code === 'number' ? error.code : error ? 1 : 0,
-        stderr,
+        stderr: stderr || (error ? error.message : ''),
         stdout,
       });
     });
@@ -363,6 +370,51 @@ function buildArgentSelectorHealthMetadata(
     selectorKind: selector.kind,
     ...(selector.match ? { selectorMatch: selector.match } : {}),
     selectorValue: selector.value,
+  };
+}
+
+/**
+ * Builds the most specific next-action hint available from an Argent failure.
+ *
+ * @param {ArgentFailureHintOptions} options
+ * @returns {{nextAction: string, nextActionCode: string, argentDiagnostic?: string}}
+ */
+function buildArgentFailureMetadata({
+  driverAction,
+  missingRequiredScreenshot,
+  rawFileName,
+  result,
+  rootOnlyDescription,
+}: ArgentFailureHintOptions): {nextAction: string; nextActionCode: string; argentDiagnostic?: string} {
+  const output = `${result.stdout}\n${result.stderr}`;
+
+  if (/ENOENT|command not found|not found/iu.test(output)) {
+    return {
+      argentDiagnostic: 'argent_command_unavailable',
+      nextAction: 'Install Argent, pass --argent with the local Argent command, or set --base-args/--device-flag/--app-flag to match the installed command before rerunning.',
+      nextActionCode: 'configure_argent_command',
+    };
+  }
+
+  if (rootOnlyDescription) {
+    return {
+      argentDiagnostic: 'root_only_description',
+      nextAction: `Argent returned only the root UI description for ${driverAction}. Inspect raw/${rawFileName}, confirm the app is foregrounded and visible to Argent, then rerun.`,
+      nextActionCode: 'fix_argent_visibility_target',
+    };
+  }
+
+  if (missingRequiredScreenshot) {
+    return {
+      argentDiagnostic: 'missing_screenshot_path',
+      nextAction: `Argent completed screenshot without reporting a saved file. Inspect raw/${rawFileName}, adjust the Argent command shape, or make the screenshot step optional before rerunning.`,
+      nextActionCode: 'fix_argent_screenshot_output',
+    };
+  }
+
+  return {
+    nextAction: `Inspect raw/${rawFileName}, confirm Argent can see the selected app/device, and rerun the capture.`,
+    nextActionCode: 'inspect_argent_driver_action',
   };
 }
 
@@ -699,13 +751,14 @@ async function runArgentCapture({
       metadata: {
         driverAction: driverStep.driverAction,
         ...(failed
-          ? {
-              nextAction: `Inspect raw/${driverResult.rawFileName}, confirm Argent can see the selected app/device, and rerun the capture.`,
-              nextActionCode: 'inspect_argent_driver_action',
-            }
+          ? buildArgentFailureMetadata({
+              driverAction: driverStep.driverAction,
+              missingRequiredScreenshot,
+              rawFileName: driverResult.rawFileName,
+              result: driverResult,
+              rootOnlyDescription,
+            })
           : {}),
-        ...(rootOnlyDescription ? { argentDiagnostic: 'root_only_description' } : {}),
-        ...(missingRequiredScreenshot ? { argentDiagnostic: 'missing_screenshot_path' } : {}),
         ...buildArgentSelectorHealthMetadata(driverStep.selector),
         stepId: driverStep.stepId,
       },

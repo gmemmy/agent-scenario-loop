@@ -162,6 +162,44 @@ test('Argent capture marks required action failures unhealthy', async (t: TestCo
   assert.equal(health.healthStatus, 'failed');
   assert.match(fs.readFileSync(path.join(tempDir, 'agent-summary.md'), 'utf8'), /Do not optimize from this run/u);
   assert.match(JSON.stringify(health), /root_only_description/u);
+  assert.equal(health.checks[0].metadata.nextActionCode, 'fix_argent_visibility_target');
+});
+
+test('Argent capture points missing command failures at command configuration', async (t: TestContext) => {
+  const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-argent-missing-command-'));
+  t.after(async () => {
+    await fsp.rm(tempDir, { recursive: true, force: true });
+  });
+
+  await runArgentCapture({
+    deviceId: 'SIM-123',
+    executor: async (command: string, args: string[]): Promise<CommandResult> => ({
+      args,
+      command,
+      exitCode: 1,
+      stderr: 'spawn argent ENOENT',
+      stdout: '',
+    }),
+    outputDir: tempDir,
+    platform: 'ios',
+    runId: 'argent-missing-command',
+    scenario: {
+      id: 'argent-missing-command-flow',
+      steps: [
+        {
+          id: 'capture-final',
+          kind: 'captureEvidence',
+          artifact: 'screenshot',
+          driverAction: 'screenshot',
+        },
+      ],
+    },
+  });
+
+  const health = readJson(path.join(tempDir, 'health.json'));
+  assert.equal(health.healthStatus, 'failed');
+  assert.equal(health.checks[0].metadata.argentDiagnostic, 'argent_command_unavailable');
+  assert.equal(health.checks[0].metadata.nextActionCode, 'configure_argent_command');
 });
 
 test('Argent driver step expansion validates coordinate-backed metadata', () => {
