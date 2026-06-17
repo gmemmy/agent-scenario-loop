@@ -48,23 +48,17 @@ asl-profile-ios --config asl.config.json --scenario scenarios/mobile/{{SCENARIO_
 asl-profile-android --config asl.config.json --scenario scenarios/mobile/{{SCENARIO_ID}}.json --adb-capture --profile-session --clear-logcat --launch --wait-ms 5000 --comparison-lane {{SCENARIO_ID}}-android-live --out artifacts/asl/android --run-id {{SCENARIO_ID}}-android-live
 ```
 
-Those commands write `health.json`, `verdict.json`, `agent-summary.md`, `metrics.json`, `causal-run.json`, and raw evidence under the printed run directory. The `*:provider` scripts also execute the starter provider commands through `runner-manifests/evidence-provider.json`, then inventory the generated accessibility, profiler, memory, and network evidence in `manifest.artifacts.evidenceAttachments`. Compare a trusted current run with:
+Those commands write `health.json`, `verdict.json`, `agent-summary.md`, `metrics.json`, `causal-run.json`, and raw evidence under the printed run directory. The `*:provider` scripts also execute the starter provider commands through `runner-manifests/evidence-provider.json`, then inventory the generated accessibility, profiler, memory, and network evidence in `manifest.artifacts.evidenceAttachments`. Compare a trusted current run with an explicit artifact path:
 
 ```bash
-asl-compare-latest --root artifacts/asl/ios --scenario {{SCENARIO_ID}} --current <run-dir> --out artifacts/asl/ios/comparisons/{{SCENARIO_ID}} --fail-on-regression
-asl-compare-latest --root artifacts/asl/android --scenario {{SCENARIO_ID}} --current <run-dir> --out artifacts/asl/android/comparisons/{{SCENARIO_ID}} --fail-on-regression
+ASL_COMPARE_IOS_CURRENT=artifacts/asl/ios/{{SCENARIO_ID}}/{{SCENARIO_ID}}-ios-live pnpm asl:compare:ios
+ASL_COMPARE_ANDROID_CURRENT=artifacts/asl/android/{{SCENARIO_ID}}/{{SCENARIO_ID}}-android-live pnpm asl:compare:android
 ```
 
 If your project adds an aggregate batch runner that writes `live-proof.json`, inspect it with:
 
 ```bash
-asl-live-proof --file artifacts/asl/<platform>/_live-proof/<run-id>/live-proof.json --fail-on-regression
-```
-
-The package-script snippets in `asl/package-scripts.json` include fixture, portable agent-device and Argent interaction proof, live profile, compare, and proof-inspection commands. Merge the snippets you use into your app `package.json` so future agents can run the loop without rediscovering command arguments. The merged compare and live-proof scripts require explicit inputs:
-
-```bash
-ASL_COMPARE_IOS_CURRENT=artifacts/asl/ios/{{SCENARIO_ID}}/{{SCENARIO_ID}}-ios-live pnpm asl:compare:ios
-ASL_COMPARE_ANDROID_CURRENT=artifacts/asl/android/{{SCENARIO_ID}}/{{SCENARIO_ID}}-android-live pnpm asl:compare:android
 ASL_LIVE_PROOF=artifacts/asl/<platform>/_live-proof/<run-id>/live-proof.json pnpm asl:live-proof
 ```
+
+The package-script snippets in `asl/package-scripts.json` include fixture, portable agent-device and Argent interaction proof, live profile, compare, and proof-inspection commands. Merge the snippets you use into your app `package.json` so future agents can run the loop without rediscovering command arguments.

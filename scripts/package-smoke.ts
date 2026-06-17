@@ -756,6 +756,14 @@ function main(): void {
       fs.readFileSync(path.join(initOutputDir, 'asl', 'README.md'), 'utf8'),
       /checkout-submit/u,
     );
+    assert.equal(
+      fs.readFileSync(path.join(initOutputDir, 'asl', 'README.md'), 'utf8').includes('--current <run-dir>'),
+      false,
+    );
+    assert.match(
+      fs.readFileSync(path.join(initOutputDir, 'asl', 'README.md'), 'utf8'),
+      /ASL_COMPARE_ANDROID_CURRENT=/u,
+    );
     const initializedScripts = JSON.parse(
       fs.readFileSync(path.join(initOutputDir, 'asl', 'package-scripts.json'), 'utf8'),
     );

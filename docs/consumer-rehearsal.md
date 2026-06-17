@@ -78,7 +78,7 @@ asl-profile-ios --config asl.config.json --scenario scenarios/mobile/first-journ
 After two passed runs exist, compare the current run against the newest trusted prior run:
 
 ```bash
-asl-compare-latest --root artifacts/asl/android --scenario first-journey --current <run-dir> --out artifacts/asl/android/comparisons/first-journey --fail-on-regression
+ASL_COMPARE_ANDROID_CURRENT=artifacts/asl/android/first-journey/first-journey-android-live pnpm asl:compare:android
 ```
 
 Do not make improvement or regression claims when scenario health failed or the comparison is inconclusive.
