@@ -63,6 +63,15 @@ pnpm example:profile:startup
 pnpm example:profile:android:startup
 ```
 
+To prove the portable agent-device driver path against an installed example app:
+
+```bash
+ASL_EXAMPLE_IOS_UDID=<simulator-udid> pnpm example:agent-device:ios:startup
+ASL_EXAMPLE_ANDROID_SERIAL=<emulator-serial> pnpm example:agent-device:android:startup
+```
+
+In sandboxed agent environments, run these commands with permission to access the local device driver state. The runner shells out to `agent-device`, which needs access to its daemon files and simulator or emulator control surfaces.
+
 To check Android runtime readiness without starting scenario execution:
 
 ```bash
