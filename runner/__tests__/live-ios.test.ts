@@ -1,0 +1,163 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const fsp = require('node:fs/promises');
+const os = require('node:os');
+const path = require('node:path');
+const test = require('node:test');
+
+const {
+  runIosLiveProof,
+} = require('../live-ios');
+const {
+  resolveAsyncStorageDirectory,
+} = require('../ios-simctl');
+
+type CommandResult = import('../ios-simctl').CommandResult;
+type AgentDeviceCommandResult = import('../agent-device').CommandResult;
+type ArgentCommandResult = import('../argent').CommandResult;
+type TestContext = import('node:test').TestContext;
+
+const ROOT = path.join(__dirname, '..', '..', '..');
+const BUNDLE_ID = 'dev.agent-scenario-loop.example';
+const DEVICE_ID = 'A692ED28-893E-453F-8866-C69331AE757F';
+
+/**
+ * Reads the iOS startup fixture events with the requested run id.
+ *
+ * @param {string} runId
+ * @returns {Record<string, unknown>[]}
+ */
+function readStartupEvents(runId: string): Record<string, unknown>[] {
+  return fs
+    .readFileSync(path.join(ROOT, 'examples', 'mobile-app', 'event-logs', 'app-startup.log'), 'utf8')
+    .split(/\r?\n/u)
+    .filter(Boolean)
+    .map((line: string) => JSON.parse(line.slice(line.indexOf('[profile-event]') + '[profile-event]'.length).trim()))
+    .map((event: Record<string, unknown>) => ({ ...event, runId }));
+}
+
+/**
+ * Writes fixture events into fake AsyncStorage for the currently seeded session.
+ *
+ * @param {string} dataContainer
+ * @returns {void}
+ */
+function writeCurrentSessionEvents(dataContainer: string): void {
+  const storageDir = resolveAsyncStorageDirectory({
+    bundleId: BUNDLE_ID,
+    dataContainer,
+  });
+  const manifestPath = path.join(storageDir, 'manifest.json');
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+  const session = JSON.parse(manifest['agent-scenario-loop.profile-session.1']);
+  manifest['agent-scenario-loop.profile-events.1'] = JSON.stringify(readStartupEvents(session.runId));
+  fs.writeFileSync(manifestPath, JSON.stringify(manifest), 'utf8');
+}
+
+test('generic iOS live proof captures profile evidence before sidecar proofs', async (t: TestContext) => {
+  const outputDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-live-ios-'));
+  const dataContainer = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-live-ios-data-'));
+  t.after(async () => {
+    await fsp.rm(outputDir, { recursive: true, force: true });
+    await fsp.rm(dataContainer, { recursive: true, force: true });
+  });
+
+  const orderedCalls: string[] = [];
+  const executor = async (command: string, args: string[]): Promise<CommandResult> => {
+    const key = args.join(' ');
+    orderedCalls.push(`simctl:${key}`);
+
+    if (key === 'simctl list devices') {
+      return {
+        command,
+        args,
+        exitCode: 0,
+        stderr: '',
+        stdout: ['== Devices ==', '-- iOS 26.3 --', `    iPhone 17 Pro Max (${DEVICE_ID}) (Booted)`].join('\n'),
+      };
+    }
+    if (key === `simctl get_app_container ${DEVICE_ID} ${BUNDLE_ID} app`) {
+      return { command, args, exitCode: 0, stderr: '', stdout: '/tmp/ASLExampleMobile.app\n' };
+    }
+    if (key === `simctl get_app_container ${DEVICE_ID} ${BUNDLE_ID} data`) {
+      return { command, args, exitCode: 0, stderr: '', stdout: `${dataContainer}\n` };
+    }
+    if (key === `simctl terminate ${DEVICE_ID} ${BUNDLE_ID}`) {
+      return { command, args, exitCode: 0, stderr: '', stdout: '' };
+    }
+    if (key === `simctl launch ${DEVICE_ID} ${BUNDLE_ID}`) {
+      writeCurrentSessionEvents(dataContainer);
+      return { command, args, exitCode: 0, stderr: '', stdout: `${BUNDLE_ID}: 1234\n` };
+    }
+    if (key.startsWith(`simctl io ${DEVICE_ID} screenshot `)) {
+      const screenshotPath = args.at(-1);
+      assert.equal(typeof screenshotPath, 'string');
+      await fsp.writeFile(screenshotPath, 'fake screenshot', 'utf8');
+      return { command, args, exitCode: 0, stderr: '', stdout: `Wrote screenshot to ${screenshotPath}\n` };
+    }
+    if (key === `simctl spawn ${DEVICE_ID} log show --style compact --last 2m --predicate eventMessage CONTAINS "[profile-event]" OR eventMessage CONTAINS "[profile-session]"`) {
+      return { command, args, exitCode: 0, stderr: '', stdout: 'Timestamp Ty Process[PID:TID]\n' };
+    }
+
+    return { command, args, exitCode: 1, stderr: `unexpected command: ${key}`, stdout: '' };
+  };
+  const agentDeviceExecutor = async (command: string, args: string[]): Promise<AgentDeviceCommandResult> => {
+    const key = args.join(' ');
+    orderedCalls.push(`agent-device:${key}`);
+    if (args[0] === 'screenshot' && typeof args[1] === 'string') {
+      await fsp.writeFile(args[1], 'fake screenshot', 'utf8');
+    }
+    return { args, command, exitCode: 0, stderr: '', stdout: '{"success":true}\n' };
+  };
+  const argentExecutor = async (command: string, args: string[]): Promise<ArgentCommandResult> => {
+    const key = args.join(' ');
+    orderedCalls.push(`argent:${key}`);
+    if (args.includes('screenshot')) {
+      const screenshotPath = path.join(outputDir, 'argent-ios.png');
+      await fsp.writeFile(screenshotPath, 'fake screenshot', 'utf8');
+      return { args, command, exitCode: 0, stderr: '', stdout: `Saved screenshot: ${screenshotPath}\n` };
+    }
+    if (args.includes('describe')) {
+      return { args, command, exitCode: 0, stderr: '', stdout: '{"description":"Example Mobile App"}\n' };
+    }
+    if (args.includes('launch-app')) {
+      return { args, command, exitCode: 0, stderr: '', stdout: `{"launched":true,"bundleId":"${BUNDLE_ID}"}\n` };
+    }
+    return { args, command, exitCode: 1, stderr: `unexpected Argent command: ${key}`, stdout: '' };
+  };
+
+  const result = await runIosLiveProof({
+    'agent-device-proof': true,
+    'argent-proof': true,
+    bundle: BUNDLE_ID,
+    config: path.join(ROOT, 'examples', 'mobile-app', 'asl.config.json'),
+    device: DEVICE_ID,
+    out: outputDir,
+    scenario: path.join(ROOT, 'examples', 'mobile-app', 'scenarios', 'mobile', 'app-startup.json'),
+  }, {
+    agentDeviceExecutor,
+    argentExecutor,
+    delay: async () => {},
+    executor,
+  });
+
+  const liveProof = JSON.parse(fs.readFileSync(result.aggregateSummary.liveProofPath, 'utf8'));
+  assert.equal(liveProof.status, 'passed');
+  assert.deepEqual(
+    liveProof.interactionProofs.map((proof: { runnerId: string }) => proof.runnerId),
+    ['agent-device', 'argent'],
+  );
+
+  const profileCapture = orderedCalls.findIndex((call) => (
+    call === `simctl:simctl spawn ${DEVICE_ID} log show --style compact --last 2m --predicate eventMessage CONTAINS "[profile-event]" OR eventMessage CONTAINS "[profile-session]"`
+  ));
+  assert.ok(profileCapture > -1, 'expected iOS profile evidence capture command');
+  assert.ok(
+    orderedCalls.findIndex((call) => call.includes(`agent-device:open ${BUNDLE_ID}`)) > profileCapture,
+    'agent-device proof should run after iOS profile evidence capture',
+  );
+  assert.ok(
+    orderedCalls.findIndex((call) => call.includes(`argent:run launch-app --udid ${DEVICE_ID} --bundleId ${BUNDLE_ID}`)) > profileCapture,
+    'Argent proof should run after iOS profile evidence capture',
+  );
+});

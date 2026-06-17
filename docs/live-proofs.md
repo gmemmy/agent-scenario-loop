@@ -34,7 +34,7 @@ asl-live-ios \
   --out artifacts/asl/ios-live
 ```
 
-These commands run one portable scenario through the platform preflight, profile-session capture, profile artifact pipeline, optional sidecar interaction runners, optional latest-trusted comparison, and aggregate live-proof writer.
+These commands run one portable scenario through the platform preflight, profile-session capture, profile artifact pipeline, optional sidecar interaction runners, optional latest-trusted comparison, and aggregate live-proof writer. The platform profile runner captures app-owned truth first; sidecars run afterward so a UI-driver session cannot interfere with the evidence-producing adb or simctl window.
 
 Add sidecars when external drivers are available:
 
@@ -50,7 +50,7 @@ ASL_ARGENT_BIN=npx ASL_ARGENT_BASE_ARGS="--yes @swmansion/argent run" \
   --agent-device-proof --argent-proof --compare-latest --fail-on-regression
 ```
 
-The platform runner still owns profile evidence. `agent-device` and Argent contribute interaction proof pointers under the same aggregate `live-proof.json`; if a sidecar fails a required step, the aggregate command fails after preserving raw output and `agent-summary.md`.
+The platform runner still owns profile evidence. `agent-device` and Argent contribute interaction proof pointers under the same aggregate `live-proof.json` after the profile run has produced trusted artifacts; if a sidecar fails a required step, the aggregate command fails after preserving raw output and `agent-summary.md`.
 
 ## Android Proof
 
@@ -131,7 +131,7 @@ pnpm example:android:live:runners -- --agent-device-session <name> --run-suffix 
 pnpm example:ios:live:runners -- --agent-device-session <name> --run-suffix after-change --compare-latest
 ```
 
-For Argent without a global binary, set `ASL_ARGENT_BIN=npx` and `ASL_ARGENT_BASE_ARGS="--yes @swmansion/argent run"`. Run `pnpm argent:check` first when you need a bounded tool-surface proof before attaching Argent to a device scenario. The platform runner still owns adb or simctl preflight and profile evidence. Each sidecar contributes interaction proof and captures into the same aggregate artifact graph.
+For Argent without a global binary, set `ASL_ARGENT_BIN=npx` and `ASL_ARGENT_BASE_ARGS="--yes @swmansion/argent run"`. Run `pnpm argent:check` first when you need a bounded tool-surface proof before attaching Argent to a device scenario. The platform runner still owns adb or simctl preflight and profile evidence, and sidecars run only after that profile evidence has been captured. Each sidecar contributes interaction proof and captures into the same aggregate artifact graph.
 
 ## Comparison
 

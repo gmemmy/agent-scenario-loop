@@ -180,6 +180,8 @@ pnpm example:android:live:runners -- --agent-device-session <name>
 
 For Argent without a global binary, set `ASL_ARGENT_BIN=npx` and `ASL_ARGENT_BASE_ARGS="--yes @swmansion/argent run"`.
 
+The adb profile scenarios run before sidecar proofs. This keeps app-owned profile events, logs, screenshots, metrics, and verdicts independent from any UI automation session opened by agent-device or Argent.
+
 The live Android commands assume the isolated Metro server is on port `8097`. They configure adb reverse and the app's React Native debug host as `localhost:8097` before launch, so the example app does not accidentally load another app's Metro bundle from the default `8081` port. To apply only that Android Metro routing setup, run:
 
 ```bash
@@ -247,6 +249,8 @@ pnpm example:ios:live:runners -- --agent-device-session <name>
 ```
 
 For Argent without a global binary, set `ASL_ARGENT_BIN=npx` and `ASL_ARGENT_BASE_ARGS="--yes @swmansion/argent run"`.
+
+The simctl profile scenarios run before sidecar proofs. This keeps stored app truth events, screenshots, metrics, and verdicts independent from any UI automation session opened by agent-device or Argent.
 
 ```bash
 pnpm example:profile:ios:live:startup

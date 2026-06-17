@@ -249,6 +249,32 @@ async function runAndroidLiveProof(
     runnerId: string;
     scenarioId: string;
   }> = [];
+  const profile = await runProfileAndroid({
+    ...(typeof args.adb === 'string' ? { adb: args.adb } : {}),
+    'adb-capture': true,
+    'clear-logcat': true,
+    config: configPath,
+    'command-wait-ms': typeof args['command-wait-ms'] === 'string' ? args['command-wait-ms'] : '250',
+    launch: true,
+    'launch-wait-ms': typeof args['launch-wait-ms'] === 'string' ? args['launch-wait-ms'] : '1500',
+    'logcat-lines': typeof args['logcat-lines'] === 'string' ? args['logcat-lines'] : '1000',
+    out: outputDir,
+    ...(packageName ? { package: packageName } : {}),
+    'profile-session': true,
+    ...(typeof args['react-native-debug-host'] === 'string'
+      ? { 'react-native-debug-host': args['react-native-debug-host'] }
+      : {}),
+    'run-id': profileRunId,
+    scenario: scenarioPath,
+    ...(typeof args.serial === 'string' ? { serial: args.serial } : {}),
+    'wait-ms': typeof args['wait-ms'] === 'string' ? args['wait-ms'] : '5000',
+  }, {
+    comparisonLane,
+    ...(options.delay ? { delay: options.delay } : {}),
+    ...(options.executor ? { executor: options.executor } : {}),
+  });
+  assertPassedRun({ health: profile.health, kind: 'profile', runDir: profile.runDir, verdict: profile.verdict });
+
   if (isEnabledFlag(args['agent-device-proof'])) {
     const capture = await runAgentDeviceCapture({
       ...(typeof args['agent-device'] === 'string' ? { agentDevicePath: args['agent-device'] } : {}),
@@ -297,32 +323,6 @@ async function runAndroidLiveProof(
       scenarioId,
     });
   }
-
-  const profile = await runProfileAndroid({
-    ...(typeof args.adb === 'string' ? { adb: args.adb } : {}),
-    'adb-capture': true,
-    'clear-logcat': true,
-    config: configPath,
-    'command-wait-ms': typeof args['command-wait-ms'] === 'string' ? args['command-wait-ms'] : '250',
-    launch: true,
-    'launch-wait-ms': typeof args['launch-wait-ms'] === 'string' ? args['launch-wait-ms'] : '1500',
-    'logcat-lines': typeof args['logcat-lines'] === 'string' ? args['logcat-lines'] : '1000',
-    out: outputDir,
-    ...(packageName ? { package: packageName } : {}),
-    'profile-session': true,
-    ...(typeof args['react-native-debug-host'] === 'string'
-      ? { 'react-native-debug-host': args['react-native-debug-host'] }
-      : {}),
-    'run-id': profileRunId,
-    scenario: scenarioPath,
-    ...(typeof args.serial === 'string' ? { serial: args.serial } : {}),
-    'wait-ms': typeof args['wait-ms'] === 'string' ? args['wait-ms'] : '5000',
-  }, {
-    comparisonLane,
-    ...(options.delay ? { delay: options.delay } : {}),
-    ...(options.executor ? { executor: options.executor } : {}),
-  });
-  assertPassedRun({ health: profile.health, kind: 'profile', runDir: profile.runDir, verdict: profile.verdict });
 
   const profiles = [{
     label: scenarioId,

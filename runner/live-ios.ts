@@ -245,6 +245,27 @@ async function runIosLiveProof(
     runnerId: string;
     scenarioId: string;
   }> = [];
+  const profile = await runProfileIos({
+    config: configPath,
+    ...(typeof args.device === 'string' ? { device: args.device } : {}),
+    launch: true,
+    out: outputDir,
+    'profile-session': true,
+    'profile-session-storage': true,
+    'run-id': profileRunId,
+    scenario: scenarioPath,
+    'simctl-capture': true,
+    'simctl-out': path.join(outputDir, '_ios-simctl-captures', profileRunId),
+    'wait-ms': typeof args['wait-ms'] === 'string' ? args['wait-ms'] : '5000',
+    ...(bundleId ? { bundle: bundleId } : {}),
+    ...(typeof args.xcrun === 'string' ? { xcrun: args.xcrun } : {}),
+  }, {
+    comparisonLane,
+    ...(options.delay ? { delay: options.delay } : {}),
+    ...(options.executor ? { executor: options.executor } : {}),
+  });
+  assertPassedRun({ health: profile.health, kind: 'profile', runDir: profile.runDir, verdict: profile.verdict });
+
   if (isEnabledFlag(args['agent-device-proof'])) {
     const capture = await runAgentDeviceCapture({
       ...(typeof args['agent-device'] === 'string' ? { agentDevicePath: args['agent-device'] } : {}),
@@ -293,27 +314,6 @@ async function runIosLiveProof(
       scenarioId,
     });
   }
-
-  const profile = await runProfileIos({
-    config: configPath,
-    ...(typeof args.device === 'string' ? { device: args.device } : {}),
-    launch: true,
-    out: outputDir,
-    'profile-session': true,
-    'profile-session-storage': true,
-    'run-id': profileRunId,
-    scenario: scenarioPath,
-    'simctl-capture': true,
-    'simctl-out': path.join(outputDir, '_ios-simctl-captures', profileRunId),
-    'wait-ms': typeof args['wait-ms'] === 'string' ? args['wait-ms'] : '5000',
-    ...(bundleId ? { bundle: bundleId } : {}),
-    ...(typeof args.xcrun === 'string' ? { xcrun: args.xcrun } : {}),
-  }, {
-    comparisonLane,
-    ...(options.delay ? { delay: options.delay } : {}),
-    ...(options.executor ? { executor: options.executor } : {}),
-  });
-  assertPassedRun({ health: profile.health, kind: 'profile', runDir: profile.runDir, verdict: profile.verdict });
 
   const profiles = [{
     label: scenarioId,
