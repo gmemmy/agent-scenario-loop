@@ -70,8 +70,6 @@ const EXAMPLE_PROFILES = [
   },
 ];
 const DEFAULT_REACT_NATIVE_DEBUG_HOST = 'localhost:8097';
-const DEFAULT_AGENT_DEVICE_ANDROID_SESSION = 'android-example-live';
-
 /**
  * Prints CLI usage.
  *
@@ -87,7 +85,7 @@ function usage(output: { write: (message: string) => unknown } = process.stderr)
     `By default, the runner sets the app React Native debug host to ${DEFAULT_REACT_NATIVE_DEBUG_HOST} for the isolated Metro server.`,
     'Use --run-suffix to preserve multiple live proof artifact sets without changing deterministic default run ids.',
     'Use --compare-latest to compare each passed scenario against the latest trusted prior run under the artifact root.',
-    `Use --agent-device-proof to attach the shared startup UI assertion through agent-device; defaults to session ${DEFAULT_AGENT_DEVICE_ANDROID_SESSION}.`,
+    'Use --agent-device-proof to attach the shared startup UI assertion through agent-device; pass --agent-device-session to reuse an active named session.',
   ], output);
 }
 
@@ -292,9 +290,7 @@ async function runExampleAndroidLiveProof(
       runId: interactionRunId,
       scenario: readJson(path.join(exampleRoot, 'scenarios', 'mobile', 'app-startup.json')),
       ...(typeof args.serial === 'string' ? { serial: args.serial } : {}),
-      session: typeof args['agent-device-session'] === 'string'
-        ? args['agent-device-session']
-        : DEFAULT_AGENT_DEVICE_ANDROID_SESSION,
+      ...(typeof args['agent-device-session'] === 'string' ? { session: args['agent-device-session'] } : {}),
       waitMs: parsePositiveInteger(args['agent-device-wait-ms'], 1000),
     });
     assertPassedInteractionProof({

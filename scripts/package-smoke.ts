@@ -648,6 +648,8 @@ function main(): void {
       fs.readFileSync(path.join(initOutputDir, 'asl', 'package-scripts.json'), 'utf8'),
     );
     assert.deepEqual(Object.keys(initializedScripts).sort(), [
+      'asl:agent-device:android',
+      'asl:agent-device:ios',
       'asl:check:android',
       'asl:check:ios',
       'asl:compare:android',
@@ -660,6 +662,8 @@ function main(): void {
       'asl:validate',
     ]);
     assert.match(initializedScripts['asl:check:ios'], /checkout-submit/u);
+    assert.match(initializedScripts['asl:agent-device:ios'], /checkout-submit-ios-agent-device/u);
+    assert.match(initializedScripts['asl:agent-device:android'], /checkout-submit-android-agent-device/u);
     assert.match(initializedScripts['asl:profile:ios:live'], /checkout-submit-ios-live/u);
     assert.match(initializedScripts['asl:profile:android:live'], /checkout-submit-android-live/u);
     assert.match(

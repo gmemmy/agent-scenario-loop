@@ -161,6 +161,8 @@ test('validates generated package-script snippets', async (t: TestContext) => {
     'asl:check:android',
     'asl:profile:ios',
     'asl:profile:android',
+    'asl:agent-device:ios',
+    'asl:agent-device:android',
     'asl:profile:ios:live',
     'asl:profile:android:live',
     'asl:compare:ios',
@@ -172,6 +174,14 @@ test('validates generated package-script snippets', async (t: TestContext) => {
 });
 
 test('validates required package-script lifecycle shapes', () => {
+  assert.equal(validatePackageScriptShape({
+    scriptName: 'asl:agent-device:ios',
+    command: 'asl-agent-device --platform ios --scenario scenarios/mobile/checkout.json --app com.example.app --open --out artifacts/asl/agent-device-ios --run-id checkout-ios-agent-device',
+  }), null);
+  assert.equal(validatePackageScriptShape({
+    scriptName: 'asl:agent-device:android',
+    command: 'asl-agent-device --platform ios --scenario scenarios/mobile/checkout.json --app com.example.app --open --out artifacts/asl/agent-device-android --run-id checkout-android-agent-device',
+  }), 'asl:agent-device:android has incorrect required value(s): --platform=android.');
   assert.equal(validatePackageScriptShape({
     scriptName: 'asl:profile:ios:live',
     command: 'asl-profile-ios --config asl.config.json --scenario scenarios/mobile/checkout.json --simctl-capture --profile-session --launch --out artifacts/asl/ios --run-id checkout-ios-live',

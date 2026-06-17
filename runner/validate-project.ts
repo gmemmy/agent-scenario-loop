@@ -75,6 +75,8 @@ const REQUIRED_PACKAGE_SCRIPT_NAMES = [
   'asl:validate',
   'asl:profile:ios',
   'asl:profile:android',
+  'asl:agent-device:ios',
+  'asl:agent-device:android',
   'asl:profile:ios:live',
   'asl:profile:android:live',
   'asl:compare:ios',
@@ -109,6 +111,16 @@ const REQUIRED_PACKAGE_SCRIPT_SHAPES = {
     command: 'asl-profile-android',
     flags: ['--config', '--scenario', '--out', '--run-id'],
     values: {},
+  },
+  'asl:agent-device:ios': {
+    command: 'asl-agent-device',
+    flags: ['--platform', '--scenario', '--app', '--open', '--out', '--run-id'],
+    values: { '--platform': 'ios' },
+  },
+  'asl:agent-device:android': {
+    command: 'asl-agent-device',
+    flags: ['--platform', '--scenario', '--app', '--open', '--out', '--run-id'],
+    values: { '--platform': 'android' },
   },
   'asl:profile:ios:live': {
     command: 'asl-profile-ios',

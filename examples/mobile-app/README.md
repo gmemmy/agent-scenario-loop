@@ -88,7 +88,7 @@ If a selected Xcode beta cannot run the current Expo/RN toolchain cleanly, point
 - `package.json`, `app.json`, `tsconfig.json`: private Expo app configuration
 - `metro.config.js`: allows the app to import the package helper from the repo/package root
 - `asl.config.json`: runner config for example app artifact output
-- `asl/package-scripts.json`: consumer-facing package-script snippets
+- `asl/package-scripts.json`: consumer-facing package-script snippets, including portable agent-device interaction proof commands
 - `runner-manifests/*.json`: project-local runner and provider capability manifests
 - `scenarios/mobile/app-startup.json`: portable consumer-validation scenario
 - `scenarios/android/*.json`: Android profile scenario manifests

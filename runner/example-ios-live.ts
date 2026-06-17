@@ -69,8 +69,6 @@ const EXAMPLE_PROFILES = [
     scenarioId: 'scroll-settle',
   },
 ];
-const DEFAULT_AGENT_DEVICE_IOS_SESSION = 'ios-example-live';
-
 /**
  * Prints CLI usage.
  *
@@ -85,7 +83,7 @@ function usage(output: { write: (message: string) => unknown } = process.stderr)
     'The example app must already be installed on a booted iOS simulator and connected to Metro.',
     'Use --run-suffix to preserve multiple live proof artifact sets without changing deterministic default run ids.',
     'Use --compare-latest to compare each passed scenario against the latest trusted prior run under the artifact root.',
-    `Use --agent-device-proof to attach the shared startup UI assertion through agent-device; defaults to session ${DEFAULT_AGENT_DEVICE_IOS_SESSION}.`,
+    'Use --agent-device-proof to attach the shared startup UI assertion through agent-device; pass --agent-device-session to reuse an active named session.',
   ], output);
 }
 
@@ -284,9 +282,7 @@ async function runExampleIosLiveProof(
       platform: 'ios',
       runId: interactionRunId,
       scenario: readJson(path.join(exampleRoot, 'scenarios', 'mobile', 'app-startup.json')),
-      session: typeof args['agent-device-session'] === 'string'
-        ? args['agent-device-session']
-        : DEFAULT_AGENT_DEVICE_IOS_SESSION,
+      ...(typeof args['agent-device-session'] === 'string' ? { session: args['agent-device-session'] } : {}),
       ...(typeof args.device === 'string' ? { udid: args.device } : {}),
       waitMs: parsePositiveInteger(args['agent-device-wait-ms'], 1000),
     });

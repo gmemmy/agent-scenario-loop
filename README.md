@@ -137,7 +137,7 @@ Add `--compare-latest` to compare each passed scenario against the latest truste
 pnpm example:android:live -- --run-suffix after-change --compare-latest
 ```
 
-When `agent-device` is available, the stronger aggregate path attaches the shared startup UI assertion as an interaction proof:
+When `agent-device` is available, the stronger aggregate path attaches the shared startup UI assertion as an interaction proof. If `agent-device session list` shows the emulator is already owned by a named session, pass that session with `--agent-device-session <name>`:
 
 ```bash
 pnpm example:android:live:agent-device
@@ -228,7 +228,7 @@ Add `--compare-latest` when the aggregate proof should also compare each passed 
 pnpm example:ios:live -- --run-suffix after-change --compare-latest
 ```
 
-When `agent-device` is available, the stronger aggregate path attaches the same startup UI assertion used by Android:
+When `agent-device` is available, the stronger aggregate path attaches the same startup UI assertion used by Android. Reuse the active agent-device session with `--agent-device-session <name>` when the simulator is already owned by one:
 
 ```bash
 pnpm example:ios:live:agent-device
@@ -288,7 +288,7 @@ To rehearse adoption in an existing app-shaped project from the packed tarball:
 pnpm consumer:rehearse
 ```
 
-That command creates a temporary existing app, installs the packed package, runs `asl-init`, merges `asl/package-scripts.json` into the app `package.json`, replaces scaffold placeholders with app identifiers, runs both platform plan scripts, and validates the initialized project through the installed `asl-validate-project` binary.
+That command creates a temporary existing app, installs the packed package, runs `asl-init`, merges `asl/package-scripts.json` into the app `package.json`, replaces scaffold placeholders with app identifiers, runs both platform plan scripts, and validates the initialized project through the installed `asl-validate-project` binary. The generated script contract includes fixture profile, portable agent-device interaction proof, live profile, compare, and live-proof inspection commands.
 
 Read next: [Contracts](docs/contracts.md) for the artifact layout and supported runner surface.
 
