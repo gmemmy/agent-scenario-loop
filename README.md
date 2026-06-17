@@ -258,7 +258,7 @@ To verify the full release gate before publishing:
 pnpm release:check
 ```
 
-That command runs the test suite, packs the repo, installs the tarball into a temporary project, runs installed binaries against packaged examples, runs the installed Android and iOS example-live proofs through fake device executors, checks root exports, and verifies that schemas, examples, templates, docs, and the app helper ship in the package. `npm publish` runs the same gate through `prepublishOnly`.
+That command runs the test suite, packs the repo, installs the tarball into a temporary project, runs installed binaries against packaged examples, runs the installed Android and iOS example-live proofs through fake device executors, checks root exports, and verifies that schemas, examples, templates, docs, package-script snippets, and the app helper ship in the package. `npm publish` runs the same gate through `prepublishOnly`.
 
 Read next: [Contracts](docs/contracts.md) for the artifact layout and supported runner surface.
 
@@ -269,7 +269,7 @@ Read next: [Contracts](docs/contracts.md) for the artifact layout and supported 
 3. Emit truth events around one real user journey. One journey is enough to start.
 4. Merge the generated `asl/package-scripts.json` snippets into your app `package.json` intentionally.
 5. Start from the scaffolded scenario or from [examples/scenarios/ios/app-startup.json](examples/scenarios/ios/app-startup.json) and [examples/scenarios/ios/open-close-cycle.json](examples/scenarios/ios/open-close-cycle.json).
-6. Run `asl-validate-project --root . --platform all` before live device proof.
+6. Run `asl-validate-project --root . --platform all` before live device proof. It checks the scaffolded helper, package-script snippets, scenarios, runners, and planner compatibility.
 7. Run the journey on a simulator manually or with your driver of choice while capturing device logs, so the log contains your `[profile-event]` lines. Then:
 
 ```bash

@@ -13,6 +13,7 @@
     "providerPaths",
     "rootDir",
     "runnerPath",
+    "scripts",
     "scenarioPaths",
     "status"
   ],
@@ -50,6 +51,9 @@
     },
     "runnerPath": {
       "type": "string"
+    },
+    "scripts": {
+      "$ref": "#/$defs/scripts"
     },
     "scenarioPaths": {
       "type": "array",
@@ -104,6 +108,51 @@
         },
         "scenarioPath": {
           "type": "string"
+        }
+      }
+    },
+    "scripts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "missingPaths",
+        "missingScripts",
+        "path",
+        "scriptNames",
+        "status",
+        "unknownCommands"
+      ],
+      "properties": {
+        "missingPaths": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "missingScripts": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "path": {
+          "type": "string"
+        },
+        "scriptNames": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "status": {
+          "type": "string",
+          "enum": ["present", "missing", "incomplete"]
+        },
+        "unknownCommands": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         }
       }
     }

@@ -12,6 +12,7 @@ const {
   parseArgs,
   resolvePlatforms,
   validateAppHelper,
+  validatePackageScripts,
   validateProject,
 } = require('../validate-project');
 
@@ -59,6 +60,8 @@ test('validates an initialized project for iOS and Android', async (t: TestConte
 
   assert.equal(result.status, 'passed');
   assert.equal(result.appHelper.status, 'present');
+  assert.equal(result.scripts.status, 'present');
+  assert.equal(result.scripts.scriptNames.includes('asl:validate'), true);
   assert.equal(result.scenarioPaths.length, 1);
   assert.equal(result.providerPaths.length, 1);
   assert.deepEqual(
@@ -91,6 +94,7 @@ test('fails validation when initialized project files are missing', async (t: Te
   assert.ok(result.errors.some((error: string) => error.includes('Missing primary runner manifest')));
   assert.ok(result.errors.some((error: string) => error.includes('No scenario manifests found')));
   assert.ok(result.errors.some((error: string) => error.includes('Missing app profile-session helper')));
+  assert.ok(result.errors.some((error: string) => error.includes('Missing package-script snippets')));
 });
 
 test('validates app profile-session helper exports', async (t: TestContext) => {
@@ -111,4 +115,35 @@ test('validates app profile-session helper exports', async (t: TestContext) => {
     'useProfileSessionBootstrap',
   ]);
   assert.equal(fs.existsSync(helper.path), true);
+});
+
+test('validates generated package-script snippets', async (t: TestContext) => {
+  const targetDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-validate-project-scripts-'));
+  t.after(async () => {
+    await fsp.rm(targetDir, { recursive: true, force: true });
+  });
+  const scriptsDir = path.join(targetDir, 'asl');
+  await fsp.mkdir(scriptsDir, { recursive: true });
+  await fsp.writeFile(
+    path.join(scriptsDir, 'package-scripts.json'),
+    `${JSON.stringify({
+      'asl:check:ios': 'asl-check-plan --scenario scenarios/mobile/missing.json --runner runner-manifests/primary-runner.json --platform ios',
+      'asl:validate': 'not-an-asl-bin --root . --platform all',
+    }, null, 2)}\n`,
+    'utf8',
+  );
+
+  const scripts = validatePackageScripts({ packageRoot: ROOT, rootDir: targetDir });
+
+  assert.equal(scripts.status, 'incomplete');
+  assert.deepEqual(scripts.missingScripts, [
+    'asl:check:android',
+    'asl:profile:ios',
+    'asl:profile:android',
+    'asl:compare:ios',
+    'asl:compare:android',
+    'asl:live-proof',
+  ]);
+  assert.deepEqual(scripts.unknownCommands, ['not-an-asl-bin']);
+  assert.equal(scripts.missingPaths.some((missingPath: string) => missingPath.endsWith('scenarios/mobile/missing.json')), true);
 });

@@ -30,6 +30,15 @@ type ProjectValidationAppHelper = {
   status: 'present' | 'missing' | 'incomplete';
 };
 
+type ProjectValidationScripts = {
+  missingPaths: string[];
+  missingScripts: string[];
+  path: string;
+  scriptNames: string[];
+  status: 'present' | 'missing' | 'incomplete';
+  unknownCommands: string[];
+};
+
 type ProjectValidationResult = {
   appHelper: ProjectValidationAppHelper;
   configPath: string;
@@ -39,6 +48,7 @@ type ProjectValidationResult = {
   providerPaths: string[];
   rootDir: string;
   runnerPath: string;
+  scripts: ProjectValidationScripts;
   scenarioPaths: string[];
   status: 'passed' | 'failed';
 };
@@ -48,6 +58,19 @@ const REQUIRED_APP_HELPER_EXPORTS = [
   'registerProfileCommandTargetHandler',
   'useProfileSessionBootstrap',
 ];
+
+const REQUIRED_PACKAGE_SCRIPT_NAMES = [
+  'asl:check:ios',
+  'asl:check:android',
+  'asl:validate',
+  'asl:profile:ios',
+  'asl:profile:android',
+  'asl:compare:ios',
+  'asl:compare:android',
+  'asl:live-proof',
+];
+
+const PATH_ARGUMENT_FLAGS = new Set(['--config', '--runner', '--scenario']);
 
 /**
  * Prints CLI usage.
@@ -98,6 +121,15 @@ function parseArgs(argv: string[]): CliArgs {
  */
 function readJson(filePath: string): Record<string, unknown> {
   return JSON.parse(fs.readFileSync(filePath, 'utf8'));
+}
+
+/**
+ * Resolves the package root for bin-name checks from source or built CLI execution.
+ *
+ * @returns {string}
+ */
+function defaultPackageRoot(): string {
+  return path.resolve(__dirname, '..', '..');
 }
 
 /**
@@ -183,12 +215,116 @@ function validateAppHelper(rootDir: string): ProjectValidationAppHelper {
 }
 
 /**
+ * Reads public package binary names from package.json.
+ *
+ * @param {string} packageRoot
+ * @returns {Set<string>}
+ */
+function readPackageBinNames(packageRoot: string): Set<string> {
+  const packageJson = readJson(path.join(packageRoot, 'package.json'));
+  const bins = packageJson.bin;
+  if (!bins || typeof bins !== 'object' || Array.isArray(bins)) {
+    return new Set();
+  }
+
+  return new Set(Object.keys(bins));
+}
+
+/**
+ * Splits the generated script snippets into tokens. The template intentionally avoids shell quoting.
+ *
+ * @param {string} command
+ * @returns {string[]}
+ */
+function tokenizeScript(command: string): string[] {
+  return command.trim().split(/\s+/u).filter(Boolean);
+}
+
+/**
+ * Returns true for concrete path-like script arguments while leaving ids and placeholders alone.
+ *
+ * @param {string} value
+ * @returns {boolean}
+ */
+function isPathLikeArgument(value: string): boolean {
+  return value.includes('/') || value.includes(path.sep) || /\.[a-z0-9]+$/iu.test(value);
+}
+
+/**
+ * Validates the generated package-script snippets against installed CLI bins and project-local inputs.
+ *
+ * @param {{packageRoot?: string, rootDir: string}} options
+ * @returns {ProjectValidationScripts}
+ */
+function validatePackageScripts({
+  packageRoot = defaultPackageRoot(),
+  rootDir,
+}: {
+  packageRoot?: string;
+  rootDir: string;
+}): ProjectValidationScripts {
+  const scriptPath = path.join(rootDir, 'asl', 'package-scripts.json');
+  if (!fs.existsSync(scriptPath)) {
+    return {
+      missingPaths: [],
+      missingScripts: REQUIRED_PACKAGE_SCRIPT_NAMES,
+      path: scriptPath,
+      scriptNames: [],
+      status: 'missing',
+      unknownCommands: [],
+    };
+  }
+
+  const scripts = readJson(scriptPath);
+  const binNames = readPackageBinNames(packageRoot);
+  const scriptNames = Object.keys(scripts).sort();
+  const missingScripts = REQUIRED_PACKAGE_SCRIPT_NAMES.filter((scriptName) => !(scriptName in scripts));
+  const commandNames = new Set<string>();
+  const missingPaths = new Set<string>();
+
+  for (const value of Object.values(scripts)) {
+    if (typeof value !== 'string') {
+      continue;
+    }
+
+    const tokens = tokenizeScript(value);
+    if (tokens[0]) {
+      commandNames.add(tokens[0]);
+    }
+
+    for (let index = 0; index < tokens.length; index += 1) {
+      const token = tokens[index];
+      const next = tokens[index + 1];
+      if (!token || !PATH_ARGUMENT_FLAGS.has(token) || !next || next.startsWith('<') || !isPathLikeArgument(next)) {
+        continue;
+      }
+
+      const candidatePath = path.resolve(rootDir, next);
+      if (!fs.existsSync(candidatePath)) {
+        missingPaths.add(candidatePath);
+      }
+    }
+  }
+
+  const unknownCommands = [...commandNames].filter((commandName) => !binNames.has(commandName)).sort();
+  return {
+    missingPaths: [...missingPaths].sort(),
+    missingScripts,
+    path: scriptPath,
+    scriptNames,
+    status: missingScripts.length > 0 || missingPaths.size > 0 || unknownCommands.length > 0 ? 'incomplete' : 'present',
+    unknownCommands,
+  };
+}
+
+/**
  * Validates a generated or hand-authored Agent Scenario Loop project.
  *
  * @param {{rootDir?: string, platform?: string}} [options]
  * @returns {Promise<ProjectValidationResult>}
  */
 async function validateProject(options: {
+  packageRoot?: string;
   rootDir?: string;
   platform?: string;
 } = {}): Promise<ProjectValidationResult> {
@@ -200,6 +336,10 @@ async function validateProject(options: {
     .filter((filePath) => path.basename(filePath) !== 'primary-runner.json');
   const scenarioPaths = listJsonFiles(path.join(rootDir, 'scenarios', 'mobile'));
   const appHelper = validateAppHelper(rootDir);
+  const scripts = validatePackageScripts({
+    ...(options.packageRoot ? { packageRoot: options.packageRoot } : {}),
+    rootDir,
+  });
   const errors: string[] = [];
   const plans: ProjectValidationPlan[] = [];
 
@@ -225,6 +365,20 @@ async function validateProject(options: {
     errors.push(`Missing app profile-session helper: ${appHelper.path}`);
   } else if (appHelper.status === 'incomplete') {
     errors.push(`App profile-session helper is missing export(s): ${appHelper.missingExports.join(', ')}.`);
+  }
+
+  if (scripts.status === 'missing') {
+    errors.push(`Missing package-script snippets: ${scripts.path}`);
+  } else if (scripts.status === 'incomplete') {
+    if (scripts.missingScripts.length > 0) {
+      errors.push(`Package-script snippets are missing script(s): ${scripts.missingScripts.join(', ')}.`);
+    }
+    if (scripts.unknownCommands.length > 0) {
+      errors.push(`Package-script snippets reference unknown command(s): ${scripts.unknownCommands.join(', ')}.`);
+    }
+    if (scripts.missingPaths.length > 0) {
+      errors.push(`Package-script snippets reference missing path(s): ${scripts.missingPaths.join(', ')}.`);
+    }
   }
 
   if (errors.length === 0) {
@@ -264,6 +418,7 @@ async function validateProject(options: {
     providerPaths,
     rootDir,
     runnerPath,
+    scripts,
     scenarioPaths,
     status: errors.length > 0 ? 'failed' : 'passed',
   };
@@ -281,6 +436,7 @@ function formatResult(result: ProjectValidationResult): string {
     `Root: ${result.rootDir}`,
     `Config: ${result.configPath}`,
     `App helper: ${result.appHelper.status}`,
+    `Package scripts: ${result.scripts.status}`,
     `Scenarios: ${result.scenarioPaths.length}`,
     `Providers: ${result.providerPaths.length}`,
     ...(result.plans.length > 0
@@ -353,6 +509,7 @@ export {
   usage,
   validateProject,
   validateAppHelper,
+  validatePackageScripts,
 };
 
 export type {
@@ -360,4 +517,5 @@ export type {
   ProjectValidationAppHelper,
   ProjectValidationPlan,
   ProjectValidationResult,
+  ProjectValidationScripts,
 };

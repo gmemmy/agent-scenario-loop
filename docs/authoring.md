@@ -29,6 +29,8 @@ After filling in app identifiers, validate the whole initialized project before 
 asl-validate-project --root . --platform all --out artifacts/asl/project-validation
 ```
 
+Project validation checks the app-side profile-session helper, package-script snippets, project config, scenario manifests, runner manifests, provider manifests, and planner compatibility.
+
 ## Templates
 
 You can also copy these files manually and rename them as needed:
@@ -40,7 +42,7 @@ You can also copy these files manually and rename them as needed:
 | `templates/primary-runner.json` | Primary runner capability manifest |
 | `templates/evidence-provider.json` | Optional evidence-provider manifest |
 | `templates/integration-readme.md` | Consumer-app wiring guide generated into `asl/README.md` |
-| `templates/package-scripts.json` | Package-script snippets generated into `asl/package-scripts.json` |
+| `templates/package-scripts.json` | Package-script snippets generated into `asl/package-scripts.json` and checked by project validation |
 
 The JSON templates are schema-checked, and every shipped template is checked by package smoke. They intentionally use neutral placeholder names.
 

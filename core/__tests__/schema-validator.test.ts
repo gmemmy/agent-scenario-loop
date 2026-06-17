@@ -411,6 +411,14 @@ test('accepts project validation artifacts', () => {
     providerPaths: ['/app/runner-manifests/evidence-provider.json'],
     rootDir: '/app',
     runnerPath: '/app/runner-manifests/primary-runner.json',
+    scripts: {
+      missingPaths: [],
+      missingScripts: [],
+      path: '/app/asl/package-scripts.json',
+      scriptNames: ['asl:check:ios', 'asl:validate'],
+      status: 'present',
+      unknownCommands: [],
+    },
     scenarioPaths: ['/app/scenarios/mobile/checkout-submit.json'],
     status: 'passed',
   };

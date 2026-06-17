@@ -685,6 +685,10 @@ function main(): void {
       fs.existsSync(path.join(initOutputDir, 'artifacts', 'asl', 'project-validation', 'project-validation.json')),
       true,
     );
+    const initializedValidation = JSON.parse(
+      fs.readFileSync(path.join(initOutputDir, 'artifacts', 'asl', 'project-validation', 'project-validation.json'), 'utf8'),
+    );
+    assert.equal(initializedValidation.scripts.status, 'present');
 
     for (const binaryName of Object.keys(packageJson.bin).sort()) {
       const helpText = run(packageBinPath(installDir, binaryName), ['--help'], {
