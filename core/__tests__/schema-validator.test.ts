@@ -356,6 +356,13 @@ test('accepts aggregate live proof artifacts', () => {
         verdictStatus: 'passed',
       },
     ],
+    comparisonCounts: {
+      better: 1,
+      inconclusive: 0,
+      skipped: 1,
+      unchanged: 0,
+      worse: 0,
+    },
     comparisonStatus: 'inconclusive',
     nextAction: {
       code: 'inspect_inconclusive',

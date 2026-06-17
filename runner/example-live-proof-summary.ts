@@ -29,6 +29,7 @@ type LiveProofComparisonPointer = {
 
 type LiveProofArtifact = {
   comparisons: LiveProofComparisonPointer[];
+  comparisonCounts: LiveProofComparisonCounts;
   comparisonStatus: LiveProofComparisonStatus;
   nextAction: LiveProofNextAction;
   outputDir: string;
@@ -53,6 +54,14 @@ type LiveProofComparisonStatus = (
   'regressed' |
   'unchanged'
 );
+
+type LiveProofComparisonCounts = {
+  better: number;
+  inconclusive: number;
+  skipped: number;
+  unchanged: number;
+  worse: number;
+};
 
 type LiveProofNextAction = {
   code: 'establish_baseline' | 'inspect_inconclusive' | 'inspect_regressions' | 'inspect_summary';
@@ -151,6 +160,28 @@ function buildLiveProofComparisonStatus(
 }
 
 /**
+ * Counts per-scenario comparison outcomes for agent-readable aggregate summaries.
+ *
+ * @param {LiveProofComparisonPointer[]} comparisons
+ * @returns {LiveProofComparisonCounts}
+ */
+function buildLiveProofComparisonCounts(
+  comparisons: LiveProofComparisonPointer[],
+): LiveProofComparisonCounts {
+  const counts: LiveProofComparisonCounts = {
+    better: 0,
+    inconclusive: 0,
+    skipped: 0,
+    unchanged: 0,
+    worse: 0,
+  };
+  for (const comparison of comparisons) {
+    counts[comparison.status] += 1;
+  }
+  return counts;
+}
+
+/**
  * Builds the next action an agent should take after reading the batch proof.
  *
  * @param {LiveProofComparisonStatus} comparisonStatus
@@ -197,6 +228,7 @@ function buildLiveProofMarkdown(artifact: LiveProofArtifact): string {
     `Status: ${artifact.status}`,
     `Run: ${artifact.runId}`,
     `Comparison status: ${artifact.comparisonStatus}`,
+    `Comparison counts: better=${artifact.comparisonCounts.better} worse=${artifact.comparisonCounts.worse} unchanged=${artifact.comparisonCounts.unchanged} inconclusive=${artifact.comparisonCounts.inconclusive} skipped=${artifact.comparisonCounts.skipped}`,
     `Next action: ${artifact.nextAction.code} - ${artifact.nextAction.summary}`,
     `Summary: ${artifact.summary}`,
     '',
@@ -245,8 +277,10 @@ async function writeLiveProofSummary({
   const liveProofDir = path.join(outputDir, '_live-proof', runId);
   const layout = createArtifactLayout({ outputDir: liveProofDir });
   const comparisonStatus = buildLiveProofComparisonStatus(comparisons);
+  const comparisonCounts = buildLiveProofComparisonCounts(comparisons);
   const artifact: LiveProofArtifact = {
     comparisons,
+    comparisonCounts,
     comparisonStatus,
     nextAction: buildLiveProofNextAction(comparisonStatus),
     outputDir,
@@ -294,6 +328,7 @@ async function writeLiveProofSummary({
 }
 
 export {
+  buildLiveProofComparisonCounts,
   buildLiveProofComparisonStatus,
   buildLiveProofMarkdown,
   buildLiveProofNextAction,
@@ -304,6 +339,7 @@ export {
 
 export type {
   LiveProofArtifact,
+  LiveProofComparisonCounts,
   LiveProofComparisonPointer,
   LiveProofComparisonStatus,
   LiveProofNextAction,

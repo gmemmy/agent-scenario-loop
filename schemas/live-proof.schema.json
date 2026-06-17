@@ -13,6 +13,7 @@
     "preflight",
     "profiles",
     "comparisons",
+    "comparisonCounts",
     "comparisonStatus",
     "nextAction",
     "summary"
@@ -50,6 +51,9 @@
       "items": {
         "$ref": "#/$defs/comparisonPointer"
       }
+    },
+    "comparisonCounts": {
+      "$ref": "#/$defs/comparisonCounts"
     },
     "comparisonStatus": {
       "type": "string",
@@ -147,6 +151,33 @@
         },
         "reason": {
           "type": ["string", "null"]
+        }
+      }
+    },
+    "comparisonCounts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["better", "worse", "unchanged", "inconclusive", "skipped"],
+      "properties": {
+        "better": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "worse": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "unchanged": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "inconclusive": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "skipped": {
+          "type": "integer",
+          "minimum": 0
         }
       }
     },

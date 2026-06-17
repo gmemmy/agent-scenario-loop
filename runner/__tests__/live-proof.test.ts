@@ -55,6 +55,21 @@ function buildProof(comparisonStatus: 'regressed' | 'unchanged'): Record<string,
         reason: null,
       },
     ],
+    comparisonCounts: comparisonStatus === 'regressed'
+      ? {
+          better: 0,
+          inconclusive: 0,
+          skipped: 0,
+          unchanged: 0,
+          worse: 1,
+        }
+      : {
+          better: 0,
+          inconclusive: 0,
+          skipped: 0,
+          unchanged: 1,
+          worse: 0,
+        },
     comparisonStatus,
     nextAction: {
       code: comparisonStatus === 'regressed' ? 'inspect_regressions' : 'inspect_summary',
@@ -85,6 +100,7 @@ test('reads, validates, and formats live-proof artifacts', async (t: TestContext
   assert.equal(proof.comparisonStatus, 'unchanged');
   assert.match(output, /Live proof: android android-live-proof/u);
   assert.match(output, /startup \(app-startup\/android-live-startup\): health=passed verdict=passed/u);
+  assert.match(output, /Comparison counts: better=0 worse=0 unchanged=1 inconclusive=0 skipped=0/u);
   assert.match(output, /Next action: inspect_summary/u);
   assert.equal(shouldFailOnRegression({ failOnRegression: true, proof }), false);
 });

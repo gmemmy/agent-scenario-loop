@@ -183,6 +183,13 @@ test('runs the packaged iOS example live proof with a fake simctl executor', asy
   assert.equal(aggregate.platform, 'ios');
   assert.equal(aggregate.runId, 'ios-live-proof-pr-123');
   assert.equal(aggregate.comparisonStatus, 'unchanged');
+  assert.deepEqual(aggregate.comparisonCounts, {
+    better: 0,
+    inconclusive: 0,
+    skipped: 0,
+    unchanged: 3,
+    worse: 0,
+  });
   assert.equal(aggregate.nextAction.code, 'inspect_summary');
   assert.equal(aggregate.profiles.length, 3);
   assert.deepEqual(

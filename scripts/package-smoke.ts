@@ -1162,6 +1162,7 @@ function main(): void {
       env,
     });
     assert.match(exampleLiveProofOutput, /Comparison status: unchanged/u);
+    assert.match(exampleLiveProofOutput, /Comparison counts: better=0 worse=0 unchanged=3 inconclusive=0 skipped=0/u);
     assert.match(exampleLiveProofOutput, /startup \(app-startup\/android-live-startup-smoke\): health=passed verdict=passed/u);
     assert.match(exampleLiveProofOutput, /Next action: inspect_summary/u);
     for (const [scenarioDir, runId] of [

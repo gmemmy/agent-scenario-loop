@@ -13,6 +13,13 @@ type CliArgs = {
 };
 
 type LiveProofArtifact = {
+  comparisonCounts: {
+    better: number;
+    inconclusive: number;
+    skipped: number;
+    unchanged: number;
+    worse: number;
+  };
   comparisonStatus: string;
   comparisons: unknown[];
   nextAction: {
@@ -105,6 +112,7 @@ function formatLiveProof(proof: LiveProofArtifact): string {
       `- ${profile.label} (${profile.scenarioId}/${profile.runId}): health=${profile.healthStatus} verdict=${profile.verdictStatus}`
     )),
     `Comparisons: ${proof.comparisons.length}`,
+    `Comparison counts: better=${proof.comparisonCounts.better} worse=${proof.comparisonCounts.worse} unchanged=${proof.comparisonCounts.unchanged} inconclusive=${proof.comparisonCounts.inconclusive} skipped=${proof.comparisonCounts.skipped}`,
     `Next action: ${proof.nextAction.code} - ${proof.nextAction.summary}`,
     `Summary: ${proof.summary}`,
   ].join('\n');

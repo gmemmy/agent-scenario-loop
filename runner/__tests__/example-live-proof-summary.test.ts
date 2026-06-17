@@ -2,6 +2,7 @@ const assert = require('node:assert/strict');
 const test = require('node:test');
 
 const {
+  buildLiveProofComparisonCounts,
   buildLiveProofComparisonStatus,
   buildLiveProofNextAction,
 } = require('../example-live-proof-summary');
@@ -33,6 +34,26 @@ test('collapses live proof comparisons into aggregate statuses', () => {
   assert.equal(buildLiveProofComparisonStatus([comparison('better'), comparison('unchanged')]), 'improved');
   assert.equal(buildLiveProofComparisonStatus([comparison('unchanged')]), 'unchanged');
   assert.equal(buildLiveProofComparisonStatus([comparison('better'), comparison('worse')]), 'regressed');
+});
+
+test('counts live proof comparison outcomes', () => {
+  assert.deepEqual(
+    buildLiveProofComparisonCounts([
+      comparison('better'),
+      comparison('worse'),
+      comparison('unchanged'),
+      comparison('unchanged'),
+      comparison('inconclusive'),
+      comparison('skipped'),
+    ]),
+    {
+      better: 1,
+      inconclusive: 1,
+      skipped: 1,
+      unchanged: 2,
+      worse: 1,
+    },
+  );
 });
 
 test('maps aggregate live proof statuses to next actions', () => {
