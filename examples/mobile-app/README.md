@@ -79,7 +79,7 @@ The command targets the booted simulator and the example app bundle id by defaul
 ASL_EXAMPLE_IOS_DEVICE=<simulator-udid> ASL_EXAMPLE_METRO_PORT=8097 pnpm example:app:ios:metro-port
 ```
 
-If a selected Xcode beta cannot run the current Expo/RN toolchain cleanly, point `ASL_EXAMPLE_XCODE_DEVELOPER_DIR` at a stable Xcode developer directory before running the iOS Metro-port command or raw local iOS build commands.
+If a selected Xcode beta cannot run the current Expo/RN toolchain cleanly, point `ASL_EXAMPLE_XCODE_DEVELOPER_DIR` at a stable Xcode developer directory before running the iOS Metro-port, live proof, or raw local iOS build commands.
 
 ## Files
 
@@ -246,10 +246,10 @@ Add `--fail-on-regression` when the aggregate command should return a nonzero ex
 pnpm example:ios:live -- --run-suffix after-change --compare-latest --fail-on-regression
 ```
 
-If global `xcode-select` points at a beta Xcode whose simulator services are not ready, set `DEVELOPER_DIR` before the Node runner starts:
+If global `xcode-select` points at a beta Xcode whose simulator services are not ready, set `ASL_EXAMPLE_XCODE_DEVELOPER_DIR` before the Node runner starts:
 
 ```bash
-DEVELOPER_DIR=<xcode-app>/Contents/Developer pnpm example:ios:live -- --device <booted-simulator-udid>
+ASL_EXAMPLE_XCODE_DEVELOPER_DIR=<xcode-app>/Contents/Developer pnpm example:ios:live -- --device <booted-simulator-udid>
 ```
 
 If direct `xcrun simctl list devices` works but the Node-based runner reports `ios_simctl_unavailable`, the runner may be inside an agent sandbox without CoreSimulator access. Rerun with simulator/CoreSimulator permissions before treating the failure as an app or Xcode setup regression.

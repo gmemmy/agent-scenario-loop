@@ -215,6 +215,12 @@ pnpm example:app:start:isolated
 
 The prebuild command regenerates the ignored example-app `ios/` directory from committed Expo config, patches, and config plugins. Keep the generated native output local; the package ships the reproducible inputs instead.
 
+If global `xcode-select` points at a beta Xcode whose simulator services are not ready, set `ASL_EXAMPLE_XCODE_DEVELOPER_DIR` to a stable Xcode developer directory before running the iOS example commands:
+
+```bash
+ASL_EXAMPLE_XCODE_DEVELOPER_DIR=<stable-xcode-app>/Contents/Developer pnpm example:ios:live
+```
+
 ```bash
 pnpm example:ios:live
 ```
