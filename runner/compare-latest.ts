@@ -32,6 +32,17 @@ type CompareLatestResult = {
   currentDir: string;
 };
 
+type LatestTrustedSelection = {
+  artifactRoot: string;
+  candidatesInspected: number;
+  scenarioId: string;
+  selectedRunDir: string;
+  selectedRunId: string;
+  skippedCurrentRun: boolean;
+  trustedCandidates: number;
+  trustedPriorCandidates: number;
+};
+
 /**
  * Prints CLI usage to stderr.
  *
@@ -112,6 +123,43 @@ function findLatestTrustedPriorRun({
 }
 
 /**
+ * Builds stable provenance for the latest-trusted baseline selection.
+ *
+ * @param {{baseline: RunIndexEntry, currentDir: string, index: RunIndex, rootDir: string, scenarioId: string}} options
+ * @returns {LatestTrustedSelection}
+ */
+function buildLatestTrustedSelection({
+  baseline,
+  currentDir,
+  index,
+  rootDir,
+  scenarioId,
+}: {
+  baseline: RunIndexEntry;
+  currentDir: string;
+  index: RunIndex;
+  rootDir: string;
+  scenarioId: string;
+}): LatestTrustedSelection {
+  const resolvedCurrentDir = path.resolve(currentDir);
+  const trustedPriorCandidates = index.trusted.filter((entry) => (
+    entry.scenarioId === scenarioId &&
+    path.resolve(entry.runDir) !== resolvedCurrentDir
+  ));
+
+  return {
+    artifactRoot: rootDir,
+    candidatesInspected: index.entries.length,
+    scenarioId,
+    selectedRunDir: baseline.runDir,
+    selectedRunId: baseline.runId,
+    skippedCurrentRun: index.entries.some((entry) => path.resolve(entry.runDir) === resolvedCurrentDir),
+    trustedCandidates: index.trusted.length,
+    trustedPriorCandidates: trustedPriorCandidates.length,
+  };
+}
+
+/**
  * Builds a comparison against the latest trusted prior run in an artifact root.
  *
  * @param {CompareLatestOptions} options
@@ -133,7 +181,9 @@ function compareLatestTrustedRun({
     currentDir: resolvedCurrentDir,
   });
   if (!baseline) {
-    throw new Error(`No trusted prior run found for scenario '${scenarioId}' under ${resolvedRootDir}.`);
+    throw new Error(
+      `No trusted prior run found for scenario '${scenarioId}' under ${resolvedRootDir}; inspected ${index.entries.length} candidate run(s), ${index.trusted.length} trusted.`,
+    );
   }
 
   return {
@@ -141,6 +191,14 @@ function compareLatestTrustedRun({
     comparison: compareRunDirectories({
       baselineDir: baseline.runDir,
       currentDir: resolvedCurrentDir,
+      selection: buildLatestTrustedSelection({
+        baseline,
+        currentDir: resolvedCurrentDir,
+        index,
+        rootDir: resolvedRootDir,
+        scenarioId,
+      }),
+      strategy: 'latest_trusted_prior',
     }),
     currentDir: resolvedCurrentDir,
   };
@@ -212,6 +270,7 @@ if (require.main === module) {
 
 export {
   assertComparableCurrentRun,
+  buildLatestTrustedSelection,
   compareLatestTrustedRun,
   findLatestTrustedPriorRun,
   main,

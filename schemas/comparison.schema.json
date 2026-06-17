@@ -43,6 +43,9 @@
       "type": "string",
       "enum": ["passed", "failed", "inconclusive", "not_evaluated"]
     },
+    "comparisonBasis": {
+      "$ref": "#/$defs/comparisonBasis"
+    },
     "metricComparisons": {
       "type": "array",
       "items": {
@@ -72,6 +75,78 @@
     }
   },
   "$defs": {
+    "comparisonBasis": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["strategy", "baseline", "current"],
+      "properties": {
+        "strategy": {
+          "type": "string",
+          "enum": ["explicit", "latest_trusted_prior"]
+        },
+        "baseline": {
+          "$ref": "#/$defs/comparisonRunBasis"
+        },
+        "current": {
+          "$ref": "#/$defs/comparisonRunBasis"
+        },
+        "selection": {
+          "$ref": "#/$defs/comparisonSelectionBasis"
+        }
+      }
+    },
+    "comparisonRunBasis": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["runId"],
+      "properties": {
+        "runId": {
+          "type": "string"
+        },
+        "runDir": {
+          "type": "string"
+        },
+        "healthStatus": {
+          "type": "string"
+        },
+        "verdictStatus": {
+          "type": "string"
+        }
+      }
+    },
+    "comparisonSelectionBasis": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "artifactRoot": {
+          "type": "string"
+        },
+        "candidatesInspected": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "scenarioId": {
+          "type": "string"
+        },
+        "selectedRunDir": {
+          "type": "string"
+        },
+        "selectedRunId": {
+          "type": "string"
+        },
+        "skippedCurrentRun": {
+          "type": "boolean"
+        },
+        "trustedCandidates": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "trustedPriorCandidates": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
     "metricComparison": {
       "type": "object",
       "additionalProperties": false,

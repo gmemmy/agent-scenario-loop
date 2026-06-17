@@ -323,6 +323,31 @@ test('accepts comparison artifacts with metric and evidence details', () => {
     comparisonStatus: 'better',
     healthStatus: 'passed',
     verdictStatus: 'passed',
+    comparisonBasis: {
+      strategy: 'latest_trusted_prior',
+      baseline: {
+        runId: 'baseline-run',
+        runDir: 'artifacts/asl/android/open-close-cycle/baseline-run',
+        healthStatus: 'passed',
+        verdictStatus: 'passed',
+      },
+      current: {
+        runId: 'current-run',
+        runDir: 'artifacts/asl/android/open-close-cycle/current-run',
+        healthStatus: 'passed',
+        verdictStatus: 'passed',
+      },
+      selection: {
+        artifactRoot: 'artifacts/asl/android',
+        candidatesInspected: 4,
+        scenarioId: 'open-close-cycle',
+        selectedRunDir: 'artifacts/asl/android/open-close-cycle/baseline-run',
+        selectedRunId: 'baseline-run',
+        skippedCurrentRun: true,
+        trustedCandidates: 3,
+        trustedPriorCandidates: 2,
+      },
+    },
     metricComparisons: [
       {
         name: 'open p95',

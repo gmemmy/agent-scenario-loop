@@ -24,9 +24,37 @@ type MetricComparison = {
 
 type ComparisonStatus = MetricComparison['status'] | 'mixed';
 
+type ComparisonBasisStrategy = 'explicit' | 'latest_trusted_prior';
+
+type ComparisonRunBasis = {
+  healthStatus?: string;
+  runDir?: string;
+  runId: string;
+  verdictStatus?: string;
+};
+
+type ComparisonSelectionBasis = {
+  artifactRoot?: string;
+  candidatesInspected?: number;
+  scenarioId?: string;
+  selectedRunDir?: string;
+  selectedRunId?: string;
+  skippedCurrentRun?: boolean;
+  trustedCandidates?: number;
+  trustedPriorCandidates?: number;
+};
+
+type ComparisonBasis = {
+  baseline: ComparisonRunBasis;
+  current: ComparisonRunBasis;
+  selection?: ComparisonSelectionBasis;
+  strategy: ComparisonBasisStrategy;
+};
+
 type BuildComparisonOptions = {
   baselineHealth: ComparisonRecord;
   baselineVerdict: ComparisonRecord;
+  comparisonBasis?: ComparisonBasis;
   currentHealth: ComparisonRecord;
   currentVerdict: ComparisonRecord;
 };
@@ -34,6 +62,8 @@ type BuildComparisonOptions = {
 type CompareRunDirectoriesOptions = {
   baselineDir: string;
   currentDir: string;
+  selection?: ComparisonSelectionBasis;
+  strategy?: ComparisonBasisStrategy;
 };
 
 const MIN_MS_COMPARISON_TOLERANCE = 5;
@@ -198,6 +228,52 @@ function resolveComparisonStatus(
 }
 
 /**
+ * Builds the provenance block that explains which runs a comparison used.
+ *
+ * @param {{baselineDir: string, currentDir: string, baselineHealth: ComparisonRecord, baselineVerdict: ComparisonRecord, currentHealth: ComparisonRecord, currentVerdict: ComparisonRecord, selection?: ComparisonSelectionBasis, strategy: ComparisonBasisStrategy}} options
+ * @returns {ComparisonBasis}
+ */
+function buildComparisonBasis({
+  baselineDir,
+  currentDir,
+  baselineHealth,
+  baselineVerdict,
+  currentHealth,
+  currentVerdict,
+  selection,
+  strategy,
+}: {
+  baselineDir: string;
+  currentDir: string;
+  baselineHealth: ComparisonRecord;
+  baselineVerdict: ComparisonRecord;
+  currentHealth: ComparisonRecord;
+  currentVerdict: ComparisonRecord;
+  selection?: ComparisonSelectionBasis;
+  strategy: ComparisonBasisStrategy;
+}): ComparisonBasis {
+  const baselineRunId = String(baselineHealth.runId ?? baselineVerdict.runId ?? 'unknown-baseline');
+  const currentRunId = String(currentHealth.runId ?? currentVerdict.runId ?? 'unknown-current');
+
+  return {
+    strategy,
+    baseline: {
+      runId: baselineRunId,
+      runDir: baselineDir,
+      ...(typeof baselineHealth.healthStatus === 'string' ? { healthStatus: baselineHealth.healthStatus } : {}),
+      ...(typeof baselineVerdict.verdictStatus === 'string' ? { verdictStatus: baselineVerdict.verdictStatus } : {}),
+    },
+    current: {
+      runId: currentRunId,
+      runDir: currentDir,
+      ...(typeof currentHealth.healthStatus === 'string' ? { healthStatus: currentHealth.healthStatus } : {}),
+      ...(typeof currentVerdict.verdictStatus === 'string' ? { verdictStatus: currentVerdict.verdictStatus } : {}),
+    },
+    ...(selection ? { selection } : {}),
+  };
+}
+
+/**
  * Builds a comparison artifact from two validated run artifact sets.
  *
  * @param {BuildComparisonOptions} options
@@ -206,6 +282,7 @@ function resolveComparisonStatus(
 function buildComparisonArtifact({
   baselineHealth,
   baselineVerdict,
+  comparisonBasis,
   currentHealth,
   currentVerdict,
 }: BuildComparisonOptions): ComparisonRecord {
@@ -267,6 +344,7 @@ function buildComparisonArtifact({
     comparisonStatus,
     healthStatus: canCompare ? 'passed' : 'failed',
     verdictStatus: typeof currentVerdict.verdictStatus === 'string' ? currentVerdict.verdictStatus : 'inconclusive',
+    ...(comparisonBasis ? { comparisonBasis } : {}),
     ...(metricComparisons.length > 0 ? { metricComparisons } : {}),
     evidence: {
       missingRequired,
@@ -284,13 +362,28 @@ function buildComparisonArtifact({
  * @param {CompareRunDirectoriesOptions} options
  * @returns {Record<string, unknown>}
  */
-function compareRunDirectories({ baselineDir, currentDir }: CompareRunDirectoriesOptions): ComparisonRecord {
+function compareRunDirectories({
+  baselineDir,
+  currentDir,
+  selection,
+  strategy = 'explicit',
+}: CompareRunDirectoriesOptions): ComparisonRecord {
   const baseline = readRunArtifacts(baselineDir);
   const current = readRunArtifacts(currentDir);
 
   return buildComparisonArtifact({
     baselineHealth: baseline.health,
     baselineVerdict: baseline.verdict,
+    comparisonBasis: buildComparisonBasis({
+      baselineDir,
+      currentDir,
+      baselineHealth: baseline.health,
+      baselineVerdict: baseline.verdict,
+      currentHealth: current.health,
+      currentVerdict: current.verdict,
+      ...(selection ? { selection } : {}),
+      strategy,
+    }),
     currentHealth: current.health,
     currentVerdict: current.verdict,
   });
@@ -343,6 +436,7 @@ function summarizeComparison({
 }
 
 export {
+  buildComparisonBasis,
   buildComparisonArtifact,
   compareBudgetCheck,
   compareRunDirectories,
@@ -354,6 +448,8 @@ export {
 
 export type {
   BuildComparisonOptions,
+  ComparisonBasis,
+  ComparisonBasisStrategy,
   CompareRunDirectoriesOptions,
   ComparisonBudgetCheck,
   ComparisonRecord,

@@ -214,7 +214,7 @@ Use `compare` to build `comparison.json` from two completed run folders:
 pnpm compare -- --baseline artifacts/runs/app-startup/baseline --current artifacts/runs/app-startup/current --out artifacts/runs/app-startup/current
 ```
 
-The comparison gate is intentionally strict. If either run failed scenario health, or if the scenario ids do not match, the comparison is `inconclusive`. Numeric budget checks are compared only after that health gate passes.
+The comparison gate is intentionally strict. If either run failed scenario health, or if the scenario ids do not match, the comparison is `inconclusive`. Numeric budget checks are compared only after that health gate passes. `comparison.json` includes `comparisonBasis` with the baseline/current run ids and run directories, giving agents artifact-local provenance instead of forcing them to infer it from folder names.
 
 Use `compare:latest` when an artifact root contains run history and the agent should compare the current run against the newest trusted prior run for the same scenario:
 
@@ -222,7 +222,7 @@ Use `compare:latest` when an artifact root contains run history and the agent sh
 pnpm compare:latest -- --root artifacts/runs --scenario app-startup --current artifacts/runs/app-startup/current --out artifacts/runs/app-startup/current
 ```
 
-The latest-trusted command excludes the exact current run directory from baseline selection. Baseline trust requires passed health and passed verdict. Current runs must pass scenario health before the command will compare timing or budget evidence.
+The latest-trusted command excludes the exact current run directory from baseline selection. Baseline trust requires passed health and passed verdict. Current runs must pass scenario health before the command will compare timing or budget evidence. Latest-trusted artifacts set `comparisonBasis.strategy` to `latest_trusted_prior` and record selection counts for inspected, trusted, and trusted-prior candidates.
 
 ## Fixture loop
 

@@ -156,6 +156,31 @@ test('compares current run against latest trusted prior run', async (t: TestCont
   assert.equal(comparison.runId, 'current-run');
   assert.equal(comparison.comparisonStatus, 'better');
   assert.equal(comparison.metricComparisons[0].delta, -190);
+  assert.deepEqual(comparison.comparisonBasis, {
+    strategy: 'latest_trusted_prior',
+    baseline: {
+      runId: 'older-trusted-run',
+      runDir: path.join(rootDir, 'open-close-cycle', 'older-trusted-run'),
+      healthStatus: 'passed',
+      verdictStatus: 'passed',
+    },
+    current: {
+      runId: 'current-run',
+      runDir: currentDir,
+      healthStatus: 'passed',
+      verdictStatus: 'passed',
+    },
+    selection: {
+      artifactRoot: rootDir,
+      candidatesInspected: 3,
+      scenarioId: 'open-close-cycle',
+      selectedRunDir: path.join(rootDir, 'open-close-cycle', 'older-trusted-run'),
+      selectedRunId: 'older-trusted-run',
+      skippedCurrentRun: true,
+      trustedCandidates: 2,
+      trustedPriorCandidates: 1,
+    },
+  });
 });
 
 test('writes comparison and agent summary to output directory', async (t: TestContext) => {
@@ -260,6 +285,7 @@ test('rejects roots without a trusted prior run', async (t: TestContext) => {
       assert.ok(error instanceof Error);
       const execError = error as ExecFailure;
       assert.match(execError.stderr, /No trusted prior run/u);
+      assert.match(execError.stderr, /inspected 1 candidate run\(s\), 1 trusted/u);
       return true;
     },
   );

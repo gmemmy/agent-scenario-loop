@@ -116,6 +116,21 @@ test('prints comparison JSON for two trusted run directories', async (t: TestCon
   const comparison = JSON.parse(stdout);
   assert.equal(comparison.comparisonStatus, 'better');
   assert.equal(comparison.metricComparisons[0].delta, -300);
+  assert.deepEqual(comparison.comparisonBasis, {
+    strategy: 'explicit',
+    baseline: {
+      runId: 'baseline-run',
+      runDir: baselineDir,
+      healthStatus: 'passed',
+      verdictStatus: 'failed',
+    },
+    current: {
+      runId: 'current-run',
+      runDir: currentDir,
+      healthStatus: 'passed',
+      verdictStatus: 'passed',
+    },
+  });
 });
 
 test('writes comparison and agent summary when output is a run directory', async (t: TestContext) => {
