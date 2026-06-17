@@ -27,6 +27,8 @@ When `profile-ios` owns a simctl capture window, a scenario step with `driverAct
 
 When `profile-ios` or `profile-android` runs with `--agent-device-capture`, the profile runner executes scenario-declared portable driver actions through `agent-device` as a sidecar interaction window. App truth events still come from `--events`, `--simctl-capture`, or `--adb-capture`; agent-device contributes health-gated interaction proof and screenshots that are attached to the profile manifest.
 
+When `--agent-device-session <name>` is supplied, the sidecar lets that existing session own agent-device target selection. Direct selectors such as Android serials or iOS UDIDs can still drive the adb/simctl profile window, but they are not forwarded into the agent-device commands where they can conflict with a session lock.
+
 When iOS profile-session commands run through deep links, `ios-simctl` writes one raw file per opened URL and inventories each result in `raw/ios-metadata.json` with the label, URL, argv, exit code, wait, and raw path. A failed deep-link command fails capture health before the profile runner trusts timing evidence.
 
 The artifact contract separates scenario health, product verdict, baseline comparison, and profile evidence into schema-checked files. `health.json`, `verdict.json`, and optional `comparison.json` provide the interpretation gate; `manifest.json`, `metrics.json`, `causal-run.json`, and `budget-verdict.json` preserve the profile evidence for agents and humans.

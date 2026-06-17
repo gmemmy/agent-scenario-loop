@@ -143,6 +143,8 @@ When `agent-device` is available, the stronger aggregate path attaches the share
 pnpm example:android:live:agent-device -- --agent-device-session <name> --run-suffix after-change --compare-latest
 ```
 
+When a named `agent-device` session is supplied, ASL lets that session own agent-device target selection. Android `--serial` and iOS `--device` still apply to adb/simctl preflight and profile runs, but they are not forwarded into the agent-device sidecar where they can conflict with an existing session lock.
+
 The proof command writes:
 
 - adb preflight health under `artifacts/example-mobile-app/android/_preflight/android-live-preflight`
@@ -237,6 +239,8 @@ When `agent-device` is available, the stronger aggregate path attaches the same 
 ```bash
 pnpm example:ios:live:agent-device -- --agent-device-session <name> --run-suffix after-change --compare-latest
 ```
+
+As with Android, a named `agent-device` session owns target selection for the sidecar interaction proof. The simulator `--device` selector still applies to the simctl profile runs.
 
 Comparison artifacts are written under `artifacts/example-mobile-app/ios/comparisons/<scenario-id>/<run-id>`.
 

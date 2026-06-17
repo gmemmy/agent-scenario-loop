@@ -196,6 +196,51 @@ test('agent-device capture preserves structured CLI errors in health metadata', 
   );
 });
 
+test('agent-device capture lets named sessions own target selection', async (t: TestContext) => {
+  const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-agent-device-session-target-'));
+  t.after(async () => {
+    await fsp.rm(tempDir, { recursive: true, force: true });
+  });
+  const calls: string[] = [];
+
+  await runAgentDeviceCapture({
+    app: 'dev.example.app',
+    driverSteps: [
+      {
+        driverAction: 'assertVisible',
+        required: true,
+        selector: { kind: 'testId', value: 'home-title' },
+        stepId: 'assert-home-visible',
+      },
+    ],
+    executor: async (command: string, args: string[]): Promise<CommandResult> => {
+      calls.push(args.join(' '));
+      return {
+        args,
+        command,
+        exitCode: 0,
+        stderr: '',
+        stdout: '{"success":true}\n',
+      };
+    },
+    open: true,
+    outputDir: tempDir,
+    platform: 'android',
+    runId: 'agent-device-session-target',
+    serial: 'emulator-5554',
+    session: 'android-example',
+  });
+
+  assert.deepEqual(calls, [
+    'open dev.example.app --platform android --target mobile --session android-example --json',
+    'is visible id="home-title" --platform android --target mobile --session android-example --json',
+  ]);
+  const metadata = readJson(path.join(tempDir, 'raw', 'agent-device-metadata.json'));
+  assert.equal(metadata.requestedTarget, 'emulator-5554');
+  assert.equal(metadata.selectedTarget, 'android-example');
+  assert.equal(metadata.targetSelectionMode, 'session');
+});
+
 test('agent-device driver step expansion preserves portable selectors and options', () => {
   const scenario = {
     id: 'portable-actions',

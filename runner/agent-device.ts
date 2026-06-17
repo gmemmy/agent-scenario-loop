@@ -619,16 +619,18 @@ async function runAgentDeviceCapture({
   if (driverStepErrors.length > 0) {
     throw new Error(`Invalid agent-device driver step metadata: ${driverStepErrors.join(' ')}`);
   }
+  const sessionOwnsTarget = typeof session === 'string' && session.length > 0;
+  const requestedTarget = udid ?? serial ?? device ?? null;
 
   const driver = createAgentDeviceDriver({
     agentDevicePath,
-    ...(device ? { device } : {}),
+    ...(!sessionOwnsTarget && device ? { device } : {}),
     executor,
     platform,
-    ...(serial ? { serial } : {}),
+    ...(!sessionOwnsTarget && serial ? { serial } : {}),
     ...(session ? { session } : {}),
     target,
-    ...(udid ? { udid } : {}),
+    ...(!sessionOwnsTarget && udid ? { udid } : {}),
   });
 
   const metadata: Record<string, unknown> = {
@@ -637,9 +639,11 @@ async function runAgentDeviceCapture({
     driverActions: [],
     open,
     platform,
-    selectedTarget: udid ?? serial ?? device ?? null,
+    ...(requestedTarget ? { requestedTarget } : {}),
+    selectedTarget: sessionOwnsTarget ? session : requestedTarget,
     session,
     target,
+    targetSelectionMode: sessionOwnsTarget ? 'session' : 'direct',
   };
 
   if (open) {
