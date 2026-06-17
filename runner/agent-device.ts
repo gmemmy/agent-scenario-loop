@@ -768,6 +768,9 @@ async function main(): Promise<void> {
     waitMs: readPositiveInteger(args['wait-ms'], 0),
   });
   process.stdout.write(`${result.runDir}\n`);
+  if (result.health.healthStatus !== 'passed') {
+    process.exitCode = 1;
+  }
 }
 
 if (require.main === module) {
