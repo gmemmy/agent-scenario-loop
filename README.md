@@ -153,6 +153,7 @@ The proof command writes:
 - scroll artifacts under `artifacts/example-mobile-app/android/scroll-settle/android-live-scroll`
 - aggregate live-proof artifacts under `artifacts/example-mobile-app/android/_live-proof/android-live-proof`
 - optional interaction proof artifacts under `artifacts/example-mobile-app/android/_agent-device-captures/<run-id>`
+- sidecar screenshot inventory on the aggregate interaction proof pointer when agent-device captures screenshots
 - optional comparison artifacts under `artifacts/example-mobile-app/android/comparisons/<scenario-id>/<run-id>`
 
 The underlying profile commands remain available when you want to isolate one scenario:

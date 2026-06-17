@@ -149,6 +149,20 @@
         "verdictStatus": {
           "type": "string",
           "enum": ["passed", "failed", "inconclusive", "not_evaluated"]
+        },
+        "captures": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["screenshots"],
+          "properties": {
+            "screenshots": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
         }
       }
     },

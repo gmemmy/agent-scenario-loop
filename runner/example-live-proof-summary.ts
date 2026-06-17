@@ -17,6 +17,7 @@ type LiveProofProfilePointer = {
 };
 
 type LiveProofInteractionProofPointer = {
+  captures?: LiveProofInteractionProofCaptures;
   healthStatus?: string;
   label: string;
   runDir: string;
@@ -24,6 +25,10 @@ type LiveProofInteractionProofPointer = {
   runnerId: string;
   scenarioId: string;
   verdictStatus?: string;
+};
+
+type LiveProofInteractionProofCaptures = {
+  screenshots: string[];
 };
 
 type LiveProofComparisonPointer = {
@@ -126,6 +131,32 @@ function readProfileRunStatus(runDir: string): {healthStatus: string; verdictSta
     healthStatus: String(health.healthStatus ?? 'unknown'),
     verdictStatus: String(verdict.verdictStatus ?? 'unknown'),
   };
+}
+
+/**
+ * Reads capture inventory from a sidecar interaction proof when available.
+ *
+ * @param {string} runDir
+ * @returns {LiveProofInteractionProofCaptures | null}
+ */
+function readInteractionProofCaptures(runDir: string): LiveProofInteractionProofCaptures | null {
+  const metadataPath = path.join(runDir, 'raw', 'agent-device-metadata.json');
+  if (!fs.existsSync(metadataPath)) {
+    return null;
+  }
+
+  try {
+    const metadata = JSON.parse(fs.readFileSync(metadataPath, 'utf8')) as Record<string, unknown>;
+    const captures = metadata.captures && typeof metadata.captures === 'object' && !Array.isArray(metadata.captures)
+      ? metadata.captures as Record<string, unknown>
+      : null;
+    const screenshots = Array.isArray(captures?.screenshots)
+      ? captures.screenshots.filter((value: unknown): value is string => typeof value === 'string' && value.length > 0)
+      : [];
+    return screenshots.length > 0 ? { screenshots } : null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -295,6 +326,17 @@ function formatComparisonMetricSummary(comparison: LiveProofComparisonPointer): 
 }
 
 /**
+ * Formats sidecar capture inventory for aggregate markdown.
+ *
+ * @param {LiveProofInteractionProofPointer} proof
+ * @returns {string}
+ */
+function formatInteractionProofCaptures(proof: LiveProofInteractionProofPointer): string {
+  const screenshotCount = proof.captures?.screenshots.length ?? 0;
+  return screenshotCount > 0 ? ` screenshots=${screenshotCount}` : '';
+}
+
+/**
  * Builds markdown for the aggregate live proof entrypoint.
  *
  * @param {LiveProofArtifact} artifact
@@ -328,7 +370,7 @@ function buildLiveProofMarkdown(artifact: LiveProofArtifact): string {
       '## Interaction Proofs',
       '',
       ...artifact.interactionProofs.map((proof) => (
-        `- ${proof.label} (${proof.runnerId}/${proof.scenarioId}): health=${proof.healthStatus} verdict=${proof.verdictStatus} - ${proof.summaryPath}`
+        `- ${proof.label} (${proof.runnerId}/${proof.scenarioId}): health=${proof.healthStatus} verdict=${proof.verdictStatus}${formatInteractionProofCaptures(proof)} - ${proof.summaryPath}`
       )),
     );
   }
@@ -378,15 +420,19 @@ async function writeLiveProofSummary({
     platform,
     ...(interactionProofs.length > 0
       ? {
-          interactionProofs: interactionProofs.map((proof) => ({
-            ...readProfileRunStatus(proof.runDir),
-            label: proof.label,
-            runDir: proof.runDir,
-            runId: proof.runId,
-            runnerId: proof.runnerId,
-            scenarioId: proof.scenarioId,
-            summaryPath: path.join(proof.runDir, 'agent-summary.md'),
-          })),
+          interactionProofs: interactionProofs.map((proof) => {
+            const captures = readInteractionProofCaptures(proof.runDir);
+            return {
+              ...readProfileRunStatus(proof.runDir),
+              ...(captures ? { captures } : {}),
+              label: proof.label,
+              runDir: proof.runDir,
+              runId: proof.runId,
+              runnerId: proof.runnerId,
+              scenarioId: proof.scenarioId,
+              summaryPath: path.join(proof.runDir, 'agent-summary.md'),
+            };
+          }),
         }
       : {}),
     preflight: {
@@ -439,6 +485,8 @@ export {
   buildLiveProofNextAction,
   buildLiveProofSummary,
   formatComparisonMetricSummary,
+  formatInteractionProofCaptures,
+  readInteractionProofCaptures,
   readProfileRunStatus,
   writeLiveProofSummary,
 };
@@ -449,6 +497,7 @@ export type {
   LiveProofComparisonMetricSummary,
   LiveProofComparisonPointer,
   LiveProofComparisonStatus,
+  LiveProofInteractionProofCaptures,
   LiveProofInteractionProofPointer,
   LiveProofNextAction,
   LiveProofPlatform,

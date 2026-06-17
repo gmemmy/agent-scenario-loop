@@ -28,6 +28,9 @@ type LiveProofArtifact = {
     summary: string;
   };
   interactionProofs?: Array<{
+    captures?: {
+      screenshots?: string[];
+    };
     healthStatus: string;
     label: string;
     runDir: string;
@@ -274,6 +277,17 @@ function formatComparisonPointerMetrics(comparison: LiveProofComparisonPointer):
 }
 
 /**
+ * Formats capture counts for one interaction proof pointer.
+ *
+ * @param {{captures?: {screenshots?: string[]}}} proofPointer
+ * @returns {string}
+ */
+function formatInteractionProofCaptures(proofPointer: {captures?: {screenshots?: string[]}}): string {
+  const screenshotCount = proofPointer.captures?.screenshots?.length ?? 0;
+  return screenshotCount > 0 ? ` screenshots=${screenshotCount}` : '';
+}
+
+/**
  * Reads and validates a live-proof artifact.
  *
  * @param {string} filePath
@@ -304,7 +318,7 @@ function formatLiveProof(proof: LiveProofArtifact): string {
     )),
     `Interaction proofs: ${proof.interactionProofs?.length ?? 0}`,
     ...(proof.interactionProofs ?? []).map((proofPointer) => (
-      `- ${proofPointer.label} (${proofPointer.runnerId}/${proofPointer.scenarioId}/${proofPointer.runId}): health=${proofPointer.healthStatus} verdict=${proofPointer.verdictStatus}`
+      `- ${proofPointer.label} (${proofPointer.runnerId}/${proofPointer.scenarioId}/${proofPointer.runId}): health=${proofPointer.healthStatus} verdict=${proofPointer.verdictStatus}${formatInteractionProofCaptures(proofPointer)}`
     )),
     `Comparisons: ${proof.comparisons.length}`,
     `Comparison counts: better=${proof.comparisonCounts.better} worse=${proof.comparisonCounts.worse} unchanged=${proof.comparisonCounts.unchanged} mixed=${proof.comparisonCounts.mixed} inconclusive=${proof.comparisonCounts.inconclusive} skipped=${proof.comparisonCounts.skipped}`,
@@ -375,6 +389,7 @@ export {
   deriveLiveProofComparisonStatus,
   expectedLiveProofNextActionCode,
   formatComparisonPointerMetrics,
+  formatInteractionProofCaptures,
   formatLiveProof,
   main,
   parseArgs,
