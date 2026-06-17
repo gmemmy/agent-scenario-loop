@@ -65,6 +65,10 @@
       "types": "./dist/runner/agent-device-driver.d.ts",
       "require": "./dist/runner/agent-device-driver.js"
     },
+    "./runner/argent-driver": {
+      "types": "./dist/runner/argent-driver.d.ts",
+      "require": "./dist/runner/argent-driver.js"
+    },
     "./runner/agent-device": {
       "types": "./dist/runner/agent-device.d.ts",
       "require": "./dist/runner/agent-device.js"

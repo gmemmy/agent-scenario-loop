@@ -12,7 +12,7 @@
     "screenshot",
     "uiTree"
   ],
-  "driverActions": ["tap", "scroll", "assertVisible", "inspectTree", "screenshot", "readLogs"],
+  "driverActions": ["tap", "scroll", "assertVisible", "inspectTree", "screenshot"],
   "artifactOutputs": ["logs", "signals", "screenshot", "uiTree"],
   "lifecycle": [
     "prepare",

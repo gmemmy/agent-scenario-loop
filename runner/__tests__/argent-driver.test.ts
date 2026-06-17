@@ -1,0 +1,155 @@
+const assert = require('node:assert/strict');
+const test = require('node:test');
+
+const {
+  buildArgentRunArgs,
+  createArgentDriver,
+  extractArgentScreenshotPath,
+  formatArgentRawOutput,
+  isArgentRootOnlyDescription,
+  matchesArgentSelector,
+  normalizeArgentPoint,
+  parseArgentRunJson,
+} = require('../argent-driver');
+
+type CommandResult = {
+  args: string[];
+  command: string;
+  exitCode: number;
+  stderr: string;
+  stdout: string;
+};
+
+/**
+ * Creates a fake Argent executor from argument-keyed responses.
+ *
+ * @param {Record<string, Partial<CommandResult>>} responses
+ * @returns {(command: string, args: string[]) => Promise<CommandResult>}
+ */
+function createExecutor(responses: Record<string, Partial<CommandResult>>) {
+  return async (command: string, args: string[]): Promise<CommandResult> => {
+    const key = args.join(' ');
+    const response = responses[key] ?? { exitCode: 1, stderr: `unexpected command: ${key}` };
+    return {
+      command,
+      args,
+      exitCode: response.exitCode ?? 0,
+      stderr: response.stderr ?? '',
+      stdout: response.stdout ?? '',
+    };
+  };
+}
+
+test('argent driver builds stable run args for npx and global binaries', () => {
+  assert.deepEqual(
+    buildArgentRunArgs({
+      argentCommand: 'npx',
+      baseArgs: ['--yes', '@swmansion/argent', 'run'],
+      deviceId: 'SIM-123',
+      executor: createExecutor({}),
+    }, 'screenshot', ['--includeImageInContext', 'false']),
+    ['--yes', '@swmansion/argent', 'run', 'screenshot', '--udid', 'SIM-123', '--includeImageInContext', 'false'],
+  );
+
+  assert.deepEqual(
+    buildArgentRunArgs({
+      argentCommand: 'argent',
+      deviceFlag: '--serial',
+      deviceId: 'emulator-5554',
+      executor: createExecutor({}),
+    }, 'gesture-tap', ['--x', '0.5', '--y', '0.25']),
+    ['run', 'gesture-tap', '--serial', 'emulator-5554', '--x', '0.5', '--y', '0.25'],
+  );
+});
+
+test('argent driver normalizes pixel coordinates when screen size is known', () => {
+  assert.deepEqual(
+    normalizeArgentPoint({ screenSize: { height: 2000, width: 1000 }, x: 500, y: 250 }),
+    { x: 0.5, y: 0.125 },
+  );
+  assert.deepEqual(normalizeArgentPoint({ x: 0.5, y: 0.125 }), { x: 0.5, y: 0.125 });
+  assert.throws(
+    () => normalizeArgentPoint({ screenSize: { height: 0, width: 1000 }, x: 1, y: 1 }),
+    /screen size must have positive width and height/u,
+  );
+});
+
+test('argent driver parses structured output and screenshot paths', () => {
+  assert.deepEqual(parseArgentRunJson('{"description":"Ready"}\n'), { description: 'Ready' });
+  assert.equal(extractArgentScreenshotPath('Saved screenshot: /tmp/argent-screen.png\n'), '/tmp/argent-screen.png');
+  assert.equal(extractArgentScreenshotPath('{"path":"/tmp/argent-json.png"}'), '/tmp/argent-json.png');
+  assert.equal(isArgentRootOnlyDescription('{"description":"ROOT"}'), true);
+  assert.equal(isArgentRootOnlyDescription('{"description":"Ready"}'), false);
+});
+
+test('argent driver maps lifecycle, gestures, screenshots, and descriptions', async () => {
+  const executor = createExecutor({
+    '--yes @swmansion/argent run launch-app --udid SIM-123 --bundleId dev.example.app': {
+      stdout: '{"success":true}\n',
+    },
+    '--yes @swmansion/argent run open-url --udid SIM-123 --url example://profile/start': {
+      stdout: '{"success":true}\n',
+    },
+    '--yes @swmansion/argent run gesture-tap --udid SIM-123 --x 0.5 --y 0.25': {
+      stdout: '{"success":true}\n',
+    },
+    '--yes @swmansion/argent run gesture-swipe --udid SIM-123 --fromX 0.5 --fromY 0.8 --toX 0.5 --toY 0.2 --durationMs 250': {
+      stdout: '{"success":true}\n',
+    },
+    '--yes @swmansion/argent run screenshot --udid SIM-123 --includeImageInContext false': {
+      stdout: 'Saved screenshot: /tmp/argent-screen.png\n',
+    },
+    '--yes @swmansion/argent run describe --udid SIM-123 --bundleId dev.example.app': {
+      stdout: '{"description":"Home Ready"}\n',
+    },
+  });
+  const driver = createArgentDriver({
+    appId: 'dev.example.app',
+    argentCommand: 'npx',
+    baseArgs: ['--yes', '@swmansion/argent', 'run'],
+    deviceId: 'SIM-123',
+    executor,
+    screenSize: { height: 2000, width: 1000 },
+  });
+
+  const launch = await driver.launchApp();
+  const openUrl = await driver.openUrl({ url: 'example://profile/start' });
+  const tap = await driver.tap({ x: 500, y: 500 });
+  const scroll = await driver.scroll({ durationMs: 250, endX: 500, endY: 400, startX: 500, startY: 1600 });
+  const screenshot = await driver.screenshot();
+  const tree = await driver.inspectTree();
+  const visible = await driver.assertVisible({ selector: { kind: 'text', value: 'Ready' } });
+
+  assert.equal(launch.action, 'launch');
+  assert.equal(openUrl.action, 'openUrl');
+  assert.equal(tap.rawFileName, 'argent-tap.txt');
+  assert.equal(scroll.action, 'scroll');
+  assert.equal(screenshot.capturePath, '/tmp/argent-screen.png');
+  assert.equal(tree.action, 'inspectTree');
+  assert.equal(visible.exitCode, 0);
+  assert.match(formatArgentRawOutput(tree), /Home Ready/u);
+});
+
+test('argent driver fails assertVisible when description cannot prove the selector', async () => {
+  const driver = createArgentDriver({
+    appId: 'dev.example.app',
+    argentCommand: 'argent',
+    deviceId: 'SIM-123',
+    executor: createExecutor({
+      'run describe --udid SIM-123 --bundleId dev.example.app': {
+        stdout: '{"description":"Home"}\n',
+      },
+    }),
+  });
+
+  const result = await driver.assertVisible({ selector: { kind: 'text', value: 'Ready' } });
+
+  assert.equal(result.action, 'assertVisible');
+  assert.equal(result.exitCode, 1);
+  assert.match(result.stderr, /did not include text `Ready`/u);
+  assert.equal(matchesArgentSelector({ description: 'Home Ready', selector: { kind: 'text', value: 'Ready' } }), true);
+  assert.throws(
+    () => matchesArgentSelector({ description: 'Home Ready', selector: { kind: 'text', match: 'contains', value: 'Ready' } }),
+    /selector match `contains` is not supported/u,
+  );
+});

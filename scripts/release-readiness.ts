@@ -38,6 +38,10 @@ const REQUIRED_EXPORTS: Record<string, string | Record<string, string>> = {
     require: './dist/runner/agent-device-driver.js',
     types: './dist/runner/agent-device-driver.d.ts',
   },
+  './runner/argent-driver': {
+    require: './dist/runner/argent-driver.js',
+    types: './dist/runner/argent-driver.d.ts',
+  },
   './runner/android-adb': {
     require: './dist/runner/android-adb.js',
     types: './dist/runner/android-adb.d.ts',

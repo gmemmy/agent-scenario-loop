@@ -23,6 +23,7 @@ The package is intentionally contract-first: adopt the scenario and artifact sha
 - [runner/profile-ios.ts](../runner/profile-ios.ts): iOS profile runner that can ingest profile-event logs directly, read simctl artifact folders, or own a bounded simctl capture window before writing the full artifact set
 - [runner/android-adb.ts](../runner/android-adb.ts): Android adb readiness preflight, optional package launch, ordered driver actions, and bounded logcat capture that write runner health and raw adb evidence
 - [runner/android-adb-driver.ts](../runner/android-adb-driver.ts): adb-backed Android driver adapter for tap, scroll, UI tree, screenshot, and log capture plus Android-specific lifecycle helpers
+- [runner/argent-driver.ts](../runner/argent-driver.ts): optional Argent adapter for normalized gestures, app launch, screenshots, and UI descriptions without making Argent a package dependency
 - [runner/ios-simctl-driver.ts](../runner/ios-simctl-driver.ts): simctl-backed iOS driver adapter for screenshot and log capture plus explicit iOS lifecycle helpers
 - [runner/example-android-live.ts](../runner/example-android-live.ts): packaged Android example live proof for adb preflight plus canonical startup, open-close, and scroll-settle scenarios
 - [runner/example-ios-live.ts](../runner/example-ios-live.ts): packaged iOS example live proof for simctl preflight plus canonical startup, open-close, and scroll-settle scenarios

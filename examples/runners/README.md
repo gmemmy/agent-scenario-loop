@@ -12,7 +12,7 @@ They do not mean the package bundles every named tool. A fixture describes what 
 | `xcodebuildmcp-ios.json` | iOS | XcodeBuildMCP target | Models an iOS simulator driver with UI, screenshot, video, log, and accessibility evidence. |
 | `agent-device-android.json` | Android | agent-device target | Matches the bundled agent-device driver adapter's portable interaction subset. |
 | `agent-device-ios.json` | iOS | agent-device target | Same portable interaction contract on iOS. |
-| `argent-android.json` | Android | Argent target | Models Argent as an interaction runner with adb-backed fallback evidence options. |
+| `argent-android.json` | Android | Argent target | Models Argent as an interaction runner paired with wrapper-owned log capture. |
 | `argent-ios.json` | iOS | Argent target | Models Argent as an interaction runner with native-devtools and restart-health expectations. |
 | `manual-log-ingest.json` | iOS, Android | fixture-only log ingest | Intentionally insufficient for live lifecycle ownership; useful for proving planner failures. |
 
