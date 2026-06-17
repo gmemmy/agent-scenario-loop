@@ -1,4 +1,5 @@
 node_modules/
+.agents/
 dist/
 core/artifacts/
 artifacts/

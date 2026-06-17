@@ -102,6 +102,8 @@ const REQUIRED_PACKAGE_SCRIPT_NAMES = [
   'asl:validate',
   'asl:profile:ios',
   'asl:profile:android',
+  'asl:profile:ios:provider',
+  'asl:profile:android:provider',
   'asl:agent-device:ios',
   'asl:agent-device:android',
   'asl:argent:ios',
@@ -139,6 +141,16 @@ const REQUIRED_PACKAGE_SCRIPT_SHAPES = {
   'asl:profile:android': {
     command: 'asl-profile-android',
     flags: ['--config', '--scenario', '--comparison-lane', '--out', '--run-id'],
+    values: {},
+  },
+  'asl:profile:ios:provider': {
+    command: 'asl-profile-ios',
+    flags: ['--config', '--scenario', '--provider', '--comparison-lane', '--out', '--run-id'],
+    values: {},
+  },
+  'asl:profile:android:provider': {
+    command: 'asl-profile-android',
+    flags: ['--config', '--scenario', '--provider', '--comparison-lane', '--out', '--run-id'],
     values: {},
   },
   'asl:agent-device:ios': {

@@ -139,6 +139,7 @@ const REQUIRED_PACKAGE_EXCLUSIONS = [
 
 const REQUIRED_GITIGNORE_ENTRIES = [
   'node_modules/',
+  '.agents/',
   'dist/',
   'core/artifacts/',
   'artifacts/',
@@ -156,6 +157,25 @@ const FORBIDDEN_TRACKED_PATH_PATTERNS = [
   /^examples\/mobile-app\/(?:\.expo|android|artifacts|ios|node_modules)(?:\/|$)/u,
 ];
 
+const REQUIRED_CONFIG_STRING_FIELDS: string[][] = [
+  ['app', 'profileSessionScheme'],
+  ['app', 'iosBundleId'],
+  ['app', 'androidPackage'],
+  ['paths', 'artifactRoot'],
+  ['paths', 'iosArtifactsRoot'],
+  ['paths', 'androidArtifactsRoot'],
+];
+
+const REQUIRED_PLATFORM_SCRIPT_PAIRS: Array<[string, string]> = [
+  ['asl:check:ios', 'asl:check:android'],
+  ['asl:profile:ios', 'asl:profile:android'],
+  ['asl:profile:ios:provider', 'asl:profile:android:provider'],
+  ['asl:profile:ios:live', 'asl:profile:android:live'],
+  ['asl:agent-device:ios', 'asl:agent-device:android'],
+  ['asl:argent:ios', 'asl:argent:android'],
+  ['asl:compare:ios', 'asl:compare:android'],
+];
+
 /**
  * Reads and parses a JSON object from disk.
  *
@@ -168,6 +188,25 @@ function readJsonObject(filePath: string): Record<string, unknown> {
   assert.notEqual(value, null, `${filePath} must contain a JSON object`);
   assert.equal(Array.isArray(value), false, `${filePath} must contain a JSON object`);
   return value as Record<string, unknown>;
+}
+
+/**
+ * Reads a nested value from a JSON object.
+ *
+ * @param {Record<string, unknown>} object
+ * @param {string[]} pathSegments
+ * @returns {unknown}
+ */
+function readNestedValue(object: Record<string, unknown>, pathSegments: string[]): unknown {
+  let value: unknown = object;
+  for (const segment of pathSegments) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      return undefined;
+    }
+    value = (value as Record<string, unknown>)[segment];
+  }
+
+  return value;
 }
 
 /**
@@ -329,6 +368,39 @@ function assertNoTrackedGeneratedState(repoRoot: string): void {
 }
 
 /**
+ * Asserts that shipped config templates contain identifiers needed by both mobile platforms.
+ *
+ * @param {string} repoRoot
+ * @returns {void}
+ */
+function assertConfigTemplates(repoRoot: string): void {
+  for (const relativePath of ['core/config-template.json', 'templates/project.config.json']) {
+    const config = readJsonObject(path.join(repoRoot, relativePath));
+    for (const fieldPath of REQUIRED_CONFIG_STRING_FIELDS) {
+      const value = readNestedValue(config, fieldPath);
+      assert.equal(typeof value, 'string', `${relativePath} must include ${fieldPath.join('.')}`);
+      assert.notEqual(String(value).trim(), '', `${relativePath} must include non-empty ${fieldPath.join('.')}`);
+    }
+  }
+}
+
+/**
+ * Asserts that shipped package-script snippets expose paired iOS and Android lanes.
+ *
+ * @param {string} repoRoot
+ * @returns {void}
+ */
+function assertPlatformPackageScripts(repoRoot: string): void {
+  for (const relativePath of ['templates/package-scripts.json', 'examples/mobile-app/asl/package-scripts.json']) {
+    const scripts = readJsonObject(path.join(repoRoot, relativePath));
+    for (const [iosScriptName, androidScriptName] of REQUIRED_PLATFORM_SCRIPT_PAIRS) {
+      assert.equal(typeof scripts[iosScriptName], 'string', `${relativePath} must include ${iosScriptName}`);
+      assert.equal(typeof scripts[androidScriptName], 'string', `${relativePath} must include ${androidScriptName}`);
+    }
+  }
+}
+
+/**
  * Runs the release-readiness assertions for the current repository checkout.
  *
  * @returns {void}
@@ -343,6 +415,8 @@ function main(): void {
   assertPackageFileList(packageJson);
   assertGitignoreState(repoRoot);
   assertNoTrackedGeneratedState(repoRoot);
+  assertConfigTemplates(repoRoot);
+  assertPlatformPackageScripts(repoRoot);
 
   process.stdout.write('release readiness passed\n');
 }

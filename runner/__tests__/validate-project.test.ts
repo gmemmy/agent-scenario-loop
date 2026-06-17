@@ -302,6 +302,8 @@ test('validates generated package-script snippets', async (t: TestContext) => {
     'asl:check:android',
     'asl:profile:ios',
     'asl:profile:android',
+    'asl:profile:ios:provider',
+    'asl:profile:android:provider',
     'asl:agent-device:ios',
     'asl:agent-device:android',
     'asl:argent:ios',
@@ -400,6 +402,14 @@ test('validates project-local provider command script references', async (t: Tes
 });
 
 test('validates required package-script lifecycle shapes', () => {
+  assert.equal(validatePackageScriptShape({
+    scriptName: 'asl:profile:ios:provider',
+    command: 'asl-profile-ios --config asl.config.json --scenario scenarios/mobile/checkout.json --provider runner-manifests/evidence-provider.json --comparison-lane checkout-ios-provider --out artifacts/asl/ios --run-id checkout-ios-provider',
+  }), null);
+  assert.equal(validatePackageScriptShape({
+    scriptName: 'asl:profile:android:provider',
+    command: 'asl-profile-android --config asl.config.json --scenario scenarios/mobile/checkout.json --comparison-lane checkout-android-provider --out artifacts/asl/android --run-id checkout-android-provider',
+  }), 'asl:profile:android:provider is missing required flag(s): --provider.');
   assert.equal(validatePackageScriptShape({
     scriptName: 'asl:agent-device:ios',
     command: 'asl-agent-device --platform ios --scenario scenarios/mobile/checkout.json --app com.example.app --open --out artifacts/asl/agent-device-ios --run-id checkout-ios-agent-device',

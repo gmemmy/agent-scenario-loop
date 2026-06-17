@@ -5,6 +5,7 @@
     "scheme": "example-app",
     "profileSessionScheme": "example-app",
     "iosBundleId": "com.example.app",
+    "androidPackage": "com.example.app",
     "ios": {
       "xcodeScheme": "Example App",
       "launchConfiguration": "Debug",
@@ -14,6 +15,7 @@
   "paths": {
     "artifactRoot": "artifacts",
     "iosArtifactsRoot": "artifacts/ios",
+    "androidArtifactsRoot": "artifacts/android",
     "scenarioRoot": "examples/scenarios/ios"
   },
   "drivers": {
