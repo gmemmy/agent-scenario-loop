@@ -48,6 +48,9 @@
     "interactionDriver": {
       "type": "string"
     },
+    "comparisonLane": {
+      "type": "string"
+    },
     "simulator": {
       "type": "object",
       "additionalProperties": false,

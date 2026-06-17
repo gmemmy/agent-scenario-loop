@@ -149,9 +149,11 @@ test('runs the packaged iOS example live proof with a fake simctl executor', asy
   };
 
   await runExampleIosLiveProof({
+    'agent-device-proof': true,
     device: DEVICE_ID,
     out: outputDir,
   }, {
+    agentDeviceExecutor,
     delay: async () => {},
     executor,
     packageRoot: ROOT,
@@ -189,7 +191,9 @@ test('runs the packaged iOS example live proof with a fake simctl executor', asy
 
   for (const profile of result.profiles) {
     const health = JSON.parse(fs.readFileSync(path.join(profile.runDir, 'health.json'), 'utf8'));
+    const manifest = JSON.parse(fs.readFileSync(path.join(profile.runDir, 'manifest.json'), 'utf8'));
     const verdict = JSON.parse(fs.readFileSync(path.join(profile.runDir, 'verdict.json'), 'utf8'));
+    assert.equal(manifest.comparisonLane, 'example-ios-live+agent-device');
     assert.equal(health.healthStatus, 'passed');
     assert.equal(verdict.verdictStatus, 'passed');
   }

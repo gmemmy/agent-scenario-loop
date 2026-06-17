@@ -21,6 +21,7 @@ const { runAgentDeviceCapture } = require('./agent-device');
 
 type IosProfileOptions = {
   agentDeviceExecutor?: import('./agent-device').CommandExecutor;
+  comparisonLane?: string;
   delay?: (ms: number) => Promise<void>;
   executor?: import('./ios-simctl').CommandExecutor;
 };
@@ -352,6 +353,7 @@ async function runProfileIos(
 ): Promise<import('./profile-mobile').ProfileRunResult> {
   if (!isEnabled(args['simctl-capture']) && !isEnabled(args['agent-device-capture'])) {
     return runProfileMobile(args, {
+      ...(options.comparisonLane ? { comparisonLane: options.comparisonLane } : {}),
       defaultDriver: 'xcodebuildmcp',
       ...(typeof args['simctl-artifacts'] === 'string' ? { interactionDriver: 'ios-simctl' } : {}),
       platform: 'ios',
@@ -478,6 +480,7 @@ async function runProfileIos(
     : baseProfileArgs;
 
   return runProfileMobile(profileArgs, {
+    ...(options.comparisonLane ? { comparisonLane: options.comparisonLane } : {}),
     defaultDriver: 'xcodebuildmcp',
     interactionDriver: agentDeviceCapture ? 'agent-device' : 'ios-simctl',
     platform: 'ios',

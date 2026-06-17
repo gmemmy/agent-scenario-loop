@@ -258,6 +258,9 @@ async function runExampleAndroidLiveProof(
   const aggregateRunId = buildLiveRunId('android-live-proof', runSuffix);
   const preflightRunId = buildLiveRunId('android-live-preflight', runSuffix);
   const interactionRunId = buildLiveRunId('android-agent-device-startup', runSuffix);
+  const comparisonLane = isEnabledFlag(args['agent-device-proof'])
+    ? 'example-android-live+agent-device'
+    : 'example-android-live';
   const preflightDir = path.join(outputDir, '_preflight', preflightRunId);
   const reactNativeDebugHost = typeof args['react-native-debug-host'] === 'string'
     ? args['react-native-debug-host']
@@ -299,6 +302,7 @@ async function runExampleAndroidLiveProof(
       ...(typeof args.serial === 'string' ? { serial: args.serial } : {}),
       'wait-ms': typeof args['wait-ms'] === 'string' ? args['wait-ms'] : '1000',
     }, {
+      comparisonLane,
       ...(options.delay ? { delay: options.delay } : {}),
       ...(options.executor ? { executor: options.executor } : {}),
     });

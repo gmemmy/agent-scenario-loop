@@ -42,6 +42,7 @@ type ProfileRunResult = {
 };
 type ProfilePlatform = 'android' | 'ios';
 type ProfileMobileOptions = {
+  comparisonLane?: string;
   defaultDriver: string;
   interactionDriver?: string;
   platform: ProfilePlatform;
@@ -156,6 +157,7 @@ function usage({
     `Usage: ${binaryName} --config <path> --scenario <path> [--events <path>] [--out <dir>] [--run-id <id>]`,
     '',
     `Reads scenario metadata plus profile-event evidence and writes the artifact layout for one ${platform} profile run.`,
+    'Use --comparison-lane <id> to keep latest-trusted baselines inside a stable proof lane.',
     'Use repeated --provider <manifest> to execute declared evidence-provider commands before artifact writing.',
     'Use repeated --signal <js|memory|network>:<path> to attach provider signal artifacts.',
     'Use repeated --capture <screenshot|video|uiTree>:<path> to attach named capture artifacts.',
@@ -1027,6 +1029,35 @@ function resolveInteractionDriver({
 }
 
 /**
+ * Resolves the stable comparison lane used for historical baseline selection.
+ *
+ * @param {{args: CliArgs, options: ProfileMobileOptions, scenario: Record<string, unknown>}} options
+ * @returns {string | undefined}
+ */
+function resolveComparisonLane({
+  args,
+  options,
+  scenario,
+}: {
+  args: CliArgs;
+  options: ProfileMobileOptions;
+  scenario: Record<string, any>;
+}): string | undefined {
+  const cliLane = readScalarArg(args['comparison-lane']);
+  if (typeof cliLane === 'string' && cliLane.trim().length > 0) {
+    return cliLane.trim();
+  }
+
+  if (typeof options.comparisonLane === 'string' && options.comparisonLane.trim().length > 0) {
+    return options.comparisonLane.trim();
+  }
+
+  return typeof scenario.comparisonLane === 'string' && scenario.comparisonLane.trim().length > 0
+    ? scenario.comparisonLane.trim()
+    : undefined;
+}
+
+/**
  * Resolves the profile event log source from explicit logs or prior adb artifacts.
  *
  * @param {{args: CliArgs, platform: ProfilePlatform}} options
@@ -1241,6 +1272,7 @@ async function runProfileMobile(args: CliArgs, options: ProfileMobileOptions): P
   const startedAt = new Date().toISOString();
   const eventLogPath = resolveEventLogPath({ args, platform: options.platform });
   const interactionDriver = resolveInteractionDriver({ config, options, scenario });
+  const comparisonLane = resolveComparisonLane({ args, options, scenario });
 
   await ensureDir(rawDir);
   await ensureDir(capturesDir);
@@ -1315,6 +1347,7 @@ async function runProfileMobile(args: CliArgs, options: ProfileMobileOptions): P
     status: metrics.status,
     endedAt: new Date().toISOString(),
     interactionDriver,
+    comparisonLane,
     startedAt,
     simulator: {
       name: options.platform === 'android' ? 'unknown android device' : 'unknown',
@@ -1480,6 +1513,7 @@ export {
   resolveAppId,
   resolveArtifactRoot,
   resolveAttachedEvidence,
+  resolveComparisonLane,
   resolveEventLogPath,
   resolveInteractionDriver,
   runProfileCli,

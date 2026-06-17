@@ -12,6 +12,7 @@ type RunIndexEntry = {
   durationMs?: number;
   endedAt?: string;
   flowId?: string;
+  comparisonLane?: string;
   interactionDriver?: string;
   platform?: string;
   startedAt?: string;
@@ -114,6 +115,7 @@ function readRunIndexEntry(runDir: string): RunIndexEntry {
     ...(typeof manifest.durationMs === 'number' ? { durationMs: manifest.durationMs } : {}),
     ...(typeof manifest.endedAt === 'string' ? { endedAt: manifest.endedAt } : {}),
     ...(typeof health.flowId === 'string' ? { flowId: health.flowId } : {}),
+    ...(typeof manifest.comparisonLane === 'string' ? { comparisonLane: manifest.comparisonLane } : {}),
     ...(typeof manifest.interactionDriver === 'string' ? { interactionDriver: manifest.interactionDriver } : {}),
     ...(typeof manifest.platform === 'string' ? { platform: manifest.platform } : {}),
     ...(typeof manifest.startedAt === 'string' ? { startedAt: manifest.startedAt } : {}),

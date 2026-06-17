@@ -256,6 +256,9 @@ async function runExampleIosLiveProof(
   const aggregateRunId = buildLiveRunId('ios-live-proof', runSuffix);
   const preflightRunId = buildLiveRunId('ios-live-preflight', runSuffix);
   const interactionRunId = buildLiveRunId('ios-agent-device-startup', runSuffix);
+  const comparisonLane = isEnabledFlag(args['agent-device-proof'])
+    ? 'example-ios-live+agent-device'
+    : 'example-ios-live';
   const preflightDir = path.join(outputDir, '_preflight', preflightRunId);
 
   const preflight = await runIosSimctlCapture({
@@ -290,6 +293,7 @@ async function runExampleIosLiveProof(
       ...(bundleId ? { bundle: bundleId } : {}),
       ...(typeof args.xcrun === 'string' ? { xcrun: args.xcrun } : {}),
     }, {
+      comparisonLane,
       ...(options.delay ? { delay: options.delay } : {}),
       ...(options.executor ? { executor: options.executor } : {}),
     });

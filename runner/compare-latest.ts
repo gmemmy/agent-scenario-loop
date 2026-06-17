@@ -4,7 +4,7 @@ const path = require('node:path');
 
 const { buildAgentSummaryMarkdown } = require('../core/agent-summary');
 const { compareRunDirectories, readRunArtifacts } = require('../core/comparison');
-const { buildRunIndex } = require('../core/run-index');
+const { buildRunIndex, readRunIndexEntry } = require('../core/run-index');
 const { writeJsonArtifact, writeTextArtifact } = require('../core/artifact-writer');
 const { SCHEMAS } = require('../core/schema-validator');
 const { hasHelpFlag, writeUsage } = require('./cli');
@@ -13,6 +13,7 @@ const { parseArgs, resolveOutput } = require('./compare');
 import type { RunIndex, RunIndexEntry } from '../core/run-index';
 
 type CliArgs = {
+  'comparison-lane'?: string | boolean;
   current?: string | boolean;
   out?: string | boolean;
   root?: string | boolean;
@@ -21,6 +22,7 @@ type CliArgs = {
 };
 
 type CompareLatestOptions = {
+  comparisonLane?: string;
   currentDir: string;
   rootDir: string;
   scenarioId: string;
@@ -39,7 +41,9 @@ type LatestTrustedSelection = {
   selectedRunDir: string;
   selectedRunId: string;
   skippedCurrentRun: boolean;
+  comparisonLane?: string;
   trustedCandidates: number;
+  trustedComparableCandidates?: number;
   trustedPriorCandidates: number;
 };
 
@@ -50,7 +54,7 @@ type LatestTrustedSelection = {
  */
 function usage(output: { write: (message: string) => unknown } = process.stderr): void {
   writeUsage([
-    'Usage: asl-compare-latest --root <artifact-root> --scenario <id> --current <run-dir> [--out <comparison.json|run-dir>]',
+    'Usage: asl-compare-latest --root <artifact-root> --scenario <id> --current <run-dir> [--comparison-lane <id>] [--out <comparison.json|run-dir>]',
     '',
     'Finds the latest trusted prior run for the scenario, then compares it with the current run.',
     'A trusted prior run must have passed health and passed verdict artifacts.',
@@ -103,14 +107,16 @@ function assertComparableCurrentRun({
 /**
  * Finds the newest trusted run for a scenario while excluding the current run directory.
  *
- * @param {{index: RunIndex, scenarioId: string, currentDir: string}} options
+ * @param {{index: RunIndex, scenarioId: string, currentDir: string, comparisonLane?: string}} options
  * @returns {RunIndexEntry | null}
  */
 function findLatestTrustedPriorRun({
+  comparisonLane,
   index,
   scenarioId,
   currentDir,
 }: {
+  comparisonLane?: string;
   index: RunIndex;
   scenarioId: string;
   currentDir: string;
@@ -118,6 +124,7 @@ function findLatestTrustedPriorRun({
   const resolvedCurrentDir = path.resolve(currentDir);
   return index.trusted.find((entry) => (
     entry.scenarioId === scenarioId &&
+    (comparisonLane ? entry.comparisonLane === comparisonLane : true) &&
     path.resolve(entry.runDir) !== resolvedCurrentDir
   )) ?? null;
 }
@@ -125,17 +132,19 @@ function findLatestTrustedPriorRun({
 /**
  * Builds stable provenance for the latest-trusted baseline selection.
  *
- * @param {{baseline: RunIndexEntry, currentDir: string, index: RunIndex, rootDir: string, scenarioId: string}} options
+ * @param {{baseline: RunIndexEntry, comparisonLane?: string, currentDir: string, index: RunIndex, rootDir: string, scenarioId: string}} options
  * @returns {LatestTrustedSelection}
  */
 function buildLatestTrustedSelection({
   baseline,
+  comparisonLane,
   currentDir,
   index,
   rootDir,
   scenarioId,
 }: {
   baseline: RunIndexEntry;
+  comparisonLane?: string;
   currentDir: string;
   index: RunIndex;
   rootDir: string;
@@ -146,6 +155,9 @@ function buildLatestTrustedSelection({
     entry.scenarioId === scenarioId &&
     path.resolve(entry.runDir) !== resolvedCurrentDir
   ));
+  const trustedComparableCandidates = comparisonLane
+    ? trustedPriorCandidates.filter((entry) => entry.comparisonLane === comparisonLane)
+    : trustedPriorCandidates;
 
   return {
     artifactRoot: rootDir,
@@ -154,7 +166,9 @@ function buildLatestTrustedSelection({
     selectedRunDir: baseline.runDir,
     selectedRunId: baseline.runId,
     skippedCurrentRun: index.entries.some((entry) => path.resolve(entry.runDir) === resolvedCurrentDir),
+    ...(comparisonLane ? { comparisonLane } : {}),
     trustedCandidates: index.trusted.length,
+    ...(comparisonLane ? { trustedComparableCandidates: trustedComparableCandidates.length } : {}),
     trustedPriorCandidates: trustedPriorCandidates.length,
   };
 }
@@ -166,6 +180,7 @@ function buildLatestTrustedSelection({
  * @returns {CompareLatestResult}
  */
 function compareLatestTrustedRun({
+  comparisonLane,
   currentDir,
   rootDir,
   scenarioId,
@@ -173,16 +188,20 @@ function compareLatestTrustedRun({
   const resolvedCurrentDir = path.resolve(currentDir);
   const resolvedRootDir = path.resolve(rootDir);
   assertComparableCurrentRun({ currentDir: resolvedCurrentDir, scenarioId });
+  const currentEntry = readRunIndexEntry(resolvedCurrentDir);
+  const resolvedComparisonLane = comparisonLane ?? currentEntry.comparisonLane;
 
   const index = buildRunIndex({ rootDir: resolvedRootDir, scenarioId });
   const baseline = findLatestTrustedPriorRun({
+    ...(resolvedComparisonLane ? { comparisonLane: resolvedComparisonLane } : {}),
     index,
     scenarioId,
     currentDir: resolvedCurrentDir,
   });
   if (!baseline) {
+    const laneSuffix = resolvedComparisonLane ? ` in comparison lane '${resolvedComparisonLane}'` : '';
     throw new Error(
-      `No trusted prior run found for scenario '${scenarioId}' under ${resolvedRootDir}; inspected ${index.entries.length} candidate run(s), ${index.trusted.length} trusted.`,
+      `No trusted prior run found for scenario '${scenarioId}'${laneSuffix} under ${resolvedRootDir}; inspected ${index.entries.length} candidate run(s), ${index.trusted.length} trusted.`,
     );
   }
 
@@ -193,6 +212,7 @@ function compareLatestTrustedRun({
       currentDir: resolvedCurrentDir,
       selection: buildLatestTrustedSelection({
         baseline,
+        ...(resolvedComparisonLane ? { comparisonLane: resolvedComparisonLane } : {}),
         currentDir: resolvedCurrentDir,
         index,
         rootDir: resolvedRootDir,
@@ -231,6 +251,7 @@ async function main(): Promise<void> {
     rootDir: args.root,
     scenarioId: args.scenario,
     currentDir: args.current,
+    ...(typeof args['comparison-lane'] === 'string' ? { comparisonLane: args['comparison-lane'] } : {}),
   });
 
   if (typeof args.out === 'string' && args.out.length > 0) {

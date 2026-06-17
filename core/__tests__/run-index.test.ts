@@ -28,10 +28,11 @@ async function writeJson(filePath: string, value: Record<string, unknown>): Prom
 /**
  * Writes the minimum run artifacts needed for the index.
  *
- * @param {{root: string, scenarioId: string, runId: string, verdictStatus: string, endedAt?: string, healthStatus?: string}} options
+ * @param {{root: string, scenarioId: string, runId: string, verdictStatus: string, comparisonLane?: string, endedAt?: string, healthStatus?: string}} options
  * @returns {Promise<string>}
  */
 async function writeRun({
+  comparisonLane,
   endedAt,
   healthStatus = 'passed',
   root,
@@ -41,6 +42,7 @@ async function writeRun({
 }: {
   endedAt?: string;
   healthStatus?: string;
+  comparisonLane?: string;
   root: string;
   runId: string;
   scenarioId: string;
@@ -71,6 +73,7 @@ async function writeRun({
     startedAt: '2026-06-16T10:00:00.000Z',
     endedAt,
     durationMs: 1200,
+    ...(comparisonLane ? { comparisonLane } : {}),
     interactionDriver: 'adb-logcat',
   });
   return runDir;
@@ -149,6 +152,7 @@ test('filters a run index by scenario id', async (t: TestContext) => {
     scenarioId: 'app-startup',
     runId: 'startup-run',
     verdictStatus: 'passed',
+    comparisonLane: 'example-android-live',
   });
   await writeRun({
     root,
@@ -162,6 +166,7 @@ test('filters a run index by scenario id', async (t: TestContext) => {
 
   assert.deepEqual(index.entries.map((item: { runId: string }) => item.runId), ['startup-run']);
   assert.equal(entry.platform, 'android');
+  assert.equal(entry.comparisonLane, 'example-android-live');
   assert.equal(entry.interactionDriver, 'adb-logcat');
   assert.equal(entry.trusted, true);
 });

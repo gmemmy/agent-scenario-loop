@@ -1266,6 +1266,11 @@ function main(): void {
       '1',
       '--command-wait-ms',
       '1',
+      '--agent-device-proof',
+      '--agent-device',
+      fakeAgentDevicePath,
+      '--agent-device-session',
+      'package-smoke-android',
     ], {
       cwd: installDir,
       env,
@@ -1410,6 +1415,11 @@ function main(): void {
       exampleIosLiveRoot,
       '--wait-ms',
       '1',
+      '--agent-device-proof',
+      '--agent-device',
+      fakeAgentDevicePath,
+      '--agent-device-session',
+      'package-smoke-ios',
     ], {
       cwd: installDir,
       env,

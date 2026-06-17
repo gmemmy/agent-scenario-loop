@@ -845,6 +845,7 @@ function buildManifest({
   startedAt,
   endedAt,
   interactionDriver,
+  comparisonLane,
   simulator,
   bundleId,
   gitSha,
@@ -861,6 +862,7 @@ function buildManifest({
     endedAt,
     durationMs: roundMs(Math.max(0, Date.parse(endedAt) - Date.parse(startedAt))),
     interactionDriver,
+    ...(typeof comparisonLane === 'string' && comparisonLane.length > 0 ? { comparisonLane } : {}),
     simulator: sortValue(simulator),
     bundleId,
     gitSha,
@@ -912,6 +914,9 @@ function buildSummaryMarkdown({ manifest, metrics }: { manifest: ArtifactRecord;
     `- Status: ${manifest.status}`,
     `- Run ID: \`${manifest.runId}\``,
     `- Interaction driver: \`${manifest.interactionDriver}\``,
+    ...(typeof manifest.comparisonLane === 'string'
+      ? [`- Comparison lane: \`${manifest.comparisonLane}\``]
+      : []),
     `- ${runtimeLabel}: ${manifest.simulator.name} (${manifest.simulator.udid})`,
     `- Bundle ID: \`${manifest.bundleId}\``,
     `- Iterations: ${metrics.iterations}`,

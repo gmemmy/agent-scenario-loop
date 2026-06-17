@@ -128,6 +128,9 @@
         "scenarioId": {
           "type": "string"
         },
+        "comparisonLane": {
+          "type": "string"
+        },
         "selectedRunDir": {
           "type": "string"
         },
@@ -142,6 +145,10 @@
           "minimum": 0
         },
         "trustedPriorCandidates": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "trustedComparableCandidates": {
           "type": "integer",
           "minimum": 0
         }

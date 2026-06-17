@@ -153,9 +153,11 @@ test('runs the packaged Android example live proof with a fake adb executor', as
   };
 
   await runExampleAndroidLiveProof({
+    'agent-device-proof': true,
     adb: 'fake-adb',
     out: outputDir,
   }, {
+    agentDeviceExecutor,
     delay: async () => {},
     executor,
     packageRoot: ROOT,
@@ -195,7 +197,9 @@ test('runs the packaged Android example live proof with a fake adb executor', as
 
   for (const profile of result.profiles) {
     const health = JSON.parse(fs.readFileSync(path.join(profile.runDir, 'health.json'), 'utf8'));
+    const manifest = JSON.parse(fs.readFileSync(path.join(profile.runDir, 'manifest.json'), 'utf8'));
     const verdict = JSON.parse(fs.readFileSync(path.join(profile.runDir, 'verdict.json'), 'utf8'));
+    assert.equal(manifest.comparisonLane, 'example-android-live+agent-device');
     assert.equal(health.healthStatus, 'passed');
     assert.equal(verdict.verdictStatus, 'passed');
   }

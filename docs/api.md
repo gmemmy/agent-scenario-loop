@@ -27,7 +27,7 @@ The root package is for stable, runner-neutral behavior:
 - port validation helpers
 - typed port contracts for primary runners, drivers, evidence providers, artifact writers, and interpreters
 - evidence interpretation gates
-- run indexing and latest-trusted-run lookup
+- run indexing and lane-aware latest-trusted comparison selection
 - comparison artifacts
 - aggregate live-proof artifacts
 - schema validation

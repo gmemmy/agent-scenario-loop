@@ -20,6 +20,7 @@ const { runAgentDeviceCapture } = require('./agent-device');
 
 type AndroidProfileOptions = {
   agentDeviceExecutor?: import('./agent-device').CommandExecutor;
+  comparisonLane?: string;
   delay?: (ms: number) => Promise<void>;
   executor?: import('./android-adb').CommandExecutor;
 };
@@ -484,6 +485,7 @@ async function runProfileAndroid(
 ): Promise<import('./profile-mobile').ProfileRunResult> {
   if (!isEnabled(args['adb-capture']) && !isEnabled(args['agent-device-capture'])) {
     return runProfileMobile(args, {
+      ...(options.comparisonLane ? { comparisonLane: options.comparisonLane } : {}),
       defaultDriver: 'adb-logcat',
       ...(typeof args['adb-artifacts'] === 'string' ? { interactionDriver: 'adb-logcat' } : {}),
       platform: 'android',
@@ -609,6 +611,7 @@ async function runProfileAndroid(
     : baseProfileArgs;
 
   return runProfileMobile(profileArgs, {
+    ...(options.comparisonLane ? { comparisonLane: options.comparisonLane } : {}),
     defaultDriver: 'adb-logcat',
     interactionDriver: agentDeviceCapture ? 'agent-device' : 'adb-logcat',
     platform: 'android',

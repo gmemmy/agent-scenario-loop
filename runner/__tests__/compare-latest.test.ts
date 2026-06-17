@@ -43,10 +43,11 @@ function execFileAsync(command: string, args: string[], options: Record<string, 
 /**
  * Writes a minimal indexed run directory with deterministic sort metadata.
  *
- * @param {{root: string, runId: string, actual: number, endedAt: string, healthStatus?: string, verdictStatus?: string}} options
+ * @param {{root: string, runId: string, actual: number, endedAt: string, comparisonLane?: string, healthStatus?: string, verdictStatus?: string}} options
  * @returns {Promise<string>}
  */
 async function writeRun({
+  comparisonLane,
   root,
   runId,
   actual,
@@ -58,6 +59,7 @@ async function writeRun({
   runId: string;
   actual: number;
   endedAt: string;
+  comparisonLane?: string;
   healthStatus?: string;
   verdictStatus?: string;
 }): Promise<string> {
@@ -71,6 +73,7 @@ async function writeRun({
       scenario: 'open-close-cycle',
       platform: 'android',
       interactionDriver: 'adb-logcat',
+      ...(comparisonLane ? { comparisonLane } : {}),
       startedAt: '2026-06-16T10:00:00.000Z',
       endedAt,
       durationMs: 1000,
@@ -181,6 +184,52 @@ test('compares current run against latest trusted prior run', async (t: TestCont
       trustedPriorCandidates: 1,
     },
   });
+});
+
+test('filters latest trusted prior runs by current comparison lane', async (t: TestContext) => {
+  const rootDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-compare-latest-lane-'));
+  t.after(async () => {
+    await fsp.rm(rootDir, { recursive: true, force: true });
+  });
+  await writeRun({
+    root: rootDir,
+    runId: 'older-agent-device-run',
+    actual: 900,
+    endedAt: '2026-06-16T10:00:00.000Z',
+    comparisonLane: 'example-android-live+agent-device',
+  });
+  await writeRun({
+    root: rootDir,
+    runId: 'newer-plain-run',
+    actual: 120,
+    endedAt: '2026-06-16T10:05:00.000Z',
+    comparisonLane: 'example-android-live',
+  });
+  const currentDir = await writeRun({
+    root: rootDir,
+    runId: 'current-agent-device-run',
+    actual: 800,
+    endedAt: '2026-06-16T10:10:00.000Z',
+    comparisonLane: 'example-android-live+agent-device',
+  });
+
+  const { stdout } = await execFileAsync(process.execPath, [
+    COMPARE_LATEST,
+    '--root',
+    rootDir,
+    '--scenario',
+    'open-close-cycle',
+    '--current',
+    currentDir,
+  ]);
+
+  const comparison = JSON.parse(stdout);
+  assert.equal(comparison.baselineRunId, 'older-agent-device-run');
+  assert.equal(comparison.runId, 'current-agent-device-run');
+  assert.equal(comparison.comparisonStatus, 'better');
+  assert.equal(comparison.comparisonBasis.selection.comparisonLane, 'example-android-live+agent-device');
+  assert.equal(comparison.comparisonBasis.selection.trustedPriorCandidates, 2);
+  assert.equal(comparison.comparisonBasis.selection.trustedComparableCandidates, 1);
 });
 
 test('writes comparison and agent summary to output directory', async (t: TestContext) => {

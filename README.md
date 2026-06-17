@@ -145,6 +145,8 @@ pnpm example:android:live:agent-device -- --agent-device-session <name> --run-su
 
 When a named `agent-device` session is supplied, ASL lets that session own agent-device target selection. Android `--serial` and iOS `--device` still apply to adb/simctl preflight and profile runs, but they are not forwarded into the agent-device sidecar where they can conflict with an existing session lock.
 
+Plain example live proofs and agent-device-backed example live proofs write different `comparisonLane` values into each profile manifest. Latest-trusted comparison uses that lane when present, so proof modes do not borrow each other's baselines.
+
 The proof command writes:
 
 - adb preflight health under `artifacts/example-mobile-app/android/_preflight/android-live-preflight`
@@ -275,7 +277,7 @@ To compare the current run against the newest trusted prior run for the same sce
 pnpm compare:latest -- --root artifacts/runs --scenario app-startup --current artifacts/runs/app-startup/current --out artifacts/runs/app-startup/current
 ```
 
-A trusted prior run must have passed both `health.json` and `verdict.json`. The current run must pass scenario health before timing or budget evidence is compared, so a broken scenario cannot accidentally become a performance claim. Latest-trusted comparisons also record selection counts in `comparisonBasis.selection`, including inspected candidates, trusted candidates, trusted prior candidates, and whether the current run was skipped.
+A trusted prior run must have passed both `health.json` and `verdict.json`. The current run must pass scenario health before timing or budget evidence is compared, so a broken scenario cannot accidentally become a performance claim. If the current run manifest declares `comparisonLane`, latest-trusted selection only considers trusted prior runs in that same lane. Latest-trusted comparisons also record selection counts in `comparisonBasis.selection`, including inspected candidates, trusted candidates, trusted prior candidates, trusted comparable candidates when lane-scoped, and whether the current run was skipped.
 
 To run the complete fixture loop without a simulator:
 
