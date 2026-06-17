@@ -25,6 +25,7 @@ The root package is for stable, runner-neutral behavior:
 - scenario execution-plan normalization
 - scenario/runner/provider compatibility checks
 - port validation helpers
+- typed port contracts for primary runners, drivers, evidence providers, artifact writers, and interpreters
 - evidence interpretation gates
 - run indexing and latest-trusted-run lookup
 - comparison artifacts

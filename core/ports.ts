@@ -38,6 +38,143 @@ const INTERPRETER_PORT = [
   'interpret',
 ];
 
+type ScenarioExecutionStep = import('./execution-plan').ScenarioExecutionStep;
+
+type MaybePromise<T> = T | Promise<T>;
+
+type PortMetadataValue = string | number | boolean | null | string[] | number[] | boolean[];
+
+type PortMetadata = Record<string, PortMetadataValue>;
+
+type PortStatus = 'passed' | 'failed' | 'partial' | 'skipped';
+
+type PortArtifactMap = Record<string, string | string[] | null>;
+
+type PortResult = {
+  artifacts?: PortArtifactMap;
+  message?: string;
+  metadata?: PortMetadata;
+  status: PortStatus;
+};
+
+type PortContext = {
+  artifactRoot?: string;
+  config?: Record<string, unknown>;
+  metadata?: PortMetadata;
+  platform: string;
+  runDir?: string;
+  runId: string;
+  runner?: Record<string, unknown>;
+  scenario?: Record<string, unknown>;
+  scenarioId: string;
+};
+
+type PrimaryRunnerContext = PortContext & {
+  executionPlan?: {
+    steps: ScenarioExecutionStep[];
+  };
+};
+
+type PrimaryRunnerStepContext = PrimaryRunnerContext & {
+  step: ScenarioExecutionStep;
+};
+
+type EvidenceProviderPhase = 'prepare' | 'startWindow' | 'capture' | 'stopWindow' | 'finalize';
+
+type EvidenceProviderContext = PortContext & {
+  phase?: EvidenceProviderPhase;
+  provider?: Record<string, unknown>;
+  providerId?: string;
+};
+
+type DriverActionInput = {
+  action: string;
+  artifactPath?: string;
+  metadata?: PortMetadata;
+  platform: string;
+  selector?: Record<string, unknown>;
+  step?: ScenarioExecutionStep;
+  timeoutMs?: number;
+};
+
+type DriverActionResult = PortResult & {
+  outputPath?: string;
+  value?: unknown;
+};
+
+type ArtifactWriterJsonInput = {
+  filePath: string;
+  label?: string;
+  schema?: unknown;
+  value: unknown;
+};
+
+type ArtifactWriterTextInput = {
+  content: string;
+  filePath: string;
+};
+
+type ArtifactWriterCopyInput = {
+  destinationPath: string;
+  sourcePath: string;
+};
+
+type InterpreterContext = {
+  comparison?: Record<string, unknown>;
+  evidence: Record<string, unknown>;
+  metadata?: PortMetadata;
+  profile?: Record<string, unknown>;
+  scenarioHealthPassed: boolean;
+};
+
+type InterpreterResult = {
+  likelyCauses: string[];
+  metadata?: PortMetadata;
+  notes: string[];
+  summary: string;
+  trusted: boolean;
+};
+
+type PrimaryRunnerPort = {
+  captureEvidence(context: PrimaryRunnerStepContext): MaybePromise<PortResult>;
+  executeStep(context: PrimaryRunnerStepContext): MaybePromise<PortResult>;
+  finalize(context: PrimaryRunnerContext): MaybePromise<PortResult>;
+  launch(context: PrimaryRunnerContext): MaybePromise<PortResult>;
+  prepare(context: PrimaryRunnerContext): MaybePromise<PortResult>;
+  startSession(context: PrimaryRunnerContext): MaybePromise<PortResult>;
+  stopSession(context: PrimaryRunnerContext): MaybePromise<PortResult>;
+  waitForTruthEvent(context: PrimaryRunnerStepContext): MaybePromise<PortResult>;
+};
+
+type EvidenceProviderPort = {
+  capture(context: EvidenceProviderContext): MaybePromise<PortResult>;
+  finalize(context: EvidenceProviderContext): MaybePromise<PortResult>;
+  prepare(context: EvidenceProviderContext): MaybePromise<PortResult>;
+  startWindow(context: EvidenceProviderContext): MaybePromise<PortResult>;
+  stopWindow(context: EvidenceProviderContext): MaybePromise<PortResult>;
+};
+
+type DriverPort = {
+  assertVisible(input: DriverActionInput): MaybePromise<DriverActionResult>;
+  collectPerfSignals(input: DriverActionInput): MaybePromise<DriverActionResult>;
+  inspectTree(input: DriverActionInput): MaybePromise<DriverActionResult>;
+  readLogs(input: DriverActionInput): MaybePromise<DriverActionResult>;
+  record(input: DriverActionInput): MaybePromise<DriverActionResult>;
+  screenshot(input: DriverActionInput): MaybePromise<DriverActionResult>;
+  scroll(input: DriverActionInput): MaybePromise<DriverActionResult>;
+  tap(input: DriverActionInput): MaybePromise<DriverActionResult>;
+};
+
+type ArtifactWriterPort = {
+  copyRaw(input: ArtifactWriterCopyInput): MaybePromise<string>;
+  writeJson(input: ArtifactWriterJsonInput): MaybePromise<void>;
+  writeText(input: ArtifactWriterTextInput): MaybePromise<void>;
+};
+
+type InterpreterPort = {
+  interpret(context: InterpreterContext): MaybePromise<InterpreterResult>;
+};
+
 /**
  * Returns method names missing from an implementation object.
  *
@@ -149,7 +286,30 @@ export {
 };
 
 export type {
+  ArtifactWriterCopyInput,
+  ArtifactWriterJsonInput,
+  ArtifactWriterPort,
+  ArtifactWriterTextInput,
+  DriverActionInput,
+  DriverActionResult,
+  DriverPort,
+  EvidenceProviderContext,
+  EvidenceProviderPhase,
+  EvidenceProviderPort,
+  InterpreterContext,
+  InterpreterPort,
+  InterpreterResult,
+  MaybePromise,
+  PortArtifactMap,
+  PortContext,
   PortImplementation,
+  PortMetadata,
+  PortMetadataValue,
+  PortResult,
+  PortStatus,
+  PrimaryRunnerContext,
+  PrimaryRunnerPort,
+  PrimaryRunnerStepContext,
   PortValidationResult,
 };
 type PortImplementation = Record<string, unknown>;
