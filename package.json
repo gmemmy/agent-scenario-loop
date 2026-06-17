@@ -44,7 +44,8 @@
     "asl-ios-simctl": "dist/runner/ios-simctl.js",
     "asl-live-proof": "dist/runner/live-proof.js",
     "asl-profile-android": "dist/runner/profile-android.js",
-    "asl-profile-ios": "dist/runner/profile-ios.js"
+    "asl-profile-ios": "dist/runner/profile-ios.js",
+    "asl-validate-project": "dist/runner/validate-project.js"
   },
   "exports": {
     ".": {
@@ -106,6 +107,10 @@
     "./runner/profile-android": {
       "types": "./dist/runner/profile-android.d.ts",
       "require": "./dist/runner/profile-android.js"
+    },
+    "./runner/validate-project": {
+      "types": "./dist/runner/validate-project.d.ts",
+      "require": "./dist/runner/validate-project.js"
     },
     "./schemas/*": "./schemas/*",
     "./examples/*": "./examples/*",
@@ -171,7 +176,8 @@
     "profile:android": "pnpm build && node dist/runner/profile-android.js",
     "profile:ios": "pnpm build && node dist/runner/profile-ios.js",
     "profile:ios:startup": "pnpm build && node dist/runner/profile-ios.js --config core/config-template.json --scenario examples/scenarios/ios/app-startup.json",
-    "profile:ios:open-close": "pnpm build && node dist/runner/profile-ios.js --config core/config-template.json --scenario examples/scenarios/ios/open-close-cycle.json"
+    "profile:ios:open-close": "pnpm build && node dist/runner/profile-ios.js --config core/config-template.json --scenario examples/scenarios/ios/open-close-cycle.json",
+    "validate-project": "pnpm build && node dist/runner/validate-project.js"
   },
   "devDependencies": {
     "@types/node": "^25.9.3",

@@ -23,6 +23,12 @@ That creates:
 
 The command refuses to overwrite existing files unless `--force` is provided. Use `--dry-run` to preview the file list without writing. It does not edit your existing `package.json` or `.gitignore`; merge the generated script and ignore snippets intentionally.
 
+After filling in app identifiers, validate the whole initialized project before runtime proof:
+
+```bash
+asl-validate-project --root . --platform all --out artifacts/asl/project-validation
+```
+
 ## Templates
 
 You can also copy these files manually and rename them as needed:

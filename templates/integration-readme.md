@@ -30,6 +30,7 @@ pnpm add @react-native-async-storage/async-storage expo-linking
 Start with planner validation before live device proof:
 
 ```bash
+asl-validate-project --root . --platform all --out artifacts/asl/project-validation
 asl-check-plan --scenario scenarios/mobile/{{SCENARIO_ID}}.json --runner runner-manifests/primary-runner.json --platform ios --out artifacts/asl/plan/{{SCENARIO_ID}}-ios
 asl-check-plan --scenario scenarios/mobile/{{SCENARIO_ID}}.json --runner runner-manifests/primary-runner.json --platform android --out artifacts/asl/plan/{{SCENARIO_ID}}-android
 ```

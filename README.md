@@ -86,7 +86,7 @@ const {
 } = require('agent-scenario-loop');
 ```
 
-The preflight CLI is exported as `agent-scenario-loop` and `asl-check-plan` after package installation. The template scaffold command is exported as `asl-init`. The Android adb runner is exported as `asl-android-adb`, Android profiling is exported as `asl-profile-android`, the iOS simctl capture helper is exported as `asl-ios-simctl`, the packaged Android and iOS example proofs are exported as `asl-example-android-live` and `asl-example-ios-live`, iOS profiling is exported as `asl-profile-ios`, comparison is exported as `asl-compare` and `asl-compare-latest`, aggregate proof inspection is exported as `asl-live-proof`, and the fixture loop is exported as `asl-demo-loop`. In this repo, use the script form:
+The preflight CLI is exported as `agent-scenario-loop` and `asl-check-plan` after package installation. The template scaffold command is exported as `asl-init`. Project validation is exported as `asl-validate-project`. The Android adb runner is exported as `asl-android-adb`, Android profiling is exported as `asl-profile-android`, the iOS simctl capture helper is exported as `asl-ios-simctl`, the packaged Android and iOS example proofs are exported as `asl-example-android-live` and `asl-example-ios-live`, iOS profiling is exported as `asl-profile-ios`, comparison is exported as `asl-compare` and `asl-compare-latest`, aggregate proof inspection is exported as `asl-live-proof`, and the fixture loop is exported as `asl-demo-loop`. In this repo, use the script form:
 
 ```bash
 pnpm check-plan -- --scenario examples/scenarios/mobile/app-startup.json --runner examples/runners/xcodebuildmcp-ios.json --platform ios --out artifacts/plan/app-startup
@@ -269,7 +269,8 @@ Read next: [Contracts](docs/contracts.md) for the artifact layout and supported 
 3. Emit truth events around one real user journey. One journey is enough to start.
 4. Merge the generated `asl/package-scripts.json` snippets into your app `package.json` intentionally.
 5. Start from the scaffolded scenario or from [examples/scenarios/ios/app-startup.json](examples/scenarios/ios/app-startup.json) and [examples/scenarios/ios/open-close-cycle.json](examples/scenarios/ios/open-close-cycle.json).
-6. Run the journey on a simulator manually or with your driver of choice while capturing device logs, so the log contains your `[profile-event]` lines. Then:
+6. Run `asl-validate-project --root . --platform all` before live device proof.
+7. Run the journey on a simulator manually or with your driver of choice while capturing device logs, so the log contains your `[profile-event]` lines. Then:
 
 ```bash
 pnpm profile:ios -- --config <config> --scenario <scenario> --events <event-log>
@@ -315,6 +316,7 @@ Current package guarantees:
 - root exports expose the core artifact, planner, comparison, writer, interpreter, and ports contracts
 - installable CLIs print help and run against packaged examples, including Android and iOS example-live proof paths
 - `asl-init` scaffolds config, scenario, runner manifests, local script snippets, and React Native profile-session wiring into a consuming app layout from the installed tarball
+- `asl-validate-project` validates initialized app scaffolds and planner compatibility from the installed tarball
 - packaged schemas, scenarios, runner manifests, templates, docs, and app helper resolve after install
 - canonical fixture and neutral Expo-app event logs produce passed profile artifacts
 - explicit baseline/current run folders can produce schema-checked `comparison.json`

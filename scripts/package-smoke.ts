@@ -669,6 +669,22 @@ function main(): void {
         env,
       });
     }
+    const initializedValidationOutput = run(packageBinPath(installDir, 'asl-validate-project'), [
+      '--root',
+      initOutputDir,
+      '--platform',
+      'all',
+      '--out',
+      path.join(initOutputDir, 'artifacts', 'asl', 'project-validation'),
+    ], {
+      cwd: initOutputDir,
+      env,
+    });
+    assert.match(initializedValidationOutput, /project validation passed/u);
+    assert.equal(
+      fs.existsSync(path.join(initOutputDir, 'artifacts', 'asl', 'project-validation', 'project-validation.json')),
+      true,
+    );
 
     for (const binaryName of Object.keys(packageJson.bin).sort()) {
       const helpText = run(packageBinPath(installDir, binaryName), ['--help'], {
@@ -1441,6 +1457,7 @@ function main(): void {
       "assert.equal(fs.existsSync('node_modules/agent-scenario-loop/docs/authoring.md'), true);",
       "require.resolve('agent-scenario-loop/runner/ios-simctl-driver');",
       "require.resolve('agent-scenario-loop/runner/live-proof');",
+      "require.resolve('agent-scenario-loop/runner/validate-project');",
     ].join('\n');
     run(process.execPath, ['-e', resolveSmokeScript], {
       cwd: installDir,
@@ -1475,6 +1492,7 @@ function main(): void {
       "import { readLiveProof } from 'agent-scenario-loop/runner/live-proof';",
       "import { resolveAndroidAdbDriverSteps, resolveAndroidAdbProfileCommands, runProfileAndroid } from 'agent-scenario-loop/runner/profile-android';",
       "import { runProfileIos, type CliArgs } from 'agent-scenario-loop/runner/profile-ios';",
+      "import { validateProject } from 'agent-scenario-loop/runner/validate-project';",
       '',
       "const layout: ArtifactLayout = createArtifactLayout({ outputDir: 'run' });",
       "const validation: PortValidationResult = validatePortImplementation({",
@@ -1559,6 +1577,7 @@ function main(): void {
       'void resolveAndroidAdbProfileCommands;',
       'void runProfileAndroid;',
       'void runProfileIos;',
+      'void validateProject;',
       '',
     ].join('\n');
     fs.writeFileSync(path.join(installDir, 'package-smoke-types.ts'), typeSmokeSource, 'utf8');

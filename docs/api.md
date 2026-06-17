@@ -51,6 +51,7 @@ Runner subpaths are public when a consuming project needs to compose a workflow 
 | `agent-scenario-loop/runner/live-proof` | aggregate live-proof artifact validation, formatting, and regression gating |
 | `agent-scenario-loop/runner/profile-android` | Android profile artifact pipeline |
 | `agent-scenario-loop/runner/profile-ios` | iOS profile artifact pipeline |
+| `agent-scenario-loop/runner/validate-project` | project-level validation for initialized consumer app scaffolds |
 
 Installed binaries mirror those runner entrypoints for CLI use.
 

@@ -61,6 +61,10 @@ const HELP_CASES = [
     file: path.join(DIST_ROOT, 'runner', 'profile-android.js'),
     usage: 'Usage: asl-profile-android',
   },
+  {
+    file: path.join(DIST_ROOT, 'runner', 'validate-project.js'),
+    usage: 'Usage: asl-validate-project',
+  },
 ];
 
 /**
