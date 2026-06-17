@@ -154,7 +154,7 @@ The package currently supports:
 
 Not yet shipped as supported public features:
 
-- app installation or build orchestration
+- generic consuming-app installation or build orchestration
 - broad semantic UI workflow driving beyond the shipped portable driver-action subset
 - memory, network, or accessibility evidence capture from built-in drivers
 - Computer Use flows

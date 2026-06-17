@@ -39,7 +39,7 @@ The artifact contract separates scenario health, product verdict, baseline compa
 What it does not do yet:
 
 - boot or control simulators
-- install or build apps
+- provide generic consuming-app install or build orchestration
 - drive broad semantic UI workflows beyond selector-backed adb actions
 - capture memory, network, or accessibility evidence from built-in drivers
 
