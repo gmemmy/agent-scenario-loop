@@ -137,6 +137,12 @@ Add `--compare-latest` to compare each passed scenario against the latest truste
 pnpm example:android:live -- --run-suffix after-change --compare-latest
 ```
 
+When `agent-device` is available, the stronger aggregate path attaches the shared startup UI assertion as an interaction proof:
+
+```bash
+pnpm example:android:live:agent-device
+```
+
 The proof command writes:
 
 - adb preflight health under `artifacts/example-mobile-app/android/_preflight/android-live-preflight`
@@ -144,6 +150,7 @@ The proof command writes:
 - open-close artifacts under `artifacts/example-mobile-app/android/open-close-cycle/android-live-open-close`
 - scroll artifacts under `artifacts/example-mobile-app/android/scroll-settle/android-live-scroll`
 - aggregate live-proof artifacts under `artifacts/example-mobile-app/android/_live-proof/android-live-proof`
+- optional interaction proof artifacts under `artifacts/example-mobile-app/android/_agent-device-captures/<run-id>`
 - optional comparison artifacts under `artifacts/example-mobile-app/android/comparisons/<scenario-id>/<run-id>`
 
 The underlying profile commands remain available when you want to isolate one scenario:
@@ -219,6 +226,12 @@ Add `--compare-latest` when the aggregate proof should also compare each passed 
 
 ```bash
 pnpm example:ios:live -- --run-suffix after-change --compare-latest
+```
+
+When `agent-device` is available, the stronger aggregate path attaches the same startup UI assertion used by Android:
+
+```bash
+pnpm example:ios:live:agent-device
 ```
 
 Comparison artifacts are written under `artifacts/example-mobile-app/ios/comparisons/<scenario-id>/<run-id>`.

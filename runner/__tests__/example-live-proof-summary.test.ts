@@ -1,11 +1,18 @@
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const fsp = require('node:fs/promises');
+const os = require('node:os');
+const path = require('node:path');
 const test = require('node:test');
 
 const {
   buildLiveProofComparisonCounts,
   buildLiveProofComparisonStatus,
   buildLiveProofNextAction,
+  writeLiveProofSummary,
 } = require('../example-live-proof-summary');
+
+type TestContext = import('node:test').TestContext;
 
 /**
  * Builds a minimal comparison pointer for status aggregation tests.
@@ -63,4 +70,71 @@ test('maps aggregate live proof statuses to next actions', () => {
   assert.equal(buildLiveProofNextAction('improved').code, 'inspect_summary');
   assert.equal(buildLiveProofNextAction('unchanged').code, 'inspect_summary');
   assert.equal(buildLiveProofNextAction('not_compared').code, 'inspect_summary');
+});
+
+test('writes optional interaction proof pointers into aggregate live proof artifacts', async (t: TestContext) => {
+  const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-live-proof-summary-'));
+  t.after(async () => {
+    await fsp.rm(tempDir, { recursive: true, force: true });
+  });
+
+  const preflightDir = path.join(tempDir, '_preflight', 'android-live-preflight');
+  const profileDir = path.join(tempDir, 'app-startup', 'android-live-startup');
+  const interactionDir = path.join(tempDir, '_agent-device-captures', 'android-agent-device-startup');
+  await fsp.mkdir(preflightDir, { recursive: true });
+  await fsp.mkdir(profileDir, { recursive: true });
+  await fsp.mkdir(interactionDir, { recursive: true });
+  await fsp.writeFile(path.join(preflightDir, 'agent-summary.md'), '# preflight\n', 'utf8');
+  await fsp.writeFile(path.join(profileDir, 'agent-summary.md'), '# profile\n', 'utf8');
+  await fsp.writeFile(path.join(profileDir, 'health.json'), '{"healthStatus":"passed"}\n', 'utf8');
+  await fsp.writeFile(path.join(profileDir, 'verdict.json'), '{"verdictStatus":"passed"}\n', 'utf8');
+  await fsp.writeFile(path.join(interactionDir, 'agent-summary.md'), '# interaction\n', 'utf8');
+  await fsp.writeFile(path.join(interactionDir, 'health.json'), '{"healthStatus":"passed"}\n', 'utf8');
+  await fsp.writeFile(path.join(interactionDir, 'verdict.json'), '{"verdictStatus":"not_evaluated"}\n', 'utf8');
+
+  const result = await writeLiveProofSummary({
+    comparisons: [],
+    interactionProofs: [
+      {
+        label: 'startup-ui',
+        runDir: interactionDir,
+        runId: 'android-agent-device-startup',
+        runnerId: 'agent-device',
+        scenarioId: 'app-startup',
+      },
+    ],
+    outputDir: tempDir,
+    platform: 'android',
+    preflightDir,
+    preflightRunId: 'android-live-preflight',
+    profiles: [
+      {
+        label: 'startup',
+        runDir: profileDir,
+        runId: 'android-live-startup',
+        scenarioId: 'app-startup',
+      },
+    ],
+    runId: 'android-live-proof',
+  });
+
+  const artifact = JSON.parse(fs.readFileSync(result.liveProofPath, 'utf8'));
+  assert.equal(artifact.summary, 'android live proof passed 1 profile run(s) and 1 interaction proof(s) without comparison results.');
+  assert.deepEqual(
+    artifact.interactionProofs.map((proof: { healthStatus: string; label: string; runnerId: string; summaryPath: string }) => ({
+      healthStatus: proof.healthStatus,
+      label: proof.label,
+      runnerId: proof.runnerId,
+      summaryPath: proof.summaryPath,
+    })),
+    [
+      {
+        healthStatus: 'passed',
+        label: 'startup-ui',
+        runnerId: 'agent-device',
+        summaryPath: path.join(interactionDir, 'agent-summary.md'),
+      },
+    ],
+  );
+  assert.match(fs.readFileSync(result.summaryPath, 'utf8'), /## Interaction Proofs/u);
 });

@@ -5,6 +5,7 @@ const path = require('node:path');
 
 const { hasHelpFlag, writeUsage } = require('./cli');
 const {
+  parsePositiveInteger,
   parseArgs,
   runIosSimctlCapture,
 } = require('./ios-simctl');
@@ -13,15 +14,24 @@ const {
   isEnabledFlag,
 } = require('./example-live-comparison');
 const { writeLiveProofSummary } = require('./example-live-proof-summary');
+const { runAgentDeviceCapture } = require('./agent-device');
 const { runProfileIos } = require('./profile-ios');
 
 type CliArgs = import('./ios-simctl').CliArgs;
 type ExampleLiveComparisonResult = import('./example-live-comparison').ExampleLiveComparisonResult;
 type LiveProofSummaryResult = import('./example-live-proof-summary').LiveProofSummaryResult;
 type IosLiveProofOptions = {
+  agentDeviceExecutor?: import('./agent-device').CommandExecutor;
   delay?: (ms: number) => Promise<void>;
   executor?: import('./ios-simctl').CommandExecutor;
   packageRoot?: string;
+};
+type IosInteractionProof = {
+  label: string;
+  runDir: string;
+  runId: string;
+  runnerId: string;
+  scenarioId: string;
 };
 type IosLiveProfile = {
   label: string;
@@ -33,6 +43,7 @@ type IosLiveProfile = {
 type IosLiveProofResult = {
   aggregateSummary: LiveProofSummaryResult;
   comparisons: ExampleLiveComparisonResult[];
+  interactionProofs: IosInteractionProof[];
   outputDir: string;
   preflightDir: string;
   profiles: IosLiveProfile[];
@@ -58,6 +69,7 @@ const EXAMPLE_PROFILES = [
     scenarioId: 'scroll-settle',
   },
 ];
+const DEFAULT_AGENT_DEVICE_IOS_SESSION = 'ios-example-live';
 
 /**
  * Prints CLI usage.
@@ -67,12 +79,13 @@ const EXAMPLE_PROFILES = [
  */
 function usage(output: { write: (message: string) => unknown } = process.stderr): void {
   writeUsage([
-    'Usage: asl-example-ios-live [--config <path>] [--out <dir>] [--bundle <id>] [--device <udid|booted>] [--xcrun <path>] [--run-suffix <label>] [--compare-latest]',
+    'Usage: asl-example-ios-live [--config <path>] [--out <dir>] [--bundle <id>] [--device <udid|booted>] [--xcrun <path>] [--run-suffix <label>] [--compare-latest] [--agent-device-proof]',
     '',
     'Runs the packaged example iOS live proof: simctl preflight, startup, open-close, and scroll-settle.',
     'The example app must already be installed on a booted iOS simulator and connected to Metro.',
     'Use --run-suffix to preserve multiple live proof artifact sets without changing deterministic default run ids.',
     'Use --compare-latest to compare each passed scenario against the latest trusted prior run under the artifact root.',
+    `Use --agent-device-proof to attach the shared startup UI assertion through agent-device; defaults to session ${DEFAULT_AGENT_DEVICE_IOS_SESSION}.`,
   ], output);
 }
 
@@ -193,6 +206,34 @@ function assertPassedProfile({
 }
 
 /**
+ * Throws when an interaction proof failed before aggregate summary writing.
+ *
+ * @param {{label: string, runDir: string, health: Record<string, unknown>}} options
+ * @returns {void}
+ */
+function assertPassedInteractionProof({
+  health,
+  label,
+  runDir,
+}: {
+  health: Record<string, unknown>;
+  label: string;
+  runDir: string;
+}): void {
+  if (health.healthStatus === 'passed') {
+    return;
+  }
+
+  throw new Error(
+    [
+      `iOS interaction proof failed for ${label}.`,
+      `Health: ${health.healthStatus ?? 'unknown'}.`,
+      `Inspect ${runDir}/agent-summary.md.`,
+    ].join(' '),
+  );
+}
+
+/**
  * Runs simctl preflight plus all canonical iOS example live profiles.
  *
  * @param {CliArgs} args
@@ -216,6 +257,7 @@ async function runExampleIosLiveProof(
   const runSuffix = normalizeRunSuffix(args['run-suffix']);
   const aggregateRunId = buildLiveRunId('ios-live-proof', runSuffix);
   const preflightRunId = buildLiveRunId('ios-live-preflight', runSuffix);
+  const interactionRunId = buildLiveRunId('ios-agent-device-startup', runSuffix);
   const preflightDir = path.join(outputDir, '_preflight', preflightRunId);
 
   const preflight = await runIosSimctlCapture({
@@ -229,6 +271,37 @@ async function runExampleIosLiveProof(
 
   if (preflight.health.healthStatus !== 'passed') {
     throw new Error(`iOS live proof preflight failed; inspect ${preflight.runDir}/agent-summary.md.`);
+  }
+
+  const interactionProofs: IosInteractionProof[] = [];
+  if (isEnabledFlag(args['agent-device-proof'])) {
+    const agentDeviceCapture = await runAgentDeviceCapture({
+      ...(typeof args['agent-device'] === 'string' ? { agentDevicePath: args['agent-device'] } : {}),
+      app: bundleId,
+      ...(options.agentDeviceExecutor ? { executor: options.agentDeviceExecutor } : {}),
+      open: true,
+      outputDir: path.join(outputDir, '_agent-device-captures', interactionRunId),
+      platform: 'ios',
+      runId: interactionRunId,
+      scenario: readJson(path.join(exampleRoot, 'scenarios', 'mobile', 'app-startup.json')),
+      session: typeof args['agent-device-session'] === 'string'
+        ? args['agent-device-session']
+        : DEFAULT_AGENT_DEVICE_IOS_SESSION,
+      ...(typeof args.device === 'string' ? { udid: args.device } : {}),
+      waitMs: parsePositiveInteger(args['agent-device-wait-ms'], 1000),
+    });
+    assertPassedInteractionProof({
+      health: agentDeviceCapture.health,
+      label: 'startup-ui',
+      runDir: agentDeviceCapture.runDir,
+    });
+    interactionProofs.push({
+      label: 'startup-ui',
+      runDir: agentDeviceCapture.runDir,
+      runId: interactionRunId,
+      runnerId: 'agent-device',
+      scenarioId: 'app-startup',
+    });
   }
 
   const profiles: IosLiveProfile[] = [];
@@ -274,6 +347,7 @@ async function runExampleIosLiveProof(
     : [];
   const aggregateSummary = await writeLiveProofSummary({
     comparisons,
+    interactionProofs,
     outputDir,
     platform: 'ios',
     preflightDir: preflight.runDir,
@@ -285,6 +359,7 @@ async function runExampleIosLiveProof(
   return {
     aggregateSummary,
     comparisons,
+    interactionProofs,
     outputDir,
     preflightDir: preflight.runDir,
     profiles,
@@ -304,6 +379,9 @@ function formatResult(result: IosLiveProofResult): string {
     `Preflight: ${result.preflightDir}/agent-summary.md`,
     ...result.profiles.map((profile) => (
       `${profile.label}: ${profile.runDir}/agent-summary.md`
+    )),
+    ...result.interactionProofs.map((proof) => (
+      `${proof.label}: ${proof.runDir}/agent-summary.md`
     )),
     ...(
       result.comparisons.length > 0
@@ -355,6 +433,7 @@ export {
 
 export type {
   IosLiveProofOptions,
+  IosInteractionProof,
   IosLiveProofResult,
   IosLiveProfile,
 };

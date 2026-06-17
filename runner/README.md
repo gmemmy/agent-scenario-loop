@@ -134,7 +134,14 @@ pnpm example:ios:live -- --run-suffix after-change --compare-latest
 
 The comparison step writes `comparison.json` and `agent-summary.md` under `artifacts/example-mobile-app/<platform>/comparisons/<scenario-id>/<run-id>`. A missing prior trusted run is reported as skipped without failing an otherwise healthy live proof.
 
-Each aggregate live proof also writes `_live-proof/<run-id>/live-proof.json` and `_live-proof/<run-id>/agent-summary.md`, giving agents one batch entrypoint that links preflight evidence, scenario run summaries, per-profile health/verdict statuses, optional comparisons, and aggregate comparison counts.
+When the external `agent-device` CLI is available, add `--agent-device-proof` or run the package scripts below to attach the shared startup UI assertion to the aggregate proof:
+
+```bash
+pnpm example:android:live:agent-device
+pnpm example:ios:live:agent-device
+```
+
+Each aggregate live proof also writes `_live-proof/<run-id>/live-proof.json` and `_live-proof/<run-id>/agent-summary.md`, giving agents one batch entrypoint that links preflight evidence, scenario run summaries, per-profile health/verdict statuses, optional interaction proofs, optional comparisons, and aggregate comparison counts.
 
 To inspect or gate the batch artifact:
 

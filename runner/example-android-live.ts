@@ -5,6 +5,7 @@ const path = require('node:path');
 
 const { hasHelpFlag, writeUsage } = require('./cli');
 const {
+  parsePositiveInteger,
   parseArgs,
   runAndroidAdbPreflight,
 } = require('./android-adb');
@@ -13,15 +14,24 @@ const {
   isEnabledFlag,
 } = require('./example-live-comparison');
 const { writeLiveProofSummary } = require('./example-live-proof-summary');
+const { runAgentDeviceCapture } = require('./agent-device');
 const { runProfileAndroid } = require('./profile-android');
 
 type CliArgs = import('./android-adb').CliArgs;
 type ExampleLiveComparisonResult = import('./example-live-comparison').ExampleLiveComparisonResult;
 type LiveProofSummaryResult = import('./example-live-proof-summary').LiveProofSummaryResult;
 type AndroidLiveProofOptions = {
+  agentDeviceExecutor?: import('./agent-device').CommandExecutor;
   delay?: (ms: number) => Promise<void>;
   executor?: import('./android-adb').CommandExecutor;
   packageRoot?: string;
+};
+type AndroidInteractionProof = {
+  label: string;
+  runDir: string;
+  runId: string;
+  runnerId: string;
+  scenarioId: string;
 };
 type AndroidLiveProfile = {
   label: string;
@@ -33,6 +43,7 @@ type AndroidLiveProfile = {
 type AndroidLiveProofResult = {
   aggregateSummary: LiveProofSummaryResult;
   comparisons: ExampleLiveComparisonResult[];
+  interactionProofs: AndroidInteractionProof[];
   outputDir: string;
   preflightDir: string;
   profiles: AndroidLiveProfile[];
@@ -59,6 +70,7 @@ const EXAMPLE_PROFILES = [
   },
 ];
 const DEFAULT_REACT_NATIVE_DEBUG_HOST = 'localhost:8097';
+const DEFAULT_AGENT_DEVICE_ANDROID_SESSION = 'android-example-live';
 
 /**
  * Prints CLI usage.
@@ -68,13 +80,14 @@ const DEFAULT_REACT_NATIVE_DEBUG_HOST = 'localhost:8097';
  */
 function usage(output: { write: (message: string) => unknown } = process.stderr): void {
   writeUsage([
-    'Usage: asl-example-android-live [--config <path>] [--out <dir>] [--package <name>] [--serial <device>] [--react-native-debug-host <host:port>] [--run-suffix <label>] [--compare-latest]',
+    'Usage: asl-example-android-live [--config <path>] [--out <dir>] [--package <name>] [--serial <device>] [--react-native-debug-host <host:port>] [--run-suffix <label>] [--compare-latest] [--agent-device-proof]',
     '',
     'Runs the packaged example Android live proof: adb preflight, startup, open-close, and scroll-settle.',
     'The example app must already be installed and reachable on an online Android emulator or device.',
     `By default, the runner sets the app React Native debug host to ${DEFAULT_REACT_NATIVE_DEBUG_HOST} for the isolated Metro server.`,
     'Use --run-suffix to preserve multiple live proof artifact sets without changing deterministic default run ids.',
     'Use --compare-latest to compare each passed scenario against the latest trusted prior run under the artifact root.',
+    `Use --agent-device-proof to attach the shared startup UI assertion through agent-device; defaults to session ${DEFAULT_AGENT_DEVICE_ANDROID_SESSION}.`,
   ], output);
 }
 
@@ -195,6 +208,34 @@ function assertPassedProfile({
 }
 
 /**
+ * Throws when an interaction proof failed before aggregate summary writing.
+ *
+ * @param {{label: string, runDir: string, health: Record<string, unknown>}} options
+ * @returns {void}
+ */
+function assertPassedInteractionProof({
+  health,
+  label,
+  runDir,
+}: {
+  health: Record<string, unknown>;
+  label: string;
+  runDir: string;
+}): void {
+  if (health.healthStatus === 'passed') {
+    return;
+  }
+
+  throw new Error(
+    [
+      `Android interaction proof failed for ${label}.`,
+      `Health: ${health.healthStatus ?? 'unknown'}.`,
+      `Inspect ${runDir}/agent-summary.md.`,
+    ].join(' '),
+  );
+}
+
+/**
  * Runs adb preflight plus all canonical Android example live profiles.
  *
  * @param {CliArgs} args
@@ -218,6 +259,7 @@ async function runExampleAndroidLiveProof(
   const runSuffix = normalizeRunSuffix(args['run-suffix']);
   const aggregateRunId = buildLiveRunId('android-live-proof', runSuffix);
   const preflightRunId = buildLiveRunId('android-live-preflight', runSuffix);
+  const interactionRunId = buildLiveRunId('android-agent-device-startup', runSuffix);
   const preflightDir = path.join(outputDir, '_preflight', preflightRunId);
   const reactNativeDebugHost = typeof args['react-native-debug-host'] === 'string'
     ? args['react-native-debug-host']
@@ -236,6 +278,37 @@ async function runExampleAndroidLiveProof(
 
   if (preflight.health.healthStatus !== 'passed') {
     throw new Error(`Android live proof preflight failed; inspect ${preflight.runDir}/agent-summary.md.`);
+  }
+
+  const interactionProofs: AndroidInteractionProof[] = [];
+  if (isEnabledFlag(args['agent-device-proof'])) {
+    const agentDeviceCapture = await runAgentDeviceCapture({
+      ...(typeof args['agent-device'] === 'string' ? { agentDevicePath: args['agent-device'] } : {}),
+      app: packageName,
+      ...(options.agentDeviceExecutor ? { executor: options.agentDeviceExecutor } : {}),
+      open: true,
+      outputDir: path.join(outputDir, '_agent-device-captures', interactionRunId),
+      platform: 'android',
+      runId: interactionRunId,
+      scenario: readJson(path.join(exampleRoot, 'scenarios', 'mobile', 'app-startup.json')),
+      ...(typeof args.serial === 'string' ? { serial: args.serial } : {}),
+      session: typeof args['agent-device-session'] === 'string'
+        ? args['agent-device-session']
+        : DEFAULT_AGENT_DEVICE_ANDROID_SESSION,
+      waitMs: parsePositiveInteger(args['agent-device-wait-ms'], 1000),
+    });
+    assertPassedInteractionProof({
+      health: agentDeviceCapture.health,
+      label: 'startup-ui',
+      runDir: agentDeviceCapture.runDir,
+    });
+    interactionProofs.push({
+      label: 'startup-ui',
+      runDir: agentDeviceCapture.runDir,
+      runId: interactionRunId,
+      runnerId: 'agent-device',
+      scenarioId: 'app-startup',
+    });
   }
 
   const profiles: AndroidLiveProfile[] = [];
@@ -282,6 +355,7 @@ async function runExampleAndroidLiveProof(
     : [];
   const aggregateSummary = await writeLiveProofSummary({
     comparisons,
+    interactionProofs,
     outputDir,
     platform: 'android',
     preflightDir: preflight.runDir,
@@ -293,6 +367,7 @@ async function runExampleAndroidLiveProof(
   return {
     aggregateSummary,
     comparisons,
+    interactionProofs,
     outputDir,
     preflightDir: preflight.runDir,
     profiles,
@@ -312,6 +387,9 @@ function formatResult(result: AndroidLiveProofResult): string {
     `Preflight: ${result.preflightDir}/agent-summary.md`,
     ...result.profiles.map((profile) => (
       `${profile.label}: ${profile.runDir}/agent-summary.md`
+    )),
+    ...result.interactionProofs.map((proof) => (
+      `${proof.label}: ${proof.runDir}/agent-summary.md`
     )),
     ...(
       result.comparisons.length > 0
@@ -363,6 +441,7 @@ export {
 
 export type {
   AndroidLiveProofOptions,
+  AndroidInteractionProof,
   AndroidLiveProofResult,
   AndroidLiveProfile,
 };

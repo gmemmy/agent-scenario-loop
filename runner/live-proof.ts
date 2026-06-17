@@ -26,6 +26,16 @@ type LiveProofArtifact = {
     code: string;
     summary: string;
   };
+  interactionProofs?: Array<{
+    healthStatus: string;
+    label: string;
+    runDir: string;
+    runId: string;
+    runnerId: string;
+    scenarioId: string;
+    summaryPath: string;
+    verdictStatus: string;
+  }>;
   platform: string;
   profiles: Array<{
     healthStatus: string;
@@ -235,6 +245,10 @@ function formatLiveProof(proof: LiveProofArtifact): string {
     `Profiles: ${proof.profiles.length}`,
     ...proof.profiles.map((profile) => (
       `- ${profile.label} (${profile.scenarioId}/${profile.runId}): health=${profile.healthStatus} verdict=${profile.verdictStatus}`
+    )),
+    `Interaction proofs: ${proof.interactionProofs?.length ?? 0}`,
+    ...(proof.interactionProofs ?? []).map((proofPointer) => (
+      `- ${proofPointer.label} (${proofPointer.runnerId}/${proofPointer.scenarioId}/${proofPointer.runId}): health=${proofPointer.healthStatus} verdict=${proofPointer.verdictStatus}`
     )),
     `Comparisons: ${proof.comparisons.length}`,
     `Comparison counts: better=${proof.comparisonCounts.better} worse=${proof.comparisonCounts.worse} unchanged=${proof.comparisonCounts.unchanged} inconclusive=${proof.comparisonCounts.inconclusive} skipped=${proof.comparisonCounts.skipped}`,

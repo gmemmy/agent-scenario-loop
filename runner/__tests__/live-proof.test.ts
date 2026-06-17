@@ -46,6 +46,18 @@ function buildProof(comparisonStatus: 'regressed' | 'unchanged'): Record<string,
         verdictStatus: 'passed',
       },
     ],
+    interactionProofs: [
+      {
+        healthStatus: 'passed',
+        label: 'startup-ui',
+        runDir: 'artifacts/example-mobile-app/android/_agent-device-captures/agent-device-startup',
+        runnerId: 'agent-device',
+        scenarioId: 'app-startup',
+        runId: 'agent-device-startup',
+        summaryPath: 'artifacts/example-mobile-app/android/_agent-device-captures/agent-device-startup/agent-summary.md',
+        verdictStatus: 'not_evaluated',
+      },
+    ],
     comparisons: [
       {
         label: 'startup',
@@ -197,6 +209,7 @@ test('reads, validates, and formats live-proof artifacts', async (t: TestContext
   assert.equal(proof.comparisonStatus, 'unchanged');
   assert.match(output, /Live proof: android android-live-proof/u);
   assert.match(output, /startup \(app-startup\/android-live-startup\): health=passed verdict=passed/u);
+  assert.match(output, /startup-ui \(agent-device\/app-startup\/agent-device-startup\): health=passed verdict=not_evaluated/u);
   assert.match(output, /Comparison counts: better=0 worse=0 unchanged=1 inconclusive=0 skipped=0/u);
   assert.match(output, /Next action: inspect_summary/u);
   assert.equal(shouldFailOnRegression({ failOnRegression: true, proof }), false);

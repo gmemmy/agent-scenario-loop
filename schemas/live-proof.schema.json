@@ -46,6 +46,12 @@
         "$ref": "#/$defs/profilePointer"
       }
     },
+    "interactionProofs": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/interactionProofPointer"
+      }
+    },
     "comparisons": {
       "type": "array",
       "items": {
@@ -89,6 +95,39 @@
       "required": ["label", "scenarioId", "runId", "runDir", "summaryPath", "healthStatus", "verdictStatus"],
       "properties": {
         "label": {
+          "type": "string"
+        },
+        "scenarioId": {
+          "type": "string"
+        },
+        "runId": {
+          "type": "string"
+        },
+        "runDir": {
+          "type": "string"
+        },
+        "summaryPath": {
+          "type": "string"
+        },
+        "healthStatus": {
+          "type": "string",
+          "enum": ["passed", "failed", "partial"]
+        },
+        "verdictStatus": {
+          "type": "string",
+          "enum": ["passed", "failed", "inconclusive", "not_evaluated"]
+        }
+      }
+    },
+    "interactionProofPointer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["label", "runnerId", "scenarioId", "runId", "runDir", "summaryPath", "healthStatus", "verdictStatus"],
+      "properties": {
+        "label": {
+          "type": "string"
+        },
+        "runnerId": {
           "type": "string"
         },
         "scenarioId": {

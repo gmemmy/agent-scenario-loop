@@ -16,6 +16,7 @@ const {
 } = require('../ios-simctl');
 
 type CommandResult = import('../ios-simctl').CommandResult;
+type AgentDeviceCommandResult = import('../agent-device').CommandResult;
 type TestContext = import('node:test').TestContext;
 
 const ROOT = path.join(__dirname, '..', '..', '..');
@@ -96,6 +97,7 @@ test('runs the packaged iOS example live proof with a fake simctl executor', asy
   });
 
   const calls: string[] = [];
+  const agentDeviceCalls: string[] = [];
   const executor = async (command: string, args: string[]): Promise<CommandResult> => {
     const key = args.join(' ');
     calls.push(key);
@@ -132,6 +134,19 @@ test('runs the packaged iOS example live proof with a fake simctl executor', asy
 
     return { command, args, exitCode: 1, stderr: `unexpected command: ${key}`, stdout: '' };
   };
+  const agentDeviceExecutor = async (command: string, args: string[]): Promise<AgentDeviceCommandResult> => {
+    agentDeviceCalls.push(args.join(' '));
+    if (args[0] === 'screenshot' && typeof args[1] === 'string') {
+      await fsp.writeFile(args[1], 'fake screenshot', 'utf8');
+    }
+    return {
+      args,
+      command,
+      exitCode: 0,
+      stderr: '',
+      stdout: '{"success":true}\n',
+    };
+  };
 
   await runExampleIosLiveProof({
     device: DEVICE_ID,
@@ -143,17 +158,20 @@ test('runs the packaged iOS example live proof with a fake simctl executor', asy
   });
 
   const result = await runExampleIosLiveProof({
+    'agent-device-proof': true,
     'compare-latest': true,
     device: DEVICE_ID,
     out: outputDir,
     'run-suffix': 'PR 123',
   }, {
+    agentDeviceExecutor,
     delay: async () => {},
     executor,
     packageRoot: ROOT,
   });
 
   assert.equal(result.profiles.length, 3);
+  assert.equal(result.interactionProofs.length, 1);
   assert.equal(result.comparisons.length, 3);
   assert.equal(fs.existsSync(result.aggregateSummary.liveProofPath), true);
   assert.equal(fs.existsSync(result.aggregateSummary.summaryPath), true);
@@ -161,6 +179,9 @@ test('runs the packaged iOS example live proof with a fake simctl executor', asy
   assert.match(formatResult(result), /Live proof:/u);
   assert.match(formatResult(result), /Comparisons:/u);
   assert.ok(calls.some((call) => call === `simctl launch ${DEVICE_ID} ${BUNDLE_ID}`));
+  assert.ok(agentDeviceCalls.some((call) => call.includes(`open ${BUNDLE_ID}`)));
+  assert.ok(agentDeviceCalls.some((call) => call.includes('is visible id="asl-example-title"')));
+  assert.ok(agentDeviceCalls.some((call) => call.includes('screenshot')));
   assert.deepEqual(
     result.profiles.map((profile: { runId: string }) => profile.runId),
     ['ios-live-startup-pr-123', 'ios-live-open-close-pr-123', 'ios-live-scroll-pr-123'],
@@ -182,6 +203,22 @@ test('runs the packaged iOS example live proof with a fake simctl executor', asy
   const aggregate = JSON.parse(fs.readFileSync(result.aggregateSummary.liveProofPath, 'utf8'));
   assert.equal(aggregate.platform, 'ios');
   assert.equal(aggregate.runId, 'ios-live-proof-pr-123');
+  assert.deepEqual(
+    aggregate.interactionProofs.map((proof: { healthStatus: string; label: string; runnerId: string; verdictStatus: string }) => ({
+      healthStatus: proof.healthStatus,
+      label: proof.label,
+      runnerId: proof.runnerId,
+      verdictStatus: proof.verdictStatus,
+    })),
+    [
+      {
+        healthStatus: 'passed',
+        label: 'startup-ui',
+        runnerId: 'agent-device',
+        verdictStatus: 'not_evaluated',
+      },
+    ],
+  );
   assert.equal(aggregate.comparisonStatus, 'unchanged');
   assert.deepEqual(aggregate.comparisonCounts, {
     better: 0,

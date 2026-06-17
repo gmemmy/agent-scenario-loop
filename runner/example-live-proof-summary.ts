@@ -16,6 +16,16 @@ type LiveProofProfilePointer = {
   verdictStatus?: string;
 };
 
+type LiveProofInteractionProofPointer = {
+  healthStatus?: string;
+  label: string;
+  runDir: string;
+  runId: string;
+  runnerId: string;
+  scenarioId: string;
+  verdictStatus?: string;
+};
+
 type LiveProofComparisonPointer = {
   baselineDir: string | null;
   comparisonDir: string | null;
@@ -34,6 +44,7 @@ type LiveProofArtifact = {
   nextAction: LiveProofNextAction;
   outputDir: string;
   platform: LiveProofPlatform;
+  interactionProofs?: Array<LiveProofInteractionProofPointer & { summaryPath: string }>;
   preflight: {
     runDir: string;
     runId: string;
@@ -76,6 +87,7 @@ type LiveProofSummaryResult = {
 
 type WriteLiveProofSummaryOptions = {
   comparisons: LiveProofComparisonPointer[];
+  interactionProofs?: LiveProofInteractionProofPointer[];
   outputDir: string;
   platform: LiveProofPlatform;
   preflightDir: string;
@@ -108,18 +120,23 @@ function readProfileRunStatus(runDir: string): {healthStatus: string; verdictSta
 function buildLiveProofSummary({
   comparisonCount,
   comparisonStatus,
+  interactionProofCount = 0,
   platform,
   profileCount,
 }: {
   comparisonCount: number;
   comparisonStatus: LiveProofComparisonStatus;
+  interactionProofCount?: number;
   platform: string;
   profileCount: number;
 }): string {
   const comparisonText = comparisonCount > 0
     ? `with ${comparisonCount} comparison result(s): ${comparisonStatus}`
     : 'without comparison results';
-  return `${platform} live proof passed ${profileCount} profile run(s) ${comparisonText}.`;
+  const interactionText = interactionProofCount > 0
+    ? ` and ${interactionProofCount} interaction proof(s)`
+    : '';
+  return `${platform} live proof passed ${profileCount} profile run(s)${interactionText} ${comparisonText}.`;
 }
 
 /**
@@ -243,6 +260,17 @@ function buildLiveProofMarkdown(artifact: LiveProofArtifact): string {
     )),
   ];
 
+  if (artifact.interactionProofs?.length) {
+    lines.push(
+      '',
+      '## Interaction Proofs',
+      '',
+      ...artifact.interactionProofs.map((proof) => (
+        `- ${proof.label} (${proof.runnerId}/${proof.scenarioId}): health=${proof.healthStatus} verdict=${proof.verdictStatus} - ${proof.summaryPath}`
+      )),
+    );
+  }
+
   if (artifact.comparisons.length > 0) {
     lines.push(
       '',
@@ -267,6 +295,7 @@ function buildLiveProofMarkdown(artifact: LiveProofArtifact): string {
  */
 async function writeLiveProofSummary({
   comparisons,
+  interactionProofs = [],
   outputDir,
   platform,
   preflightDir,
@@ -285,6 +314,19 @@ async function writeLiveProofSummary({
     nextAction: buildLiveProofNextAction(comparisonStatus),
     outputDir,
     platform,
+    ...(interactionProofs.length > 0
+      ? {
+          interactionProofs: interactionProofs.map((proof) => ({
+            ...readProfileRunStatus(proof.runDir),
+            label: proof.label,
+            runDir: proof.runDir,
+            runId: proof.runId,
+            runnerId: proof.runnerId,
+            scenarioId: proof.scenarioId,
+            summaryPath: path.join(proof.runDir, 'agent-summary.md'),
+          })),
+        }
+      : {}),
     preflight: {
       runDir: preflightDir,
       runId: preflightRunId,
@@ -304,6 +346,7 @@ async function writeLiveProofSummary({
     summary: buildLiveProofSummary({
       comparisonCount: comparisons.length,
       comparisonStatus,
+      interactionProofCount: interactionProofs.length,
       platform,
       profileCount: profiles.length,
     }),
@@ -342,6 +385,7 @@ export type {
   LiveProofComparisonCounts,
   LiveProofComparisonPointer,
   LiveProofComparisonStatus,
+  LiveProofInteractionProofPointer,
   LiveProofNextAction,
   LiveProofPlatform,
   LiveProofProfilePointer,
