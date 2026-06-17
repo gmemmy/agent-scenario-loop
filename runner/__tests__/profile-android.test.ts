@@ -507,6 +507,84 @@ test('profile-android rejects duplicate evidence provider command ids', async (t
   );
 });
 
+test('profile-android rejects providers that do not support the selected platform', async (t: TestContext) => {
+  const artifactRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-android-provider-platform-'));
+  const providerRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-provider-platform-'));
+  t.after(async () => {
+    await fsp.rm(artifactRoot, { recursive: true, force: true });
+    await fsp.rm(providerRoot, { recursive: true, force: true });
+  });
+  const markerPath = path.join(providerRoot, 'provider-ran.txt');
+  const providerManifestPath = path.join(providerRoot, 'provider.json');
+  await fsp.writeFile(
+    providerManifestPath,
+    `${JSON.stringify({
+      schemaVersion: '1.0.0',
+      runnerId: 'ios-only-provider',
+      kind: 'evidenceProvider',
+      platforms: ['ios'],
+      capabilities: ['accessibility'],
+      artifactOutputs: ['accessibility'],
+      lifecycle: ['capture'],
+      providerCommands: [
+        {
+          id: 'capture-accessibility',
+          phase: 'capture',
+          command: process.execPath,
+          args: ['-e', `require('node:fs').writeFileSync(${JSON.stringify(markerPath)}, 'ran\\n')`],
+          outputs: [
+            {
+              channel: 'provider',
+              kind: 'accessibility',
+              path: '{providerDir}/accessibility.json',
+            },
+          ],
+        },
+      ],
+    }, null, 2)}\n`,
+    'utf8',
+  );
+
+  const { stdout } = await execFileAsync(process.execPath, [
+    PROFILE_ANDROID,
+    '--config',
+    fixturePath('examples/mobile-app/asl.config.json'),
+    '--scenario',
+    fixturePath('examples/mobile-app/scenarios/android/app-startup.json'),
+    '--events',
+    fixturePath('examples/mobile-app/event-logs/android-app-startup.log'),
+    '--provider',
+    providerManifestPath,
+    '--out',
+    artifactRoot,
+    '--run-id',
+    'android-provider-platform',
+  ]);
+
+  const runDir = stdout.trim();
+  const health = readJson(path.join(runDir, 'health.json'));
+  const summary = fs.readFileSync(path.join(runDir, 'agent-summary.md'), 'utf8');
+
+  assert.equal(fs.existsSync(markerPath), false);
+  assert.equal(health.healthStatus, 'failed');
+  assert.deepEqual(
+    (health.checks as Array<{ code: string; metadata?: { nextActionCode?: string; providerId?: string } }>).map((check) => ({
+      code: check.code,
+      nextActionCode: check.metadata?.nextActionCode,
+      providerId: check.metadata?.providerId,
+    })),
+    [
+      {
+        code: 'provider_platform_unsupported',
+        nextActionCode: 'select_supported_provider_platform',
+        providerId: 'ios-only-provider',
+      },
+    ],
+  );
+  assert.equal(fs.existsSync(path.join(runDir, 'raw', 'provider-commands', 'ios-only-provider-capture-accessibility.json')), false);
+  assert.match(summary, /Next action `select_supported_provider_platform`/u);
+});
+
 test('profile-android writes failed health when an evidence provider command fails', async (t: TestContext) => {
   const artifactRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-android-provider-failure-'));
   const providerRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-provider-failure-'));

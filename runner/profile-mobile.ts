@@ -94,6 +94,7 @@ type ProviderCommand = {
 };
 type ProviderManifest = {
   kind?: string;
+  platforms?: string[];
   providerCommands?: ProviderCommand[];
   runnerId?: string;
 };
@@ -115,10 +116,15 @@ type ProviderCommandResult = {
 };
 type ProviderCommandFailure = {
   commandId: string;
-  exitCode: number;
+  code?: string;
+  exitCode: number | null;
+  message?: string;
+  name?: string;
+  nextAction?: string;
+  nextActionCode?: string;
   phase: ProviderCommand['phase'];
   providerId: string;
-  rawPath: string;
+  rawPath?: string;
 };
 type ProviderCommandExecution = {
   failures: ProviderCommandFailure[];
@@ -502,6 +508,21 @@ async function executeProviderCommands({
     }
 
     const providerId = safeProviderSegment(String(provider.runnerId ?? path.basename(absoluteManifestPath, '.json')));
+    if (Array.isArray(provider.platforms) && !provider.platforms.includes(platform)) {
+      failures.push({
+        commandId: 'platform-compatibility',
+        code: 'provider_platform_unsupported',
+        exitCode: null,
+        message: `Evidence provider ${providerId} does not support selected platform "${platform}".`,
+        name: 'evidence_provider_platform_supported',
+        nextAction: `Use a provider manifest whose platforms include "${platform}", or run this scenario on one of the provider's supported platforms.`,
+        nextActionCode: 'select_supported_provider_platform',
+        phase: 'prepare',
+        providerId,
+      });
+      continue;
+    }
+
     assertUniqueProviderCommandIds({
       providerCommands: provider.providerCommands,
       providerId,
@@ -551,7 +572,12 @@ async function executeProviderCommands({
       if (commandResult.exitCode !== 0) {
         failures.push({
           commandId: providerCommand.id,
+          code: 'provider_command_failed',
           exitCode: commandResult.exitCode,
+          message: `Evidence provider command ${providerId}/${providerCommand.id} failed with exit code ${commandResult.exitCode}.`,
+          name: 'evidence_provider_command_completed',
+          nextAction: `Inspect raw/provider-commands/${commandRecordFileName}, fix the provider command or its environment, then rerun the profile.`,
+          nextActionCode: 'fix_provider_command',
           phase: providerCommand.phase,
           providerId,
           rawPath: `raw/provider-commands/${commandRecordFileName}`,
@@ -842,19 +868,19 @@ function buildProviderCommandFailureHealth({
       runId,
       healthStatus: 'failed',
       checks: failures.map((failure) => ({
-        name: 'evidence_provider_command_completed',
+        name: failure.name ?? 'evidence_provider_command_completed',
         status: 'failed',
         source: 'evidence',
-        code: 'provider_command_failed',
-        message: `Evidence provider command ${failure.providerId}/${failure.commandId} failed with exit code ${failure.exitCode}.`,
+        code: failure.code ?? 'provider_command_failed',
+        message: failure.message ?? `Evidence provider command ${failure.providerId}/${failure.commandId} failed with exit code ${failure.exitCode}.`,
         metadata: {
           commandId: failure.commandId,
           exitCode: failure.exitCode,
-          nextAction: `Inspect ${failure.rawPath}, fix the provider command or its environment, then rerun the profile.`,
-          nextActionCode: 'fix_provider_command',
+          nextAction: failure.nextAction ?? `Inspect ${failure.rawPath}, fix the provider command or its environment, then rerun the profile.`,
+          nextActionCode: failure.nextActionCode ?? 'fix_provider_command',
           phase: failure.phase,
           providerId: failure.providerId,
-          rawPath: failure.rawPath,
+          ...(failure.rawPath ? { rawPath: failure.rawPath } : {}),
         },
       })),
     },

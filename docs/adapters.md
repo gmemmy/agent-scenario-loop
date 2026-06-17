@@ -129,7 +129,7 @@ asl-profile-android \
   --capture screenshot:artifacts/provider/final-screen.png
 ```
 
-If the provider should run during profiling, declare `providerCommands` in its manifest. Commands run without a shell, preserve stdout/stderr/exit code, and inventory outputs in `manifest.artifacts.evidenceAttachments`.
+If the provider should run during profiling, declare `providerCommands` in its manifest. Commands run without a shell, preserve stdout/stderr/exit code, and inventory outputs in `manifest.artifacts.evidenceAttachments`. Runtime profiles reject a provider whose `platforms` do not include the selected platform before command execution, preserving the same active-provider semantics used by planner compatibility.
 
 ## Acceptance Checklist
 

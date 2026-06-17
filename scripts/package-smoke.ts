@@ -960,6 +960,71 @@ function main(): void {
       },
     ]);
 
+    const unsupportedProviderRoot = path.join(tempRoot, 'provider-command-unsupported-platform');
+    const unsupportedProviderProfileRoot = path.join(tempRoot, 'provider-command-unsupported-platform-profile');
+    fs.mkdirSync(unsupportedProviderRoot, { recursive: true });
+    const unsupportedProviderMarkerPath = path.join(unsupportedProviderRoot, 'provider-ran.txt');
+    const unsupportedProviderManifestPath = path.join(unsupportedProviderRoot, 'provider.json');
+    fs.writeFileSync(unsupportedProviderManifestPath, `${JSON.stringify({
+      schemaVersion: '1.0.0',
+      runnerId: 'smoke-ios-only-provider',
+      kind: 'evidenceProvider',
+      platforms: ['ios'],
+      capabilities: ['accessibility'],
+      artifactOutputs: ['accessibility'],
+      lifecycle: ['capture'],
+      providerCommands: [
+        {
+          id: 'capture-accessibility',
+          phase: 'capture',
+          command: process.execPath,
+          args: ['-e', `require('node:fs').writeFileSync(${JSON.stringify(unsupportedProviderMarkerPath)}, 'ran\\n')`],
+          outputs: [
+            {
+              channel: 'provider',
+              kind: 'accessibility',
+              path: '{providerDir}/accessibility.json',
+            },
+          ],
+        },
+      ],
+    }, null, 2)}\n`);
+    const unsupportedProviderProfileOutput = run(packageBinPath(installDir, 'asl-profile-android'), [
+      '--config',
+      path.join(exampleAppRoot, 'asl.config.json'),
+      '--scenario',
+      path.join(exampleAppRoot, 'scenarios', 'android', 'app-startup.json'),
+      '--events',
+      path.join(exampleAppRoot, 'event-logs', 'android-app-startup.log'),
+      '--provider',
+      unsupportedProviderManifestPath,
+      '--out',
+      unsupportedProviderProfileRoot,
+      '--run-id',
+      'android-provider-unsupported-platform',
+    ], {
+      cwd: installDir,
+      env,
+    });
+    const unsupportedProviderRunDir = unsupportedProviderProfileOutput.trim();
+    const unsupportedProviderHealth = JSON.parse(fs.readFileSync(path.join(unsupportedProviderRunDir, 'health.json'), 'utf8'));
+    const unsupportedProviderSummary = fs.readFileSync(path.join(unsupportedProviderRunDir, 'agent-summary.md'), 'utf8');
+    assert.equal(fs.existsSync(unsupportedProviderMarkerPath), false);
+    assert.equal(unsupportedProviderHealth.healthStatus, 'failed');
+    assert.equal(
+      unsupportedProviderHealth.checks.some((check: { code: string; metadata?: { nextActionCode?: string; providerId?: string } }) =>
+        check.code === 'provider_platform_unsupported' &&
+        check.metadata?.nextActionCode === 'select_supported_provider_platform' &&
+        check.metadata?.providerId === 'smoke-ios-only-provider'
+      ),
+      true,
+    );
+    assert.equal(
+      fs.existsSync(path.join(unsupportedProviderRunDir, 'raw', 'provider-commands', 'smoke-ios-only-provider-capture-accessibility.json')),
+      false,
+    );
+    assert.match(unsupportedProviderSummary, /Next action `select_supported_provider_platform`/u);
+
     const failingProviderCommandRoot = path.join(tempRoot, 'provider-command-failure');
     const failingProviderCommandProfileRoot = path.join(tempRoot, 'provider-command-failure-profile');
     fs.mkdirSync(failingProviderCommandRoot, { recursive: true });
