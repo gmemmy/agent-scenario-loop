@@ -32,6 +32,7 @@
     "access": "public"
   },
   "bin": {
+    "asl-agent-device": "dist/runner/agent-device.js",
     "asl-android-adb": "dist/runner/android-adb.js",
     "agent-scenario-loop": "dist/runner/check-plan.js",
     "asl-compare": "dist/runner/compare.js",
@@ -63,6 +64,10 @@
     "./runner/agent-device-driver": {
       "types": "./dist/runner/agent-device-driver.d.ts",
       "require": "./dist/runner/agent-device-driver.js"
+    },
+    "./runner/agent-device": {
+      "types": "./dist/runner/agent-device.d.ts",
+      "require": "./dist/runner/agent-device.js"
     },
     "./runner/check-plan": {
       "types": "./dist/runner/check-plan.d.ts",

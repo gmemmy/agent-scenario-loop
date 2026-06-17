@@ -164,6 +164,7 @@ function usage({
     lines.push('Use --profile-session with --simctl-capture to start the app profile session and execute scenario-declared iOS commands.');
     lines.push('Use --profile-session-storage with --profile-session to seed startup control through iOS AsyncStorage and collect stored truth events.');
   }
+  lines.push('Use --agent-device-capture to execute scenario-declared portable driver actions through agent-device and attach its captures.');
 
   writeUsage(lines, output);
 }

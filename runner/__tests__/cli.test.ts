@@ -14,6 +14,10 @@ type ExecFailure = Error & ExecOutput;
 
 const HELP_CASES = [
   {
+    file: path.join(DIST_ROOT, 'runner', 'agent-device.js'),
+    usage: 'Usage: asl-agent-device',
+  },
+  {
     file: path.join(DIST_ROOT, 'runner', 'android-adb.js'),
     usage: 'Usage: asl-android-adb',
   },

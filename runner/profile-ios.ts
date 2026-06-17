@@ -17,8 +17,10 @@ const {
   usage,
 } = require('./profile-mobile');
 const { runIosSimctlCapture } = require('./ios-simctl');
+const { runAgentDeviceCapture } = require('./agent-device');
 
 type IosProfileOptions = {
+  agentDeviceExecutor?: import('./agent-device').CommandExecutor;
   delay?: (ms: number) => Promise<void>;
   executor?: import('./ios-simctl').CommandExecutor;
 };
@@ -94,6 +96,30 @@ function resolveSimctlCaptureOutputDir({
   }
 
   return path.resolve('artifacts/ios-simctl-captures', runId);
+}
+
+/**
+ * Resolves the agent-device capture output directory for a profile run.
+ *
+ * @param {{args: import('./profile-mobile').CliArgs, runId: string}} options
+ * @returns {string}
+ */
+function resolveAgentDeviceCaptureOutputDir({
+  args,
+  runId,
+}: {
+  args: import('./profile-mobile').CliArgs;
+  runId: string;
+}): string {
+  if (typeof args['agent-device-out'] === 'string') {
+    return path.resolve(args['agent-device-out']);
+  }
+
+  if (typeof args.out === 'string') {
+    return path.resolve(args.out, '_agent-device-captures', runId);
+  }
+
+  return path.resolve('artifacts/agent-device-captures', runId);
 }
 
 /**
@@ -269,6 +295,51 @@ function summarizeFailedIosChecks(health: Record<string, unknown>): string {
 }
 
 /**
+ * Summarizes failed agent-device checks for CLI errors.
+ *
+ * @param {Record<string, unknown>} health
+ * @returns {string}
+ */
+function summarizeFailedAgentDeviceChecks(health: Record<string, unknown>): string {
+  const checks = Array.isArray(health.checks) ? health.checks : [];
+  const failedChecks = checks
+    .filter((check: Record<string, unknown>) => check?.status === 'failed')
+    .map((check: Record<string, unknown>) => (
+      typeof check.message === 'string'
+        ? check.message
+        : typeof check.code === 'string'
+          ? check.code
+          : 'unknown failure'
+    ));
+
+  return failedChecks.length > 0 ? ` Failed checks: ${failedChecks.join(' ')}` : '';
+}
+
+/**
+ * Appends screenshots from an agent-device capture as profile capture inputs.
+ *
+ * @param {{args: import('./profile-mobile').CliArgs, capture: import('./agent-device').AgentDeviceCaptureResult}} options
+ * @returns {import('./profile-mobile').CliArgs}
+ */
+function appendAgentDeviceCaptureArgs({
+  args,
+  capture,
+}: {
+  args: import('./profile-mobile').CliArgs;
+  capture: import('./agent-device').AgentDeviceCaptureResult;
+}): import('./profile-mobile').CliArgs {
+  let captureArg = args.capture;
+  for (const screenshot of capture.captures.screenshots) {
+    captureArg = appendCaptureArg({
+      args: captureArg === undefined ? {} : { capture: captureArg },
+      value: `screenshot:${path.join(capture.runDir, screenshot)}`,
+    });
+  }
+
+  return captureArg === undefined ? args : { ...args, capture: captureArg };
+}
+
+/**
  * Runs the iOS log-ingest profile artifact pipeline.
  *
  * @param {import('./profile-mobile').CliArgs} args
@@ -279,7 +350,7 @@ async function runProfileIos(
   args: import('./profile-mobile').CliArgs,
   options: IosProfileOptions = {},
 ): Promise<import('./profile-mobile').ProfileRunResult> {
-  if (!isEnabled(args['simctl-capture'])) {
+  if (!isEnabled(args['simctl-capture']) && !isEnabled(args['agent-device-capture'])) {
     return runProfileMobile(args, {
       defaultDriver: 'xcodebuildmcp',
       ...(typeof args['simctl-artifacts'] === 'string' ? { interactionDriver: 'ios-simctl' } : {}),
@@ -323,60 +394,92 @@ async function runProfileIos(
         })),
       ]
     : [];
-  const simctlCapture = await runIosSimctlCapture({
-    bundleId: resolveIosBundleId({ args, config }),
-    collectProfileStorage: profileSessionStorageEnabled,
-    deepLinks: profileSessionDeepLinks,
-    ...(options.delay ? { delay: options.delay } : {}),
-    ...(typeof args.device === 'string' ? { device: args.device } : {}),
-    ...(options.executor ? { executor: options.executor } : {}),
-    launch: isEnabled(args.launch),
-    ...(typeof args['log-last'] === 'string' ? { logLast: args['log-last'] } : {}),
-    outputDir: resolveSimctlCaptureOutputDir({ args, runId }),
-    ...(profileSessionStorageEnabled
-      ? {
-          profileSessionStorage: {
-            commands: profileSessionCommands.map((profileCommand, index) => ({
-              command: profileCommand.command,
-              id: `ios-storage-command-${index + 1}`,
-              ...(typeof profileCommand.label === 'string' ? { label: profileCommand.label } : {}),
-            })),
-            runId,
-            scenario: scenarioName,
-          },
-          terminateBeforeLaunch: true,
-        }
-      : {
-          terminateBeforeLaunch: isEnabled(args['terminate-before-launch']),
-        }),
-    runId,
-    screenshot: isEnabled(args.screenshot) || requiresIosSimctlScreenshot(scenario),
-    waitMs: readPositiveInteger(readScalarArg(args['wait-ms']), 0),
-    ...(typeof args.xcrun === 'string' ? { xcrunPath: args.xcrun } : {}),
-  });
+  const simctlCapture = isEnabled(args['simctl-capture'])
+    ? await runIosSimctlCapture({
+        bundleId: resolveIosBundleId({ args, config }),
+        collectProfileStorage: profileSessionStorageEnabled,
+        deepLinks: profileSessionDeepLinks,
+        ...(options.delay ? { delay: options.delay } : {}),
+        ...(typeof args.device === 'string' ? { device: args.device } : {}),
+        ...(options.executor ? { executor: options.executor } : {}),
+        launch: isEnabled(args.launch),
+        ...(typeof args['log-last'] === 'string' ? { logLast: args['log-last'] } : {}),
+        outputDir: resolveSimctlCaptureOutputDir({ args, runId }),
+        ...(profileSessionStorageEnabled
+          ? {
+              profileSessionStorage: {
+                commands: profileSessionCommands.map((profileCommand, index) => ({
+                  command: profileCommand.command,
+                  id: `ios-storage-command-${index + 1}`,
+                  ...(typeof profileCommand.label === 'string' ? { label: profileCommand.label } : {}),
+                })),
+                runId,
+                scenario: scenarioName,
+              },
+              terminateBeforeLaunch: true,
+            }
+          : {
+              terminateBeforeLaunch: isEnabled(args['terminate-before-launch']),
+            }),
+        runId,
+        screenshot: isEnabled(args.screenshot) || requiresIosSimctlScreenshot(scenario),
+        waitMs: readPositiveInteger(readScalarArg(args['wait-ms']), 0),
+        ...(typeof args.xcrun === 'string' ? { xcrunPath: args.xcrun } : {}),
+      })
+    : null;
 
-  if (simctlCapture.health.healthStatus !== 'passed') {
+  if (simctlCapture && simctlCapture.health.healthStatus !== 'passed') {
     throw new Error(
       `iOS simctl capture failed; inspect ${simctlCapture.runDir}/agent-summary.md.${summarizeFailedIosChecks(simctlCapture.health)}`,
     );
   }
 
-  const profileArgs = {
+  const agentDeviceCapture = isEnabled(args['agent-device-capture'])
+    ? await runAgentDeviceCapture({
+        ...(typeof args['agent-device'] === 'string' ? { agentDevicePath: args['agent-device'] } : {}),
+        app: typeof args['agent-device-app'] === 'string'
+          ? args['agent-device-app']
+          : resolveIosBundleId({ args, config }),
+        ...(options.agentDeviceExecutor ? { executor: options.agentDeviceExecutor } : {}),
+        ...(typeof args['agent-device-device'] === 'string' ? { device: args['agent-device-device'] } : {}),
+        ...(typeof args['agent-device-session'] === 'string' ? { session: args['agent-device-session'] } : {}),
+        ...(typeof args.device === 'string' ? { udid: args.device } : {}),
+        open: isEnabled(args['agent-device-open']),
+        outputDir: resolveAgentDeviceCaptureOutputDir({ args, runId }),
+        platform: 'ios',
+        runId,
+        scenario,
+        waitMs: readPositiveInteger(readScalarArg(args['agent-device-wait-ms']), 0),
+      })
+    : null;
+
+  if (agentDeviceCapture && agentDeviceCapture.health.healthStatus !== 'passed') {
+    throw new Error(
+      `agent-device capture failed; inspect ${agentDeviceCapture.runDir}/agent-summary.md.${summarizeFailedAgentDeviceChecks(agentDeviceCapture.health)}`,
+    );
+  }
+
+  const baseProfileArgs: import('./profile-mobile').CliArgs = {
     ...args,
-    events: undefined,
     'run-id': runId,
-    'simctl-artifacts': simctlCapture.runDir,
-    ...(simctlCapture.captures.screenshot
+    ...(simctlCapture ? { 'simctl-artifacts': simctlCapture.runDir } : {}),
+    ...(simctlCapture?.captures.screenshot
       ? { capture: appendCaptureArg({
           args,
           value: `screenshot:${path.join(simctlCapture.runDir, simctlCapture.captures.screenshot)}`,
         }) }
       : {}),
   };
+  if (simctlCapture) {
+    delete baseProfileArgs.events;
+  }
+  const profileArgs = agentDeviceCapture
+    ? appendAgentDeviceCaptureArgs({ args: baseProfileArgs, capture: agentDeviceCapture })
+    : baseProfileArgs;
 
   return runProfileMobile(profileArgs, {
     defaultDriver: 'xcodebuildmcp',
-    interactionDriver: 'ios-simctl',
+    interactionDriver: agentDeviceCapture ? 'agent-device' : 'ios-simctl',
     platform: 'ios',
   });
 }

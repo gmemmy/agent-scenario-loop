@@ -2,8 +2,9 @@
 
 The runner owns host execution. It is the boundary between scenario contracts and whichever tool actually drives the device or captures evidence.
 
-The package ships thirteen public runner entrypoints. Package scripts build them into `dist/` before execution:
+The package ships fourteen public runner entrypoints. Package scripts build them into `dist/` before execution:
 
+- `agent-device.ts`: executes scenario-declared portable driver actions through the external `agent-device` CLI, then writes ASL health, verdict, raw command transcripts, and capture artifacts.
 - `android-adb.ts`: checks adb availability, connected Android device readiness, optional package installation, optional React Native debug-host setup, optional package launch, ordered adb driver actions, bounded logcat output, and raw adb evidence.
 - `check-plan.ts`: validates a scenario manifest, primary runner capability manifest, and optional evidence-provider manifests, then writes schema-checked `health.json`, `verdict.json`, `agent-summary.md`, and `planner-compatibility.json` before execution.
 - `compare.ts`: reads two completed run directories, validates `health.json` and `verdict.json`, then writes or prints a schema-checked `comparison.json`.
@@ -23,6 +24,8 @@ The package also exports small adapter modules for device drivers. `runner/andro
 When `profile-android` owns an adb capture window, scenario steps with supported Android `driverAction` values are normalized through `buildScenarioExecutionPlan()` and routed to that adapter. Step metadata under `adapterOptions.androidAdb` can set log bounds, coordinate inputs, raw filenames, video capture filenames, screenrecord duration, remote screenrecord paths, and wait behavior while preserving `raw/adb-logcat.txt` as the default profile input for log capture. For tap and scroll steps without coordinates, Android adb can resolve portable selectors from UIAutomator bounds before issuing input commands. `assertVisible` uses the same selector contract and preserves the UIAutomator XML as raw evidence. `record` writes an adb command transcript under `raw/` and pulls the mp4 into `captures/`, where `profile-android` attaches it as the run's `captures.video` artifact.
 
 When `profile-ios` owns a simctl capture window, a scenario step with `driverAction: "screenshot"` or `artifact: "screenshot"` requests a screenshot capture. The default path is `captures/ios-screenshot.png`; explicit simctl screenshot types use the matching extension, and the profile run attaches that screenshot through the same manifest capture contract used for provider artifacts.
+
+When `profile-ios` or `profile-android` runs with `--agent-device-capture`, the profile runner executes scenario-declared portable driver actions through `agent-device` as a sidecar interaction window. App truth events still come from `--events`, `--simctl-capture`, or `--adb-capture`; agent-device contributes health-gated interaction proof and screenshots that are attached to the profile manifest.
 
 When iOS profile-session commands run through deep links, `ios-simctl` writes one raw file per opened URL and inventories each result in `raw/ios-metadata.json` with the label, URL, argv, exit code, wait, and raw path. A failed deep-link command fails capture health before the profile runner trusts timing evidence.
 

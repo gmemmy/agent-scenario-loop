@@ -128,6 +128,73 @@ test('profile-ios writes artifacts from fixture event logs', async (t: TestConte
   assert.match(summary, /Scenario health passed/u);
 });
 
+test('profile-ios attaches agent-device capture artifacts with explicit event logs', async (t: TestContext) => {
+  const artifactRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-ios-agent-device-'));
+  t.after(async () => {
+    await fsp.rm(artifactRoot, { recursive: true, force: true });
+  });
+  const scenarioPath = path.join(artifactRoot, 'app-startup-agent-device.json');
+  const scenario = readJson(fixturePath('examples/mobile-app/scenarios/ios/app-startup.json'));
+  scenario.steps = [
+    {
+      id: 'capture-agent-device-screenshot',
+      kind: 'captureEvidence',
+      artifact: 'screenshot',
+      driverAction: 'screenshot',
+      adapterOptions: {
+        agentDevice: {
+          captureFileName: 'agent-device-final.png',
+          rawFileName: 'agent-device-final.txt',
+        },
+      },
+    },
+  ];
+  fs.writeFileSync(scenarioPath, `${JSON.stringify(scenario, null, 2)}\n`, 'utf8');
+  const calls: string[] = [];
+  const agentDeviceExecutor = async (command: string, args: string[]): Promise<CommandResult> => {
+    calls.push(args.join(' '));
+    if (args[0] === 'screenshot' && typeof args[1] === 'string') {
+      await fsp.writeFile(args[1], 'fake image', 'utf8');
+    }
+    return {
+      args,
+      command,
+      exitCode: 0,
+      stderr: '',
+      stdout: '{"success":true}\n',
+    };
+  };
+
+  const result = await runProfileIos({
+    config: fixturePath('examples/mobile-app/asl.config.json'),
+    scenario: scenarioPath,
+    events: fixturePath('examples/mobile-app/event-logs/app-startup.log'),
+    out: artifactRoot,
+    'run-id': 'ios-agent-device-profile',
+    'agent-device-capture': true,
+    device: 'BOOTED',
+  }, { agentDeviceExecutor });
+
+  const manifest = readJson(path.join(result.runDir, 'manifest.json'));
+  const agentDeviceMetadata = readJson(path.join(
+    artifactRoot,
+    '_agent-device-captures',
+    'ios-agent-device-profile',
+    'raw',
+    'agent-device-metadata.json',
+  ));
+
+  assert.deepEqual(calls, [
+    `screenshot ${path.join(artifactRoot, '_agent-device-captures', 'ios-agent-device-profile', 'captures', 'agent-device-final.png')} --platform ios --target mobile --udid BOOTED --json`,
+  ]);
+  assert.equal(manifest.interactionDriver, 'agent-device');
+  assert.deepEqual((manifest.artifacts as { captures: { screenshots: string[] } }).captures.screenshots, [
+    'captures/agent-device-final.png',
+  ]);
+  assert.equal((agentDeviceMetadata.captures as { screenshots: string[] }).screenshots[0], 'captures/agent-device-final.png');
+  assert.equal(fs.existsSync(path.join(result.runDir, 'captures', 'agent-device-final.png')), true);
+});
+
 test('profile-ios can capture simctl logs and profile them in one run', async (t: TestContext) => {
   const tempRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-ios-simctl-capture-'));
   t.after(async () => {

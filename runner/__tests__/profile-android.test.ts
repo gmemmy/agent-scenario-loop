@@ -138,6 +138,73 @@ test('profile-android writes artifacts from fixture event logs', async (t: TestC
   assert.match(summary, /Scenario health passed/u);
 });
 
+test('profile-android attaches agent-device capture artifacts with explicit event logs', async (t: TestContext) => {
+  const artifactRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-android-agent-device-'));
+  t.after(async () => {
+    await fsp.rm(artifactRoot, { recursive: true, force: true });
+  });
+  const scenarioPath = path.join(artifactRoot, 'app-startup-agent-device.json');
+  const scenario = readJson(fixturePath('examples/mobile-app/scenarios/android/app-startup.json'));
+  scenario.steps = [
+    {
+      id: 'capture-agent-device-screenshot',
+      kind: 'captureEvidence',
+      artifact: 'screenshot',
+      driverAction: 'screenshot',
+      adapterOptions: {
+        agentDevice: {
+          captureFileName: 'android-agent-device-final.png',
+          rawFileName: 'android-agent-device-final.txt',
+        },
+      },
+    },
+  ];
+  fs.writeFileSync(scenarioPath, `${JSON.stringify(scenario, null, 2)}\n`, 'utf8');
+  const calls: string[] = [];
+  const agentDeviceExecutor = async (command: string, args: string[]): Promise<CommandResult> => {
+    calls.push(args.join(' '));
+    if (args[0] === 'screenshot' && typeof args[1] === 'string') {
+      await fsp.writeFile(args[1], 'fake image', 'utf8');
+    }
+    return {
+      args,
+      command,
+      exitCode: 0,
+      stderr: '',
+      stdout: '{"success":true}\n',
+    };
+  };
+
+  const result = await runProfileAndroid({
+    config: fixturePath('examples/mobile-app/asl.config.json'),
+    scenario: scenarioPath,
+    events: fixturePath('examples/mobile-app/event-logs/android-app-startup.log'),
+    out: artifactRoot,
+    'run-id': 'android-agent-device-profile',
+    'agent-device-capture': true,
+    serial: 'emulator-5554',
+  }, { agentDeviceExecutor });
+
+  const manifest = readJson(path.join(result.runDir, 'manifest.json'));
+  const agentDeviceMetadata = readJson(path.join(
+    artifactRoot,
+    '_agent-device-captures',
+    'android-agent-device-profile',
+    'raw',
+    'agent-device-metadata.json',
+  ));
+
+  assert.deepEqual(calls, [
+    `screenshot ${path.join(artifactRoot, '_agent-device-captures', 'android-agent-device-profile', 'captures', 'android-agent-device-final.png')} --platform android --target mobile --serial emulator-5554 --json`,
+  ]);
+  assert.equal(manifest.interactionDriver, 'agent-device');
+  assert.deepEqual((manifest.artifacts as { captures: { screenshots: string[] } }).captures.screenshots, [
+    'captures/android-agent-device-final.png',
+  ]);
+  assert.equal((agentDeviceMetadata.captures as { screenshots: string[] }).screenshots[0], 'captures/android-agent-device-final.png');
+  assert.equal(fs.existsSync(path.join(result.runDir, 'captures', 'android-agent-device-final.png')), true);
+});
+
 test('profile-android attaches provider signal and capture artifacts', async (t: TestContext) => {
   const artifactRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-android-evidence-'));
   const providerRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-provider-evidence-'));
