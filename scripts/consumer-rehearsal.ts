@@ -1,0 +1,319 @@
+#!/usr/bin/env node
+
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const { execFileSync } = require('node:child_process');
+
+type RunOptions = {
+  cwd: string;
+  env: NodeJS.ProcessEnv;
+};
+
+type ExecFileSyncError = Error & {
+  status?: number | null;
+  stderr?: Buffer | string;
+  stdout?: Buffer | string;
+};
+
+/**
+ * Creates a clean npm environment for local tarball install rehearsals.
+ *
+ * @param {string} tempRoot
+ * @returns {NodeJS.ProcessEnv}
+ */
+function createRehearsalEnv(tempRoot: string): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { ...process.env };
+  for (const key of Object.keys(env)) {
+    if (key.toLowerCase().startsWith('npm_config_')) {
+      delete env[key];
+    }
+  }
+
+  env.npm_config_audit = 'false';
+  env.npm_config_cache = path.join(tempRoot, 'npm-cache');
+  env.npm_config_fund = 'false';
+  env.npm_config_update_notifier = 'false';
+  return env;
+}
+
+/**
+ * Runs a command and returns stdout while preserving child stderr on failure.
+ *
+ * @param {string} command
+ * @param {string[]} args
+ * @param {RunOptions} options
+ * @returns {string}
+ */
+function run(command: string, args: string[], options: RunOptions): string {
+  try {
+    return execFileSync(command, args, {
+      cwd: options.cwd,
+      encoding: 'utf8',
+      env: options.env,
+      stdio: ['ignore', 'pipe', 'inherit'],
+    });
+  } catch (error) {
+    const failed = error as ExecFileSyncError;
+    const stdout = Buffer.isBuffer(failed.stdout) ? failed.stdout.toString('utf8') : String(failed.stdout ?? '');
+    throw new Error(`${command} ${args.join(' ')} failed with status ${failed.status ?? 'unknown'}\n${stdout}`);
+  }
+}
+
+/**
+ * Reads and parses a JSON file.
+ *
+ * @param {string} filePath
+ * @returns {Record<string, unknown>}
+ */
+function readJson(filePath: string): Record<string, unknown> {
+  return JSON.parse(fs.readFileSync(filePath, 'utf8'));
+}
+
+/**
+ * Writes stable formatted JSON.
+ *
+ * @param {string} filePath
+ * @param {unknown} value
+ * @returns {void}
+ */
+function writeJson(filePath: string, value: unknown): void {
+  fs.writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
+}
+
+/**
+ * Resolves a package binary path inside a temporary npm app.
+ *
+ * @param {string} appRoot
+ * @param {string} name
+ * @returns {string}
+ */
+function packageBinPath(appRoot: string, name: string): string {
+  const suffix = process.platform === 'win32' ? '.cmd' : '';
+  return path.join(appRoot, 'node_modules', '.bin', `${name}${suffix}`);
+}
+
+/**
+ * Packs the current repo and returns the tarball path.
+ *
+ * @param {{env: NodeJS.ProcessEnv, packageRoot: string, packDir: string}} options
+ * @returns {string}
+ */
+function packPackage({
+  env,
+  packageRoot,
+  packDir,
+}: {
+  env: NodeJS.ProcessEnv;
+  packageRoot: string;
+  packDir: string;
+}): string {
+  fs.mkdirSync(packDir, { recursive: true });
+  const packOutput = run('npm', ['pack', '--pack-destination', packDir], {
+    cwd: packageRoot,
+    env,
+  });
+  const tarballName = packOutput.trim().split(/\n/u).pop();
+  assert.ok(tarballName, 'npm pack did not print a tarball name');
+
+  const tarballPath = path.join(packDir, tarballName);
+  assert.equal(fs.existsSync(tarballPath), true, `missing packed tarball: ${tarballPath}`);
+  return tarballPath;
+}
+
+/**
+ * Creates an existing app layout before Agent Scenario Loop initialization.
+ *
+ * @param {string} appRoot
+ * @returns {void}
+ */
+function writeExistingAppFixture(appRoot: string): void {
+  fs.mkdirSync(path.join(appRoot, 'src'), { recursive: true });
+  writeJson(path.join(appRoot, 'package.json'), {
+    name: 'consumer-rehearsal-app',
+    private: true,
+    scripts: {
+      start: 'react-native start',
+      test: 'node --version',
+    },
+  });
+  fs.writeFileSync(
+    path.join(appRoot, 'src', 'App.tsx'),
+    [
+      "export function App() {",
+      "  return null;",
+      "}",
+      '',
+    ].join('\n'),
+    'utf8',
+  );
+}
+
+/**
+ * Merges generated Agent Scenario Loop package-script snippets into the app package.json.
+ *
+ * @param {string} appRoot
+ * @returns {Record<string, string>}
+ */
+function mergeGeneratedScripts(appRoot: string): Record<string, string> {
+  const packagePath = path.join(appRoot, 'package.json');
+  const packageJson = readJson(packagePath) as { scripts?: Record<string, string>; [key: string]: unknown };
+  const generatedScripts = readJson(path.join(appRoot, 'asl', 'package-scripts.json')) as Record<string, string>;
+  packageJson.scripts = {
+    ...(packageJson.scripts ?? {}),
+    ...generatedScripts,
+  };
+  writeJson(packagePath, packageJson);
+  return generatedScripts;
+}
+
+/**
+ * Replaces scaffold placeholders with realistic app identifiers before validation.
+ *
+ * @param {string} appRoot
+ * @returns {void}
+ */
+function replaceConfigPlaceholders(appRoot: string): void {
+  const configPath = path.join(appRoot, 'asl.config.json');
+  const config = readJson(configPath) as Record<string, any>;
+  config.projectName = 'consumer-rehearsal';
+  config.app = {
+    ...(config.app ?? {}),
+    displayName: 'Consumer Rehearsal',
+    scheme: 'consumer-rehearsal',
+    profileSessionScheme: 'consumer-rehearsal',
+    iosBundleId: 'dev.agent-scenario-loop.consumer-rehearsal',
+    androidPackage: 'dev.agentscenarioloop.consumerrehearsal',
+    ios: {
+      ...((config.app ?? {}).ios ?? {}),
+      xcodeScheme: 'ConsumerRehearsal',
+    },
+  };
+  writeJson(configPath, config);
+}
+
+/**
+ * Asserts that the installed package can initialize and validate an existing app.
+ *
+ * @param {{appRoot: string, env: NodeJS.ProcessEnv, tarballPath: string}} options
+ * @returns {void}
+ */
+function rehearseConsumerInstall({
+  appRoot,
+  env,
+  tarballPath,
+}: {
+  appRoot: string;
+  env: NodeJS.ProcessEnv;
+  tarballPath: string;
+}): void {
+  writeExistingAppFixture(appRoot);
+  run('npm', ['install', tarballPath, '--ignore-scripts'], {
+    cwd: appRoot,
+    env,
+  });
+  run(packageBinPath(appRoot, 'asl-init'), ['--out', appRoot, '--scenario', 'Account Overview'], {
+    cwd: appRoot,
+    env,
+  });
+
+  const generatedScripts = mergeGeneratedScripts(appRoot);
+  replaceConfigPlaceholders(appRoot);
+
+  const packageJson = readJson(path.join(appRoot, 'package.json')) as { scripts: Record<string, string> };
+  assert.equal(packageJson.scripts.start, 'react-native start');
+  assert.equal(packageJson.scripts.test, 'node --version');
+  for (const scriptName of Object.keys(generatedScripts)) {
+    assert.equal(typeof packageJson.scripts[scriptName], 'string', `${scriptName} should be merged`);
+  }
+
+  run('npm', ['run', 'asl:check:ios', '--silent'], {
+    cwd: appRoot,
+    env,
+  });
+  run('npm', ['run', 'asl:check:android', '--silent'], {
+    cwd: appRoot,
+    env,
+  });
+  run('npm', ['run', 'asl:validate', '--silent'], {
+    cwd: appRoot,
+    env,
+  });
+
+  const validationPath = path.join(appRoot, 'artifacts', 'asl', 'project-validation', 'project-validation.json');
+  const validation = readJson(validationPath) as Record<string, any>;
+  assert.equal(validation.status, 'passed');
+  assert.equal(validation.appHelper.status, 'present');
+  assert.equal(validation.scripts.status, 'present');
+  assert.deepEqual(validation.warnings, []);
+  assert.equal(
+    validation.nextActions.some((action: { code: string }) => action.code === 'replace_config_placeholders'),
+    false,
+  );
+  assert.deepEqual(
+    validation.plans
+      .map((plan: { healthStatus: string; platform: string; scenarioId: string }) => ({
+        healthStatus: plan.healthStatus,
+        platform: plan.platform,
+        scenarioId: plan.scenarioId,
+      }))
+      .sort((left: { platform: string }, right: { platform: string }) => left.platform.localeCompare(right.platform)),
+    [
+      { healthStatus: 'passed', platform: 'android', scenarioId: 'account-overview' },
+      { healthStatus: 'passed', platform: 'ios', scenarioId: 'account-overview' },
+    ],
+  );
+}
+
+/**
+ * Runs the packed-package consumer rehearsal.
+ *
+ * @returns {void}
+ */
+function main(): void {
+  const packageRoot = path.resolve(__dirname, '..', '..');
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'asl-consumer-rehearsal-'));
+  const env = createRehearsalEnv(tempRoot);
+  const appRoot = path.join(tempRoot, 'existing-mobile-app');
+  fs.mkdirSync(appRoot, { recursive: true });
+
+  try {
+    const tarballPath = packPackage({
+      env,
+      packageRoot,
+      packDir: path.join(tempRoot, 'pack'),
+    });
+    rehearseConsumerInstall({
+      appRoot,
+      env,
+      tarballPath,
+    });
+    process.stdout.write(`consumer rehearsal passed: ${appRoot}\n`);
+  } catch (error) {
+    console.error(`consumer rehearsal temp kept at: ${tempRoot}`);
+    throw error;
+  }
+}
+
+if (require.main === module) {
+  try {
+    main();
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exitCode = 1;
+  }
+}
+
+export {
+  createRehearsalEnv,
+  mergeGeneratedScripts,
+  packageBinPath,
+  packPackage,
+  readJson,
+  rehearseConsumerInstall,
+  replaceConfigPlaceholders,
+  run,
+  writeExistingAppFixture,
+  writeJson,
+};

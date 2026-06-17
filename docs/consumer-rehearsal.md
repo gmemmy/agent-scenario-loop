@@ -2,6 +2,14 @@
 
 Use this checklist before adopting Agent Scenario Loop in an existing React Native app. The goal is to prove the package workflow locally before treating it as part of the app's everyday agent loop.
 
+In this repository, the automated packed-package rehearsal is:
+
+```bash
+pnpm consumer:rehearse
+```
+
+It creates a temporary existing app-shaped package, installs the packed tarball, runs `asl-init`, merges generated scripts into `package.json`, replaces scaffold placeholders, runs both platform plan scripts, and validates the project through the installed CLI. Use the manual checklist below when rehearsing inside a real app.
+
 ## 1. Initialize The Scaffold
 
 From the consuming app root:

@@ -267,7 +267,15 @@ To verify the full release gate before publishing:
 pnpm release:check
 ```
 
-That command runs the test suite, packs the repo, installs the tarball into a temporary project, runs installed binaries against packaged examples, runs the installed Android and iOS example-live proofs through fake device executors, checks root exports, and verifies that schemas, examples, templates, docs, package-script snippets, and the app helper ship in the package. `npm publish` runs the same gate through `prepublishOnly`.
+That command runs the test suite, packs the repo, installs the tarball into a temporary project, runs installed binaries against packaged examples, runs the installed Android and iOS example-live proofs through fake device executors, checks root exports, verifies that schemas, examples, templates, docs, package-script snippets, and the app helper ship in the package, then runs the packed-package consumer rehearsal. `npm publish` runs the same gate through `prepublishOnly`.
+
+To rehearse adoption in an existing app-shaped project from the packed tarball:
+
+```bash
+pnpm consumer:rehearse
+```
+
+That command creates a temporary existing app, installs the packed package, runs `asl-init`, merges `asl/package-scripts.json` into the app `package.json`, replaces scaffold placeholders with app identifiers, runs both platform plan scripts, and validates the initialized project through the installed `asl-validate-project` binary.
 
 Read next: [Contracts](docs/contracts.md) for the artifact layout and supported runner surface.
 
@@ -326,6 +334,7 @@ Current package guarantees:
 - installable CLIs print help and run against packaged examples, including Android and iOS example-live proof paths
 - `asl-init` scaffolds config, scenario, runner manifests, local script snippets, and React Native profile-session wiring into a consuming app layout from the installed tarball
 - `asl-validate-project` validates initialized app scaffolds and planner compatibility from the installed tarball
+- `pnpm consumer:rehearse` proves packed-tarball adoption into an existing app-shaped package without committing generated artifacts
 - `examples/mobile-app` dogfoods the initialized consumer scaffold shape in addition to fixture-backed scenario profiling
 - packaged schemas, scenarios, runner manifests, templates, docs, and app helper resolve after install
 - canonical fixture and neutral Expo-app event logs produce passed profile artifacts
