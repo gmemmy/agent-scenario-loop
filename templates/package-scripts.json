@@ -10,7 +10,7 @@
   "asl:agent-device:android": "asl-agent-device --platform android ${ASL_ANDROID_AGENT_DEVICE_SESSION:+--session $ASL_ANDROID_AGENT_DEVICE_SESSION} ${ASL_ANDROID_SERIAL:+--serial $ASL_ANDROID_SERIAL} --scenario scenarios/mobile/{{SCENARIO_ID}}.json --app ${ASL_ANDROID_APP_ID:-com.example.app} --open --wait-ms 1000 --out artifacts/asl/agent-device-android --run-id {{SCENARIO_ID}}-android-agent-device",
   "asl:profile:ios:live": "asl-profile-ios --config asl.config.json --scenario scenarios/mobile/{{SCENARIO_ID}}.json --simctl-capture --profile-session --profile-session-storage --launch --wait-ms 5000 --comparison-lane {{SCENARIO_ID}}-ios-live --out artifacts/asl/ios --run-id {{SCENARIO_ID}}-ios-live",
   "asl:profile:android:live": "asl-profile-android --config asl.config.json --scenario scenarios/mobile/{{SCENARIO_ID}}.json --adb-capture --profile-session --clear-logcat --launch --wait-ms 5000 --comparison-lane {{SCENARIO_ID}}-android-live --out artifacts/asl/android --run-id {{SCENARIO_ID}}-android-live",
-  "asl:compare:ios": "asl-compare-latest --root artifacts/asl/ios --scenario {{SCENARIO_ID}} --current <run-dir> --out artifacts/asl/ios/comparisons/{{SCENARIO_ID}}",
-  "asl:compare:android": "asl-compare-latest --root artifacts/asl/android --scenario {{SCENARIO_ID}} --current <run-dir> --out artifacts/asl/android/comparisons/{{SCENARIO_ID}}",
+  "asl:compare:ios": "asl-compare-latest --root artifacts/asl/ios --scenario {{SCENARIO_ID}} --current <run-dir> --out artifacts/asl/ios/comparisons/{{SCENARIO_ID}} --fail-on-regression",
+  "asl:compare:android": "asl-compare-latest --root artifacts/asl/android --scenario {{SCENARIO_ID}} --current <run-dir> --out artifacts/asl/android/comparisons/{{SCENARIO_ID}} --fail-on-regression",
   "asl:live-proof": "asl-live-proof --file <live-proof.json> --fail-on-regression"
 }

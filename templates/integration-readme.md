@@ -47,11 +47,11 @@ asl-profile-ios --config asl.config.json --scenario scenarios/mobile/{{SCENARIO_
 asl-profile-android --config asl.config.json --scenario scenarios/mobile/{{SCENARIO_ID}}.json --adb-capture --profile-session --clear-logcat --launch --wait-ms 5000 --comparison-lane {{SCENARIO_ID}}-android-live --out artifacts/asl/android --run-id {{SCENARIO_ID}}-android-live
 ```
 
-Those commands write `health.json`, `verdict.json`, `agent-summary.md`, `metrics.json`, `causal-run.json`, and raw evidence under the printed run directory. The `*:provider` scripts also execute `scripts/asl-capture-profiler-provider.mjs` through `runner-manifests/evidence-provider.json`, then inventory the resulting profiler evidence in `manifest.artifacts.evidenceAttachments`. Compare a trusted current run with:
+Those commands write `health.json`, `verdict.json`, `agent-summary.md`, `metrics.json`, `causal-run.json`, and raw evidence under the printed run directory. The `*:provider` scripts also execute `scripts/asl-capture-profiler-provider.mjs` through `runner-manifests/evidence-provider.json`, then inventory the generated profiler, memory, and network evidence in `manifest.artifacts.evidenceAttachments`. Compare a trusted current run with:
 
 ```bash
-asl-compare-latest --root artifacts/asl/ios --scenario {{SCENARIO_ID}} --current <run-dir> --out artifacts/asl/ios/comparisons/{{SCENARIO_ID}}
-asl-compare-latest --root artifacts/asl/android --scenario {{SCENARIO_ID}} --current <run-dir> --out artifacts/asl/android/comparisons/{{SCENARIO_ID}}
+asl-compare-latest --root artifacts/asl/ios --scenario {{SCENARIO_ID}} --current <run-dir> --out artifacts/asl/ios/comparisons/{{SCENARIO_ID}} --fail-on-regression
+asl-compare-latest --root artifacts/asl/android --scenario {{SCENARIO_ID}} --current <run-dir> --out artifacts/asl/android/comparisons/{{SCENARIO_ID}} --fail-on-regression
 ```
 
 If your project adds an aggregate batch runner that writes `live-proof.json`, inspect it with:

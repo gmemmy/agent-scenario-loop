@@ -233,6 +233,10 @@ test('validates required package-script lifecycle shapes', () => {
     command: 'asl-profile-android --config asl.config.json --scenario scenarios/mobile/checkout.json --profile-session --launch --out artifacts/asl/android --run-id checkout-android-live',
   }), 'asl:profile:android:live is missing required flag(s): --adb-capture, --comparison-lane.');
   assert.equal(validatePackageScriptShape({
+    scriptName: 'asl:compare:android',
+    command: 'asl-compare-latest --root artifacts/asl/android --scenario checkout --current artifacts/asl/android/checkout-live --out artifacts/asl/android/comparisons/checkout',
+  }), 'asl:compare:android is missing required flag(s): --fail-on-regression.');
+  assert.equal(validatePackageScriptShape({
     scriptName: 'asl:check:ios',
     command: 'asl-check-plan --scenario scenarios/mobile/checkout.json --runner runner-manifests/primary-runner.json --provider runner-manifests/evidence-provider.json --platform android --out artifacts/asl/plan/checkout-ios',
   }), 'asl:check:ios has incorrect required value(s): --platform=ios.');

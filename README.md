@@ -278,7 +278,7 @@ When stored events are collected, `profile-ios` ingests `raw/ios-profile-events.
 To compare two completed run folders:
 
 ```bash
-pnpm compare -- --baseline artifacts/runs/app-startup/baseline --current artifacts/runs/app-startup/current --out artifacts/runs/app-startup/current
+pnpm compare -- --baseline artifacts/runs/app-startup/baseline --current artifacts/runs/app-startup/current --out artifacts/runs/app-startup/current --fail-on-regression
 ```
 
 Comparison only interprets metric direction when both runs passed scenario health. It reports `better`, `worse`, `unchanged`, or `mixed` when metrics are comparable, and writes an inconclusive `comparison.json` when required evidence is missing. Each comparison artifact includes `comparisonBasis`, so agents can inspect the baseline/current run folders and whether the baseline was explicit or selected from latest trusted history.
@@ -286,7 +286,7 @@ Comparison only interprets metric direction when both runs passed scenario healt
 To compare the current run against the newest trusted prior run for the same scenario:
 
 ```bash
-pnpm compare:latest -- --root artifacts/runs --scenario app-startup --current artifacts/runs/app-startup/current --out artifacts/runs/app-startup/current
+pnpm compare:latest -- --root artifacts/runs --scenario app-startup --current artifacts/runs/app-startup/current --out artifacts/runs/app-startup/current --fail-on-regression
 ```
 
 A trusted prior run must have passed both `health.json` and `verdict.json`. The current run must pass scenario health before timing or budget evidence is compared, so a broken scenario cannot accidentally become a performance claim. If the current run manifest declares `comparisonLane`, latest-trusted selection only considers trusted prior runs in that same lane. If the current run has no lane, selection only considers unlabeled trusted prior runs. Latest-trusted comparisons also record selection counts in `comparisonBasis.selection`, including inspected candidates, trusted candidates, trusted prior candidates, trusted comparable candidates, and whether the current run was skipped.

@@ -315,6 +315,54 @@ test('writes comparison and agent summary to output directory', async (t: TestCo
   assert.match(summary, /Comparison: worse/u);
 });
 
+test('fail-on-regression exits nonzero after writing latest comparison artifacts', async (t: TestContext) => {
+  const rootDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-compare-latest-regression-gate-'));
+  t.after(async () => {
+    await fsp.rm(rootDir, { recursive: true, force: true });
+  });
+  await writeRun({
+    root: rootDir,
+    runId: 'baseline-run',
+    actual: 850,
+    endedAt: '2026-06-16T10:00:00.000Z',
+  });
+  const currentDir = await writeRun({
+    root: rootDir,
+    runId: 'current-run',
+    actual: 950,
+    endedAt: '2026-06-16T10:05:00.000Z',
+  });
+  const comparisonDir = path.join(rootDir, 'comparison-output');
+
+  await assert.rejects(
+    execFileAsync(process.execPath, [
+      COMPARE_LATEST,
+      '--root',
+      rootDir,
+      '--scenario',
+      'open-close-cycle',
+      '--current',
+      currentDir,
+      '--out',
+      comparisonDir,
+      '--fail-on-regression',
+    ]),
+    (error: unknown) => {
+      assert.ok(error instanceof Error);
+      const execError = error as ExecFailure;
+      assert.equal(execError.stdout.trim(), comparisonDir);
+      assert.match(execError.stderr, /Comparison regressed for current-run/u);
+      assert.match(execError.stderr, /Inspect .*comparison-output/u);
+      return true;
+    },
+  );
+
+  const comparison = JSON.parse(fs.readFileSync(path.join(comparisonDir, 'comparison.json'), 'utf8'));
+  const summary = fs.readFileSync(path.join(comparisonDir, 'agent-summary.md'), 'utf8');
+  assert.equal(comparison.comparisonStatus, 'worse');
+  assert.match(summary, /Comparison: worse/u);
+});
+
 test('rejects current runs that failed scenario health', async (t: TestContext) => {
   const rootDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-compare-latest-health-'));
   t.after(async () => {

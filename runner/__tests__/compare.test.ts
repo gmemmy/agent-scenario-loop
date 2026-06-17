@@ -159,3 +159,39 @@ test('writes comparison and agent summary when output is a run directory', async
   assert.match(summary, /Comparison: worse/u);
   assert.match(summary, /Current run regressed/u);
 });
+
+test('fail-on-regression exits nonzero after writing comparison artifacts', async (t: TestContext) => {
+  const outputDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-compare-regression-gate-'));
+  t.after(async () => {
+    await fsp.rm(outputDir, { recursive: true, force: true });
+  });
+  const baselineDir = await writeRun({ root: outputDir, runId: 'baseline-run', actual: 900 });
+  const currentDir = await writeRun({ root: outputDir, runId: 'current-run', actual: 1200 });
+  const comparisonDir = path.join(outputDir, 'comparison');
+
+  await assert.rejects(
+    execFileAsync(process.execPath, [
+      COMPARE,
+      '--baseline',
+      baselineDir,
+      '--current',
+      currentDir,
+      '--out',
+      comparisonDir,
+      '--fail-on-regression',
+    ]),
+    (error: unknown) => {
+      assert.ok(error instanceof Error);
+      const execError = error as ExecFailure;
+      assert.equal(execError.stdout.trim(), comparisonDir);
+      assert.match(execError.stderr, /Comparison regressed for current-run/u);
+      assert.match(execError.stderr, /Inspect .*comparison/u);
+      return true;
+    },
+  );
+
+  const comparison = JSON.parse(fs.readFileSync(path.join(comparisonDir, 'comparison.json'), 'utf8'));
+  const summary = fs.readFileSync(path.join(comparisonDir, 'agent-summary.md'), 'utf8');
+  assert.equal(comparison.comparisonStatus, 'worse');
+  assert.match(summary, /Current run regressed/u);
+});

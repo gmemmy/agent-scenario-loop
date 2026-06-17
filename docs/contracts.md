@@ -214,7 +214,7 @@ Scenario command targets live in `adapterOptions.iosSimctl.commands`, while the 
 Use `compare` to build `comparison.json` from two completed run folders:
 
 ```bash
-pnpm compare -- --baseline artifacts/runs/app-startup/baseline --current artifacts/runs/app-startup/current --out artifacts/runs/app-startup/current
+pnpm compare -- --baseline artifacts/runs/app-startup/baseline --current artifacts/runs/app-startup/current --out artifacts/runs/app-startup/current --fail-on-regression
 ```
 
 The comparison gate is intentionally strict. If either run failed scenario health, or if the scenario ids do not match, the comparison is `inconclusive`. Numeric budget checks are compared only after that health gate passes. `comparison.json` includes `comparisonBasis` with the baseline/current run ids and run directories, giving agents artifact-local provenance instead of forcing them to infer it from folder names.
@@ -222,7 +222,7 @@ The comparison gate is intentionally strict. If either run failed scenario healt
 Use `compare:latest` when an artifact root contains run history and the agent should compare the current run against the newest trusted prior run for the same scenario:
 
 ```bash
-pnpm compare:latest -- --root artifacts/runs --scenario app-startup --current artifacts/runs/app-startup/current --out artifacts/runs/app-startup/current
+pnpm compare:latest -- --root artifacts/runs --scenario app-startup --current artifacts/runs/app-startup/current --out artifacts/runs/app-startup/current --fail-on-regression
 ```
 
 The latest-trusted command excludes the exact current run directory from baseline selection. Baseline trust requires passed health and passed verdict. Current runs must pass scenario health before the command will compare timing or budget evidence. If the current manifest declares `comparisonLane`, baseline selection is scoped to trusted prior runs with the same lane; if the current manifest has no lane, selection stays within unlabeled trusted prior runs. This keeps proof modes such as plain live proof and live proof plus agent-device sidecar from comparing against each other. Latest-trusted artifacts set `comparisonBasis.strategy` to `latest_trusted_prior` and record selection counts for inspected, trusted, trusted-prior, and lane-comparable candidates.

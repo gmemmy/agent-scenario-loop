@@ -755,6 +755,8 @@ function main(): void {
     assert.match(initializedScripts['asl:profile:android:provider'], /--comparison-lane checkout-submit-android-provider/u);
     assert.match(initializedScripts['asl:agent-device:ios'], /checkout-submit-ios-agent-device/u);
     assert.match(initializedScripts['asl:agent-device:android'], /checkout-submit-android-agent-device/u);
+    assert.match(initializedScripts['asl:compare:ios'], /--fail-on-regression/u);
+    assert.match(initializedScripts['asl:compare:android'], /--fail-on-regression/u);
     assert.match(initializedScripts['asl:profile:ios:live'], /checkout-submit-ios-live/u);
     assert.match(initializedScripts['asl:profile:ios:live'], /--comparison-lane checkout-submit-ios-live/u);
     assert.match(initializedScripts['asl:profile:android:live'], /checkout-submit-android-live/u);
@@ -1609,6 +1611,7 @@ function main(): void {
       latestCompareCurrentDir,
       '--out',
       latestCompareOutputDir,
+      '--fail-on-regression',
     ], {
       cwd: installDir,
       env,

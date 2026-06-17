@@ -12,6 +12,7 @@ const { hasHelpFlag, writeUsage } = require('./cli');
 type CliArgs = {
   baseline?: string | boolean;
   current?: string | boolean;
+  'fail-on-regression'?: string | boolean;
   out?: string | boolean;
   [key: string]: string | boolean | undefined;
 };
@@ -23,10 +24,11 @@ type CliArgs = {
  */
 function usage(output: { write: (message: string) => unknown } = process.stderr): void {
   writeUsage([
-    'Usage: asl-compare --baseline <run-dir> --current <run-dir> [--out <comparison.json|run-dir>]',
+    'Usage: asl-compare --baseline <run-dir> --current <run-dir> [--out <comparison.json|run-dir>] [--fail-on-regression]',
     '',
     'Without --out, prints comparison.json to stdout.',
     'When --out points at a directory, writes comparison.json and agent-summary.md there.',
+    'Use --fail-on-regression to exit nonzero after writing evidence when comparisonStatus is worse.',
   ], output);
 }
 
@@ -82,6 +84,38 @@ function resolveOutput(out: string): { comparisonPath: string; summaryPath: stri
 }
 
 /**
+ * Returns whether a boolean CLI flag was provided.
+ *
+ * @param {unknown} value
+ * @returns {boolean}
+ */
+function isEnabledFlag(value: unknown): boolean {
+  return value === true || value === 'true';
+}
+
+/**
+ * Throws when a comparison result should fail a strict regression gate.
+ *
+ * @param {{comparison: Record<string, unknown>, evidencePath?: string}} options
+ * @returns {void}
+ */
+function assertNoRegressedComparison({
+  comparison,
+  evidencePath,
+}: {
+  comparison: Record<string, unknown>;
+  evidencePath?: string;
+}): void {
+  if (comparison.comparisonStatus !== 'worse') {
+    return;
+  }
+
+  const runId = typeof comparison.runId === 'string' ? comparison.runId : 'current run';
+  const evidenceHint = evidencePath ? ` Inspect ${evidencePath}.` : '';
+  throw new Error(`Comparison regressed for ${runId}.${evidenceHint}`);
+}
+
+/**
  * Runs the compare CLI.
  *
  * @returns {Promise<void>}
@@ -103,6 +137,7 @@ async function main(): Promise<void> {
   const baselineDir = path.resolve(args.baseline);
   const currentDir = path.resolve(args.current);
   const comparison = compareRunDirectories({ baselineDir, currentDir });
+  const failOnRegression = isEnabledFlag(args['fail-on-regression']);
 
   if (typeof args.out === 'string' && args.out.length > 0) {
     const { comparisonPath, summaryPath, printedPath } = resolveOutput(args.out);
@@ -126,10 +161,16 @@ async function main(): Promise<void> {
     }
 
     process.stdout.write(`${printedPath}\n`);
+    if (failOnRegression) {
+      assertNoRegressedComparison({ comparison, evidencePath: printedPath });
+    }
     return;
   }
 
   process.stdout.write(`${JSON.stringify(comparison, null, 2)}\n`);
+  if (failOnRegression) {
+    assertNoRegressedComparison({ comparison });
+  }
 }
 
 if (require.main === module) {
@@ -140,6 +181,8 @@ if (require.main === module) {
 }
 
 export {
+  assertNoRegressedComparison,
+  isEnabledFlag,
   main,
   parseArgs,
   resolveOutput,

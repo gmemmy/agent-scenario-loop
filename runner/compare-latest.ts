@@ -8,13 +8,14 @@ const { buildRunIndex, readRunIndexEntry } = require('../core/run-index');
 const { writeJsonArtifact, writeTextArtifact } = require('../core/artifact-writer');
 const { SCHEMAS } = require('../core/schema-validator');
 const { hasHelpFlag, writeUsage } = require('./cli');
-const { parseArgs, resolveOutput } = require('./compare');
+const { assertNoRegressedComparison, isEnabledFlag, parseArgs, resolveOutput } = require('./compare');
 
 import type { RunIndex, RunIndexEntry } from '../core/run-index';
 
 type CliArgs = {
   'comparison-lane'?: string | boolean;
   current?: string | boolean;
+  'fail-on-regression'?: string | boolean;
   out?: string | boolean;
   root?: string | boolean;
   scenario?: string | boolean;
@@ -54,11 +55,12 @@ type LatestTrustedSelection = {
  */
 function usage(output: { write: (message: string) => unknown } = process.stderr): void {
   writeUsage([
-    'Usage: asl-compare-latest --root <artifact-root> --scenario <id> --current <run-dir> [--comparison-lane <id>] [--out <comparison.json|run-dir>]',
+    'Usage: asl-compare-latest --root <artifact-root> --scenario <id> --current <run-dir> [--comparison-lane <id>] [--out <comparison.json|run-dir>] [--fail-on-regression]',
     '',
     'Finds the latest trusted prior run for the scenario, then compares it with the current run.',
     'A trusted prior run must have passed health and passed verdict artifacts.',
     'The current run must pass scenario health before timing or budget comparison is allowed.',
+    'Use --fail-on-regression to exit nonzero after writing evidence when comparisonStatus is worse.',
   ], output);
 }
 
@@ -267,6 +269,7 @@ async function main(): Promise<void> {
     currentDir: args.current,
     ...(typeof args['comparison-lane'] === 'string' ? { comparisonLane: args['comparison-lane'] } : {}),
   });
+  const failOnRegression = isEnabledFlag(args['fail-on-regression']);
 
   if (typeof args.out === 'string' && args.out.length > 0) {
     const { comparisonPath, summaryPath, printedPath } = resolveOutput(args.out);
@@ -290,10 +293,19 @@ async function main(): Promise<void> {
     }
 
     process.stdout.write(`${printedPath}\n`);
+    if (failOnRegression) {
+      assertNoRegressedComparison({
+        comparison: result.comparison,
+        evidencePath: printedPath,
+      });
+    }
     return;
   }
 
   process.stdout.write(`${JSON.stringify(result.comparison, null, 2)}\n`);
+  if (failOnRegression) {
+    assertNoRegressedComparison({ comparison: result.comparison });
+  }
 }
 
 if (require.main === module) {

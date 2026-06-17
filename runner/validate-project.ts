@@ -142,12 +142,12 @@ const REQUIRED_PACKAGE_SCRIPT_SHAPES = {
   },
   'asl:compare:ios': {
     command: 'asl-compare-latest',
-    flags: ['--root', '--scenario', '--current', '--out'],
+    flags: ['--root', '--scenario', '--current', '--out', '--fail-on-regression'],
     values: {},
   },
   'asl:compare:android': {
     command: 'asl-compare-latest',
-    flags: ['--root', '--scenario', '--current', '--out'],
+    flags: ['--root', '--scenario', '--current', '--out', '--fail-on-regression'],
     values: {},
   },
   'asl:live-proof': {
