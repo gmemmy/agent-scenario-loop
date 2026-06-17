@@ -140,7 +140,7 @@ The package currently supports:
 - iOS simulator app launch plus storage-backed profile-session and command seeding
 - iOS profile artifact generation from explicit event logs, prior simctl artifacts, or an owned `--simctl-capture` window
 - evidence-provider command execution through `--provider <manifest>`, with declared outputs inventoried as stable evidence attachments and nonzero exits written as failed health gates
-- trusted baseline/current comparison after scenario health passes
+- trusted baseline/current comparison after scenario health passes, with millisecond timing noise treated as unchanged inside a small tolerance
 - latest trusted prior-run comparison from an artifact root
 
 Not yet shipped as supported public features:

@@ -36,6 +36,9 @@ type CompareRunDirectoriesOptions = {
   currentDir: string;
 };
 
+const MIN_MS_COMPARISON_TOLERANCE = 5;
+const RELATIVE_MS_COMPARISON_TOLERANCE = 0.05;
+
 /**
  * Reads and validates the health and verdict artifacts from a run directory.
  *
@@ -82,6 +85,26 @@ function indexBudgetChecks(checks: unknown): Map<string, ComparisonBudgetCheck> 
 }
 
 /**
+ * Returns the absolute delta that should still be treated as timing noise.
+ *
+ * @param {ComparisonBudgetCheck} baseline
+ * @param {ComparisonBudgetCheck} current
+ * @returns {number}
+ */
+function comparisonTolerance(baseline: ComparisonBudgetCheck, current: ComparisonBudgetCheck): number {
+  if (baseline.unit !== 'ms' || current.unit !== 'ms') {
+    return 0;
+  }
+
+  if (typeof baseline.actual !== 'number' || typeof current.actual !== 'number') {
+    return 0;
+  }
+
+  const reference = Math.max(Math.abs(baseline.actual), Math.abs(current.actual));
+  return Math.max(MIN_MS_COMPARISON_TOLERANCE, reference * RELATIVE_MS_COMPARISON_TOLERANCE);
+}
+
+/**
  * Compares one budget check when both runs expose a compatible actual value.
  *
  * @param {BudgetCheck} baseline
@@ -102,7 +125,17 @@ function compareBudgetCheck(baseline: ComparisonBudgetCheck, current: Comparison
   }
 
   const delta = current.actual - baseline.actual;
-  const status = delta < 0 ? 'better' : delta > 0 ? 'worse' : 'unchanged';
+  const tolerance = comparisonTolerance(baseline, current);
+  const crossedBudgetBoundary = baseline.pass !== current.pass;
+  const withinTolerance = Math.abs(delta) <= tolerance;
+  let status: MetricComparison['status'];
+  if (crossedBudgetBoundary) {
+    status = current.pass ? 'better' : 'worse';
+  } else if (withinTolerance) {
+    status = 'unchanged';
+  } else {
+    status = delta < 0 ? 'better' : 'worse';
+  }
 
   return {
     name: current.name,
@@ -111,6 +144,9 @@ function compareBudgetCheck(baseline: ComparisonBudgetCheck, current: Comparison
     current: current.actual,
     delta,
     status,
+    ...(status === 'unchanged' && delta !== 0 && tolerance > 0 && withinTolerance
+      ? { notes: `Delta within ${tolerance}ms timing tolerance.` }
+      : {}),
   };
 }
 

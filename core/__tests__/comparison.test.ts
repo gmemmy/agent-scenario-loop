@@ -81,6 +81,41 @@ test('compares numeric budget actuals with lower values treated as better', () =
   );
 });
 
+test('treats tiny millisecond deltas as unchanged timing noise', () => {
+  assert.deepEqual(
+    compareBudgetCheck(
+      { name: 'scroll p95', unit: 'ms', actual: 7, pass: true },
+      { name: 'scroll p95', unit: 'ms', actual: 8, pass: true },
+    ),
+    {
+      name: 'scroll p95',
+      unit: 'ms',
+      baseline: 7,
+      current: 8,
+      delta: 1,
+      status: 'unchanged',
+      notes: 'Delta within 5ms timing tolerance.',
+    },
+  );
+});
+
+test('keeps budget pass/fail boundary changes directional inside timing tolerance', () => {
+  assert.deepEqual(
+    compareBudgetCheck(
+      { name: 'open p95', unit: 'ms', actual: 997, pass: true },
+      { name: 'open p95', unit: 'ms', actual: 1001, pass: false },
+    ),
+    {
+      name: 'open p95',
+      unit: 'ms',
+      baseline: 997,
+      current: 1001,
+      delta: 4,
+      status: 'worse',
+    },
+  );
+});
+
 test('builds a better comparison only after both runs passed health', () => {
   const comparison = buildComparisonArtifact({
     baselineHealth: health({ runId: 'baseline-run' }),
