@@ -325,47 +325,6 @@ async function runExampleAndroidLiveProof(
     throw new Error(`Android live proof preflight failed; inspect ${preflight.runDir}/agent-summary.md.`);
   }
 
-  const profiles: AndroidLiveProfile[] = [];
-  for (const profile of EXAMPLE_PROFILES) {
-    const profileRunId = buildLiveRunId(profile.runId, runSuffix);
-    const result = await runProfileAndroid({
-      ...(typeof args.adb === 'string' ? { adb: args.adb } : {}),
-      'adb-capture': true,
-      'clear-logcat': true,
-      config: configPath,
-      'command-wait-ms': typeof args['command-wait-ms'] === 'string' ? args['command-wait-ms'] : '250',
-      launch: true,
-      'launch-wait-ms': typeof args['launch-wait-ms'] === 'string' ? args['launch-wait-ms'] : '1500',
-      'logcat-lines': typeof args['logcat-lines'] === 'string' ? args['logcat-lines'] : '1000',
-      out: outputDir,
-      ...(packageName ? { package: packageName } : {}),
-      'profile-session': true,
-      'react-native-debug-host': reactNativeDebugHost,
-      'run-id': profileRunId,
-      scenario: path.join(exampleRoot, 'scenarios', 'android', profile.scenario),
-      ...(typeof args.serial === 'string' ? { serial: args.serial } : {}),
-      'wait-ms': typeof args['wait-ms'] === 'string' ? args['wait-ms'] : '1000',
-    }, {
-      comparisonLane,
-      ...(options.delay ? { delay: options.delay } : {}),
-      ...(options.executor ? { executor: options.executor } : {}),
-    });
-
-    assertPassedProfile({
-      health: result.health,
-      label: profile.label,
-      runDir: result.runDir,
-      verdict: result.verdict,
-    });
-    profiles.push({
-      label: profile.label,
-      runDir: result.runDir,
-      runId: profileRunId,
-      scenario: profile.scenario,
-      scenarioId: profile.scenarioId,
-    });
-  }
-
   const interactionProofs: AndroidInteractionProof[] = [];
   if (isEnabledFlag(args['agent-device-proof'])) {
     const agentDeviceCapture = await runAgentDeviceCapture({
@@ -421,6 +380,47 @@ async function runExampleAndroidLiveProof(
       runId: argentRunId,
       runnerId: 'argent',
       scenarioId: 'app-startup',
+    });
+  }
+
+  const profiles: AndroidLiveProfile[] = [];
+  for (const profile of EXAMPLE_PROFILES) {
+    const profileRunId = buildLiveRunId(profile.runId, runSuffix);
+    const result = await runProfileAndroid({
+      ...(typeof args.adb === 'string' ? { adb: args.adb } : {}),
+      'adb-capture': true,
+      'clear-logcat': true,
+      config: configPath,
+      'command-wait-ms': typeof args['command-wait-ms'] === 'string' ? args['command-wait-ms'] : '250',
+      launch: true,
+      'launch-wait-ms': typeof args['launch-wait-ms'] === 'string' ? args['launch-wait-ms'] : '1500',
+      'logcat-lines': typeof args['logcat-lines'] === 'string' ? args['logcat-lines'] : '1000',
+      out: outputDir,
+      ...(packageName ? { package: packageName } : {}),
+      'profile-session': true,
+      'react-native-debug-host': reactNativeDebugHost,
+      'run-id': profileRunId,
+      scenario: path.join(exampleRoot, 'scenarios', 'android', profile.scenario),
+      ...(typeof args.serial === 'string' ? { serial: args.serial } : {}),
+      'wait-ms': typeof args['wait-ms'] === 'string' ? args['wait-ms'] : '1000',
+    }, {
+      comparisonLane,
+      ...(options.delay ? { delay: options.delay } : {}),
+      ...(options.executor ? { executor: options.executor } : {}),
+    });
+
+    assertPassedProfile({
+      health: result.health,
+      label: profile.label,
+      runDir: result.runDir,
+      verdict: result.verdict,
+    });
+    profiles.push({
+      label: profile.label,
+      runDir: result.runDir,
+      runId: profileRunId,
+      scenario: profile.scenario,
+      scenarioId: profile.scenarioId,
     });
   }
 

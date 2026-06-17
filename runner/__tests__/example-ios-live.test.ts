@@ -125,9 +125,11 @@ test('runs the packaged iOS example live proof with a fake simctl executor', asy
   const calls: string[] = [];
   const agentDeviceCalls: string[] = [];
   const argentCalls: string[] = [];
+  const orderedCalls: string[] = [];
   const executor = async (command: string, args: string[]): Promise<CommandResult> => {
     const key = args.join(' ');
     calls.push(key);
+    orderedCalls.push(`simctl:${key}`);
 
     if (key === 'simctl list devices') {
       return {
@@ -162,7 +164,9 @@ test('runs the packaged iOS example live proof with a fake simctl executor', asy
     return { command, args, exitCode: 1, stderr: `unexpected command: ${key}`, stdout: '' };
   };
   const agentDeviceExecutor = async (command: string, args: string[]): Promise<AgentDeviceCommandResult> => {
-    agentDeviceCalls.push(args.join(' '));
+    const key = args.join(' ');
+    agentDeviceCalls.push(key);
+    orderedCalls.push(`agent-device:${key}`);
     if (args[0] === 'screenshot' && typeof args[1] === 'string') {
       await fsp.writeFile(args[1], 'fake screenshot', 'utf8');
     }
@@ -177,6 +181,7 @@ test('runs the packaged iOS example live proof with a fake simctl executor', asy
   const argentExecutor = async (command: string, args: string[]): Promise<ArgentCommandResult> => {
     const key = args.join(' ');
     argentCalls.push(key);
+    orderedCalls.push(`argent:${key}`);
     if (args.includes('screenshot')) {
       const screenshotPath = path.join(outputDir, 'fake-argent-ios.png');
       await fsp.writeFile(screenshotPath, 'fake screenshot', 'utf8');
@@ -252,6 +257,16 @@ test('runs the packaged iOS example live proof with a fake simctl executor', asy
   assert.ok(argentCalls.some((call) => call.includes(`launch-app --udid ${DEVICE_ID} --bundleId ${BUNDLE_ID}`)));
   assert.ok(argentCalls.some((call) => call.includes(`describe --udid ${DEVICE_ID} --bundleId ${BUNDLE_ID}`)));
   assert.ok(argentCalls.some((call) => call.includes(`screenshot --udid ${DEVICE_ID}`)));
+  const firstProfileLaunch = orderedCalls.findIndex((call) => call === `simctl:simctl launch ${DEVICE_ID} ${BUNDLE_ID}`);
+  assert.ok(firstProfileLaunch > -1, 'expected iOS profile launch command');
+  assert.ok(
+    orderedCalls.findIndex((call) => call.includes(`agent-device:open ${BUNDLE_ID}`)) < firstProfileLaunch,
+    'agent-device startup proof should run before profile scenarios mutate app state',
+  );
+  assert.ok(
+    orderedCalls.findIndex((call) => call.includes(`argent:run launch-app --udid ${DEVICE_ID} --bundleId ${BUNDLE_ID}`)) < firstProfileLaunch,
+    'Argent startup proof should run before profile scenarios mutate app state',
+  );
   assert.deepEqual(
     result.profiles.map((profile: { runId: string }) => profile.runId),
     ['ios-live-startup-pr-123', 'ios-live-open-close-pr-123', 'ios-live-scroll-pr-123'],

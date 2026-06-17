@@ -318,45 +318,6 @@ async function runExampleIosLiveProof(
     throw new Error(`iOS live proof preflight failed; inspect ${preflight.runDir}/agent-summary.md.`);
   }
 
-  const profiles: IosLiveProfile[] = [];
-  for (const profile of EXAMPLE_PROFILES) {
-    const profileRunId = buildLiveRunId(profile.runId, runSuffix);
-    const result = await runProfileIos({
-      config: configPath,
-      ...(typeof args.device === 'string' ? { device: args.device } : {}),
-      ...(typeof args['log-last'] === 'string' ? { 'log-last': args['log-last'] } : {}),
-      launch: true,
-      out: outputDir,
-      'profile-session': true,
-      'profile-session-storage': true,
-      'run-id': profileRunId,
-      scenario: path.join(exampleRoot, 'scenarios', 'ios', profile.scenario),
-      'simctl-capture': true,
-      'simctl-out': path.join(outputDir, '_ios-simctl-captures', profileRunId),
-      'wait-ms': typeof args['wait-ms'] === 'string' ? args['wait-ms'] : '1000',
-      ...(bundleId ? { bundle: bundleId } : {}),
-      ...(typeof args.xcrun === 'string' ? { xcrun: args.xcrun } : {}),
-    }, {
-      comparisonLane,
-      ...(options.delay ? { delay: options.delay } : {}),
-      ...(options.executor ? { executor: options.executor } : {}),
-    });
-
-    assertPassedProfile({
-      health: result.health,
-      label: profile.label,
-      runDir: result.runDir,
-      verdict: result.verdict,
-    });
-    profiles.push({
-      label: profile.label,
-      runDir: result.runDir,
-      runId: profileRunId,
-      scenario: profile.scenario,
-      scenarioId: profile.scenarioId,
-    });
-  }
-
   const interactionProofs: IosInteractionProof[] = [];
   if (isEnabledFlag(args['agent-device-proof'])) {
     const agentDeviceCapture = await runAgentDeviceCapture({
@@ -412,6 +373,45 @@ async function runExampleIosLiveProof(
       runId: argentRunId,
       runnerId: 'argent',
       scenarioId: 'app-startup',
+    });
+  }
+
+  const profiles: IosLiveProfile[] = [];
+  for (const profile of EXAMPLE_PROFILES) {
+    const profileRunId = buildLiveRunId(profile.runId, runSuffix);
+    const result = await runProfileIos({
+      config: configPath,
+      ...(typeof args.device === 'string' ? { device: args.device } : {}),
+      ...(typeof args['log-last'] === 'string' ? { 'log-last': args['log-last'] } : {}),
+      launch: true,
+      out: outputDir,
+      'profile-session': true,
+      'profile-session-storage': true,
+      'run-id': profileRunId,
+      scenario: path.join(exampleRoot, 'scenarios', 'ios', profile.scenario),
+      'simctl-capture': true,
+      'simctl-out': path.join(outputDir, '_ios-simctl-captures', profileRunId),
+      'wait-ms': typeof args['wait-ms'] === 'string' ? args['wait-ms'] : '1000',
+      ...(bundleId ? { bundle: bundleId } : {}),
+      ...(typeof args.xcrun === 'string' ? { xcrun: args.xcrun } : {}),
+    }, {
+      comparisonLane,
+      ...(options.delay ? { delay: options.delay } : {}),
+      ...(options.executor ? { executor: options.executor } : {}),
+    });
+
+    assertPassedProfile({
+      health: result.health,
+      label: profile.label,
+      runDir: result.runDir,
+      verdict: result.verdict,
+    });
+    profiles.push({
+      label: profile.label,
+      runDir: result.runDir,
+      runId: profileRunId,
+      scenario: profile.scenario,
+      scenarioId: profile.scenarioId,
     });
   }
 

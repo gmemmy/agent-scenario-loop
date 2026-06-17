@@ -94,9 +94,11 @@ test('runs the packaged Android example live proof with a fake adb executor', as
   const calls: string[] = [];
   const agentDeviceCalls: string[] = [];
   const argentCalls: string[] = [];
+  const orderedCalls: string[] = [];
   const executor = async (command: string, args: string[]): Promise<CommandResult> => {
     const key = args.join(' ');
     calls.push(key);
+    orderedCalls.push(`adb:${key}`);
 
     if (key === 'version') {
       return { command, args, exitCode: 0, stderr: '', stdout: 'Android Debug Bridge version 1.0.41\n' };
@@ -166,7 +168,9 @@ test('runs the packaged Android example live proof with a fake adb executor', as
     return { command, args, exitCode: 1, stderr: `unexpected command: ${key}`, stdout: '' };
   };
   const agentDeviceExecutor = async (command: string, args: string[]): Promise<AgentDeviceCommandResult> => {
-    agentDeviceCalls.push(args.join(' '));
+    const key = args.join(' ');
+    agentDeviceCalls.push(key);
+    orderedCalls.push(`agent-device:${key}`);
     if (args[0] === 'screenshot' && typeof args[1] === 'string') {
       await fsp.writeFile(args[1], 'fake screenshot', 'utf8');
     }
@@ -181,6 +185,7 @@ test('runs the packaged Android example live proof with a fake adb executor', as
   const argentExecutor = async (command: string, args: string[]): Promise<ArgentCommandResult> => {
     const key = args.join(' ');
     argentCalls.push(key);
+    orderedCalls.push(`argent:${key}`);
     if (args.includes('screenshot')) {
       const screenshotPath = path.join(outputDir, 'fake-argent-android.png');
       await fsp.writeFile(screenshotPath, 'fake screenshot', 'utf8');
@@ -258,6 +263,16 @@ test('runs the packaged Android example live proof with a fake adb executor', as
   assert.ok(argentCalls.some((call) => call.includes('launch-app --udid emulator-5554 --bundleId dev.agentscenarioloop.example')));
   assert.ok(argentCalls.some((call) => call.includes('describe --udid emulator-5554 --bundleId dev.agentscenarioloop.example')));
   assert.ok(argentCalls.some((call) => call.includes('screenshot --udid emulator-5554')));
+  const firstProfileSessionStart = orderedCalls.findIndex((call) => call.includes('profile-session/start'));
+  assert.ok(firstProfileSessionStart > -1, 'expected profile session start command');
+  assert.ok(
+    orderedCalls.findIndex((call) => call.includes('agent-device:open dev.agentscenarioloop.example')) < firstProfileSessionStart,
+    'agent-device startup proof should run before profile scenarios mutate app state',
+  );
+  assert.ok(
+    orderedCalls.findIndex((call) => call.includes('argent:run launch-app --udid emulator-5554 --bundleId dev.agentscenarioloop.example')) < firstProfileSessionStart,
+    'Argent startup proof should run before profile scenarios mutate app state',
+  );
   assert.deepEqual(
     result.profiles.map((profile: { runId: string }) => profile.runId),
     ['android-live-startup-pr-123', 'android-live-open-close-pr-123', 'android-live-scroll-pr-123'],
