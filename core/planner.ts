@@ -166,6 +166,31 @@ function hasPortableSelector(step: ScenarioStep): boolean {
 }
 
 /**
+ * Returns true when a value can be used as an agent-device ref target.
+ *
+ * @param {unknown} value
+ * @returns {boolean}
+ */
+function hasAgentDeviceRef(value: unknown): boolean {
+  return typeof value === 'string' && value.length > 0;
+}
+
+/**
+ * Returns true when a scenario step has an agent-device tap target.
+ *
+ * @param {Record<string, unknown>} step
+ * @returns {boolean}
+ */
+function hasAgentDeviceTapTarget(step: ScenarioStep): boolean {
+  const agentDevice = asObject(asObject(step.adapterOptions).agentDevice);
+  return (
+    hasPortableSelector(step) ||
+    hasAgentDeviceRef(agentDevice.ref) ||
+    (isFiniteNumber(agentDevice.x) && isFiniteNumber(agentDevice.y))
+  );
+}
+
+/**
  * Resolves the stable scenario identifier used in generated artifacts.
  *
  * @param {Record<string, unknown> | null | undefined} scenario
@@ -565,6 +590,66 @@ function validateIosSimctlAdapterOptions({
 }
 
 /**
+ * Validates agent-device metadata that the bundled adapter enforces at runtime.
+ *
+ * @param {{scenario: ScenarioManifest, errors: PlannerIssue[]}} options
+ * @returns {void}
+ */
+function validateAgentDeviceAdapterOptions({
+  errors,
+  scenario,
+}: {
+  errors: PlannerIssue[];
+  scenario: ScenarioManifest;
+}): void {
+  const steps = Array.isArray(scenario.steps) ? scenario.steps : [];
+  for (const [index, step] of steps.entries()) {
+    if (!step || typeof step !== 'object') {
+      continue;
+    }
+
+    const selector = asObject(step.selector);
+    const stepId = getScenarioStepId(step, index);
+    if (
+      typeof selector.match === 'string' &&
+      selector.match !== 'exact' &&
+      ['assertVisible', 'tap'].includes(String(step.driverAction))
+    ) {
+      pushInvalidAdapterOption({
+        adapter: 'agentDevice',
+        errors,
+        field: 'selector.match',
+        message: `Step \`${stepId}\` uses selector match \`${selector.match}\`, but the agent-device adapter currently supports exact selector matches only.`,
+        scenario,
+        stepId,
+      });
+    }
+
+    if (step.driverAction === 'assertVisible' && !hasPortableSelector(step)) {
+      pushInvalidAdapterOption({
+        adapter: 'agentDevice',
+        errors,
+        field: 'selector',
+        message: `Step \`${stepId}\` uses driverAction \`assertVisible\` but a portable selector is required.`,
+        scenario,
+        stepId,
+      });
+    }
+
+    if (step.driverAction === 'tap' && !hasAgentDeviceTapTarget(step)) {
+      pushInvalidAdapterOption({
+        adapter: 'agentDevice',
+        errors,
+        field: 'selector/ref/x/y',
+        message: `Step \`${stepId}\` uses driverAction \`tap\` but requires a selector, adapterOptions.agentDevice.ref, or adapterOptions.agentDevice.x/y.`,
+        scenario,
+        stepId,
+      });
+    }
+  }
+}
+
+/**
  * Validates adapter-specific scenario metadata for the selected platform set.
  *
  * @param {{scenario: ScenarioManifest, effectivePlatforms: string[], errors: PlannerIssue[], runner?: RunnerManifest}} options
@@ -590,6 +675,10 @@ function validateScenarioAdapterOptions({
 
   if (effectivePlatforms.includes('ios')) {
     validateIosSimctlAdapterOptions({ errors, scenario });
+  }
+
+  if (runnerId.includes('agent-device')) {
+    validateAgentDeviceAdapterOptions({ errors, scenario });
   }
 }
 

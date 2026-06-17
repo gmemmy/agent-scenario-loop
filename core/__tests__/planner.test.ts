@@ -276,6 +276,119 @@ test('agent-device runner target satisfies portable driver-action scenarios', ()
   assert.ok(result.matched.artifacts.includes('uiTree'));
 });
 
+test('agent-device runner target rejects tap steps without an executable target', () => {
+  const scenario = readJson('examples/scenarios/mobile/app-startup.json');
+  const runner = readJson('examples/runners/agent-device-ios.json');
+  scenario.steps.push({
+    id: 'tap-missing',
+    kind: 'gesture',
+    driverAction: 'tap',
+  });
+
+  const result = evaluateRunnerCompatibility({ scenario, runner, platform: 'ios' });
+
+  assert.equal(result.compatible, false);
+  assert.deepEqual(
+    result.errors
+      .filter((error: PlannerIssue) => error.code === 'invalid_adapter_options')
+      .map((error: PlannerIssue) => ({
+        adapter: error.adapter,
+        field: error.field,
+        stepId: error.stepId,
+      })),
+    [{ adapter: 'agentDevice', field: 'selector/ref/x/y', stepId: 'tap-missing' }],
+  );
+});
+
+test('agent-device runner target accepts tap steps with ref or coordinates', () => {
+  const scenario = readJson('examples/scenarios/mobile/app-startup.json');
+  const runner = readJson('examples/runners/agent-device-ios.json');
+  scenario.steps.push(
+    {
+      id: 'tap-ref',
+      kind: 'gesture',
+      driverAction: 'tap',
+      adapterOptions: {
+        agentDevice: {
+          ref: 'node-1',
+        },
+      },
+    },
+    {
+      id: 'tap-coordinates',
+      kind: 'gesture',
+      driverAction: 'tap',
+      adapterOptions: {
+        agentDevice: {
+          x: 12,
+          y: 34,
+        },
+      },
+    },
+  );
+
+  const result = evaluateRunnerCompatibility({ scenario, runner, platform: 'ios' });
+
+  assert.equal(result.compatible, true);
+  assert.deepEqual(
+    result.errors.filter((error: PlannerIssue) => error.code === 'invalid_adapter_options'),
+    [],
+  );
+});
+
+test('agent-device runner target rejects assertVisible without a selector', () => {
+  const scenario = readJson('examples/scenarios/mobile/app-startup.json');
+  const runner = readJson('examples/runners/agent-device-android.json');
+  scenario.steps.push({
+    id: 'assert-ready',
+    kind: 'assertUi',
+    driverAction: 'assertVisible',
+  });
+
+  const result = evaluateRunnerCompatibility({ scenario, runner, platform: 'android' });
+
+  assert.equal(result.compatible, false);
+  assert.deepEqual(
+    result.errors
+      .filter((error: PlannerIssue) => error.code === 'invalid_adapter_options')
+      .map((error: PlannerIssue) => ({
+        adapter: error.adapter,
+        field: error.field,
+        stepId: error.stepId,
+      })),
+    [{ adapter: 'agentDevice', field: 'selector', stepId: 'assert-ready' }],
+  );
+});
+
+test('agent-device runner target rejects non-exact selector matches before runtime', () => {
+  const scenario = readJson('examples/scenarios/mobile/app-startup.json');
+  const runner = readJson('examples/runners/agent-device-ios.json');
+  scenario.steps.push({
+    id: 'tap-contains',
+    kind: 'gesture',
+    driverAction: 'tap',
+    selector: {
+      kind: 'text',
+      match: 'contains',
+      value: 'Ready',
+    },
+  });
+
+  const result = evaluateRunnerCompatibility({ scenario, runner, platform: 'ios' });
+
+  assert.equal(result.compatible, false);
+  assert.deepEqual(
+    result.errors
+      .filter((error: PlannerIssue) => error.code === 'invalid_adapter_options')
+      .map((error: PlannerIssue) => ({
+        adapter: error.adapter,
+        field: error.field,
+        stepId: error.stepId,
+      })),
+    [{ adapter: 'agentDevice', field: 'selector.match', stepId: 'tap-contains' }],
+  );
+});
+
 test('argent runner targets satisfy portable driver-action scenarios', () => {
   const scenario = readJson('examples/scenarios/mobile/scroll-settle.json');
   scenario.steps[1].driverAction = 'scroll';
