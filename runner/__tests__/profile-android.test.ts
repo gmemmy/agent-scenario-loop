@@ -138,6 +138,67 @@ test('profile-android writes artifacts from fixture event logs', async (t: TestC
   assert.match(summary, /Scenario health passed/u);
 });
 
+test('profile-android profiles public scenario ids and milestone budgets', async (t: TestContext) => {
+  const tempRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-android-public-scenario-'));
+  t.after(async () => {
+    await fsp.rm(tempRoot, { recursive: true, force: true });
+  });
+  const artifactRoot = path.join(tempRoot, 'artifacts');
+  const scenarioPath = path.join(tempRoot, 'public-journey.json');
+  const eventLogPath = path.join(tempRoot, 'public-journey-android.log');
+  const scenario = readJson(fixturePath('templates/mobile-scenario.json')) as Record<string, unknown>;
+  scenario.id = 'public-journey';
+  scenario.flowId = 'public-journey';
+  await fsp.writeFile(scenarioPath, `${JSON.stringify(scenario, null, 2)}\n`, 'utf8');
+  await fsp.writeFile(
+    eventLogPath,
+    [
+      '2026-01-01T00:10:00.000Z public-android [profile-event] {"event":"first_journey_started","scenario":"public-journey","runId":"public-journey-android","iteration":1,"atMs":0}',
+      '2026-01-01T00:10:00.820Z public-android [profile-event] {"event":"first_journey_completed","scenario":"public-journey","runId":"public-journey-android","iteration":1,"atMs":820}',
+      '2026-01-01T00:10:01.000Z public-android [profile-event] {"event":"first_journey_started","scenario":"public-journey","runId":"public-journey-android","iteration":2,"atMs":1000}',
+      '2026-01-01T00:10:01.870Z public-android [profile-event] {"event":"first_journey_completed","scenario":"public-journey","runId":"public-journey-android","iteration":2,"atMs":1870}',
+      '2026-01-01T00:10:02.000Z public-android [profile-event] {"event":"first_journey_started","scenario":"public-journey","runId":"public-journey-android","iteration":3,"atMs":2000}',
+      '2026-01-01T00:10:02.940Z public-android [profile-event] {"event":"first_journey_completed","scenario":"public-journey","runId":"public-journey-android","iteration":3,"atMs":2940}',
+      '',
+    ].join('\n'),
+    'utf8',
+  );
+
+  const { stdout } = await execFileAsync(process.execPath, [
+    PROFILE_ANDROID,
+    '--config',
+    fixturePath('examples/mobile-app/asl.config.json'),
+    '--scenario',
+    scenarioPath,
+    '--events',
+    eventLogPath,
+    '--out',
+    artifactRoot,
+    '--run-id',
+    'public-journey-android',
+  ]);
+
+  const runDir = stdout.trim();
+  const metrics = readJson(path.join(runDir, 'metrics.json')) as Record<string, any>;
+  const health = readJson(path.join(runDir, 'health.json')) as Record<string, any>;
+  const verdict = readJson(path.join(runDir, 'verdict.json')) as Record<string, any>;
+  const causalRun = readJson(path.join(runDir, 'causal-run.json')) as Record<string, any>;
+
+  assert.equal(runDir, path.join(artifactRoot, 'public-journey', 'public-journey-android'));
+  assert.equal(metrics.scenario, 'public-journey');
+  assert.equal(metrics.iterations, 3);
+  assert.equal(metrics.failures, 0);
+  assert.deepEqual(metrics.durationsMs, [820, 870, 940]);
+  assert.equal(metrics.budgetEvaluation.pass, true);
+  assert.equal(health.healthStatus, 'passed');
+  assert.equal(verdict.verdictStatus, 'passed');
+  assert.equal(causalRun.scenario.id, 'public-journey');
+  assert.deepEqual(causalRun.budgets, {
+    cycleP95Ms: { limit: 8000, metric: 'cycleP95Ms', unit: 'ms' },
+    failures: { limit: 0, metric: 'failures', unit: 'count' },
+  });
+});
+
 test('profile-android attaches agent-device capture artifacts with explicit event logs', async (t: TestContext) => {
   const artifactRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-android-agent-device-'));
   t.after(async () => {
