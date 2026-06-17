@@ -7,7 +7,7 @@ const { writeJsonArtifact, writeTextArtifact } = require('../core/artifact-write
 const { SCHEMAS } = require('../core/schema-validator');
 const { compareLatestTrustedRun } = require('./compare-latest');
 
-type ExampleLiveProfileForComparison = {
+type LiveProfileForComparison = {
   label: string;
   runDir: string;
   runId: string;
@@ -30,7 +30,7 @@ type ComparisonMetricSummary = {
   notableMetrics: ComparisonMetricHighlight[];
 };
 
-type ExampleLiveComparisonResult = {
+type LiveComparisonResult = {
   baselineDir: string | null;
   comparisonDir: string | null;
   label: string;
@@ -44,7 +44,7 @@ type ExampleLiveComparisonResult = {
 
 type CompareLiveProfilesOptions = {
   outputDir: string;
-  profiles: ExampleLiveProfileForComparison[];
+  profiles: LiveProfileForComparison[];
 };
 
 /**
@@ -121,16 +121,16 @@ function buildComparisonMetricSummary(comparison: Record<string, unknown>): Comp
 /**
  * Writes comparison artifacts for one already-passed live profile.
  *
- * @param {{outputDir: string, profile: ExampleLiveProfileForComparison}} options
- * @returns {Promise<ExampleLiveComparisonResult>}
+ * @param {{outputDir: string, profile: LiveProfileForComparison}} options
+ * @returns {Promise<LiveComparisonResult>}
  */
 async function compareLiveProfileToLatest({
   outputDir,
   profile,
 }: {
   outputDir: string;
-  profile: ExampleLiveProfileForComparison;
-}): Promise<ExampleLiveComparisonResult> {
+  profile: LiveProfileForComparison;
+}): Promise<LiveComparisonResult> {
   try {
     const result = compareLatestTrustedRun({
       currentDir: profile.runDir,
@@ -166,7 +166,7 @@ async function compareLiveProfileToLatest({
       reason: null,
       runId: profile.runId,
       scenarioId: profile.scenarioId,
-      status: String(result.comparison.comparisonStatus) as ExampleLiveComparisonResult['status'],
+      status: String(result.comparison.comparisonStatus) as LiveComparisonResult['status'],
       summaryPath: layout.agentSummary,
     };
   } catch (error) {
@@ -191,13 +191,13 @@ async function compareLiveProfileToLatest({
  * Compares live proof profiles against the latest trusted prior run for each scenario.
  *
  * @param {CompareLiveProfilesOptions} options
- * @returns {Promise<ExampleLiveComparisonResult[]>}
+ * @returns {Promise<LiveComparisonResult[]>}
  */
 async function compareLiveProfilesToLatest({
   outputDir,
   profiles,
-}: CompareLiveProfilesOptions): Promise<ExampleLiveComparisonResult[]> {
-  const comparisons: ExampleLiveComparisonResult[] = [];
+}: CompareLiveProfilesOptions): Promise<LiveComparisonResult[]> {
+  const comparisons: LiveComparisonResult[] = [];
   for (const profile of profiles) {
     comparisons.push(await compareLiveProfileToLatest({ outputDir, profile }));
   }
@@ -213,8 +213,8 @@ export {
 
 export type {
   CompareLiveProfilesOptions,
-  ExampleLiveComparisonResult,
-  ExampleLiveProfileForComparison,
+  LiveComparisonResult,
+  LiveProfileForComparison,
   ComparisonMetricHighlight,
   ComparisonMetricSummary,
 };

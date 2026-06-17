@@ -5,8 +5,8 @@ const path = require('node:path');
 
 const { hasHelpFlag, writeUsage } = require('./cli');
 const { parseArgs, parsePositiveInteger, runAndroidAdbPreflight } = require('./android-adb');
-const { compareLiveProfilesToLatest, isEnabledFlag } = require('./example-live-comparison');
-const { writeLiveProofSummary } = require('./example-live-proof-summary');
+const { compareLiveProfilesToLatest, isEnabledFlag } = require('./live-comparison');
+const { writeLiveProofSummary } = require('./live-proof-summary');
 const { runAgentDeviceCapture } = require('./agent-device');
 const { parseBaseArgs: parseArgentBaseArgs, runArgentCapture } = require('./argent');
 const { runProfileAndroid } = require('./profile-android');
@@ -19,7 +19,7 @@ type AndroidGenericLiveOptions = {
   executor?: import('./android-adb').CommandExecutor;
 };
 type AndroidGenericLiveResult = {
-  aggregateSummary: import('./example-live-proof-summary').LiveProofSummaryResult;
+  aggregateSummary: import('./live-proof-summary').LiveProofSummaryResult;
   outputDir: string;
   preflightDir: string;
   profileDir: string;

@@ -12,15 +12,15 @@ const {
 const {
   compareLiveProfilesToLatest,
   isEnabledFlag,
-} = require('./example-live-comparison');
-const { writeLiveProofSummary } = require('./example-live-proof-summary');
+} = require('./live-comparison');
+const { writeLiveProofSummary } = require('./live-proof-summary');
 const { runAgentDeviceCapture } = require('./agent-device');
 const { parseBaseArgs: parseArgentBaseArgs, runArgentCapture } = require('./argent');
 const { runProfileIos } = require('./profile-ios');
 
 type CliArgs = import('./ios-simctl').CliArgs;
-type ExampleLiveComparisonResult = import('./example-live-comparison').ExampleLiveComparisonResult;
-type LiveProofSummaryResult = import('./example-live-proof-summary').LiveProofSummaryResult;
+type LiveComparisonResult = import('./live-comparison').LiveComparisonResult;
+type LiveProofSummaryResult = import('./live-proof-summary').LiveProofSummaryResult;
 type IosLiveProofOptions = {
   agentDeviceExecutor?: import('./agent-device').CommandExecutor;
   argentExecutor?: import('./argent').CommandExecutor;
@@ -44,7 +44,7 @@ type IosLiveProfile = {
 };
 type IosLiveProofResult = {
   aggregateSummary: LiveProofSummaryResult;
-  comparisons: ExampleLiveComparisonResult[];
+  comparisons: LiveComparisonResult[];
   interactionProofs: IosInteractionProof[];
   outputDir: string;
   preflightDir: string;

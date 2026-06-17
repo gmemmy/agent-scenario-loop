@@ -5,8 +5,8 @@ const path = require('node:path');
 
 const { hasHelpFlag, writeUsage } = require('./cli');
 const { parseArgs, parsePositiveInteger, runIosSimctlCapture } = require('./ios-simctl');
-const { compareLiveProfilesToLatest, isEnabledFlag } = require('./example-live-comparison');
-const { writeLiveProofSummary } = require('./example-live-proof-summary');
+const { compareLiveProfilesToLatest, isEnabledFlag } = require('./live-comparison');
+const { writeLiveProofSummary } = require('./live-proof-summary');
 const { runAgentDeviceCapture } = require('./agent-device');
 const { parseBaseArgs: parseArgentBaseArgs, runArgentCapture } = require('./argent');
 const { runProfileIos } = require('./profile-ios');
@@ -19,7 +19,7 @@ type IosGenericLiveOptions = {
   executor?: import('./ios-simctl').CommandExecutor;
 };
 type IosGenericLiveResult = {
-  aggregateSummary: import('./example-live-proof-summary').LiveProofSummaryResult;
+  aggregateSummary: import('./live-proof-summary').LiveProofSummaryResult;
   outputDir: string;
   preflightDir: string;
   profileDir: string;

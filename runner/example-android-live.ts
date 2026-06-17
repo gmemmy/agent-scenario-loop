@@ -12,15 +12,15 @@ const {
 const {
   compareLiveProfilesToLatest,
   isEnabledFlag,
-} = require('./example-live-comparison');
-const { writeLiveProofSummary } = require('./example-live-proof-summary');
+} = require('./live-comparison');
+const { writeLiveProofSummary } = require('./live-proof-summary');
 const { runAgentDeviceCapture } = require('./agent-device');
 const { parseBaseArgs: parseArgentBaseArgs, runArgentCapture } = require('./argent');
 const { runProfileAndroid } = require('./profile-android');
 
 type CliArgs = import('./android-adb').CliArgs;
-type ExampleLiveComparisonResult = import('./example-live-comparison').ExampleLiveComparisonResult;
-type LiveProofSummaryResult = import('./example-live-proof-summary').LiveProofSummaryResult;
+type LiveComparisonResult = import('./live-comparison').LiveComparisonResult;
+type LiveProofSummaryResult = import('./live-proof-summary').LiveProofSummaryResult;
 type AndroidLiveProofOptions = {
   agentDeviceExecutor?: import('./agent-device').CommandExecutor;
   argentExecutor?: import('./argent').CommandExecutor;
@@ -44,7 +44,7 @@ type AndroidLiveProfile = {
 };
 type AndroidLiveProofResult = {
   aggregateSummary: LiveProofSummaryResult;
-  comparisons: ExampleLiveComparisonResult[];
+  comparisons: LiveComparisonResult[];
   interactionProofs: AndroidInteractionProof[];
   outputDir: string;
   preflightDir: string;

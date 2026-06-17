@@ -11,7 +11,7 @@ const {
   buildLiveProofNextAction,
   formatComparisonMetricSummary,
   writeLiveProofSummary,
-} = require('../example-live-proof-summary');
+} = require('../live-proof-summary');
 
 type TestContext = import('node:test').TestContext;
 

@@ -3,7 +3,7 @@ const test = require('node:test');
 
 const {
   buildComparisonMetricSummary,
-} = require('../example-live-comparison');
+} = require('../live-comparison');
 
 test('builds compact metric summaries from comparison artifacts', () => {
   const summary = buildComparisonMetricSummary({
