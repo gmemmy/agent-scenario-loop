@@ -94,7 +94,8 @@ The built-in adb and simctl adapters show the expected boundary:
 
 - `runner/android-adb-driver.ts`: adb-backed tap, scroll, assertion, UI tree, screenshot, record, and log actions
 - `runner/ios-simctl-driver.ts`: simctl-backed screenshot and log actions
-- `runner/argent-driver.ts`: optional Argent-backed launch, URL open, normalized gestures, screenshots, and UI descriptions without bundling Argent
+- `runner/argent.ts`: Argent-backed ASL artifact runner for launch, coordinate-backed gestures, screenshots, and UI descriptions
+- `runner/argent-driver.ts`: optional Argent-backed driver adapter without bundling Argent
 - `runner/profile-android.ts` and `runner/profile-ios.ts`: profile artifact pipelines that turn raw evidence into health, metrics, verdicts, and summaries
 
 External tools such as agent-device, Argent, XcodeBuildMCP, axe, profilers, and custom scripts should plug in behind the same shape. The tactical tool can change; the scenario and artifact contract should not.
