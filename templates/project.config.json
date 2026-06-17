@@ -19,8 +19,8 @@
     "scenarioRoot": "scenarios"
   },
   "drivers": {
-    "default": "manual-log-ingest",
-    "supported": ["manual-log-ingest"]
+    "default": "fixture-log-ingest",
+    "supported": ["fixture-log-ingest", "adb", "ios-simctl", "agent-device", "argent"]
   },
   "versionControl": {
     "commit": [

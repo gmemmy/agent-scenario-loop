@@ -776,6 +776,10 @@ function main(): void {
     const initializedScripts = JSON.parse(
       fs.readFileSync(path.join(initOutputDir, 'asl', 'package-scripts.json'), 'utf8'),
     );
+    const initializedConfig = JSON.parse(
+      fs.readFileSync(path.join(initOutputDir, 'asl.config.json'), 'utf8'),
+    );
+    assert.deepEqual(initializedConfig.drivers?.supported, ['fixture-log-ingest', 'adb', 'ios-simctl', 'agent-device', 'argent']);
     fs.writeFileSync(
       path.join(initOutputDir, 'package.json'),
       `${JSON.stringify({
@@ -907,6 +911,8 @@ function main(): void {
     );
     assert.equal(initializedValidation.scripts.status, 'present');
     assert.equal(initializedValidation.scripts.packageJsonStatus, 'present');
+    assert.deepEqual(initializedValidation.config.supportedDrivers, ['adb', 'agent-device', 'argent', 'fixture-log-ingest', 'ios-simctl']);
+    assert.deepEqual(initializedValidation.config.missingSupportedDrivers, []);
     assert.equal(
       initializedValidation.nextActions.some((action: { code: string }) => action.code === 'replace_config_placeholders'),
       true,

@@ -66,6 +66,10 @@ test('init-project scaffolds templates into a consuming app layout', async (t: T
   ]);
   assert.deepEqual(result.skipped, []);
   assert.equal(readJson(path.join(targetDir, 'asl.config.json')).projectName, 'replace-me');
+  assert.deepEqual(readJson(path.join(targetDir, 'asl.config.json')).drivers, {
+    default: 'fixture-log-ingest',
+    supported: ['fixture-log-ingest', 'adb', 'ios-simctl', 'agent-device', 'argent'],
+  });
   assert.equal(readJson(path.join(targetDir, 'scenarios', 'mobile', 'checkout-submit.json')).id, 'checkout-submit');
   assert.equal(readJson(path.join(targetDir, 'scenarios', 'mobile', 'checkout-submit.json')).flowId, 'checkout-submit');
   assert.equal(readJson(path.join(targetDir, 'asl', 'package-scripts.json'))['asl:check:ios'], 'asl-check-plan --scenario scenarios/mobile/checkout-submit.json --runner runner-manifests/primary-runner.json --provider runner-manifests/evidence-provider.json --platform ios --out artifacts/asl/plan/checkout-submit-ios');

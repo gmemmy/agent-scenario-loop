@@ -86,6 +86,8 @@ test('validates an initialized project for iOS and Android', async (t: TestConte
 
   assert.equal(result.status, 'passed');
   assert.equal(result.config.status, 'present');
+  assert.deepEqual(result.config.missingSupportedDrivers, []);
+  assert.deepEqual(result.config.supportedDrivers, ['adb', 'agent-device', 'argent', 'fixture-log-ingest', 'ios-simctl']);
   assert.equal(result.appHelper.status, 'present');
   assert.equal(result.gitignore.status, 'missing');
   assert.equal(result.scripts.status, 'present');
@@ -157,6 +159,7 @@ test('validates platform-specific project config fields', async (t: TestContext)
   const configPath = path.join(targetDir, 'asl.config.json');
   const config = JSON.parse(await fsp.readFile(configPath, 'utf8')) as {
     app: { androidPackage?: string | number; iosBundleId?: string; profileSessionScheme?: string };
+    drivers: { supported?: unknown };
   };
   delete config.app.androidPackage;
   await fsp.writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
@@ -182,6 +185,30 @@ test('validates platform-specific project config fields', async (t: TestContext)
   result = await validateProject({ rootDir: targetDir, platform: 'android' });
   assert.equal(result.status, 'failed');
   assert.deepEqual(result.config.invalidFields, ['app.androidPackage']);
+
+  config.app.androidPackage = 'com.example.app';
+  config.drivers.supported = ['fixture-log-ingest', 'adb', 'ios-simctl'];
+  await fsp.writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
+  result = await validateProject({ rootDir: targetDir });
+  assert.equal(result.status, 'failed');
+  assert.deepEqual(result.config.missingSupportedDrivers, ['agent-device', 'argent']);
+  assert.equal(
+    result.errors.some((error: string) =>
+      error.includes('Project config drivers.supported is missing driver(s): agent-device, argent.')),
+    true,
+  );
+  assert.equal(actionCodes(result).includes('fix_project_config'), true);
+
+  config.drivers.supported = ['fixture-log-ingest', 'adb', 'ios-simctl', 'agent-device', 'argent'];
+  await fsp.writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
+  result = await validateProject({ rootDir: targetDir });
+  assert.equal(result.status, 'passed');
+
+  config.drivers.supported = 'adb';
+  await fsp.writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
+  result = await validateProject({ rootDir: targetDir });
+  assert.equal(result.status, 'failed');
+  assert.deepEqual(result.config.invalidFields, ['drivers.supported']);
 });
 
 test('validates runtime artifact gitignore patterns', async (t: TestContext) => {

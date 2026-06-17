@@ -135,7 +135,7 @@
     "config": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["invalidFields", "missingFields", "path", "status"],
+      "required": ["invalidFields", "missingFields", "missingSupportedDrivers", "path", "status", "supportedDrivers"],
       "properties": {
         "invalidFields": {
           "type": "array",
@@ -149,12 +149,24 @@
             "type": "string"
           }
         },
+        "missingSupportedDrivers": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
         "path": {
           "type": "string"
         },
         "status": {
           "type": "string",
           "enum": ["present", "missing", "incomplete"]
+        },
+        "supportedDrivers": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         }
       }
     },

@@ -660,8 +660,10 @@ test('accepts project validation artifacts', () => {
     config: {
       invalidFields: [],
       missingFields: [],
+      missingSupportedDrivers: [],
       path: '/app/asl.config.json',
       status: 'present',
+      supportedDrivers: ['adb', 'agent-device', 'argent', 'fixture-log-ingest', 'ios-simctl'],
     },
     configPath: '/app/asl.config.json',
     errors: [],

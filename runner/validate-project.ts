@@ -33,8 +33,10 @@ type ProjectValidationAppHelper = {
 type ProjectValidationConfig = {
   invalidFields: string[];
   missingFields: string[];
+  missingSupportedDrivers: string[];
   path: string;
   status: 'present' | 'missing' | 'incomplete';
+  supportedDrivers: string[];
 };
 
 type ProjectValidationScripts = {
@@ -305,6 +307,14 @@ const REQUIRED_GITIGNORE_PATTERNS = [
   '*.xcresult',
 ];
 
+const REQUIRED_SUPPORTED_DRIVERS = [
+  'fixture-log-ingest',
+  'adb',
+  'ios-simctl',
+  'agent-device',
+  'argent',
+];
+
 /**
  * Prints CLI usage.
  *
@@ -567,8 +577,10 @@ function validateProjectConfig({
     return {
       invalidFields: [],
       missingFields: [],
+      missingSupportedDrivers: REQUIRED_SUPPORTED_DRIVERS,
       path: configPath,
       status: 'missing',
+      supportedDrivers: [],
     };
   }
 
@@ -576,6 +588,7 @@ function validateProjectConfig({
     ['app', 'profileSessionScheme'],
     ...(['ios', 'all'].includes(requestedPlatform) ? [['app', 'iosBundleId']] : []),
     ...(['android', 'all'].includes(requestedPlatform) ? [['app', 'androidPackage']] : []),
+    ['drivers', 'supported'],
   ];
   const config = readJson(configPath);
   const missingFields: string[] = [];
@@ -586,16 +599,33 @@ function validateProjectConfig({
     const label = fieldPath.join('.');
     if (value === undefined) {
       missingFields.push(label);
+    } else if (fieldPath.join('.') === 'drivers.supported') {
+      if (!Array.isArray(value) || value.some((item) => typeof item !== 'string' || item.trim().length === 0)) {
+        invalidFields.push(label);
+      }
     } else if (typeof value !== 'string' || value.trim().length === 0) {
       invalidFields.push(label);
     }
   }
+  const rawSupportedDrivers = readNestedValue(config, ['drivers', 'supported']);
+  const supportedDrivers = Array.isArray(rawSupportedDrivers)
+    ? rawSupportedDrivers
+        .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+        .map((value) => value.trim())
+        .sort()
+    : [];
+  const missingSupportedDrivers = REQUIRED_SUPPORTED_DRIVERS
+    .filter((driver) => !supportedDrivers.includes(driver));
 
   return {
     invalidFields,
     missingFields,
+    missingSupportedDrivers,
     path: configPath,
-    status: missingFields.length > 0 || invalidFields.length > 0 ? 'incomplete' : 'present',
+    status: missingFields.length > 0 || invalidFields.length > 0 || missingSupportedDrivers.length > 0
+      ? 'incomplete'
+      : 'present',
+    supportedDrivers,
   };
 }
 
@@ -1192,6 +1222,9 @@ async function validateProject(options: {
   if (config.invalidFields.length > 0) {
     errors.push(`Project config has invalid required field(s): ${config.invalidFields.join(', ')}.`);
   }
+  if (config.missingSupportedDrivers.length > 0) {
+    errors.push(`Project config drivers.supported is missing driver(s): ${config.missingSupportedDrivers.join(', ')}.`);
+  }
 
   if (gitignore.status !== 'present') {
     warnings.push(`Runtime artifact gitignore is missing pattern(s): ${gitignore.missingPatterns.join(', ')}.`);
@@ -1318,6 +1351,7 @@ function formatResult(result: ProjectValidationResult): string {
     `Root: ${result.rootDir}`,
     `Config: ${result.configPath}`,
     `Config status: ${result.config.status}`,
+    `Supported drivers: ${result.config.supportedDrivers.length > 0 ? result.config.supportedDrivers.join(', ') : 'none'}`,
     `App helper: ${result.appHelper.status}`,
     `Gitignore: ${result.gitignore.status}`,
     `Package scripts: ${result.scripts.status}`,
