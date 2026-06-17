@@ -104,6 +104,36 @@ test('writes next-action hints when no iOS simulator is booted', async (t: TestC
   assert.match(summary, /Next action `boot_ios_simulator`/u);
 });
 
+test('explains agent sandbox access when simctl listing is unavailable', async (t: TestContext) => {
+  const outputDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-ios-simctl-unavailable-'));
+  t.after(async () => {
+    await fsp.rm(outputDir, { recursive: true, force: true });
+  });
+  const executor = createExecutor({
+    'simctl list devices': {
+      exitCode: 1,
+      stderr: 'Operation not permitted',
+    },
+  });
+
+  const result = await runIosSimctlCapture({
+    executor,
+    outputDir,
+    runId: 'ios-simctl-unavailable',
+  });
+  const summary = fs.readFileSync(path.join(outputDir, 'agent-summary.md'), 'utf8');
+
+  assert.equal(result.health.healthStatus, 'failed');
+  assert.ok(
+    (result.health.checks as Array<{ code: string; metadata?: { nextAction?: string; nextActionCode?: string } }>).some(
+      (check) => check.code === 'ios_simctl_unavailable'
+        && check.metadata?.nextActionCode === 'fix_xcrun_simctl'
+        && /agent sandbox/u.test(check.metadata.nextAction ?? ''),
+    ),
+  );
+  assert.match(summary, /agent sandbox/u);
+});
+
 test('captures bounded iOS simulator log evidence', async (t: TestContext) => {
   const outputDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-ios-simctl-'));
   t.after(async () => {

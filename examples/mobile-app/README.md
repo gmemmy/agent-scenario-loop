@@ -224,6 +224,8 @@ If global `xcode-select` points at a beta Xcode whose simulator services are not
 DEVELOPER_DIR=<xcode-app>/Contents/Developer pnpm example:ios:live -- --device <booted-simulator-udid>
 ```
 
+If direct `xcrun simctl list devices` works but the Node-based runner reports `ios_simctl_unavailable`, the runner may be inside an agent sandbox without CoreSimulator access. Rerun with simulator/CoreSimulator permissions before treating the failure as an app or Xcode setup regression.
+
 Each command writes simctl capture evidence under `artifacts/example-mobile-app/ios/_ios-simctl-captures/<run-id>`, collects stored app truth events into `raw/ios-profile-events.log`, then writes scenario artifacts under the matching scenario run directory.
 
 The command targets live in the scenario `adapterOptions.iosSimctl.commands` block, while the app handles them through `registerProfileCommandTargetHandler`. If simctl, the installed app, or the simulator is unavailable, the simctl capture folder gets a failed `health.json` and the profile run stops before making timing claims.

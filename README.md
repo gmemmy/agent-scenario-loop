@@ -248,6 +248,8 @@ The lower-level command is:
 pnpm profile:ios -- --config <config> --scenario <scenario> --simctl-capture --profile-session --profile-session-storage --launch --wait-ms 5000 --run-id <run-id>
 ```
 
+If direct `xcrun simctl list devices` works but the Node-based runner reports `ios_simctl_unavailable`, the runner may be inside an agent sandbox without CoreSimulator access. Rerun the live proof with simulator/CoreSimulator permissions, or pass `--xcrun <path>` after selecting a working Xcode.
+
 When stored events are collected, `profile-ios` ingests `raw/ios-profile-events.log`. If storage-backed events are absent, it falls back to the bounded `raw/ios-simctl-log.txt` captured by simctl and scenario health must still pass before any timing claim is trusted.
 
 To compare two completed run folders:

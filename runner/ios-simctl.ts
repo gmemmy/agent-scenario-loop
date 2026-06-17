@@ -596,7 +596,7 @@ async function runIosSimctlCapture({
       ? {
           metadata: nextActionHint(
             'fix_xcrun_simctl',
-            'Select a working Xcode with xcode-select, finish any first-launch setup, or pass --xcrun with a working xcrun binary.',
+            'Select a working Xcode with xcode-select, finish any first-launch setup, or pass --xcrun with a working xcrun binary. If direct xcrun works but the Node runner fails from an agent sandbox, rerun with simulator/CoreSimulator access outside the sandbox.',
           ),
         }
       : {}),
