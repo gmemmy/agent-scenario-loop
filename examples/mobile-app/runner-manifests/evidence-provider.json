@@ -1,6 +1,6 @@
 {
   "schemaVersion": "1.0.0",
-  "runnerId": "example-mobile-app-profiler-provider",
+  "runnerId": "example-mobile-app-evidence-provider",
   "kind": "evidenceProvider",
   "platforms": ["ios", "android"],
   "capabilities": ["accessibility", "memory", "network", "profiler"],

@@ -72,7 +72,7 @@ function writeProviderEvidence({
 }) {
   const shared = {
     platform,
-    providerId: 'example-profiler-provider',
+    providerId: 'example-evidence-provider',
     runId,
     scenarioId,
     schemaVersion: '1.0.0',

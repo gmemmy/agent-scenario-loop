@@ -80,7 +80,7 @@ function writeAccessibilityEvidence({
       },
     ],
     platform,
-    providerId: 'example-mobile-app-accessibility-provider',
+    providerId: 'example-mobile-app-evidence-provider',
     runId,
     scenarioId,
     schemaVersion: '1.0.0',

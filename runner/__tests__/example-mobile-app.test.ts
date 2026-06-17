@@ -307,18 +307,18 @@ test('example mobile app provider manifest writes stable evidence attachments', 
       };
     };
     const commandRecord = readJson(
-      path.join(runDir, 'raw', 'provider-commands', 'example-mobile-app-profiler-provider-capture-profiler.json'),
+      path.join(runDir, 'raw', 'provider-commands', 'example-mobile-app-evidence-provider-capture-profiler.json'),
     ) as { exitCode?: number };
     const accessibilityCommandRecord = readJson(
-      path.join(runDir, 'raw', 'provider-commands', 'example-mobile-app-profiler-provider-capture-accessibility.json'),
+      path.join(runDir, 'raw', 'provider-commands', 'example-mobile-app-evidence-provider-capture-accessibility.json'),
     ) as { exitCode?: number };
     const accessibilityEvidence = readJson(
-      path.join(runDir, 'raw', 'providers', 'example-mobile-app-profiler-provider', 'accessibility.json'),
+      path.join(runDir, 'raw', 'providers', 'example-mobile-app-evidence-provider', 'accessibility.json'),
     ) as { providerId?: string; violations?: unknown[] };
 
     assert.equal(commandRecord.exitCode, 0);
     assert.equal(accessibilityCommandRecord.exitCode, 0);
-    assert.equal(accessibilityEvidence.providerId, 'example-mobile-app-accessibility-provider');
+    assert.equal(accessibilityEvidence.providerId, 'example-mobile-app-evidence-provider');
     assert.deepEqual(accessibilityEvidence.violations, []);
     assert.deepEqual(manifest.artifacts?.signals?.js, ['signals/js/profiler.json']);
     assert.deepEqual(manifest.artifacts?.signals?.memory, ['signals/memory/memory.json']);
@@ -334,13 +334,13 @@ test('example mobile app provider manifest writes stable evidence attachments', 
         {
           channel: 'provider',
           kind: 'accessibility',
-          path: 'raw/providers/example-mobile-app-profiler-provider/accessibility.json',
+          path: 'raw/providers/example-mobile-app-evidence-provider/accessibility.json',
           sourceFileName: 'accessibility.json',
         },
         {
           channel: 'provider',
           kind: 'profiler',
-          path: 'raw/providers/example-mobile-app-profiler-provider/profiler.json',
+          path: 'raw/providers/example-mobile-app-evidence-provider/profiler.json',
           sourceFileName: 'profiler.json',
         },
         {
