@@ -1,6 +1,6 @@
 {
-  "asl:check:ios": "asl-check-plan --scenario scenarios/mobile/{{SCENARIO_ID}}.json --runner runner-manifests/primary-runner.json --platform ios --out artifacts/asl/plan/{{SCENARIO_ID}}-ios",
-  "asl:check:android": "asl-check-plan --scenario scenarios/mobile/{{SCENARIO_ID}}.json --runner runner-manifests/primary-runner.json --platform android --out artifacts/asl/plan/{{SCENARIO_ID}}-android",
+  "asl:check:ios": "asl-check-plan --scenario scenarios/mobile/{{SCENARIO_ID}}.json --runner runner-manifests/primary-runner.json --provider runner-manifests/evidence-provider.json --platform ios --out artifacts/asl/plan/{{SCENARIO_ID}}-ios",
+  "asl:check:android": "asl-check-plan --scenario scenarios/mobile/{{SCENARIO_ID}}.json --runner runner-manifests/primary-runner.json --provider runner-manifests/evidence-provider.json --platform android --out artifacts/asl/plan/{{SCENARIO_ID}}-android",
   "asl:validate": "asl-validate-project --root . --platform all --out artifacts/asl/project-validation",
   "asl:profile:ios": "asl-profile-ios --config asl.config.json --scenario scenarios/mobile/{{SCENARIO_ID}}.json ${ASL_PROFILE_IOS_EVENTS:+--events $ASL_PROFILE_IOS_EVENTS} --out artifacts/asl/ios --run-id {{SCENARIO_ID}}-ios",
   "asl:profile:android": "asl-profile-android --config asl.config.json --scenario scenarios/mobile/{{SCENARIO_ID}}.json ${ASL_PROFILE_ANDROID_EVENTS:+--events $ASL_PROFILE_ANDROID_EVENTS} --out artifacts/asl/android --run-id {{SCENARIO_ID}}-android",

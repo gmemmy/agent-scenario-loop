@@ -31,8 +31,8 @@ Start with planner validation before live device proof:
 
 ```bash
 asl-validate-project --root . --platform all --out artifacts/asl/project-validation
-asl-check-plan --scenario scenarios/mobile/{{SCENARIO_ID}}.json --runner runner-manifests/primary-runner.json --platform ios --out artifacts/asl/plan/{{SCENARIO_ID}}-ios
-asl-check-plan --scenario scenarios/mobile/{{SCENARIO_ID}}.json --runner runner-manifests/primary-runner.json --platform android --out artifacts/asl/plan/{{SCENARIO_ID}}-android
+asl-check-plan --scenario scenarios/mobile/{{SCENARIO_ID}}.json --runner runner-manifests/primary-runner.json --provider runner-manifests/evidence-provider.json --platform ios --out artifacts/asl/plan/{{SCENARIO_ID}}-ios
+asl-check-plan --scenario scenarios/mobile/{{SCENARIO_ID}}.json --runner runner-manifests/primary-runner.json --provider runner-manifests/evidence-provider.json --platform android --out artifacts/asl/plan/{{SCENARIO_ID}}-android
 ```
 
 When the app emits profile events, run platform profile commands against captured evidence or a live runner:

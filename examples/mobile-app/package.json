@@ -4,8 +4,8 @@
   "private": true,
   "main": "index.ts",
   "scripts": {
-    "asl:check:android": "pnpm --dir ../.. build && node ../../dist/runner/check-plan.js --scenario scenarios/mobile/app-startup.json --runner runner-manifests/primary-runner.json --platform android --out artifacts/asl/plan/app-startup-android",
-    "asl:check:ios": "pnpm --dir ../.. build && node ../../dist/runner/check-plan.js --scenario scenarios/mobile/app-startup.json --runner runner-manifests/primary-runner.json --platform ios --out artifacts/asl/plan/app-startup-ios",
+    "asl:check:android": "pnpm --dir ../.. build && node ../../dist/runner/check-plan.js --scenario scenarios/mobile/app-startup.json --runner runner-manifests/primary-runner.json --provider runner-manifests/evidence-provider.json --platform android --out artifacts/asl/plan/app-startup-android",
+    "asl:check:ios": "pnpm --dir ../.. build && node ../../dist/runner/check-plan.js --scenario scenarios/mobile/app-startup.json --runner runner-manifests/primary-runner.json --provider runner-manifests/evidence-provider.json --platform ios --out artifacts/asl/plan/app-startup-ios",
     "asl:android:live": "pnpm --dir ../.. build && node ../../dist/runner/example-android-live.js --config asl.config.json --out artifacts/asl/android-live",
     "asl:ios:live": "pnpm --dir ../.. build && node ../../dist/runner/example-ios-live.js --config asl.config.json --out artifacts/asl/ios-live",
     "asl:live-proof:android": "pnpm --dir ../.. build && node ../../dist/runner/live-proof.js --file ${ASL_EXAMPLE_ANDROID_LIVE_PROOF:-artifacts/asl/android-live/_live-proof/android-live-proof/live-proof.json} --fail-on-regression",

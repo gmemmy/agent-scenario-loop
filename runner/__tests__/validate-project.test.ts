@@ -154,7 +154,7 @@ test('validates generated package-script snippets', async (t: TestContext) => {
 
   assert.equal(scripts.status, 'incomplete');
   assert.deepEqual(scripts.invalidScripts, [
-    'asl:check:ios is missing required flag(s): --out.',
+    'asl:check:ios is missing required flag(s): --provider, --out.',
     'asl:validate should start with asl-validate-project.',
   ]);
   assert.deepEqual(scripts.missingScripts, [
@@ -192,7 +192,7 @@ test('validates required package-script lifecycle shapes', () => {
   }), 'asl:profile:android:live is missing required flag(s): --adb-capture.');
   assert.equal(validatePackageScriptShape({
     scriptName: 'asl:check:ios',
-    command: 'asl-check-plan --scenario scenarios/mobile/checkout.json --runner runner-manifests/primary-runner.json --platform android --out artifacts/asl/plan/checkout-ios',
+    command: 'asl-check-plan --scenario scenarios/mobile/checkout.json --runner runner-manifests/primary-runner.json --provider runner-manifests/evidence-provider.json --platform android --out artifacts/asl/plan/checkout-ios',
   }), 'asl:check:ios has incorrect required value(s): --platform=ios.');
   assert.equal(validatePackageScriptShape({
     scriptName: 'asl:live-proof',

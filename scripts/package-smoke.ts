@@ -737,6 +737,8 @@ function main(): void {
       'asl:validate',
     ]);
     assert.match(initializedScripts['asl:check:ios'], /checkout-submit/u);
+    assert.match(initializedScripts['asl:check:ios'], /--provider runner-manifests\/evidence-provider\.json/u);
+    assert.match(initializedScripts['asl:check:android'], /--provider runner-manifests\/evidence-provider\.json/u);
     assert.match(initializedScripts['asl:profile:ios'], /\$\{ASL_PROFILE_IOS_EVENTS:\+--events \$ASL_PROFILE_IOS_EVENTS\}/u);
     assert.match(
       initializedScripts['asl:profile:android'],

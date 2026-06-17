@@ -84,17 +84,17 @@ const REQUIRED_PACKAGE_SCRIPT_NAMES = [
   'asl:live-proof',
 ];
 
-const PATH_ARGUMENT_FLAGS = new Set(['--config', '--runner', '--scenario']);
+const PATH_ARGUMENT_FLAGS = new Set(['--config', '--provider', '--runner', '--scenario']);
 
 const REQUIRED_PACKAGE_SCRIPT_SHAPES = {
   'asl:check:ios': {
     command: 'asl-check-plan',
-    flags: ['--scenario', '--runner', '--platform', '--out'],
+    flags: ['--scenario', '--runner', '--provider', '--platform', '--out'],
     values: { '--platform': 'ios' },
   },
   'asl:check:android': {
     command: 'asl-check-plan',
-    flags: ['--scenario', '--runner', '--platform', '--out'],
+    flags: ['--scenario', '--runner', '--provider', '--platform', '--out'],
     values: { '--platform': 'android' },
   },
   'asl:validate': {
