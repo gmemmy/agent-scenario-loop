@@ -6,6 +6,7 @@
   "additionalProperties": false,
   "required": [
     "appHelper",
+    "config",
     "configPath",
     "errors",
     "gitignore",
@@ -23,6 +24,9 @@
   "properties": {
     "appHelper": {
       "$ref": "#/$defs/appHelper"
+    },
+    "config": {
+      "$ref": "#/$defs/config"
     },
     "configPath": {
       "type": "string"
@@ -120,6 +124,32 @@
           "type": "string"
         },
         "snippetPath": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["present", "missing", "incomplete"]
+        }
+      }
+    },
+    "config": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["invalidFields", "missingFields", "path", "status"],
+      "properties": {
+        "invalidFields": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "missingFields": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "path": {
           "type": "string"
         },
         "status": {

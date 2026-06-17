@@ -657,6 +657,12 @@ test('accepts project validation artifacts', () => {
       path: '/app/src/devtools/profile-session.ts',
       status: 'present',
     },
+    config: {
+      invalidFields: [],
+      missingFields: [],
+      path: '/app/asl.config.json',
+      status: 'present',
+    },
     configPath: '/app/asl.config.json',
     errors: [],
     gitignore: {

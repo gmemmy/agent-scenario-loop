@@ -30,6 +30,13 @@ type ProjectValidationAppHelper = {
   status: 'present' | 'missing' | 'incomplete';
 };
 
+type ProjectValidationConfig = {
+  invalidFields: string[];
+  missingFields: string[];
+  path: string;
+  status: 'present' | 'missing' | 'incomplete';
+};
+
 type ProjectValidationScripts = {
   invalidScripts: string[];
   invalidPackageJsonScripts: string[];
@@ -67,6 +74,7 @@ type ProjectValidationNextAction = {
 
 type ProjectValidationResult = {
   appHelper: ProjectValidationAppHelper;
+  config: ProjectValidationConfig;
   configPath: string;
   errors: string[];
   gitignore: ProjectValidationGitignore;
@@ -290,6 +298,25 @@ function readNestedString(source: Record<string, unknown>, pathSegments: string[
 }
 
 /**
+ * Reads a nested value from an object.
+ *
+ * @param {Record<string, unknown>} source
+ * @param {string[]} pathSegments
+ * @returns {unknown}
+ */
+function readNestedValue(source: Record<string, unknown>, pathSegments: string[]): unknown {
+  let value: unknown = source;
+  for (const segment of pathSegments) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      return undefined;
+    }
+    value = (value as Record<string, unknown>)[segment];
+  }
+
+  return value;
+}
+
+/**
  * Resolves the package root for bin-name checks from source or built CLI execution.
  *
  * @returns {string}
@@ -443,6 +470,55 @@ function validateConfigPlaceholders(config: Record<string, unknown>): string[] {
 
     return [`Config field ${placeholder.path.join('.')} still uses placeholder value '${value}'.`];
   });
+}
+
+/**
+ * Validates required project config fields for live profile execution.
+ *
+ * @param {{configPath: string, requestedPlatform: string}} options
+ * @returns {ProjectValidationConfig}
+ */
+function validateProjectConfig({
+  configPath,
+  requestedPlatform,
+}: {
+  configPath: string;
+  requestedPlatform: string;
+}): ProjectValidationConfig {
+  if (!fs.existsSync(configPath)) {
+    return {
+      invalidFields: [],
+      missingFields: [],
+      path: configPath,
+      status: 'missing',
+    };
+  }
+
+  const requiredFields = [
+    ['app', 'profileSessionScheme'],
+    ...(['ios', 'all'].includes(requestedPlatform) ? [['app', 'iosBundleId']] : []),
+    ...(['android', 'all'].includes(requestedPlatform) ? [['app', 'androidPackage']] : []),
+  ];
+  const config = readJson(configPath);
+  const missingFields: string[] = [];
+  const invalidFields: string[] = [];
+
+  for (const fieldPath of requiredFields) {
+    const value = readNestedValue(config, fieldPath);
+    const label = fieldPath.join('.');
+    if (value === undefined) {
+      missingFields.push(label);
+    } else if (typeof value !== 'string' || value.trim().length === 0) {
+      invalidFields.push(label);
+    }
+  }
+
+  return {
+    invalidFields,
+    missingFields,
+    path: configPath,
+    status: missingFields.length > 0 || invalidFields.length > 0 ? 'incomplete' : 'present',
+  };
 }
 
 /**
@@ -834,11 +910,12 @@ function validateProviderCommandReferences({
 /**
  * Builds stable agent-readable next actions from project validation facts.
  *
- * @param {{appHelper: ProjectValidationAppHelper, configPath: string, gitignore: ProjectValidationGitignore, plans: ProjectValidationPlan[], providerCommandMissingPaths: string[], requestedPlatform: string, rootDir: string, runnerPath: string, scenarioPaths: string[], scripts: ProjectValidationScripts, warnings: string[]}} options
+ * @param {{appHelper: ProjectValidationAppHelper, config: ProjectValidationConfig, configPath: string, gitignore: ProjectValidationGitignore, plans: ProjectValidationPlan[], providerCommandMissingPaths: string[], requestedPlatform: string, rootDir: string, runnerPath: string, scenarioPaths: string[], scripts: ProjectValidationScripts, warnings: string[]}} options
  * @returns {ProjectValidationNextAction[]}
  */
 function buildNextActions({
   appHelper,
+  config,
   configPath,
   gitignore,
   plans,
@@ -851,6 +928,7 @@ function buildNextActions({
   warnings,
 }: {
   appHelper: ProjectValidationAppHelper;
+  config: ProjectValidationConfig;
   configPath: string;
   gitignore: ProjectValidationGitignore;
   plans: ProjectValidationPlan[];
@@ -878,6 +956,13 @@ function buildNextActions({
       message: 'Create asl.config.json from the package template and fill in app identifiers.',
       severity: 'error',
       target: configPath,
+    });
+  } else if (config.status === 'incomplete') {
+    actions.push({
+      code: 'fix_project_config',
+      message: 'Fill required app identifiers in asl.config.json before live profile proof.',
+      severity: 'error',
+      target: config.path,
     });
   }
 
@@ -998,6 +1083,7 @@ async function validateProject(options: {
   const rootDir = path.resolve(options.rootDir ?? process.cwd());
   const requestedPlatform = options.platform ?? 'all';
   const configPath = path.join(rootDir, 'asl.config.json');
+  const config = validateProjectConfig({ configPath, requestedPlatform });
   const runnerPath = path.join(rootDir, 'runner-manifests', 'primary-runner.json');
   const providerPaths = listJsonFiles(path.join(rootDir, 'runner-manifests'))
     .filter((filePath) => path.basename(filePath) !== 'primary-runner.json');
@@ -1021,6 +1107,12 @@ async function validateProject(options: {
     errors.push(`Missing config: ${configPath}`);
   } else {
     warnings.push(...validateConfigPlaceholders(readJson(configPath)));
+  }
+  if (config.missingFields.length > 0) {
+    errors.push(`Project config is missing required field(s): ${config.missingFields.join(', ')}.`);
+  }
+  if (config.invalidFields.length > 0) {
+    errors.push(`Project config has invalid required field(s): ${config.invalidFields.join(', ')}.`);
   }
 
   if (gitignore.status !== 'present') {
@@ -1104,6 +1196,7 @@ async function validateProject(options: {
 
   const nextActions = buildNextActions({
     appHelper,
+    config,
     configPath,
     gitignore,
     plans,
@@ -1118,6 +1211,7 @@ async function validateProject(options: {
 
   return {
     appHelper,
+    config,
     configPath,
     errors,
     gitignore,
@@ -1145,6 +1239,7 @@ function formatResult(result: ProjectValidationResult): string {
     `Agent Scenario Loop project validation ${result.status}.`,
     `Root: ${result.rootDir}`,
     `Config: ${result.configPath}`,
+    `Config status: ${result.config.status}`,
     `App helper: ${result.appHelper.status}`,
     `Gitignore: ${result.gitignore.status}`,
     `Package scripts: ${result.scripts.status}`,
@@ -1233,6 +1328,7 @@ export {
   usage,
   buildNextActions,
   validateConfigPlaceholders,
+  validateProjectConfig,
   validateGitignore,
   validatePackageJsonScripts,
   validateProject,
@@ -1245,6 +1341,7 @@ export {
 export type {
   CliArgs,
   ProjectValidationAppHelper,
+  ProjectValidationConfig,
   ProjectValidationGitignore,
   ProjectValidationNextAction,
   ProjectValidationPlan,

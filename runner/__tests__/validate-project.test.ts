@@ -17,6 +17,7 @@ const {
   validatePackageJsonScripts,
   validatePackageScriptShape,
   validatePackageScripts,
+  validateProjectConfig,
   validateProviderCommandReferences,
   validateProject,
 } = require('../validate-project');
@@ -84,6 +85,7 @@ test('validates an initialized project for iOS and Android', async (t: TestConte
   const result = await validateProject({ rootDir: targetDir });
 
   assert.equal(result.status, 'passed');
+  assert.equal(result.config.status, 'present');
   assert.equal(result.appHelper.status, 'present');
   assert.equal(result.gitignore.status, 'missing');
   assert.equal(result.scripts.status, 'present');
@@ -137,6 +139,49 @@ test('fails validation when initialized project files are missing', async (t: Te
     'ignore_runtime_artifacts',
     'merge_package_scripts',
   ]);
+});
+
+test('validates platform-specific project config fields', async (t: TestContext) => {
+  const targetDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-validate-config-'));
+  t.after(async () => {
+    await fsp.rm(targetDir, { recursive: true, force: true });
+  });
+
+  await initProject({
+    outDir: targetDir,
+    packageRoot: ROOT,
+    scenarioId: 'Checkout Submit',
+  });
+  await writeMergedPackageJson(targetDir);
+
+  const configPath = path.join(targetDir, 'asl.config.json');
+  const config = JSON.parse(await fsp.readFile(configPath, 'utf8')) as {
+    app: { androidPackage?: string | number; iosBundleId?: string; profileSessionScheme?: string };
+  };
+  delete config.app.androidPackage;
+  await fsp.writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
+
+  assert.deepEqual(validateProjectConfig({
+    configPath,
+    requestedPlatform: 'all',
+  }).missingFields, ['app.androidPackage']);
+  assert.equal(validateProjectConfig({
+    configPath,
+    requestedPlatform: 'ios',
+  }).status, 'present');
+
+  let result = await validateProject({ rootDir: targetDir });
+  assert.equal(result.status, 'failed');
+  assert.equal(result.config.status, 'incomplete');
+  assert.deepEqual(result.config.missingFields, ['app.androidPackage']);
+  assert.equal(result.errors.some((error: string) => error.includes('Project config is missing required field(s): app.androidPackage')), true);
+  assert.equal(actionCodes(result).includes('fix_project_config'), true);
+
+  config.app.androidPackage = 42;
+  await fsp.writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
+  result = await validateProject({ rootDir: targetDir, platform: 'android' });
+  assert.equal(result.status, 'failed');
+  assert.deepEqual(result.config.invalidFields, ['app.androidPackage']);
 });
 
 test('validates runtime artifact gitignore patterns', async (t: TestContext) => {
