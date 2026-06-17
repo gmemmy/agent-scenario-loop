@@ -194,22 +194,11 @@ Override the target package or debug host when needed:
 ASL_EXAMPLE_ANDROID_APP_ID=<package-name> ASL_EXAMPLE_ANDROID_DEBUG_HOST=<host:port> pnpm example:app:android:metro-port
 ```
 
-Pass a run suffix when you want preserved live artifact directories for before/after comparison:
+The root example live scripts pass `--compare-latest --fail-on-regression` by default. Missing same-lane baselines are recorded as skipped comparison evidence; real regressions exit nonzero after artifacts are written. Pass a run suffix when you want preserved live artifact directories for before/after comparison:
 
 ```bash
 pnpm example:android:live -- --run-suffix before-change
-```
-
-After a baseline exists, add `--compare-latest` to run every canonical Android scenario and write comparison summaries in the same command:
-
-```bash
-pnpm example:android:live -- --run-suffix after-change --compare-latest
-```
-
-Add `--fail-on-regression` when the aggregate command should return a nonzero exit after writing evidence for a regressed comparison:
-
-```bash
-pnpm example:android:live -- --run-suffix after-change --compare-latest --fail-on-regression
+pnpm example:android:live -- --run-suffix after-change
 ```
 
 The individual live commands remain useful while debugging one scenario:
@@ -258,22 +247,10 @@ pnpm example:profile:ios:live:open-close
 pnpm example:profile:ios:live:scroll
 ```
 
-Pass a run suffix when you want preserved iOS live artifact directories:
+The root example live scripts pass `--compare-latest --fail-on-regression` by default. Pass a run suffix when you want preserved iOS live artifact directories:
 
 ```bash
 pnpm example:ios:live -- --run-suffix after-change
-```
-
-After a baseline exists, add `--compare-latest` to compare each passed iOS scenario against the latest trusted prior run:
-
-```bash
-pnpm example:ios:live -- --run-suffix after-change --compare-latest
-```
-
-Add `--fail-on-regression` when the aggregate command should return a nonzero exit after writing evidence for a regressed comparison:
-
-```bash
-pnpm example:ios:live -- --run-suffix after-change --compare-latest --fail-on-regression
 ```
 
 If global `xcode-select` points at a beta Xcode whose simulator services are not ready, set `ASL_EXAMPLE_XCODE_DEVELOPER_DIR` before the Node runner starts:

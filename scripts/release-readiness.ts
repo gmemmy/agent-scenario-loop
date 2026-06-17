@@ -192,6 +192,17 @@ const REQUIRED_PLATFORM_SCRIPT_PAIRS: Array<[string, string]> = [
   ['asl:live-proof:ios', 'asl:live-proof:android'],
 ];
 
+const REQUIRED_STRICT_EXAMPLE_LIVE_SCRIPTS = [
+  'example:android:live',
+  'example:android:live:agent-device',
+  'example:android:live:argent',
+  'example:android:live:runners',
+  'example:ios:live',
+  'example:ios:live:agent-device',
+  'example:ios:live:argent',
+  'example:ios:live:runners',
+];
+
 /**
  * Reads and parses a JSON object from disk.
  *
@@ -322,6 +333,10 @@ function assertReleaseScripts(packageJson: Record<string, unknown>): void {
   );
   assert.equal(scripts['package:smoke'], 'pnpm build && node dist/scripts/package-smoke.js');
   assert.equal(scripts['consumer:rehearse'], 'pnpm build && node dist/scripts/consumer-rehearsal.js');
+  for (const scriptName of REQUIRED_STRICT_EXAMPLE_LIVE_SCRIPTS) {
+    assert.match(scripts[scriptName], /--compare-latest/u, `${scriptName} must write comparison evidence by default`);
+    assert.match(scripts[scriptName], /--fail-on-regression/u, `${scriptName} must fail on regressions by default`);
+  }
 }
 
 /**

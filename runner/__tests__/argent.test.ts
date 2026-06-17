@@ -92,7 +92,10 @@ test('Argent availability check fails when a required tool is unavailable', asyn
   });
 
   assert.equal(result.status, 'failed');
-  assert.equal(result.checks.find((check: {name: string}) => check.name === 'argent_tool_gesture-tap')?.status, 'failed');
+  const failedCheck = result.checks.find((check: {name: string}) => check.name === 'argent_tool_gesture-tap');
+  assert.equal(failedCheck?.status, 'failed');
+  assert.equal(failedCheck?.exitCode, 1);
+  assert.equal(failedCheck?.stderrPreview, 'unknown tool gesture-tap');
 });
 
 test('Argent root args are derived from configured run args', () => {

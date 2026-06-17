@@ -65,9 +65,12 @@ type ArgentAvailabilityCheck = {
   args: string[];
   code: string;
   command: string;
+  exitCode: number;
   message: string;
   name: string;
+  stderrPreview?: string;
   status: 'failed' | 'passed';
+  stdoutPreview?: string;
 };
 
 type ArgentAvailabilityResult = {
@@ -725,6 +728,17 @@ function deriveArgentRootArgs(baseArgs: string[]): string[] {
 }
 
 /**
+ * Returns a compact single-line preview for command diagnostics.
+ *
+ * @param {string} value
+ * @returns {string | undefined}
+ */
+function previewCommandOutput(value: string): string | undefined {
+  const preview = value.replace(/\s+/gu, ' ').trim();
+  return preview.length > 240 ? `${preview.slice(0, 237)}...` : preview || undefined;
+}
+
+/**
  * Builds one availability check result from an Argent command execution.
  *
  * @param {{code: string, expectedPattern: RegExp, name: string, result: CommandResult}} options
@@ -743,16 +757,26 @@ function buildArgentAvailabilityCheck({
 }): ArgentAvailabilityCheck {
   const output = `${result.stdout}\n${result.stderr}`;
   const passed = result.exitCode === 0 && expectedPattern.test(output);
-  return {
+  const check: ArgentAvailabilityCheck = {
     args: result.args,
     code,
     command: result.command,
-    message: passed
-      ? `${name} is available.`
-      : `${name} did not return the expected Argent output.`,
+    exitCode: result.exitCode,
+    message: passed ? `${name} is available.` : `${name} did not return the expected Argent output.`,
     name,
     status: passed ? 'passed' : 'failed',
   };
+  if (!passed) {
+    const stderrPreview = previewCommandOutput(result.stderr);
+    const stdoutPreview = previewCommandOutput(result.stdout);
+    if (stderrPreview) {
+      check.stderrPreview = stderrPreview;
+    }
+    if (stdoutPreview) {
+      check.stdoutPreview = stdoutPreview;
+    }
+  }
+  return check;
 }
 
 /**

@@ -72,17 +72,11 @@ The aggregate proof runs adb/package preflight plus the canonical startup, open-
 artifacts/example-mobile-app/android/_live-proof/android-live-proof/agent-summary.md
 ```
 
-Use a run suffix when preserving before/after runs:
+The root example live scripts pass `--compare-latest --fail-on-regression` by default. Missing same-lane baselines are recorded as skipped comparison evidence; real regressions exit nonzero after artifacts are written. Use a run suffix when preserving before/after runs:
 
 ```bash
 pnpm example:android:live -- --run-suffix before-change
-pnpm example:android:live -- --run-suffix after-change --compare-latest
-```
-
-Add `--fail-on-regression` when regression evidence should make the aggregate command exit nonzero after writing artifacts:
-
-```bash
-pnpm example:android:live -- --run-suffix after-change --compare-latest --fail-on-regression
+pnpm example:android:live -- --run-suffix after-change
 ```
 
 Read [Example Mobile App: Android Capture](../examples/mobile-app/README.md#android-capture) for Metro routing, adb permissions, individual scenario commands, selector behavior, and optional video capture.
@@ -103,16 +97,10 @@ The aggregate proof runs simctl preflight plus the canonical startup, open-close
 artifacts/example-mobile-app/ios/_live-proof/ios-live-proof/agent-summary.md
 ```
 
-Use a run suffix and latest-trusted comparison the same way:
+The root example live scripts pass `--compare-latest --fail-on-regression` by default. Use a run suffix the same way:
 
 ```bash
-pnpm example:ios:live -- --run-suffix after-change --compare-latest
-```
-
-Add `--fail-on-regression` when comparison regressions should fail the aggregate command:
-
-```bash
-pnpm example:ios:live -- --run-suffix after-change --compare-latest --fail-on-regression
+pnpm example:ios:live -- --run-suffix after-change
 ```
 
 Read [Example Mobile App: iOS Capture](../examples/mobile-app/README.md#ios-capture) for prebuild, Xcode selection, simulator permissions, stored profile events, and individual scenario commands.
@@ -123,17 +111,17 @@ When `agent-device` or Argent is available, the example aggregate proofs can att
 
 ```bash
 ASL_ARGENT_BIN=npx ASL_ARGENT_BASE_ARGS="--yes @swmansion/argent run" pnpm argent:check
-pnpm example:android:live:agent-device -- --agent-device-session <name> --run-suffix after-change --compare-latest
-pnpm example:ios:live:agent-device -- --agent-device-session <name> --run-suffix after-change --compare-latest
-pnpm example:android:live:argent -- --run-suffix after-change --compare-latest
-pnpm example:ios:live:argent -- --run-suffix after-change --compare-latest
+pnpm example:android:live:agent-device -- --agent-device-session <name> --run-suffix after-change
+pnpm example:ios:live:agent-device -- --agent-device-session <name> --run-suffix after-change
+pnpm example:android:live:argent -- --run-suffix after-change
+pnpm example:ios:live:argent -- --run-suffix after-change
 ```
 
 Use the combined runner scripts when you want every configured sidecar to contribute to the same aggregate proof:
 
 ```bash
-pnpm example:android:live:runners -- --agent-device-session <name> --run-suffix after-change --compare-latest
-pnpm example:ios:live:runners -- --agent-device-session <name> --run-suffix after-change --compare-latest
+pnpm example:android:live:runners -- --agent-device-session <name> --run-suffix after-change
+pnpm example:ios:live:runners -- --agent-device-session <name> --run-suffix after-change
 ```
 
 For Argent without a global binary, set `ASL_ARGENT_BIN=npx` and `ASL_ARGENT_BASE_ARGS="--yes @swmansion/argent run"`. Run `pnpm argent:check` first when you need a bounded tool-surface proof before attaching Argent to a device scenario. The platform runner still owns adb or simctl preflight and profile evidence, and sidecars run only after that profile evidence has passed health and budget gates. Each executed sidecar contributes interaction proof, captures, and warning summaries into the same aggregate artifact graph; skipped sidecars remain visible in the aggregate proof so agents know which runner evidence is missing and why.
