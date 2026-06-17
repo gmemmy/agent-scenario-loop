@@ -30,7 +30,7 @@ const EXAMPLE_RUNS = [
     platform: 'ios',
     profileRunner: PROFILE_IOS,
     runId: 'example-startup',
-    scenario: 'examples/mobile-app/scenarios/ios/app-startup.json',
+    scenario: 'examples/mobile-app/scenarios/mobile/app-startup.json',
   },
   {
     eventLog: 'examples/mobile-app/event-logs/open-close-cycle.log',
@@ -51,7 +51,7 @@ const EXAMPLE_RUNS = [
     platform: 'android',
     profileRunner: PROFILE_ANDROID,
     runId: 'android-example-startup',
-    scenario: 'examples/mobile-app/scenarios/android/app-startup.json',
+    scenario: 'examples/mobile-app/scenarios/mobile/app-startup.json',
   },
   {
     eventLog: 'examples/mobile-app/event-logs/android-open-close-cycle.log',
