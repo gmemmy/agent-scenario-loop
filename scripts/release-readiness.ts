@@ -336,6 +336,49 @@ function assertPublicEntrypoints(packageJson: Record<string, unknown>): void {
 }
 
 /**
+ * Extracts documented runner subpath specifiers from the public API guide.
+ *
+ * @param {string} repoRoot
+ * @returns {string[]}
+ */
+function readDocumentedRunnerSubpaths(repoRoot: string): string[] {
+  const apiDocs = fs.readFileSync(path.join(repoRoot, 'docs', 'api.md'), 'utf8');
+  const subpaths = new Set<string>();
+  for (const match of apiDocs.matchAll(/`(agent-scenario-loop\/runner\/[^`]+)`/gu)) {
+    subpaths.add(match[1]);
+  }
+  return Array.from(subpaths).sort();
+}
+
+/**
+ * Extracts concrete runner subpath specifiers from package exports.
+ *
+ * @param {Record<string, unknown>} packageJson
+ * @returns {string[]}
+ */
+function readExportedRunnerSubpaths(packageJson: Record<string, unknown>): string[] {
+  return Object.keys(getObjectMap(packageJson, 'exports'))
+    .filter((subpath) => subpath.startsWith('./runner/'))
+    .map((subpath) => `agent-scenario-loop/${subpath.slice(2)}`)
+    .sort();
+}
+
+/**
+ * Asserts that the public API guide and package exports describe the same runner surface.
+ *
+ * @param {Record<string, unknown>} packageJson
+ * @param {string} repoRoot
+ * @returns {void}
+ */
+function assertPublicApiDocs(packageJson: Record<string, unknown>, repoRoot: string): void {
+  assert.deepEqual(
+    readDocumentedRunnerSubpaths(repoRoot),
+    readExportedRunnerSubpaths(packageJson),
+    'docs/api.md runner subpaths must match package.json exports',
+  );
+}
+
+/**
  * Asserts that package include/exclude metadata protects generated local state.
  *
  * @param {Record<string, unknown>} packageJson
@@ -428,6 +471,7 @@ function main(): void {
   assertPublicPackageMetadata(packageJson);
   assertReleaseScripts(packageJson);
   assertPublicEntrypoints(packageJson);
+  assertPublicApiDocs(packageJson, repoRoot);
   assertPackageFileList(packageJson);
   assertGitignoreState(repoRoot);
   assertNoTrackedGeneratedState(repoRoot);
