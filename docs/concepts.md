@@ -1,10 +1,14 @@
 # Concepts
 
-Agent Scenario Loop exists because agent runners keep getting better at doing work, but the context around that work is still fragmented.
+I built Agent Scenario Loop after noticing the same pattern across agent-driven app work.
 
-Some tools drive devices. Some navigate applications. Some run accessibility audits. Some collect traces. Some execute complex workflows. Each is useful, but real application work often needs more than one of them.
+People already had tools that could drive applications: agent runners, adb automation, accessibility tooling, Xcode instrumentation, Maestro, Detox, Appium, profilers, and internal automation frameworks. Each tool was useful. Real application work often needed more than one of them.
 
-Agent Scenario Loop sits above those tools. It coordinates scenarios, runners, and evidence so the project keeps a durable record of what happened.
+Execution was not the problem.
+
+The problem began after execution: coordinating tools inside one scenario, collecting evidence from every run, preserving that evidence, comparing outcomes over time, and avoiding workflows that only survived inside one runner.
+
+Agent Scenario Loop exists to answer those problems. It coordinates scenarios, runners, and evidence so the project keeps a durable record of what happened.
 
 ## What is an agent runner?
 
@@ -19,11 +23,9 @@ It might:
 - drive a simulator or device
 - collect logs, traces, or accessibility output
 
-Examples include Codex, Argent, Agent Device, adb-based automation, accessibility tooling, Xcode instrumentation, profilers, and custom internal runners. You do not need to know any specific one of these tools to understand Agent Scenario Loop. They are all ways to execute or observe part of a scenario.
+Examples include Codex, Argent, Agent Device, adb-based automation, accessibility tooling, Xcode instrumentation, Maestro, Detox, Appium, profilers, and custom internal runners. You do not need to know any specific one of these tools to understand Agent Scenario Loop. They are all ways to execute or observe part of a scenario.
 
 ## Why orchestration matters
-
-The problem is not execution. The problem is everything around execution.
 
 The moment you want to mix multiple runners, reuse scenarios, compare results across runs, preserve evidence, or evaluate changes over time, things become fragmented quickly.
 
@@ -44,6 +46,25 @@ Scenarios should outlive tooling choices.
 The best runner for a task today may not be the best runner six months from now. Agent Scenario Loop treats runners as interchangeable components. You can swap runners, combine runners, introduce new runners, or compare runners without rewriting your scenario definitions.
 
 The goal is not to build another agent runner. The goal is to provide a common orchestration and evidence layer that sits above them.
+
+## Evidence is the output
+
+Most testing systems produce a pass/fail result. Agent Scenario Loop produces evidence.
+
+Evidence can include:
+
+- logs
+- traces
+- memory measurements
+- CPU measurements
+- network activity
+- accessibility results
+- performance metrics
+- custom signals
+
+The scenario is not simply proving correctness. The scenario is generating evidence.
+
+That evidence is preserved and becomes part of the project's understanding of itself. One run is useful. A hundred runs are more valuable because they let the project ask whether memory usage is improving, performance is degrading, regressions are appearing, or an optimization actually helped.
 
 ## Scenarios become assets
 
@@ -85,8 +106,33 @@ The tooling may change. The runners may change. The agents may change. The scena
 
 That is a different philosophy from frameworks that primarily evaluate agents. Agent Scenario Loop is built to evaluate the evolution of software.
 
+## How it differs from testing frameworks
+
+Agent Scenario Loop does not make existing testing frameworks obsolete.
+
+Traditional frameworks usually optimize for:
+
+> Did the application behave correctly?
+
+Agent Scenario Loop optimizes for:
+
+> What did we learn from running this scenario?
+
+Both questions matter. Agent Scenario Loop focuses on the second question by preserving health, verdicts, metrics, logs, traces, comparisons, and other run evidence in a stable artifact shape.
+
+## How it differs from agent evaluation
+
+Agent Scenario Loop is not primarily evaluating agents.
+
+An agent may execute part of a run. A runner may drive a device. A profiler may collect signals. None of those is the center of the model.
+
+The scenario is.
+
+The feed, livestream, upload flow, checkout flow, or conversation thread is the thing being studied over time.
+
 ## Read next
 
 - [Principles](principles.md) for the project doctrine
 - [Contracts](contracts.md) for the current artifact and package surface
+- [Live Proofs](live-proofs.md) for fixture, Android, iOS, and comparison runs
 - [Runner docs](../runner/README.md) for the host execution boundary
