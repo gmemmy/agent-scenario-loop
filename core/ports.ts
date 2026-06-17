@@ -87,6 +87,16 @@ type EvidenceProviderContext = PortContext & {
   providerId?: string;
 };
 
+type DriverActionName =
+  | 'tap'
+  | 'scroll'
+  | 'assertVisible'
+  | 'inspectTree'
+  | 'screenshot'
+  | 'record'
+  | 'readLogs'
+  | 'collectPerfSignals';
+
 type DriverActionInput = {
   action: string;
   artifactPath?: string;
@@ -174,6 +184,45 @@ type ArtifactWriterPort = {
 type InterpreterPort = {
   interpret(context: InterpreterContext): MaybePromise<InterpreterResult>;
 };
+
+/**
+ * Returns true when a scenario action maps to the stable driver port surface.
+ *
+ * @param {string} action
+ * @returns {boolean}
+ */
+function isDriverActionName(action: string): action is DriverActionName {
+  return DRIVER_PORT.includes(action);
+}
+
+/**
+ * Dispatches one normalized scenario driver action to a swappable driver.
+ *
+ * Runners should call this after planner compatibility has passed. The runtime
+ * guard still fails explicitly so missing adapter capabilities do not degrade
+ * into silent no-ops.
+ *
+ * @param {{driver: Partial<DriverPort> & Record<string, unknown>, input: DriverActionInput}} options
+ * @returns {Promise<DriverActionResult>}
+ */
+async function dispatchDriverAction({
+  driver,
+  input,
+}: {
+  driver: Partial<DriverPort> & PortImplementation;
+  input: DriverActionInput;
+}): Promise<DriverActionResult> {
+  if (!isDriverActionName(input.action)) {
+    throw new Error(`Unsupported driver action \`${input.action}\`.`);
+  }
+
+  const method = driver[input.action];
+  if (typeof method !== 'function') {
+    throw new Error(`Driver is missing action \`${input.action}\`.`);
+  }
+
+  return method(input);
+}
 
 /**
  * Returns method names missing from an implementation object.
@@ -280,7 +329,9 @@ export {
   PRIMARY_RUNNER_PORT,
   assertPortImplementation,
   buildPortValidationMessage,
+  dispatchDriverAction,
   implementedPortMethods,
+  isDriverActionName,
   missingPortMethods,
   validatePortImplementation,
 };
@@ -290,6 +341,7 @@ export type {
   ArtifactWriterJsonInput,
   ArtifactWriterPort,
   ArtifactWriterTextInput,
+  DriverActionName,
   DriverActionInput,
   DriverActionResult,
   DriverPort,

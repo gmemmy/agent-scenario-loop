@@ -6,7 +6,9 @@ const {
   EVIDENCE_PROVIDER_PORT,
   PRIMARY_RUNNER_PORT,
   assertPortImplementation,
+  dispatchDriverAction,
   implementedPortMethods,
+  isDriverActionName,
   missingPortMethods,
   validatePortImplementation,
 } = require('../ports');
@@ -48,6 +50,72 @@ test('reports implemented methods in stable sorted order', () => {
   };
 
   assert.deepEqual(implementedPortMethods(implementation), ['screenshot', 'scroll', 'tap']);
+});
+
+test('dispatches normalized driver actions to a swappable driver', async () => {
+  const driver = {
+    async tap(input: { action: string; platform: string; selector?: Record<string, unknown> }) {
+      return {
+        status: 'passed',
+        value: {
+          action: input.action,
+          platform: input.platform,
+          selector: input.selector,
+        },
+      };
+    },
+  };
+
+  assert.equal(isDriverActionName('tap'), true);
+  assert.equal(isDriverActionName('unknown'), false);
+
+  const result = await dispatchDriverAction({
+    driver,
+    input: {
+      action: 'tap',
+      platform: 'android',
+      selector: { kind: 'testId', value: 'open-card' },
+    },
+  });
+
+  assert.deepEqual(result, {
+    status: 'passed',
+    value: {
+      action: 'tap',
+      platform: 'android',
+      selector: { kind: 'testId', value: 'open-card' },
+    },
+  });
+});
+
+test('rejects unknown or missing driver actions', async () => {
+  await assert.rejects(
+    () =>
+      dispatchDriverAction({
+        driver: {},
+        input: {
+          action: 'pinch',
+          platform: 'ios',
+        },
+      }),
+    /Unsupported driver action `pinch`/u,
+  );
+
+  await assert.rejects(
+    () =>
+      dispatchDriverAction({
+        driver: {
+          screenshot() {
+            return { status: 'passed' };
+          },
+        },
+        input: {
+          action: 'scroll',
+          platform: 'android',
+        },
+      }),
+    /Driver is missing action `scroll`/u,
+  );
 });
 
 test('asserts evidence provider port implementations', () => {

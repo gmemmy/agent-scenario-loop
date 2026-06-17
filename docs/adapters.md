@@ -90,6 +90,8 @@ An adapter should map normalized scenario steps to tool calls:
 | `waitForMilestone` | wait for app-owned truth events |
 | `captureEvidence` | collect logs, screenshots, UI trees, video, or provider output |
 
+When a normalized step has a `driverAction`, use `dispatchDriverAction` from the package root to call the active driver. It rejects unknown actions and missing driver methods explicitly, so a scenario cannot silently pass through an adapter that lacks the requested capability.
+
 The built-in adb and simctl adapters show the expected boundary:
 
 - `runner/android-adb-driver.ts`: adb-backed tap, scroll, assertion, UI tree, screenshot, record, and log actions
