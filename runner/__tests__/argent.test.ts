@@ -141,6 +141,24 @@ test('Argent command executor resolves when a helper keeps inherited pipes open'
   assert.ok(Date.now() - startedAt < 1500);
 });
 
+test('Argent command executor returns a timeout result when a wrapper ignores termination', async () => {
+  const startedAt = Date.now();
+  const result = await execFileCommandWithTimeout(process.execPath, [
+    '-e',
+    [
+      "process.on('SIGTERM', () => {});",
+      "process.stdout.write('wrapper started\\n', () => {",
+      '  setTimeout(() => {}, 10_000);',
+      '});',
+    ].join('\n'),
+  ], 300);
+
+  assert.equal(result.exitCode, 1);
+  assert.match(result.stdout, /wrapper started/u);
+  assert.match(result.stderr, /Argent command timed out after 300ms/u);
+  assert.ok(Date.now() - startedAt < 3000);
+});
+
 /**
  * Reads a JSON artifact.
  *

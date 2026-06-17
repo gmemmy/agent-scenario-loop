@@ -291,31 +291,39 @@ function execFileCommandWithTimeout(command: string, args: string[], timeoutMs =
     let settled = false;
     let timedOut = false;
     let forceKillTimer: NodeJS.Timeout | null = null;
+    /**
+     * Signals the spawned command and its process group when the platform supports it.
+     *
+     * @param {NodeJS.Signals} signal
+     * @returns {void}
+     */
+    const signalChildTree = (signal: NodeJS.Signals): void => {
+      if (typeof child.pid !== 'number') {
+        return;
+      }
+      try {
+        if (process.platform === 'win32') {
+          child.kill(signal);
+        } else {
+          process.kill(-child.pid, signal);
+        }
+      } catch {
+        child.kill(signal);
+      }
+    };
+    const buildResult = (code: number | null, signal: NodeJS.Signals | null): CommandResult => ({
+      command,
+      args,
+      exitCode: typeof code === 'number' ? code : signal ? 1 : 0,
+      stderr: [stderr, timedOut ? `Argent command timed out after ${timeoutMs}ms.` : ''].filter(Boolean).join('\n'),
+      stdout,
+    });
     const timeout = setTimeout(() => {
       timedOut = true;
-      if (typeof child.pid === 'number') {
-        try {
-          if (process.platform === 'win32') {
-            child.kill('SIGTERM');
-          } else {
-            process.kill(-child.pid, 'SIGTERM');
-          }
-        } catch {
-          child.kill('SIGTERM');
-        }
-      }
+      signalChildTree('SIGTERM');
       forceKillTimer = setTimeout(() => {
-        if (typeof child.pid === 'number') {
-          try {
-            if (process.platform === 'win32') {
-              child.kill('SIGKILL');
-            } else {
-              process.kill(-child.pid, 'SIGKILL');
-            }
-          } catch {
-            child.kill('SIGKILL');
-          }
-        }
+        signalChildTree('SIGKILL');
+        finish(buildResult(null, 'SIGKILL'));
       }, 1500);
     }, timeoutMs);
 
@@ -352,13 +360,6 @@ function execFileCommandWithTimeout(command: string, args: string[], timeoutMs =
         stderr: stderr || error.message,
         stdout,
       });
-    });
-    const buildResult = (code: number | null, signal: NodeJS.Signals | null): CommandResult => ({
-      command,
-      args,
-      exitCode: typeof code === 'number' ? code : signal ? 1 : 0,
-      stderr: [stderr, timedOut ? `Argent command timed out after ${timeoutMs}ms.` : ''].filter(Boolean).join('\n'),
-      stdout,
     });
 
     child.on('exit', (code: number | null, signal: NodeJS.Signals | null) => {
