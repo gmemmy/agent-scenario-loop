@@ -37,7 +37,7 @@ const EXAMPLE_RUNS = [
     platform: 'ios',
     profileRunner: PROFILE_IOS,
     runId: 'example-open-close',
-    scenario: 'examples/mobile-app/scenarios/ios/open-close-cycle.json',
+    scenario: 'examples/mobile-app/scenarios/mobile/open-close-cycle.json',
   },
   {
     eventLog: 'examples/mobile-app/event-logs/scroll-settle.log',
@@ -58,7 +58,7 @@ const EXAMPLE_RUNS = [
     platform: 'android',
     profileRunner: PROFILE_ANDROID,
     runId: 'android-example-open-close',
-    scenario: 'examples/mobile-app/scenarios/android/open-close-cycle.json',
+    scenario: 'examples/mobile-app/scenarios/mobile/open-close-cycle.json',
   },
   {
     eventLog: 'examples/mobile-app/event-logs/android-scroll-settle.log',
@@ -131,7 +131,7 @@ test('example mobile app satisfies initialized consumer validation', async () =>
   assert.equal(result.status, 'passed');
   assert.equal(result.appHelper.status, 'present');
   assert.equal(result.scripts.status, 'present');
-  assert.equal(result.scenarioPaths.length, 1);
+  assert.equal(result.scenarioPaths.length, 2);
   assert.equal(result.providerPaths.length, 1);
   assert.deepEqual(
     result.plans.map((plan: { healthStatus: string; platform: string; scenarioId: string }) => ({
@@ -139,12 +139,14 @@ test('example mobile app satisfies initialized consumer validation', async () =>
       platform: plan.platform,
       scenarioId: plan.scenarioId,
     })).sort((
-      left: { platform: string },
-      right: { platform: string },
-    ) => left.platform.localeCompare(right.platform)),
+      left: { platform: string; scenarioId: string },
+      right: { platform: string; scenarioId: string },
+    ) => left.platform.localeCompare(right.platform) || left.scenarioId.localeCompare(right.scenarioId)),
     [
       { healthStatus: 'passed', platform: 'android', scenarioId: 'app-startup' },
+      { healthStatus: 'passed', platform: 'android', scenarioId: 'open-close-cycle' },
       { healthStatus: 'passed', platform: 'ios', scenarioId: 'app-startup' },
+      { healthStatus: 'passed', platform: 'ios', scenarioId: 'open-close-cycle' },
     ],
   );
 });

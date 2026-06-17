@@ -22,6 +22,7 @@ The example app also carries the same project-local files a consuming app gets f
 - `runner-manifests/primary-runner.json`: portable iOS and Android runner capability manifest
 - `runner-manifests/evidence-provider.json`: optional accessibility, profiler, memory, and network provider manifest
 - `scenarios/mobile/app-startup.json`: portable startup scenario used for project validation
+- `scenarios/mobile/open-close-cycle.json`: portable repeated interaction scenario profiled on both iOS and Android
 - `asl/package-scripts.json`: public CLI snippets that a consuming app can merge into `package.json`
 
 Validate the example app exactly like a consumer project:
@@ -93,6 +94,7 @@ If a selected Xcode beta cannot run the current Expo/RN toolchain cleanly, point
 - `scripts/asl-capture-accessibility-provider.mjs`: deterministic accessibility provider command used by provider-profile scripts
 - `scripts/asl-capture-profiler-provider.mjs`: deterministic profiler, memory, and network provider command used by provider-profile scripts
 - `scenarios/mobile/app-startup.json`: portable consumer-validation scenario
+- `scenarios/mobile/open-close-cycle.json`: portable open-close scenario backed by committed iOS and Android fixture logs
 - `scenarios/android/*.json`: Android profile scenario manifests
 - `scenarios/ios/*.json`: iOS profile scenario manifests
 - `event-logs/*.log`: deterministic profile-event evidence fixtures

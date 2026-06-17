@@ -1,0 +1,160 @@
+{
+  "schemaVersion": "1.0.0",
+  "id": "open-close-cycle",
+  "flowId": "example-card-open-close",
+  "description": "Open and dismiss the example app detail card repeatedly from one portable scenario.",
+  "journey": {
+    "name": "Example card open and close",
+    "intent": "Open a stable example card, prove it rendered, dismiss it, and prove the app returned to the list.",
+    "actor": "mobile app user",
+    "startState": "example app home screen ready",
+    "endState": "example card dismissed"
+  },
+  "platforms": ["ios", "android"],
+  "requiredCapabilities": ["launch", "sessionControl", "command", "logCapture", "artifactWrite"],
+  "optionalCapabilities": ["screenshot", "video", "uiTree"],
+  "truthEvents": {
+    "openRequested": {
+      "event": "card_open_requested",
+      "required": true,
+      "phase": "intent"
+    },
+    "opened": {
+      "event": "card_opened",
+      "required": true,
+      "timeoutMs": 2500,
+      "phase": "visual"
+    },
+    "closeRequested": {
+      "event": "card_close_requested",
+      "required": true,
+      "phase": "intent"
+    },
+    "dismissed": {
+      "event": "card_dismissed",
+      "required": true,
+      "timeoutMs": 2500,
+      "phase": "completion"
+    }
+  },
+  "milestones": [
+    {
+      "id": "openRequested",
+      "event": "card_open_requested",
+      "description": "The app received the command to open the first example card.",
+      "required": true,
+      "phase": "intent"
+    },
+    {
+      "id": "opened",
+      "event": "card_opened",
+      "description": "The first example card became visible.",
+      "required": true,
+      "timeoutMs": 2500,
+      "phase": "visual"
+    },
+    {
+      "id": "closeRequested",
+      "event": "card_close_requested",
+      "description": "The app received the command to close the example card.",
+      "required": true,
+      "phase": "intent"
+    },
+    {
+      "id": "dismissed",
+      "event": "card_dismissed",
+      "description": "The example card was dismissed cleanly.",
+      "required": true,
+      "timeoutMs": 2500,
+      "phase": "completion"
+    }
+  ],
+  "expectedEvents": [
+    "card_open_requested",
+    "card_opened",
+    "card_close_requested",
+    "card_dismissed"
+  ],
+  "cycles": {
+    "iterations": 3,
+    "warmupIterations": 0,
+    "stopOnFailure": true
+  },
+  "budgets": [
+    {
+      "name": "open close cycle p95",
+      "source": "milestone",
+      "metric": "p95",
+      "unit": "ms",
+      "limit": 1350,
+      "fromMilestone": "openRequested",
+      "toMilestone": "dismissed"
+    },
+    {
+      "name": "open p95",
+      "source": "milestone",
+      "metric": "p95",
+      "unit": "ms",
+      "limit": 650,
+      "fromMilestone": "openRequested",
+      "toMilestone": "opened"
+    },
+    {
+      "name": "close p95",
+      "source": "milestone",
+      "metric": "p95",
+      "unit": "ms",
+      "limit": 500,
+      "fromMilestone": "closeRequested",
+      "toMilestone": "dismissed"
+    }
+  ],
+  "steps": [
+    {
+      "id": "launch",
+      "kind": "launch"
+    },
+    {
+      "id": "open-example-card",
+      "kind": "command",
+      "command": "activate-target:example-card-1",
+      "adapterOptions": {
+        "androidAdb": {
+          "waitMs": 300
+        },
+        "iosSimctl": {
+          "waitMs": 300
+        }
+      }
+    },
+    {
+      "id": "wait-card-opened",
+      "kind": "waitForMilestone",
+      "milestone": "opened",
+      "timeoutMs": 2500
+    },
+    {
+      "id": "close-example-card",
+      "kind": "command",
+      "command": "activate-target:close-card",
+      "adapterOptions": {
+        "androidAdb": {
+          "waitMs": 300
+        },
+        "iosSimctl": {
+          "waitMs": 300
+        }
+      }
+    },
+    {
+      "id": "wait-card-dismissed",
+      "kind": "waitForMilestone",
+      "milestone": "dismissed",
+      "timeoutMs": 2500
+    }
+  ],
+  "artifacts": {
+    "required": ["logs", "signals"],
+    "optional": ["screenshot", "video", "uiTree"]
+  }
+}
