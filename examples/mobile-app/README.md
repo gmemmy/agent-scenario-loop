@@ -116,7 +116,7 @@ pnpm asl:profile:ios:provider
 pnpm asl:profile:android:provider
 ```
 
-The `*:provider` scripts execute `runner-manifests/evidence-provider.json`, which runs `scripts/asl-capture-profiler-provider.mjs` and inventories the generated profiler output in `manifest.artifacts.evidenceAttachments`.
+The `*:provider` scripts execute `runner-manifests/evidence-provider.json`, which runs `scripts/asl-capture-profiler-provider.mjs` and inventories generated profiler, memory, and network evidence in `manifest.artifacts.evidenceAttachments`.
 
 Live proof and inspection scripts are also available from the app directory:
 
@@ -181,6 +181,12 @@ After a baseline exists, add `--compare-latest` to run every canonical Android s
 pnpm example:android:live -- --run-suffix after-change --compare-latest
 ```
 
+Add `--fail-on-regression` when the aggregate command should return a nonzero exit after writing evidence for a regressed comparison:
+
+```bash
+pnpm example:android:live -- --run-suffix after-change --compare-latest --fail-on-regression
+```
+
 The individual live commands remain useful while debugging one scenario:
 
 ```bash
@@ -225,6 +231,12 @@ After a baseline exists, add `--compare-latest` to compare each passed iOS scena
 
 ```bash
 pnpm example:ios:live -- --run-suffix after-change --compare-latest
+```
+
+Add `--fail-on-regression` when the aggregate command should return a nonzero exit after writing evidence for a regressed comparison:
+
+```bash
+pnpm example:ios:live -- --run-suffix after-change --compare-latest --fail-on-regression
 ```
 
 If global `xcode-select` points at a beta Xcode whose simulator services are not ready, set `DEVELOPER_DIR` before the Node runner starts:

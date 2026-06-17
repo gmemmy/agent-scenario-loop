@@ -48,6 +48,10 @@ type AndroidLiveProofResult = {
   preflightDir: string;
   profiles: AndroidLiveProfile[];
 };
+type RegressionGateOptions = {
+  platformLabel: string;
+  result: AndroidLiveProofResult;
+};
 
 const EXAMPLE_PROFILES = [
   {
@@ -78,13 +82,14 @@ const DEFAULT_REACT_NATIVE_DEBUG_HOST = 'localhost:8097';
  */
 function usage(output: { write: (message: string) => unknown } = process.stderr): void {
   writeUsage([
-    'Usage: asl-example-android-live [--config <path>] [--out <dir>] [--package <name>] [--serial <device>] [--react-native-debug-host <host:port>] [--run-suffix <label>] [--compare-latest] [--agent-device-proof]',
+    'Usage: asl-example-android-live [--config <path>] [--out <dir>] [--package <name>] [--serial <device>] [--react-native-debug-host <host:port>] [--run-suffix <label>] [--compare-latest] [--fail-on-regression] [--agent-device-proof]',
     '',
     'Runs the packaged example Android live proof: adb preflight, startup, open-close, and scroll-settle.',
     'The example app must already be installed and reachable on an online Android emulator or device.',
     `By default, the runner sets the app React Native debug host to ${DEFAULT_REACT_NATIVE_DEBUG_HOST} for the isolated Metro server.`,
     'Use --run-suffix to preserve multiple live proof artifact sets without changing deterministic default run ids.',
     'Use --compare-latest to compare each passed scenario against the latest trusted prior run under the artifact root.',
+    'Use --fail-on-regression with --compare-latest to exit nonzero after writing evidence when any comparison regressed.',
     'Use --agent-device-proof to attach the shared startup UI assertion through agent-device; pass --agent-device-session to reuse an active named session.',
   ], output);
 }
@@ -230,6 +235,27 @@ function assertPassedInteractionProof({
       `Health: ${health.healthStatus ?? 'unknown'}.`,
       `Inspect ${runDir}/agent-summary.md.`,
     ].join(' '),
+  );
+}
+
+/**
+ * Throws after aggregate proof writing when fail-on-regression should gate the run.
+ *
+ * @param {RegressionGateOptions} options
+ * @returns {void}
+ */
+function assertNoRegressedComparisons({
+  platformLabel,
+  result,
+}: RegressionGateOptions): void {
+  const regressed = result.comparisons.filter((comparison) => comparison.status === 'worse');
+  if (regressed.length === 0) {
+    return;
+  }
+
+  const labels = regressed.map((comparison) => comparison.label).join(', ');
+  throw new Error(
+    `${platformLabel} example live proof found regressed comparison(s): ${labels}. Inspect ${result.aggregateSummary.summaryPath}.`,
   );
 }
 
@@ -420,8 +446,15 @@ async function main(): Promise<void> {
     return;
   }
 
-  const result = await runExampleAndroidLiveProof(parseArgs(argv));
+  const args = parseArgs(argv);
+  const result = await runExampleAndroidLiveProof(args);
   process.stdout.write(`${formatResult(result)}\n`);
+  if (isEnabledFlag(args['fail-on-regression'])) {
+    assertNoRegressedComparisons({
+      platformLabel: 'Android',
+      result,
+    });
+  }
 }
 
 if (require.main === module) {
@@ -433,6 +466,7 @@ if (require.main === module) {
 
 export {
   formatResult,
+  assertNoRegressedComparisons,
   buildLiveRunId,
   main,
   normalizeRunSuffix,

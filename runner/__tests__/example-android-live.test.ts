@@ -6,6 +6,7 @@ const path = require('node:path');
 const test = require('node:test');
 
 const {
+  assertNoRegressedComparisons,
   buildLiveRunId,
   formatResult,
   normalizeRunSuffix,
@@ -23,6 +24,30 @@ test('normalizes Android example live run suffixes', () => {
   assert.equal(normalizeRunSuffix('---'), null);
   assert.equal(buildLiveRunId('android-live-startup', 'pr-123'), 'android-live-startup-pr-123');
   assert.equal(buildLiveRunId('android-live-startup', null), 'android-live-startup');
+});
+
+test('Android example live proof regression gate reports the aggregate summary', () => {
+  const result = {
+    aggregateSummary: {
+      summaryPath: '/tmp/asl/android-live-proof/agent-summary.md',
+    },
+    comparisons: [
+      { label: 'startup', status: 'unchanged' },
+      { label: 'open-close', status: 'worse' },
+    ],
+  };
+
+  assert.throws(
+    () => assertNoRegressedComparisons({ platformLabel: 'Android', result }),
+    /Android example live proof found regressed comparison\(s\): open-close\. Inspect \/tmp\/asl\/android-live-proof\/agent-summary\.md\./u,
+  );
+  assert.doesNotThrow(() => assertNoRegressedComparisons({
+    platformLabel: 'Android',
+    result: {
+      ...result,
+      comparisons: [{ label: 'startup', status: 'unchanged' }],
+    },
+  }));
 });
 
 /**

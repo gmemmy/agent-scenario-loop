@@ -137,6 +137,12 @@ Add `--compare-latest` to compare each passed scenario against the latest truste
 pnpm example:android:live -- --run-suffix after-change --compare-latest
 ```
 
+Add `--fail-on-regression` when this aggregate command should exit nonzero after writing evidence if any comparison regressed:
+
+```bash
+pnpm example:android:live -- --run-suffix after-change --compare-latest --fail-on-regression
+```
+
 When `agent-device` is available, the stronger aggregate path attaches the shared startup UI assertion as an interaction proof. If `agent-device session list` shows the emulator is already owned by a named session, pass that session with `--agent-device-session <name>`:
 
 ```bash
@@ -235,6 +241,12 @@ Add `--compare-latest` when the aggregate proof should also compare each passed 
 
 ```bash
 pnpm example:ios:live -- --run-suffix after-change --compare-latest
+```
+
+Add `--fail-on-regression` when this aggregate command should exit nonzero after writing evidence if any comparison regressed:
+
+```bash
+pnpm example:ios:live -- --run-suffix after-change --compare-latest --fail-on-regression
 ```
 
 When `agent-device` is available, the stronger aggregate path attaches the same startup UI assertion used by Android. Reuse the active agent-device session with `--agent-device-session <name>` when the simulator is already owned by one:
