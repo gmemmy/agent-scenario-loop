@@ -265,55 +265,70 @@ test('example mobile app provider manifest writes stable evidence attachments', 
     await fsp.rm(artifactRoot, { recursive: true, force: true });
   });
 
-  const { stdout } = await execFileAsync(process.execPath, [
-    PROFILE_ANDROID,
-    '--config',
-    fixturePath('examples/mobile-app/asl.config.json'),
-    '--scenario',
-    fixturePath('examples/mobile-app/scenarios/android/app-startup.json'),
-    '--events',
-    fixturePath('examples/mobile-app/event-logs/android-app-startup.log'),
-    '--provider',
-    fixturePath('examples/mobile-app/runner-manifests/evidence-provider.json'),
-    '--out',
-    artifactRoot,
-    '--run-id',
-    'android-provider-proof',
-  ]);
+  for (const exampleRun of [
+    {
+      eventLog: 'examples/mobile-app/event-logs/app-startup.log',
+      profileRunner: PROFILE_IOS,
+      runId: 'ios-provider-proof',
+      scenario: 'examples/mobile-app/scenarios/ios/app-startup.json',
+    },
+    {
+      eventLog: 'examples/mobile-app/event-logs/android-app-startup.log',
+      profileRunner: PROFILE_ANDROID,
+      runId: 'android-provider-proof',
+      scenario: 'examples/mobile-app/scenarios/android/app-startup.json',
+    },
+  ]) {
+    const { stdout } = await execFileAsync(process.execPath, [
+      exampleRun.profileRunner,
+      '--config',
+      fixturePath('examples/mobile-app/asl.config.json'),
+      '--scenario',
+      fixturePath(exampleRun.scenario),
+      '--events',
+      fixturePath(exampleRun.eventLog),
+      '--provider',
+      fixturePath('examples/mobile-app/runner-manifests/evidence-provider.json'),
+      '--out',
+      artifactRoot,
+      '--run-id',
+      exampleRun.runId,
+    ]);
 
-  const runDir = stdout.trim();
-  const manifest = readJson(path.join(runDir, 'manifest.json')) as {
-    artifacts?: {
-      evidenceAttachments?: Array<{ channel: string; kind: string; path: string; sourceFileName: string }>;
-      signals?: { js?: string[] };
+    const runDir = stdout.trim();
+    const manifest = readJson(path.join(runDir, 'manifest.json')) as {
+      artifacts?: {
+        evidenceAttachments?: Array<{ channel: string; kind: string; path: string; sourceFileName: string }>;
+        signals?: { js?: string[] };
+      };
     };
-  };
-  const commandRecord = readJson(
-    path.join(runDir, 'raw', 'provider-commands', 'example-mobile-app-profiler-provider-capture-profiler.json'),
-  ) as { exitCode?: number };
+    const commandRecord = readJson(
+      path.join(runDir, 'raw', 'provider-commands', 'example-mobile-app-profiler-provider-capture-profiler.json'),
+    ) as { exitCode?: number };
 
-  assert.equal(commandRecord.exitCode, 0);
-  assert.deepEqual(manifest.artifacts?.signals?.js, ['signals/js/profiler.json']);
-  assert.deepEqual(
-    manifest.artifacts?.evidenceAttachments?.map((attachment) => ({
-      channel: attachment.channel,
-      kind: attachment.kind,
-      path: attachment.path,
-      sourceFileName: attachment.sourceFileName,
-    })),
-    [
-      {
-        channel: 'provider',
-        kind: 'profiler',
-        path: 'raw/providers/example-mobile-app-profiler-provider/profiler.json',
-        sourceFileName: 'profiler.json',
-      },
-      {
-        channel: 'signal',
-        kind: 'js',
-        path: 'signals/js/profiler.json',
-        sourceFileName: 'profiler.json',
-      },
-    ],
-  );
+    assert.equal(commandRecord.exitCode, 0);
+    assert.deepEqual(manifest.artifacts?.signals?.js, ['signals/js/profiler.json']);
+    assert.deepEqual(
+      manifest.artifacts?.evidenceAttachments?.map((attachment) => ({
+        channel: attachment.channel,
+        kind: attachment.kind,
+        path: attachment.path,
+        sourceFileName: attachment.sourceFileName,
+      })),
+      [
+        {
+          channel: 'provider',
+          kind: 'profiler',
+          path: 'raw/providers/example-mobile-app-profiler-provider/profiler.json',
+          sourceFileName: 'profiler.json',
+        },
+        {
+          channel: 'signal',
+          kind: 'js',
+          path: 'signals/js/profiler.json',
+          sourceFileName: 'profiler.json',
+        },
+      ],
+    );
+  }
 });

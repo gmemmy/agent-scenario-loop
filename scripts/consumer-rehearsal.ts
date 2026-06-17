@@ -305,6 +305,10 @@ function rehearseConsumerInstall({
     cwd: appRoot,
     env: { ...env, ASL_PROFILE_ANDROID_EVENTS: profileEvents.androidEvents },
   });
+  run('npm', ['run', 'asl:profile:ios:provider', '--silent'], {
+    cwd: appRoot,
+    env: { ...env, ASL_PROFILE_IOS_EVENTS: profileEvents.iosEvents },
+  });
   run('npm', ['run', 'asl:profile:android:provider', '--silent'], {
     cwd: appRoot,
     env: { ...env, ASL_PROFILE_ANDROID_EVENTS: profileEvents.androidEvents },
@@ -346,36 +350,41 @@ function rehearseConsumerInstall({
     assert.equal(verdict.verdictStatus, 'passed');
   }
 
-  const providerRunDir = path.join(appRoot, 'artifacts', 'asl', 'android', 'account-overview', 'account-overview-android-provider');
-  const providerManifest = readJson(path.join(providerRunDir, 'manifest.json')) as {
-    artifacts?: {
-      evidenceAttachments?: Array<{ channel: string; kind: string; path: string; sourceFileName: string }>;
-      signals?: { js?: string[] };
+  for (const [platform, runId] of [
+    ['ios', 'account-overview-ios-provider'],
+    ['android', 'account-overview-android-provider'],
+  ] as const) {
+    const providerRunDir = path.join(appRoot, 'artifacts', 'asl', platform, 'account-overview', runId);
+    const providerManifest = readJson(path.join(providerRunDir, 'manifest.json')) as {
+      artifacts?: {
+        evidenceAttachments?: Array<{ channel: string; kind: string; path: string; sourceFileName: string }>;
+        signals?: { js?: string[] };
+      };
     };
-  };
-  assert.deepEqual(providerManifest.artifacts?.signals?.js, ['signals/js/profiler.json']);
-  assert.deepEqual(
-    providerManifest.artifacts?.evidenceAttachments?.map((attachment) => ({
-      channel: attachment.channel,
-      kind: attachment.kind,
-      path: attachment.path,
-      sourceFileName: attachment.sourceFileName,
-    })),
-    [
-      {
-        channel: 'provider',
-        kind: 'profiler',
-        path: 'raw/providers/example-profiler-provider/profiler.json',
-        sourceFileName: 'profiler.json',
-      },
-      {
-        channel: 'signal',
-        kind: 'js',
-        path: 'signals/js/profiler.json',
-        sourceFileName: 'profiler.json',
-      },
-    ],
-  );
+    assert.deepEqual(providerManifest.artifacts?.signals?.js, ['signals/js/profiler.json']);
+    assert.deepEqual(
+      providerManifest.artifacts?.evidenceAttachments?.map((attachment) => ({
+        channel: attachment.channel,
+        kind: attachment.kind,
+        path: attachment.path,
+        sourceFileName: attachment.sourceFileName,
+      })),
+      [
+        {
+          channel: 'provider',
+          kind: 'profiler',
+          path: 'raw/providers/example-profiler-provider/profiler.json',
+          sourceFileName: 'profiler.json',
+        },
+        {
+          channel: 'signal',
+          kind: 'js',
+          path: 'signals/js/profiler.json',
+          sourceFileName: 'profiler.json',
+        },
+      ],
+    );
+  }
 }
 
 /**
