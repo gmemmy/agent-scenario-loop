@@ -1169,6 +1169,28 @@ function findMilestoneEvent(scenario: Record<string, unknown>, milestoneId: unkn
 }
 
 /**
+ * Builds a milestone-id to event-name lookup for schema-era scenarios.
+ *
+ * @param {Record<string, unknown>} scenario
+ * @returns {Record<string, string>}
+ */
+function buildMilestoneEventLookup(scenario: Record<string, unknown>): Record<string, string> {
+  const lookup: Record<string, string> = {};
+  if (!Array.isArray(scenario.milestones)) {
+    return lookup;
+  }
+
+  for (const milestone of scenario.milestones) {
+    if (!isRecord(milestone) || typeof milestone.id !== 'string' || typeof milestone.event !== 'string') {
+      continue;
+    }
+    lookup[milestone.id] = milestone.event;
+  }
+
+  return lookup;
+}
+
+/**
  * Derives cycle metric event names from schema-era milestone budgets when needed.
  *
  * @param {Record<string, unknown>} scenario
@@ -1181,6 +1203,21 @@ function resolveProfileMetricEvents(scenario: Record<string, unknown>): Record<s
 
   if (!Array.isArray(scenario.budgets)) {
     return null;
+  }
+
+  const milestoneEvents = buildMilestoneEventLookup(scenario);
+  if (
+    milestoneEvents.openRequested &&
+    milestoneEvents.opened &&
+    milestoneEvents.closeRequested &&
+    milestoneEvents.dismissed
+  ) {
+    return {
+      closeRequested: milestoneEvents.closeRequested,
+      dismissed: milestoneEvents.dismissed,
+      opened: milestoneEvents.opened,
+      openRequested: milestoneEvents.openRequested,
+    };
   }
 
   for (const budget of scenario.budgets) {
@@ -1208,6 +1245,35 @@ function resolveProfileMetricEvents(scenario: Record<string, unknown>): Record<s
 }
 
 /**
+ * Maps schema-era milestone budget fields to the legacy profile budget keys.
+ *
+ * @param {{budget: Record<string, unknown>, metric: string}} options
+ * @returns {string | null}
+ */
+function resolveProfileBudgetKey({
+  budget,
+  metric,
+}: {
+  budget: Record<string, unknown>;
+  metric: string;
+}): string | null {
+  const suffix = metric === 'p95' ? 'P95Ms' : metric === 'p50' ? 'P50Ms' : null;
+  if (!suffix) {
+    return null;
+  }
+
+  if (budget.fromMilestone === 'openRequested' && budget.toMilestone === 'opened') {
+    return `open${suffix}`;
+  }
+
+  if (budget.fromMilestone === 'closeRequested' && budget.toMilestone === 'dismissed') {
+    return `close${suffix}`;
+  }
+
+  return `cycle${suffix}`;
+}
+
+/**
  * Normalizes schema-era budget arrays into the profile budget evaluator shape.
  *
  * @param {Record<string, unknown>} scenario
@@ -1228,10 +1294,11 @@ function resolveProfileBudgets(scenario: Record<string, unknown>): Record<string
       continue;
     }
 
-    if (budget.metric === 'p95') {
-      pass.cycleP95Ms = budget.limit;
-    } else if (budget.metric === 'p50') {
-      pass.cycleP50Ms = budget.limit;
+    if (budget.metric === 'p95' || budget.metric === 'p50') {
+      const budgetKey = resolveProfileBudgetKey({ budget, metric: budget.metric });
+      if (budgetKey) {
+        pass[budgetKey] = budget.limit;
+      }
     } else if (budget.metric === 'failures') {
       pass.failures = budget.limit;
     } else if (budget.metric === 'timeouts') {

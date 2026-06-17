@@ -189,6 +189,103 @@ test('profile-ios profiles public scenario ids and milestone budgets', async (t:
   });
 });
 
+test('profile-ios maps schema-era open and close milestone budgets', async (t: TestContext) => {
+  const tempRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-ios-open-close-budget-'));
+  t.after(async () => {
+    await fsp.rm(tempRoot, { recursive: true, force: true });
+  });
+  const artifactRoot = path.join(tempRoot, 'artifacts');
+  const scenarioPath = path.join(tempRoot, 'portable-open-close.json');
+  const eventLogPath = path.join(tempRoot, 'portable-open-close-ios.log');
+  const scenario = {
+    schemaVersion: '1.0.0',
+    id: 'portable-open-close',
+    flowId: 'portable-open-close',
+    journey: {
+      name: 'Portable open close',
+      intent: 'Open and close a surface.',
+      actor: 'app user',
+      startState: 'home',
+      endState: 'home',
+    },
+    platforms: ['ios', 'android'],
+    requiredCapabilities: ['launch', 'sessionControl', 'command', 'logCapture', 'artifactWrite'],
+    milestones: [
+      { id: 'openRequested', event: 'card_open_requested', required: true, phase: 'intent' },
+      { id: 'opened', event: 'card_opened', required: true, phase: 'visual' },
+      { id: 'closeRequested', event: 'card_close_requested', required: true, phase: 'intent' },
+      { id: 'dismissed', event: 'card_dismissed', required: true, phase: 'completion' },
+    ],
+    expectedEvents: ['card_open_requested', 'card_opened', 'card_close_requested', 'card_dismissed'],
+    cycles: { iterations: 2, warmupIterations: 0, stopOnFailure: true },
+    budgets: [
+      {
+        name: 'open p95',
+        source: 'milestone',
+        metric: 'p95',
+        unit: 'ms',
+        limit: 200,
+        fromMilestone: 'openRequested',
+        toMilestone: 'opened',
+      },
+      {
+        name: 'close p95',
+        source: 'milestone',
+        metric: 'p95',
+        unit: 'ms',
+        limit: 120,
+        fromMilestone: 'closeRequested',
+        toMilestone: 'dismissed',
+      },
+    ],
+    steps: [{ id: 'launch', kind: 'launch' }],
+    artifacts: { required: ['logs'], optional: [] },
+  };
+  await fsp.writeFile(scenarioPath, `${JSON.stringify(scenario, null, 2)}\n`, 'utf8');
+  await fsp.writeFile(
+    eventLogPath,
+    [
+      '2026-01-01T00:00:00.000Z public-ios [profile-event] {"event":"card_open_requested","scenario":"portable-open-close","runId":"portable-open-close-ios","iteration":1,"atMs":0}',
+      '2026-01-01T00:00:00.110Z public-ios [profile-event] {"event":"card_opened","scenario":"portable-open-close","runId":"portable-open-close-ios","iteration":1,"atMs":110}',
+      '2026-01-01T00:00:00.390Z public-ios [profile-event] {"event":"card_close_requested","scenario":"portable-open-close","runId":"portable-open-close-ios","iteration":1,"atMs":390}',
+      '2026-01-01T00:00:00.470Z public-ios [profile-event] {"event":"card_dismissed","scenario":"portable-open-close","runId":"portable-open-close-ios","iteration":1,"atMs":470}',
+      '2026-01-01T00:00:01.000Z public-ios [profile-event] {"event":"card_open_requested","scenario":"portable-open-close","runId":"portable-open-close-ios","iteration":2,"atMs":1000}',
+      '2026-01-01T00:00:01.125Z public-ios [profile-event] {"event":"card_opened","scenario":"portable-open-close","runId":"portable-open-close-ios","iteration":2,"atMs":1125}',
+      '2026-01-01T00:00:01.410Z public-ios [profile-event] {"event":"card_close_requested","scenario":"portable-open-close","runId":"portable-open-close-ios","iteration":2,"atMs":1410}',
+      '2026-01-01T00:00:01.500Z public-ios [profile-event] {"event":"card_dismissed","scenario":"portable-open-close","runId":"portable-open-close-ios","iteration":2,"atMs":1500}',
+      '',
+    ].join('\n'),
+    'utf8',
+  );
+
+  const { stdout } = await execFileAsync(process.execPath, [
+    PROFILE_IOS,
+    '--config',
+    fixturePath('examples/mobile-app/asl.config.json'),
+    '--scenario',
+    scenarioPath,
+    '--events',
+    eventLogPath,
+    '--out',
+    artifactRoot,
+    '--run-id',
+    'portable-open-close-ios',
+  ]);
+
+  const runDir = stdout.trim();
+  const metrics = readJson(path.join(runDir, 'metrics.json')) as Record<string, any>;
+  const causalRun = readJson(path.join(runDir, 'causal-run.json')) as Record<string, any>;
+
+  assert.deepEqual(metrics.durationsMs, [470, 500]);
+  assert.deepEqual(metrics.openDurationsMs, [110, 125]);
+  assert.deepEqual(metrics.closeDurationsMs, [80, 90]);
+  assert.equal(metrics.budgetEvaluation.pass, true);
+  assert.deepEqual(causalRun.budgets, {
+    closeP95Ms: { limit: 120, metric: 'closeP95Ms', unit: 'ms' },
+    openP95Ms: { limit: 200, metric: 'openP95Ms', unit: 'ms' },
+  });
+});
+
 test('profile-ios attaches agent-device capture artifacts with explicit event logs', async (t: TestContext) => {
   const artifactRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-ios-agent-device-'));
   t.after(async () => {
