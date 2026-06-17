@@ -10,8 +10,13 @@ const {
   deriveLiveProofComparisonStatus,
   expectedLiveProofNextActionCode,
   formatLiveProof,
+  formatLiveProofSet,
   parseArgs,
+  parseRequiredPlatforms,
   readLiveProof,
+  readLiveProofSet,
+  resolveLiveProofFiles,
+  shouldFailLiveProofSet,
   shouldFailOnRegression,
 } = require('../live-proof');
 
@@ -22,11 +27,13 @@ type TestContext = import('node:test').TestContext;
  *
  * @param {'mixed' | 'regressed' | 'unchanged'} comparisonStatus
  * @param {'failed' | 'passed'} [status]
+ * @param {'android' | 'ios'} [platform]
  * @returns {Record<string, unknown>}
  */
 function buildProof(
   comparisonStatus: 'mixed' | 'regressed' | 'unchanged',
   status: 'failed' | 'passed' = 'passed',
+  platform: 'android' | 'ios' = 'android',
 ): Record<string, unknown> {
   const comparisonPointerStatus = comparisonStatus === 'regressed'
     ? 'worse'
@@ -35,15 +42,15 @@ function buildProof(
       : 'unchanged';
   return {
     schemaVersion: '1.0.0',
-    platform: 'android',
-    runId: 'android-live-proof',
+    platform,
+    runId: `${platform}-live-proof`,
     status,
-    outputDir: 'artifacts/example-mobile-app/android',
+    outputDir: `artifacts/example-mobile-app/${platform}`,
     preflight: {
       healthStatus: 'passed',
-      runId: 'android-live-preflight',
-      runDir: 'artifacts/example-mobile-app/android/_preflight/android-live-preflight',
-      summaryPath: 'artifacts/example-mobile-app/android/_preflight/android-live-preflight/agent-summary.md',
+      runId: `${platform}-live-preflight`,
+      runDir: `artifacts/example-mobile-app/${platform}/_preflight/${platform}-live-preflight`,
+      summaryPath: `artifacts/example-mobile-app/${platform}/_preflight/${platform}-live-preflight/agent-summary.md`,
       verdictStatus: 'not_evaluated',
     },
     profiles: [
@@ -51,9 +58,9 @@ function buildProof(
         healthStatus: 'passed',
         label: 'startup',
         scenarioId: 'app-startup',
-        runId: 'android-live-startup',
-        runDir: 'artifacts/example-mobile-app/android/app-startup/android-live-startup',
-        summaryPath: 'artifacts/example-mobile-app/android/app-startup/android-live-startup/agent-summary.md',
+        runId: `${platform}-live-startup`,
+        runDir: `artifacts/example-mobile-app/${platform}/app-startup/${platform}-live-startup`,
+        summaryPath: `artifacts/example-mobile-app/${platform}/app-startup/${platform}-live-startup/agent-summary.md`,
         verdictStatus: 'passed',
       },
     ],
@@ -64,11 +71,11 @@ function buildProof(
         },
         healthStatus: 'passed',
         label: 'startup-ui',
-        runDir: 'artifacts/example-mobile-app/android/_agent-device-captures/agent-device-startup',
+        runDir: `artifacts/example-mobile-app/${platform}/_agent-device-captures/agent-device-startup`,
         runnerId: 'agent-device',
         scenarioId: 'app-startup',
         runId: 'agent-device-startup',
-        summaryPath: 'artifacts/example-mobile-app/android/_agent-device-captures/agent-device-startup/agent-summary.md',
+        summaryPath: `artifacts/example-mobile-app/${platform}/_agent-device-captures/agent-device-startup/agent-summary.md`,
         verdictStatus: 'not_evaluated',
         warnings: {
           checks: [
@@ -90,11 +97,11 @@ function buildProof(
       {
         label: 'startup',
         scenarioId: 'app-startup',
-        runId: 'android-live-startup',
+        runId: `${platform}-live-startup`,
         status: comparisonPointerStatus,
-        baselineDir: 'artifacts/example-mobile-app/android/app-startup/android-live-startup-baseline',
-        comparisonDir: 'artifacts/example-mobile-app/android/comparisons/app-startup/android-live-startup',
-        summaryPath: 'artifacts/example-mobile-app/android/comparisons/app-startup/android-live-startup/agent-summary.md',
+        baselineDir: `artifacts/example-mobile-app/${platform}/app-startup/${platform}-live-startup-baseline`,
+        comparisonDir: `artifacts/example-mobile-app/${platform}/comparisons/app-startup/${platform}-live-startup`,
+        summaryPath: `artifacts/example-mobile-app/${platform}/comparisons/app-startup/${platform}-live-startup/agent-summary.md`,
         reason: null,
         metricSummary: {
           counts: {
@@ -174,7 +181,7 @@ function buildProof(
           : 'inspect_summary',
       summary: 'Inspect linked evidence.',
     },
-    summary: `android live proof ${status}/${comparisonStatus}.`,
+    summary: `${platform} live proof ${status}/${comparisonStatus}.`,
   };
 }
 
@@ -192,10 +199,23 @@ function writeProof(tempDir: string, proof: Record<string, unknown>): string {
 }
 
 test('parses live-proof CLI arguments', () => {
-  assert.deepEqual(parseArgs(['--file', 'live-proof.json', '--fail-on-regression']), {
-    file: 'live-proof.json',
+  const args = parseArgs([
+    '--file',
+    'android-live-proof.json',
+    '--file',
+    'ios-live-proof.json',
+    '--require-platforms',
+    'android,ios',
+    '--fail-on-regression',
+  ]);
+
+  assert.deepEqual(args, {
+    file: ['android-live-proof.json', 'ios-live-proof.json'],
     'fail-on-regression': true,
+    'require-platforms': 'android,ios',
   });
+  assert.deepEqual(resolveLiveProofFiles(args), ['android-live-proof.json', 'ios-live-proof.json']);
+  assert.deepEqual(parseRequiredPlatforms(args['require-platforms']), ['android', 'ios']);
 });
 
 test('counts live-proof comparison statuses from pointers', () => {
@@ -285,6 +305,48 @@ test('rejects live-proof artifacts with inconsistent next action', async (t: Tes
   );
 });
 
+test('reads and formats a required Android and iOS live-proof set', async (t: TestContext) => {
+  const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-live-proof-set-'));
+  t.after(async () => {
+    await fsp.rm(tempDir, { recursive: true, force: true });
+  });
+  const androidProofPath = writeProof(tempDir, buildProof('unchanged', 'passed', 'android'));
+  const iosProofPath = path.join(tempDir, 'ios-live-proof.json');
+  fs.writeFileSync(iosProofPath, `${JSON.stringify(buildProof('unchanged', 'passed', 'ios'), null, 2)}\n`, 'utf8');
+
+  const proofs = readLiveProofSet({
+    files: [androidProofPath, iosProofPath],
+    requiredPlatforms: ['android', 'ios'],
+  });
+  const output = formatLiveProofSet({
+    proofs,
+    requiredPlatforms: ['android', 'ios'],
+  });
+
+  assert.equal(proofs.length, 2);
+  assert.match(output, /Live proof set: 2 artifact\(s\)/u);
+  assert.match(output, /Required platforms: android, ios/u);
+  assert.match(output, /Present platforms: android, ios/u);
+  assert.match(output, /Live proof: android android-live-proof/u);
+  assert.match(output, /Live proof: ios ios-live-proof/u);
+});
+
+test('rejects a live-proof set when a required platform is missing', async (t: TestContext) => {
+  const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-live-proof-missing-platform-'));
+  t.after(async () => {
+    await fsp.rm(tempDir, { recursive: true, force: true });
+  });
+  const proofPath = writeProof(tempDir, buildProof('unchanged', 'passed', 'android'));
+
+  assert.throws(
+    () => readLiveProofSet({
+      files: [proofPath],
+      requiredPlatforms: ['android', 'ios'],
+    }),
+    /missing required platform\(s\): ios\. Present platform\(s\): android/u,
+  );
+});
+
 test('accepts failed live-proof artifacts with skipped interaction proofs', async (t: TestContext) => {
   const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-live-proof-failed-'));
   t.after(async () => {
@@ -347,4 +409,28 @@ test('supports a fail-on-regression gate', () => {
 
   assert.equal(shouldFailOnRegression({ failOnRegression: true, proof }), true);
   assert.equal(shouldFailOnRegression({ failOnRegression: false, proof }), false);
+});
+
+test('fails a live-proof set when any proof artifact failed', () => {
+  const passedProof = buildProof('unchanged', 'passed', 'android') as ReturnType<typeof readLiveProof>;
+  const failedProof = buildProof('unchanged', 'failed', 'ios') as ReturnType<typeof readLiveProof>;
+
+  assert.equal(shouldFailLiveProofSet({
+    failOnRegression: false,
+    proofs: [passedProof, failedProof],
+  }), true);
+});
+
+test('fails a live-proof set when regression gating finds a regressed proof', () => {
+  const androidProof = buildProof('unchanged', 'passed', 'android') as ReturnType<typeof readLiveProof>;
+  const iosProof = buildProof('regressed', 'passed', 'ios') as ReturnType<typeof readLiveProof>;
+
+  assert.equal(shouldFailLiveProofSet({
+    failOnRegression: true,
+    proofs: [androidProof, iosProof],
+  }), true);
+  assert.equal(shouldFailLiveProofSet({
+    failOnRegression: false,
+    proofs: [androidProof, iosProof],
+  }), false);
 });

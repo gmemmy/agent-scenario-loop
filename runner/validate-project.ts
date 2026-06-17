@@ -129,6 +129,7 @@ const REQUIRED_PACKAGE_SCRIPT_NAMES = [
   'asl:compare:android',
   'asl:live-proof:ios',
   'asl:live-proof:android',
+  'asl:live-proof:both',
   'asl:live-proof',
 ];
 
@@ -269,6 +270,11 @@ const REQUIRED_PACKAGE_SCRIPT_SHAPES = {
     command: 'asl-live-proof',
     flags: ['--file', '--fail-on-regression'],
     values: {},
+  },
+  'asl:live-proof:both': {
+    command: 'asl-live-proof',
+    flags: ['--file', '--require-platforms', '--fail-on-regression'],
+    values: { '--require-platforms': 'android,ios' },
   },
   'asl:live-proof': {
     command: 'asl-live-proof',

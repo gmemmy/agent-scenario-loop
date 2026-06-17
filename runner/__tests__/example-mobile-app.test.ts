@@ -192,6 +192,7 @@ test('example mobile app exposes consumer package scripts', () => {
     'asl:ios:live:argent',
     'asl:ios:live:runners',
     'asl:live-proof:android',
+    'asl:live-proof:both',
     'asl:live-proof:ios',
     'ios:prebuild',
   ]) {
@@ -208,6 +209,7 @@ test('example mobile app exposes consumer package scripts', () => {
     'asl:ios:live:argent',
     'asl:ios:live:runners',
     'asl:live-proof:android',
+    'asl:live-proof:both',
     'asl:live-proof:ios',
   ]) {
     assert.match(scripts[scriptName], /--fail-on-regression/u, `${scriptName} should fail strict gates on regressions`);
@@ -226,6 +228,7 @@ test('example mobile app exposes consumer package scripts', () => {
   assert.match(snippetScripts['asl:ios:live'], /--compare-latest --fail-on-regression/u);
   assert.match(snippetScripts['asl:android:live:runners'], /--agent-device-proof --argent-proof --compare-latest --fail-on-regression/u);
   assert.match(snippetScripts['asl:ios:live:runners'], /--agent-device-proof --argent-proof --compare-latest --fail-on-regression/u);
+  assert.match(snippetScripts['asl:live-proof:both'], /--require-platforms android,ios --fail-on-regression/u);
   assert.match(rootScripts['example:app:android'], /pnpm --dir examples\/mobile-app android/u);
   assert.match(rootScripts['example:app:ios'], /pnpm --dir examples\/mobile-app ios/u);
   assert.match(rootScripts['example:app:ios'], /ASL_EXAMPLE_XCODE_DEVELOPER_DIR/u);

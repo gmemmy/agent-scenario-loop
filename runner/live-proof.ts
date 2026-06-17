@@ -7,9 +7,10 @@ const { SCHEMAS, assertValidJson } = require('../core/schema-validator');
 const { hasHelpFlag, writeUsage } = require('./cli');
 
 type CliArgs = {
-  file?: string | boolean;
+  file?: string | string[] | boolean;
   'fail-on-regression'?: string | boolean;
-  [key: string]: string | boolean | undefined;
+  'require-platforms'?: string | boolean;
+  [key: string]: string | string[] | boolean | undefined;
 };
 
 type LiveProofArtifact = {
@@ -63,7 +64,7 @@ type LiveProofArtifact = {
     runnerId: string;
     scenarioId: string;
   }>;
-  platform: string;
+  platform: 'android' | 'ios';
   preflight: {
     healthStatus: string;
     runId: string;
@@ -83,6 +84,7 @@ type LiveProofArtifact = {
 type LiveProofComparisonCounts = LiveProofArtifact['comparisonCounts'];
 type LiveProofComparisonStatus = keyof LiveProofComparisonCounts;
 type LiveProofMetricStatus = 'better' | 'worse' | 'unchanged' | 'inconclusive';
+type LiveProofPlatform = LiveProofArtifact['platform'];
 type LiveProofComparisonPointer = {
   label?: string;
   metricSummary?: {
@@ -117,11 +119,39 @@ type LiveProofNextActionCode = LiveProofArtifact['nextAction']['code'];
  */
 function usage(output: { write: (message: string) => unknown } = process.stderr): void {
   writeUsage([
-    'Usage: asl-live-proof --file <live-proof.json> [--fail-on-regression]',
+    'Usage: asl-live-proof --file <live-proof.json> [--file <live-proof.json> ...] [--require-platforms android,ios] [--fail-on-regression]',
     '',
-    'Validates an aggregate live-proof artifact and prints its status and next action.',
+    'Validates one or more aggregate live-proof artifacts and prints status and next action details.',
+    'Use --require-platforms to fail when a platform proof is missing from a multi-artifact gate.',
     'Use --fail-on-regression to exit nonzero when comparisonStatus is regressed.',
   ], output);
+}
+
+/**
+ * Adds one parsed CLI argument, preserving repeated --file flags.
+ *
+ * @param {CliArgs} args
+ * @param {string} key
+ * @param {string | boolean} value
+ * @returns {void}
+ */
+function assignArg(args: CliArgs, key: string, value: string | boolean): void {
+  if (key !== 'file' || typeof value !== 'string') {
+    args[key] = value;
+    return;
+  }
+
+  if (Array.isArray(args.file)) {
+    args.file.push(value);
+    return;
+  }
+
+  if (typeof args.file === 'string') {
+    args.file = [args.file, value];
+    return;
+  }
+
+  args.file = value;
 }
 
 /**
@@ -145,14 +175,53 @@ function parseArgs(argv: string[]): CliArgs {
     const key = token.slice(2);
     const next = argv[index + 1];
     if (!next || next.startsWith('--')) {
-      args[key] = true;
+      assignArg(args, key, true);
       continue;
     }
 
-    args[key] = next;
+    assignArg(args, key, next);
     index += 1;
   }
   return args;
+}
+
+/**
+ * Resolves one or more --file values into a stable list.
+ *
+ * @param {CliArgs} args
+ * @returns {string[]}
+ */
+function resolveLiveProofFiles(args: CliArgs): string[] {
+  if (Array.isArray(args.file)) {
+    return args.file;
+  }
+  return typeof args.file === 'string' ? [args.file] : [];
+}
+
+/**
+ * Parses required platform names for a live-proof set gate.
+ *
+ * @param {string | boolean | undefined} value
+ * @returns {LiveProofPlatform[]}
+ */
+function parseRequiredPlatforms(value: string | boolean | undefined): LiveProofPlatform[] {
+  if (value === undefined) {
+    return [];
+  }
+  if (typeof value !== 'string') {
+    throw new Error('--require-platforms expects a comma-separated platform list such as android,ios.');
+  }
+
+  const platforms = value
+    .split(',')
+    .map((platform) => platform.trim())
+    .filter((platform) => platform.length > 0);
+  const invalid = platforms.filter((platform) => platform !== 'android' && platform !== 'ios');
+  if (invalid.length > 0) {
+    throw new Error(`Unsupported required live-proof platform(s): ${invalid.join(', ')}.`);
+  }
+
+  return Array.from(new Set(platforms)) as LiveProofPlatform[];
 }
 
 /**
@@ -349,6 +418,51 @@ function readLiveProof(filePath: string): LiveProofArtifact {
 }
 
 /**
+ * Verifies that a multi-proof gate includes every required platform.
+ *
+ * @param {LiveProofArtifact[]} proofs
+ * @param {LiveProofPlatform[]} requiredPlatforms
+ * @returns {void}
+ */
+function assertLiveProofSetRequiredPlatforms(
+  proofs: LiveProofArtifact[],
+  requiredPlatforms: LiveProofPlatform[],
+): void {
+  if (requiredPlatforms.length === 0) {
+    return;
+  }
+
+  const present = new Set(proofs.map((proof) => proof.platform));
+  const missing = requiredPlatforms.filter((platform) => !present.has(platform));
+  if (missing.length === 0) {
+    return;
+  }
+
+  const presentText = Array.from(present).sort().join(', ') || 'none';
+  throw new Error(
+    `Live proof set missing required platform(s): ${missing.join(', ')}. Present platform(s): ${presentText}.`,
+  );
+}
+
+/**
+ * Reads and validates a platform proof set.
+ *
+ * @param {{files: string[], requiredPlatforms?: LiveProofPlatform[]}} options
+ * @returns {LiveProofArtifact[]}
+ */
+function readLiveProofSet({
+  files,
+  requiredPlatforms = [],
+}: {
+  files: string[];
+  requiredPlatforms?: LiveProofPlatform[];
+}): LiveProofArtifact[] {
+  const proofs = files.map(readLiveProof);
+  assertLiveProofSetRequiredPlatforms(proofs, requiredPlatforms);
+  return proofs;
+}
+
+/**
  * Formats a live-proof artifact for CLI output.
  *
  * @param {LiveProofArtifact} proof
@@ -383,6 +497,35 @@ function formatLiveProof(proof: LiveProofArtifact): string {
 }
 
 /**
+ * Formats one or more live-proof artifacts for CLI output.
+ *
+ * @param {{proofs: LiveProofArtifact[], requiredPlatforms?: LiveProofPlatform[]}} options
+ * @returns {string}
+ */
+function formatLiveProofSet({
+  proofs,
+  requiredPlatforms = [],
+}: {
+  proofs: LiveProofArtifact[];
+  requiredPlatforms?: LiveProofPlatform[];
+}): string {
+  if (proofs.length === 1 && requiredPlatforms.length === 0) {
+    const [proof] = proofs;
+    if (proof) {
+      return formatLiveProof(proof);
+    }
+  }
+
+  return [
+    `Live proof set: ${proofs.length} artifact(s)`,
+    requiredPlatforms.length > 0 ? `Required platforms: ${requiredPlatforms.join(', ')}` : null,
+    `Present platforms: ${Array.from(new Set(proofs.map((proof) => proof.platform))).sort().join(', ')}`,
+    '',
+    ...proofs.map(formatLiveProof),
+  ].filter((line): line is string => line !== null).join('\n');
+}
+
+/**
  * Returns whether the caller requested a regression gate and the proof regressed.
  *
  * @param {{failOnRegression: boolean, proof: LiveProofArtifact}} options
@@ -399,6 +542,22 @@ function shouldFailOnRegression({
 }
 
 /**
+ * Returns whether a live-proof set should make the CLI exit nonzero.
+ *
+ * @param {{failOnRegression: boolean, proofs: LiveProofArtifact[]}} options
+ * @returns {boolean}
+ */
+function shouldFailLiveProofSet({
+  failOnRegression,
+  proofs,
+}: {
+  failOnRegression: boolean;
+  proofs: LiveProofArtifact[];
+}): boolean {
+  return proofs.some((proof) => proof.status === 'failed' || shouldFailOnRegression({ failOnRegression, proof }));
+}
+
+/**
  * Runs the live-proof inspection CLI.
  *
  * @returns {Promise<void>}
@@ -411,17 +570,19 @@ async function main(): Promise<void> {
   }
 
   const args = parseArgs(argv);
-  if (typeof args.file !== 'string') {
+  const files = resolveLiveProofFiles(args);
+  if (files.length === 0) {
     usage();
     process.exitCode = 1;
     return;
   }
 
-  const proof = readLiveProof(args.file);
-  process.stdout.write(`${formatLiveProof(proof)}\n`);
-  if (shouldFailOnRegression({
+  const requiredPlatforms = parseRequiredPlatforms(args['require-platforms']);
+  const proofs = readLiveProofSet({ files, requiredPlatforms });
+  process.stdout.write(`${formatLiveProofSet({ proofs, requiredPlatforms })}\n`);
+  if (shouldFailLiveProofSet({
     failOnRegression: args['fail-on-regression'] === true || args['fail-on-regression'] === 'true',
-    proof,
+    proofs,
   })) {
     process.exitCode = 2;
   }
@@ -437,6 +598,7 @@ if (require.main === module) {
 export {
   assertLiveProofAggregateSignals,
   assertLiveProofComparisonCounts,
+  assertLiveProofSetRequiredPlatforms,
   countLiveProofComparisons,
   deriveLiveProofComparisonStatus,
   expectedLiveProofNextActionCode,
@@ -444,9 +606,14 @@ export {
   formatInteractionProofCaptures,
   formatInteractionProofWarnings,
   formatLiveProof,
+  formatLiveProofSet,
   main,
   parseArgs,
+  parseRequiredPlatforms,
   readLiveProof,
+  readLiveProofSet,
+  resolveLiveProofFiles,
+  shouldFailLiveProofSet,
   shouldFailOnRegression,
   usage,
 };

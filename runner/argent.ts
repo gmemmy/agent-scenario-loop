@@ -363,7 +363,10 @@ function execFileCommandWithTimeout(command: string, args: string[], timeoutMs =
     });
 
     child.on('exit', (code: number | null, signal: NodeJS.Signals | null) => {
-      finish(buildResult(code, signal));
+      // `exit` can arrive before pipe data events drain, while `close` can wait on
+      // wrapper-spawned helpers that inherited stdio. Defer one tick to capture
+      // buffered output without reintroducing inherited-pipe hangs.
+      setImmediate(() => finish(buildResult(code, signal)));
     });
     child.on('close', (code: number | null, signal: NodeJS.Signals | null) => {
       finish(buildResult(code, signal));

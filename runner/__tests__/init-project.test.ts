@@ -98,6 +98,7 @@ test('init-project scaffolds templates into a consuming app layout', async (t: T
   assert.match(readJson(path.join(targetDir, 'asl', 'package-scripts.json'))['asl:compare:android'], /\$\{ASL_COMPARE_ANDROID_CURRENT:\?set_ASL_COMPARE_ANDROID_CURRENT\}/u);
   assert.match(readJson(path.join(targetDir, 'asl', 'package-scripts.json'))['asl:live-proof:ios'], /artifacts\/asl\/ios-live\/_live-proof\/ios-live-proof\/live-proof\.json/u);
   assert.match(readJson(path.join(targetDir, 'asl', 'package-scripts.json'))['asl:live-proof:android'], /artifacts\/asl\/android-live\/_live-proof\/android-live-proof\/live-proof\.json/u);
+  assert.match(readJson(path.join(targetDir, 'asl', 'package-scripts.json'))['asl:live-proof:both'], /--require-platforms android,ios --fail-on-regression/u);
   assert.match(readJson(path.join(targetDir, 'asl', 'package-scripts.json'))['asl:live-proof'], /\$\{ASL_LIVE_PROOF:\?set_ASL_LIVE_PROOF\}/u);
   assert.deepEqual(readJson(path.join(targetDir, 'runner-manifests', 'evidence-provider.json')).capabilities, ['accessibility', 'memory', 'network', 'profiler']);
   const integrationReadme = fs.readFileSync(path.join(targetDir, 'asl', 'README.md'), 'utf8');

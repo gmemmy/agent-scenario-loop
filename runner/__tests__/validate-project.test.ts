@@ -355,6 +355,7 @@ test('validates generated package-script snippets', async (t: TestContext) => {
     'asl:compare:android',
     'asl:live-proof:ios',
     'asl:live-proof:android',
+    'asl:live-proof:both',
     'asl:live-proof',
   ]);
   assert.deepEqual(scripts.unknownCommands, ['not-an-asl-bin']);

@@ -337,6 +337,8 @@ function assertReleaseScripts(packageJson: Record<string, unknown>): void {
     assert.match(scripts[scriptName], /--compare-latest/u, `${scriptName} must write comparison evidence by default`);
     assert.match(scripts[scriptName], /--fail-on-regression/u, `${scriptName} must fail on regressions by default`);
   }
+  assert.match(scripts['example:mobile:live-proof'], /--require-platforms android,ios/u);
+  assert.match(scripts['example:mobile:live-proof'], /--fail-on-regression/u);
 }
 
 /**

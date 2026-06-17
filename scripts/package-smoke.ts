@@ -835,6 +835,7 @@ function main(): void {
       'asl:ios:live:runners',
       'asl:live-proof',
       'asl:live-proof:android',
+      'asl:live-proof:both',
       'asl:live-proof:ios',
       'asl:profile:android',
       'asl:profile:android:live',
@@ -891,6 +892,7 @@ function main(): void {
     assert.match(initializedScripts['asl:compare:android'], /\$\{ASL_COMPARE_ANDROID_CURRENT:\?set_ASL_COMPARE_ANDROID_CURRENT\}/u);
     assert.match(initializedScripts['asl:live-proof:ios'], /artifacts\/asl\/ios-live\/_live-proof\/ios-live-proof\/live-proof\.json/u);
     assert.match(initializedScripts['asl:live-proof:android'], /artifacts\/asl\/android-live\/_live-proof\/android-live-proof\/live-proof\.json/u);
+    assert.match(initializedScripts['asl:live-proof:both'], /--require-platforms android,ios/u);
     assert.match(initializedScripts['asl:live-proof'], /\$\{ASL_LIVE_PROOF:\?set_ASL_LIVE_PROOF\}/u);
     assert.equal(Object.values(initializedScripts).some((script) => String(script).includes('<run-dir>')), false);
     assert.equal(Object.values(initializedScripts).some((script) => String(script).includes('<live-proof.json>')), false);

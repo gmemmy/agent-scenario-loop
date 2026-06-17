@@ -151,12 +151,12 @@ test('Argent command executor returns a timeout result when a wrapper ignores te
       '  setTimeout(() => {}, 10_000);',
       '});',
     ].join('\n'),
-  ], 300);
+  ], 1000);
 
   assert.equal(result.exitCode, 1);
   assert.match(result.stdout, /wrapper started/u);
-  assert.match(result.stderr, /Argent command timed out after 300ms/u);
-  assert.ok(Date.now() - startedAt < 3000);
+  assert.match(result.stderr, /Argent command timed out after 1000ms/u);
+  assert.ok(Date.now() - startedAt < 4000);
 });
 
 /**
