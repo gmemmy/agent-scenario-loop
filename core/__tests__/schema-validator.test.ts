@@ -421,6 +421,116 @@ test('accepts manifest and metrics profile artifacts', () => {
   assert.equal(validateJson(metrics, SCHEMAS.metrics, 'Metrics artifact').valid, true);
 });
 
+test('rejects unstable evidence attachment inventory entries', () => {
+  const attachment = {
+    channel: 'provider',
+    kind: 'accessibility',
+    path: 'raw/providers/axe/accessibility.json',
+    sha256: 'a'.repeat(64),
+    sizeBytes: 42,
+    sourceFileName: 'accessibility.json',
+  };
+  const manifest = {
+    scenario: 'app-startup',
+    runId: 'run-1',
+    platform: 'android',
+    status: 'passed',
+    startedAt: '2026-01-01T00:00:00.000Z',
+    endedAt: '2026-01-01T00:00:01.000Z',
+    durationMs: 1000,
+    interactionDriver: 'adb-logcat',
+    simulator: {
+      name: 'Pixel',
+      udid: 'emulator-5554',
+    },
+    bundleId: 'com.example.app',
+    gitSha: 'unknown',
+    toolVersions: {
+      node: 'v25.0.0',
+    },
+    artifacts: {
+      causalRun: 'causal-run.json',
+      budgetVerdict: 'budget-verdict.json',
+      manifest: 'manifest.json',
+      metrics: 'metrics.json',
+      summary: 'summary.md',
+      scenario: 'scenarios/android/app-startup.json',
+      raw: {
+        interactionLog: 'raw/adb-logcat.txt',
+        deviceLog: 'raw/device.log',
+      },
+      captures: {
+        video: 'captures/run.mp4',
+        uiTree: 'captures/ui-tree.json',
+      },
+      signals: {
+        js: [],
+        memory: [],
+        network: [],
+      },
+      evidenceAttachments: [attachment, { ...attachment }, { ...attachment, path: '', sourceFileName: '' }],
+    },
+    failureReason: null,
+  };
+
+  const result = validateJson(manifest, SCHEMAS.manifest, 'Manifest artifact');
+
+  assert.equal(result.valid, false);
+  assert.ok(result.errors.some((error: ValidationIssue) => error.code === 'duplicate_item' && error.path === '$.artifacts.evidenceAttachments'));
+  assert.ok(result.errors.some((error: ValidationIssue) => error.code === 'too_short' && error.path === '$.artifacts.evidenceAttachments[2].path'));
+  assert.ok(result.errors.some((error: ValidationIssue) => error.code === 'too_short' && error.path === '$.artifacts.evidenceAttachments[2].sourceFileName'));
+});
+
+test('rejects unstable causal-run evidence attachment inventory entries', () => {
+  const attachment = {
+    channel: 'signal',
+    kind: 'js',
+    path: 'signals/js/profile.json',
+    sha256: 'b'.repeat(64),
+    sizeBytes: 42,
+    sourceFileName: 'profile.json',
+  };
+  const causalRun = {
+    schemaVersion: '1.0.0',
+    flowId: 'startup',
+    runId: 'run-1',
+    platform: 'android',
+    buildFlavor: 'unknown',
+    scenario: {
+      id: 'app-startup',
+      driver: 'adb-logcat',
+    },
+    trigger: {
+      kind: 'unknown',
+      label: 'startup',
+    },
+    budgets: {
+      cycleP95Ms: {
+        metric: 'cycleP95Ms',
+        unit: 'ms',
+        limit: 1500,
+      },
+    },
+    timeline: [],
+    artifacts: {
+      summary: 'summary.md',
+      signals: {
+        js: ['signals/js/profile.json'],
+        memory: [],
+        network: [],
+      },
+      evidenceAttachments: [attachment, { ...attachment }, { ...attachment, path: '', sourceFileName: '' }],
+    },
+  };
+
+  const result = validateJson(causalRun, SCHEMAS.causalRun, 'Causal run artifact');
+
+  assert.equal(result.valid, false);
+  assert.ok(result.errors.some((error: ValidationIssue) => error.code === 'duplicate_item' && error.path === '$.artifacts.evidenceAttachments'));
+  assert.ok(result.errors.some((error: ValidationIssue) => error.code === 'too_short' && error.path === '$.artifacts.evidenceAttachments[2].path'));
+  assert.ok(result.errors.some((error: ValidationIssue) => error.code === 'too_short' && error.path === '$.artifacts.evidenceAttachments[2].sourceFileName'));
+});
+
 test('accepts aggregate live proof artifacts', () => {
   const liveProof = {
     schemaVersion: '1.0.0',

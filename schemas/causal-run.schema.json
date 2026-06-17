@@ -165,6 +165,7 @@
         },
         "evidenceAttachments": {
           "type": "array",
+          "uniqueItems": true,
           "items": {
             "type": "object",
             "additionalProperties": false,
@@ -179,7 +180,8 @@
                 "enum": ["accessibility", "js", "logs", "memory", "network", "profiler", "screenshot", "uiTree", "video"]
               },
               "path": {
-                "type": "string"
+                "type": "string",
+                "minLength": 1
               },
               "sha256": {
                 "type": "string",
@@ -190,7 +192,8 @@
                 "minimum": 0
               },
               "sourceFileName": {
-                "type": "string"
+                "type": "string",
+                "minLength": 1
               }
             }
           }

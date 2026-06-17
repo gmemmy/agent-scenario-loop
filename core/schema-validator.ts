@@ -13,6 +13,7 @@ type JsonSchema = Record<string, unknown> & {
   type?: string | string[];
   enum?: unknown[];
   pattern?: string;
+  minLength?: number;
   minimum?: number;
   minItems?: number;
   uniqueItems?: boolean;
@@ -318,6 +319,14 @@ function validateSchema(
         message: `Expected value to match ${schema.pattern}.`,
       });
     }
+  }
+
+  if (typeof schema.minLength === 'number' && typeof value === 'string' && value.length < schema.minLength) {
+    errors.push({
+      code: 'too_short',
+      path: formatPath(pathSegments),
+      message: `Expected at least ${schema.minLength} character(s).`,
+    });
   }
 
   if (typeof schema.minimum === 'number' && typeof value === 'number' && value < schema.minimum) {
