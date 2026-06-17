@@ -156,6 +156,8 @@ test('validates generated package-script snippets', async (t: TestContext) => {
     'asl:check:android',
     'asl:profile:ios',
     'asl:profile:android',
+    'asl:profile:ios:live',
+    'asl:profile:android:live',
     'asl:compare:ios',
     'asl:compare:android',
     'asl:live-proof',

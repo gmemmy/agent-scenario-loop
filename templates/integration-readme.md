@@ -35,8 +35,24 @@ asl-check-plan --scenario scenarios/mobile/{{SCENARIO_ID}}.json --runner runner-
 asl-check-plan --scenario scenarios/mobile/{{SCENARIO_ID}}.json --runner runner-manifests/primary-runner.json --platform android --out artifacts/asl/plan/{{SCENARIO_ID}}-android
 ```
 
-When the app emits profile events, run platform profile commands against captured evidence or a live runner, then inspect `live-proof.json` with:
+When the app emits profile events, run platform profile commands against captured evidence or a live runner:
+
+```bash
+asl-profile-ios --config asl.config.json --scenario scenarios/mobile/{{SCENARIO_ID}}.json --simctl-capture --profile-session --profile-session-storage --launch --wait-ms 5000 --out artifacts/asl/ios --run-id {{SCENARIO_ID}}-ios-live
+asl-profile-android --config asl.config.json --scenario scenarios/mobile/{{SCENARIO_ID}}.json --adb-capture --profile-session --clear-logcat --launch --wait-ms 5000 --out artifacts/asl/android --run-id {{SCENARIO_ID}}-android-live
+```
+
+Those commands write `health.json`, `verdict.json`, `agent-summary.md`, `metrics.json`, `causal-run.json`, and raw evidence under the printed run directory. Compare a trusted current run with:
+
+```bash
+asl-compare-latest --root artifacts/asl/ios --scenario {{SCENARIO_ID}} --current <run-dir> --out artifacts/asl/ios/comparisons/{{SCENARIO_ID}}
+asl-compare-latest --root artifacts/asl/android --scenario {{SCENARIO_ID}} --current <run-dir> --out artifacts/asl/android/comparisons/{{SCENARIO_ID}}
+```
+
+If your project adds an aggregate batch runner that writes `live-proof.json`, inspect it with:
 
 ```bash
 asl-live-proof --file artifacts/asl/<platform>/_live-proof/<run-id>/live-proof.json --fail-on-regression
 ```
+
+The package-script snippets in `asl/package-scripts.json` include the same fixture, live profile, compare, and proof-inspection commands. Merge the snippets you use into your app `package.json` so future agents can run the loop without rediscovering command arguments.

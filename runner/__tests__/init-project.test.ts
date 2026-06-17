@@ -67,6 +67,7 @@ test('init-project scaffolds templates into a consuming app layout', async (t: T
   assert.equal(readJson(path.join(targetDir, 'scenarios', 'mobile', 'checkout-submit.json')).id, 'checkout-submit');
   assert.equal(readJson(path.join(targetDir, 'scenarios', 'mobile', 'checkout-submit.json')).flowId, 'checkout-submit');
   assert.equal(readJson(path.join(targetDir, 'asl', 'package-scripts.json'))['asl:check:ios'], 'asl-check-plan --scenario scenarios/mobile/checkout-submit.json --runner runner-manifests/primary-runner.json --platform ios --out artifacts/asl/plan/checkout-submit-ios');
+  assert.equal(readJson(path.join(targetDir, 'asl', 'package-scripts.json'))['asl:profile:ios:live'], 'asl-profile-ios --config asl.config.json --scenario scenarios/mobile/checkout-submit.json --simctl-capture --profile-session --profile-session-storage --launch --wait-ms 5000 --out artifacts/asl/ios --run-id checkout-submit-ios-live');
   assert.match(fs.readFileSync(path.join(targetDir, 'asl', 'README.md'), 'utf8'), /checkout-submit/u);
   assert.match(fs.readFileSync(path.join(targetDir, 'asl', 'gitignore-snippet'), 'utf8'), /artifacts\/asl\//u);
   assert.match(fs.readFileSync(path.join(targetDir, 'src', 'devtools', 'profile-session.ts'), 'utf8'), /useProfileSessionBootstrap/u);

@@ -74,6 +74,8 @@ const REQUIRED_PACKAGE_SCRIPT_NAMES = [
   'asl:validate',
   'asl:profile:ios',
   'asl:profile:android',
+  'asl:profile:ios:live',
+  'asl:profile:android:live',
   'asl:compare:ios',
   'asl:compare:android',
   'asl:live-proof',
