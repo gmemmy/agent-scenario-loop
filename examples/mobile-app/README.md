@@ -90,6 +90,7 @@ If a selected Xcode beta cannot run the current Expo/RN toolchain cleanly, point
 - `asl.config.json`: runner config for example app artifact output
 - `asl/package-scripts.json`: consumer-facing package-script snippets, including portable agent-device interaction proof commands
 - `runner-manifests/*.json`: project-local runner and provider capability manifests
+- `scripts/asl-capture-profiler-provider.mjs`: deterministic provider command used by provider-profile scripts
 - `scenarios/mobile/app-startup.json`: portable consumer-validation scenario
 - `scenarios/android/*.json`: Android profile scenario manifests
 - `scenarios/ios/*.json`: iOS profile scenario manifests
@@ -111,7 +112,11 @@ pnpm asl:check:ios
 pnpm asl:check:android
 pnpm asl:profile:ios
 pnpm asl:profile:android
+pnpm asl:profile:ios:provider
+pnpm asl:profile:android:provider
 ```
+
+The `*:provider` scripts execute `runner-manifests/evidence-provider.json`, which runs `scripts/asl-capture-profiler-provider.mjs` and inventories the generated profiler output in `manifest.artifacts.evidenceAttachments`.
 
 Live proof and inspection scripts are also available from the app directory:
 

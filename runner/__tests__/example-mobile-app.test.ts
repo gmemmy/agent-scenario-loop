@@ -159,6 +159,8 @@ test('example mobile app exposes consumer package scripts', () => {
     'asl:check:android',
     'asl:profile:ios',
     'asl:profile:android',
+    'asl:profile:ios:provider',
+    'asl:profile:android:provider',
     'asl:android:live',
     'asl:ios:live',
     'asl:live-proof:android',
@@ -255,4 +257,63 @@ test('example mobile app scenarios produce passed artifacts from committed evide
     assert.equal(verdict.verdictStatus, 'passed');
     assert.match(summary, /Scenario health passed/u);
   }
+});
+
+test('example mobile app provider manifest writes stable evidence attachments', async (t: TestContext) => {
+  const artifactRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-example-mobile-provider-'));
+  t.after(async () => {
+    await fsp.rm(artifactRoot, { recursive: true, force: true });
+  });
+
+  const { stdout } = await execFileAsync(process.execPath, [
+    PROFILE_ANDROID,
+    '--config',
+    fixturePath('examples/mobile-app/asl.config.json'),
+    '--scenario',
+    fixturePath('examples/mobile-app/scenarios/android/app-startup.json'),
+    '--events',
+    fixturePath('examples/mobile-app/event-logs/android-app-startup.log'),
+    '--provider',
+    fixturePath('examples/mobile-app/runner-manifests/evidence-provider.json'),
+    '--out',
+    artifactRoot,
+    '--run-id',
+    'android-provider-proof',
+  ]);
+
+  const runDir = stdout.trim();
+  const manifest = readJson(path.join(runDir, 'manifest.json')) as {
+    artifacts?: {
+      evidenceAttachments?: Array<{ channel: string; kind: string; path: string; sourceFileName: string }>;
+      signals?: { js?: string[] };
+    };
+  };
+  const commandRecord = readJson(
+    path.join(runDir, 'raw', 'provider-commands', 'example-mobile-app-profiler-provider-capture-profiler.json'),
+  ) as { exitCode?: number };
+
+  assert.equal(commandRecord.exitCode, 0);
+  assert.deepEqual(manifest.artifacts?.signals?.js, ['signals/js/profiler.json']);
+  assert.deepEqual(
+    manifest.artifacts?.evidenceAttachments?.map((attachment) => ({
+      channel: attachment.channel,
+      kind: attachment.kind,
+      path: attachment.path,
+      sourceFileName: attachment.sourceFileName,
+    })),
+    [
+      {
+        channel: 'provider',
+        kind: 'profiler',
+        path: 'raw/providers/example-mobile-app-profiler-provider/profiler.json',
+        sourceFileName: 'profiler.json',
+      },
+      {
+        channel: 'signal',
+        kind: 'js',
+        path: 'signals/js/profiler.json',
+        sourceFileName: 'profiler.json',
+      },
+    ],
+  );
 });

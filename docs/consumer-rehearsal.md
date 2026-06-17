@@ -24,6 +24,7 @@ Review the generated files before merging anything into existing app scripts:
 - `scenarios/mobile/first-journey.json`
 - `runner-manifests/primary-runner.json`
 - `runner-manifests/evidence-provider.json`
+- `scripts/asl-capture-profiler-provider.mjs`
 - `src/devtools/profile-session.ts`
 - `asl/package-scripts.json`
 - `asl/gitignore-snippet`

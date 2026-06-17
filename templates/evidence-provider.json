@@ -12,11 +12,27 @@
       "id": "capture-profiler",
       "phase": "capture",
       "command": "node",
-      "args": ["scripts/capture-profiler.js", "--out", "{providerDir}/profiler.json"],
+      "cwd": "..",
+      "args": [
+        "scripts/asl-capture-profiler-provider.mjs",
+        "--platform",
+        "{platform}",
+        "--scenario",
+        "{scenarioId}",
+        "--run-id",
+        "{runId}",
+        "--out",
+        "{providerDir}/profiler.json"
+      ],
       "outputs": [
         {
           "channel": "provider",
           "kind": "profiler",
+          "path": "{providerDir}/profiler.json"
+        },
+        {
+          "channel": "signal",
+          "kind": "js",
           "path": "{providerDir}/profiler.json"
         }
       ]

@@ -60,6 +60,7 @@ test('init-project scaffolds templates into a consuming app layout', async (t: T
     'runner-manifests/evidence-provider.json',
     'runner-manifests/primary-runner.json',
     'scenarios/mobile/checkout-submit.json',
+    'scripts/asl-capture-profiler-provider.mjs',
     'src/devtools/profile-session.ts',
   ]);
   assert.deepEqual(result.skipped, []);
@@ -69,11 +70,14 @@ test('init-project scaffolds templates into a consuming app layout', async (t: T
   assert.equal(readJson(path.join(targetDir, 'asl', 'package-scripts.json'))['asl:check:ios'], 'asl-check-plan --scenario scenarios/mobile/checkout-submit.json --runner runner-manifests/primary-runner.json --provider runner-manifests/evidence-provider.json --platform ios --out artifacts/asl/plan/checkout-submit-ios');
   assert.match(readJson(path.join(targetDir, 'asl', 'package-scripts.json'))['asl:profile:ios'], /\$\{ASL_PROFILE_IOS_EVENTS:\+--events \$ASL_PROFILE_IOS_EVENTS\}/u);
   assert.match(readJson(path.join(targetDir, 'asl', 'package-scripts.json'))['asl:profile:android'], /\$\{ASL_PROFILE_ANDROID_EVENTS:\+--events \$ASL_PROFILE_ANDROID_EVENTS\}/u);
+  assert.match(readJson(path.join(targetDir, 'asl', 'package-scripts.json'))['asl:profile:ios:provider'], /--provider runner-manifests\/evidence-provider\.json/u);
+  assert.match(readJson(path.join(targetDir, 'asl', 'package-scripts.json'))['asl:profile:android:provider'], /--provider runner-manifests\/evidence-provider\.json/u);
   assert.match(readJson(path.join(targetDir, 'asl', 'package-scripts.json'))['asl:agent-device:ios'], /checkout-submit-ios-agent-device/u);
   assert.match(readJson(path.join(targetDir, 'asl', 'package-scripts.json'))['asl:agent-device:android'], /checkout-submit-android-agent-device/u);
   assert.equal(readJson(path.join(targetDir, 'asl', 'package-scripts.json'))['asl:profile:ios:live'], 'asl-profile-ios --config asl.config.json --scenario scenarios/mobile/checkout-submit.json --simctl-capture --profile-session --profile-session-storage --launch --wait-ms 5000 --comparison-lane checkout-submit-ios-live --out artifacts/asl/ios --run-id checkout-submit-ios-live');
   assert.match(fs.readFileSync(path.join(targetDir, 'asl', 'README.md'), 'utf8'), /checkout-submit/u);
   assert.match(fs.readFileSync(path.join(targetDir, 'asl', 'gitignore-snippet'), 'utf8'), /artifacts\/asl\//u);
+  assert.match(fs.readFileSync(path.join(targetDir, 'scripts', 'asl-capture-profiler-provider.mjs'), 'utf8'), /writeProfilerEvidence/u);
   assert.match(fs.readFileSync(path.join(targetDir, 'src', 'devtools', 'profile-session.ts'), 'utf8'), /useProfileSessionBootstrap/u);
   assert.match(formatResult(result), /created:/u);
 });
@@ -93,6 +97,7 @@ test('init-project skips existing files unless force is enabled', async (t: Test
     'scenarios/mobile/first-journey.json',
     'runner-manifests/primary-runner.json',
     'runner-manifests/evidence-provider.json',
+    'scripts/asl-capture-profiler-provider.mjs',
     'asl/README.md',
     'asl/package-scripts.json',
     'asl/gitignore-snippet',
@@ -117,6 +122,6 @@ test('init-project dry run reports files without writing them', async (t: TestCo
     packageRoot: ROOT,
   });
 
-  assert.equal(result.created.length, 8);
+  assert.equal(result.created.length, 9);
   assert.equal(fs.existsSync(path.join(targetDir, 'asl.config.json')), false);
 });

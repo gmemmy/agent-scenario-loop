@@ -42,6 +42,7 @@ const TEMPLATE_FILES = {
   integrationReadme: 'integration-readme.md',
   packageScripts: 'package-scripts.json',
   primaryRunner: 'primary-runner.json',
+  providerScript: path.join('scripts', 'asl-capture-profiler-provider.mjs'),
   scenario: 'mobile-scenario.json',
 };
 
@@ -159,6 +160,10 @@ function buildScaffoldFiles({
     {
       source: path.join(templatesRoot, TEMPLATE_FILES.evidenceProvider),
       destination: path.join(targetDir, 'runner-manifests', 'evidence-provider.json'),
+    },
+    {
+      source: path.join(templatesRoot, TEMPLATE_FILES.providerScript),
+      destination: path.join(targetDir, 'scripts', 'asl-capture-profiler-provider.mjs'),
     },
     {
       source: path.join(templatesRoot, TEMPLATE_FILES.integrationReadme),

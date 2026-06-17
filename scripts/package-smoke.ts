@@ -112,6 +112,7 @@ const PACKED_FILE_ALLOWLIST = [
   /^examples\/.+/u,
   /^schemas\/[a-z-]+\.schema\.json$/u,
   /^templates\/[a-z0-9.-]+(?:\.(?:json|md))?$/u,
+  /^templates\/scripts\/[a-z0-9.-]+\.mjs$/u,
 ];
 
 /**
@@ -732,20 +733,26 @@ function main(): void {
       'asl:live-proof',
       'asl:profile:android',
       'asl:profile:android:live',
+      'asl:profile:android:provider',
       'asl:profile:ios',
       'asl:profile:ios:live',
+      'asl:profile:ios:provider',
       'asl:validate',
     ]);
     assert.match(initializedScripts['asl:check:ios'], /checkout-submit/u);
     assert.match(initializedScripts['asl:check:ios'], /--provider runner-manifests\/evidence-provider\.json/u);
     assert.match(initializedScripts['asl:check:android'], /--provider runner-manifests\/evidence-provider\.json/u);
     assert.match(initializedScripts['asl:profile:ios'], /\$\{ASL_PROFILE_IOS_EVENTS:\+--events \$ASL_PROFILE_IOS_EVENTS\}/u);
+    assert.match(initializedScripts['asl:profile:ios:provider'], /--provider runner-manifests\/evidence-provider\.json/u);
+    assert.match(initializedScripts['asl:profile:ios:provider'], /--comparison-lane checkout-submit-ios-provider/u);
     assert.match(initializedScripts['asl:profile:ios'], /--comparison-lane checkout-submit-ios-fixture/u);
     assert.match(
       initializedScripts['asl:profile:android'],
       /\$\{ASL_PROFILE_ANDROID_EVENTS:\+--events \$ASL_PROFILE_ANDROID_EVENTS\}/u,
     );
     assert.match(initializedScripts['asl:profile:android'], /--comparison-lane checkout-submit-android-fixture/u);
+    assert.match(initializedScripts['asl:profile:android:provider'], /--provider runner-manifests\/evidence-provider\.json/u);
+    assert.match(initializedScripts['asl:profile:android:provider'], /--comparison-lane checkout-submit-android-provider/u);
     assert.match(initializedScripts['asl:agent-device:ios'], /checkout-submit-ios-agent-device/u);
     assert.match(initializedScripts['asl:agent-device:android'], /checkout-submit-android-agent-device/u);
     assert.match(initializedScripts['asl:profile:ios:live'], /checkout-submit-ios-live/u);
@@ -756,6 +763,7 @@ function main(): void {
       fs.readFileSync(path.join(initOutputDir, 'asl', 'gitignore-snippet'), 'utf8'),
       /artifacts\/asl\//u,
     );
+    assert.equal(fs.existsSync(path.join(initOutputDir, 'scripts', 'asl-capture-profiler-provider.mjs')), true);
     for (const platform of ['ios', 'android']) {
       run(packageBinPath(installDir, 'asl-check-plan'), [
         '--scenario',
@@ -1720,6 +1728,7 @@ function main(): void {
       "require.resolve('agent-scenario-loop/templates/gitignore-snippet');",
       "require.resolve('agent-scenario-loop/templates/integration-readme.md');",
       "require.resolve('agent-scenario-loop/templates/package-scripts.json');",
+      "require.resolve('agent-scenario-loop/templates/scripts/asl-capture-profiler-provider.mjs');",
       "for (const scenarioFixture of listJsonFiles('examples/scenarios/mobile')) {",
       "  const result = asl.validateJson(readJson(scenarioFixture), asl.SCHEMAS.scenario, scenarioFixture);",
       "  assert.equal(result.valid, true, result.message);",

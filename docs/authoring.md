@@ -16,6 +16,7 @@ That creates:
 - `scenarios/mobile/first-journey.json`
 - `runner-manifests/primary-runner.json`
 - `runner-manifests/evidence-provider.json`
+- `scripts/asl-capture-profiler-provider.mjs`
 - `src/devtools/profile-session.ts`
 - `asl/README.md`
 - `asl/package-scripts.json`
@@ -43,6 +44,7 @@ You can also copy these files manually and rename them as needed:
 | `templates/mobile-scenario.json` | First portable mobile scenario |
 | `templates/primary-runner.json` | Primary runner capability manifest |
 | `templates/evidence-provider.json` | Optional evidence-provider manifest |
+| `templates/scripts/asl-capture-profiler-provider.mjs` | Runnable starter provider command for deterministic profiler evidence |
 | `templates/integration-readme.md` | Consumer-app wiring guide generated into `asl/README.md` |
 | `templates/package-scripts.json` | Package-script snippets generated into `asl/package-scripts.json` and checked by project validation |
 
