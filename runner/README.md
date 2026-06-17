@@ -145,13 +145,17 @@ pnpm example:android:live -- --run-suffix after-change --compare-latest
 pnpm example:ios:live -- --run-suffix after-change --compare-latest
 ```
 
-The comparison step writes `comparison.json` and `agent-summary.md` under `artifacts/example-mobile-app/<platform>/comparisons/<scenario-id>/<run-id>`. The comparison artifact records `comparisonBasis`, including explicit baseline/current run folders or latest-trusted selection counts. Example live profiles also write a `comparisonLane` into `manifest.json`; latest-trusted comparison uses it to keep plain runs and agent-device-backed aggregate runs in separate baseline pools. Runs without a lane compare only against other unlabeled trusted runs. A missing prior trusted run is reported as skipped without failing an otherwise healthy live proof.
+The comparison step writes `comparison.json` and `agent-summary.md` under `artifacts/example-mobile-app/<platform>/comparisons/<scenario-id>/<run-id>`. The comparison artifact records `comparisonBasis`, including explicit baseline/current run folders or latest-trusted selection counts. Example live profiles also write a `comparisonLane` into `manifest.json`; latest-trusted comparison uses it to keep plain runs and sidecar-backed aggregate runs in separate baseline pools. Runs without a lane compare only against other unlabeled trusted runs. A missing prior trusted run is reported as skipped without failing an otherwise healthy live proof.
 
-When the external `agent-device` CLI is available, add `--agent-device-proof` or run the package scripts below to attach the shared startup UI assertion to the aggregate proof. If `agent-device session list` shows the target device is already owned by a named session, pass `--agent-device-session <name>` so the aggregate proof reuses that session instead of contending for the device.
+When external interaction tools are available, attach them as sidecar proofs without changing the scenario set. Use `--agent-device-proof`, `--argent-proof`, or the package scripts below. If `agent-device session list` shows the target device is already owned by a named session, pass `--agent-device-session <name>` so the aggregate proof reuses that session instead of contending for the device. For Argent without a global binary, set `ASL_ARGENT_BIN=npx` and `ASL_ARGENT_BASE_ARGS="--yes @swmansion/argent run"`.
 
 ```bash
 pnpm example:android:live:agent-device -- --agent-device-session <name> --run-suffix after-change --compare-latest
 pnpm example:ios:live:agent-device -- --agent-device-session <name> --run-suffix after-change --compare-latest
+pnpm example:android:live:argent -- --run-suffix after-change --compare-latest
+pnpm example:ios:live:argent -- --run-suffix after-change --compare-latest
+pnpm example:android:live:runners -- --agent-device-session <name> --run-suffix after-change --compare-latest
+pnpm example:ios:live:runners -- --agent-device-session <name> --run-suffix after-change --compare-latest
 ```
 
 Each aggregate live proof also writes `_live-proof/<run-id>/live-proof.json` and `_live-proof/<run-id>/agent-summary.md`, giving agents one batch entrypoint that links preflight evidence, scenario run summaries, per-profile health/verdict statuses, optional interaction proofs, optional comparisons, aggregate comparison counts, and per-comparison metric summaries.

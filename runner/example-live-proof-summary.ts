@@ -140,8 +140,11 @@ function readProfileRunStatus(runDir: string): {healthStatus: string; verdictSta
  * @returns {LiveProofInteractionProofCaptures | null}
  */
 function readInteractionProofCaptures(runDir: string): LiveProofInteractionProofCaptures | null {
-  const metadataPath = path.join(runDir, 'raw', 'agent-device-metadata.json');
-  if (!fs.existsSync(metadataPath)) {
+  const metadataPath = [
+    path.join(runDir, 'raw', 'agent-device-metadata.json'),
+    path.join(runDir, 'raw', 'argent-metadata.json'),
+  ].find((candidate) => fs.existsSync(candidate));
+  if (!metadataPath) {
     return null;
   }
 

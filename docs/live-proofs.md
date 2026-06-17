@@ -76,14 +76,23 @@ Read [Example Mobile App: iOS Capture](../examples/mobile-app/README.md#ios-capt
 
 ## Sidecar Interaction Proof
 
-When `agent-device` is available, the example aggregate proofs can attach an interaction sidecar:
+When `agent-device` or Argent is available, the example aggregate proofs can attach interaction sidecars:
 
 ```bash
 pnpm example:android:live:agent-device -- --agent-device-session <name> --run-suffix after-change --compare-latest
 pnpm example:ios:live:agent-device -- --agent-device-session <name> --run-suffix after-change --compare-latest
+pnpm example:android:live:argent -- --run-suffix after-change --compare-latest
+pnpm example:ios:live:argent -- --run-suffix after-change --compare-latest
 ```
 
-The platform runner still owns adb or simctl preflight and profile evidence. The sidecar contributes interaction proof and captures into the same aggregate artifact graph.
+Use the combined runner scripts when you want every configured sidecar to contribute to the same aggregate proof:
+
+```bash
+pnpm example:android:live:runners -- --agent-device-session <name> --run-suffix after-change --compare-latest
+pnpm example:ios:live:runners -- --agent-device-session <name> --run-suffix after-change --compare-latest
+```
+
+For Argent without a global binary, set `ASL_ARGENT_BIN=npx` and `ASL_ARGENT_BASE_ARGS="--yes @swmansion/argent run"`. The platform runner still owns adb or simctl preflight and profile evidence. Each sidecar contributes interaction proof and captures into the same aggregate artifact graph.
 
 ## Comparison
 

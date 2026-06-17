@@ -15,6 +15,7 @@ const {
 } = require('./example-live-comparison');
 const { writeLiveProofSummary } = require('./example-live-proof-summary');
 const { runAgentDeviceCapture } = require('./agent-device');
+const { parseBaseArgs: parseArgentBaseArgs, runArgentCapture } = require('./argent');
 const { runProfileAndroid } = require('./profile-android');
 
 type CliArgs = import('./android-adb').CliArgs;
@@ -22,6 +23,7 @@ type ExampleLiveComparisonResult = import('./example-live-comparison').ExampleLi
 type LiveProofSummaryResult = import('./example-live-proof-summary').LiveProofSummaryResult;
 type AndroidLiveProofOptions = {
   agentDeviceExecutor?: import('./agent-device').CommandExecutor;
+  argentExecutor?: import('./argent').CommandExecutor;
   delay?: (ms: number) => Promise<void>;
   executor?: import('./android-adb').CommandExecutor;
   packageRoot?: string;
@@ -82,7 +84,7 @@ const DEFAULT_REACT_NATIVE_DEBUG_HOST = 'localhost:8097';
  */
 function usage(output: { write: (message: string) => unknown } = process.stderr): void {
   writeUsage([
-    'Usage: asl-example-android-live [--config <path>] [--out <dir>] [--package <name>] [--serial <device>] [--react-native-debug-host <host:port>] [--run-suffix <label>] [--compare-latest] [--fail-on-regression] [--agent-device-proof]',
+    'Usage: asl-example-android-live [--config <path>] [--out <dir>] [--package <name>] [--serial <device>] [--react-native-debug-host <host:port>] [--run-suffix <label>] [--compare-latest] [--fail-on-regression] [--agent-device-proof] [--argent-proof]',
     '',
     'Runs the packaged example Android live proof: adb preflight, startup, open-close, and scroll-settle.',
     'The example app must already be installed and reachable on an online Android emulator or device.',
@@ -91,6 +93,7 @@ function usage(output: { write: (message: string) => unknown } = process.stderr)
     'Use --compare-latest to compare each passed scenario against the latest trusted prior run under the artifact root.',
     'Use --fail-on-regression with --compare-latest to exit nonzero after writing evidence when any comparison regressed.',
     'Use --agent-device-proof to attach the shared startup UI assertion through agent-device; pass --agent-device-session to reuse an active named session.',
+    'Use --argent-proof to attach the shared startup UI assertion through Argent; set ASL_ARGENT_BIN and ASL_ARGENT_BASE_ARGS for non-global installs.',
   ], output);
 }
 
@@ -177,6 +180,18 @@ function normalizeRunSuffix(value: unknown): string | null {
  */
 function buildLiveRunId(baseRunId: string, suffix: string | null): string {
   return suffix ? `${baseRunId}-${suffix}` : baseRunId;
+}
+
+/**
+ * Builds the comparison lane suffix for enabled interaction proofs.
+ *
+ * @param {string[]} runnerIds
+ * @returns {string}
+ */
+function buildInteractionComparisonLane(runnerIds: string[]): string {
+  return runnerIds.length > 0
+    ? `example-android-live+${runnerIds.join('+')}`
+    : 'example-android-live';
 }
 
 /**
@@ -283,10 +298,13 @@ async function runExampleAndroidLiveProof(
   const runSuffix = normalizeRunSuffix(args['run-suffix']);
   const aggregateRunId = buildLiveRunId('android-live-proof', runSuffix);
   const preflightRunId = buildLiveRunId('android-live-preflight', runSuffix);
-  const interactionRunId = buildLiveRunId('android-agent-device-startup', runSuffix);
-  const comparisonLane = isEnabledFlag(args['agent-device-proof'])
-    ? 'example-android-live+agent-device'
-    : 'example-android-live';
+  const agentDeviceRunId = buildLiveRunId('android-agent-device-startup', runSuffix);
+  const argentRunId = buildLiveRunId('android-argent-startup', runSuffix);
+  const enabledInteractionRunners = [
+    ...(isEnabledFlag(args['agent-device-proof']) ? ['agent-device'] : []),
+    ...(isEnabledFlag(args['argent-proof']) ? ['argent'] : []),
+  ];
+  const comparisonLane = buildInteractionComparisonLane(enabledInteractionRunners);
   const preflightDir = path.join(outputDir, '_preflight', preflightRunId);
   const reactNativeDebugHost = typeof args['react-native-debug-host'] === 'string'
     ? args['react-native-debug-host']
@@ -355,9 +373,9 @@ async function runExampleAndroidLiveProof(
       app: packageName,
       ...(options.agentDeviceExecutor ? { executor: options.agentDeviceExecutor } : {}),
       open: true,
-      outputDir: path.join(outputDir, '_agent-device-captures', interactionRunId),
+      outputDir: path.join(outputDir, '_agent-device-captures', agentDeviceRunId),
       platform: 'android',
-      runId: interactionRunId,
+      runId: agentDeviceRunId,
       scenario: readJson(path.join(exampleRoot, 'scenarios', 'mobile', 'app-startup.json')),
       ...(typeof args.serial === 'string' ? { serial: args.serial } : {}),
       ...(typeof args['agent-device-session'] === 'string' ? { session: args['agent-device-session'] } : {}),
@@ -371,8 +389,37 @@ async function runExampleAndroidLiveProof(
     interactionProofs.push({
       label: 'startup-ui',
       runDir: agentDeviceCapture.runDir,
-      runId: interactionRunId,
+      runId: agentDeviceRunId,
       runnerId: 'agent-device',
+      scenarioId: 'app-startup',
+    });
+  }
+
+  if (isEnabledFlag(args['argent-proof'])) {
+    const argentBaseArgs = parseArgentBaseArgs(process.env.ASL_ARGENT_BASE_ARGS);
+    const argentCapture = await runArgentCapture({
+      app: packageName,
+      argentCommand: process.env.ASL_ARGENT_BIN || 'argent',
+      ...(argentBaseArgs ? { baseArgs: argentBaseArgs } : {}),
+      commandTimeoutMs: parsePositiveInteger(process.env.ASL_ARGENT_COMMAND_TIMEOUT_MS, 60_000),
+      deviceId: typeof args.serial === 'string' ? args.serial : 'emulator-5554',
+      ...(options.delay ? { delay: options.delay } : {}),
+      ...(options.argentExecutor ? { executor: options.argentExecutor } : {}),
+      outputDir: path.join(outputDir, '_argent-captures', argentRunId),
+      platform: 'android',
+      runId: argentRunId,
+      scenario: readJson(path.join(exampleRoot, 'scenarios', 'mobile', 'app-startup.json')),
+    });
+    assertPassedInteractionProof({
+      health: argentCapture.health,
+      label: 'startup-ui-argent',
+      runDir: argentCapture.runDir,
+    });
+    interactionProofs.push({
+      label: 'startup-ui-argent',
+      runDir: argentCapture.runDir,
+      runId: argentRunId,
+      runnerId: 'argent',
       scenarioId: 'app-startup',
     });
   }
@@ -468,6 +515,7 @@ export {
   formatResult,
   assertNoRegressedComparisons,
   buildLiveRunId,
+  buildInteractionComparisonLane,
   main,
   normalizeRunSuffix,
   runExampleAndroidLiveProof,

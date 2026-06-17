@@ -15,6 +15,7 @@ const {
 
 type CommandResult = import('../android-adb').CommandResult;
 type AgentDeviceCommandResult = import('../agent-device').CommandResult;
+type ArgentCommandResult = import('../argent').CommandResult;
 type TestContext = import('node:test').TestContext;
 
 const ROOT = path.join(__dirname, '..', '..', '..');
@@ -92,6 +93,7 @@ test('runs the packaged Android example live proof with a fake adb executor', as
   let currentRunId = 'android-live-startup';
   const calls: string[] = [];
   const agentDeviceCalls: string[] = [];
+  const argentCalls: string[] = [];
   const executor = async (command: string, args: string[]): Promise<CommandResult> => {
     const key = args.join(' ');
     calls.push(key);
@@ -176,13 +178,49 @@ test('runs the packaged Android example live proof with a fake adb executor', as
       stdout: '{"success":true}\n',
     };
   };
+  const argentExecutor = async (command: string, args: string[]): Promise<ArgentCommandResult> => {
+    const key = args.join(' ');
+    argentCalls.push(key);
+    if (args.includes('screenshot')) {
+      const screenshotPath = path.join(outputDir, 'fake-argent-android.png');
+      await fsp.writeFile(screenshotPath, 'fake screenshot', 'utf8');
+      return {
+        args,
+        command,
+        exitCode: 0,
+        stderr: '',
+        stdout: `Saved screenshot: ${screenshotPath}\n`,
+      };
+    }
+    if (args.includes('describe')) {
+      return {
+        args,
+        command,
+        exitCode: 0,
+        stderr: '',
+        stdout: '{"description":"Example Mobile App asl-example-title"}\n',
+      };
+    }
+    if (args.includes('launch-app')) {
+      return {
+        args,
+        command,
+        exitCode: 0,
+        stderr: '',
+        stdout: '{"launched":true,"bundleId":"dev.agentscenarioloop.example"}\n',
+      };
+    }
+    return { args, command, exitCode: 1, stderr: `unexpected Argent command: ${key}`, stdout: '' };
+  };
 
   await runExampleAndroidLiveProof({
     'agent-device-proof': true,
+    'argent-proof': true,
     adb: 'fake-adb',
     out: outputDir,
   }, {
     agentDeviceExecutor,
+    argentExecutor,
     delay: async () => {},
     executor,
     packageRoot: ROOT,
@@ -190,19 +228,21 @@ test('runs the packaged Android example live proof with a fake adb executor', as
 
   const result = await runExampleAndroidLiveProof({
     'agent-device-proof': true,
+    'argent-proof': true,
     adb: 'fake-adb',
     'compare-latest': true,
     out: outputDir,
     'run-suffix': 'PR 123',
   }, {
     agentDeviceExecutor,
+    argentExecutor,
     delay: async () => {},
     executor,
     packageRoot: ROOT,
   });
 
   assert.equal(result.profiles.length, 3);
-  assert.equal(result.interactionProofs.length, 1);
+  assert.equal(result.interactionProofs.length, 2);
   assert.equal(result.comparisons.length, 3);
   assert.equal(fs.existsSync(result.aggregateSummary.liveProofPath), true);
   assert.equal(fs.existsSync(result.aggregateSummary.summaryPath), true);
@@ -215,6 +255,9 @@ test('runs the packaged Android example live proof with a fake adb executor', as
   assert.ok(agentDeviceCalls.some((call) => call.includes('open dev.agentscenarioloop.example')));
   assert.ok(agentDeviceCalls.some((call) => call.includes('is visible id="asl-example-title"')));
   assert.ok(agentDeviceCalls.some((call) => call.includes('screenshot')));
+  assert.ok(argentCalls.some((call) => call.includes('launch-app --udid emulator-5554 --bundleId dev.agentscenarioloop.example')));
+  assert.ok(argentCalls.some((call) => call.includes('describe --udid emulator-5554 --bundleId dev.agentscenarioloop.example')));
+  assert.ok(argentCalls.some((call) => call.includes('screenshot --udid emulator-5554')));
   assert.deepEqual(
     result.profiles.map((profile: { runId: string }) => profile.runId),
     ['android-live-startup-pr-123', 'android-live-open-close-pr-123', 'android-live-scroll-pr-123'],
@@ -224,7 +267,7 @@ test('runs the packaged Android example live proof with a fake adb executor', as
     const health = JSON.parse(fs.readFileSync(path.join(profile.runDir, 'health.json'), 'utf8'));
     const manifest = JSON.parse(fs.readFileSync(path.join(profile.runDir, 'manifest.json'), 'utf8'));
     const verdict = JSON.parse(fs.readFileSync(path.join(profile.runDir, 'verdict.json'), 'utf8'));
-    assert.equal(manifest.comparisonLane, 'example-android-live+agent-device');
+    assert.equal(manifest.comparisonLane, 'example-android-live+agent-device+argent');
     assert.equal(health.healthStatus, 'passed');
     assert.equal(verdict.verdictStatus, 'passed');
   }
@@ -239,7 +282,8 @@ test('runs the packaged Android example live proof with a fake adb executor', as
   assert.equal(aggregate.platform, 'android');
   assert.equal(aggregate.runId, 'android-live-proof-pr-123');
   assert.deepEqual(
-    aggregate.interactionProofs.map((proof: { healthStatus: string; label: string; runnerId: string; verdictStatus: string }) => ({
+    aggregate.interactionProofs.map((proof: { captures?: { screenshots: string[] }; healthStatus: string; label: string; runnerId: string; verdictStatus: string }) => ({
+      captures: proof.captures?.screenshots.length ?? 0,
       healthStatus: proof.healthStatus,
       label: proof.label,
       runnerId: proof.runnerId,
@@ -247,9 +291,17 @@ test('runs the packaged Android example live proof with a fake adb executor', as
     })),
     [
       {
+        captures: 1,
         healthStatus: 'passed',
         label: 'startup-ui',
         runnerId: 'agent-device',
+        verdictStatus: 'not_evaluated',
+      },
+      {
+        captures: 1,
+        healthStatus: 'passed',
+        label: 'startup-ui-argent',
+        runnerId: 'argent',
         verdictStatus: 'not_evaluated',
       },
     ],

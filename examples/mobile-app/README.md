@@ -165,6 +165,16 @@ pnpm example:android:live
 
 The aggregate command writes `_live-proof/android-live-proof/live-proof.json` and `_live-proof/android-live-proof/agent-summary.md` under the Android artifact root as the batch entrypoint.
 
+When `agent-device` or Argent is available, attach the same startup interaction assertion as a sidecar proof:
+
+```bash
+pnpm example:android:live:agent-device -- --agent-device-session <name>
+pnpm example:android:live:argent
+pnpm example:android:live:runners -- --agent-device-session <name>
+```
+
+For Argent without a global binary, set `ASL_ARGENT_BIN=npx` and `ASL_ARGENT_BASE_ARGS="--yes @swmansion/argent run"`.
+
 The live Android commands assume the isolated Metro server is on port `8097`. They configure adb reverse and the app's React Native debug host as `localhost:8097` before launch, so the example app does not accidentally load another app's Metro bundle from the default `8081` port. To apply only that Android Metro routing setup, run:
 
 ```bash
@@ -222,6 +232,16 @@ pnpm example:ios:live
 The aggregate command runs simctl preflight, startup, open-close, and scroll-settle. The individual scenario commands remain useful while debugging one scenario:
 
 It also writes `_live-proof/ios-live-proof/live-proof.json` and `_live-proof/ios-live-proof/agent-summary.md` under the iOS artifact root as the batch entrypoint.
+
+When `agent-device` or Argent is available, attach the same startup interaction assertion as a sidecar proof:
+
+```bash
+pnpm example:ios:live:agent-device -- --agent-device-session <name>
+pnpm example:ios:live:argent
+pnpm example:ios:live:runners -- --agent-device-session <name>
+```
+
+For Argent without a global binary, set `ASL_ARGENT_BIN=npx` and `ASL_ARGENT_BASE_ARGS="--yes @swmansion/argent run"`.
 
 ```bash
 pnpm example:profile:ios:live:startup

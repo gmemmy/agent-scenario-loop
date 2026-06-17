@@ -1397,9 +1397,13 @@ function main(): void {
       fakeAgentDevicePath,
       '--agent-device-session',
       'package-smoke-android',
+      '--argent-proof',
     ], {
       cwd: installDir,
-      env,
+      env: {
+        ...env,
+        ASL_ARGENT_BIN: fakeArgentPath,
+      },
     });
     assert.match(exampleLiveOutput, /Android example live proof passed/u);
     const exampleLivePreflightHealth = JSON.parse(
@@ -1440,9 +1444,13 @@ function main(): void {
       fakeAgentDevicePath,
       '--agent-device-session',
       'package-smoke-android',
+      '--argent-proof',
     ], {
       cwd: installDir,
-      env,
+      env: {
+        ...env,
+        ASL_ARGENT_BIN: fakeArgentPath,
+      },
     });
     assert.match(exampleLiveCompareOutput, /Comparisons:/u);
     assert.equal(
@@ -1462,13 +1470,21 @@ function main(): void {
     assert.match(exampleLiveProofOutput, /startup \(app-startup\/android-live-startup-smoke\): unchanged \(metrics better=0 worse=0 unchanged=8 inconclusive=0\)/u);
     assert.match(exampleLiveProofOutput, /startup \(app-startup\/android-live-startup-smoke\): health=passed verdict=passed/u);
     assert.match(exampleLiveProofOutput, /startup-ui \(agent-device\/app-startup\/android-agent-device-startup-smoke\): health=passed verdict=not_evaluated/u);
+    assert.match(exampleLiveProofOutput, /startup-ui-argent \(argent\/app-startup\/android-argent-startup-smoke\): health=passed verdict=not_evaluated/u);
     assert.match(exampleLiveProofOutput, /Next action: inspect_summary/u);
     const exampleLiveProof = JSON.parse(
       fs.readFileSync(path.join(exampleLiveRoot, '_live-proof', 'android-live-proof-smoke', 'live-proof.json'), 'utf8'),
     );
-    assert.equal(exampleLiveProof.interactionProofs.length, 1);
-    assert.equal(exampleLiveProof.interactionProofs[0].healthStatus, 'passed');
-    assert.equal(exampleLiveProof.interactionProofs[0].runnerId, 'agent-device');
+    assert.deepEqual(
+      exampleLiveProof.interactionProofs.map((proof: { healthStatus: string; runnerId: string }) => ({
+        healthStatus: proof.healthStatus,
+        runnerId: proof.runnerId,
+      })),
+      [
+        { healthStatus: 'passed', runnerId: 'agent-device' },
+        { healthStatus: 'passed', runnerId: 'argent' },
+      ],
+    );
     assert.equal(
       exampleLiveProof.comparisons.every((comparison: { metricSummary?: { counts?: { unchanged?: number }; notableMetrics?: unknown[] } }) =>
         comparison.metricSummary?.counts?.unchanged === 8 && comparison.metricSummary?.notableMetrics?.length === 0
@@ -1547,9 +1563,13 @@ function main(): void {
       fakeAgentDevicePath,
       '--agent-device-session',
       'package-smoke-ios',
+      '--argent-proof',
     ], {
       cwd: installDir,
-      env,
+      env: {
+        ...env,
+        ASL_ARGENT_BIN: fakeArgentPath,
+      },
     });
     assert.match(exampleIosLiveOutput, /iOS example live proof passed/u);
     const exampleIosLivePreflightHealth = JSON.parse(
@@ -1582,9 +1602,13 @@ function main(): void {
       fakeAgentDevicePath,
       '--agent-device-session',
       'package-smoke-ios',
+      '--argent-proof',
     ], {
       cwd: installDir,
-      env,
+      env: {
+        ...env,
+        ASL_ARGENT_BIN: fakeArgentPath,
+      },
     });
     assert.match(exampleIosLiveCompareOutput, /Comparisons:/u);
     assert.equal(
@@ -1602,12 +1626,20 @@ function main(): void {
     assert.match(exampleIosLiveProofOutput, /Comparison status: unchanged/u);
     assert.match(exampleIosLiveProofOutput, /startup \(app-startup\/ios-live-startup-smoke\): unchanged \(metrics better=0 worse=0 unchanged=8 inconclusive=0\)/u);
     assert.match(exampleIosLiveProofOutput, /startup-ui \(agent-device\/app-startup\/ios-agent-device-startup-smoke\): health=passed verdict=not_evaluated/u);
+    assert.match(exampleIosLiveProofOutput, /startup-ui-argent \(argent\/app-startup\/ios-argent-startup-smoke\): health=passed verdict=not_evaluated/u);
     const exampleIosLiveProof = JSON.parse(
       fs.readFileSync(path.join(exampleIosLiveRoot, '_live-proof', 'ios-live-proof-smoke', 'live-proof.json'), 'utf8'),
     );
-    assert.equal(exampleIosLiveProof.interactionProofs.length, 1);
-    assert.equal(exampleIosLiveProof.interactionProofs[0].healthStatus, 'passed');
-    assert.equal(exampleIosLiveProof.interactionProofs[0].runnerId, 'agent-device');
+    assert.deepEqual(
+      exampleIosLiveProof.interactionProofs.map((proof: { healthStatus: string; runnerId: string }) => ({
+        healthStatus: proof.healthStatus,
+        runnerId: proof.runnerId,
+      })),
+      [
+        { healthStatus: 'passed', runnerId: 'agent-device' },
+        { healthStatus: 'passed', runnerId: 'argent' },
+      ],
+    );
     assert.equal(
       exampleIosLiveProof.comparisons.every((comparison: { metricSummary?: { counts?: { unchanged?: number }; notableMetrics?: unknown[] } }) =>
         comparison.metricSummary?.counts?.unchanged === 8 && comparison.metricSummary?.notableMetrics?.length === 0
