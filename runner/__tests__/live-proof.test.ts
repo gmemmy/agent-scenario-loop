@@ -7,6 +7,8 @@ const test = require('node:test');
 
 const {
   countLiveProofComparisons,
+  deriveLiveProofComparisonStatus,
+  expectedLiveProofNextActionCode,
   formatLiveProof,
   parseArgs,
   readLiveProof,
@@ -80,6 +82,19 @@ function buildProof(comparisonStatus: 'regressed' | 'unchanged'): Record<string,
   };
 }
 
+/**
+ * Writes one proof artifact to a temporary file.
+ *
+ * @param {string} tempDir
+ * @param {Record<string, unknown>} proof
+ * @returns {string}
+ */
+function writeProof(tempDir: string, proof: Record<string, unknown>): string {
+  const proofPath = path.join(tempDir, 'live-proof.json');
+  fs.writeFileSync(proofPath, `${JSON.stringify(proof, null, 2)}\n`, 'utf8');
+  return proofPath;
+}
+
 test('parses live-proof CLI arguments', () => {
   assert.deepEqual(parseArgs(['--file', 'live-proof.json', '--fail-on-regression']), {
     file: 'live-proof.json',
@@ -107,6 +122,23 @@ test('counts live-proof comparison statuses from pointers', () => {
   );
 });
 
+test('derives aggregate status and next action from comparisons', () => {
+  assert.equal(deriveLiveProofComparisonStatus([]), 'not_compared');
+  assert.equal(deriveLiveProofComparisonStatus([{ status: 'skipped' }]), 'baseline_missing');
+  assert.equal(deriveLiveProofComparisonStatus([{ status: 'better' }, { status: 'skipped' }]), 'inconclusive');
+  assert.equal(deriveLiveProofComparisonStatus([{ status: 'inconclusive' }]), 'inconclusive');
+  assert.equal(deriveLiveProofComparisonStatus([{ status: 'better' }, { status: 'unchanged' }]), 'improved');
+  assert.equal(deriveLiveProofComparisonStatus([{ status: 'unchanged' }]), 'unchanged');
+  assert.equal(deriveLiveProofComparisonStatus([{ status: 'better' }, { status: 'worse' }]), 'regressed');
+
+  assert.equal(expectedLiveProofNextActionCode('regressed'), 'inspect_regressions');
+  assert.equal(expectedLiveProofNextActionCode('baseline_missing'), 'establish_baseline');
+  assert.equal(expectedLiveProofNextActionCode('inconclusive'), 'inspect_inconclusive');
+  assert.equal(expectedLiveProofNextActionCode('improved'), 'inspect_summary');
+  assert.equal(expectedLiveProofNextActionCode('unchanged'), 'inspect_summary');
+  assert.equal(expectedLiveProofNextActionCode('not_compared'), 'inspect_summary');
+});
+
 test('rejects live-proof artifacts with inconsistent comparison counts', async (t: TestContext) => {
   const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-live-proof-counts-'));
   t.after(async () => {
@@ -114,12 +146,41 @@ test('rejects live-proof artifacts with inconsistent comparison counts', async (
   });
   const proof = buildProof('unchanged');
   (proof.comparisonCounts as Record<string, number>).worse = 1;
-  const proofPath = path.join(tempDir, 'live-proof.json');
-  fs.writeFileSync(proofPath, `${JSON.stringify(proof, null, 2)}\n`, 'utf8');
+  const proofPath = writeProof(tempDir, proof);
 
   assert.throws(
     () => readLiveProof(proofPath),
     /comparisonCounts\.unchanged expected 1 from comparisons but found 0|comparisonCounts\.worse expected 0 from comparisons but found 1/u,
+  );
+});
+
+test('rejects live-proof artifacts with inconsistent aggregate status', async (t: TestContext) => {
+  const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-live-proof-status-'));
+  t.after(async () => {
+    await fsp.rm(tempDir, { recursive: true, force: true });
+  });
+  const proof = buildProof('unchanged');
+  proof.comparisonStatus = 'regressed';
+  const proofPath = writeProof(tempDir, proof);
+
+  assert.throws(
+    () => readLiveProof(proofPath),
+    /comparisonStatus expected unchanged from comparisons but found regressed/u,
+  );
+});
+
+test('rejects live-proof artifacts with inconsistent next action', async (t: TestContext) => {
+  const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-live-proof-action-'));
+  t.after(async () => {
+    await fsp.rm(tempDir, { recursive: true, force: true });
+  });
+  const proof = buildProof('unchanged');
+  (proof.nextAction as Record<string, string>).code = 'inspect_regressions';
+  const proofPath = writeProof(tempDir, proof);
+
+  assert.throws(
+    () => readLiveProof(proofPath),
+    /nextAction\.code expected inspect_summary for unchanged but found inspect_regressions/u,
   );
 });
 
@@ -128,8 +189,7 @@ test('reads, validates, and formats live-proof artifacts', async (t: TestContext
   t.after(async () => {
     await fsp.rm(tempDir, { recursive: true, force: true });
   });
-  const proofPath = path.join(tempDir, 'live-proof.json');
-  fs.writeFileSync(proofPath, `${JSON.stringify(buildProof('unchanged'), null, 2)}\n`, 'utf8');
+  const proofPath = writeProof(tempDir, buildProof('unchanged'));
 
   const proof = readLiveProof(proofPath);
   const output = formatLiveProof(proof);

@@ -40,6 +40,15 @@ type LiveProofArtifact = {
 };
 type LiveProofComparisonCounts = LiveProofArtifact['comparisonCounts'];
 type LiveProofComparisonStatus = keyof LiveProofComparisonCounts;
+type LiveProofAggregateStatus = (
+  'baseline_missing' |
+  'improved' |
+  'inconclusive' |
+  'not_compared' |
+  'regressed' |
+  'unchanged'
+);
+type LiveProofNextActionCode = LiveProofArtifact['nextAction']['code'];
 
 /**
  * Prints CLI usage.
@@ -111,6 +120,55 @@ function countLiveProofComparisons(comparisons: Array<{status?: string}>): LiveP
 }
 
 /**
+ * Collapses live-proof comparison pointers into the expected aggregate status.
+ *
+ * @param {Array<{status?: string}>} comparisons
+ * @returns {LiveProofAggregateStatus}
+ */
+function deriveLiveProofComparisonStatus(comparisons: Array<{status?: string}>): LiveProofAggregateStatus {
+  if (comparisons.length === 0) {
+    return 'not_compared';
+  }
+
+  const statuses = comparisons.map((comparison) => comparison.status);
+  if (statuses.includes('worse')) {
+    return 'regressed';
+  }
+  if (statuses.includes('inconclusive')) {
+    return 'inconclusive';
+  }
+  if (statuses.every((status) => status === 'skipped')) {
+    return 'baseline_missing';
+  }
+  if (statuses.includes('skipped')) {
+    return 'inconclusive';
+  }
+  if (statuses.includes('better')) {
+    return 'improved';
+  }
+  return 'unchanged';
+}
+
+/**
+ * Resolves the expected next-action code for an aggregate comparison status.
+ *
+ * @param {LiveProofAggregateStatus} comparisonStatus
+ * @returns {LiveProofNextActionCode}
+ */
+function expectedLiveProofNextActionCode(comparisonStatus: LiveProofAggregateStatus): LiveProofNextActionCode {
+  if (comparisonStatus === 'regressed') {
+    return 'inspect_regressions';
+  }
+  if (comparisonStatus === 'baseline_missing') {
+    return 'establish_baseline';
+  }
+  if (comparisonStatus === 'inconclusive') {
+    return 'inspect_inconclusive';
+  }
+  return 'inspect_summary';
+}
+
+/**
  * Verifies that aggregate comparison counts match the comparison pointers.
  *
  * @param {LiveProofArtifact} proof
@@ -128,6 +186,28 @@ function assertLiveProofComparisonCounts(proof: LiveProofArtifact): void {
 }
 
 /**
+ * Verifies that aggregate comparison status and next action match the pointers.
+ *
+ * @param {LiveProofArtifact} proof
+ * @returns {void}
+ */
+function assertLiveProofAggregateSignals(proof: LiveProofArtifact): void {
+  const expectedStatus = deriveLiveProofComparisonStatus(proof.comparisons as Array<{status?: string}>);
+  if (proof.comparisonStatus !== expectedStatus) {
+    throw new Error(
+      `Live proof artifact comparisonStatus expected ${expectedStatus} from comparisons but found ${proof.comparisonStatus}.`,
+    );
+  }
+
+  const expectedAction = expectedLiveProofNextActionCode(expectedStatus);
+  if (proof.nextAction.code !== expectedAction) {
+    throw new Error(
+      `Live proof artifact nextAction.code expected ${expectedAction} for ${expectedStatus} but found ${proof.nextAction.code}.`,
+    );
+  }
+}
+
+/**
  * Reads and validates a live-proof artifact.
  *
  * @param {string} filePath
@@ -137,6 +217,7 @@ function readLiveProof(filePath: string): LiveProofArtifact {
   const proof = JSON.parse(fs.readFileSync(path.resolve(filePath), 'utf8'));
   const validated = assertValidJson(proof, SCHEMAS.liveProof, 'Live proof artifact') as LiveProofArtifact;
   assertLiveProofComparisonCounts(validated);
+  assertLiveProofAggregateSignals(validated);
   return validated;
 }
 
@@ -215,8 +296,11 @@ if (require.main === module) {
 }
 
 export {
+  assertLiveProofAggregateSignals,
   assertLiveProofComparisonCounts,
   countLiveProofComparisons,
+  deriveLiveProofComparisonStatus,
+  expectedLiveProofNextActionCode,
   formatLiveProof,
   main,
   parseArgs,
