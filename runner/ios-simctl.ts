@@ -735,7 +735,7 @@ async function runIosSimctlCapture({
         const terminateResult = await driver.terminateBundle(bundleId);
         raw[terminateResult.rawFileName] = formatIosSimctlRawOutput(terminateResult);
         const terminateOutput = `${terminateResult.stdout}\n${terminateResult.stderr}`;
-        const notRunning = /not running|No such process|The operation couldn't be completed/iu.test(terminateOutput);
+        const notRunning = /not running|No such process|found nothing to terminate|The operation couldn't be completed/iu.test(terminateOutput);
         const terminatePassed = terminateResult.exitCode === 0 || notRunning;
         checks.push({
           name: 'ios_app_terminated',

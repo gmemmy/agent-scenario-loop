@@ -360,7 +360,7 @@ test('captures stored iOS profile events from app data container', async (t: Tes
         stdout: `${dataContainer}\n`,
       },
       'simctl terminate A692ED28-893E-453F-8866-C69331AE757F dev.agent-scenario-loop.example': {
-        stderr: 'The operation couldn\'t be completed. No such process\n',
+        stderr: 'Simulator device failed to terminate dev.agent-scenario-loop.example.\nfound nothing to terminate\n',
         exitCode: 3,
       },
       'simctl launch A692ED28-893E-453F-8866-C69331AE757F dev.agent-scenario-loop.example': {
