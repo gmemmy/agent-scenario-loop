@@ -403,6 +403,12 @@ function assertPackageScriptDriftFails({
     '--out artifacts/asl/android/stale',
     '--run-id stale-android',
   ].join(' ');
+  packageJson.scripts['asl:android:live'] = [
+    'asl-live-android',
+    '--config asl.config.json',
+    '--scenario scenarios/mobile/account-overview.json',
+    '--out artifacts/asl/android-live',
+  ].join(' ');
   writeJson(packagePath, packageJson);
 
   const outDir = path.join(appRoot, 'artifacts', 'asl', 'project-validation-drift');
@@ -423,7 +429,7 @@ function assertPackageScriptDriftFails({
 
   const validation = readJson(path.join(outDir, 'project-validation.json')) as Record<string, any>;
   assert.equal(validation.status, 'failed');
-  assert.deepEqual(validation.scripts.mismatchedPackageJsonScripts, ['asl:profile:android']);
+  assert.deepEqual(validation.scripts.mismatchedPackageJsonScripts, ['asl:profile:android', 'asl:android:live']);
   assert.equal(
     validation.nextActions.some((action: { code: string }) => action.code === 'merge_package_scripts'),
     true,
