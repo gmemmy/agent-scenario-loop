@@ -16,11 +16,13 @@
     "artifactRoot": "artifacts",
     "iosArtifactsRoot": "artifacts/ios",
     "androidArtifactsRoot": "artifacts/android",
-    "scenarioRoot": "examples/scenarios/ios"
+    "scenarioRoot": "examples/scenarios/mobile",
+    "iosScenarioRoot": "examples/scenarios/ios",
+    "androidScenarioRoot": "examples/scenarios/mobile"
   },
   "drivers": {
-    "default": "xcodebuildmcp",
-    "supported": ["xcodebuildmcp"]
+    "default": "fixture-log-ingest",
+    "supported": ["fixture-log-ingest", "xcodebuildmcp", "ios-simctl", "adb"]
   },
   "versionControl": {
     "commit": [
@@ -32,6 +34,7 @@
     ],
     "ignore": [
       "artifacts/ios/**",
+      "artifacts/android/**",
       "raw simulator recordings, screenshots, and ephemeral profiler exports"
     ]
   }

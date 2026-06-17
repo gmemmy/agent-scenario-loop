@@ -164,6 +164,7 @@ const REQUIRED_CONFIG_STRING_FIELDS: string[][] = [
   ['paths', 'artifactRoot'],
   ['paths', 'iosArtifactsRoot'],
   ['paths', 'androidArtifactsRoot'],
+  ['paths', 'scenarioRoot'],
 ];
 
 const REQUIRED_PLATFORM_SCRIPT_PAIRS: Array<[string, string]> = [
