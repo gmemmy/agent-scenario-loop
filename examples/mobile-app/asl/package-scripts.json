@@ -12,7 +12,7 @@
   "asl:argent:android": "asl-argent --platform android ${ASL_ARGENT_BIN:+--argent $ASL_ARGENT_BIN} --scenario scenarios/mobile/app-startup.json --app ${ASL_ANDROID_APP_ID:-dev.agentscenarioloop.example} --device ${ASL_ANDROID_SERIAL:-emulator-5554} --out artifacts/asl/argent-android --run-id app-startup-android-argent",
   "asl:profile:ios:live": "asl-profile-ios --config asl.config.json --scenario scenarios/ios/app-startup.json --simctl-capture --profile-session --profile-session-storage --launch --wait-ms 5000 --comparison-lane app-startup-ios-live --out artifacts/asl/ios --run-id app-startup-ios-live",
   "asl:profile:android:live": "asl-profile-android --config asl.config.json --scenario scenarios/android/app-startup.json --adb-capture --profile-session --clear-logcat --launch --wait-ms 5000 --comparison-lane app-startup-android-live --out artifacts/asl/android --run-id app-startup-android-live",
-  "asl:compare:ios": "asl-compare-latest --root artifacts/asl/ios --scenario app-startup --current <run-dir> --out artifacts/asl/ios/comparisons/app-startup --fail-on-regression",
-  "asl:compare:android": "asl-compare-latest --root artifacts/asl/android --scenario app-startup --current <run-dir> --out artifacts/asl/android/comparisons/app-startup --fail-on-regression",
-  "asl:live-proof": "asl-live-proof --file <live-proof.json> --fail-on-regression"
+  "asl:compare:ios": "asl-compare-latest --root artifacts/asl/ios --scenario app-startup --current ${ASL_COMPARE_IOS_CURRENT:?set_ASL_COMPARE_IOS_CURRENT} --out artifacts/asl/ios/comparisons/app-startup --fail-on-regression",
+  "asl:compare:android": "asl-compare-latest --root artifacts/asl/android --scenario app-startup --current ${ASL_COMPARE_ANDROID_CURRENT:?set_ASL_COMPARE_ANDROID_CURRENT} --out artifacts/asl/android/comparisons/app-startup --fail-on-regression",
+  "asl:live-proof": "asl-live-proof --file ${ASL_LIVE_PROOF:?set_ASL_LIVE_PROOF} --fail-on-regression"
 }

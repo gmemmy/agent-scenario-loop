@@ -806,6 +806,11 @@ function main(): void {
     assert.match(initializedScripts['asl:argent:android'], /checkout-submit-android-argent/u);
     assert.match(initializedScripts['asl:compare:ios'], /--fail-on-regression/u);
     assert.match(initializedScripts['asl:compare:android'], /--fail-on-regression/u);
+    assert.match(initializedScripts['asl:compare:ios'], /\$\{ASL_COMPARE_IOS_CURRENT:\?set_ASL_COMPARE_IOS_CURRENT\}/u);
+    assert.match(initializedScripts['asl:compare:android'], /\$\{ASL_COMPARE_ANDROID_CURRENT:\?set_ASL_COMPARE_ANDROID_CURRENT\}/u);
+    assert.match(initializedScripts['asl:live-proof'], /\$\{ASL_LIVE_PROOF:\?set_ASL_LIVE_PROOF\}/u);
+    assert.equal(Object.values(initializedScripts).some((script) => String(script).includes('<run-dir>')), false);
+    assert.equal(Object.values(initializedScripts).some((script) => String(script).includes('<live-proof.json>')), false);
     assert.match(initializedScripts['asl:profile:ios:live'], /checkout-submit-ios-live/u);
     assert.match(initializedScripts['asl:profile:ios:live'], /--comparison-lane checkout-submit-ios-live/u);
     assert.match(initializedScripts['asl:profile:android:live'], /checkout-submit-android-live/u);

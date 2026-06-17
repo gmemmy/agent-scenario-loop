@@ -35,6 +35,8 @@ Project validation checks the app-side profile-session helper, package-script sn
 
 Project validation also checks whether `.gitignore` includes the generated `asl/gitignore-snippet` patterns for runtime artifacts, traces, and local proof captures. Missing patterns are warnings with an `ignore_runtime_artifacts` next action; they do not block setup, but they should be fixed before running live scenarios repeatedly.
 
+The generated compare and live-proof scripts require `ASL_COMPARE_IOS_CURRENT`, `ASL_COMPARE_ANDROID_CURRENT`, or `ASL_LIVE_PROOF` so agents pass explicit artifact paths instead of leaving shell-sensitive placeholders in package scripts.
+
 ## Templates
 
 You can also copy these files manually and rename them as needed:
