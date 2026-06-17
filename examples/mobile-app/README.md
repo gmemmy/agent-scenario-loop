@@ -88,7 +88,7 @@ If a selected Xcode beta cannot run the current Expo/RN toolchain cleanly, point
 - `package.json`, `app.json`, `tsconfig.json`: private Expo app configuration
 - `metro.config.js`: allows the app to import the package helper from the repo/package root
 - `asl.config.json`: runner config for example app artifact output
-- `asl/package-scripts.json`: consumer-facing package-script snippets, including portable agent-device interaction proof commands
+- `asl/package-scripts.json`: consumer-facing package-script snippets, including portable agent-device and Argent interaction proof commands
 - `runner-manifests/*.json`: project-local runner and provider capability manifests
 - `scripts/asl-capture-profiler-provider.mjs`: deterministic provider command used by provider-profile scripts
 - `scenarios/mobile/app-startup.json`: portable consumer-validation scenario
@@ -114,9 +114,15 @@ pnpm asl:profile:ios
 pnpm asl:profile:android
 pnpm asl:profile:ios:provider
 pnpm asl:profile:android:provider
+pnpm asl:agent-device:ios
+pnpm asl:agent-device:android
+pnpm asl:argent:ios
+pnpm asl:argent:android
 ```
 
 The `*:provider` scripts execute `runner-manifests/evidence-provider.json`, which runs `scripts/asl-capture-profiler-provider.mjs` and inventories generated profiler, memory, and network evidence in `manifest.artifacts.evidenceAttachments`.
+
+The `asl:agent-device:*` and `asl:argent:*` scripts are portable interaction proof lanes. They require the corresponding external tool and a running device or simulator, but they write the same ASL health, verdict, raw, capture, and summary artifacts.
 
 Live proof and inspection scripts are also available from the app directory:
 

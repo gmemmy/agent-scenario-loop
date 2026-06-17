@@ -762,6 +762,8 @@ function main(): void {
     assert.deepEqual(Object.keys(initializedScripts).sort(), [
       'asl:agent-device:android',
       'asl:agent-device:ios',
+      'asl:argent:android',
+      'asl:argent:ios',
       'asl:check:android',
       'asl:check:ios',
       'asl:compare:android',
@@ -791,6 +793,8 @@ function main(): void {
     assert.match(initializedScripts['asl:profile:android:provider'], /--comparison-lane checkout-submit-android-provider/u);
     assert.match(initializedScripts['asl:agent-device:ios'], /checkout-submit-ios-agent-device/u);
     assert.match(initializedScripts['asl:agent-device:android'], /checkout-submit-android-agent-device/u);
+    assert.match(initializedScripts['asl:argent:ios'], /checkout-submit-ios-argent/u);
+    assert.match(initializedScripts['asl:argent:android'], /checkout-submit-android-argent/u);
     assert.match(initializedScripts['asl:compare:ios'], /--fail-on-regression/u);
     assert.match(initializedScripts['asl:compare:android'], /--fail-on-regression/u);
     assert.match(initializedScripts['asl:profile:ios:live'], /checkout-submit-ios-live/u);

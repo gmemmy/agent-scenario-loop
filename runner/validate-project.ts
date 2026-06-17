@@ -85,6 +85,8 @@ const REQUIRED_PACKAGE_SCRIPT_NAMES = [
   'asl:profile:android',
   'asl:agent-device:ios',
   'asl:agent-device:android',
+  'asl:argent:ios',
+  'asl:argent:android',
   'asl:profile:ios:live',
   'asl:profile:android:live',
   'asl:compare:ios',
@@ -128,6 +130,16 @@ const REQUIRED_PACKAGE_SCRIPT_SHAPES = {
   'asl:agent-device:android': {
     command: 'asl-agent-device',
     flags: ['--platform', '--scenario', '--app', '--open', '--out', '--run-id'],
+    values: { '--platform': 'android' },
+  },
+  'asl:argent:ios': {
+    command: 'asl-argent',
+    flags: ['--platform', '--scenario', '--app', '--device', '--out', '--run-id'],
+    values: { '--platform': 'ios' },
+  },
+  'asl:argent:android': {
+    command: 'asl-argent',
+    flags: ['--platform', '--scenario', '--app', '--device', '--out', '--run-id'],
     values: { '--platform': 'android' },
   },
   'asl:profile:ios:live': {

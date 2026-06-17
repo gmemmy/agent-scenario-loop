@@ -60,4 +60,4 @@ If your project adds an aggregate batch runner that writes `live-proof.json`, in
 asl-live-proof --file artifacts/asl/<platform>/_live-proof/<run-id>/live-proof.json --fail-on-regression
 ```
 
-The package-script snippets in `asl/package-scripts.json` include fixture, portable agent-device interaction proof, live profile, compare, and proof-inspection commands. Merge the snippets you use into your app `package.json` so future agents can run the loop without rediscovering command arguments.
+The package-script snippets in `asl/package-scripts.json` include fixture, portable agent-device and Argent interaction proof, live profile, compare, and proof-inspection commands. Merge the snippets you use into your app `package.json` so future agents can run the loop without rediscovering command arguments.
