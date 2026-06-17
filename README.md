@@ -1,12 +1,10 @@
 # Agent Scenario Loop
 
-I built Agent Scenario Loop after running into the same problem repeatedly: the tools were getting better at executing work, but the evidence around that work kept fragmenting.
+Agent Scenario Loop is an evidence-first scenario orchestration layer for agent-driven mobile development.
 
-I could use one tool to drive an app, another to collect logs, another to inspect accessibility state, another to capture traces, and another to summarize what happened. Execution was not the missing piece.
+It lets teams define durable app scenarios once, run them through whichever agent, device, and profiling runners fit the job, collect stable evidence artifacts, compare before/after behavior, and give coding agents proof of improvement or regression.
 
-The missing piece was a durable place for scenarios, evidence, and comparisons to live after a run ended.
-
-Agent Scenario Loop is a scenario-centric orchestration and evidence system that sits above agent runners. It lets you define application scenarios, run them with whichever tools make sense, preserve evidence from every run, and compare outcomes over time.
+Execution tools can change. The scenario and evidence contract should not.
 
 **Bring your own runner. Keep your scenarios. Keep your evidence.**
 
@@ -108,7 +106,7 @@ Agent Scenario Loop is not:
 
 Those tools can still execute or observe the work. Agent Scenario Loop gives the scenario, evidence, and history a stable home.
 
-## Current Status
+## Package Guarantees
 
 Current package guarantees are tracked in [Contracts](docs/contracts.md), [Runner docs](runner/README.md), and the release checks exercised by:
 

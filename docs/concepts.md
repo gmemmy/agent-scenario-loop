@@ -1,14 +1,12 @@
 # Concepts
 
-I built Agent Scenario Loop after noticing the same pattern across agent-driven app work.
+Agent Scenario Loop exists because agent-driven app work rarely belongs to one tool.
 
-People already had tools that could drive applications: agent runners, adb automation, accessibility tooling, Xcode instrumentation, Maestro, Detox, Appium, profilers, and internal automation frameworks. Each tool was useful. Real application work often needed more than one of them.
+One runner may edit code. Another may build the app. Another may drive Android. Another may drive iOS. Others may collect logs, screenshots, accessibility output, profiler traces, memory evidence, network captures, or summaries.
 
-Execution was not the problem.
+Execution is not the missing piece.
 
-The problem began after execution: coordinating tools inside one scenario, collecting evidence from every run, preserving that evidence, comparing outcomes over time, and avoiding workflows that only survived inside one runner.
-
-Agent Scenario Loop exists to answer those problems. It coordinates scenarios, runners, and evidence so the project keeps a durable record of what happened.
+The missing piece is a durable place for scenarios, evidence, and comparisons to live after any one runner finishes. Agent Scenario Loop coordinates scenarios, runners, and evidence so a project keeps a stable record of what happened across tools and over time.
 
 ## What is an agent runner?
 
