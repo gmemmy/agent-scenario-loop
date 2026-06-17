@@ -280,7 +280,7 @@ To verify the full release gate before publishing:
 pnpm release:check
 ```
 
-That command runs the test suite, packs the repo, installs the tarball into a temporary project, runs installed binaries against packaged examples, runs the installed Android and iOS example-live proofs through fake device executors, checks root exports, verifies that schemas, examples, templates, docs, package-script snippets, and the app helper ship in the package, then runs the packed-package consumer rehearsal. `npm publish` runs the same gate through `prepublishOnly`.
+That command runs the test suite, verifies release metadata and generated-state exclusions, packs the repo, installs the tarball into a temporary project, runs installed binaries against packaged examples, runs the installed Android and iOS example-live proofs through fake device executors, checks root exports, verifies that schemas, examples, templates, docs, package-script snippets, and the app helper ship in the package, then runs the packed-package consumer rehearsal. `npm publish` runs the same gate through `prepublishOnly`.
 
 To rehearse adoption in an existing app-shaped project from the packed tarball:
 

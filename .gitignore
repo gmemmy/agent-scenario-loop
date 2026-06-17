@@ -4,7 +4,9 @@ core/artifacts/
 artifacts/
 examples/mobile-app/.expo/
 examples/mobile-app/android/
+examples/mobile-app/artifacts/
 examples/mobile-app/ios/
+examples/mobile-app/node_modules/
 *.trace
 *.mp4
 *.png
