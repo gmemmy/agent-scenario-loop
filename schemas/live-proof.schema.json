@@ -52,6 +52,12 @@
         "$ref": "#/$defs/interactionProofPointer"
       }
     },
+    "skippedInteractionProofs": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/skippedInteractionProofPointer"
+      }
+    },
     "comparisons": {
       "type": "array",
       "items": {
@@ -171,6 +177,44 @@
               }
             }
           }
+        }
+      }
+    },
+    "skippedInteractionProofPointer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["label", "runnerId", "scenarioId", "runId", "reason", "nextAction"],
+      "properties": {
+        "label": {
+          "type": "string"
+        },
+        "runnerId": {
+          "type": "string"
+        },
+        "scenarioId": {
+          "type": "string"
+        },
+        "runId": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "nextAction": {
+          "$ref": "#/$defs/skippedInteractionProofNextAction"
+        }
+      }
+    },
+    "skippedInteractionProofNextAction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "summary"],
+      "properties": {
+        "code": {
+          "type": "string"
+        },
+        "summary": {
+          "type": "string"
         }
       }
     },
@@ -318,7 +362,7 @@
       "properties": {
         "code": {
           "type": "string",
-          "enum": ["establish_baseline", "inspect_inconclusive", "inspect_mixed", "inspect_regressions", "inspect_summary"]
+          "enum": ["establish_baseline", "inspect_failed_run", "inspect_inconclusive", "inspect_mixed", "inspect_regressions", "inspect_summary"]
         },
         "summary": {
           "type": "string"

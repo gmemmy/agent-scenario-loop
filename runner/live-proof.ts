@@ -40,6 +40,17 @@ type LiveProofArtifact = {
     summaryPath: string;
     verdictStatus: string;
   }>;
+  skippedInteractionProofs?: Array<{
+    label: string;
+    nextAction: {
+      code: string;
+      summary: string;
+    };
+    reason: string;
+    runId: string;
+    runnerId: string;
+    scenarioId: string;
+  }>;
   platform: string;
   preflight: {
     healthStatus: string;
@@ -190,12 +201,20 @@ function deriveLiveProofComparisonStatus(comparisons: Array<{status?: string}>):
 }
 
 /**
- * Resolves the expected next-action code for an aggregate comparison status.
+ * Resolves the expected next-action code for an aggregate proof status.
  *
  * @param {LiveProofAggregateStatus} comparisonStatus
+ * @param {string} [status]
  * @returns {LiveProofNextActionCode}
  */
-function expectedLiveProofNextActionCode(comparisonStatus: LiveProofAggregateStatus): LiveProofNextActionCode {
+function expectedLiveProofNextActionCode(
+  comparisonStatus: LiveProofAggregateStatus,
+  status = 'passed',
+): LiveProofNextActionCode {
+  if (status === 'failed') {
+    return 'inspect_failed_run';
+  }
+
   if (comparisonStatus === 'regressed') {
     return 'inspect_regressions';
   }
@@ -242,10 +261,10 @@ function assertLiveProofAggregateSignals(proof: LiveProofArtifact): void {
     );
   }
 
-  const expectedAction = expectedLiveProofNextActionCode(expectedStatus);
+  const expectedAction = expectedLiveProofNextActionCode(expectedStatus, proof.status);
   if (proof.nextAction.code !== expectedAction) {
     throw new Error(
-      `Live proof artifact nextAction.code expected ${expectedAction} for ${expectedStatus} but found ${proof.nextAction.code}.`,
+      `Live proof artifact nextAction.code expected ${expectedAction} for ${proof.status}/${expectedStatus} but found ${proof.nextAction.code}.`,
     );
   }
 }
@@ -325,6 +344,10 @@ function formatLiveProof(proof: LiveProofArtifact): string {
     `Interaction proofs: ${proof.interactionProofs?.length ?? 0}`,
     ...(proof.interactionProofs ?? []).map((proofPointer) => (
       `- ${proofPointer.label} (${proofPointer.runnerId}/${proofPointer.scenarioId}/${proofPointer.runId}): health=${proofPointer.healthStatus} verdict=${proofPointer.verdictStatus}${formatInteractionProofCaptures(proofPointer)}`
+    )),
+    `Skipped interaction proofs: ${proof.skippedInteractionProofs?.length ?? 0}`,
+    ...(proof.skippedInteractionProofs ?? []).map((proofPointer) => (
+      `- ${proofPointer.label} (${proofPointer.runnerId}/${proofPointer.scenarioId}/${proofPointer.runId}): ${proofPointer.reason} next=${proofPointer.nextAction.code}`
     )),
     `Comparisons: ${proof.comparisons.length}`,
     `Comparison counts: better=${proof.comparisonCounts.better} worse=${proof.comparisonCounts.worse} unchanged=${proof.comparisonCounts.unchanged} mixed=${proof.comparisonCounts.mixed} inconclusive=${proof.comparisonCounts.inconclusive} skipped=${proof.comparisonCounts.skipped}`,

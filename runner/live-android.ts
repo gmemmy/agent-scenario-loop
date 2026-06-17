@@ -24,6 +24,7 @@ type AndroidGenericLiveResult = {
   preflightDir: string;
   profileDir: string;
 };
+type SkippedInteractionProof = import('./live-proof-summary').LiveProofSkippedInteractionProofPointer;
 
 /**
  * Prints CLI usage.
@@ -167,6 +168,70 @@ function assertPassedRun({
 }
 
 /**
+ * Reports whether profile evidence is trusted enough to run sidecar interaction proofs.
+ *
+ * @param {{health: Record<string, unknown>, verdict: Record<string, unknown>}} run
+ * @returns {boolean}
+ */
+function isTrustedProfileRun({
+  health,
+  verdict,
+}: {
+  health: Record<string, unknown>;
+  verdict: Record<string, unknown>;
+}): boolean {
+  return health.healthStatus === 'passed' && verdict.verdictStatus === 'passed';
+}
+
+/**
+ * Builds skipped sidecar pointers for requested runners when the profile gate failed.
+ *
+ * @param {{requestedRunners: string[], runIdsByRunner: Record<string, string>, scenarioId: string, profileHealthStatus: unknown, profileVerdictStatus: unknown}} options
+ * @returns {SkippedInteractionProof[]}
+ */
+function buildSkippedInteractionProofs({
+  profileHealthStatus,
+  profileVerdictStatus,
+  requestedRunners,
+  runIdsByRunner,
+  scenarioId,
+}: {
+  profileHealthStatus: unknown;
+  profileVerdictStatus: unknown;
+  requestedRunners: string[];
+  runIdsByRunner: Record<string, string>;
+  scenarioId: string;
+}): SkippedInteractionProof[] {
+  const reason = `Profile gate failed with health=${String(profileHealthStatus ?? 'unknown')} verdict=${String(profileVerdictStatus ?? 'unknown')}; sidecar interaction proof was skipped because timing and runner evidence would not be trustworthy.`;
+  return requestedRunners.map((runnerId) => ({
+    label: `interaction-${runnerId}`,
+    nextAction: {
+      code: 'fix_profile_gate',
+      summary: 'Inspect the profile health and verdict before rerunning sidecar interaction proofs.',
+    },
+    reason,
+    runId: runIdsByRunner[runnerId] ?? `${scenarioId}-android-${runnerId}`,
+    runnerId,
+    scenarioId,
+  }));
+}
+
+/**
+ * Throws after aggregate writing when the live proof itself failed.
+ *
+ * @param {AndroidGenericLiveResult} result
+ * @returns {void}
+ */
+function assertAggregatePassed(result: AndroidGenericLiveResult): void {
+  const proof = readJson(result.aggregateSummary.liveProofPath);
+  if (proof.status === 'passed') {
+    return;
+  }
+
+  throw new Error(`Android live proof failed. Inspect ${result.aggregateSummary.summaryPath}.`);
+}
+
+/**
  * Throws after aggregate proof writing when fail-on-regression should gate the run.
  *
  * @param {{result: AndroidGenericLiveResult, comparisons: Array<{label: string, status: string}>}} options
@@ -221,6 +286,10 @@ async function runAndroidLiveProof(
     ...(isEnabledFlag(args['agent-device-proof']) ? ['agent-device'] : []),
     ...(isEnabledFlag(args['argent-proof']) ? ['argent'] : []),
   ];
+  const runIdsByRunner = {
+    'agent-device': agentDeviceRunId,
+    argent: argentRunId,
+  };
   const comparisonLane = enabledInteractionRunners.length > 0
     ? `${scenarioId}-android-live+${enabledInteractionRunners.join('+')}`
     : `${scenarioId}-android-live`;
@@ -273,9 +342,20 @@ async function runAndroidLiveProof(
     ...(options.delay ? { delay: options.delay } : {}),
     ...(options.executor ? { executor: options.executor } : {}),
   });
-  assertPassedRun({ health: profile.health, kind: 'profile', runDir: profile.runDir, verdict: profile.verdict });
+  const profileTrusted = isTrustedProfileRun({ health: profile.health, verdict: profile.verdict });
 
-  if (isEnabledFlag(args['agent-device-proof'])) {
+  let skippedInteractionProofs: SkippedInteractionProof[] = [];
+  if (!profileTrusted) {
+    skippedInteractionProofs = buildSkippedInteractionProofs({
+      profileHealthStatus: profile.health.healthStatus,
+      profileVerdictStatus: profile.verdict.verdictStatus,
+      requestedRunners: enabledInteractionRunners,
+      runIdsByRunner,
+      scenarioId,
+    });
+  }
+
+  if (profileTrusted && isEnabledFlag(args['agent-device-proof'])) {
     const capture = await runAgentDeviceCapture({
       ...(typeof args['agent-device'] === 'string' ? { agentDevicePath: args['agent-device'] } : {}),
       app: packageName,
@@ -289,7 +369,6 @@ async function runAndroidLiveProof(
       ...(typeof args['agent-device-session'] === 'string' ? { session: args['agent-device-session'] } : {}),
       waitMs: parsePositiveInteger(args['agent-device-wait-ms'], 1000),
     });
-    assertPassedRun({ health: capture.health, kind: 'agent-device', runDir: capture.runDir });
     interactionProofs.push({
       label: 'interaction-agent-device',
       runDir: capture.runDir,
@@ -299,7 +378,7 @@ async function runAndroidLiveProof(
     });
   }
 
-  if (isEnabledFlag(args['argent-proof'])) {
+  if (profileTrusted && isEnabledFlag(args['argent-proof'])) {
     const argentBaseArgs = parseArgentBaseArgs(process.env.ASL_ARGENT_BASE_ARGS);
     const capture = await runArgentCapture({
       app: packageName,
@@ -314,7 +393,6 @@ async function runAndroidLiveProof(
       runId: argentRunId,
       scenario,
     });
-    assertPassedRun({ health: capture.health, kind: 'argent', runDir: capture.runDir });
     interactionProofs.push({
       label: 'interaction-argent',
       runDir: capture.runDir,
@@ -330,7 +408,7 @@ async function runAndroidLiveProof(
     runId: profileRunId,
     scenarioId,
   }];
-  const comparisons = isEnabledFlag(args['compare-latest'])
+  const comparisons = profileTrusted && isEnabledFlag(args['compare-latest'])
     ? await compareLiveProfilesToLatest({ outputDir, profiles })
     : [];
   const aggregateSummary = await writeLiveProofSummary({
@@ -342,6 +420,7 @@ async function runAndroidLiveProof(
     preflightRunId,
     profiles,
     runId: aggregateRunId,
+    skippedInteractionProofs,
   });
   const result = {
     aggregateSummary,
@@ -352,6 +431,7 @@ async function runAndroidLiveProof(
   if (isEnabledFlag(args['fail-on-regression'])) {
     assertNoRegressedComparisons({ comparisons, result });
   }
+  assertAggregatePassed(result);
   return result;
 }
 
@@ -387,8 +467,11 @@ if (require.main === module) {
 
 export {
   assertNoRegressedComparisons,
+  assertAggregatePassed,
   assertPassedRun,
   buildRunId,
+  buildSkippedInteractionProofs,
+  isTrustedProfileRun,
   main,
   normalizeRunSuffix,
   readJson,

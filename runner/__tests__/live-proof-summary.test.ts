@@ -9,6 +9,7 @@ const {
   buildLiveProofComparisonCounts,
   buildLiveProofComparisonStatus,
   buildLiveProofNextAction,
+  buildLiveProofStatus,
   formatComparisonMetricSummary,
   writeLiveProofSummary,
 } = require('../live-proof-summary');
@@ -68,6 +69,7 @@ test('counts live proof comparison outcomes', () => {
 });
 
 test('maps aggregate live proof statuses to next actions', () => {
+  assert.equal(buildLiveProofNextAction('unchanged', 'failed').code, 'inspect_failed_run');
   assert.equal(buildLiveProofNextAction('regressed').code, 'inspect_regressions');
   assert.equal(buildLiveProofNextAction('baseline_missing').code, 'establish_baseline');
   assert.equal(buildLiveProofNextAction('inconclusive').code, 'inspect_inconclusive');
@@ -75,6 +77,26 @@ test('maps aggregate live proof statuses to next actions', () => {
   assert.equal(buildLiveProofNextAction('improved').code, 'inspect_summary');
   assert.equal(buildLiveProofNextAction('unchanged').code, 'inspect_summary');
   assert.equal(buildLiveProofNextAction('not_compared').code, 'inspect_summary');
+});
+
+test('derives failed aggregate status from failed profile gates and skipped sidecars', () => {
+  assert.equal(
+    buildLiveProofStatus({
+      interactionProofs: [],
+      preflight: { healthStatus: 'passed', verdictStatus: 'not_evaluated' },
+      profiles: [{ healthStatus: 'passed', verdictStatus: 'failed' }],
+    }),
+    'failed',
+  );
+  assert.equal(
+    buildLiveProofStatus({
+      interactionProofs: [],
+      preflight: { healthStatus: 'passed', verdictStatus: 'not_evaluated' },
+      profiles: [{ healthStatus: 'passed', verdictStatus: 'passed' }],
+      skippedInteractionProofCount: 1,
+    }),
+    'failed',
+  );
 });
 
 test('formats comparison metric summaries for aggregate markdown', () => {
@@ -110,6 +132,60 @@ test('formats comparison metric summaries for aggregate markdown', () => {
     }),
     ' (metrics better=1 worse=1 unchanged=6 inconclusive=0; notable: cycle p50 better (-22ms), close p50 worse (6ms))',
   );
+});
+
+test('writes failed aggregate proofs with skipped interaction proof pointers', async (t: TestContext) => {
+  const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-live-proof-summary-failed-'));
+  t.after(async () => {
+    await fsp.rm(tempDir, { recursive: true, force: true });
+  });
+
+  const preflightDir = path.join(tempDir, '_preflight', 'ios-live-preflight');
+  const profileDir = path.join(tempDir, 'app-startup', 'ios-live-startup');
+  await fsp.mkdir(preflightDir, { recursive: true });
+  await fsp.mkdir(profileDir, { recursive: true });
+  await fsp.writeFile(path.join(preflightDir, 'agent-summary.md'), '# preflight\n', 'utf8');
+  await fsp.writeFile(path.join(preflightDir, 'health.json'), '{"healthStatus":"passed"}\n', 'utf8');
+  await fsp.writeFile(path.join(preflightDir, 'verdict.json'), '{"verdictStatus":"not_evaluated"}\n', 'utf8');
+  await fsp.writeFile(path.join(profileDir, 'agent-summary.md'), '# profile\n', 'utf8');
+  await fsp.writeFile(path.join(profileDir, 'health.json'), '{"healthStatus":"passed"}\n', 'utf8');
+  await fsp.writeFile(path.join(profileDir, 'verdict.json'), '{"verdictStatus":"failed"}\n', 'utf8');
+
+  const result = await writeLiveProofSummary({
+    comparisons: [],
+    outputDir: tempDir,
+    platform: 'ios',
+    preflightDir,
+    preflightRunId: 'ios-live-preflight',
+    profiles: [
+      {
+        label: 'startup',
+        runDir: profileDir,
+        runId: 'ios-live-startup',
+        scenarioId: 'app-startup',
+      },
+    ],
+    runId: 'ios-live-proof',
+    skippedInteractionProofs: [
+      {
+        label: 'interaction-argent',
+        nextAction: {
+          code: 'fix_profile_gate',
+          summary: 'Inspect the profile first.',
+        },
+        reason: 'Profile verdict failed.',
+        runId: 'app-startup-ios-argent',
+        runnerId: 'argent',
+        scenarioId: 'app-startup',
+      },
+    ],
+  });
+
+  const artifact = JSON.parse(fs.readFileSync(result.liveProofPath, 'utf8'));
+  assert.equal(artifact.status, 'failed');
+  assert.equal(artifact.nextAction.code, 'inspect_failed_run');
+  assert.equal(artifact.skippedInteractionProofs[0].runnerId, 'argent');
+  assert.match(fs.readFileSync(result.summaryPath, 'utf8'), /## Skipped Interaction Proofs/u);
 });
 
 test('writes optional interaction proof pointers into aggregate live proof artifacts', async (t: TestContext) => {

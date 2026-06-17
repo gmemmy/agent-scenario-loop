@@ -27,6 +27,18 @@ type LiveProofInteractionProofPointer = {
   verdictStatus?: string;
 };
 
+type LiveProofSkippedInteractionProofPointer = {
+  label: string;
+  nextAction: {
+    code: string;
+    summary: string;
+  };
+  reason: string;
+  runId: string;
+  runnerId: string;
+  scenarioId: string;
+};
+
 type LiveProofInteractionProofCaptures = {
   screenshots: string[];
 };
@@ -65,6 +77,7 @@ type LiveProofArtifact = {
   outputDir: string;
   platform: LiveProofPlatform;
   interactionProofs?: Array<LiveProofInteractionProofPointer & { summaryPath: string }>;
+  skippedInteractionProofs?: LiveProofSkippedInteractionProofPointer[];
   preflight: {
     healthStatus: string;
     runDir: string;
@@ -99,7 +112,7 @@ type LiveProofComparisonCounts = {
 };
 
 type LiveProofNextAction = {
-  code: 'establish_baseline' | 'inspect_inconclusive' | 'inspect_mixed' | 'inspect_regressions' | 'inspect_summary';
+  code: 'establish_baseline' | 'inspect_failed_run' | 'inspect_inconclusive' | 'inspect_mixed' | 'inspect_regressions' | 'inspect_summary';
   summary: string;
 };
 
@@ -118,6 +131,7 @@ type WriteLiveProofSummaryOptions = {
   preflightRunId: string;
   profiles: LiveProofProfilePointer[];
   runId: string;
+  skippedInteractionProofs?: LiveProofSkippedInteractionProofPointer[];
 };
 
 /**
@@ -176,20 +190,28 @@ function buildLiveProofSummary({
   interactionProofCount = 0,
   platform,
   profileCount,
+  skippedInteractionProofCount = 0,
+  status = 'passed',
 }: {
   comparisonCount: number;
   comparisonStatus: LiveProofComparisonStatus;
   interactionProofCount?: number;
   platform: string;
   profileCount: number;
+  skippedInteractionProofCount?: number;
+  status?: 'failed' | 'passed';
 }): string {
+  const statusText = status === 'passed' ? 'passed' : 'failed';
   const comparisonText = comparisonCount > 0
     ? `with ${comparisonCount} comparison result(s): ${comparisonStatus}`
     : 'without comparison results';
   const interactionText = interactionProofCount > 0
     ? ` and ${interactionProofCount} interaction proof(s)`
     : '';
-  return `${platform} live proof passed ${profileCount} profile run(s)${interactionText} ${comparisonText}.`;
+  const skippedText = skippedInteractionProofCount > 0
+    ? `; skipped ${skippedInteractionProofCount} interaction proof(s)`
+    : '';
+  return `${platform} live proof ${statusText} ${profileCount} profile run(s)${interactionText} ${comparisonText}${skippedText}.`;
 }
 
 /**
@@ -262,7 +284,17 @@ function buildLiveProofComparisonCounts(
  * @param {LiveProofComparisonStatus} comparisonStatus
  * @returns {LiveProofNextAction}
  */
-function buildLiveProofNextAction(comparisonStatus: LiveProofComparisonStatus): LiveProofNextAction {
+function buildLiveProofNextAction(
+  comparisonStatus: LiveProofComparisonStatus,
+  status: 'failed' | 'passed' = 'passed',
+): LiveProofNextAction {
+  if (status === 'failed') {
+    return {
+      code: 'inspect_failed_run',
+      summary: 'One or more live proof gates failed; inspect failed profile or interaction summaries before making optimization claims.',
+    };
+  }
+
   if (comparisonStatus === 'regressed') {
     return {
       code: 'inspect_regressions',
@@ -295,6 +327,48 @@ function buildLiveProofNextAction(comparisonStatus: LiveProofComparisonStatus): 
     code: 'inspect_summary',
     summary: 'Scenario health passed; inspect the live-proof summary and linked evidence before reporting the result.',
   };
+}
+
+/**
+ * Reports whether a referenced run is healthy enough to trust as proof.
+ *
+ * @param {{healthStatus?: string, verdictStatus?: string}} status
+ * @returns {boolean}
+ */
+function isTrustedLiveRunStatus(status: {healthStatus?: string; verdictStatus?: string}): boolean {
+  return status.healthStatus === 'passed' && (status.verdictStatus === 'passed' || status.verdictStatus === 'not_evaluated');
+}
+
+/**
+ * Derives the aggregate live-proof status from the linked evidence pointers.
+ *
+ * @param {{preflight: {healthStatus?: string, verdictStatus?: string}, profiles: Array<{healthStatus?: string, verdictStatus?: string}>, interactionProofs: Array<{healthStatus?: string, verdictStatus?: string}>, skippedInteractionProofCount?: number}} options
+ * @returns {'failed' | 'passed'}
+ */
+function buildLiveProofStatus({
+  interactionProofs,
+  preflight,
+  profiles,
+  skippedInteractionProofCount = 0,
+}: {
+  interactionProofs: Array<{healthStatus?: string; verdictStatus?: string}>;
+  preflight: {healthStatus?: string; verdictStatus?: string};
+  profiles: Array<{healthStatus?: string; verdictStatus?: string}>;
+  skippedInteractionProofCount?: number;
+}): 'failed' | 'passed' {
+  if (!isTrustedLiveRunStatus(preflight)) {
+    return 'failed';
+  }
+
+  if (profiles.some((profile) => profile.healthStatus !== 'passed' || profile.verdictStatus !== 'passed')) {
+    return 'failed';
+  }
+
+  if (interactionProofs.some((proof) => !isTrustedLiveRunStatus(proof))) {
+    return 'failed';
+  }
+
+  return skippedInteractionProofCount > 0 ? 'failed' : 'passed';
 }
 
 /**
@@ -380,6 +454,17 @@ function buildLiveProofMarkdown(artifact: LiveProofArtifact): string {
     );
   }
 
+  if (artifact.skippedInteractionProofs?.length) {
+    lines.push(
+      '',
+      '## Skipped Interaction Proofs',
+      '',
+      ...artifact.skippedInteractionProofs.map((proof) => (
+        `- ${proof.label} (${proof.runnerId}/${proof.scenarioId}/${proof.runId}): ${proof.reason} Next action: ${proof.nextAction.code} - ${proof.nextAction.summary}`
+      )),
+    );
+  }
+
   if (artifact.comparisons.length > 0) {
     lines.push(
       '',
@@ -411,58 +496,67 @@ async function writeLiveProofSummary({
   preflightRunId,
   profiles,
   runId,
+  skippedInteractionProofs = [],
 }: WriteLiveProofSummaryOptions): Promise<LiveProofSummaryResult> {
   const liveProofDir = path.join(outputDir, '_live-proof', runId);
   const layout = createArtifactLayout({ outputDir: liveProofDir });
   const comparisonStatus = buildLiveProofComparisonStatus(comparisons);
   const comparisonCounts = buildLiveProofComparisonCounts(comparisons);
+  const preflightStatus = readProfileRunStatus(preflightDir);
+  const profilePointers = profiles.map((profile) => ({
+    ...readProfileRunStatus(profile.runDir),
+    label: profile.label,
+    runDir: profile.runDir,
+    runId: profile.runId,
+    scenarioId: profile.scenarioId,
+    summaryPath: path.join(profile.runDir, 'agent-summary.md'),
+  }));
+  const interactionProofPointers = interactionProofs.map((proof) => {
+    const captures = readInteractionProofCaptures(proof.runDir);
+    return {
+      ...readProfileRunStatus(proof.runDir),
+      ...(captures ? { captures } : {}),
+      label: proof.label,
+      runDir: proof.runDir,
+      runId: proof.runId,
+      runnerId: proof.runnerId,
+      scenarioId: proof.scenarioId,
+      summaryPath: path.join(proof.runDir, 'agent-summary.md'),
+    };
+  });
+  const status = buildLiveProofStatus({
+    interactionProofs: interactionProofPointers,
+    preflight: preflightStatus,
+    profiles: profilePointers,
+    skippedInteractionProofCount: skippedInteractionProofs.length,
+  });
   const artifact: LiveProofArtifact = {
     comparisons,
     comparisonCounts,
     comparisonStatus,
-    nextAction: buildLiveProofNextAction(comparisonStatus),
+    nextAction: buildLiveProofNextAction(comparisonStatus, status),
     outputDir,
     platform,
-    ...(interactionProofs.length > 0
-      ? {
-          interactionProofs: interactionProofs.map((proof) => {
-            const captures = readInteractionProofCaptures(proof.runDir);
-            return {
-              ...readProfileRunStatus(proof.runDir),
-              ...(captures ? { captures } : {}),
-              label: proof.label,
-              runDir: proof.runDir,
-              runId: proof.runId,
-              runnerId: proof.runnerId,
-              scenarioId: proof.scenarioId,
-              summaryPath: path.join(proof.runDir, 'agent-summary.md'),
-            };
-          }),
-        }
-      : {}),
+    ...(interactionProofPointers.length > 0 ? { interactionProofs: interactionProofPointers } : {}),
+    ...(skippedInteractionProofs.length > 0 ? { skippedInteractionProofs } : {}),
     preflight: {
-      ...readProfileRunStatus(preflightDir),
+      ...preflightStatus,
       runDir: preflightDir,
       runId: preflightRunId,
       summaryPath: path.join(preflightDir, 'agent-summary.md'),
     },
-    profiles: profiles.map((profile) => ({
-      ...readProfileRunStatus(profile.runDir),
-      label: profile.label,
-      runDir: profile.runDir,
-      runId: profile.runId,
-      scenarioId: profile.scenarioId,
-      summaryPath: path.join(profile.runDir, 'agent-summary.md'),
-    })),
+    profiles: profilePointers,
     runId,
     schemaVersion: '1.0.0',
-    status: 'passed',
+    status,
     summary: buildLiveProofSummary({
       comparisonCount: comparisons.length,
       comparisonStatus,
       interactionProofCount: interactionProofs.length,
       platform,
       profileCount: profiles.length,
+      skippedInteractionProofCount: skippedInteractionProofs.length,
+      status,
     }),
   };
 
@@ -490,8 +584,10 @@ export {
   buildLiveProofMarkdown,
   buildLiveProofNextAction,
   buildLiveProofSummary,
+  buildLiveProofStatus,
   formatComparisonMetricSummary,
   formatInteractionProofCaptures,
+  isTrustedLiveRunStatus,
   readInteractionProofCaptures,
   readProfileRunStatus,
   writeLiveProofSummary,
@@ -508,6 +604,7 @@ export type {
   LiveProofNextAction,
   LiveProofPlatform,
   LiveProofProfilePointer,
+  LiveProofSkippedInteractionProofPointer,
   LiveProofSummaryResult,
   WriteLiveProofSummaryOptions,
 };

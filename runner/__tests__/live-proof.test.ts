@@ -21,9 +21,13 @@ type TestContext = import('node:test').TestContext;
  * Builds a minimal valid live-proof artifact for CLI tests.
  *
  * @param {'mixed' | 'regressed' | 'unchanged'} comparisonStatus
+ * @param {'failed' | 'passed'} [status]
  * @returns {Record<string, unknown>}
  */
-function buildProof(comparisonStatus: 'mixed' | 'regressed' | 'unchanged'): Record<string, unknown> {
+function buildProof(
+  comparisonStatus: 'mixed' | 'regressed' | 'unchanged',
+  status: 'failed' | 'passed' = 'passed',
+): Record<string, unknown> {
   const comparisonPointerStatus = comparisonStatus === 'regressed'
     ? 'worse'
     : comparisonStatus === 'mixed'
@@ -33,7 +37,7 @@ function buildProof(comparisonStatus: 'mixed' | 'regressed' | 'unchanged'): Reco
     schemaVersion: '1.0.0',
     platform: 'android',
     runId: 'android-live-proof',
-    status: 'passed',
+    status,
     outputDir: 'artifacts/example-mobile-app/android',
     preflight: {
       healthStatus: 'passed',
@@ -147,14 +151,16 @@ function buildProof(comparisonStatus: 'mixed' | 'regressed' | 'unchanged'): Reco
           },
     comparisonStatus,
     nextAction: {
-      code: comparisonStatus === 'regressed'
+      code: status === 'failed'
+        ? 'inspect_failed_run'
+        : comparisonStatus === 'regressed'
         ? 'inspect_regressions'
         : comparisonStatus === 'mixed'
           ? 'inspect_mixed'
           : 'inspect_summary',
       summary: 'Inspect linked evidence.',
     },
-    summary: `android live proof ${comparisonStatus}.`,
+    summary: `android live proof ${status}/${comparisonStatus}.`,
   };
 }
 
@@ -211,6 +217,7 @@ test('derives aggregate status and next action from comparisons', () => {
   assert.equal(deriveLiveProofComparisonStatus([{ status: 'better' }, { status: 'worse' }]), 'regressed');
 
   assert.equal(expectedLiveProofNextActionCode('regressed'), 'inspect_regressions');
+  assert.equal(expectedLiveProofNextActionCode('regressed', 'failed'), 'inspect_failed_run');
   assert.equal(expectedLiveProofNextActionCode('baseline_missing'), 'establish_baseline');
   assert.equal(expectedLiveProofNextActionCode('inconclusive'), 'inspect_inconclusive');
   assert.equal(expectedLiveProofNextActionCode('mixed'), 'inspect_mixed');
@@ -260,8 +267,36 @@ test('rejects live-proof artifacts with inconsistent next action', async (t: Tes
 
   assert.throws(
     () => readLiveProof(proofPath),
-    /nextAction\.code expected inspect_summary for unchanged but found inspect_regressions/u,
+    /nextAction\.code expected inspect_summary for passed\/unchanged but found inspect_regressions/u,
   );
+});
+
+test('accepts failed live-proof artifacts with skipped interaction proofs', async (t: TestContext) => {
+  const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-live-proof-failed-'));
+  t.after(async () => {
+    await fsp.rm(tempDir, { recursive: true, force: true });
+  });
+  const proof = buildProof('unchanged', 'failed');
+  proof.skippedInteractionProofs = [
+    {
+      label: 'interaction-argent',
+      nextAction: {
+        code: 'fix_profile_gate',
+        summary: 'Inspect profile verdict.',
+      },
+      reason: 'Profile verdict failed.',
+      runId: 'app-startup-android-argent',
+      runnerId: 'argent',
+      scenarioId: 'app-startup',
+    },
+  ];
+  const proofPath = writeProof(tempDir, proof);
+
+  const output = formatLiveProof(readLiveProof(proofPath));
+  assert.match(output, /Status: failed/u);
+  assert.match(output, /Skipped interaction proofs: 1/u);
+  assert.match(output, /interaction-argent \(argent\/app-startup\/app-startup-android-argent\): Profile verdict failed\. next=fix_profile_gate/u);
+  assert.match(output, /Next action: inspect_failed_run/u);
 });
 
 test('reads, validates, and formats live-proof artifacts', async (t: TestContext) => {
