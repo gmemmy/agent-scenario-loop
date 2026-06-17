@@ -226,7 +226,7 @@ Comparison artifacts are written under `artifacts/example-mobile-app/ios/compari
 To validate an aggregate proof and optionally fail on regressions:
 
 ```bash
-pnpm live-proof -- --file artifacts/example-mobile-app/android/_live-proof/android-live-proof/live-proof.json --fail-on-regression
+pnpm live-proof -- --file artifacts/example-mobile-app/ios/_live-proof/ios-live-proof/live-proof.json --fail-on-regression
 ```
 
 The lower-level command is:

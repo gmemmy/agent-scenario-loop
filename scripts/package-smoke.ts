@@ -644,10 +644,24 @@ function main(): void {
       fs.readFileSync(path.join(initOutputDir, 'asl', 'README.md'), 'utf8'),
       /checkout-submit/u,
     );
-    assert.match(
-      JSON.parse(fs.readFileSync(path.join(initOutputDir, 'asl', 'package-scripts.json'), 'utf8'))['asl:check:ios'],
-      /checkout-submit/u,
+    const initializedScripts = JSON.parse(
+      fs.readFileSync(path.join(initOutputDir, 'asl', 'package-scripts.json'), 'utf8'),
     );
+    assert.deepEqual(Object.keys(initializedScripts).sort(), [
+      'asl:check:android',
+      'asl:check:ios',
+      'asl:compare:android',
+      'asl:compare:ios',
+      'asl:live-proof',
+      'asl:profile:android',
+      'asl:profile:android:live',
+      'asl:profile:ios',
+      'asl:profile:ios:live',
+      'asl:validate',
+    ]);
+    assert.match(initializedScripts['asl:check:ios'], /checkout-submit/u);
+    assert.match(initializedScripts['asl:profile:ios:live'], /checkout-submit-ios-live/u);
+    assert.match(initializedScripts['asl:profile:android:live'], /checkout-submit-android-live/u);
     assert.match(
       fs.readFileSync(path.join(initOutputDir, 'asl', 'gitignore-snippet'), 'utf8'),
       /artifacts\/asl\//u,
