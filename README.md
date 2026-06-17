@@ -379,11 +379,12 @@ Current package guarantees:
 - explicit baseline/current run folders can produce schema-checked `comparison.json`
 - artifact roots can be indexed to find trusted prior runs per scenario
 - installed commands can compare a current run against the latest trusted prior run for a scenario
-- installed adapter subpaths expose proven Android adb and iOS simctl driver helpers for portable evidence actions and explicit lifecycle helpers
+- installed adapter subpaths expose proven Android adb, iOS simctl, agent-device, and Argent helpers for portable evidence actions and explicit lifecycle helpers
 - Android adb capture can resolve supported portable selectors into tap and scroll coordinates from UIAutomator bounds
 - Android adb capture can assert selector visibility from UIAutomator evidence without treating screenshots as truth
 - Android adb capture can record video evidence and attach it as the run's stable `captures.video` artifact
 - installed commands expose iOS simctl capture, screenshot preservation with supported simctl screenshot options, and iOS profile ingestion from simctl artifacts
+- installed commands expose agent-device and Argent interaction proof lanes that write ASL health, verdict, raw, capture, and summary artifacts without bundling those external tools
 - provider evidence attachments are inventoried with stable paths, source filenames, sizes, and sha256 hashes
 - evidence-provider manifests can declare no-shell commands whose outputs are preserved under stable run artifacts
 - failed evidence-provider commands write failed health, inconclusive verdicts, raw command records, and next-action summaries
