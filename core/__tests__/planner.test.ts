@@ -392,6 +392,16 @@ test('agent-device runner target rejects non-exact selector matches before runti
 test('argent runner targets satisfy portable driver-action scenarios', () => {
   const scenario = readJson('examples/scenarios/mobile/scroll-settle.json');
   scenario.steps[1].driverAction = 'scroll';
+  scenario.steps[1].adapterOptions = {
+    ...scenario.steps[1].adapterOptions,
+    argent: {
+      startX: 500,
+      startY: 1600,
+      endX: 500,
+      endY: 400,
+      durationMs: 250,
+    },
+  };
 
   for (const fixture of ['argent-ios.json', 'argent-android.json']) {
     const runner = readJson(`examples/runners/${fixture}`);
@@ -404,6 +414,116 @@ test('argent runner targets satisfy portable driver-action scenarios', () => {
     assert.ok(result.matched.driverActions.includes('scroll'));
     assert.ok(result.matched.artifacts.includes('uiTree'));
   }
+});
+
+test('argent runner target rejects unsupported adapter metadata before runtime', () => {
+  const scenario = readJson('examples/scenarios/mobile/app-startup.json');
+  const runner = readJson('examples/runners/argent-ios.json');
+  scenario.steps.push(
+    {
+      id: 'tap-missing',
+      kind: 'gesture',
+      driverAction: 'tap',
+    },
+    {
+      id: 'scroll-missing',
+      kind: 'gesture',
+      driverAction: 'scroll',
+      adapterOptions: {
+        argent: {
+          startX: 100,
+          startY: 800,
+        },
+      },
+    },
+    {
+      id: 'assert-missing',
+      kind: 'assertUi',
+      driverAction: 'assertVisible',
+    },
+    {
+      id: 'assert-contains',
+      kind: 'assertUi',
+      driverAction: 'assertVisible',
+      selector: {
+        kind: 'text',
+        match: 'contains',
+        value: 'Ready',
+      },
+    },
+    {
+      id: 'tap-bad-duration',
+      kind: 'gesture',
+      driverAction: 'tap',
+      adapterOptions: {
+        argent: {
+          x: 1,
+          y: 2,
+          durationMs: 0,
+        },
+      },
+    },
+  );
+
+  const result = evaluateRunnerCompatibility({ scenario, runner, platform: 'ios' });
+
+  assert.equal(result.compatible, false);
+  assert.deepEqual(
+    result.errors
+      .filter((error: PlannerIssue) => error.code === 'invalid_adapter_options')
+      .map((error: PlannerIssue) => ({
+        adapter: error.adapter,
+        field: error.field,
+        stepId: error.stepId,
+      })),
+    [
+      { adapter: 'argent', field: 'x/y', stepId: 'tap-missing' },
+      { adapter: 'argent', field: 'startX/startY/endX/endY', stepId: 'scroll-missing' },
+      { adapter: 'argent', field: 'selector', stepId: 'assert-missing' },
+      { adapter: 'argent', field: 'selector.match', stepId: 'assert-contains' },
+      { adapter: 'argent', field: 'durationMs', stepId: 'tap-bad-duration' },
+    ],
+  );
+});
+
+test('argent runner target accepts coordinate-backed tap and scroll metadata', () => {
+  const scenario = readJson('examples/scenarios/mobile/app-startup.json');
+  const runner = readJson('examples/runners/argent-android.json');
+  scenario.steps.push(
+    {
+      id: 'tap-card',
+      kind: 'gesture',
+      driverAction: 'tap',
+      adapterOptions: {
+        argent: {
+          x: 0.5,
+          y: 0.25,
+        },
+      },
+    },
+    {
+      id: 'scroll-feed',
+      kind: 'gesture',
+      driverAction: 'scroll',
+      adapterOptions: {
+        argent: {
+          startX: 0.5,
+          startY: 0.8,
+          endX: 0.5,
+          endY: 0.2,
+          durationMs: 300,
+        },
+      },
+    },
+  );
+
+  const result = evaluateRunnerCompatibility({ scenario, runner, platform: 'android' });
+
+  assert.equal(result.compatible, true);
+  assert.deepEqual(
+    result.errors.filter((error: PlannerIssue) => error.code === 'invalid_adapter_options'),
+    [],
+  );
 });
 
 test('treats optional step driver actions as warnings', () => {

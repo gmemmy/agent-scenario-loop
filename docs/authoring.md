@@ -119,7 +119,7 @@ Use `selector` to describe the intended app target without committing the scenar
 }
 ```
 
-Adapters may resolve selectors through accessibility trees, test ids, native UI inspection, or tool-specific selector engines. Android adb resolves `testId`, `resourceId`, `accessibilityId`, `accessibilityLabel`, and `text` selectors from UIAutomator bounds for tap and scroll actions. Coordinates belong in adapter metadata only when the selected runner cannot resolve a durable selector.
+Adapters may resolve selectors through accessibility trees, test ids, native UI inspection, or tool-specific selector engines. Android adb resolves `testId`, `resourceId`, `accessibilityId`, `accessibilityLabel`, and `text` selectors from UIAutomator bounds for tap and scroll actions. Argent gesture steps currently use normalized or pixel coordinates from `adapterOptions.argent`; it does not resolve tap or scroll targets from selectors. Coordinates belong in adapter metadata only when the selected runner cannot resolve a durable selector.
 
 ## Runners And Providers
 

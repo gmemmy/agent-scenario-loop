@@ -191,6 +191,17 @@ function hasAgentDeviceTapTarget(step: ScenarioStep): boolean {
 }
 
 /**
+ * Returns true when a scenario step has Argent tap coordinates.
+ *
+ * @param {Record<string, unknown>} step
+ * @returns {boolean}
+ */
+function hasArgentTapTarget(step: ScenarioStep): boolean {
+  const argent = asObject(asObject(step.adapterOptions).argent);
+  return isFiniteNumber(argent.x) && isFiniteNumber(argent.y);
+}
+
+/**
  * Resolves the stable scenario identifier used in generated artifacts.
  *
  * @param {Record<string, unknown> | null | undefined} scenario
@@ -650,6 +661,98 @@ function validateAgentDeviceAdapterOptions({
 }
 
 /**
+ * Validates Argent metadata that the optional adapter enforces at runtime.
+ *
+ * @param {{scenario: ScenarioManifest, errors: PlannerIssue[]}} options
+ * @returns {void}
+ */
+function validateArgentAdapterOptions({
+  errors,
+  scenario,
+}: {
+  errors: PlannerIssue[];
+  scenario: ScenarioManifest;
+}): void {
+  const steps = Array.isArray(scenario.steps) ? scenario.steps : [];
+  for (const [index, step] of steps.entries()) {
+    if (!step || typeof step !== 'object') {
+      continue;
+    }
+
+    const argent = asObject(asObject(step.adapterOptions).argent);
+    const selector = asObject(step.selector);
+    const stepId = getScenarioStepId(step, index);
+
+    if (
+      typeof selector.match === 'string' &&
+      selector.match !== 'exact' &&
+      step.driverAction === 'assertVisible'
+    ) {
+      pushInvalidAdapterOption({
+        adapter: 'argent',
+        errors,
+        field: 'selector.match',
+        message: `Step \`${stepId}\` uses selector match \`${selector.match}\`, but the Argent adapter currently supports exact visibility selectors only.`,
+        scenario,
+        stepId,
+      });
+    }
+
+    if (step.driverAction === 'assertVisible' && !hasPortableSelector(step)) {
+      pushInvalidAdapterOption({
+        adapter: 'argent',
+        errors,
+        field: 'selector',
+        message: `Step \`${stepId}\` uses driverAction \`assertVisible\` but a portable selector is required.`,
+        scenario,
+        stepId,
+      });
+    }
+
+    if (step.driverAction === 'tap' && !hasArgentTapTarget(step)) {
+      pushInvalidAdapterOption({
+        adapter: 'argent',
+        errors,
+        field: 'x/y',
+        message: `Step \`${stepId}\` uses driverAction \`tap\` but adapterOptions.argent.x/y are required.`,
+        scenario,
+        stepId,
+      });
+    }
+
+    if (
+      step.driverAction === 'scroll' &&
+      (
+        !isFiniteNumber(argent.startX) ||
+        !isFiniteNumber(argent.startY) ||
+        !isFiniteNumber(argent.endX) ||
+        !isFiniteNumber(argent.endY)
+      )
+    ) {
+      pushInvalidAdapterOption({
+        adapter: 'argent',
+        errors,
+        field: 'startX/startY/endX/endY',
+        message: `Step \`${stepId}\` uses driverAction \`scroll\` but adapterOptions.argent.startX/startY/endX/endY are required.`,
+        scenario,
+        stepId,
+      });
+    }
+
+    if ('durationMs' in argent && !isPositiveInteger(argent.durationMs)) {
+      pushInvalidAdapterOption({
+        adapter: 'argent',
+        errors,
+        field: 'durationMs',
+        message: `Step \`${stepId}\` has adapterOptions.argent.durationMs, but it must be a positive integer.`,
+        scenario,
+        stepId,
+      });
+    }
+  }
+}
+
+/**
  * Validates adapter-specific scenario metadata for the selected platform set.
  *
  * @param {{scenario: ScenarioManifest, effectivePlatforms: string[], errors: PlannerIssue[], runner?: RunnerManifest}} options
@@ -679,6 +782,15 @@ function validateScenarioAdapterOptions({
 
   if (runnerId.includes('agent-device')) {
     validateAgentDeviceAdapterOptions({ errors, scenario });
+  }
+
+  const usesArgentOptions =
+    Array.isArray(scenario.steps) &&
+    scenario.steps.some((step) =>
+      Object.prototype.hasOwnProperty.call(asObject(asObject(step).adapterOptions), 'argent'),
+    );
+  if (runnerId.includes('argent') || usesArgentOptions) {
+    validateArgentAdapterOptions({ errors, scenario });
   }
 }
 
