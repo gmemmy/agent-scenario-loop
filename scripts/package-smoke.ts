@@ -740,14 +740,18 @@ function main(): void {
     assert.match(initializedScripts['asl:check:ios'], /--provider runner-manifests\/evidence-provider\.json/u);
     assert.match(initializedScripts['asl:check:android'], /--provider runner-manifests\/evidence-provider\.json/u);
     assert.match(initializedScripts['asl:profile:ios'], /\$\{ASL_PROFILE_IOS_EVENTS:\+--events \$ASL_PROFILE_IOS_EVENTS\}/u);
+    assert.match(initializedScripts['asl:profile:ios'], /--comparison-lane checkout-submit-ios-fixture/u);
     assert.match(
       initializedScripts['asl:profile:android'],
       /\$\{ASL_PROFILE_ANDROID_EVENTS:\+--events \$ASL_PROFILE_ANDROID_EVENTS\}/u,
     );
+    assert.match(initializedScripts['asl:profile:android'], /--comparison-lane checkout-submit-android-fixture/u);
     assert.match(initializedScripts['asl:agent-device:ios'], /checkout-submit-ios-agent-device/u);
     assert.match(initializedScripts['asl:agent-device:android'], /checkout-submit-android-agent-device/u);
     assert.match(initializedScripts['asl:profile:ios:live'], /checkout-submit-ios-live/u);
+    assert.match(initializedScripts['asl:profile:ios:live'], /--comparison-lane checkout-submit-ios-live/u);
     assert.match(initializedScripts['asl:profile:android:live'], /checkout-submit-android-live/u);
+    assert.match(initializedScripts['asl:profile:android:live'], /--comparison-lane checkout-submit-android-live/u);
     assert.match(
       fs.readFileSync(path.join(initOutputDir, 'asl', 'gitignore-snippet'), 'utf8'),
       /artifacts\/asl\//u,

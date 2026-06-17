@@ -112,12 +112,12 @@ const REQUIRED_PACKAGE_SCRIPT_SHAPES = {
   },
   'asl:profile:ios': {
     command: 'asl-profile-ios',
-    flags: ['--config', '--scenario', '--out', '--run-id'],
+    flags: ['--config', '--scenario', '--comparison-lane', '--out', '--run-id'],
     values: {},
   },
   'asl:profile:android': {
     command: 'asl-profile-android',
-    flags: ['--config', '--scenario', '--out', '--run-id'],
+    flags: ['--config', '--scenario', '--comparison-lane', '--out', '--run-id'],
     values: {},
   },
   'asl:agent-device:ios': {
@@ -132,12 +132,12 @@ const REQUIRED_PACKAGE_SCRIPT_SHAPES = {
   },
   'asl:profile:ios:live': {
     command: 'asl-profile-ios',
-    flags: ['--config', '--scenario', '--simctl-capture', '--profile-session', '--launch', '--out', '--run-id'],
+    flags: ['--config', '--scenario', '--simctl-capture', '--profile-session', '--launch', '--comparison-lane', '--out', '--run-id'],
     values: {},
   },
   'asl:profile:android:live': {
     command: 'asl-profile-android',
-    flags: ['--config', '--scenario', '--adb-capture', '--profile-session', '--launch', '--out', '--run-id'],
+    flags: ['--config', '--scenario', '--adb-capture', '--profile-session', '--launch', '--comparison-lane', '--out', '--run-id'],
     values: {},
   },
   'asl:compare:ios': {

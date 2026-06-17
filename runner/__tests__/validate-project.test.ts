@@ -226,12 +226,12 @@ test('validates required package-script lifecycle shapes', () => {
   }), 'asl:agent-device:android has incorrect required value(s): --platform=android.');
   assert.equal(validatePackageScriptShape({
     scriptName: 'asl:profile:ios:live',
-    command: 'asl-profile-ios --config asl.config.json --scenario scenarios/mobile/checkout.json --simctl-capture --profile-session --launch --out artifacts/asl/ios --run-id checkout-ios-live',
+    command: 'asl-profile-ios --config asl.config.json --scenario scenarios/mobile/checkout.json --simctl-capture --profile-session --launch --comparison-lane checkout-ios-live --out artifacts/asl/ios --run-id checkout-ios-live',
   }), null);
   assert.equal(validatePackageScriptShape({
     scriptName: 'asl:profile:android:live',
     command: 'asl-profile-android --config asl.config.json --scenario scenarios/mobile/checkout.json --profile-session --launch --out artifacts/asl/android --run-id checkout-android-live',
-  }), 'asl:profile:android:live is missing required flag(s): --adb-capture.');
+  }), 'asl:profile:android:live is missing required flag(s): --adb-capture, --comparison-lane.');
   assert.equal(validatePackageScriptShape({
     scriptName: 'asl:check:ios',
     command: 'asl-check-plan --scenario scenarios/mobile/checkout.json --runner runner-manifests/primary-runner.json --provider runner-manifests/evidence-provider.json --platform android --out artifacts/asl/plan/checkout-ios',
