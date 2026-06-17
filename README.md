@@ -14,6 +14,8 @@ Agent Scenario Loop is a scenario orchestration and evidence collection framewor
 | Understand the project doctrine | [Principles](docs/principles.md) |
 | See the current artifacts and package surface | [Contracts](docs/contracts.md) |
 | Inspect the public package API | [Public API](docs/api.md) |
+| Add a runner or evidence provider | [Adapter Onboarding](docs/adapters.md) |
+| Rehearse adoption in an existing app | [Consumer App Rehearsal](docs/consumer-rehearsal.md) |
 | Write your first scenario | [Scenario Authoring](docs/authoring.md) |
 | Validate a scenario/runner plan before execution | [Package use](#package-use) |
 | Inspect runner behavior and current runner limits | [Runner docs](runner/README.md) |

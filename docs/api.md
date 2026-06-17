@@ -65,6 +65,8 @@ The package intentionally ships schemas and examples:
 
 These are public fixtures and contract references. Templates are safe starting points to copy into a consuming app and adapt.
 
+For concrete runner and evidence-provider integration steps, see [Adapter Onboarding](adapters.md).
+
 ## App Helper
 
 `app/profile-session.ts` is shipped as source for React Native apps to copy into their own codebase. It is not a compiled CommonJS runtime export because it depends on app-side React Native modules, app bundling, and platform storage behavior.

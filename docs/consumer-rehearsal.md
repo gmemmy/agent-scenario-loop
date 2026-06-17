@@ -1,0 +1,86 @@
+# Consumer App Rehearsal
+
+Use this checklist before adopting Agent Scenario Loop in an existing React Native app. The goal is to prove the package workflow locally before treating it as part of the app's everyday agent loop.
+
+## 1. Initialize The Scaffold
+
+From the consuming app root:
+
+```bash
+asl-init --out . --scenario first-journey
+```
+
+Review the generated files before merging anything into existing app scripts:
+
+- `asl.config.json`
+- `scenarios/mobile/first-journey.json`
+- `runner-manifests/primary-runner.json`
+- `runner-manifests/evidence-provider.json`
+- `src/devtools/profile-session.ts`
+- `asl/package-scripts.json`
+- `asl/gitignore-snippet`
+
+Keep generated artifacts ignored. Commit only durable scenarios, manifests, config, docs, and app helper wiring.
+
+## 2. Wire App Truth
+
+Mount `useProfileSessionBootstrap()` once near the app root.
+
+Emit truth events around one stable journey:
+
+- journey intent accepted
+- first useful visual state
+- command target opened or completed
+- return or completion state
+
+Register command targets only where they map to real app behavior. Avoid selectors or commands that depend on local data, private accounts, or temporary UI state.
+
+## 3. Validate Before Runtime
+
+Run:
+
+```bash
+asl-validate-project --root . --platform all --out artifacts/asl/project-validation
+```
+
+Fix errors before runtime proof. Treat warnings and `nextActions` as setup work that should be resolved before the app depends on the scenario for regression decisions.
+
+## 4. Prove One Platform First
+
+Prefer Android first when iOS tooling is unstable:
+
+```bash
+asl-check-plan --scenario scenarios/mobile/first-journey.json --runner runner-manifests/primary-runner.json --platform android --out artifacts/asl/plan/first-journey-android
+asl-profile-android --config asl.config.json --scenario scenarios/mobile/first-journey.json --adb-capture --profile-session --clear-logcat --launch --wait-ms 5000 --out artifacts/asl/android --run-id first-journey-android-live
+```
+
+Use iOS once the app is installed on a booted simulator:
+
+```bash
+asl-check-plan --scenario scenarios/mobile/first-journey.json --runner runner-manifests/primary-runner.json --platform ios --out artifacts/asl/plan/first-journey-ios
+asl-profile-ios --config asl.config.json --scenario scenarios/mobile/first-journey.json --simctl-capture --profile-session --profile-session-storage --launch --wait-ms 5000 --out artifacts/asl/ios --run-id first-journey-ios-live
+```
+
+## 5. Compare Only Trusted Runs
+
+After two passed runs exist, compare the current run against the newest trusted prior run:
+
+```bash
+asl-compare-latest --root artifacts/asl/android --scenario first-journey --current <run-dir> --out artifacts/asl/android/comparisons/first-journey
+```
+
+Do not make improvement or regression claims when scenario health failed or the comparison is inconclusive.
+
+## 6. Decide Adoption Scope
+
+Before expanding beyond the first journey, confirm:
+
+- the app helper is committed and mounted once
+- the scenario is boring and repeatable
+- app-owned truth events are stable
+- artifacts are ignored locally and not packed or committed
+- `agent-summary.md` gives enough context for a coding agent to act
+- failed setup produces concrete next actions
+- at least one platform has a passed live proof
+
+Only then add more scenarios, providers, or runner adapters.

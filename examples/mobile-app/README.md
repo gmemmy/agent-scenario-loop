@@ -106,6 +106,12 @@ pnpm asl:ios:live
 pnpm asl:live-proof:ios
 ```
 
+For suffixed live runs, point the inspection script at the generated proof file:
+
+```bash
+ASL_EXAMPLE_ANDROID_LIVE_PROOF=artifacts/asl/android-live/_live-proof/android-live-proof-dogfood/live-proof.json pnpm asl:live-proof:android
+```
+
 The runner writes `health.json`, `verdict.json`, `agent-summary.md`, `metrics.json`, `causal-run.json`, and raw evidence under the printed run directory.
 
 Additional fixture-backed profiles:

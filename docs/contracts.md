@@ -247,4 +247,6 @@ This is not a replacement for live device proof. It is a stable contract check t
 
 - [README](../README.md) for the shortest path through the project
 - [Concepts](concepts.md) for the broader product framing
+- [Adapter Onboarding](adapters.md) for adding runners and evidence providers
+- [Consumer App Rehearsal](consumer-rehearsal.md) for adopting the package in an existing app
 - [Runner docs](../runner/README.md) for current runner behavior and limits
