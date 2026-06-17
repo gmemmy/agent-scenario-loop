@@ -70,10 +70,13 @@ Minimal fields:
 Preferred fields:
 
 - `journey`: human-readable intent, actor, start state, and end state
+- `comparisonLane`: default historical baseline lane for runs of this scenario
 - `milestones`: named event checkpoints with phases and timeouts
 - `cycles`: iteration count and stop policy
 - `budgets`: thresholds to evaluate only after truth-event health passes
 - `artifacts`: required and optional evidence outputs
+
+Use `comparisonLane` when a scenario should always compare within one stable proof mode, such as `feed-open-android-live`. Profile CLIs can also receive `--comparison-lane`; the CLI flag wins when one-off runs need a different lane.
 
 ## Truth Events
 

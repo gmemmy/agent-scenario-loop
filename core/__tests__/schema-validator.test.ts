@@ -135,6 +135,16 @@ test('accepts canonical mobile scenario manifests', () => {
   assert.deepEqual(result.errors, []);
 });
 
+test('accepts scenario-authored comparison lanes', () => {
+  const scenario = readJson('examples/scenarios/mobile/app-startup.json');
+  scenario.comparisonLane = 'example-android-live+agent-device';
+
+  const result = validateJson(scenario, SCHEMAS.scenario, 'Scenario manifest');
+
+  assert.equal(result.valid, true);
+  assert.deepEqual(result.errors, []);
+});
+
 test('rejects missing required scenario properties', () => {
   const scenario = readJson('examples/scenarios/mobile/app-startup.json');
   delete scenario.truthEvents;

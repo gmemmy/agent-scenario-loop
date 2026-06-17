@@ -55,6 +55,7 @@ Portable scenario manifests describe the durable app behavior before choosing a 
 - `platforms`: supported runtime targets
 - `requiredCapabilities` and `optionalCapabilities`: runner capability requirements
 - `steps[].driverAction`: optional concrete driver operation required by a step, such as `tap`, `scroll`, `assertVisible`, `inspectTree`, `screenshot`, `record`, `readLogs`, or `collectPerfSignals`
+- `comparisonLane`: optional default baseline lane for latest-trusted comparisons
 - `truthEvents`: app-owned milestone events keyed by stable milestone id
 - `milestones`: inspectable milestone list with event names, phases, timeouts, and descriptions
 - `expectedEvents`: event names the runner or log ingest should expect to observe
