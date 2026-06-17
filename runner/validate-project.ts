@@ -24,7 +24,14 @@ type ProjectValidationPlan = {
   scenarioPath: string;
 };
 
+type ProjectValidationAppHelper = {
+  missingExports: string[];
+  path: string;
+  status: 'present' | 'missing' | 'incomplete';
+};
+
 type ProjectValidationResult = {
+  appHelper: ProjectValidationAppHelper;
   configPath: string;
   errors: string[];
   platform: string;
@@ -35,6 +42,12 @@ type ProjectValidationResult = {
   scenarioPaths: string[];
   status: 'passed' | 'failed';
 };
+
+const REQUIRED_APP_HELPER_EXPORTS = [
+  'emitProfileEvent',
+  'registerProfileCommandTargetHandler',
+  'useProfileSessionBootstrap',
+];
 
 /**
  * Prints CLI usage.
@@ -145,6 +158,31 @@ function buildValidationRunId({
 }
 
 /**
+ * Validates that the generated app helper is present and still exposes the expected integration API.
+ *
+ * @param {string} rootDir
+ * @returns {ProjectValidationAppHelper}
+ */
+function validateAppHelper(rootDir: string): ProjectValidationAppHelper {
+  const helperPath = path.join(rootDir, 'src', 'devtools', 'profile-session.ts');
+  if (!fs.existsSync(helperPath)) {
+    return {
+      missingExports: REQUIRED_APP_HELPER_EXPORTS,
+      path: helperPath,
+      status: 'missing',
+    };
+  }
+
+  const source = fs.readFileSync(helperPath, 'utf8');
+  const missingExports = REQUIRED_APP_HELPER_EXPORTS.filter((exportName) => !source.includes(exportName));
+  return {
+    missingExports,
+    path: helperPath,
+    status: missingExports.length > 0 ? 'incomplete' : 'present',
+  };
+}
+
+/**
  * Validates a generated or hand-authored Agent Scenario Loop project.
  *
  * @param {{rootDir?: string, platform?: string}} [options]
@@ -161,6 +199,7 @@ async function validateProject(options: {
   const providerPaths = listJsonFiles(path.join(rootDir, 'runner-manifests'))
     .filter((filePath) => path.basename(filePath) !== 'primary-runner.json');
   const scenarioPaths = listJsonFiles(path.join(rootDir, 'scenarios', 'mobile'));
+  const appHelper = validateAppHelper(rootDir);
   const errors: string[] = [];
   const plans: ProjectValidationPlan[] = [];
 
@@ -180,6 +219,12 @@ async function validateProject(options: {
 
   if (scenarioPaths.length === 0) {
     errors.push(`No scenario manifests found under ${path.join(rootDir, 'scenarios', 'mobile')}.`);
+  }
+
+  if (appHelper.status === 'missing') {
+    errors.push(`Missing app profile-session helper: ${appHelper.path}`);
+  } else if (appHelper.status === 'incomplete') {
+    errors.push(`App profile-session helper is missing export(s): ${appHelper.missingExports.join(', ')}.`);
   }
 
   if (errors.length === 0) {
@@ -211,6 +256,7 @@ async function validateProject(options: {
   }
 
   return {
+    appHelper,
     configPath,
     errors,
     platform: requestedPlatform,
@@ -234,6 +280,7 @@ function formatResult(result: ProjectValidationResult): string {
     `Agent Scenario Loop project validation ${result.status}.`,
     `Root: ${result.rootDir}`,
     `Config: ${result.configPath}`,
+    `App helper: ${result.appHelper.status}`,
     `Scenarios: ${result.scenarioPaths.length}`,
     `Providers: ${result.providerPaths.length}`,
     ...(result.plans.length > 0
@@ -305,10 +352,12 @@ export {
   resolvePlatforms,
   usage,
   validateProject,
+  validateAppHelper,
 };
 
 export type {
   CliArgs,
+  ProjectValidationAppHelper,
   ProjectValidationPlan,
   ProjectValidationResult,
 };

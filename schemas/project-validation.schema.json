@@ -5,6 +5,7 @@
   "type": "object",
   "additionalProperties": false,
   "required": [
+    "appHelper",
     "configPath",
     "errors",
     "platform",
@@ -16,6 +17,9 @@
     "status"
   ],
   "properties": {
+    "appHelper": {
+      "$ref": "#/$defs/appHelper"
+    },
     "configPath": {
       "type": "string"
     },
@@ -59,6 +63,26 @@
     }
   },
   "$defs": {
+    "appHelper": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["missingExports", "path", "status"],
+      "properties": {
+        "missingExports": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "path": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["present", "missing", "incomplete"]
+        }
+      }
+    },
     "plan": {
       "type": "object",
       "additionalProperties": false,

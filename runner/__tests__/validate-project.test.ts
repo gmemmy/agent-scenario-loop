@@ -1,4 +1,5 @@
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
 const fsp = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
@@ -10,6 +11,7 @@ const {
   formatResult,
   parseArgs,
   resolvePlatforms,
+  validateAppHelper,
   validateProject,
 } = require('../validate-project');
 
@@ -56,6 +58,7 @@ test('validates an initialized project for iOS and Android', async (t: TestConte
   const result = await validateProject({ rootDir: targetDir });
 
   assert.equal(result.status, 'passed');
+  assert.equal(result.appHelper.status, 'present');
   assert.equal(result.scenarioPaths.length, 1);
   assert.equal(result.providerPaths.length, 1);
   assert.deepEqual(
@@ -87,4 +90,25 @@ test('fails validation when initialized project files are missing', async (t: Te
   assert.ok(result.errors.some((error: string) => error.includes('Missing config')));
   assert.ok(result.errors.some((error: string) => error.includes('Missing primary runner manifest')));
   assert.ok(result.errors.some((error: string) => error.includes('No scenario manifests found')));
+  assert.ok(result.errors.some((error: string) => error.includes('Missing app profile-session helper')));
+});
+
+test('validates app profile-session helper exports', async (t: TestContext) => {
+  const targetDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-validate-project-helper-'));
+  t.after(async () => {
+    await fsp.rm(targetDir, { recursive: true, force: true });
+  });
+  const helperDir = path.join(targetDir, 'src', 'devtools');
+  await fsp.mkdir(helperDir, { recursive: true });
+  const helperPath = path.join(helperDir, 'profile-session.ts');
+  await fsp.writeFile(helperPath, 'export function emitProfileEvent() {}\n', 'utf8');
+
+  const helper = validateAppHelper(targetDir);
+
+  assert.equal(helper.status, 'incomplete');
+  assert.deepEqual(helper.missingExports, [
+    'registerProfileCommandTargetHandler',
+    'useProfileSessionBootstrap',
+  ]);
+  assert.equal(fs.existsSync(helper.path), true);
 });

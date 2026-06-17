@@ -391,6 +391,11 @@ test('accepts aggregate live proof artifacts', () => {
 
 test('accepts project validation artifacts', () => {
   const validation = {
+    appHelper: {
+      missingExports: [],
+      path: '/app/src/devtools/profile-session.ts',
+      status: 'present',
+    },
     configPath: '/app/asl.config.json',
     errors: [],
     platform: 'all',
