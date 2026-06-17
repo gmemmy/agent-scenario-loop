@@ -119,6 +119,7 @@ pnpm asl:profile:ios
 pnpm asl:profile:android
 pnpm asl:profile:ios:provider
 pnpm asl:profile:android:provider
+pnpm asl:agent-device:check
 pnpm asl:agent-device:ios
 pnpm asl:agent-device:android
 pnpm asl:argent:check
@@ -129,7 +130,7 @@ ASL_ARGENT_BIN=npx ASL_ARGENT_BASE_ARGS="--yes @swmansion/argent run" pnpm asl:a
 
 The `*:provider` scripts execute `runner-manifests/evidence-provider.json`, which runs the deterministic provider scripts and inventories generated accessibility, profiler, memory, and network evidence in `manifest.artifacts.evidenceAttachments`.
 
-The `asl:agent-device:*` and `asl:argent:*` scripts are portable interaction proof lanes. They require the corresponding external tool and a running device or simulator, but they write the same ASL health, verdict, raw, capture, and summary artifacts. `asl:argent:check` verifies the configured Argent command and ASL-required tool surface before any device scenario starts. For Argent without a global binary, use `ASL_ARGENT_BIN=npx` with `ASL_ARGENT_BASE_ARGS="--yes @swmansion/argent run"`; Argent uses `--udid` for both iOS simulators and Android emulators.
+The `asl:agent-device:*` and `asl:argent:*` scripts are portable interaction proof lanes. They require the corresponding external tool and a running device or simulator, but they write the same ASL health, verdict, raw, capture, and summary artifacts. `asl:agent-device:check` verifies the configured agent-device command surface and device discovery before a scenario starts; set `ASL_AGENT_DEVICE_REQUIRED_PLATFORMS=ios,android` when both OS targets must be booted. `asl:argent:check` verifies the configured Argent command and ASL-required tool surface before any device scenario starts. For Argent without a global binary, use `ASL_ARGENT_BIN=npx` with `ASL_ARGENT_BASE_ARGS="--yes @swmansion/argent run"`; Argent uses `--udid` for both iOS simulators and Android emulators.
 
 Live proof and inspection scripts are also available from the app directory:
 

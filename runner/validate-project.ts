@@ -109,6 +109,7 @@ const REQUIRED_PACKAGE_SCRIPT_NAMES = [
   'asl:profile:android',
   'asl:profile:ios:provider',
   'asl:profile:android:provider',
+  'asl:agent-device:check',
   'asl:agent-device:ios',
   'asl:agent-device:android',
   'asl:argent:check',
@@ -167,6 +168,11 @@ const REQUIRED_PACKAGE_SCRIPT_SHAPES = {
   'asl:profile:android:provider': {
     command: 'asl-profile-android',
     flags: ['--config', '--scenario', '--provider', '--comparison-lane', '--out', '--run-id'],
+    values: {},
+  },
+  'asl:agent-device:check': {
+    command: 'asl-agent-device',
+    flags: ['--check'],
     values: {},
   },
   'asl:agent-device:ios': {

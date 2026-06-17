@@ -335,6 +335,7 @@ test('validates generated package-script snippets', async (t: TestContext) => {
     'asl:profile:android',
     'asl:profile:ios:provider',
     'asl:profile:android:provider',
+    'asl:agent-device:check',
     'asl:agent-device:ios',
     'asl:agent-device:android',
     'asl:argent:check',
@@ -452,6 +453,10 @@ test('validates required package-script lifecycle shapes', () => {
     scriptName: 'asl:profile:android:provider',
     command: 'asl-profile-android --config asl.config.json --scenario scenarios/mobile/checkout.json --comparison-lane checkout-android-provider --out artifacts/asl/android --run-id checkout-android-provider',
   }), 'asl:profile:android:provider is missing required flag(s): --provider.');
+  assert.equal(validatePackageScriptShape({
+    scriptName: 'asl:agent-device:check',
+    command: 'asl-agent-device --check',
+  }), null);
   assert.equal(validatePackageScriptShape({
     scriptName: 'asl:agent-device:ios',
     command: 'asl-agent-device --platform ios --scenario scenarios/mobile/checkout.json --app com.example.app --open --out artifacts/asl/agent-device-ios --run-id checkout-ios-agent-device',

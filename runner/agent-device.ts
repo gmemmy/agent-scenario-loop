@@ -20,10 +20,13 @@ const {
 type CliArgs = {
   app?: string | boolean;
   'agent-device'?: string | boolean;
+  check?: string | boolean;
+  'command-timeout-ms'?: string | boolean;
   device?: string | boolean;
   open?: string | boolean;
   out?: string | boolean;
   platform?: string | boolean;
+  'require-platforms'?: string | boolean;
   'run-id'?: string | boolean;
   scenario?: string | boolean;
   serial?: string | boolean;
@@ -44,9 +47,40 @@ type CommandResult = {
 
 type CommandExecutor = (command: string, args: string[]) => Promise<CommandResult>;
 type ExecFileError = Error & {
-  code?: number;
+  code?: number | string;
+  killed?: boolean;
+  signal?: NodeJS.Signals;
 };
 type ScenarioExecutionStep = import('../core/execution-plan').ScenarioExecutionStep;
+
+type AgentDeviceAvailabilityOptions = {
+  agentDevicePath?: string;
+  commandTimeoutMs?: number;
+  executor?: CommandExecutor;
+  requiredCommands?: string[];
+  requiredPlatforms?: import('./agent-device-driver').AgentDevicePlatform[];
+};
+
+type AgentDeviceAvailabilityCheck = {
+  args: string[];
+  code: string;
+  command: string;
+  exitCode: number;
+  message: string;
+  name: string;
+  stderrPreview?: string;
+  status: 'failed' | 'passed';
+  stdoutPreview?: string;
+};
+
+type AgentDeviceAvailabilityResult = {
+  agentDevicePath: string;
+  checks: AgentDeviceAvailabilityCheck[];
+  devices: Array<Record<string, unknown>>;
+  requiredCommands: string[];
+  requiredPlatforms: string[];
+  status: 'failed' | 'passed';
+};
 
 type AgentDeviceDriverStep = {
   amount?: string;
@@ -72,6 +106,7 @@ type AgentDeviceDriverStep = {
 type AgentDeviceCaptureOptions = {
   agentDevicePath?: string;
   app?: string | null;
+  commandTimeoutMs?: number;
   delay?: (ms: number) => Promise<void>;
   device?: string | null;
   driverSteps?: AgentDeviceDriverStep[];
@@ -117,6 +152,18 @@ type AgentDeviceFailureHintOptions = {
   rawFileName: string;
 };
 
+const DEFAULT_AGENT_DEVICE_REQUIRED_COMMANDS = [
+  'open',
+  'snapshot',
+  'screenshot',
+  'is',
+  'click',
+  'scroll',
+  'logs',
+  'devices',
+  'session list',
+];
+
 /**
  * Prints CLI usage.
  *
@@ -128,8 +175,11 @@ function usage(output: {write: (message: string) => unknown} = process.stderr): 
     '',
     'Executes scenario-declared portable driver actions through the external agent-device CLI.',
     'Writes health.json, verdict.json, agent-summary.md, raw command transcripts, and capture artifacts.',
+    'Use --check to verify the configured agent-device command surface without running a scenario.',
     'Use --open --app <bundle-or-package> to open the app before running driver actions.',
     'Use --udid <id> for iOS simulators or --serial <id> for Android devices.',
+    'Use --command-timeout-ms <ms> to bound each external agent-device invocation.',
+    'Use --require-platforms ios,android with --check when device discovery must prove booted OS targets.',
   ], output);
 }
 
@@ -221,17 +271,233 @@ function createRunId(): string {
  * @returns {Promise<CommandResult>}
  */
 function execFileCommand(command: string, args: string[]): Promise<CommandResult> {
+  return execFileCommandWithTimeout(command, args);
+}
+
+/**
+ * Runs a command with a bounded timeout and captures stdout, stderr, and exit code without throwing.
+ *
+ * @param {string} command
+ * @param {string[]} args
+ * @param {number} [timeoutMs]
+ * @returns {Promise<CommandResult>}
+ */
+function execFileCommandWithTimeout(command: string, args: string[], timeoutMs = 60_000): Promise<CommandResult> {
   return new Promise((resolve) => {
-    execFile(command, args, (error: ExecFileError | null, stdout: string, stderr: string) => {
+    execFile(command, args, { timeout: timeoutMs }, (error: ExecFileError | null, stdout: string, stderr: string) => {
       resolve({
         command,
         args,
         exitCode: error && typeof error.code === 'number' ? error.code : error ? 1 : 0,
-        stderr,
+        stderr: [
+          stderr,
+          error?.killed || error?.signal === 'SIGTERM' ? `agent-device command timed out after ${timeoutMs}ms.` : '',
+        ].filter(Boolean).join('\n'),
         stdout,
       });
     });
   });
+}
+
+/**
+ * Returns a compact single-line preview for command diagnostics.
+ *
+ * @param {string} value
+ * @returns {string | undefined}
+ */
+function previewCommandOutput(value: string): string | undefined {
+  const preview = value.replace(/\s+/gu, ' ').trim();
+  return preview.length > 240 ? `${preview.slice(0, 237)}...` : preview || undefined;
+}
+
+/**
+ * Parses a comma-separated platform requirement list for availability checks.
+ *
+ * @param {unknown} value
+ * @returns {import('./agent-device-driver').AgentDevicePlatform[]}
+ */
+function parseRequiredPlatforms(value: unknown): import('./agent-device-driver').AgentDevicePlatform[] {
+  if (typeof value !== 'string') {
+    return [];
+  }
+  return value
+    .split(',')
+    .map((platform) => platform.trim())
+    .filter((platform): platform is import('./agent-device-driver').AgentDevicePlatform =>
+      ['android', 'apple', 'ios', 'linux', 'macos'].includes(platform),
+    );
+}
+
+/**
+ * Builds one availability check result from an agent-device command execution.
+ *
+ * @param {{code: string, expectedPattern: RegExp, name: string, result: CommandResult}} options
+ * @returns {AgentDeviceAvailabilityCheck}
+ */
+function buildAgentDeviceAvailabilityCheck({
+  code,
+  expectedPattern,
+  name,
+  result,
+}: {
+  code: string;
+  expectedPattern: RegExp;
+  name: string;
+  result: CommandResult;
+}): AgentDeviceAvailabilityCheck {
+  const output = `${result.stdout}\n${result.stderr}`;
+  const passed = result.exitCode === 0 && expectedPattern.test(output);
+  const check: AgentDeviceAvailabilityCheck = {
+    args: result.args,
+    code,
+    command: result.command,
+    exitCode: result.exitCode,
+    message: passed ? `${name} is available.` : `${name} did not return the expected agent-device output.`,
+    name,
+    status: passed ? 'passed' : 'failed',
+  };
+  if (!passed) {
+    const stderrPreview = previewCommandOutput(result.stderr);
+    const stdoutPreview = previewCommandOutput(result.stdout);
+    if (stderrPreview) {
+      check.stderrPreview = stderrPreview;
+    }
+    if (stdoutPreview) {
+      check.stdoutPreview = stdoutPreview;
+    }
+  }
+  return check;
+}
+
+/**
+ * Parses agent-device device discovery JSON.
+ *
+ * @param {CommandResult} result
+ * @returns {Array<Record<string, unknown>>}
+ */
+function readAgentDeviceDiscoveryDevices(result: CommandResult): Array<Record<string, unknown>> {
+  if (result.exitCode !== 0 || result.stdout.trim().length === 0) {
+    return [];
+  }
+  try {
+    const parsed = JSON.parse(result.stdout) as Record<string, unknown>;
+    const data = parsed.data && typeof parsed.data === 'object' && !Array.isArray(parsed.data)
+      ? parsed.data as Record<string, unknown>
+      : null;
+    return Array.isArray(data?.devices)
+      ? data.devices.filter((device): device is Record<string, unknown> =>
+          Boolean(device) && typeof device === 'object' && !Array.isArray(device),
+        )
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Checks whether device discovery found a booted mobile target for one platform.
+ *
+ * @param {Array<Record<string, unknown>>} devices
+ * @param {import('./agent-device-driver').AgentDevicePlatform} platform
+ * @returns {boolean}
+ */
+function hasBootedMobilePlatform(
+  devices: Array<Record<string, unknown>>,
+  platform: import('./agent-device-driver').AgentDevicePlatform,
+): boolean {
+  return devices.some((device) =>
+    device.platform === platform &&
+    device.target === 'mobile' &&
+    device.booted === true,
+  );
+}
+
+/**
+ * Verifies that the configured agent-device command exposes ASL-required surfaces.
+ *
+ * @param {AgentDeviceAvailabilityOptions} options
+ * @returns {Promise<AgentDeviceAvailabilityResult>}
+ */
+async function checkAgentDeviceAvailability({
+  agentDevicePath = 'agent-device',
+  commandTimeoutMs = 30_000,
+  executor,
+  requiredCommands = DEFAULT_AGENT_DEVICE_REQUIRED_COMMANDS,
+  requiredPlatforms = [],
+}: AgentDeviceAvailabilityOptions = {}): Promise<AgentDeviceAvailabilityResult> {
+  const run = executor ?? ((command, args) => execFileCommandWithTimeout(command, args, commandTimeoutMs));
+  const checks: AgentDeviceAvailabilityCheck[] = [];
+  const help = await run(agentDevicePath, ['--help']);
+  checks.push(buildAgentDeviceAvailabilityCheck({
+    code: 'agent_device_help_available',
+    expectedPattern: /CLI to control iOS and Android devices/u,
+    name: 'agent_device_help',
+    result: help,
+  }));
+
+  for (const commandName of requiredCommands) {
+    const commandLabel = commandName.replace(/\s+/gu, '_');
+    const pattern = commandName === 'session list'
+      ? /\bsession\s+list\b/u
+      : new RegExp(`\\b${commandName.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')}\\b`, 'u');
+    checks.push(buildAgentDeviceAvailabilityCheck({
+      code: `agent_device_command_${commandLabel}_available`,
+      expectedPattern: pattern,
+      name: `agent_device_command_${commandLabel}`,
+      result: help,
+    }));
+  }
+
+  const devicesResult = await run(agentDevicePath, ['devices', '--json']);
+  const devices = readAgentDeviceDiscoveryDevices(devicesResult);
+  const discoveryPassed = devicesResult.exitCode === 0 && devices.length > 0;
+  const devicesCheck: AgentDeviceAvailabilityCheck = {
+    args: devicesResult.args,
+    code: 'agent_device_devices_available',
+    command: devicesResult.command,
+    exitCode: devicesResult.exitCode,
+    message: discoveryPassed
+      ? `agent-device discovered ${devices.length} device(s).`
+      : 'agent-device did not return any discoverable devices.',
+    name: 'agent_device_devices',
+    status: discoveryPassed ? 'passed' : 'failed',
+  };
+  if (!discoveryPassed) {
+    const stderrPreview = previewCommandOutput(devicesResult.stderr);
+    const stdoutPreview = previewCommandOutput(devicesResult.stdout);
+    if (stderrPreview) {
+      devicesCheck.stderrPreview = stderrPreview;
+    }
+    if (stdoutPreview) {
+      devicesCheck.stdoutPreview = stdoutPreview;
+    }
+  }
+  checks.push(devicesCheck);
+
+  for (const platform of requiredPlatforms) {
+    const passed = hasBootedMobilePlatform(devices, platform);
+    checks.push({
+      args: devicesResult.args,
+      code: `agent_device_booted_${platform}_available`,
+      command: devicesResult.command,
+      exitCode: devicesResult.exitCode,
+      message: passed
+        ? `agent-device discovered a booted ${platform} mobile target.`
+        : `agent-device did not discover a booted ${platform} mobile target.`,
+      name: `agent_device_booted_${platform}`,
+      status: passed ? 'passed' : 'failed',
+    });
+  }
+
+  const status = checks.every((check) => check.status === 'passed') ? 'passed' : 'failed';
+  return {
+    agentDevicePath,
+    checks,
+    devices,
+    requiredCommands,
+    requiredPlatforms,
+    status,
+  };
 }
 
 /**
@@ -656,10 +922,11 @@ function agentDeviceDriverActionCode(driverAction: AgentDeviceDriverStep['driver
 async function runAgentDeviceCapture({
   agentDevicePath = 'agent-device',
   app = null,
+  commandTimeoutMs = 60_000,
   delay: wait = delay,
   device = null,
   driverSteps,
-  executor = execFileCommand,
+  executor,
   open = false,
   outputDir = path.resolve('artifacts/agent-device-capture'),
   platform,
@@ -671,6 +938,7 @@ async function runAgentDeviceCapture({
   udid = null,
   waitMs = 0,
 }: AgentDeviceCaptureOptions): Promise<AgentDeviceCaptureResult> {
+  const run = executor ?? ((command, args) => execFileCommandWithTimeout(command, args, commandTimeoutMs));
   const runDir = path.resolve(outputDir);
   const layout = createArtifactLayout({ outputDir: runDir });
   const rawDir = layout.raw;
@@ -694,7 +962,7 @@ async function runAgentDeviceCapture({
   const driver = createAgentDeviceDriver({
     agentDevicePath,
     ...(!sessionOwnsTarget && device ? { device } : {}),
-    executor,
+    executor: run,
     platform,
     ...(!sessionOwnsTarget && serial ? { serial } : {}),
     ...(session ? { session } : {}),
@@ -884,6 +1152,20 @@ async function main(): Promise<void> {
   }
 
   const args = parseArgs(argv);
+  const commandTimeoutMs = readPositiveInteger(args['command-timeout-ms'], 60_000);
+  if (args.check === true || args.check === 'true') {
+    const result = await checkAgentDeviceAvailability({
+      ...(typeof args['agent-device'] === 'string' ? { agentDevicePath: args['agent-device'] } : {}),
+      commandTimeoutMs,
+      requiredPlatforms: parseRequiredPlatforms(args['require-platforms']),
+    });
+    process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+    if (result.status !== 'passed') {
+      process.exitCode = 1;
+    }
+    return;
+  }
+
   if (typeof args.platform !== 'string' || typeof args.scenario !== 'string') {
     usage();
     process.exitCode = 1;
@@ -896,6 +1178,7 @@ async function main(): Promise<void> {
   const result = await runAgentDeviceCapture({
     ...(typeof args['agent-device'] === 'string' ? { agentDevicePath: args['agent-device'] } : {}),
     ...(typeof args.app === 'string' ? { app: args.app } : {}),
+    commandTimeoutMs,
     ...(typeof args.device === 'string' ? { device: args.device } : {}),
     ...(typeof args.out === 'string' ? { outputDir: args.out } : {}),
     open: isEnabled(args.open),
@@ -928,12 +1211,15 @@ export {
   buildAgentDeviceHealth,
   buildAgentDeviceVerdict,
   buildAgentDeviceSelectorHealthMetadata,
+  checkAgentDeviceAvailability,
   defaultAgentDeviceCaptureFileName,
   defaultAgentDeviceRawFileName,
   execFileCommand,
+  execFileCommandWithTimeout,
   isAgentDeviceSelector,
   main,
   parseArgs,
+  parseRequiredPlatforms,
   readAgentDeviceStepOptions,
   resolveAgentDeviceDriverSteps,
   runAgentDeviceCapture,
@@ -946,6 +1232,9 @@ export type {
   AgentDeviceCaptureOptions,
   AgentDeviceCaptureResult,
   AgentDeviceDriverStep,
+  AgentDeviceAvailabilityOptions,
+  AgentDeviceAvailabilityResult,
+  AgentDeviceAvailabilityCheck,
   CliArgs,
   CommandExecutor,
   CommandResult,

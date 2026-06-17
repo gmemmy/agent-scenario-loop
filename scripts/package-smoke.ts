@@ -791,6 +791,7 @@ function main(): void {
     );
     assert.deepEqual(Object.keys(initializedScripts).sort(), [
       'asl:agent-device:android',
+      'asl:agent-device:check',
       'asl:agent-device:ios',
       'asl:android:live',
       'asl:android:live:agent-device',
@@ -834,6 +835,11 @@ function main(): void {
     assert.match(initializedScripts['asl:profile:android:provider'], /--comparison-lane checkout-submit-android-provider/u);
     assert.match(initializedScripts['asl:agent-device:ios'], /checkout-submit-ios-agent-device/u);
     assert.match(initializedScripts['asl:agent-device:android'], /checkout-submit-android-agent-device/u);
+    assert.match(initializedScripts['asl:agent-device:ios'], /ASL_AGENT_DEVICE_COMMAND_TIMEOUT_MS/u);
+    assert.match(initializedScripts['asl:agent-device:android'], /ASL_AGENT_DEVICE_COMMAND_TIMEOUT_MS/u);
+    assert.match(initializedScripts['asl:agent-device:check'], /^asl-agent-device --check/u);
+    assert.match(initializedScripts['asl:agent-device:check'], /ASL_AGENT_DEVICE_COMMAND_TIMEOUT_MS/u);
+    assert.match(initializedScripts['asl:agent-device:check'], /ASL_AGENT_DEVICE_REQUIRED_PLATFORMS/u);
     assert.match(initializedScripts['asl:argent:check'], /^asl-argent --check/u);
     assert.match(initializedScripts['asl:argent:check'], /ASL_ARGENT_BASE_ARGS/u);
     assert.match(initializedScripts['asl:argent:check'], /ASL_ARGENT_COMMAND_TIMEOUT_MS/u);

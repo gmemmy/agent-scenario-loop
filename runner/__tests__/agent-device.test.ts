@@ -6,6 +6,8 @@ const path = require('node:path');
 const test = require('node:test');
 
 const {
+  checkAgentDeviceAvailability,
+  parseRequiredPlatforms,
   resolveAgentDeviceDriverSteps,
   runAgentDeviceCapture,
   validateAgentDeviceDriverSteps,
@@ -29,6 +31,82 @@ type TestContext = import('node:test').TestContext;
 function readJson(filePath: string): Record<string, any> {
   return JSON.parse(fs.readFileSync(filePath, 'utf8'));
 }
+
+test('agent-device required platforms parser accepts comma-separated OS targets', () => {
+  assert.deepEqual(parseRequiredPlatforms('ios,android'), ['ios', 'android']);
+  assert.deepEqual(parseRequiredPlatforms('ios, unknown, android'), ['ios', 'android']);
+  assert.deepEqual(parseRequiredPlatforms(true), []);
+});
+
+test('agent-device availability check verifies command surface and booted platforms', async () => {
+  const result = await checkAgentDeviceAvailability({
+    executor: async (command: string, args: string[]): Promise<CommandResult> => {
+      if (args.join(' ') === 'devices --json') {
+        return {
+          args,
+          command,
+          exitCode: 0,
+          stderr: '',
+          stdout: JSON.stringify({
+            success: true,
+            data: {
+              devices: [
+                { platform: 'android', id: 'emulator-5554', target: 'mobile', booted: true },
+                { platform: 'ios', id: 'SIM-123', target: 'mobile', booted: true },
+              ],
+            },
+          }),
+        };
+      }
+      return {
+        args,
+        command,
+        exitCode: 0,
+        stderr: '',
+        stdout: [
+          'CLI to control iOS and Android devices',
+          'open',
+          'snapshot',
+          'screenshot',
+          'is',
+          'click',
+          'scroll',
+          'logs',
+          'devices',
+          'session list',
+        ].join('\n'),
+      };
+    },
+    requiredPlatforms: ['ios', 'android'],
+  });
+
+  assert.equal(result.status, 'passed');
+  assert.deepEqual(result.requiredPlatforms, ['ios', 'android']);
+  assert.equal(result.devices.length, 2);
+  assert.equal(result.checks.find((check: {name: string}) => check.name === 'agent_device_booted_ios')?.status, 'passed');
+  assert.equal(result.checks.find((check: {name: string}) => check.name === 'agent_device_booted_android')?.status, 'passed');
+});
+
+test('agent-device availability check preserves failed command diagnostics', async () => {
+  const result = await checkAgentDeviceAvailability({
+    executor: async (command: string, args: string[]): Promise<CommandResult> => ({
+      args,
+      command,
+      exitCode: args[0] === 'devices' ? 1 : 0,
+      stderr: args[0] === 'devices' ? 'daemon unavailable' : '',
+      stdout: args[0] === 'devices'
+        ? ''
+        : 'CLI to control iOS and Android devices\nopen\nsnapshot\nscreenshot\nis\nclick\nscroll\nlogs\ndevices\nsession list\n',
+    }),
+    requiredPlatforms: ['ios'],
+  });
+
+  const devicesCheck = result.checks.find((check: {name: string}) => check.name === 'agent_device_devices');
+  assert.equal(result.status, 'failed');
+  assert.equal(devicesCheck?.exitCode, 1);
+  assert.equal(devicesCheck?.stderrPreview, 'daemon unavailable');
+  assert.equal(result.checks.find((check: {name: string}) => check.name === 'agent_device_booted_ios')?.status, 'failed');
+});
 
 test('agent-device capture executes scenario driver actions and writes artifacts', async (t: TestContext) => {
   const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-agent-device-'));

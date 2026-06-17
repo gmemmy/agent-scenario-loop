@@ -110,6 +110,7 @@ Read [Example Mobile App: iOS Capture](../examples/mobile-app/README.md#ios-capt
 When `agent-device` or Argent is available, the example aggregate proofs can attach interaction sidecars:
 
 ```bash
+ASL_AGENT_DEVICE_REQUIRED_PLATFORMS=ios,android pnpm agent-device:check
 ASL_ARGENT_BIN=npx ASL_ARGENT_BASE_ARGS="--yes @swmansion/argent run" pnpm argent:check
 pnpm example:android:live:agent-device -- --agent-device-session <name> --run-suffix after-change
 pnpm example:ios:live:agent-device -- --agent-device-session <name> --run-suffix after-change
@@ -124,7 +125,7 @@ pnpm example:android:live:runners -- --agent-device-session <name> --run-suffix 
 pnpm example:ios:live:runners -- --agent-device-session <name> --run-suffix after-change
 ```
 
-For Argent without a global binary, set `ASL_ARGENT_BIN=npx` and `ASL_ARGENT_BASE_ARGS="--yes @swmansion/argent run"`. Run `pnpm argent:check` first when you need a bounded tool-surface proof before attaching Argent to a device scenario. The platform runner still owns adb or simctl preflight and profile evidence, and sidecars run only after that profile evidence has passed health and budget gates. Each executed sidecar contributes interaction proof, captures, and warning summaries into the same aggregate artifact graph; skipped sidecars remain visible in the aggregate proof so agents know which runner evidence is missing and why.
+Run `pnpm agent-device:check` before using agent-device sidecars; set `ASL_AGENT_DEVICE_REQUIRED_PLATFORMS=ios,android` when the local proof must confirm both booted OS targets. For Argent without a global binary, set `ASL_ARGENT_BIN=npx` and `ASL_ARGENT_BASE_ARGS="--yes @swmansion/argent run"`. Run `pnpm argent:check` first when you need a bounded tool-surface proof before attaching Argent to a device scenario. The platform runner still owns adb or simctl preflight and profile evidence, and sidecars run only after that profile evidence has passed health and budget gates. Each executed sidecar contributes interaction proof, captures, and warning summaries into the same aggregate artifact graph; skipped sidecars remain visible in the aggregate proof so agents know which runner evidence is missing and why.
 
 ## Comparison
 
