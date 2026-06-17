@@ -1223,6 +1223,7 @@ function main(): void {
     });
     assert.match(exampleLiveProofOutput, /Comparison status: unchanged/u);
     assert.match(exampleLiveProofOutput, /Comparison counts: better=0 worse=0 unchanged=3 mixed=0 inconclusive=0 skipped=0/u);
+    assert.match(exampleLiveProofOutput, /startup \(app-startup\/android-live-startup-smoke\): unchanged \(metrics better=0 worse=0 unchanged=8 inconclusive=0\)/u);
     assert.match(exampleLiveProofOutput, /startup \(app-startup\/android-live-startup-smoke\): health=passed verdict=passed/u);
     assert.match(exampleLiveProofOutput, /startup-ui \(agent-device\/app-startup\/android-agent-device-startup-smoke\): health=passed verdict=not_evaluated/u);
     assert.match(exampleLiveProofOutput, /Next action: inspect_summary/u);
@@ -1232,6 +1233,12 @@ function main(): void {
     assert.equal(exampleLiveProof.interactionProofs.length, 1);
     assert.equal(exampleLiveProof.interactionProofs[0].healthStatus, 'passed');
     assert.equal(exampleLiveProof.interactionProofs[0].runnerId, 'agent-device');
+    assert.equal(
+      exampleLiveProof.comparisons.every((comparison: { metricSummary?: { counts?: { unchanged?: number }; notableMetrics?: unknown[] } }) =>
+        comparison.metricSummary?.counts?.unchanged === 8 && comparison.metricSummary?.notableMetrics?.length === 0
+      ),
+      true,
+    );
     for (const [scenarioDir, runId] of [
       ['app-startup', 'android-live-startup'],
       ['open-close-cycle', 'android-live-open-close'],
@@ -1341,6 +1348,7 @@ function main(): void {
       env,
     });
     assert.match(exampleIosLiveProofOutput, /Comparison status: unchanged/u);
+    assert.match(exampleIosLiveProofOutput, /startup \(app-startup\/ios-live-startup-smoke\): unchanged \(metrics better=0 worse=0 unchanged=8 inconclusive=0\)/u);
     assert.match(exampleIosLiveProofOutput, /startup-ui \(agent-device\/app-startup\/ios-agent-device-startup-smoke\): health=passed verdict=not_evaluated/u);
     const exampleIosLiveProof = JSON.parse(
       fs.readFileSync(path.join(exampleIosLiveRoot, '_live-proof', 'ios-live-proof-smoke', 'live-proof.json'), 'utf8'),
@@ -1348,6 +1356,12 @@ function main(): void {
     assert.equal(exampleIosLiveProof.interactionProofs.length, 1);
     assert.equal(exampleIosLiveProof.interactionProofs[0].healthStatus, 'passed');
     assert.equal(exampleIosLiveProof.interactionProofs[0].runnerId, 'agent-device');
+    assert.equal(
+      exampleIosLiveProof.comparisons.every((comparison: { metricSummary?: { counts?: { unchanged?: number }; notableMetrics?: unknown[] } }) =>
+        comparison.metricSummary?.counts?.unchanged === 8 && comparison.metricSummary?.notableMetrics?.length === 0
+      ),
+      true,
+    );
     for (const [scenarioDir, runId] of [
       ['app-startup', 'ios-live-startup'],
       ['open-close-cycle', 'ios-live-open-close'],
