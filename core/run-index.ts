@@ -6,6 +6,7 @@ const { ARTIFACT_FILENAMES, PROFILE_ARTIFACT_FILENAMES } = require('./artifact-l
 type RunIndexEntry = {
   runDir: string;
   scenarioId: string;
+  scenarioHash?: string;
   runId: string;
   healthStatus: string;
   trusted: boolean;
@@ -110,6 +111,7 @@ function readRunIndexEntry(runDir: string): RunIndexEntry {
     runDir,
     scenarioId,
     runId,
+    ...(typeof manifest.scenarioHash === 'string' ? { scenarioHash: manifest.scenarioHash } : {}),
     healthStatus,
     trusted: healthStatus === 'passed' && verdictStatus === 'passed',
     ...(typeof manifest.durationMs === 'number' ? { durationMs: manifest.durationMs } : {}),

@@ -1109,6 +1109,38 @@ function resolveProfileScenarioName({
 }
 
 /**
+ * Serializes JSON with stable object key ordering for reproducible hashes.
+ *
+ * @param {unknown} value
+ * @returns {string}
+ */
+function stableJsonStringify(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map(stableJsonStringify).join(',')}]`;
+  }
+
+  if (value && typeof value === 'object') {
+    const record = value as Record<string, unknown>;
+    return `{${Object.keys(record)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${stableJsonStringify(record[key])}`)
+      .join(',')}}`;
+  }
+
+  return JSON.stringify(value) ?? 'null';
+}
+
+/**
+ * Creates a stable fingerprint for the scenario contract used by one run.
+ *
+ * @param {Record<string, unknown>} scenario
+ * @returns {string}
+ */
+function hashScenarioContract(scenario: Record<string, unknown>): string {
+  return crypto.createHash('sha256').update(stableJsonStringify(scenario)).digest('hex');
+}
+
+/**
  * Returns true when a value is a plain object record.
  *
  * @param {unknown} value
@@ -1332,6 +1364,7 @@ async function runProfileMobile(args: CliArgs, options: ProfileMobileOptions): P
   const scenario = readJson(scenarioPath);
   const scenarioName = resolveProfileScenarioName({ scenario, scenarioPath });
   const profileScenario = { ...scenario, name: scenarioName };
+  const scenarioHash = hashScenarioContract(profileScenario);
   const expectedIterations = resolveExpectedIterations(profileScenario);
   const profileMetricEvents = resolveProfileMetricEvents(profileScenario);
   const profileBudgets = resolveProfileBudgets(profileScenario);
@@ -1414,6 +1447,7 @@ async function runProfileMobile(args: CliArgs, options: ProfileMobileOptions): P
 
   const manifest = buildManifest({
     scenario: scenarioName,
+    scenarioHash,
     runId,
     platform: options.platform,
     status: metrics.status,
@@ -1590,6 +1624,7 @@ export {
   resolveInteractionDriver,
   runProfileCli,
   runProfileMobile,
+  hashScenarioContract,
   usage,
 };
 

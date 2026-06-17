@@ -24,6 +24,10 @@
     "scenario": {
       "type": "string"
     },
+    "scenarioHash": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
     "runId": {
       "type": "string"
     },

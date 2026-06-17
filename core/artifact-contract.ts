@@ -857,6 +857,7 @@ function buildCausalRun({
  */
 function buildManifest({
   scenario,
+  scenarioHash,
   runId,
   platform = 'ios',
   status,
@@ -873,6 +874,7 @@ function buildManifest({
 }: ArtifactRecord): ArtifactRecord {
   return {
     scenario,
+    ...(typeof scenarioHash === 'string' && scenarioHash.length > 0 ? { scenarioHash } : {}),
     runId,
     platform,
     status,

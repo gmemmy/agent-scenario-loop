@@ -43,7 +43,7 @@ function execFileAsync(command: string, args: string[], options: Record<string, 
 /**
  * Writes a minimal indexed run directory with deterministic sort metadata.
  *
- * @param {{root: string, runId: string, actual: number, endedAt: string, comparisonLane?: string, healthStatus?: string, verdictStatus?: string}} options
+ * @param {{root: string, runId: string, actual: number, endedAt: string, comparisonLane?: string, healthStatus?: string, scenarioHash?: string, verdictStatus?: string}} options
  * @returns {Promise<string>}
  */
 async function writeRun({
@@ -54,6 +54,7 @@ async function writeRun({
   endedAt,
   healthStatus = 'passed',
   verdictStatus = actual <= 1000 ? 'passed' : 'failed',
+  scenarioHash,
 }: {
   root: string;
   runId: string;
@@ -61,6 +62,7 @@ async function writeRun({
   endedAt: string;
   comparisonLane?: string;
   healthStatus?: string;
+  scenarioHash?: string;
   verdictStatus?: string;
 }): Promise<string> {
   const runDir = path.join(root, 'open-close-cycle', runId);
@@ -71,6 +73,7 @@ async function writeRun({
       schemaVersion: '1.0.0',
       runId,
       scenario: 'open-close-cycle',
+      ...(scenarioHash ? { scenarioHash } : {}),
       platform: 'android',
       interactionDriver: 'adb-logcat',
       ...(comparisonLane ? { comparisonLane } : {}),
@@ -275,6 +278,55 @@ test('filters latest trusted prior runs by current comparison lane', async (t: T
   assert.equal(comparison.comparisonBasis.selection.comparisonLane, 'example-android-live+agent-device');
   assert.equal(comparison.comparisonBasis.selection.trustedPriorCandidates, 2);
   assert.equal(comparison.comparisonBasis.selection.trustedComparableCandidates, 1);
+});
+
+test('filters latest trusted prior runs by scenario contract hash when current is hash-aware', async (t: TestContext) => {
+  const rootDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-compare-latest-scenario-hash-'));
+  t.after(async () => {
+    await fsp.rm(rootDir, { recursive: true, force: true });
+  });
+  await writeRun({
+    root: rootDir,
+    runId: 'newer-stale-contract-run',
+    actual: 10,
+    endedAt: '2026-06-16T10:05:00.000Z',
+    comparisonLane: 'example-android-live+agent-device',
+    scenarioHash: 'b'.repeat(64),
+  });
+  await writeRun({
+    root: rootDir,
+    runId: 'older-same-contract-run',
+    actual: 900,
+    endedAt: '2026-06-16T10:00:00.000Z',
+    comparisonLane: 'example-android-live+agent-device',
+    scenarioHash: 'a'.repeat(64),
+  });
+  const currentDir = await writeRun({
+    root: rootDir,
+    runId: 'current-same-contract-run',
+    actual: 800,
+    endedAt: '2026-06-16T10:10:00.000Z',
+    comparisonLane: 'example-android-live+agent-device',
+    scenarioHash: 'a'.repeat(64),
+  });
+
+  const { stdout } = await execFileAsync(process.execPath, [
+    COMPARE_LATEST,
+    '--root',
+    rootDir,
+    '--scenario',
+    'open-close-cycle',
+    '--current',
+    currentDir,
+  ]);
+
+  const comparison = JSON.parse(stdout);
+  assert.equal(comparison.baselineRunId, 'older-same-contract-run');
+  assert.equal(comparison.comparisonStatus, 'better');
+  assert.equal(comparison.comparisonBasis.selection.comparisonLane, 'example-android-live+agent-device');
+  assert.equal(comparison.comparisonBasis.selection.scenarioHash, 'a'.repeat(64));
+  assert.equal(comparison.comparisonBasis.selection.trustedComparableCandidates, 2);
+  assert.equal(comparison.comparisonBasis.selection.trustedScenarioContractCandidates, 1);
 });
 
 test('writes comparison and agent summary to output directory', async (t: TestContext) => {

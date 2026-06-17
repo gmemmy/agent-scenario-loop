@@ -43,8 +43,10 @@ type LatestTrustedSelection = {
   selectedRunId: string;
   skippedCurrentRun: boolean;
   comparisonLane?: string;
+  scenarioHash?: string;
   trustedCandidates: number;
   trustedComparableCandidates?: number;
+  trustedScenarioContractCandidates?: number;
   trustedPriorCandidates: number;
 };
 
@@ -119,19 +121,33 @@ function isComparableLane(entry: RunIndexEntry, comparisonLane: string | undefin
 }
 
 /**
+ * Returns whether a historical run used the same scenario contract as the current run.
+ * Runs without a current scenario hash keep legacy behavior for old artifacts.
+ *
+ * @param {RunIndexEntry} entry
+ * @param {string | undefined} scenarioHash
+ * @returns {boolean}
+ */
+function isComparableScenarioContract(entry: RunIndexEntry, scenarioHash: string | undefined): boolean {
+  return scenarioHash ? entry.scenarioHash === scenarioHash : true;
+}
+
+/**
  * Finds the newest trusted run for a scenario while excluding the current run directory.
  *
- * @param {{index: RunIndex, scenarioId: string, currentDir: string, comparisonLane?: string}} options
+ * @param {{index: RunIndex, scenarioId: string, currentDir: string, comparisonLane?: string, scenarioHash?: string}} options
  * @returns {RunIndexEntry | null}
  */
 function findLatestTrustedPriorRun({
   comparisonLane,
   index,
+  scenarioHash,
   scenarioId,
   currentDir,
 }: {
   comparisonLane?: string;
   index: RunIndex;
+  scenarioHash?: string;
   scenarioId: string;
   currentDir: string;
 }): RunIndexEntry | null {
@@ -139,6 +155,7 @@ function findLatestTrustedPriorRun({
   return index.trusted.find((entry) => (
     entry.scenarioId === scenarioId &&
     isComparableLane(entry, comparisonLane) &&
+    isComparableScenarioContract(entry, scenarioHash) &&
     path.resolve(entry.runDir) !== resolvedCurrentDir
   )) ?? null;
 }
@@ -146,7 +163,7 @@ function findLatestTrustedPriorRun({
 /**
  * Builds stable provenance for the latest-trusted baseline selection.
  *
- * @param {{baseline: RunIndexEntry, comparisonLane?: string, currentDir: string, index: RunIndex, rootDir: string, scenarioId: string}} options
+ * @param {{baseline: RunIndexEntry, comparisonLane?: string, currentDir: string, index: RunIndex, rootDir: string, scenarioHash?: string, scenarioId: string}} options
  * @returns {LatestTrustedSelection}
  */
 function buildLatestTrustedSelection({
@@ -155,6 +172,7 @@ function buildLatestTrustedSelection({
   currentDir,
   index,
   rootDir,
+  scenarioHash,
   scenarioId,
 }: {
   baseline: RunIndexEntry;
@@ -162,6 +180,7 @@ function buildLatestTrustedSelection({
   currentDir: string;
   index: RunIndex;
   rootDir: string;
+  scenarioHash?: string;
   scenarioId: string;
 }): LatestTrustedSelection {
   const resolvedCurrentDir = path.resolve(currentDir);
@@ -172,6 +191,9 @@ function buildLatestTrustedSelection({
   const trustedComparableCandidates = trustedPriorCandidates.filter((entry) => (
     isComparableLane(entry, comparisonLane)
   ));
+  const trustedScenarioContractCandidates = trustedComparableCandidates.filter((entry) => (
+    isComparableScenarioContract(entry, scenarioHash)
+  ));
 
   return {
     artifactRoot: rootDir,
@@ -181,8 +203,10 @@ function buildLatestTrustedSelection({
     selectedRunId: baseline.runId,
     skippedCurrentRun: index.entries.some((entry) => path.resolve(entry.runDir) === resolvedCurrentDir),
     ...(comparisonLane ? { comparisonLane } : {}),
+    ...(scenarioHash ? { scenarioHash } : {}),
     trustedCandidates: index.trusted.length,
     trustedComparableCandidates: trustedComparableCandidates.length,
+    ...(scenarioHash ? { trustedScenarioContractCandidates: trustedScenarioContractCandidates.length } : {}),
     trustedPriorCandidates: trustedPriorCandidates.length,
   };
 }
@@ -204,10 +228,12 @@ function compareLatestTrustedRun({
   assertComparableCurrentRun({ currentDir: resolvedCurrentDir, scenarioId });
   const currentEntry = readRunIndexEntry(resolvedCurrentDir);
   const resolvedComparisonLane = comparisonLane ?? currentEntry.comparisonLane;
+  const scenarioHash = currentEntry.scenarioHash;
 
   const index = buildRunIndex({ rootDir: resolvedRootDir, scenarioId });
   const baseline = findLatestTrustedPriorRun({
     ...(resolvedComparisonLane ? { comparisonLane: resolvedComparisonLane } : {}),
+    ...(scenarioHash ? { scenarioHash } : {}),
     index,
     scenarioId,
     currentDir: resolvedCurrentDir,
@@ -216,8 +242,9 @@ function compareLatestTrustedRun({
     const laneSuffix = resolvedComparisonLane
       ? ` in comparison lane '${resolvedComparisonLane}'`
       : ' without a comparison lane';
+    const scenarioHashSuffix = scenarioHash ? ` and scenario hash '${scenarioHash}'` : '';
     throw new Error(
-      `No trusted prior run found for scenario '${scenarioId}'${laneSuffix} under ${resolvedRootDir}; inspected ${index.entries.length} candidate run(s), ${index.trusted.length} trusted.`,
+      `No trusted prior run found for scenario '${scenarioId}'${laneSuffix}${scenarioHashSuffix} under ${resolvedRootDir}; inspected ${index.entries.length} candidate run(s), ${index.trusted.length} trusted.`,
     );
   }
 
@@ -232,6 +259,7 @@ function compareLatestTrustedRun({
         currentDir: resolvedCurrentDir,
         index,
         rootDir: resolvedRootDir,
+        ...(scenarioHash ? { scenarioHash } : {}),
         scenarioId,
       }),
       strategy: 'latest_trusted_prior',
@@ -320,6 +348,7 @@ export {
   buildLatestTrustedSelection,
   compareLatestTrustedRun,
   findLatestTrustedPriorRun,
+  isComparableScenarioContract,
   main,
   usage,
 };

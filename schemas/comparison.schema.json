@@ -131,6 +131,10 @@
         "comparisonLane": {
           "type": "string"
         },
+        "scenarioHash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
         "selectedRunDir": {
           "type": "string"
         },
@@ -149,6 +153,10 @@
           "minimum": 0
         },
         "trustedComparableCandidates": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "trustedScenarioContractCandidates": {
           "type": "integer",
           "minimum": 0
         }
