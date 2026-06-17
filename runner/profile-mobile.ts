@@ -1002,6 +1002,164 @@ function resolveEventLogPath({ args, platform }: { args: CliArgs; platform: Prof
 }
 
 /**
+ * Resolves the profile scenario name from modern or legacy scenario identity fields.
+ *
+ * @param {{scenario: Record<string, unknown>, scenarioPath: string}} options
+ * @returns {string}
+ */
+function resolveProfileScenarioName({
+  scenario,
+  scenarioPath,
+}: {
+  scenario: Record<string, unknown>;
+  scenarioPath: string;
+}): string {
+  if (typeof scenario.name === 'string' && scenario.name.length > 0) {
+    return scenario.name;
+  }
+
+  if (typeof scenario.id === 'string' && scenario.id.length > 0) {
+    return scenario.id;
+  }
+
+  return path.basename(scenarioPath, '.json');
+}
+
+/**
+ * Returns true when a value is a plain object record.
+ *
+ * @param {unknown} value
+ * @returns {value is Record<string, unknown>}
+ */
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/**
+ * Reads a positive integer from scenario metadata.
+ *
+ * @param {unknown} value
+ * @param {number} fallback
+ * @returns {number}
+ */
+function readPositiveInteger(value: unknown, fallback: number): number {
+  const parsed = typeof value === 'string' ? Number(value) : value;
+  return typeof parsed === 'number' && Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+/**
+ * Resolves the expected profile-event iteration count for a scenario.
+ *
+ * @param {Record<string, unknown>} scenario
+ * @returns {number}
+ */
+function resolveExpectedIterations(scenario: Record<string, unknown>): number {
+  if (typeof scenario.defaultIterations === 'number' || typeof scenario.defaultIterations === 'string') {
+    return readPositiveInteger(scenario.defaultIterations, 1);
+  }
+
+  return readPositiveInteger(isRecord(scenario.cycles) ? scenario.cycles.iterations : undefined, 1);
+}
+
+/**
+ * Finds a milestone event name by milestone id.
+ *
+ * @param {Record<string, unknown>} scenario
+ * @param {unknown} milestoneId
+ * @returns {string | null}
+ */
+function findMilestoneEvent(scenario: Record<string, unknown>, milestoneId: unknown): string | null {
+  if (typeof milestoneId !== 'string' || !Array.isArray(scenario.milestones)) {
+    return null;
+  }
+
+  for (const milestone of scenario.milestones) {
+    if (!isRecord(milestone)) {
+      continue;
+    }
+    if (milestone.id === milestoneId && typeof milestone.event === 'string') {
+      return milestone.event;
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Derives cycle metric event names from schema-era milestone budgets when needed.
+ *
+ * @param {Record<string, unknown>} scenario
+ * @returns {Record<string, string> | null}
+ */
+function resolveProfileMetricEvents(scenario: Record<string, unknown>): Record<string, string> | null {
+  if (isRecord(scenario.metricEvents)) {
+    return scenario.metricEvents as Record<string, string>;
+  }
+
+  if (!Array.isArray(scenario.budgets)) {
+    return null;
+  }
+
+  for (const budget of scenario.budgets) {
+    if (!isRecord(budget)) {
+      continue;
+    }
+    const fromEvent = findMilestoneEvent(scenario, budget.fromMilestone);
+    const toEvent = findMilestoneEvent(scenario, budget.toMilestone);
+    if (fromEvent && toEvent) {
+      return {
+        closeRequested: toEvent,
+        dismissed: toEvent,
+        opened: fromEvent,
+        openRequested: fromEvent,
+      };
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Normalizes schema-era budget arrays into the profile budget evaluator shape.
+ *
+ * @param {Record<string, unknown>} scenario
+ * @returns {Record<string, unknown> | null}
+ */
+function resolveProfileBudgets(scenario: Record<string, unknown>): Record<string, unknown> | null {
+  if (isRecord(scenario.budgets)) {
+    return scenario.budgets;
+  }
+
+  if (!Array.isArray(scenario.budgets)) {
+    return null;
+  }
+
+  const pass: Record<string, number> = {};
+  for (const budget of scenario.budgets) {
+    if (!isRecord(budget) || typeof budget.limit !== 'number') {
+      continue;
+    }
+
+    if (budget.metric === 'p95') {
+      pass.cycleP95Ms = budget.limit;
+    } else if (budget.metric === 'p50') {
+      pass.cycleP50Ms = budget.limit;
+    } else if (budget.metric === 'failures') {
+      pass.failures = budget.limit;
+    } else if (budget.metric === 'timeouts') {
+      pass.timeouts = budget.limit;
+    }
+  }
+
+  return Object.keys(pass).length > 0
+    ? {
+        metric: 'milestone budget',
+        pass,
+      }
+    : null;
+}
+
+/**
  * Runs the mobile log-ingest profile artifact pipeline.
  *
  * @param {CliArgs} args
@@ -1017,9 +1175,14 @@ async function runProfileMobile(args: CliArgs, options: ProfileMobileOptions): P
   const scenarioPath = path.resolve(args.scenario);
   const config = readJson(configPath);
   const scenario = readJson(scenarioPath);
+  const scenarioName = resolveProfileScenarioName({ scenario, scenarioPath });
+  const profileScenario = { ...scenario, name: scenarioName };
+  const expectedIterations = resolveExpectedIterations(profileScenario);
+  const profileMetricEvents = resolveProfileMetricEvents(profileScenario);
+  const profileBudgets = resolveProfileBudgets(profileScenario);
   const runId = typeof args['run-id'] === 'string' ? args['run-id'] : createRunId();
   const artifactRoot = resolveArtifactRoot({ args, config, configPath, platform: options.platform });
-  const runDir = path.join(artifactRoot, scenario.name, runId);
+  const runDir = path.join(artifactRoot, scenarioName, runId);
   const layout = createArtifactLayout({ outputDir: runDir });
   const rawDir = layout.raw;
   const capturesDir = layout.captures;
@@ -1038,15 +1201,15 @@ async function runProfileMobile(args: CliArgs, options: ProfileMobileOptions): P
     platform: options.platform,
     runDir,
     runId,
-    scenarioId: scenario.name,
+    scenarioId: scenarioName,
   });
   if (providerExecution.failures.length > 0) {
     const health = buildProviderCommandFailureHealth({
       failures: providerExecution.failures,
       runId,
-      scenario,
+      scenario: profileScenario,
     });
-    const verdict = buildProfileVerdict({ scenario, runId, health, metrics: {} });
+    const verdict = buildProfileVerdict({ scenario: profileScenario, runId, health, metrics: {} });
     const agentSummary = buildAgentSummaryMarkdown({ health, verdict });
     await writeJsonArtifact({
       filePath: layout.health,
@@ -1076,17 +1239,17 @@ async function runProfileMobile(args: CliArgs, options: ProfileMobileOptions): P
 
   const eventLogText = eventLogPath ? await fsp.readFile(eventLogPath, 'utf8') : '';
   const events = extractProfileEvents(eventLogText, {
-    scenario: scenario.name,
+    scenario: scenarioName,
     runId,
   });
 
   const metrics = buildMetricsFromProfileEvents({
-    scenario: scenario.name,
+    scenario: scenarioName,
     runId,
     events,
-    expectedIterations: scenario.defaultIterations ?? 1,
-    budgets: scenario.budgets ?? null,
-    cycleEventNames: scenario.metricEvents ?? null,
+    expectedIterations,
+    budgets: profileBudgets,
+    cycleEventNames: profileMetricEvents,
     artifacts: {
       captures: attachedEvidence.captures,
       signals: attachedEvidence.signals,
@@ -1094,7 +1257,7 @@ async function runProfileMobile(args: CliArgs, options: ProfileMobileOptions): P
   });
 
   const manifest = buildManifest({
-    scenario: scenario.name,
+    scenario: scenarioName,
     runId,
     platform: options.platform,
     status: metrics.status,
@@ -1139,18 +1302,18 @@ async function runProfileMobile(args: CliArgs, options: ProfileMobileOptions): P
     events,
     startedAt,
     phaseMap: scenario.timelinePhases ?? null,
-    owner: scenario.flowId ?? scenario.name,
+    owner: scenario.flowId ?? scenarioName,
   });
 
   const causalRun = buildCausalRun({
-    scenario,
-    flowId: scenario.flowId ?? scenario.name,
+    scenario: profileScenario,
+    flowId: scenario.flowId ?? scenarioName,
     runId,
     platform: options.platform,
     buildFlavor: 'unknown',
     interactionDriver,
     trigger: scenario.trigger ?? null,
-    budgets: scenario.budgets?.pass ?? null,
+    budgets: isRecord(profileBudgets?.pass) ? profileBudgets.pass : null,
     timeline,
     artifacts: manifest.artifacts,
     manifest,
@@ -1158,13 +1321,13 @@ async function runProfileMobile(args: CliArgs, options: ProfileMobileOptions): P
   });
 
   const budgetVerdict = buildBudgetVerdict({
-    flowId: scenario.flowId ?? scenario.name,
+    flowId: scenario.flowId ?? scenarioName,
     runId,
     budgetEvaluation: metrics.budgetEvaluation ?? null,
   });
 
-  const health = buildProfileHealth({ scenario, runId, metrics });
-  const verdict = buildProfileVerdict({ scenario, runId, health, metrics });
+  const health = buildProfileHealth({ scenario: profileScenario, runId, metrics });
+  const verdict = buildProfileVerdict({ scenario: profileScenario, runId, health, metrics });
   const agentSummary = buildAgentSummaryMarkdown({ health, verdict });
   const summary = buildSummaryMarkdown({ manifest, metrics });
 

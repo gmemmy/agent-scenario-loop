@@ -151,6 +151,48 @@ function writeExistingAppFixture(appRoot: string): void {
 }
 
 /**
+ * Writes deterministic profile-event logs for the initialized consumer scenario.
+ *
+ * @param {string} appRoot
+ * @returns {{androidEvents: string, iosEvents: string}}
+ */
+function writeProfileEventFixtures(appRoot: string): { androidEvents: string; iosEvents: string } {
+  const eventLogDir = path.join(appRoot, 'event-logs');
+  fs.mkdirSync(eventLogDir, { recursive: true });
+
+  const iosEvents = path.join(eventLogDir, 'account-overview-ios.log');
+  const androidEvents = path.join(eventLogDir, 'account-overview-android.log');
+  fs.writeFileSync(
+    iosEvents,
+    [
+      '2026-01-01T00:00:00.000Z consumer-ios [profile-event] {"event":"first_journey_started","scenario":"account-overview","runId":"account-overview-ios","iteration":1,"atMs":0}',
+      '2026-01-01T00:00:00.700Z consumer-ios [profile-event] {"event":"first_journey_completed","scenario":"account-overview","runId":"account-overview-ios","iteration":1,"atMs":700}',
+      '2026-01-01T00:00:01.000Z consumer-ios [profile-event] {"event":"first_journey_started","scenario":"account-overview","runId":"account-overview-ios","iteration":2,"atMs":1000}',
+      '2026-01-01T00:00:01.760Z consumer-ios [profile-event] {"event":"first_journey_completed","scenario":"account-overview","runId":"account-overview-ios","iteration":2,"atMs":1760}',
+      '2026-01-01T00:00:02.000Z consumer-ios [profile-event] {"event":"first_journey_started","scenario":"account-overview","runId":"account-overview-ios","iteration":3,"atMs":2000}',
+      '2026-01-01T00:00:02.830Z consumer-ios [profile-event] {"event":"first_journey_completed","scenario":"account-overview","runId":"account-overview-ios","iteration":3,"atMs":2830}',
+      '',
+    ].join('\n'),
+    'utf8',
+  );
+  fs.writeFileSync(
+    androidEvents,
+    [
+      '2026-01-01T00:10:00.000Z consumer-android [profile-event] {"event":"first_journey_started","scenario":"account-overview","runId":"account-overview-android","iteration":1,"atMs":0}',
+      '2026-01-01T00:10:00.820Z consumer-android [profile-event] {"event":"first_journey_completed","scenario":"account-overview","runId":"account-overview-android","iteration":1,"atMs":820}',
+      '2026-01-01T00:10:01.000Z consumer-android [profile-event] {"event":"first_journey_started","scenario":"account-overview","runId":"account-overview-android","iteration":2,"atMs":1000}',
+      '2026-01-01T00:10:01.870Z consumer-android [profile-event] {"event":"first_journey_completed","scenario":"account-overview","runId":"account-overview-android","iteration":2,"atMs":1870}',
+      '2026-01-01T00:10:02.000Z consumer-android [profile-event] {"event":"first_journey_started","scenario":"account-overview","runId":"account-overview-android","iteration":3,"atMs":2000}',
+      '2026-01-01T00:10:02.940Z consumer-android [profile-event] {"event":"first_journey_completed","scenario":"account-overview","runId":"account-overview-android","iteration":3,"atMs":2940}',
+      '',
+    ].join('\n'),
+    'utf8',
+  );
+
+  return { androidEvents, iosEvents };
+}
+
+/**
  * Merges generated Agent Scenario Loop package-script snippets into the app package.json.
  *
  * @param {string} appRoot
@@ -220,6 +262,7 @@ function rehearseConsumerInstall({
 
   const generatedScripts = mergeGeneratedScripts(appRoot);
   replaceConfigPlaceholders(appRoot);
+  const profileEvents = writeProfileEventFixtures(appRoot);
 
   const packageJson = readJson(path.join(appRoot, 'package.json')) as { scripts: Record<string, string> };
   assert.equal(packageJson.scripts.start, 'react-native start');
@@ -235,6 +278,14 @@ function rehearseConsumerInstall({
   run('npm', ['run', 'asl:check:android', '--silent'], {
     cwd: appRoot,
     env,
+  });
+  run('npm', ['run', 'asl:profile:ios', '--silent'], {
+    cwd: appRoot,
+    env: { ...env, ASL_PROFILE_IOS_EVENTS: profileEvents.iosEvents },
+  });
+  run('npm', ['run', 'asl:profile:android', '--silent'], {
+    cwd: appRoot,
+    env: { ...env, ASL_PROFILE_ANDROID_EVENTS: profileEvents.androidEvents },
   });
   run('npm', ['run', 'asl:validate', '--silent'], {
     cwd: appRoot,
@@ -264,6 +315,14 @@ function rehearseConsumerInstall({
       { healthStatus: 'passed', platform: 'ios', scenarioId: 'account-overview' },
     ],
   );
+
+  for (const [platform, runId] of [['ios', 'account-overview-ios'], ['android', 'account-overview-android']] as const) {
+    const runDir = path.join(appRoot, 'artifacts', 'asl', platform, 'account-overview', runId);
+    const health = readJson(path.join(runDir, 'health.json')) as { healthStatus: string };
+    const verdict = readJson(path.join(runDir, 'verdict.json')) as { verdictStatus: string };
+    assert.equal(health.healthStatus, 'passed');
+    assert.equal(verdict.verdictStatus, 'passed');
+  }
 }
 
 /**
@@ -315,5 +374,6 @@ export {
   replaceConfigPlaceholders,
   run,
   writeExistingAppFixture,
+  writeProfileEventFixtures,
   writeJson,
 };

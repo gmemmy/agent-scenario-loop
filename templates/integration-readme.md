@@ -38,6 +38,8 @@ asl-check-plan --scenario scenarios/mobile/{{SCENARIO_ID}}.json --runner runner-
 When the app emits profile events, run platform profile commands against captured evidence or a live runner:
 
 ```bash
+ASL_PROFILE_IOS_EVENTS=event-logs/{{SCENARIO_ID}}-ios.log pnpm asl:profile:ios
+ASL_PROFILE_ANDROID_EVENTS=event-logs/{{SCENARIO_ID}}-android.log pnpm asl:profile:android
 asl-profile-ios --config asl.config.json --scenario scenarios/mobile/{{SCENARIO_ID}}.json --simctl-capture --profile-session --profile-session-storage --launch --wait-ms 5000 --out artifacts/asl/ios --run-id {{SCENARIO_ID}}-ios-live
 asl-profile-android --config asl.config.json --scenario scenarios/mobile/{{SCENARIO_ID}}.json --adb-capture --profile-session --clear-logcat --launch --wait-ms 5000 --out artifacts/asl/android --run-id {{SCENARIO_ID}}-android-live
 ```

@@ -702,6 +702,11 @@ function main(): void {
       'asl:validate',
     ]);
     assert.match(initializedScripts['asl:check:ios'], /checkout-submit/u);
+    assert.match(initializedScripts['asl:profile:ios'], /\$\{ASL_PROFILE_IOS_EVENTS:\+--events \$ASL_PROFILE_IOS_EVENTS\}/u);
+    assert.match(
+      initializedScripts['asl:profile:android'],
+      /\$\{ASL_PROFILE_ANDROID_EVENTS:\+--events \$ASL_PROFILE_ANDROID_EVENTS\}/u,
+    );
     assert.match(initializedScripts['asl:agent-device:ios'], /checkout-submit-ios-agent-device/u);
     assert.match(initializedScripts['asl:agent-device:android'], /checkout-submit-android-agent-device/u);
     assert.match(initializedScripts['asl:profile:ios:live'], /checkout-submit-ios-live/u);
