@@ -640,6 +640,16 @@ function main(): void {
   fs.mkdirSync(installDir, { recursive: true });
 
   try {
+    assert.equal(
+      fs.existsSync(path.join(repoRoot, '.npmignore')),
+      true,
+      'root .npmignore must exist so npm pack never falls back to .gitignore',
+    );
+    assert.equal(
+      fs.existsSync(path.join(repoRoot, 'examples', 'mobile-app', '.npmignore')),
+      true,
+      'example app .npmignore must exist so npm pack never falls back to the app-local .gitignore',
+    );
     const packOutput = run('npm', ['pack', '--pack-destination', packDir], {
       cwd: repoRoot,
       env,
@@ -656,6 +666,16 @@ function main(): void {
 
     const packageRoot = path.join(installDir, 'node_modules', 'agent-scenario-loop');
     const packedFiles = listFiles(packageRoot);
+    assert.equal(
+      packedFiles.includes('examples/mobile-app/scenarios/android/app-startup.json'),
+      true,
+      'packed package must include Android example app scenarios',
+    );
+    assert.equal(
+      packedFiles.includes('examples/mobile-app/scenarios/ios/app-startup.json'),
+      true,
+      'packed package must include iOS example app scenarios',
+    );
     const forbiddenPathPatterns = [
       /^\.github\//u,
       /^artifacts\//u,

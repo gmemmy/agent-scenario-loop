@@ -1,0 +1,15 @@
+# Package contents are controlled by package.json `files`.
+# Keep this file so npm never falls back to .gitignore when packing.
+
+node_modules/
+artifacts/
+core/artifacts/
+.agents/
+
+dist/scripts/
+
+examples/mobile-app/.expo/
+examples/mobile-app/android/
+examples/mobile-app/artifacts/
+examples/mobile-app/ios/
+examples/mobile-app/node_modules/

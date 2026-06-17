@@ -1,0 +1,11 @@
+# Keep npm pack from falling back to this example app's .gitignore.
+
+/node_modules/
+/.expo/
+/android/
+/ios/
+/artifacts/
+
+*.memgraph
+*.trace
+*.xcresult
