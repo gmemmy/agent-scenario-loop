@@ -78,6 +78,23 @@ test('accepts all runner capability manifests', () => {
   }
 });
 
+test('documents every shipped runner and provider target manifest', () => {
+  const manifestNames = listJsonFiles('examples/runners')
+    .map((fixture: string) => path.basename(fixture))
+    .sort();
+  const readme = fs.readFileSync(path.join(ROOT, 'examples', 'runners', 'README.md'), 'utf8');
+  const documentedNames: string[] = [];
+  for (const match of readme.matchAll(/`([^`]+\.json)`/gu)) {
+    const name = match[1];
+    if (typeof name === 'string') {
+      documentedNames.push(name);
+    }
+  }
+  documentedNames.sort();
+
+  assert.deepEqual(documentedNames, manifestNames);
+});
+
 test('script provider examples declare command-backed evidence outputs', () => {
   const expected = new Map([
     ['examples/runners/script-accessibility-provider.json', 'accessibility'],
