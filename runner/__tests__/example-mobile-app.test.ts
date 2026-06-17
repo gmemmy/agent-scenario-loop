@@ -130,7 +130,11 @@ test('example mobile app satisfies initialized consumer validation', async () =>
 
   assert.equal(result.status, 'passed');
   assert.equal(result.appHelper.status, 'present');
+  assert.equal(result.gitignore.status, 'present');
   assert.equal(result.scripts.status, 'present');
+  assert.deepEqual(result.gitignore.missingPatterns, []);
+  assert.deepEqual(result.nextActions.map((action: {code: string}) => action.code), []);
+  assert.deepEqual(result.warnings, []);
   assert.equal(result.scenarioPaths.length, 3);
   assert.equal(result.providerPaths.length, 1);
   assert.deepEqual(

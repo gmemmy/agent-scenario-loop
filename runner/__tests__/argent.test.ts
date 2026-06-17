@@ -8,6 +8,7 @@ const test = require('node:test');
 const {
   checkArgentAvailability,
   deriveArgentRootArgs,
+  execFileCommandWithTimeout,
   parseArgs,
   parseBaseArgs,
   resolveArgentDriverSteps,
@@ -98,10 +99,46 @@ test('Argent availability check fails when a required tool is unavailable', asyn
   assert.equal(failedCheck?.stderrPreview, 'unknown tool gesture-tap');
 });
 
+test('Argent availability accepts expected output emitted before a wrapper timeout', async () => {
+  const result = await checkArgentAvailability({
+    executor: async (command: string, args: string[]): Promise<CommandResult> => ({
+      args,
+      command,
+      exitCode: args.at(-1) === '--help' ? 0 : 1,
+      stderr: args.at(-1) === '--help' ? '' : 'Argent command timed out after 30000ms.',
+      stdout: args.at(-1) === '--help'
+        ? 'Usage: argent run <tool> [flags]\n'
+        : `Tool: ${args.at(-1)}\nFlags:\n  --udid <value>\n`,
+    }),
+    requiredTools: ['launch-app'],
+  });
+
+  assert.equal(result.status, 'passed');
+  assert.equal(result.checks[1].status, 'passed');
+  assert.equal(result.checks[1].message, 'argent_tool_launch-app returned the expected Argent output before a wrapper timeout.');
+});
+
 test('Argent root args are derived from configured run args', () => {
   assert.deepEqual(deriveArgentRootArgs(['run']), []);
   assert.deepEqual(deriveArgentRootArgs(['--yes', '@swmansion/argent', 'run']), ['--yes', '@swmansion/argent']);
   assert.deepEqual(deriveArgentRootArgs(['--yes', '@swmansion/argent']), ['--yes', '@swmansion/argent']);
+});
+
+test('Argent command executor resolves when a helper keeps inherited pipes open', async () => {
+  const startedAt = Date.now();
+  const result = await execFileCommandWithTimeout(process.execPath, [
+    '-e',
+    [
+      "const { spawn } = require('node:child_process');",
+      "const helper = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 2000)'], { stdio: 'inherit' });",
+      'helper.unref();',
+      "process.stdout.write('wrapper complete\\n', () => process.exit(0));",
+    ].join('\n'),
+  ], 5000);
+
+  assert.equal(result.exitCode, 0);
+  assert.match(result.stdout, /wrapper complete/u);
+  assert.ok(Date.now() - startedAt < 1500);
 });
 
 /**
@@ -208,6 +245,46 @@ test('Argent capture executes scenario driver actions and writes artifacts', asy
   assert.equal(fs.existsSync(path.join(tempDir, 'raw', 'argent-launch-1.txt')), true);
   assert.equal(fs.existsSync(path.join(tempDir, 'raw', 'final-screenshot.txt')), true);
   assert.equal(fs.existsSync(path.join(tempDir, 'captures', 'final.png')), true);
+});
+
+test('Argent capture resolves iOS booted shorthand before running driver actions', async (t: TestContext) => {
+  const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-argent-booted-'));
+  t.after(async () => {
+    await fsp.rm(tempDir, { recursive: true, force: true });
+  });
+  const calls: string[] = [];
+
+  const result = await runArgentCapture({
+    app: 'dev.example.app',
+    deviceId: 'booted',
+    executor: async (command: string, args: string[]): Promise<CommandResult> => {
+      calls.push(args.join(' '));
+      return {
+        args,
+        command,
+        exitCode: 0,
+        stderr: '',
+        stdout: '{"bundleId":"dev.example.app"}\n',
+      };
+    },
+    outputDir: tempDir,
+    platform: 'ios',
+    resolveBootedIosSimulatorUdid: async () => 'SIM-123',
+    runId: 'argent-booted',
+    scenario: {
+      id: 'argent-booted-flow',
+      steps: [
+        {
+          id: 'launch',
+          kind: 'launch',
+        },
+      ],
+    },
+  });
+
+  assert.equal(result.metadata.deviceId, 'SIM-123');
+  assert.equal(result.metadata.requestedDeviceId, 'booted');
+  assert.deepEqual(calls, ['run launch-app --udid SIM-123 --bundleId dev.example.app']);
 });
 
 test('Argent capture marks required action failures unhealthy', async (t: TestContext) => {

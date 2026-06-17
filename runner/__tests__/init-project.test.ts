@@ -106,7 +106,9 @@ test('init-project scaffolds templates into a consuming app layout', async (t: T
   assert.match(integrationReadme, /ASL_ANDROID_SERIAL=<emulator-or-device-serial>/u);
   assert.match(integrationReadme, /ASL_IOS_AGENT_DEVICE_SESSION/u);
   assert.match(integrationReadme, /ASL_ANDROID_AGENT_DEVICE_SESSION/u);
-  assert.match(integrationReadme, /ASL_ARGENT_BIN=npx ASL_ARGENT_BASE_ARGS="--yes @swmansion\/argent run"/u);
+  assert.match(integrationReadme, /ASL_ARGENT_BIN=\/path\/to\/argent pnpm asl:argent:check/u);
+  assert.match(integrationReadme, /ASL_ARGENT_BIN=npx/u);
+  assert.match(integrationReadme, /booted` shorthand/u);
   assert.match(integrationReadme, /ASL_ARGENT_COMMAND_TIMEOUT_MS/u);
   assert.match(fs.readFileSync(path.join(targetDir, 'asl', 'gitignore-snippet'), 'utf8'), /artifacts\/asl\//u);
   const accessibilityProviderScript = fs.readFileSync(path.join(targetDir, 'scripts', 'asl-capture-accessibility-provider.mjs'), 'utf8');

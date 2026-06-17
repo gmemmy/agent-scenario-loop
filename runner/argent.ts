@@ -112,6 +112,7 @@ type ArgentCaptureOptions = {
   executor?: CommandExecutor;
   outputDir?: string;
   platform: 'android' | 'ios';
+  resolveBootedIosSimulatorUdid?: () => Promise<string | null>;
   runId?: string;
   scenario: Record<string, unknown>;
   screenSize?: import('./argent-driver').ArgentScreenSize;
@@ -310,6 +311,11 @@ function execFileCommandWithTimeout(command: string, args: string[], timeoutMs =
       if (forceKillTimer) {
         clearTimeout(forceKillTimer);
       }
+      child.unref();
+      child.stdout?.unref();
+      child.stderr?.unref();
+      child.stdout?.destroy();
+      child.stderr?.destroy();
       resolve(result);
     };
 
@@ -330,14 +336,19 @@ function execFileCommandWithTimeout(command: string, args: string[], timeoutMs =
         stdout,
       });
     });
+    const buildResult = (code: number | null, signal: NodeJS.Signals | null): CommandResult => ({
+      command,
+      args,
+      exitCode: typeof code === 'number' ? code : signal ? 1 : 0,
+      stderr: [stderr, timedOut ? `Argent command timed out after ${timeoutMs}ms.` : ''].filter(Boolean).join('\n'),
+      stdout,
+    });
+
+    child.on('exit', (code: number | null, signal: NodeJS.Signals | null) => {
+      finish(buildResult(code, signal));
+    });
     child.on('close', (code: number | null, signal: NodeJS.Signals | null) => {
-      finish({
-        command,
-        args,
-        exitCode: typeof code === 'number' ? code : signal ? 1 : 0,
-        stderr: [stderr, timedOut ? `Argent command timed out after ${timeoutMs}ms.` : ''].filter(Boolean).join('\n'),
-        stdout,
-      });
+      finish(buildResult(code, signal));
     });
   });
 }
@@ -352,6 +363,69 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
   });
+}
+
+/**
+ * Reads the first booted iOS simulator UDID from `simctl` JSON.
+ *
+ * @param {string} stdout
+ * @returns {string | null}
+ */
+function parseBootedIosSimulatorUdid(stdout: string): string | null {
+  try {
+    const parsed = JSON.parse(stdout) as {devices?: Record<string, Array<{state?: string, udid?: string}>>};
+    for (const devices of Object.values(parsed.devices ?? {})) {
+      const booted = devices.find((device) => device.state === 'Booted' && typeof device.udid === 'string');
+      if (booted?.udid) {
+        return booted.udid;
+      }
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+/**
+ * Resolves Argent's iOS device id because Argent does not understand simctl's `booted` shorthand.
+ *
+ * @param {number} commandTimeoutMs
+ * @returns {Promise<string | null>}
+ */
+async function resolveBootedIosSimulatorUdid(commandTimeoutMs: number): Promise<string | null> {
+  const result = await execFileCommandWithTimeout(
+    'xcrun',
+    ['simctl', 'list', 'devices', 'booted', '-j'],
+    Math.min(commandTimeoutMs, 10_000),
+  );
+  if (result.exitCode !== 0) {
+    return null;
+  }
+  return parseBootedIosSimulatorUdid(result.stdout);
+}
+
+/**
+ * Resolves the device id that should be passed to Argent.
+ *
+ * @param {{commandTimeoutMs: number, deviceId: string, platform: 'android' | 'ios', resolveBootedIosSimulatorUdid?: () => Promise<string | null>}} options
+ * @returns {Promise<{deviceId: string, requestedDeviceId?: string}>}
+ */
+async function resolveArgentDeviceId({
+  commandTimeoutMs,
+  deviceId,
+  platform,
+  resolveBootedIosSimulatorUdid: resolveBooted = () => resolveBootedIosSimulatorUdid(commandTimeoutMs),
+}: {
+  commandTimeoutMs: number;
+  deviceId: string;
+  platform: 'android' | 'ios';
+  resolveBootedIosSimulatorUdid?: () => Promise<string | null>;
+}): Promise<{deviceId: string; requestedDeviceId?: string}> {
+  if (platform !== 'ios' || deviceId !== 'booted') {
+    return { deviceId };
+  }
+  const resolvedDeviceId = await resolveBooted();
+  return resolvedDeviceId ? { deviceId: resolvedDeviceId, requestedDeviceId: deviceId } : { deviceId };
 }
 
 /**
@@ -756,13 +830,19 @@ function buildArgentAvailabilityCheck({
   result: CommandResult;
 }): ArgentAvailabilityCheck {
   const output = `${result.stdout}\n${result.stderr}`;
-  const passed = result.exitCode === 0 && expectedPattern.test(output);
+  const expectedOutputFound = expectedPattern.test(output);
+  const completedBeforeWrapperTimeout = expectedOutputFound && /timed out after \d+ms/iu.test(result.stderr);
+  const passed = expectedOutputFound && (result.exitCode === 0 || completedBeforeWrapperTimeout);
   const check: ArgentAvailabilityCheck = {
     args: result.args,
     code,
     command: result.command,
     exitCode: result.exitCode,
-    message: passed ? `${name} is available.` : `${name} did not return the expected Argent output.`,
+    message: passed
+      ? completedBeforeWrapperTimeout
+        ? `${name} returned the expected Argent output before a wrapper timeout.`
+        : `${name} is available.`
+      : `${name} did not return the expected Argent output.`,
     name,
     status: passed ? 'passed' : 'failed',
   };
@@ -899,6 +979,7 @@ async function runArgentCapture({
   executor,
   outputDir = path.resolve('artifacts/argent-capture'),
   platform,
+  resolveBootedIosSimulatorUdid: resolveBooted,
   runId = createRunId(),
   scenario,
   screenSize,
@@ -922,6 +1003,12 @@ async function runArgentCapture({
   if (driverStepErrors.length > 0) {
     throw new Error(`Invalid Argent driver step metadata: ${driverStepErrors.join(' ')}`);
   }
+  const resolvedDevice = await resolveArgentDeviceId({
+    commandTimeoutMs,
+    deviceId,
+    platform,
+    ...(resolveBooted ? { resolveBootedIosSimulatorUdid: resolveBooted } : {}),
+  });
 
   const driver = createArgentDriver({
     ...(app ? { appId: app } : {}),
@@ -929,7 +1016,7 @@ async function runArgentCapture({
     argentCommand,
     ...(baseArgs ? { baseArgs } : {}),
     ...(deviceFlag ? { deviceFlag } : {}),
-    deviceId,
+    deviceId: resolvedDevice.deviceId,
     executor: executor ?? ((command, args) => execFileCommandWithTimeout(command, args, commandTimeoutMs)),
     ...(screenSize ? { screenSize } : {}),
   });
@@ -940,9 +1027,10 @@ async function runArgentCapture({
     baseArgs: baseArgs ?? ['run'],
     captures,
     commandTimeoutMs,
-    deviceId,
+    deviceId: resolvedDevice.deviceId,
     driverActions: [],
     platform,
+    ...(resolvedDevice.requestedDeviceId ? { requestedDeviceId: resolvedDevice.requestedDeviceId } : {}),
     ...(screenSize ? { screenSize } : {}),
   };
 

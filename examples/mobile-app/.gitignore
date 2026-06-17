@@ -1,0 +1,13 @@
+/node_modules/
+/.expo/
+/android/
+/ios/
+
+# Agent Scenario Loop runtime artifacts
+artifacts/asl/
+artifacts/example-mobile-app/
+
+# Device/simulator evidence captured during local proof runs
+*.memgraph
+*.trace
+*.xcresult

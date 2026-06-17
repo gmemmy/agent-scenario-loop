@@ -125,12 +125,12 @@ pnpm asl:agent-device:android
 pnpm asl:argent:check
 pnpm asl:argent:ios
 pnpm asl:argent:android
-ASL_ARGENT_BIN=npx ASL_ARGENT_BASE_ARGS="--yes @swmansion/argent run" pnpm asl:argent:android
+ASL_ARGENT_BIN=/path/to/argent pnpm asl:argent:android
 ```
 
 The `*:provider` scripts execute `runner-manifests/evidence-provider.json`, which runs the deterministic provider scripts and inventories generated accessibility, profiler, memory, and network evidence in `manifest.artifacts.evidenceAttachments`.
 
-The `asl:agent-device:*` and `asl:argent:*` scripts are portable interaction proof lanes. They require the corresponding external tool and a running device or simulator, but they write the same ASL health, verdict, raw, capture, and summary artifacts. `asl:agent-device:check` verifies the configured agent-device command surface and device discovery before a scenario starts; set `ASL_AGENT_DEVICE_REQUIRED_PLATFORMS=ios,android` when both OS targets must be booted. `asl:argent:check` verifies the configured Argent command and ASL-required tool surface before any device scenario starts. For Argent without a global binary, use `ASL_ARGENT_BIN=npx` with `ASL_ARGENT_BASE_ARGS="--yes @swmansion/argent run"`; Argent uses `--udid` for both iOS simulators and Android emulators.
+The `asl:agent-device:*` and `asl:argent:*` scripts are portable interaction proof lanes. They require the corresponding external tool and a running device or simulator, but they write the same ASL health, verdict, raw, capture, and summary artifacts. `asl:agent-device:check` verifies the configured agent-device command surface and device discovery before a scenario starts; set `ASL_AGENT_DEVICE_REQUIRED_PLATFORMS=ios,android` when both OS targets must be booted. `asl:argent:check` verifies the configured Argent command and ASL-required tool surface before any device scenario starts. For Argent, prefer a real `argent` executable on PATH, or set `ASL_ARGENT_BIN=/path/to/argent` when the package manager installed it somewhere else. `ASL_ARGENT_BIN=npx` with `ASL_ARGENT_BASE_ARGS="--yes @swmansion/argent run"` is supported as a wrapper shape, but run `pnpm asl:argent:check` before relying on it. Argent uses `--udid` for both iOS simulators and Android emulators, and ASL resolves the iOS `booted` shorthand to the concrete simulator UDID before invoking Argent.
 
 Live proof and inspection scripts are also available from the app directory:
 
@@ -179,7 +179,7 @@ pnpm example:android:live:argent
 pnpm example:android:live:runners -- --agent-device-session <name>
 ```
 
-For Argent without a global binary, set `ASL_ARGENT_BIN=npx` and `ASL_ARGENT_BASE_ARGS="--yes @swmansion/argent run"`.
+For Argent without a global binary, set `ASL_ARGENT_BIN=/path/to/argent` to the installed executable. The `npx --yes @swmansion/argent run` wrapper shape is supported through `ASL_ARGENT_BIN=npx` and `ASL_ARGENT_BASE_ARGS="--yes @swmansion/argent run"`, but verify it with `pnpm asl:argent:check` before relying on it.
 
 The adb profile scenarios run before sidecar proofs. This keeps app-owned profile events, logs, screenshots, metrics, and verdicts independent from any UI automation session opened by agent-device or Argent.
 
@@ -238,7 +238,7 @@ pnpm example:ios:live:argent
 pnpm example:ios:live:runners -- --agent-device-session <name>
 ```
 
-For Argent without a global binary, set `ASL_ARGENT_BIN=npx` and `ASL_ARGENT_BASE_ARGS="--yes @swmansion/argent run"`.
+For Argent without a global binary, set `ASL_ARGENT_BIN=/path/to/argent` to the installed executable. The `npx --yes @swmansion/argent run` wrapper shape is supported through `ASL_ARGENT_BIN=npx` and `ASL_ARGENT_BASE_ARGS="--yes @swmansion/argent run"`, but verify it with `pnpm asl:argent:check` before relying on it.
 
 The simctl profile scenarios run before sidecar proofs. This keeps stored app truth events, screenshots, metrics, and verdicts independent from any UI automation session opened by agent-device or Argent.
 

@@ -44,12 +44,12 @@ When no trusted prior run exists, the comparison is recorded as skipped without 
 Add sidecars when external drivers are available:
 
 ```bash
-ASL_ARGENT_BIN=npx ASL_ARGENT_BASE_ARGS="--yes @swmansion/argent run" \
+ASL_ARGENT_BIN=/path/to/argent \
   asl-live-android --config asl.config.json --scenario scenarios/mobile/app-startup.json \
   --package dev.example.app --serial <emulator-serial> --out artifacts/asl/android-live \
   --agent-device-proof --argent-proof --compare-latest --fail-on-regression
 
-ASL_ARGENT_BIN=npx ASL_ARGENT_BASE_ARGS="--yes @swmansion/argent run" \
+ASL_ARGENT_BIN=/path/to/argent \
   asl-live-ios --config asl.config.json --scenario scenarios/mobile/app-startup.json \
   --bundle dev.example.app --device <simulator-udid> --out artifacts/asl/ios-live \
   --agent-device-proof --argent-proof --compare-latest --fail-on-regression
@@ -111,7 +111,7 @@ When `agent-device` or Argent is available, the example aggregate proofs can att
 
 ```bash
 ASL_AGENT_DEVICE_REQUIRED_PLATFORMS=ios,android pnpm agent-device:check
-ASL_ARGENT_BIN=npx ASL_ARGENT_BASE_ARGS="--yes @swmansion/argent run" pnpm argent:check
+ASL_ARGENT_BIN=/path/to/argent pnpm argent:check
 pnpm example:android:live:agent-device -- --agent-device-session <name> --run-suffix after-change
 pnpm example:ios:live:agent-device -- --agent-device-session <name> --run-suffix after-change
 pnpm example:android:live:argent -- --run-suffix after-change
@@ -125,7 +125,7 @@ pnpm example:android:live:runners -- --agent-device-session <name> --run-suffix 
 pnpm example:ios:live:runners -- --agent-device-session <name> --run-suffix after-change
 ```
 
-Run `pnpm agent-device:check` before using agent-device sidecars; set `ASL_AGENT_DEVICE_REQUIRED_PLATFORMS=ios,android` when the local proof must confirm both booted OS targets. For Argent without a global binary, set `ASL_ARGENT_BIN=npx` and `ASL_ARGENT_BASE_ARGS="--yes @swmansion/argent run"`. Run `pnpm argent:check` first when you need a bounded tool-surface proof before attaching Argent to a device scenario. The platform runner still owns adb or simctl preflight and profile evidence, and sidecars run only after that profile evidence has passed health and budget gates. Each executed sidecar contributes interaction proof, captures, and warning summaries into the same aggregate artifact graph; skipped sidecars remain visible in the aggregate proof so agents know which runner evidence is missing and why.
+Run `pnpm agent-device:check` before using agent-device sidecars; set `ASL_AGENT_DEVICE_REQUIRED_PLATFORMS=ios,android` when the local proof must confirm both booted OS targets. For Argent, prefer a real `argent` executable on PATH, or set `ASL_ARGENT_BIN=/path/to/argent` when the package manager installed it somewhere else. `ASL_ARGENT_BIN=npx` with `ASL_ARGENT_BASE_ARGS="--yes @swmansion/argent run"` is supported as a wrapper shape, but run `pnpm argent:check` before relying on it because package-manager wrappers can be slower than direct binaries. Run `pnpm argent:check` first when you need a bounded tool-surface proof before attaching Argent to a device scenario. The platform runner still owns adb or simctl preflight and profile evidence, and sidecars run only after that profile evidence has passed health and budget gates. Each executed sidecar contributes interaction proof, captures, and warning summaries into the same aggregate artifact graph; skipped sidecars remain visible in the aggregate proof so agents know which runner evidence is missing and why.
 
 ## Comparison
 
