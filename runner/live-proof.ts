@@ -22,7 +22,7 @@ type LiveProofArtifact = {
     worse: number;
   };
   comparisonStatus: string;
-  comparisons: unknown[];
+  comparisons: LiveProofComparisonPointer[];
   nextAction: {
     code: string;
     summary: string;
@@ -51,6 +51,22 @@ type LiveProofArtifact = {
 };
 type LiveProofComparisonCounts = LiveProofArtifact['comparisonCounts'];
 type LiveProofComparisonStatus = keyof LiveProofComparisonCounts;
+type LiveProofMetricStatus = 'better' | 'worse' | 'unchanged' | 'inconclusive';
+type LiveProofComparisonPointer = {
+  label?: string;
+  metricSummary?: {
+    counts?: Record<LiveProofMetricStatus, number>;
+    notableMetrics?: Array<{
+      delta?: number | null;
+      name?: string;
+      status?: Exclude<LiveProofMetricStatus, 'unchanged'>;
+      unit?: string;
+    }>;
+  };
+  runId?: string;
+  scenarioId?: string;
+  status?: string;
+};
 type LiveProofAggregateStatus = (
   'baseline_missing' |
   'improved' |
@@ -194,7 +210,7 @@ function expectedLiveProofNextActionCode(comparisonStatus: LiveProofAggregateSta
  * @returns {void}
  */
 function assertLiveProofComparisonCounts(proof: LiveProofArtifact): void {
-  const actual = countLiveProofComparisons(proof.comparisons as Array<{status?: string}>);
+  const actual = countLiveProofComparisons(proof.comparisons);
   for (const key of Object.keys(actual) as LiveProofComparisonStatus[]) {
     if (actual[key] !== proof.comparisonCounts[key]) {
       throw new Error(
@@ -211,7 +227,7 @@ function assertLiveProofComparisonCounts(proof: LiveProofArtifact): void {
  * @returns {void}
  */
 function assertLiveProofAggregateSignals(proof: LiveProofArtifact): void {
-  const expectedStatus = deriveLiveProofComparisonStatus(proof.comparisons as Array<{status?: string}>);
+  const expectedStatus = deriveLiveProofComparisonStatus(proof.comparisons);
   if (proof.comparisonStatus !== expectedStatus) {
     throw new Error(
       `Live proof artifact comparisonStatus expected ${expectedStatus} from comparisons but found ${proof.comparisonStatus}.`,
@@ -224,6 +240,37 @@ function assertLiveProofAggregateSignals(proof: LiveProofArtifact): void {
       `Live proof artifact nextAction.code expected ${expectedAction} for ${expectedStatus} but found ${proof.nextAction.code}.`,
     );
   }
+}
+
+/**
+ * Formats one metric highlight from a comparison pointer.
+ *
+ * @param {{delta?: number | null, name?: string, status?: string, unit?: string}} metric
+ * @returns {string}
+ */
+function formatMetricHighlight(metric: {delta?: number | null; name?: string; status?: string; unit?: string}): string {
+  const delta = typeof metric.delta === 'number' ? `${metric.delta}${metric.unit ?? ''}` : 'n/a';
+  return `${metric.name ?? 'unknown metric'} ${metric.status ?? 'unknown'} (${delta})`;
+}
+
+/**
+ * Formats compact metric summary details for one comparison pointer.
+ *
+ * @param {LiveProofComparisonPointer} comparison
+ * @returns {string}
+ */
+function formatComparisonPointerMetrics(comparison: LiveProofComparisonPointer): string {
+  const counts = comparison.metricSummary?.counts;
+  if (!counts) {
+    return '';
+  }
+
+  const highlights = comparison.metricSummary?.notableMetrics ?? [];
+  const highlightText = highlights.length > 0
+    ? `; notable: ${highlights.map(formatMetricHighlight).join(', ')}`
+    : '';
+
+  return ` (metrics better=${counts.better} worse=${counts.worse} unchanged=${counts.unchanged} inconclusive=${counts.inconclusive}${highlightText})`;
 }
 
 /**
@@ -261,6 +308,9 @@ function formatLiveProof(proof: LiveProofArtifact): string {
     )),
     `Comparisons: ${proof.comparisons.length}`,
     `Comparison counts: better=${proof.comparisonCounts.better} worse=${proof.comparisonCounts.worse} unchanged=${proof.comparisonCounts.unchanged} mixed=${proof.comparisonCounts.mixed} inconclusive=${proof.comparisonCounts.inconclusive} skipped=${proof.comparisonCounts.skipped}`,
+    ...proof.comparisons.map((comparison) => (
+      `- ${comparison.label ?? 'comparison'} (${comparison.scenarioId ?? 'unknown-scenario'}/${comparison.runId ?? 'unknown-run'}): ${comparison.status ?? 'unknown'}${formatComparisonPointerMetrics(comparison)}`
+    )),
     `Next action: ${proof.nextAction.code} - ${proof.nextAction.summary}`,
     `Summary: ${proof.summary}`,
   ].join('\n');
@@ -324,6 +374,7 @@ export {
   countLiveProofComparisons,
   deriveLiveProofComparisonStatus,
   expectedLiveProofNextActionCode,
+  formatComparisonPointerMetrics,
   formatLiveProof,
   main,
   parseArgs,

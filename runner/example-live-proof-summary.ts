@@ -30,11 +30,26 @@ type LiveProofComparisonPointer = {
   baselineDir: string | null;
   comparisonDir: string | null;
   label: string;
+  metricSummary?: LiveProofComparisonMetricSummary;
   reason: string | null;
   runId: string;
   scenarioId: string;
   status: 'better' | 'worse' | 'unchanged' | 'mixed' | 'inconclusive' | 'skipped';
   summaryPath: string | null;
+};
+
+type LiveProofComparisonMetricStatus = 'better' | 'worse' | 'unchanged' | 'inconclusive';
+
+type LiveProofComparisonMetricSummary = {
+  counts: Record<LiveProofComparisonMetricStatus, number>;
+  notableMetrics: Array<{
+    baseline: number | boolean | null;
+    current: number | boolean | null;
+    delta: number | null;
+    name: string;
+    status: Exclude<LiveProofComparisonMetricStatus, 'unchanged'>;
+    unit: string;
+  }>;
 };
 
 type LiveProofArtifact = {
@@ -247,6 +262,39 @@ function buildLiveProofNextAction(comparisonStatus: LiveProofComparisonStatus): 
 }
 
 /**
+ * Formats one comparison metric highlight for markdown.
+ *
+ * @param {LiveProofComparisonMetricSummary['notableMetrics'][number]} metric
+ * @returns {string}
+ */
+function formatComparisonMetricHighlight(
+  metric: LiveProofComparisonMetricSummary['notableMetrics'][number],
+): string {
+  const delta = metric.delta === null ? 'n/a' : `${metric.delta}${metric.unit}`;
+  return `${metric.name} ${metric.status} (${delta})`;
+}
+
+/**
+ * Formats compact metric counts and highlights for one comparison pointer.
+ *
+ * @param {LiveProofComparisonPointer} comparison
+ * @returns {string}
+ */
+function formatComparisonMetricSummary(comparison: LiveProofComparisonPointer): string {
+  const summary = comparison.metricSummary;
+  if (!summary) {
+    return '';
+  }
+
+  const counts = `metrics better=${summary.counts.better} worse=${summary.counts.worse} unchanged=${summary.counts.unchanged} inconclusive=${summary.counts.inconclusive}`;
+  const highlights = summary.notableMetrics.length > 0
+    ? `; notable: ${summary.notableMetrics.map(formatComparisonMetricHighlight).join(', ')}`
+    : '';
+
+  return ` (${counts}${highlights})`;
+}
+
+/**
  * Builds markdown for the aggregate live proof entrypoint.
  *
  * @param {LiveProofArtifact} artifact
@@ -293,7 +341,7 @@ function buildLiveProofMarkdown(artifact: LiveProofArtifact): string {
       ...artifact.comparisons.map((comparison) => (
         comparison.status === 'skipped'
           ? `- ${comparison.label} (${comparison.scenarioId}): skipped - ${comparison.reason}`
-          : `- ${comparison.label} (${comparison.scenarioId}): ${comparison.status} - ${comparison.summaryPath}`
+          : `- ${comparison.label} (${comparison.scenarioId}): ${comparison.status}${formatComparisonMetricSummary(comparison)} - ${comparison.summaryPath}`
       )),
     );
   }
@@ -390,6 +438,7 @@ export {
   buildLiveProofMarkdown,
   buildLiveProofNextAction,
   buildLiveProofSummary,
+  formatComparisonMetricSummary,
   readProfileRunStatus,
   writeLiveProofSummary,
 };
@@ -397,6 +446,7 @@ export {
 export type {
   LiveProofArtifact,
   LiveProofComparisonCounts,
+  LiveProofComparisonMetricSummary,
   LiveProofComparisonPointer,
   LiveProofComparisonStatus,
   LiveProofInteractionProofPointer,

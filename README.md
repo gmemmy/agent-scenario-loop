@@ -117,7 +117,7 @@ pnpm example:android:live
 
 `example:app:android` builds, installs, and opens the private example app. Keep Metro running. `example:android:live` then checks adb/package readiness and runs startup, open-close, and scroll-settle through the same scenario/artifact contract. It prints the `agent-summary.md` entrypoint for each run.
 
-The aggregate proof also writes a batch entrypoint at `artifacts/example-mobile-app/android/_live-proof/android-live-proof/agent-summary.md` plus a schema-checked `live-proof.json` that points to preflight, scenario, and comparison evidence. The JSON includes an aggregate `comparisonStatus` and `nextAction` for agent handoff.
+The aggregate proof also writes a batch entrypoint at `artifacts/example-mobile-app/android/_live-proof/android-live-proof/agent-summary.md` plus a schema-checked `live-proof.json` that points to preflight, scenario, and comparison evidence. The JSON includes an aggregate `comparisonStatus`, metric summary counts for each comparison, and `nextAction` for agent handoff.
 
 The Android live proof uses the isolated Metro port `8097`. During preflight it configures `adb reverse tcp:8097 tcp:8097` and writes the app's React Native debug host as `localhost:8097`, preserving both commands as raw adb evidence. To apply only that routing setup:
 
@@ -206,7 +206,7 @@ pnpm example:ios:live
 
 The aggregate command runs simctl preflight, startup, open-close, and scroll-settle. The individual scenario commands remain available when isolating one run:
 
-It also writes a batch entrypoint at `artifacts/example-mobile-app/ios/_live-proof/ios-live-proof/agent-summary.md` plus a schema-checked `live-proof.json` with aggregate `comparisonStatus` and `nextAction` fields.
+It also writes a batch entrypoint at `artifacts/example-mobile-app/ios/_live-proof/ios-live-proof/agent-summary.md` plus a schema-checked `live-proof.json` with aggregate `comparisonStatus`, per-comparison metric summaries, and `nextAction` fields.
 
 ```bash
 pnpm example:profile:ios:live:startup
@@ -256,7 +256,7 @@ To compare two completed run folders:
 pnpm compare -- --baseline artifacts/runs/app-startup/baseline --current artifacts/runs/app-startup/current --out artifacts/runs/app-startup/current
 ```
 
-Comparison only reports better, worse, or unchanged when both runs passed scenario health. Otherwise it writes an inconclusive `comparison.json`.
+Comparison only interprets metric direction when both runs passed scenario health. It reports `better`, `worse`, `unchanged`, or `mixed` when metrics are comparable, and writes an inconclusive `comparison.json` when required evidence is missing.
 
 To compare the current run against the newest trusted prior run for the same scenario:
 

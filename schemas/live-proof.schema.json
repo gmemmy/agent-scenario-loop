@@ -190,6 +190,71 @@
         },
         "reason": {
           "type": ["string", "null"]
+        },
+        "metricSummary": {
+          "$ref": "#/$defs/comparisonMetricSummary"
+        }
+      }
+    },
+    "comparisonMetricSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["counts", "notableMetrics"],
+      "properties": {
+        "counts": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["better", "worse", "unchanged", "inconclusive"],
+          "properties": {
+            "better": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "worse": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "unchanged": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "inconclusive": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "notableMetrics": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/comparisonMetricHighlight"
+          }
+        }
+      }
+    },
+    "comparisonMetricHighlight": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "status", "unit", "baseline", "current", "delta"],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["better", "worse", "inconclusive"]
+        },
+        "unit": {
+          "type": "string"
+        },
+        "baseline": {
+          "type": ["number", "integer", "boolean", "null"]
+        },
+        "current": {
+          "type": ["number", "integer", "boolean", "null"]
+        },
+        "delta": {
+          "type": ["number", "integer", "null"]
         }
       }
     },

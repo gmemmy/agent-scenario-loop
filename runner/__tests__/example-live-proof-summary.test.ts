@@ -9,6 +9,7 @@ const {
   buildLiveProofComparisonCounts,
   buildLiveProofComparisonStatus,
   buildLiveProofNextAction,
+  formatComparisonMetricSummary,
   writeLiveProofSummary,
 } = require('../example-live-proof-summary');
 
@@ -74,6 +75,41 @@ test('maps aggregate live proof statuses to next actions', () => {
   assert.equal(buildLiveProofNextAction('improved').code, 'inspect_summary');
   assert.equal(buildLiveProofNextAction('unchanged').code, 'inspect_summary');
   assert.equal(buildLiveProofNextAction('not_compared').code, 'inspect_summary');
+});
+
+test('formats comparison metric summaries for aggregate markdown', () => {
+  assert.equal(
+    formatComparisonMetricSummary({
+      ...comparison('mixed'),
+      metricSummary: {
+        counts: {
+          better: 1,
+          worse: 1,
+          unchanged: 6,
+          inconclusive: 0,
+        },
+        notableMetrics: [
+          {
+            baseline: 420,
+            current: 398,
+            delta: -22,
+            name: 'cycle p50',
+            status: 'better',
+            unit: 'ms',
+          },
+          {
+            baseline: 10,
+            current: 16,
+            delta: 6,
+            name: 'close p50',
+            status: 'worse',
+            unit: 'ms',
+          },
+        ],
+      },
+    }),
+    ' (metrics better=1 worse=1 unchanged=6 inconclusive=0; notable: cycle p50 better (-22ms), close p50 worse (6ms))',
+  );
 });
 
 test('writes optional interaction proof pointers into aggregate live proof artifacts', async (t: TestContext) => {

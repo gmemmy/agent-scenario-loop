@@ -141,7 +141,7 @@ pnpm example:android:live:agent-device -- --agent-device-session <name> --run-su
 pnpm example:ios:live:agent-device -- --agent-device-session <name> --run-suffix after-change --compare-latest
 ```
 
-Each aggregate live proof also writes `_live-proof/<run-id>/live-proof.json` and `_live-proof/<run-id>/agent-summary.md`, giving agents one batch entrypoint that links preflight evidence, scenario run summaries, per-profile health/verdict statuses, optional interaction proofs, optional comparisons, and aggregate comparison counts.
+Each aggregate live proof also writes `_live-proof/<run-id>/live-proof.json` and `_live-proof/<run-id>/agent-summary.md`, giving agents one batch entrypoint that links preflight evidence, scenario run summaries, per-profile health/verdict statuses, optional interaction proofs, optional comparisons, aggregate comparison counts, and per-comparison metric summaries.
 
 To inspect or gate the batch artifact:
 

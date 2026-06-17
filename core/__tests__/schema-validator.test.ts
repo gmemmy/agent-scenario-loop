@@ -577,6 +577,24 @@ test('accepts aggregate live proof artifacts', () => {
         comparisonDir: 'artifacts/example-mobile-app/android/comparisons/app-startup/android-live-startup-after-change',
         summaryPath: 'artifacts/example-mobile-app/android/comparisons/app-startup/android-live-startup-after-change/agent-summary.md',
         reason: null,
+        metricSummary: {
+          counts: {
+            better: 1,
+            worse: 0,
+            unchanged: 3,
+            inconclusive: 0,
+          },
+          notableMetrics: [
+            {
+              name: 'startup p95',
+              status: 'better',
+              unit: 'ms',
+              baseline: 1200,
+              current: 980,
+              delta: -220,
+            },
+          ],
+        },
       },
       {
         label: 'scroll',

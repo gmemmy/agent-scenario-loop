@@ -73,6 +73,45 @@ function buildProof(comparisonStatus: 'mixed' | 'regressed' | 'unchanged'): Reco
         comparisonDir: 'artifacts/example-mobile-app/android/comparisons/app-startup/android-live-startup',
         summaryPath: 'artifacts/example-mobile-app/android/comparisons/app-startup/android-live-startup/agent-summary.md',
         reason: null,
+        metricSummary: {
+          counts: {
+            better: comparisonStatus === 'mixed' ? 1 : 0,
+            worse: comparisonStatus === 'regressed' || comparisonStatus === 'mixed' ? 1 : 0,
+            unchanged: comparisonStatus === 'unchanged' ? 1 : 0,
+            inconclusive: 0,
+          },
+          notableMetrics: comparisonStatus === 'mixed'
+            ? [
+                {
+                  baseline: 420,
+                  current: 398,
+                  delta: -22,
+                  name: 'cycle p50',
+                  status: 'better',
+                  unit: 'ms',
+                },
+                {
+                  baseline: 10,
+                  current: 16,
+                  delta: 6,
+                  name: 'close p50',
+                  status: 'worse',
+                  unit: 'ms',
+                },
+              ]
+            : comparisonStatus === 'regressed'
+              ? [
+                  {
+                    baseline: 400,
+                    current: 426,
+                    delta: 26,
+                    name: 'cycle p95',
+                    status: 'worse',
+                    unit: 'ms',
+                  },
+                ]
+              : [],
+        },
       },
     ],
     comparisonCounts: comparisonStatus === 'regressed'
@@ -235,13 +274,16 @@ test('reads, validates, and formats live-proof artifacts', async (t: TestContext
   assert.match(output, /startup \(app-startup\/android-live-startup\): health=passed verdict=passed/u);
   assert.match(output, /startup-ui \(agent-device\/app-startup\/agent-device-startup\): health=passed verdict=not_evaluated/u);
   assert.match(output, /Comparison counts: better=0 worse=0 unchanged=1 mixed=0 inconclusive=0 skipped=0/u);
+  assert.match(output, /startup \(app-startup\/android-live-startup\): unchanged \(metrics better=0 worse=0 unchanged=1 inconclusive=0\)/u);
   assert.match(output, /Next action: inspect_summary/u);
   assert.equal(shouldFailOnRegression({ failOnRegression: true, proof }), false);
 });
 
 test('does not treat mixed comparison movement as a fail-on-regression failure', () => {
   const proof = buildProof('mixed') as ReturnType<typeof readLiveProof>;
+  const output = formatLiveProof(proof);
 
+  assert.match(output, /notable: cycle p50 better \(-22ms\), close p50 worse \(6ms\)/u);
   assert.equal(shouldFailOnRegression({ failOnRegression: true, proof }), false);
 });
 

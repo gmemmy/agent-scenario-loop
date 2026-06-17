@@ -14,10 +14,27 @@ type ExampleLiveProfileForComparison = {
   scenarioId: string;
 };
 
+type ComparisonMetricStatus = 'better' | 'worse' | 'unchanged' | 'inconclusive';
+
+type ComparisonMetricHighlight = {
+  baseline: number | boolean | null;
+  current: number | boolean | null;
+  delta: number | null;
+  name: string;
+  status: Exclude<ComparisonMetricStatus, 'unchanged'>;
+  unit: string;
+};
+
+type ComparisonMetricSummary = {
+  counts: Record<ComparisonMetricStatus, number>;
+  notableMetrics: ComparisonMetricHighlight[];
+};
+
 type ExampleLiveComparisonResult = {
   baselineDir: string | null;
   comparisonDir: string | null;
   label: string;
+  metricSummary?: ComparisonMetricSummary;
   reason: string | null;
   runId: string;
   scenarioId: string;
@@ -48,6 +65,57 @@ function isEnabledFlag(value: unknown): boolean {
  */
 function isMissingPriorRunError(error: unknown): error is Error {
   return error instanceof Error && error.message.startsWith('No trusted prior run found');
+}
+
+/**
+ * Builds a compact agent-readable summary from a detailed comparison artifact.
+ *
+ * @param {Record<string, unknown>} comparison
+ * @returns {ComparisonMetricSummary | undefined}
+ */
+function buildComparisonMetricSummary(comparison: Record<string, unknown>): ComparisonMetricSummary | undefined {
+  if (!Array.isArray(comparison.metricComparisons)) {
+    return undefined;
+  }
+
+  const counts: Record<ComparisonMetricStatus, number> = {
+    better: 0,
+    worse: 0,
+    unchanged: 0,
+    inconclusive: 0,
+  };
+  const notableMetrics: ComparisonMetricHighlight[] = [];
+
+  for (const metric of comparison.metricComparisons) {
+    if (!metric || typeof metric !== 'object') {
+      continue;
+    }
+
+    const record = metric as Record<string, unknown>;
+    const status = record.status;
+    if (status !== 'better' && status !== 'worse' && status !== 'unchanged' && status !== 'inconclusive') {
+      continue;
+    }
+
+    counts[status] += 1;
+    if (status === 'unchanged') {
+      continue;
+    }
+
+    notableMetrics.push({
+      baseline: typeof record.baseline === 'number' || typeof record.baseline === 'boolean' ? record.baseline : null,
+      current: typeof record.current === 'number' || typeof record.current === 'boolean' ? record.current : null,
+      delta: typeof record.delta === 'number' ? record.delta : null,
+      name: typeof record.name === 'string' ? record.name : 'unknown metric',
+      status,
+      unit: typeof record.unit === 'string' ? record.unit : 'unknown',
+    });
+  }
+
+  return {
+    counts,
+    notableMetrics,
+  };
 }
 
 /**
@@ -88,10 +156,13 @@ async function compareLiveProfileToLatest({
       }),
     });
 
+    const metricSummary = buildComparisonMetricSummary(result.comparison);
+
     return {
       baselineDir: result.baselineDir,
       comparisonDir,
       label: profile.label,
+      ...(metricSummary ? { metricSummary } : {}),
       reason: null,
       runId: profile.runId,
       scenarioId: profile.scenarioId,
@@ -134,6 +205,7 @@ async function compareLiveProfilesToLatest({
 }
 
 export {
+  buildComparisonMetricSummary,
   compareLiveProfileToLatest,
   compareLiveProfilesToLatest,
   isEnabledFlag,
@@ -143,4 +215,6 @@ export type {
   CompareLiveProfilesOptions,
   ExampleLiveComparisonResult,
   ExampleLiveProfileForComparison,
+  ComparisonMetricHighlight,
+  ComparisonMetricSummary,
 };
