@@ -163,6 +163,10 @@ pnpm example:profile:android:live:scroll
 
 These commands start a profile session through the app scheme, execute scenario-declared Android commands where needed, capture bounded logcat evidence, and write the standard `health.json`, `verdict.json`, `agent-summary.md`, `manifest.json`, `metrics.json`, `causal-run.json`, `budget-verdict.json`, and raw evidence files. If adb, the app package, or the device is unavailable, the capture writes failed health with next-action hints and the profile runner stops before making timing claims.
 
+Use `--launch-wait-ms <ms>` when a React Native app needs a short warm-up after Android launch before profile-session or command deep links are delivered. This is separate from `--command-wait-ms`, which waits after each profile command, and `--wait-ms`, which controls the final bounded logcat capture window.
+
+If direct `adb devices` works but the Node-based runner reports no online device and raw `adb-devices.txt` mentions the adb daemon or `Operation not permitted`, the runner may be inside an agent sandbox without adb daemon access. Rerun the live proof with adb permissions before treating the failure as an app or emulator regression.
+
 To attach a bounded Android logcat snapshot after a manual or agent-driven run:
 
 ```bash

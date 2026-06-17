@@ -288,6 +288,7 @@ async function runExampleAndroidLiveProof(
       config: configPath,
       'command-wait-ms': typeof args['command-wait-ms'] === 'string' ? args['command-wait-ms'] : '250',
       launch: true,
+      'launch-wait-ms': typeof args['launch-wait-ms'] === 'string' ? args['launch-wait-ms'] : '1500',
       'logcat-lines': typeof args['logcat-lines'] === 'string' ? args['logcat-lines'] : '1000',
       out: outputDir,
       ...(packageName ? { package: packageName } : {}),

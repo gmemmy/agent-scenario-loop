@@ -543,6 +543,7 @@ async function runProfileAndroid(
         ...(options.executor ? { executor: options.executor } : {}),
         driverSteps,
         launch: isEnabled(args.launch),
+        launchWaitMs: parsePositiveInteger(readScalarArg(args['launch-wait-ms']), 0),
         logcatLines: parsePositiveInteger(readScalarArg(args['logcat-lines']), 1000),
         outputDir: resolveAdbCaptureOutputDir({ args, runId }),
         packageName: resolveAndroidPackageName({ args, config }),

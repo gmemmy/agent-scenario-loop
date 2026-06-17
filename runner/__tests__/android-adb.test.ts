@@ -456,6 +456,7 @@ test('clears logs, launches package, waits, and captures a bounded Android windo
     },
     executor,
     launch: true,
+    launchWaitMs: 125,
     logcatLines: 50,
     outputDir,
     packageName: 'dev.agentscenarioloop.example',
@@ -464,7 +465,7 @@ test('clears logs, launches package, waits, and captures a bounded Android windo
   });
 
   assert.equal(result.health.healthStatus, 'passed');
-  assert.deepEqual(waits, [250]);
+  assert.deepEqual(waits, [125, 250]);
   assert.ok(fs.existsSync(path.join(outputDir, 'raw', 'adb-logcat-clear.txt')));
   assert.ok(fs.existsSync(path.join(outputDir, 'raw', 'adb-launch.txt')));
   assert.ok(fs.existsSync(path.join(outputDir, 'raw', 'adb-logcat.txt')));
@@ -472,6 +473,9 @@ test('clears logs, launches package, waits, and captures a bounded Android windo
   assert.ok(calls.indexOf('-s emulator-5554 shell monkey -p dev.agentscenarioloop.example -c android.intent.category.LAUNCHER 1') < calls.indexOf('-s emulator-5554 logcat -d -v time -t 50'));
   assert.ok(
     (result.health.checks as Array<{ code: string }>).some((check) => check.code === 'android_package_launched'),
+  );
+  assert.ok(
+    (result.health.checks as Array<{ code: string }>).some((check) => check.code === 'android_launch_waited'),
   );
   assert.ok(
     (result.health.checks as Array<{ code: string }>).some((check) => check.code === 'android_capture_window_waited'),
@@ -581,6 +585,37 @@ test('fails health when no online adb device is connected', async (t: TestContex
     ),
   );
   assert.match(summary, /Next action `select_android_device`/u);
+});
+
+test('explains agent sandbox access when adb daemon cannot be reached', async (t: TestContext) => {
+  const outputDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-android-adb-sandbox-'));
+  t.after(async () => {
+    await fsp.rm(outputDir, { recursive: true, force: true });
+  });
+  const executor = createExecutor({
+    version: { stdout: 'Android Debug Bridge version 1.0.41\n' },
+    'devices -l': {
+      exitCode: 1,
+      stderr: 'could not install *smartsocket* listener: Operation not permitted',
+    },
+  });
+
+  const result = await runAndroidAdbPreflight({
+    executor,
+    outputDir,
+    runId: 'android-adb-sandbox',
+  });
+  const summary = fs.readFileSync(path.join(outputDir, 'agent-summary.md'), 'utf8');
+
+  assert.equal(result.health.healthStatus, 'failed');
+  assert.ok(
+    (result.health.checks as Array<{ code: string; metadata?: { nextAction?: string; nextActionCode?: string } }>).some(
+      (check) => check.code === 'android_device_missing'
+        && check.metadata?.nextActionCode === 'select_android_device'
+        && /agent sandbox/u.test(check.metadata.nextAction ?? ''),
+    ),
+  );
+  assert.match(summary, /agent sandbox/u);
 });
 
 test('fails logcat capture when no online Android device is connected', async (t: TestContext) => {

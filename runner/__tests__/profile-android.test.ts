@@ -1104,6 +1104,7 @@ test('profile-android starts profile sessions and executes scenario commands dur
     'clear-logcat': true,
     config: fixturePath('examples/mobile-app/asl.config.json'),
     launch: true,
+    'launch-wait-ms': '500',
     out: profileRoot,
     'profile-session': true,
     'run-id': 'android-live-open-close',
@@ -1125,7 +1126,7 @@ test('profile-android starts profile sessions and executes scenario commands dur
   assert.equal(health.healthStatus, 'passed');
   assert.equal(adbHealth.healthStatus, 'passed');
   assert.equal(deepLinkCount, 7);
-  assert.deepEqual(waits, [250, 300, 300, 300, 300, 300, 300]);
+  assert.deepEqual(waits, [500, 250, 300, 300, 300, 300, 300, 300]);
   assert.ok(
     calls.indexOf('-s emulator-5554 logcat -c') <
       calls.indexOf("-s emulator-5554 shell am start -a 'android.intent.action.VIEW' -d 'asl-example://profile-session/start?runId=android-live-open-close&scenario=open-close-cycle' -p 'dev.agentscenarioloop.example'"),

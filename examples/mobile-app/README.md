@@ -186,6 +186,10 @@ pnpm example:profile:android:live:scroll
 
 The command targets live in the scenario `adapterOptions.androidAdb.commands` block, while the app handles them through `registerProfileCommandTargetHandler`. If adb, the package, or the device is unavailable, the adb capture folder gets a failed `health.json` and the profile run stops before making timing claims.
 
+The example Android live proof uses a short `--launch-wait-ms` delay before sending profile-session deep links so React Native has time to attach its deep-link listener after cold launch. Keep that delay separate from `--command-wait-ms`, which waits after app-handled profile commands, and `--wait-ms`, which controls the final logcat capture window.
+
+If direct `adb devices` works but the Node-based runner reports no online device and raw `adb-devices.txt` mentions the adb daemon or `Operation not permitted`, rerun with adb daemon permissions before treating the failure as an app, package, or emulator issue.
+
 `scenarios/android/app-startup-video.json` is an opt-in variant that adds an optional `record` capture step. Use it when you want adb to preserve `captures.video` for a startup run without making video part of the default live proof.
 
 ## iOS Capture

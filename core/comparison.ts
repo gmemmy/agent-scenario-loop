@@ -66,7 +66,7 @@ type CompareRunDirectoriesOptions = {
   strategy?: ComparisonBasisStrategy;
 };
 
-const MIN_MS_COMPARISON_TOLERANCE = 5;
+const MIN_MS_COMPARISON_TOLERANCE = 10;
 const RELATIVE_MS_COMPARISON_TOLERANCE = 0.05;
 
 /**

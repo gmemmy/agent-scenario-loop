@@ -23,6 +23,7 @@ type CliArgs = {
   'capture-logcat'?: string | boolean;
   'clear-logcat'?: string | boolean;
   launch?: string | boolean;
+  'launch-wait-ms'?: string | boolean;
   'logcat-lines'?: string | boolean;
   out?: string | boolean;
   package?: string | boolean;
@@ -106,6 +107,7 @@ type AndroidPreflightOptions = {
   driverSteps?: AndroidAdbDriverStep[];
   executor?: CommandExecutor;
   launch?: boolean;
+  launchWaitMs?: number;
   logcatLines?: number;
   outputDir?: string;
   packageName?: string | null;
@@ -727,6 +729,7 @@ async function runAndroidAdbPreflight({
   driverSteps = [],
   executor = execFileCommand,
   launch = false,
+  launchWaitMs = 0,
   logcatLines = 1000,
   outputDir = path.resolve('artifacts/android-adb-preflight'),
   packageName = null,
@@ -788,7 +791,7 @@ async function runAndroidAdbPreflight({
       ? {
           metadata: nextActionHint(
             'select_android_device',
-            'Start or unlock an Android emulator/device, confirm it appears as `device` in adb devices -l, or pass --serial for the intended device.',
+            'Start or unlock an Android emulator/device, confirm it appears as `device` in adb devices -l, or pass --serial for the intended device. If direct adb works but the Node runner cannot start or reach the adb daemon from an agent sandbox, rerun with adb daemon access outside the sandbox.',
           ),
         }
       : {}),
@@ -1041,6 +1044,17 @@ async function runAndroidAdbPreflight({
           exitCode: launchResult.exitCode,
           rawPath: `raw/${launchResult.rawFileName}`,
         };
+        if (launchPassed && launchWaitMs > 0) {
+          await wait(launchWaitMs);
+          checks.push({
+            name: 'android_launch_waited',
+            status: 'passed',
+            source: 'runner',
+            code: 'android_launch_waited',
+            message: `Waited ${launchWaitMs}ms after Android package launch.`,
+          });
+          metadata.launchWaitMs = launchWaitMs;
+        }
       }
     }
 
@@ -1315,6 +1329,7 @@ async function main(): Promise<void> {
     captureLogcat: args['capture-logcat'] === true || args['capture-logcat'] === 'true',
     clearLogcat: args['clear-logcat'] === true || args['clear-logcat'] === 'true',
     launch: args.launch === true || args.launch === 'true',
+    launchWaitMs: parsePositiveInteger(args['launch-wait-ms'], 0),
     logcatLines: parsePositiveInteger(args['logcat-lines'], 1000),
     ...(typeof args.out === 'string' ? { outputDir: args.out } : {}),
     ...(typeof args.package === 'string' ? { packageName: args.package } : {}),

@@ -94,7 +94,25 @@ test('treats tiny millisecond deltas as unchanged timing noise', () => {
       current: 8,
       delta: 1,
       status: 'unchanged',
-      notes: 'Delta within 5ms timing tolerance.',
+      notes: 'Delta within 10ms timing tolerance.',
+    },
+  );
+});
+
+test('treats single-frame mobile timing drift as unchanged noise', () => {
+  assert.deepEqual(
+    compareBudgetCheck(
+      { name: 'scroll p95', unit: 'ms', actual: 14, pass: true },
+      { name: 'scroll p95', unit: 'ms', actual: 21, pass: true },
+    ),
+    {
+      name: 'scroll p95',
+      unit: 'ms',
+      baseline: 14,
+      current: 21,
+      delta: 7,
+      status: 'unchanged',
+      notes: 'Delta within 10ms timing tolerance.',
     },
   );
 });
@@ -151,7 +169,7 @@ test('classifies opposite metric directions as mixed instead of a hard regressio
     metric: 'p50',
     unit: 'ms',
     expected: 1000,
-    actual: 16,
+    actual: 24,
     pass: true,
   });
 
