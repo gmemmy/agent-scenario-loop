@@ -140,6 +140,62 @@ test('agent-device capture marks required action failures unhealthy', async (t: 
   assert.match(fs.readFileSync(path.join(tempDir, 'agent-summary.md'), 'utf8'), /Do not optimize from this run/u);
 });
 
+test('agent-device capture preserves structured CLI errors in health metadata', async (t: TestContext) => {
+  const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-agent-device-error-metadata-'));
+  t.after(async () => {
+    await fsp.rm(tempDir, { recursive: true, force: true });
+  });
+  const stdout = JSON.stringify({
+    success: false,
+    error: {
+      code: 'INVALID_ARGS',
+      message: 'Session "default" is bound to ios device and cannot be used with --platform=android.',
+      hint: 'Use a different --session name or close this session first.',
+      diagnosticId: 'diag-123',
+    },
+  });
+
+  await runAgentDeviceCapture({
+    driverSteps: [
+      {
+        driverAction: 'assertVisible',
+        required: true,
+        selector: { kind: 'testId', value: 'asl-example-title' },
+        stepId: 'assert-home-visible',
+      },
+    ],
+    executor: async (command: string, args: string[]): Promise<CommandResult> => ({
+      args,
+      command,
+      exitCode: 1,
+      stderr: '',
+      stdout,
+    }),
+    outputDir: tempDir,
+    platform: 'android',
+    runId: 'agent-device-error-metadata',
+    serial: 'emulator-5554',
+  });
+
+  const health = readJson(path.join(tempDir, 'health.json'));
+  assert.deepEqual(health.checks[0].metadata, {
+    agentDeviceDiagnosticId: 'diag-123',
+    agentDeviceErrorCode: 'INVALID_ARGS',
+    agentDeviceErrorHint: 'Use a different --session name or close this session first.',
+    agentDeviceErrorMessage: 'Session "default" is bound to ios device and cannot be used with --platform=android.',
+    driverAction: 'assertVisible',
+    nextAction: 'Inspect raw/agent-device-assert-visible.txt, confirm the device is interactive and the action metadata is valid, then rerun the capture.',
+    nextActionCode: 'inspect_agent_device_driver_action',
+    selectorKind: 'testId',
+    selectorValue: 'asl-example-title',
+    stepId: 'assert-home-visible',
+  });
+  assert.match(
+    fs.readFileSync(path.join(tempDir, 'raw', 'agent-device-assert-visible.txt'), 'utf8'),
+    /INVALID_ARGS/u,
+  );
+});
+
 test('agent-device driver step expansion preserves portable selectors and options', () => {
   const scenario = {
     id: 'portable-actions',

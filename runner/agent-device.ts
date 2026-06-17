@@ -104,6 +104,12 @@ type NextActionHint = {
   nextAction: string;
   nextActionCode: string;
 };
+type AgentDeviceErrorMetadata = {
+  agentDeviceDiagnosticId?: string;
+  agentDeviceErrorCode?: string;
+  agentDeviceErrorHint?: string;
+  agentDeviceErrorMessage?: string;
+};
 
 /**
  * Prints CLI usage.
@@ -246,6 +252,60 @@ function nextActionHint(nextActionCode: string, nextAction: string): NextActionH
     nextAction,
     nextActionCode,
   };
+}
+
+/**
+ * Normalizes CLI diagnostic text into scalar health metadata.
+ *
+ * @param {string} value
+ * @returns {string}
+ */
+function normalizeAgentDeviceDiagnosticText(value: string): string {
+  return value.replace(/\s+/gu, ' ').trim().slice(0, 500);
+}
+
+/**
+ * Reads structured agent-device JSON errors from stdout or stderr.
+ *
+ * @param {{stdout: string, stderr: string}} result
+ * @returns {AgentDeviceErrorMetadata}
+ */
+function readAgentDeviceErrorMetadata(result: {stdout: string; stderr: string}): AgentDeviceErrorMetadata {
+  for (const content of [result.stdout, result.stderr]) {
+    const trimmed = content.trim();
+    if (!trimmed.startsWith('{')) {
+      continue;
+    }
+
+    try {
+      const parsed = JSON.parse(trimmed) as Record<string, unknown>;
+      const error = parsed.error && typeof parsed.error === 'object' && !Array.isArray(parsed.error)
+        ? parsed.error as Record<string, unknown>
+        : null;
+      if (!error) {
+        continue;
+      }
+
+      return {
+        ...(typeof error.code === 'string'
+          ? { agentDeviceErrorCode: normalizeAgentDeviceDiagnosticText(error.code) }
+          : {}),
+        ...(typeof error.message === 'string'
+          ? { agentDeviceErrorMessage: normalizeAgentDeviceDiagnosticText(error.message) }
+          : {}),
+        ...(typeof error.hint === 'string'
+          ? { agentDeviceErrorHint: normalizeAgentDeviceDiagnosticText(error.hint) }
+          : {}),
+        ...(typeof error.diagnosticId === 'string'
+          ? { agentDeviceDiagnosticId: normalizeAgentDeviceDiagnosticText(error.diagnosticId) }
+          : {}),
+      };
+    } catch {
+      continue;
+    }
+  }
+
+  return {};
 }
 
 /**
@@ -606,10 +666,13 @@ async function runAgentDeviceCapture({
         message: openResult.exitCode === 0 ? `Opened ${app} with agent-device.` : `Failed to open ${app} with agent-device.`,
         ...(openResult.exitCode !== 0
           ? {
-              metadata: nextActionHint(
-                'inspect_agent_device_open',
-                `Inspect raw/${openResult.rawFileName}, confirm the selected device is available, and rerun the capture.`,
-              ),
+              metadata: {
+                ...nextActionHint(
+                  'inspect_agent_device_open',
+                  `Inspect raw/${openResult.rawFileName}, confirm the selected device is available, and rerun the capture.`,
+                ),
+                ...readAgentDeviceErrorMetadata(openResult),
+              },
             }
           : {}),
       });
@@ -667,6 +730,7 @@ async function runAgentDeviceCapture({
               `Inspect raw/${driverResult.rawFileName}, confirm the device is interactive and the action metadata is valid, then rerun the capture.`,
             )
           : {}),
+        ...(failed ? readAgentDeviceErrorMetadata(driverResult) : {}),
         ...buildAgentDeviceSelectorHealthMetadata(driverStep.selector),
         ...(driverStep.stepId ? { stepId: driverStep.stepId } : {}),
       },
