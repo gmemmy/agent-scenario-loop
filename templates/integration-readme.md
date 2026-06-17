@@ -62,11 +62,12 @@ Use the generated interaction scripts when an external driver should prove launc
 ```bash
 ASL_IOS_UDID=<simulator-udid> ASL_IOS_APP_ID=<bundle-id> pnpm asl:agent-device:ios
 ASL_ANDROID_SERIAL=<emulator-or-device-serial> ASL_ANDROID_APP_ID=<package-name> pnpm asl:agent-device:android
+ASL_ARGENT_BIN=npx ASL_ARGENT_BASE_ARGS="--yes @swmansion/argent run" pnpm asl:argent:check
 ASL_ARGENT_BIN=npx ASL_ARGENT_BASE_ARGS="--yes @swmansion/argent run" ASL_IOS_UDID=<simulator-udid> ASL_IOS_APP_ID=<bundle-id> pnpm asl:argent:ios
 ASL_ARGENT_BIN=npx ASL_ARGENT_BASE_ARGS="--yes @swmansion/argent run" ASL_ANDROID_SERIAL=<emulator-or-device-serial> ASL_ANDROID_APP_ID=<package-name> pnpm asl:argent:android
 ```
 
-If agent-device already owns the device through a named session, set `ASL_IOS_AGENT_DEVICE_SESSION` or `ASL_ANDROID_AGENT_DEVICE_SESSION` instead of relying only on the direct UDID or serial. Argent uses `--udid` for both iOS simulators and Android emulators; set `ASL_ARGENT_COMMAND_TIMEOUT_MS` when package-manager or simulator startup is slower than the default command window.
+If agent-device already owns the device through a named session, set `ASL_IOS_AGENT_DEVICE_SESSION` or `ASL_ANDROID_AGENT_DEVICE_SESSION` instead of relying only on the direct UDID or serial. Run `pnpm asl:argent:check` before device-bound Argent runs when you need to verify the installed tool surface. Argent uses `--udid` for both iOS simulators and Android emulators; set `ASL_ARGENT_COMMAND_TIMEOUT_MS` when package-manager or simulator startup is slower than the default command window.
 
 If your project adds an aggregate batch runner that writes `live-proof.json`, inspect it with:
 

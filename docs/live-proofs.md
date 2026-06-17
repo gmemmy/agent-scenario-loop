@@ -117,6 +117,7 @@ Read [Example Mobile App: iOS Capture](../examples/mobile-app/README.md#ios-capt
 When `agent-device` or Argent is available, the example aggregate proofs can attach interaction sidecars:
 
 ```bash
+ASL_ARGENT_BIN=npx ASL_ARGENT_BASE_ARGS="--yes @swmansion/argent run" pnpm argent:check
 pnpm example:android:live:agent-device -- --agent-device-session <name> --run-suffix after-change --compare-latest
 pnpm example:ios:live:agent-device -- --agent-device-session <name> --run-suffix after-change --compare-latest
 pnpm example:android:live:argent -- --run-suffix after-change --compare-latest
@@ -130,7 +131,7 @@ pnpm example:android:live:runners -- --agent-device-session <name> --run-suffix 
 pnpm example:ios:live:runners -- --agent-device-session <name> --run-suffix after-change --compare-latest
 ```
 
-For Argent without a global binary, set `ASL_ARGENT_BIN=npx` and `ASL_ARGENT_BASE_ARGS="--yes @swmansion/argent run"`. The platform runner still owns adb or simctl preflight and profile evidence. Each sidecar contributes interaction proof and captures into the same aggregate artifact graph.
+For Argent without a global binary, set `ASL_ARGENT_BIN=npx` and `ASL_ARGENT_BASE_ARGS="--yes @swmansion/argent run"`. Run `pnpm argent:check` first when you need a bounded tool-surface proof before attaching Argent to a device scenario. The platform runner still owns adb or simctl preflight and profile evidence. Each sidecar contributes interaction proof and captures into the same aggregate artifact graph.
 
 ## Comparison
 

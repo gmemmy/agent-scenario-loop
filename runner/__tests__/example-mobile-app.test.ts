@@ -170,6 +170,7 @@ test('example mobile app exposes consumer package scripts', () => {
     'asl:live-proof',
     'asl:agent-device:ios',
     'asl:agent-device:android',
+    'asl:argent:check',
     'asl:argent:ios',
     'asl:argent:android',
     'asl:android:live',

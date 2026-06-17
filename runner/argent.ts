@@ -23,6 +23,7 @@ type CliArgs = {
   'app-flag'?: string | boolean;
   argent?: string | boolean;
   'base-args'?: string | boolean;
+  check?: string | boolean;
   'command-timeout-ms'?: string | boolean;
   device?: string | boolean;
   'device-flag'?: string | boolean;
@@ -51,6 +52,31 @@ type SpawnError = Error & {
   code?: number | string;
 };
 type ScenarioExecutionStep = import('../core/execution-plan').ScenarioExecutionStep;
+
+type ArgentAvailabilityOptions = {
+  argentCommand?: string;
+  baseArgs?: string[];
+  commandTimeoutMs?: number;
+  executor?: CommandExecutor;
+  requiredTools?: string[];
+};
+
+type ArgentAvailabilityCheck = {
+  args: string[];
+  code: string;
+  command: string;
+  message: string;
+  name: string;
+  status: 'failed' | 'passed';
+};
+
+type ArgentAvailabilityResult = {
+  argentCommand: string;
+  baseArgs: string[];
+  checks: ArgentAvailabilityCheck[];
+  requiredTools: string[];
+  status: 'failed' | 'passed';
+};
 
 type ArgentDriverStep = {
   appId?: string;
@@ -109,6 +135,15 @@ type ArgentFailureHintOptions = {
 };
 
 const DASH_VALUE_KEYS = new Set(['app-flag', 'base-args', 'device-flag']);
+const DEFAULT_ARGENT_BASE_ARGS = ['run'];
+const DEFAULT_ARGENT_REQUIRED_TOOLS = [
+  'launch-app',
+  'open-url',
+  'describe',
+  'screenshot',
+  'gesture-tap',
+  'gesture-swipe',
+];
 
 /**
  * Prints CLI usage.
@@ -122,6 +157,7 @@ function usage(output: {write: (message: string) => unknown} = process.stderr): 
     '',
     'Executes scenario-declared launch and portable driver actions through the external Argent CLI.',
     'Writes health.json, verdict.json, agent-summary.md, raw command transcripts, and screenshot captures.',
+    'Use --check to verify the configured Argent command and required tool surface without running a scenario.',
     'Use --argent <binary> and --base-args "<args>" to adapt local Argent installs without bundling Argent.',
     'Use --device-flag and --app-flag when your Argent command expects platform-specific flag names.',
     'Use --command-timeout-ms <ms> to bound each external Argent invocation.',
@@ -671,6 +707,91 @@ function parseBaseArgs(value: unknown): string[] | undefined {
 }
 
 /**
+ * Returns root-level Argent args from an `argent run` command shape.
+ *
+ * @param {string[]} baseArgs
+ * @returns {string[]}
+ */
+function deriveArgentRootArgs(baseArgs: string[]): string[] {
+  return baseArgs.at(-1) === 'run' ? baseArgs.slice(0, -1) : baseArgs;
+}
+
+/**
+ * Builds one availability check result from an Argent command execution.
+ *
+ * @param {{code: string, expectedPattern: RegExp, name: string, result: CommandResult}} options
+ * @returns {ArgentAvailabilityCheck}
+ */
+function buildArgentAvailabilityCheck({
+  code,
+  expectedPattern,
+  name,
+  result,
+}: {
+  code: string;
+  expectedPattern: RegExp;
+  name: string;
+  result: CommandResult;
+}): ArgentAvailabilityCheck {
+  const output = `${result.stdout}\n${result.stderr}`;
+  const passed = result.exitCode === 0 && expectedPattern.test(output);
+  return {
+    args: result.args,
+    code,
+    command: result.command,
+    message: passed
+      ? `${name} is available.`
+      : `${name} did not return the expected Argent output.`,
+    name,
+    status: passed ? 'passed' : 'failed',
+  };
+}
+
+/**
+ * Verifies that the configured Argent command can invoke the ASL-required tool surface.
+ *
+ * @param {ArgentAvailabilityOptions} options
+ * @returns {Promise<ArgentAvailabilityResult>}
+ */
+async function checkArgentAvailability({
+  argentCommand = 'argent',
+  baseArgs = DEFAULT_ARGENT_BASE_ARGS,
+  commandTimeoutMs = 30_000,
+  executor,
+  requiredTools = DEFAULT_ARGENT_REQUIRED_TOOLS,
+}: ArgentAvailabilityOptions = {}): Promise<ArgentAvailabilityResult> {
+  const run = executor ?? ((command, args) => execFileCommandWithTimeout(command, args, commandTimeoutMs));
+  const checks: ArgentAvailabilityCheck[] = [];
+  const runHelp = await run(argentCommand, [...baseArgs, '--help']);
+  checks.push(buildArgentAvailabilityCheck({
+    code: 'argent_run_help_available',
+    expectedPattern: /Usage:\s+argent\s+run\s+<tool>/iu,
+    name: 'argent_run_help',
+    result: runHelp,
+  }));
+
+  const rootArgs = deriveArgentRootArgs(baseArgs);
+  for (const tool of requiredTools) {
+    const result = await run(argentCommand, [...rootArgs, 'tools', 'describe', tool]);
+    checks.push(buildArgentAvailabilityCheck({
+      code: `argent_tool_${tool.replace(/-/gu, '_')}_available`,
+      expectedPattern: new RegExp(`Tool:\\s+${tool.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')}`, 'iu'),
+      name: `argent_tool_${tool}`,
+      result,
+    }));
+  }
+
+  const status = checks.every((check) => check.status === 'passed') ? 'passed' : 'failed';
+  return {
+    argentCommand,
+    baseArgs,
+    checks,
+    requiredTools,
+    status,
+  };
+}
+
+/**
  * Returns a screen size from CLI values when both dimensions are present.
  *
  * @param {{width?: unknown, height?: unknown}} options
@@ -941,6 +1062,21 @@ async function main(): Promise<void> {
   }
 
   const args = parseArgs(argv);
+  const baseArgs = parseBaseArgs(args['base-args']);
+  const commandTimeoutMs = readPositiveInteger(args['command-timeout-ms'], 60_000);
+  if (args.check === true || args.check === 'true') {
+    const result = await checkArgentAvailability({
+      ...(typeof args.argent === 'string' ? { argentCommand: args.argent } : {}),
+      ...(baseArgs ? { baseArgs } : {}),
+      commandTimeoutMs,
+    });
+    process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+    if (result.status !== 'passed') {
+      process.exitCode = 1;
+    }
+    return;
+  }
+
   if (typeof args.platform !== 'string' || typeof args.scenario !== 'string') {
     usage();
     process.exitCode = 1;
@@ -963,8 +1099,6 @@ async function main(): Promise<void> {
     return;
   }
 
-  const baseArgs = parseBaseArgs(args['base-args']);
-  const commandTimeoutMs = readPositiveInteger(args['command-timeout-ms'], 60_000);
   const screenSize = readScreenSize({ height: args['screen-height'], width: args['screen-width'] });
   const result = await runArgentCapture({
     ...(typeof args.app === 'string' ? { app: args.app } : {}),
@@ -999,10 +1133,13 @@ if (require.main === module) {
 export {
   argentDriverActionCode,
   buildArgentHealth,
+  buildArgentAvailabilityCheck,
   buildArgentSelectorHealthMetadata,
   buildArgentVerdict,
+  checkArgentAvailability,
   copyArgentCapture,
   defaultArgentRawFileName,
+  deriveArgentRootArgs,
   execFileCommand,
   execFileCommandWithTimeout,
   isArgentSelector,
@@ -1019,6 +1156,9 @@ export {
 };
 
 export type {
+  ArgentAvailabilityCheck,
+  ArgentAvailabilityOptions,
+  ArgentAvailabilityResult,
   ArgentCaptureOptions,
   ArgentCaptureResult,
   ArgentDriverStep,

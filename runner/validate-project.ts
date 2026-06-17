@@ -106,6 +106,7 @@ const REQUIRED_PACKAGE_SCRIPT_NAMES = [
   'asl:profile:android:provider',
   'asl:agent-device:ios',
   'asl:agent-device:android',
+  'asl:argent:check',
   'asl:argent:ios',
   'asl:argent:android',
   'asl:ios:live',
@@ -172,6 +173,11 @@ const REQUIRED_PACKAGE_SCRIPT_SHAPES = {
     command: 'asl-agent-device',
     flags: ['--platform', '--scenario', '--app', '--open', '--out', '--run-id'],
     values: { '--platform': 'android' },
+  },
+  'asl:argent:check': {
+    command: 'asl-argent',
+    flags: ['--check'],
+    values: {},
   },
   'asl:argent:ios': {
     command: 'asl-argent',

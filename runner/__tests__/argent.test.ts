@@ -6,6 +6,8 @@ const path = require('node:path');
 const test = require('node:test');
 
 const {
+  checkArgentAvailability,
+  deriveArgentRootArgs,
   parseArgs,
   parseBaseArgs,
   resolveArgentDriverSteps,
@@ -37,6 +39,66 @@ test('Argent CLI parser accepts dash-leading adapter flag values', () => {
   assert.deepEqual(parseBaseArgs(args['base-args']), ['--yes', '@swmansion/argent', 'run']);
   assert.equal(args['device-flag'], '--udid');
   assert.equal(args['app-flag'], '--bundleId');
+});
+
+test('Argent availability check verifies configured run command and required tools', async () => {
+  const calls: string[] = [];
+  const result = await checkArgentAvailability({
+    argentCommand: 'npx',
+    baseArgs: ['--yes', '@swmansion/argent', 'run'],
+    executor: async (command: string, args: string[]): Promise<CommandResult> => {
+      calls.push(`${command} ${args.join(' ')}`);
+      if (args.at(-1) === '--help') {
+        return {
+          args,
+          command,
+          exitCode: 0,
+          stderr: '',
+          stdout: 'Usage: argent run <tool> [flags]\n',
+        };
+      }
+      return {
+        args,
+        command,
+        exitCode: 0,
+        stderr: '',
+        stdout: `Tool: ${args.at(-1)}\nFlags:\n  --udid <value>\n`,
+      };
+    },
+    requiredTools: ['launch-app', 'screenshot'],
+  });
+
+  assert.equal(result.status, 'passed');
+  assert.deepEqual(result.requiredTools, ['launch-app', 'screenshot']);
+  assert.deepEqual(calls, [
+    'npx --yes @swmansion/argent run --help',
+    'npx --yes @swmansion/argent tools describe launch-app',
+    'npx --yes @swmansion/argent tools describe screenshot',
+  ]);
+});
+
+test('Argent availability check fails when a required tool is unavailable', async () => {
+  const result = await checkArgentAvailability({
+    executor: async (command: string, args: string[]): Promise<CommandResult> => ({
+      args,
+      command,
+      exitCode: args.includes('gesture-tap') ? 1 : 0,
+      stderr: args.includes('gesture-tap') ? 'unknown tool gesture-tap' : '',
+      stdout: args.at(-1) === '--help'
+        ? 'Usage: argent run <tool> [flags]\n'
+        : `Tool: ${args.at(-1)}\n`,
+    }),
+    requiredTools: ['launch-app', 'gesture-tap'],
+  });
+
+  assert.equal(result.status, 'failed');
+  assert.equal(result.checks.find((check: {name: string}) => check.name === 'argent_tool_gesture-tap')?.status, 'failed');
+});
+
+test('Argent root args are derived from configured run args', () => {
+  assert.deepEqual(deriveArgentRootArgs(['run']), []);
+  assert.deepEqual(deriveArgentRootArgs(['--yes', '@swmansion/argent', 'run']), ['--yes', '@swmansion/argent']);
+  assert.deepEqual(deriveArgentRootArgs(['--yes', '@swmansion/argent']), ['--yes', '@swmansion/argent']);
 });
 
 /**

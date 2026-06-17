@@ -791,6 +791,7 @@ function main(): void {
       'asl:android:live:argent',
       'asl:android:live:runners',
       'asl:argent:android',
+      'asl:argent:check',
       'asl:argent:ios',
       'asl:check:android',
       'asl:check:ios',
@@ -827,6 +828,9 @@ function main(): void {
     assert.match(initializedScripts['asl:profile:android:provider'], /--comparison-lane checkout-submit-android-provider/u);
     assert.match(initializedScripts['asl:agent-device:ios'], /checkout-submit-ios-agent-device/u);
     assert.match(initializedScripts['asl:agent-device:android'], /checkout-submit-android-agent-device/u);
+    assert.match(initializedScripts['asl:argent:check'], /^asl-argent --check/u);
+    assert.match(initializedScripts['asl:argent:check'], /ASL_ARGENT_BASE_ARGS/u);
+    assert.match(initializedScripts['asl:argent:check'], /ASL_ARGENT_COMMAND_TIMEOUT_MS/u);
     assert.match(initializedScripts['asl:argent:ios'], /checkout-submit-ios-argent/u);
     assert.match(initializedScripts['asl:argent:android'], /checkout-submit-android-argent/u);
     assert.match(initializedScripts['asl:argent:ios'], /ASL_ARGENT_BASE_ARGS/u);
