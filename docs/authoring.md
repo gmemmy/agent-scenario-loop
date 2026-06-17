@@ -23,7 +23,7 @@ That creates:
 - `asl/package-scripts.json`
 - `asl/gitignore-snippet`
 
-The command refuses to overwrite existing files unless `--force` is provided. Use `--dry-run` to preview the file list without writing. It does not edit your existing `package.json` or `.gitignore`; merge the generated script and ignore snippets intentionally.
+The command refuses to overwrite existing files unless `--force` is provided. Use `--dry-run` to preview the file list without writing. It does not edit your existing `package.json` or `.gitignore`; merge the generated script and ignore snippets intentionally. Project validation reports an error until the required generated `asl:*` scripts are present in the app `package.json`.
 
 After filling in app identifiers, validate the whole initialized project before runtime proof:
 
@@ -31,7 +31,7 @@ After filling in app identifiers, validate the whole initialized project before 
 asl-validate-project --root . --platform all --out artifacts/asl/project-validation
 ```
 
-Project validation checks the app-side profile-session helper, package-script snippets, project config, scenario manifests, runner manifests, provider manifests, local provider-command script references, and planner compatibility. Placeholder app identity values are reported as warnings so a fresh scaffold can still prove installability while real app setup remains visible before live proof. The JSON artifact also includes structured `nextActions` for agents.
+Project validation checks the app-side profile-session helper, package-script snippets, app `package.json` script merge, project config, scenario manifests, runner manifests, provider manifests, local provider-command script references, and planner compatibility. Placeholder app identity values are reported as warnings so a fresh scaffold can still prove installability while real app setup remains visible before live proof. The JSON artifact also includes structured `nextActions` for agents.
 
 Project validation also checks whether `.gitignore` includes the generated `asl/gitignore-snippet` patterns for runtime artifacts, traces, and local proof captures. Missing patterns are warnings with an `ignore_runtime_artifacts` next action; they do not block setup, but they should be fixed before running live scenarios repeatedly.
 
@@ -48,7 +48,7 @@ You can also copy these files manually and rename them as needed:
 | `templates/scripts/asl-capture-accessibility-provider.mjs` | Runnable starter provider command for deterministic accessibility evidence |
 | `templates/scripts/asl-capture-profiler-provider.mjs` | Runnable starter provider command for deterministic profiler, memory, and network evidence |
 | `templates/integration-readme.md` | Consumer-app wiring guide generated into `asl/README.md` |
-| `templates/package-scripts.json` | Package-script snippets generated into `asl/package-scripts.json` and checked by project validation |
+| `templates/package-scripts.json` | Package-script snippets generated into `asl/package-scripts.json`; project validation also checks that required scripts exist in app `package.json` |
 
 The JSON templates are schema-checked, and every shipped template is checked by package smoke. They intentionally use neutral placeholder names.
 

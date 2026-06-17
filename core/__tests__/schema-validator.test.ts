@@ -687,9 +687,13 @@ test('accepts project validation artifacts', () => {
     rootDir: '/app',
     runnerPath: '/app/runner-manifests/primary-runner.json',
     scripts: {
+      invalidPackageJsonScripts: [],
       invalidScripts: [],
       missingPaths: [],
+      missingPackageJsonScripts: [],
       missingScripts: [],
+      packageJsonPath: '/app/package.json',
+      packageJsonStatus: 'present',
       path: '/app/asl/package-scripts.json',
       scriptNames: ['asl:check:ios', 'asl:validate'],
       status: 'present',

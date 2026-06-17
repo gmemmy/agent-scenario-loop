@@ -177,8 +177,12 @@
       "additionalProperties": false,
       "required": [
         "invalidScripts",
+        "invalidPackageJsonScripts",
         "missingPaths",
+        "missingPackageJsonScripts",
         "missingScripts",
+        "packageJsonPath",
+        "packageJsonStatus",
         "path",
         "scriptNames",
         "status",
@@ -191,7 +195,19 @@
             "type": "string"
           }
         },
+        "invalidPackageJsonScripts": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
         "missingPaths": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "missingPackageJsonScripts": {
           "type": "array",
           "items": {
             "type": "string"
@@ -202,6 +218,13 @@
           "items": {
             "type": "string"
           }
+        },
+        "packageJsonPath": {
+          "type": "string"
+        },
+        "packageJsonStatus": {
+          "type": "string",
+          "enum": ["present", "missing", "incomplete"]
         },
         "path": {
           "type": "string"

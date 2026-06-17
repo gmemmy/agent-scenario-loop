@@ -323,6 +323,7 @@ function rehearseConsumerInstall({
   assert.equal(validation.status, 'passed');
   assert.equal(validation.appHelper.status, 'present');
   assert.equal(validation.scripts.status, 'present');
+  assert.equal(validation.scripts.packageJsonStatus, 'present');
   assert.deepEqual(validation.warnings, []);
   assert.equal(
     validation.nextActions.some((action: { code: string }) => action.code === 'replace_config_placeholders'),

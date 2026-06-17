@@ -759,6 +759,15 @@ function main(): void {
     const initializedScripts = JSON.parse(
       fs.readFileSync(path.join(initOutputDir, 'asl', 'package-scripts.json'), 'utf8'),
     );
+    fs.writeFileSync(
+      path.join(initOutputDir, 'package.json'),
+      `${JSON.stringify({
+        name: 'initialized-app',
+        private: true,
+        scripts: initializedScripts,
+      }, null, 2)}\n`,
+      'utf8',
+    );
     assert.deepEqual(Object.keys(initializedScripts).sort(), [
       'asl:agent-device:android',
       'asl:agent-device:ios',
@@ -848,6 +857,7 @@ function main(): void {
       fs.readFileSync(path.join(initOutputDir, 'artifacts', 'asl', 'project-validation', 'project-validation.json'), 'utf8'),
     );
     assert.equal(initializedValidation.scripts.status, 'present');
+    assert.equal(initializedValidation.scripts.packageJsonStatus, 'present');
     assert.equal(
       initializedValidation.nextActions.some((action: { code: string }) => action.code === 'replace_config_placeholders'),
       true,

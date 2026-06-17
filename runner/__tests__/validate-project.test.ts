@@ -14,6 +14,7 @@ const {
   validateConfigPlaceholders,
   validateGitignore,
   validateAppHelper,
+  validatePackageJsonScripts,
   validatePackageScriptShape,
   validatePackageScripts,
   validateProviderCommandReferences,
@@ -26,6 +27,21 @@ const ROOT = path.join(__dirname, '..', '..', '..');
 
 function actionCodes(result: { nextActions: Array<{ code: string }> }): string[] {
   return result.nextActions.map((action) => action.code).sort();
+}
+
+async function writeMergedPackageJson(rootDir: string): Promise<void> {
+  const generatedScripts = JSON.parse(
+    await fsp.readFile(path.join(rootDir, 'asl', 'package-scripts.json'), 'utf8'),
+  ) as Record<string, string>;
+  await fsp.writeFile(
+    path.join(rootDir, 'package.json'),
+    `${JSON.stringify({
+      name: 'consumer-app',
+      private: true,
+      scripts: generatedScripts,
+    }, null, 2)}\n`,
+    'utf8',
+  );
 }
 
 test('parses project validation arguments', () => {
@@ -63,6 +79,7 @@ test('validates an initialized project for iOS and Android', async (t: TestConte
     packageRoot: ROOT,
     scenarioId: 'Checkout Submit',
   });
+  await writeMergedPackageJson(targetDir);
 
   const result = await validateProject({ rootDir: targetDir });
 
@@ -70,6 +87,7 @@ test('validates an initialized project for iOS and Android', async (t: TestConte
   assert.equal(result.appHelper.status, 'present');
   assert.equal(result.gitignore.status, 'missing');
   assert.equal(result.scripts.status, 'present');
+  assert.equal(result.scripts.packageJsonStatus, 'present');
   assert.equal(result.scripts.scriptNames.includes('asl:validate'), true);
   assert.equal(result.warnings.some((warning: string) => warning.includes('projectName')), true);
   assert.equal(result.warnings.some((warning: string) => warning.includes('Runtime artifact gitignore')), true);
@@ -109,6 +127,7 @@ test('fails validation when initialized project files are missing', async (t: Te
   assert.ok(result.errors.some((error: string) => error.includes('No scenario manifests found')));
   assert.ok(result.errors.some((error: string) => error.includes('Missing app profile-session helper')));
   assert.ok(result.errors.some((error: string) => error.includes('Missing package-script snippets')));
+  assert.ok(result.errors.some((error: string) => error.includes('Missing app package.json')));
   assert.deepEqual(actionCodes(result), [
     'add_mobile_scenario',
     'add_package_script_snippets',
@@ -116,6 +135,7 @@ test('fails validation when initialized project files are missing', async (t: Te
     'add_profile_session_helper',
     'add_project_config',
     'ignore_runtime_artifacts',
+    'merge_package_scripts',
   ]);
 });
 
@@ -196,6 +216,7 @@ test('validates generated package-script snippets', async (t: TestContext) => {
   const scripts = validatePackageScripts({ packageRoot: ROOT, rootDir: targetDir });
 
   assert.equal(scripts.status, 'incomplete');
+  assert.equal(scripts.packageJsonStatus, 'missing');
   assert.deepEqual(scripts.invalidScripts, [
     'asl:check:ios is missing required flag(s): --provider, --out.',
     'asl:validate should start with asl-validate-project.',
@@ -218,6 +239,48 @@ test('validates generated package-script snippets', async (t: TestContext) => {
   assert.equal(scripts.missingPaths.some((missingPath: string) => missingPath.endsWith('scenarios/mobile/missing.json')), true);
 });
 
+test('validates app package json exposes generated package scripts', async (t: TestContext) => {
+  const targetDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-validate-project-package-json-'));
+  t.after(async () => {
+    await fsp.rm(targetDir, { recursive: true, force: true });
+  });
+
+  await initProject({
+    outDir: targetDir,
+    packageRoot: ROOT,
+    scenarioId: 'Checkout Submit',
+  });
+
+  let result = await validateProject({ rootDir: targetDir });
+  assert.equal(result.status, 'failed');
+  assert.equal(result.scripts.packageJsonStatus, 'missing');
+  assert.equal(actionCodes(result).includes('merge_package_scripts'), true);
+
+  await writeMergedPackageJson(targetDir);
+  result = await validateProject({ rootDir: targetDir });
+  assert.equal(result.status, 'passed');
+  assert.equal(result.scripts.packageJsonStatus, 'present');
+  assert.equal(validatePackageJsonScripts({
+    packageJsonPath: path.join(targetDir, 'package.json'),
+  }).packageJsonStatus, 'present');
+
+  const packageJsonPath = path.join(targetDir, 'package.json');
+  const packageJson = JSON.parse(await fsp.readFile(packageJsonPath, 'utf8')) as {
+    scripts: Record<string, string | number>;
+  };
+  delete packageJson.scripts['asl:validate'];
+  packageJson.scripts['asl:check:ios'] = 42;
+  await fsp.writeFile(packageJsonPath, `${JSON.stringify(packageJson, null, 2)}\n`, 'utf8');
+
+  result = await validateProject({ rootDir: targetDir });
+  assert.equal(result.status, 'failed');
+  assert.equal(result.scripts.packageJsonStatus, 'incomplete');
+  assert.deepEqual(result.scripts.missingPackageJsonScripts, ['asl:validate']);
+  assert.deepEqual(result.scripts.invalidPackageJsonScripts, ['asl:check:ios']);
+  assert.equal(result.errors.some((error: string) => error.includes('App package.json is missing ASL script(s): asl:validate')), true);
+  assert.equal(result.errors.some((error: string) => error.includes('App package.json has non-string ASL script(s): asl:check:ios')), true);
+});
+
 test('validates project-local provider command script references', async (t: TestContext) => {
   const targetDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-validate-provider-commands-'));
   t.after(async () => {
@@ -229,6 +292,7 @@ test('validates project-local provider command script references', async (t: Tes
     packageRoot: ROOT,
     scenarioId: 'Checkout Submit',
   });
+  await writeMergedPackageJson(targetDir);
 
   const providerPath = path.join(targetDir, 'runner-manifests', 'evidence-provider.json');
   assert.deepEqual(validateProviderCommandReferences({ providerPaths: [providerPath] }), []);
