@@ -47,6 +47,12 @@ type ProjectValidationGitignore = {
   status: 'present' | 'missing' | 'incomplete';
 };
 
+type ProviderCommandReference = {
+  args?: string[];
+  command?: string;
+  cwd?: string;
+};
+
 type ProjectValidationNextAction = {
   code: string;
   message: string;
@@ -592,9 +598,89 @@ function validatePackageScripts({
 }
 
 /**
+ * Resolves a provider command cwd using the same manifest-relative rule as profile runners.
+ *
+ * @param {{manifestDir: string, value?: string}} options
+ * @returns {string}
+ */
+function resolveProviderCommandCwd({
+  manifestDir,
+  value,
+}: {
+  manifestDir: string;
+  value?: string;
+}): string {
+  if (!value || value.includes('{')) {
+    return manifestDir;
+  }
+
+  return path.isAbsolute(value) ? value : path.resolve(manifestDir, value);
+}
+
+/**
+ * Returns the first local script argument from a node-backed provider command.
+ *
+ * @param {ProviderCommandReference} command
+ * @returns {string | null}
+ */
+function readNodeProviderScriptArg(command: ProviderCommandReference): string | null {
+  if (command.command !== 'node' || !Array.isArray(command.args)) {
+    return null;
+  }
+
+  return command.args.find((arg) => {
+    if (arg.startsWith('-') || arg.includes('{')) {
+      return false;
+    }
+
+    return /\.(?:cjs|js|mjs|ts)$/iu.test(arg);
+  }) ?? null;
+}
+
+/**
+ * Validates project-local script files referenced by evidence-provider commands.
+ *
+ * @param {{providerPaths: string[]}} options
+ * @returns {string[]}
+ */
+function validateProviderCommandReferences({
+  providerPaths,
+}: {
+  providerPaths: string[];
+}): string[] {
+  const missingPaths = new Set<string>();
+
+  for (const providerPath of providerPaths) {
+    const provider = readJson(providerPath);
+    const providerCommands = Array.isArray(provider.providerCommands)
+      ? provider.providerCommands as ProviderCommandReference[]
+      : [];
+    const manifestDir = path.dirname(providerPath);
+
+    for (const providerCommand of providerCommands) {
+      const scriptArg = readNodeProviderScriptArg(providerCommand);
+      if (!scriptArg) {
+        continue;
+      }
+
+      const commandCwd = resolveProviderCommandCwd({
+        manifestDir,
+        ...(providerCommand.cwd ? { value: providerCommand.cwd } : {}),
+      });
+      const candidatePath = path.isAbsolute(scriptArg) ? scriptArg : path.resolve(commandCwd, scriptArg);
+      if (!fs.existsSync(candidatePath)) {
+        missingPaths.add(candidatePath);
+      }
+    }
+  }
+
+  return [...missingPaths].sort();
+}
+
+/**
  * Builds stable agent-readable next actions from project validation facts.
  *
- * @param {{appHelper: ProjectValidationAppHelper, configPath: string, gitignore: ProjectValidationGitignore, plans: ProjectValidationPlan[], requestedPlatform: string, rootDir: string, runnerPath: string, scenarioPaths: string[], scripts: ProjectValidationScripts, warnings: string[]}} options
+ * @param {{appHelper: ProjectValidationAppHelper, configPath: string, gitignore: ProjectValidationGitignore, plans: ProjectValidationPlan[], providerCommandMissingPaths: string[], requestedPlatform: string, rootDir: string, runnerPath: string, scenarioPaths: string[], scripts: ProjectValidationScripts, warnings: string[]}} options
  * @returns {ProjectValidationNextAction[]}
  */
 function buildNextActions({
@@ -602,6 +688,7 @@ function buildNextActions({
   configPath,
   gitignore,
   plans,
+  providerCommandMissingPaths,
   requestedPlatform,
   rootDir,
   runnerPath,
@@ -613,6 +700,7 @@ function buildNextActions({
   configPath: string;
   gitignore: ProjectValidationGitignore;
   plans: ProjectValidationPlan[];
+  providerCommandMissingPaths: string[];
   requestedPlatform: string;
   rootDir: string;
   runnerPath: string;
@@ -689,6 +777,15 @@ function buildNextActions({
     });
   }
 
+  if (providerCommandMissingPaths.length > 0) {
+    actions.push({
+      code: 'fix_provider_command_paths',
+      message: 'Restore missing project-local provider command script files before live provider proof.',
+      severity: 'error',
+      target: providerCommandMissingPaths[0] ?? rootDir,
+    });
+  }
+
   for (const plan of plans.filter((candidate) => candidate.healthStatus !== 'passed')) {
     actions.push({
       code: 'fix_planner_compatibility',
@@ -746,6 +843,7 @@ async function validateProject(options: {
   const errors: string[] = [];
   const plans: ProjectValidationPlan[] = [];
   const warnings: string[] = [];
+  const providerCommandMissingPaths = validateProviderCommandReferences({ providerPaths });
 
   if (!['ios', 'android', 'all'].includes(requestedPlatform)) {
     errors.push(`Unsupported platform '${requestedPlatform}'. Expected ios, android, or all.`);
@@ -792,6 +890,10 @@ async function validateProject(options: {
     }
   }
 
+  if (providerCommandMissingPaths.length > 0) {
+    errors.push(`Provider commands reference missing path(s): ${providerCommandMissingPaths.join(', ')}.`);
+  }
+
   if (errors.length === 0) {
     for (const scenarioPath of scenarioPaths) {
       const scenario = readJson(scenarioPath);
@@ -825,6 +927,7 @@ async function validateProject(options: {
     configPath,
     gitignore,
     plans,
+    providerCommandMissingPaths,
     requestedPlatform,
     rootDir,
     runnerPath,
@@ -954,6 +1057,7 @@ export {
   validateAppHelper,
   validatePackageScriptShape,
   validatePackageScripts,
+  validateProviderCommandReferences,
 };
 
 export type {

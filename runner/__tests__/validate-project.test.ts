@@ -16,6 +16,7 @@ const {
   validateAppHelper,
   validatePackageScriptShape,
   validatePackageScripts,
+  validateProviderCommandReferences,
   validateProject,
 } = require('../validate-project');
 
@@ -215,6 +216,32 @@ test('validates generated package-script snippets', async (t: TestContext) => {
   ]);
   assert.deepEqual(scripts.unknownCommands, ['not-an-asl-bin']);
   assert.equal(scripts.missingPaths.some((missingPath: string) => missingPath.endsWith('scenarios/mobile/missing.json')), true);
+});
+
+test('validates project-local provider command script references', async (t: TestContext) => {
+  const targetDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-validate-provider-commands-'));
+  t.after(async () => {
+    await fsp.rm(targetDir, { recursive: true, force: true });
+  });
+
+  await initProject({
+    outDir: targetDir,
+    packageRoot: ROOT,
+    scenarioId: 'Checkout Submit',
+  });
+
+  const providerPath = path.join(targetDir, 'runner-manifests', 'evidence-provider.json');
+  assert.deepEqual(validateProviderCommandReferences({ providerPaths: [providerPath] }), []);
+
+  await fsp.rm(path.join(targetDir, 'scripts', 'asl-capture-accessibility-provider.mjs'));
+  const missingPaths = validateProviderCommandReferences({ providerPaths: [providerPath] });
+  assert.equal(missingPaths.length, 1);
+  assert.equal(missingPaths[0].endsWith('scripts/asl-capture-accessibility-provider.mjs'), true);
+
+  const result = await validateProject({ rootDir: targetDir });
+  assert.equal(result.status, 'failed');
+  assert.equal(result.errors.some((error: string) => error.includes('Provider commands reference missing path(s)')), true);
+  assert.equal(actionCodes(result).includes('fix_provider_command_paths'), true);
 });
 
 test('validates required package-script lifecycle shapes', () => {
