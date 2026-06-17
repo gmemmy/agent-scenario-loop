@@ -8,7 +8,7 @@ In this repository, the automated packed-package rehearsal is:
 pnpm consumer:rehearse
 ```
 
-It creates a temporary existing app-shaped package, installs the packed tarball, runs `asl-init`, merges generated scripts into `package.json`, replaces scaffold placeholders, runs both platform plan scripts, runs generated fixture profile scripts against deterministic event logs, validates the project through the installed CLI, and proves stale merged scripts are rejected. Use the manual checklist below when rehearsing inside a real app.
+It creates a temporary existing app-shaped package, installs the packed tarball, runs `asl-init`, merges generated scripts into `package.json`, replaces scaffold placeholders, runs both platform plan scripts, runs generated fixture profile scripts against deterministic event logs, runs the generated Argent interaction scripts through a deterministic adapter double, validates the project through the installed CLI, and proves stale merged scripts are rejected. Use the manual checklist below when rehearsing inside a real app.
 
 ## 1. Initialize The Scaffold
 

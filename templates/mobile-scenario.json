@@ -83,6 +83,12 @@
         "kind": "testId",
         "value": "first-journey-start"
       },
+      "adapterOptions": {
+        "argent": {
+          "x": 0.5,
+          "y": 0.6
+        }
+      },
       "timeoutMs": 3000
     },
     {

@@ -230,6 +230,97 @@ function writeProfileEventFixtures(appRoot: string): { androidEvents: string; io
 }
 
 /**
+ * Writes a tiny Argent-compatible command for consumer-script rehearsal.
+ *
+ * @param {string} filePath
+ * @returns {void}
+ */
+function writeFakeArgent(filePath: string): void {
+  const scriptPath = filePath.endsWith('.cmd') ? filePath.replace(/\.cmd$/u, '.js') : filePath;
+  const script = [
+    '#!/usr/bin/env node',
+    "const fs = require('node:fs');",
+    "const path = require('node:path');",
+    "const args = process.argv.slice(2);",
+    "const key = args.join(' ');",
+    "function ok(stdout = '{\"description\":\"Consumer Rehearsal first journey complete\"}\\n') { process.stdout.write(stdout); process.exit(0); }",
+    "if (args.includes('launch-app')) ok('{\"success\":true}\\n');",
+    "if (args.includes('describe')) ok();",
+    "if (args.includes('screenshot')) {",
+    "  const screenshotPath = path.join(path.dirname(process.argv[1]), 'fake-argent-screenshot.png');",
+    "  fs.writeFileSync(screenshotPath, 'fake screenshot', 'utf8');",
+    "  ok(`Saved screenshot: ${screenshotPath}\\n`);",
+    "}",
+    "if (args.includes('gesture-tap')) ok('{\"success\":true}\\n');",
+    "if (args.includes('gesture-swipe')) ok('{\"success\":true}\\n');",
+    "process.stderr.write(`unexpected fake Argent command: ${key}\\n`);",
+    "process.exit(1);",
+    '',
+  ].join('\n');
+  fs.writeFileSync(scriptPath, script, { mode: 0o755 });
+  if (filePath.endsWith('.cmd')) {
+    fs.writeFileSync(filePath, `@echo off\r\n"${process.execPath}" "%~dp0${path.basename(scriptPath)}" %*\r\n`, {
+      mode: 0o755,
+    });
+  }
+}
+
+/**
+ * Asserts one generated Argent package script can run from the installed app.
+ *
+ * @param {{appRoot: string, env: NodeJS.ProcessEnv, fakeArgentPath: string, platform: 'android' | 'ios'}} options
+ * @returns {void}
+ */
+function assertArgentScriptRuns({
+  appRoot,
+  env,
+  fakeArgentPath,
+  platform,
+}: {
+  appRoot: string;
+  env: NodeJS.ProcessEnv;
+  fakeArgentPath: string;
+  platform: 'android' | 'ios';
+}): void {
+  run('npm', ['run', `asl:argent:${platform}`, '--silent'], {
+    cwd: appRoot,
+    env: {
+      ...env,
+      ASL_ARGENT_BIN: fakeArgentPath,
+    },
+  });
+
+  const runDir = path.join(
+    appRoot,
+    'artifacts',
+    'asl',
+    `argent-${platform}`,
+  );
+  const health = readJson(path.join(runDir, 'health.json')) as {
+    healthStatus: string;
+    runId: string;
+    scenarioId: string;
+  };
+  const verdict = readJson(path.join(runDir, 'verdict.json')) as {
+    runId: string;
+    scenarioId: string;
+    verdictStatus: string;
+  };
+  const metadata = readJson(path.join(runDir, 'raw', 'argent-metadata.json')) as {
+    driverActions?: Array<{ driverAction?: string; rawPath?: string }>;
+  };
+
+  assert.equal(health.healthStatus, 'passed');
+  assert.equal(health.runId, `account-overview-${platform}-argent`);
+  assert.equal(health.scenarioId, 'account-overview');
+  assert.equal(verdict.runId, `account-overview-${platform}-argent`);
+  assert.equal(verdict.scenarioId, 'account-overview');
+  assert.equal(verdict.verdictStatus, 'not_evaluated');
+  assert.deepEqual(metadata.driverActions?.map((action) => action.driverAction), ['launch', 'tap', 'screenshot']);
+  assert.equal(fs.existsSync(path.join(runDir, 'captures', 'fake-argent-screenshot.png')), true);
+}
+
+/**
  * Merges generated Agent Scenario Loop package-script snippets into the app package.json.
  *
  * @param {string} appRoot
@@ -368,6 +459,11 @@ function rehearseConsumerInstall({
   mergeGitignoreSnippet(appRoot);
   replaceConfigPlaceholders(appRoot);
   const profileEvents = writeProfileEventFixtures(appRoot);
+  const fakeArgentPath = path.join(
+    appRoot,
+    process.platform === 'win32' ? 'fake-argent.cmd' : 'fake-argent',
+  );
+  writeFakeArgent(fakeArgentPath);
 
   const packageJson = readJson(path.join(appRoot, 'package.json')) as { scripts: Record<string, string> };
   assert.equal(packageJson.scripts.start, 'react-native start');
@@ -400,6 +496,8 @@ function rehearseConsumerInstall({
     cwd: appRoot,
     env: { ...env, ASL_PROFILE_ANDROID_EVENTS: profileEvents.androidEvents },
   });
+  assertArgentScriptRuns({ appRoot, env, fakeArgentPath, platform: 'ios' });
+  assertArgentScriptRuns({ appRoot, env, fakeArgentPath, platform: 'android' });
   run('npm', ['run', 'asl:validate', '--silent'], {
     cwd: appRoot,
     env,
@@ -546,6 +644,7 @@ export {
   replaceConfigPlaceholders,
   run,
   runExpectFailure,
+  writeFakeArgent,
   writeExistingAppFixture,
   writeProfileEventFixtures,
   writeJson,
