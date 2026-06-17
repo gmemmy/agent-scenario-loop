@@ -19,6 +19,7 @@
     "typecheck": "tsc -p tsconfig.typecheck.json --noEmit"
   },
   "dependencies": {
+    "@expo/metro-runtime": "56.0.15",
     "@react-native-async-storage/async-storage": "2.2.0",
     "expo": "^56.0.11",
     "expo-linking": "~56.0.14",
@@ -29,5 +30,10 @@
   "devDependencies": {
     "@types/react": "~19.2.14",
     "typescript": "~6.0.3"
+  },
+  "pnpm": {
+    "patchedDependencies": {
+      "expo-modules-jsi@56.0.10": "patches/expo-modules-jsi@56.0.10.patch"
+    }
   }
 }

@@ -5,12 +5,18 @@
     "version": "0.1.0",
     "orientation": "portrait",
     "scheme": "asl-example",
-    "platforms": ["ios", "android"],
+    "platforms": [
+      "ios",
+      "android"
+    ],
     "ios": {
       "bundleIdentifier": "dev.agent-scenario-loop.example"
     },
     "android": {
       "package": "dev.agentscenarioloop.example"
-    }
+    },
+    "plugins": [
+      "./plugins/with-ios-build-compat"
+    ]
   }
 }

@@ -1,0 +1,19 @@
+diff --git a/apple/Sources/ExpoModulesJSI/Runtime/JavaScriptRuntime.swift b/apple/Sources/ExpoModulesJSI/Runtime/JavaScriptRuntime.swift
+index 38f7305..c8156cd 100644
+--- a/apple/Sources/ExpoModulesJSI/Runtime/JavaScriptRuntime.swift
++++ b/apple/Sources/ExpoModulesJSI/Runtime/JavaScriptRuntime.swift
+@@ -216,6 +216,12 @@ public final class JavaScriptRuntime: @unchecked Sendable {
+       .toOpaque()
+     // Pass a null setter to C++ when the Swift setter is nil so that JS assignment
+     // raises a `jsi::JSError` directly, without crossing the Swift boundary.
+-    let callbacks = expo.HostObjectCallbacks(
+-      context, getter, set == nil ? nil : setter, propertyNamesGetter, deallocate)
++    let callbacks: expo.HostObjectCallbacks
++    if set == nil {
++      callbacks = expo.HostObjectCallbacks(
++        context, getter, nil, propertyNamesGetter, deallocate)
++    } else {
++      callbacks = expo.HostObjectCallbacks(
++        context, getter, setter, propertyNamesGetter, deallocate)
++    }
+     let hostObject = expo.HostObject.makeObject(pointee, consume callbacks)
