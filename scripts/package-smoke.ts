@@ -801,6 +801,9 @@ function main(): void {
         env,
       });
       assert.match(helpText, /Usage:/u, `${binaryName} did not print usage`);
+      if (binaryName === 'asl-android-adb' || binaryName === 'asl-profile-android') {
+        assert.match(helpText, /--launch-wait-ms <ms>/u, `${binaryName} did not expose Android launch wait help`);
+      }
     }
 
     for (const exampleRun of EXAMPLE_PROFILE_RUNS) {

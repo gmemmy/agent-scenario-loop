@@ -132,7 +132,7 @@ function usage(output: { write: (message: string) => unknown } = process.stderr)
     '',
     'Checks adb/device readiness and writes health.json, verdict.json, agent-summary.md, and raw adb evidence.',
     'Use --capture-logcat [--logcat-lines <count>] to attach a bounded adb logcat snapshot under raw/adb-logcat.txt.',
-    'Use --clear-logcat --launch --wait-ms <ms> with --package <name> to capture a bounded app launch window.',
+    'Use --clear-logcat --launch [--launch-wait-ms <ms>] --wait-ms <ms> with --package <name> to capture a bounded app launch window.',
     'Use --react-native-debug-host <host:port> with --package <name> to set the app debug server and adb reverse for React Native dev builds.',
   ], output);
 }

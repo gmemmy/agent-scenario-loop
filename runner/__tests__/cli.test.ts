@@ -24,6 +24,7 @@ const HELP_CASES = [
   {
     file: path.join(DIST_ROOT, 'runner', 'android-adb.js'),
     usage: 'Usage: asl-android-adb',
+    fragments: ['--launch-wait-ms <ms>'],
   },
   {
     file: path.join(DIST_ROOT, 'runner', 'check-plan.js'),
@@ -68,6 +69,7 @@ const HELP_CASES = [
   {
     file: path.join(DIST_ROOT, 'runner', 'profile-android.js'),
     usage: 'Usage: asl-profile-android',
+    fragments: ['--launch-wait-ms <ms>'],
   },
   {
     file: path.join(DIST_ROOT, 'runner', 'validate-project.js'),
@@ -125,6 +127,9 @@ for (const helpCase of HELP_CASES) {
     const { stdout, stderr } = await execFileAsync(process.execPath, [helpCase.file, '--help']);
 
     assert.match(stdout, new RegExp(helpCase.usage, 'u'));
+    for (const fragment of helpCase.fragments ?? []) {
+      assert.match(stdout, new RegExp(fragment.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&'), 'u'));
+    }
     assert.equal(stderr, '');
   });
 }
