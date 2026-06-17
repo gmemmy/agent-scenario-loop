@@ -8,7 +8,7 @@ In this repository, the automated packed-package rehearsal is:
 pnpm consumer:rehearse
 ```
 
-It creates a temporary existing app-shaped package, installs the packed tarball, runs `asl-init`, merges generated scripts into `package.json`, replaces scaffold placeholders, runs both platform plan scripts, runs generated fixture profile scripts against deterministic event logs, and validates the project through the installed CLI. Use the manual checklist below when rehearsing inside a real app.
+It creates a temporary existing app-shaped package, installs the packed tarball, runs `asl-init`, merges generated scripts into `package.json`, replaces scaffold placeholders, runs both platform plan scripts, runs generated fixture profile scripts against deterministic event logs, validates the project through the installed CLI, and proves stale merged scripts are rejected. Use the manual checklist below when rehearsing inside a real app.
 
 ## 1. Initialize The Scaffold
 
@@ -32,7 +32,7 @@ Review the generated files before merging anything into existing app scripts:
 
 Keep generated artifacts ignored. Commit only durable scenarios, manifests, config, docs, and app helper wiring.
 
-Merge the required generated `asl:*` entries from `asl/package-scripts.json` into the app `package.json`. `asl-validate-project` treats missing merged scripts as an error because agents need stable local commands, not just scaffold files.
+Merge the required generated `asl:*` entries from `asl/package-scripts.json` into the app `package.json`. `asl-validate-project` treats missing or drifted merged scripts as an error because agents need stable local commands, not just scaffold files.
 
 ## 2. Wire App Truth
 
