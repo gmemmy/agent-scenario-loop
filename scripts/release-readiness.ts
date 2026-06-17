@@ -9,6 +9,7 @@ const REQUIRED_BIN_TARGETS: Record<string, string> = {
   'agent-scenario-loop': 'dist/runner/check-plan.js',
   'asl-agent-device': 'dist/runner/agent-device.js',
   'asl-android-adb': 'dist/runner/android-adb.js',
+  'asl-argent': 'dist/runner/argent.js',
   'asl-check-plan': 'dist/runner/check-plan.js',
   'asl-compare': 'dist/runner/compare.js',
   'asl-compare-latest': 'dist/runner/compare-latest.js',
@@ -41,6 +42,10 @@ const REQUIRED_EXPORTS: Record<string, string | Record<string, string>> = {
   './runner/argent-driver': {
     require: './dist/runner/argent-driver.js',
     types: './dist/runner/argent-driver.d.ts',
+  },
+  './runner/argent': {
+    require: './dist/runner/argent.js',
+    types: './dist/runner/argent.d.ts',
   },
   './runner/android-adb': {
     require: './dist/runner/android-adb.js',

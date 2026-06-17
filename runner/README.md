@@ -2,10 +2,11 @@
 
 The runner owns host execution. It is the boundary between scenario contracts and whichever tool actually drives the device or captures evidence.
 
-The package ships fourteen public runner entrypoints. Package scripts build them into `dist/` before execution:
+The package ships fifteen public runner entrypoints. Package scripts build them into `dist/` before execution:
 
 - `agent-device.ts`: executes scenario-declared portable driver actions through the external `agent-device` CLI, then writes ASL health, verdict, raw command transcripts, and capture artifacts.
 - `android-adb.ts`: checks adb availability, connected Android device readiness, optional package installation, optional React Native debug-host setup, optional package launch, ordered adb driver actions, bounded logcat output, and raw adb evidence.
+- `argent.ts`: executes scenario-declared launch and Argent-compatible portable driver actions through the external Argent CLI, then writes ASL health, verdict, raw command transcripts, and screenshot captures.
 - `check-plan.ts`: validates a scenario manifest, primary runner capability manifest, and optional evidence-provider manifests, then writes schema-checked `health.json`, `verdict.json`, `agent-summary.md`, and `planner-compatibility.json` before execution.
 - `compare.ts`: reads two completed run directories, validates `health.json` and `verdict.json`, then writes or prints a schema-checked `comparison.json`.
 - `compare-latest.ts`: scans an artifact root for the newest trusted prior run for a scenario, rejects unhealthy current runs, then writes or prints a schema-checked `comparison.json`.
@@ -19,7 +20,7 @@ The package ships fourteen public runner entrypoints. Package scripts build them
 - `profile-ios.ts`: reads project config and an iOS scenario manifest, then profiles explicit event logs, prior simctl artifacts, or an owned simctl capture window. During profile-session capture, iOS-specific command metadata takes precedence; otherwise it derives command steps from `buildScenarioExecutionPlan()`.
 - `validate-project.ts`: validates initialized project config, scenario manifests, runner manifests, and planner compatibility before runtime proof.
 
-The package also exports small adapter modules for device drivers. `runner/android-adb-driver` exposes adb-backed `tap`, `scroll`, `assertVisible`, `inspectTree`, `screenshot`, `record`, and `readLogs` driver actions, and keeps Android-specific helpers such as log clearing, package launch, and deep-link execution behind explicit method names. `runner/ios-simctl-driver` exposes simctl-backed `screenshot` and `readLogs` evidence actions while keeping launch, terminate, and deep-link helpers explicit. The iOS screenshot action supports the synchronous `simctl io screenshot` options for image type, display, and mask. `runner/agent-device-driver` maps portable actions to the external `agent-device` CLI for iOS or Android, including app open/close and alert helpers, without making agent-device a package dependency. `runner/argent-driver` maps Argent's optional CLI/MCP-backed tool surface to coordinate-backed gestures, launch, screenshots, and UI descriptions while leaving log collection, profiler output, and file inventory to the surrounding runner or provider lane. Planner compatibility fails early when Argent gesture steps omit required coordinate metadata or visibility assertions use non-exact selectors.
+The package also exports small adapter modules for device drivers. `runner/android-adb-driver` exposes adb-backed `tap`, `scroll`, `assertVisible`, `inspectTree`, `screenshot`, `record`, and `readLogs` driver actions, and keeps Android-specific helpers such as log clearing, package launch, and deep-link execution behind explicit method names. `runner/ios-simctl-driver` exposes simctl-backed `screenshot` and `readLogs` evidence actions while keeping launch, terminate, and deep-link helpers explicit. The iOS screenshot action supports the synchronous `simctl io screenshot` options for image type, display, and mask. `runner/agent-device-driver` maps portable actions to the external `agent-device` CLI for iOS or Android, including app open/close and alert helpers, without making agent-device a package dependency. `runner/argent` wraps Argent as an ASL artifact-writing runner, while `runner/argent-driver` maps Argent's optional CLI/MCP-backed tool surface to coordinate-backed gestures, launch, screenshots, and UI descriptions without making Argent a package dependency. Planner compatibility fails early when Argent gesture steps omit required coordinate metadata or visibility assertions use non-exact selectors.
 
 When `profile-android` owns an adb capture window, scenario steps with supported Android `driverAction` values are normalized through `buildScenarioExecutionPlan()` and routed to that adapter. Step metadata under `adapterOptions.androidAdb` can set log bounds, coordinate inputs, raw filenames, video capture filenames, screenrecord duration, remote screenrecord paths, and wait behavior while preserving `raw/adb-logcat.txt` as the default profile input for log capture. For tap and scroll steps without coordinates, Android adb can resolve portable selectors from UIAutomator bounds before issuing input commands. `assertVisible` uses the same selector contract and preserves the UIAutomator XML as raw evidence. `record` writes an adb command transcript under `raw/` and pulls the mp4 into `captures/`, where `profile-android` attaches it as the run's `captures.video` artifact.
 
@@ -73,6 +74,15 @@ ASL_EXAMPLE_ANDROID_AGENT_DEVICE_SESSION=android-example ASL_EXAMPLE_ANDROID_SER
 ```
 
 In sandboxed agent environments, run these commands with permission to access the local device driver state. The runner shells out to `agent-device`, which needs access to its daemon files and simulator or emulator control surfaces.
+
+To wrap an existing Argent install in ASL artifacts:
+
+```bash
+ASL_EXAMPLE_IOS_UDID=<simulator-udid> pnpm example:argent:ios:startup
+ASL_EXAMPLE_ANDROID_SERIAL=<emulator-serial> pnpm example:argent:android:startup
+```
+
+Pass `--argent`, `--base-args`, `--device-flag`, or `--app-flag` when your local Argent command shape differs from the default `argent run ...` invocation. Argent tap and scroll steps require coordinate metadata under `adapterOptions.argent`; visibility checks use the portable selector against Argent's app description output.
 
 To check Android runtime readiness without starting scenario execution:
 

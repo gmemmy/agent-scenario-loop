@@ -383,6 +383,42 @@ function writeFakeAgentDevice(filePath: string): void {
 }
 
 /**
+ * Writes a tiny Argent-compatible command for installed-package smoke tests.
+ *
+ * @param {string} filePath
+ * @returns {void}
+ */
+function writeFakeArgent(filePath: string): void {
+  const scriptPath = filePath.endsWith('.cmd') ? filePath.replace(/\.cmd$/u, '.js') : filePath;
+  const script = [
+    '#!/usr/bin/env node',
+    "const fs = require('node:fs');",
+    "const path = require('node:path');",
+    "const args = process.argv.slice(2);",
+    "const key = args.join(' ');",
+    "function ok(stdout = '{\"description\":\"Home Ready asl-example-title\"}\\n') { process.stdout.write(stdout); process.exit(0); }",
+    "if (args.includes('launch-app')) ok('{\"success\":true}\\n');",
+    "if (args.includes('describe')) ok();",
+    "if (args.includes('screenshot')) {",
+    "  const screenshotPath = path.join(path.dirname(process.argv[1]), 'fake-argent-screenshot.png');",
+    "  fs.writeFileSync(screenshotPath, 'fake screenshot', 'utf8');",
+    "  ok(`Saved screenshot: ${screenshotPath}\\n`);",
+    "}",
+    "if (args.includes('gesture-tap')) ok('{\"success\":true}\\n');",
+    "if (args.includes('gesture-swipe')) ok('{\"success\":true}\\n');",
+    "process.stderr.write(`unexpected fake Argent command: ${key}\\n`);",
+    "process.exit(1);",
+    '',
+  ].join('\n');
+  fs.writeFileSync(scriptPath, script, { mode: 0o755 });
+  if (filePath.endsWith('.cmd')) {
+    fs.writeFileSync(filePath, `@echo off\r\n"${process.execPath}" "%~dp0${path.basename(scriptPath)}" %*\r\n`, {
+      mode: 0o755,
+    });
+  }
+}
+
+/**
  * Writes a tiny xcrun-compatible command for the installed iOS example-live proof.
  *
  * @param {{bundleId: string, deviceId: string, filePath: string, fixtures: Record<string, ExampleLiveFixture>}} options
@@ -827,6 +863,38 @@ function main(): void {
         assert.match(helpText, /--launch-wait-ms <ms>/u, `${binaryName} did not expose Android launch wait help`);
       }
     }
+
+    const fakeArgentPath = path.join(
+      tempRoot,
+      process.platform === 'win32' ? 'fake-argent.cmd' : 'fake-argent',
+    );
+    const argentRunRoot = path.join(tempRoot, 'argent-run');
+    writeFakeArgent(fakeArgentPath);
+    const argentRunOutput = run(packageBinPath(installDir, 'asl-argent'), [
+      '--argent',
+      fakeArgentPath,
+      '--platform',
+      'ios',
+      '--scenario',
+      path.join(exampleAppRoot, 'scenarios', 'mobile', 'app-startup.json'),
+      '--app',
+      'dev.agent-scenario-loop.example',
+      '--device',
+      'SIM-123',
+      '--out',
+      argentRunRoot,
+      '--run-id',
+      'package-smoke-argent',
+    ], {
+      cwd: installDir,
+      env,
+    });
+    const argentRunDir = argentRunOutput.trim();
+    assert.equal(argentRunDir, argentRunRoot);
+    assert.equal(JSON.parse(fs.readFileSync(path.join(argentRunDir, 'health.json'), 'utf8')).healthStatus, 'passed');
+    assert.equal(JSON.parse(fs.readFileSync(path.join(argentRunDir, 'verdict.json'), 'utf8')).verdictStatus, 'not_evaluated');
+    assert.equal(fs.existsSync(path.join(argentRunDir, 'raw', 'argent-metadata.json')), true);
+    assert.equal(fs.existsSync(path.join(argentRunDir, 'captures', 'fake-argent-screenshot.png')), true);
 
     for (const exampleRun of EXAMPLE_PROFILE_RUNS) {
       const output = run(packageBinPath(installDir, exampleRun.binaryName), [
@@ -1760,6 +1828,7 @@ function main(): void {
       "assert.equal(fs.existsSync('node_modules/agent-scenario-loop/docs/authoring.md'), true);",
       "require.resolve('agent-scenario-loop/runner/agent-device');",
       "require.resolve('agent-scenario-loop/runner/agent-device-driver');",
+      "require.resolve('agent-scenario-loop/runner/argent');",
       "require.resolve('agent-scenario-loop/runner/argent-driver');",
       "require.resolve('agent-scenario-loop/runner/ios-simctl-driver');",
       "require.resolve('agent-scenario-loop/runner/live-proof');",
@@ -1795,6 +1864,7 @@ function main(): void {
       "  type PrimaryRunnerPort,",
       "} from 'agent-scenario-loop';",
       "import { resolveAgentDeviceDriverSteps, runAgentDeviceCapture } from 'agent-scenario-loop/runner/agent-device';",
+      "import { resolveArgentDriverSteps, runArgentCapture } from 'agent-scenario-loop/runner/argent';",
       "import { buildAndroidScrollCoordinatesFromBounds, createAndroidAdbDriver, resolveAndroidSelectorFromUiTree } from 'agent-scenario-loop/runner/android-adb-driver';",
       "import { createAgentDeviceDriver, formatAgentDeviceSelector } from 'agent-scenario-loop/runner/agent-device-driver';",
       "import { createArgentDriver, normalizeArgentPoint } from 'agent-scenario-loop/runner/argent-driver';",
@@ -1905,6 +1975,20 @@ function main(): void {
       '  }),',
       '});',
       "const argentTap = argentDriver.tap({ x: 0.5, y: 0.25 });",
+      "const argentSteps = resolveArgentDriverSteps({ steps: [{ kind: 'gesture', driverAction: 'tap', adapterOptions: { argent: { x: 0.5, y: 0.25 } } }] });",
+      "const argentCapture = runArgentCapture({",
+      "  deviceId: 'booted',",
+      "  executor: async (command, commandArgs) => ({",
+      '    args: commandArgs,',
+      '    command,',
+      '    exitCode: 0,',
+      "    stderr: '',",
+      "    stdout: '',",
+      '  }),',
+      "  platform: 'ios',",
+      "  runId: 'argent-smoke',",
+      "  scenario: { id: 'argent-smoke', steps: [] },",
+      '});',
       "const agentDeviceCapture = runAgentDeviceCapture({",
       "  driverSteps: [],",
       "  executor: async (command, commandArgs) => ({",
@@ -1963,6 +2047,8 @@ function main(): void {
       'void argentDriver;',
       'void argentPoint;',
       'void argentTap;',
+      'void argentSteps;',
+      'void argentCapture;',
       'void iosDriver;',
       'void iosLogs;',
       'void iosScreenshot;',

@@ -27,6 +27,10 @@ const HELP_CASES = [
     fragments: ['--launch-wait-ms <ms>'],
   },
   {
+    file: path.join(DIST_ROOT, 'runner', 'argent.js'),
+    usage: 'Usage: asl-argent',
+  },
+  {
     file: path.join(DIST_ROOT, 'runner', 'check-plan.js'),
     usage: 'Usage: agent-scenario-loop',
   },
@@ -235,6 +239,39 @@ test('low-level capture CLIs exit nonzero when health fails', async (t: TestCont
       const execError = error as ExecFailure;
       const runDir = execError.stdout.trim();
       assert.equal(runDir, path.join(tempDir, 'agent-device'));
+      assert.equal(readJson(path.join(runDir, 'health.json')).healthStatus, 'failed');
+      return true;
+    },
+  );
+
+  const fakeArgent = path.join(tempDir, 'fake-argent.js');
+  await writeExecutableScript(fakeArgent, [
+    "process.stderr.write(`fake Argent failure: ${process.argv.slice(2).join(' ')}\\n`);",
+    "process.exit(1);",
+  ].join('\n'));
+  await assert.rejects(
+    execFileAsync(process.execPath, [
+      path.join(DIST_ROOT, 'runner', 'argent.js'),
+      '--argent',
+      fakeArgent,
+      '--platform',
+      'ios',
+      '--scenario',
+      path.join(ROOT, 'examples', 'mobile-app', 'scenarios', 'mobile', 'app-startup.json'),
+      '--app',
+      'dev.agent-scenario-loop.example',
+      '--device',
+      'SIM-123',
+      '--out',
+      path.join(tempDir, 'argent'),
+      '--run-id',
+      'argent-failed-health',
+    ]),
+    (error: unknown) => {
+      assert.ok(error instanceof Error);
+      const execError = error as ExecFailure;
+      const runDir = execError.stdout.trim();
+      assert.equal(runDir, path.join(tempDir, 'argent'));
       assert.equal(readJson(path.join(runDir, 'health.json')).healthStatus, 'failed');
       return true;
     },
