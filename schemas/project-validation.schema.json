@@ -15,7 +15,8 @@
     "runnerPath",
     "scripts",
     "scenarioPaths",
-    "status"
+    "status",
+    "warnings"
   ],
   "properties": {
     "appHelper": {
@@ -64,6 +65,12 @@
     "status": {
       "type": "string",
       "enum": ["passed", "failed"]
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
     }
   },
   "$defs": {

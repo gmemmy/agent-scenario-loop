@@ -51,6 +51,7 @@ type ProjectValidationResult = {
   scripts: ProjectValidationScripts;
   scenarioPaths: string[];
   status: 'passed' | 'failed';
+  warnings: string[];
 };
 
 const REQUIRED_APP_HELPER_EXPORTS = [
@@ -71,6 +72,37 @@ const REQUIRED_PACKAGE_SCRIPT_NAMES = [
 ];
 
 const PATH_ARGUMENT_FLAGS = new Set(['--config', '--runner', '--scenario']);
+
+const CONFIG_PLACEHOLDER_VALUES = [
+  {
+    path: ['projectName'],
+    values: ['replace-me'],
+  },
+  {
+    path: ['app', 'displayName'],
+    values: ['Example App'],
+  },
+  {
+    path: ['app', 'scheme'],
+    values: ['example-app'],
+  },
+  {
+    path: ['app', 'profileSessionScheme'],
+    values: ['example-app'],
+  },
+  {
+    path: ['app', 'iosBundleId'],
+    values: ['com.example.app'],
+  },
+  {
+    path: ['app', 'androidPackage'],
+    values: ['com.example.app'],
+  },
+  {
+    path: ['app', 'ios', 'xcodeScheme'],
+    values: ['Example App'],
+  },
+];
 
 /**
  * Prints CLI usage.
@@ -121,6 +153,25 @@ function parseArgs(argv: string[]): CliArgs {
  */
 function readJson(filePath: string): Record<string, unknown> {
   return JSON.parse(fs.readFileSync(filePath, 'utf8'));
+}
+
+/**
+ * Reads a nested string property from an object.
+ *
+ * @param {Record<string, unknown>} source
+ * @param {string[]} pathSegments
+ * @returns {string | null}
+ */
+function readNestedString(source: Record<string, unknown>, pathSegments: string[]): string | null {
+  let value: unknown = source;
+  for (const segment of pathSegments) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      return null;
+    }
+    value = (value as Record<string, unknown>)[segment];
+  }
+
+  return typeof value === 'string' ? value : null;
 }
 
 /**
@@ -212,6 +263,23 @@ function validateAppHelper(rootDir: string): ProjectValidationAppHelper {
     path: helperPath,
     status: missingExports.length > 0 ? 'incomplete' : 'present',
   };
+}
+
+/**
+ * Finds known placeholder values in the initialized project config.
+ *
+ * @param {Record<string, unknown>} config
+ * @returns {string[]}
+ */
+function validateConfigPlaceholders(config: Record<string, unknown>): string[] {
+  return CONFIG_PLACEHOLDER_VALUES.flatMap((placeholder) => {
+    const value = readNestedString(config, placeholder.path);
+    if (value === null || !placeholder.values.includes(value)) {
+      return [];
+    }
+
+    return [`Config field ${placeholder.path.join('.')} still uses placeholder value '${value}'.`];
+  });
 }
 
 /**
@@ -342,6 +410,7 @@ async function validateProject(options: {
   });
   const errors: string[] = [];
   const plans: ProjectValidationPlan[] = [];
+  const warnings: string[] = [];
 
   if (!['ios', 'android', 'all'].includes(requestedPlatform)) {
     errors.push(`Unsupported platform '${requestedPlatform}'. Expected ios, android, or all.`);
@@ -350,7 +419,7 @@ async function validateProject(options: {
   if (!fs.existsSync(configPath)) {
     errors.push(`Missing config: ${configPath}`);
   } else {
-    readJson(configPath);
+    warnings.push(...validateConfigPlaceholders(readJson(configPath)));
   }
 
   if (!fs.existsSync(runnerPath)) {
@@ -421,6 +490,7 @@ async function validateProject(options: {
     scripts,
     scenarioPaths,
     status: errors.length > 0 ? 'failed' : 'passed',
+    warnings,
   };
 }
 
@@ -439,6 +509,12 @@ function formatResult(result: ProjectValidationResult): string {
     `Package scripts: ${result.scripts.status}`,
     `Scenarios: ${result.scenarioPaths.length}`,
     `Providers: ${result.providerPaths.length}`,
+    ...(result.warnings.length > 0
+      ? [
+        'Warnings:',
+        ...result.warnings.map((warning) => `- ${warning}`),
+      ]
+      : []),
     ...(result.plans.length > 0
       ? [
         'Plans:',
@@ -507,6 +583,7 @@ export {
   parseArgs,
   resolvePlatforms,
   usage,
+  validateConfigPlaceholders,
   validateProject,
   validateAppHelper,
   validatePackageScripts,

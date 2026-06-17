@@ -421,6 +421,7 @@ test('accepts project validation artifacts', () => {
     },
     scenarioPaths: ['/app/scenarios/mobile/checkout-submit.json'],
     status: 'passed',
+    warnings: ['Config field projectName still uses placeholder value \'replace-me\'.'],
   };
 
   const result = validateJson(validation, SCHEMAS.projectValidation, 'Project validation artifact');

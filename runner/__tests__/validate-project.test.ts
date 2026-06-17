@@ -11,6 +11,7 @@ const {
   formatResult,
   parseArgs,
   resolvePlatforms,
+  validateConfigPlaceholders,
   validateAppHelper,
   validatePackageScripts,
   validateProject,
@@ -62,6 +63,7 @@ test('validates an initialized project for iOS and Android', async (t: TestConte
   assert.equal(result.appHelper.status, 'present');
   assert.equal(result.scripts.status, 'present');
   assert.equal(result.scripts.scriptNames.includes('asl:validate'), true);
+  assert.equal(result.warnings.some((warning: string) => warning.includes('projectName')), true);
   assert.equal(result.scenarioPaths.length, 1);
   assert.equal(result.providerPaths.length, 1);
   assert.deepEqual(
@@ -79,6 +81,7 @@ test('validates an initialized project for iOS and Android', async (t: TestConte
     ],
   );
   assert.match(formatResult(result), /project validation passed/u);
+  assert.match(formatResult(result), /Warnings:/u);
 });
 
 test('fails validation when initialized project files are missing', async (t: TestContext) => {
@@ -146,4 +149,24 @@ test('validates generated package-script snippets', async (t: TestContext) => {
   ]);
   assert.deepEqual(scripts.unknownCommands, ['not-an-asl-bin']);
   assert.equal(scripts.missingPaths.some((missingPath: string) => missingPath.endsWith('scenarios/mobile/missing.json')), true);
+});
+
+test('warns when config values still use scaffold placeholders', () => {
+  const warnings = validateConfigPlaceholders({
+    app: {
+      androidPackage: 'com.example.app',
+      displayName: 'Example App',
+      iosBundleId: 'dev.real.app',
+      profileSessionScheme: 'real-app',
+      scheme: 'example-app',
+    },
+    projectName: 'replace-me',
+  });
+
+  assert.deepEqual(warnings, [
+    "Config field projectName still uses placeholder value 'replace-me'.",
+    "Config field app.displayName still uses placeholder value 'Example App'.",
+    "Config field app.scheme still uses placeholder value 'example-app'.",
+    "Config field app.androidPackage still uses placeholder value 'com.example.app'.",
+  ]);
 });

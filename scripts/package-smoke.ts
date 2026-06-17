@@ -689,6 +689,7 @@ function main(): void {
       fs.readFileSync(path.join(initOutputDir, 'artifacts', 'asl', 'project-validation', 'project-validation.json'), 'utf8'),
     );
     assert.equal(initializedValidation.scripts.status, 'present');
+    assert.equal(initializedValidation.warnings.some((warning: string) => warning.includes('projectName')), true);
 
     for (const binaryName of Object.keys(packageJson.bin).sort()) {
       const helpText = run(packageBinPath(installDir, binaryName), ['--help'], {
