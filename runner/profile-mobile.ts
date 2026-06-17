@@ -437,6 +437,28 @@ function buildProviderEvidenceInput({
 }
 
 /**
+ * Fails when provider command ids would collide in raw command records.
+ *
+ * @param {{providerCommands?: ProviderCommand[], providerId: string}} options
+ * @returns {void}
+ */
+function assertUniqueProviderCommandIds({
+  providerCommands = [],
+  providerId,
+}: {
+  providerCommands: ProviderCommand[] | undefined;
+  providerId: string;
+}): void {
+  const seen = new Set<string>();
+  for (const providerCommand of providerCommands) {
+    if (seen.has(providerCommand.id)) {
+      throw new Error(`Evidence provider \`${providerId}\` declares duplicate providerCommand id \`${providerCommand.id}\`.`);
+    }
+    seen.add(providerCommand.id);
+  }
+}
+
+/**
  * Executes declared evidence-provider commands and returns their output attachments.
  *
  * @param {{args: CliArgs, layout: ReturnType<typeof createArtifactLayout>, platform: ProfilePlatform, runDir: string, runId: string, scenarioId: string}} options
@@ -480,6 +502,10 @@ async function executeProviderCommands({
     }
 
     const providerId = safeProviderSegment(String(provider.runnerId ?? path.basename(absoluteManifestPath, '.json')));
+    assertUniqueProviderCommandIds({
+      providerCommands: provider.providerCommands,
+      providerId,
+    });
     const providerDir = path.join(layout.raw, 'providers', providerId);
     await ensureDir(providerDir);
     const context = {

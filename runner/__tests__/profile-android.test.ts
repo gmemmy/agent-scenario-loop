@@ -450,6 +450,63 @@ test('profile-android executes declared evidence provider commands', async (t: T
   assert.match(summary, /provider\/accessibility/u);
 });
 
+test('profile-android rejects duplicate evidence provider command ids', async (t: TestContext) => {
+  const artifactRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-android-provider-duplicate-'));
+  const providerRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-provider-duplicate-'));
+  t.after(async () => {
+    await fsp.rm(artifactRoot, { recursive: true, force: true });
+    await fsp.rm(providerRoot, { recursive: true, force: true });
+  });
+  const providerManifestPath = path.join(providerRoot, 'provider.json');
+  const commandOutput = {
+    channel: 'provider',
+    kind: 'accessibility',
+    path: '{providerDir}/accessibility.json',
+  };
+  await fsp.writeFile(
+    providerManifestPath,
+    `${JSON.stringify({
+      schemaVersion: '1.0.0',
+      runnerId: 'duplicate-provider',
+      kind: 'evidenceProvider',
+      platforms: ['android'],
+      capabilities: ['accessibility'],
+      artifactOutputs: ['accessibility'],
+      lifecycle: ['capture'],
+      providerCommands: [
+        {
+          id: 'capture-accessibility',
+          phase: 'capture',
+          command: process.execPath,
+          args: ['-e', 'process.exit(0)'],
+          outputs: [commandOutput],
+        },
+        {
+          id: 'capture-accessibility',
+          phase: 'finalize',
+          command: process.execPath,
+          args: ['-e', 'process.exit(0)'],
+          outputs: [commandOutput],
+        },
+      ],
+    }, null, 2)}\n`,
+    'utf8',
+  );
+
+  await assert.rejects(
+    () =>
+      runProfileAndroid({
+        config: fixturePath('examples/mobile-app/asl.config.json'),
+        events: fixturePath('examples/mobile-app/event-logs/android-app-startup.log'),
+        out: artifactRoot,
+        provider: providerManifestPath,
+        'run-id': 'android-provider-duplicate',
+        scenario: fixturePath('examples/mobile-app/scenarios/android/app-startup.json'),
+      }),
+    /duplicate providerCommand id `capture-accessibility`/u,
+  );
+});
+
 test('profile-android writes failed health when an evidence provider command fails', async (t: TestContext) => {
   const artifactRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-android-provider-failure-'));
   const providerRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-provider-failure-'));
