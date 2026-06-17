@@ -342,6 +342,46 @@ function writeFakeExampleLiveAdb({
 }
 
 /**
+ * Writes a tiny agent-device-compatible command for installed aggregate proof smoke tests.
+ *
+ * @param {string} filePath
+ * @returns {void}
+ */
+function writeFakeAgentDevice(filePath: string): void {
+  const scriptPath = filePath.endsWith('.cmd') ? filePath.replace(/\.cmd$/u, '.js') : filePath;
+  const script = [
+    '#!/usr/bin/env node',
+    "const fs = require('node:fs');",
+    "const path = require('node:path');",
+    "const args = process.argv.slice(2);",
+    "function ok(data = {}) {",
+    "  process.stdout.write(`${JSON.stringify({ success: true, data })}\\n`);",
+    "  process.exit(0);",
+    "}",
+    "if (args[0] === 'open' && typeof args[1] === 'string') {",
+    "  ok({ opened: args[1] });",
+    "}",
+    "if (args[0] === 'is' && args[1] === 'visible' && typeof args[2] === 'string') {",
+    "  ok({ selector: args[2], visible: true });",
+    "}",
+    "if (args[0] === 'screenshot' && typeof args[1] === 'string') {",
+    "  fs.mkdirSync(path.dirname(args[1]), { recursive: true });",
+    "  fs.writeFileSync(args[1], 'fake screenshot', 'utf8');",
+    "  ok({ path: args[1] });",
+    "}",
+    "process.stderr.write(`unexpected fake agent-device command: ${args.join(' ')}\\n`);",
+    "process.exit(1);",
+    '',
+  ].join('\n');
+  fs.writeFileSync(scriptPath, script, { mode: 0o755 });
+  if (filePath.endsWith('.cmd')) {
+    fs.writeFileSync(filePath, `@echo off\r\n"${process.execPath}" "%~dp0${path.basename(scriptPath)}" %*\r\n`, {
+      mode: 0o755,
+    });
+  }
+}
+
+/**
  * Writes a tiny xcrun-compatible command for the installed iOS example-live proof.
  *
  * @param {{bundleId: string, deviceId: string, filePath: string, fixtures: Record<string, ExampleLiveFixture>}} options
@@ -1084,6 +1124,10 @@ function main(): void {
       tempRoot,
       process.platform === 'win32' ? 'fake-example-live-adb.cmd' : 'fake-example-live-adb',
     );
+    const fakeAgentDevicePath = path.join(
+      tempRoot,
+      process.platform === 'win32' ? 'fake-agent-device.cmd' : 'fake-agent-device',
+    );
     writeFakeExampleLiveAdb({
       filePath: fakeExampleLiveAdbPath,
       fixtures: {
@@ -1102,6 +1146,7 @@ function main(): void {
       },
       packageName: androidPackageName,
     });
+    writeFakeAgentDevice(fakeAgentDevicePath);
     const exampleLiveOutput = run(packageBinPath(installDir, 'asl-example-android-live'), [
       '--adb',
       fakeExampleLiveAdbPath,
@@ -1148,6 +1193,11 @@ function main(): void {
       '--run-suffix',
       'smoke',
       '--compare-latest',
+      '--agent-device-proof',
+      '--agent-device',
+      fakeAgentDevicePath,
+      '--agent-device-session',
+      'package-smoke-android',
     ], {
       cwd: installDir,
       env,
@@ -1168,7 +1218,14 @@ function main(): void {
     assert.match(exampleLiveProofOutput, /Comparison status: unchanged/u);
     assert.match(exampleLiveProofOutput, /Comparison counts: better=0 worse=0 unchanged=3 inconclusive=0 skipped=0/u);
     assert.match(exampleLiveProofOutput, /startup \(app-startup\/android-live-startup-smoke\): health=passed verdict=passed/u);
+    assert.match(exampleLiveProofOutput, /startup-ui \(agent-device\/app-startup\/android-agent-device-startup-smoke\): health=passed verdict=not_evaluated/u);
     assert.match(exampleLiveProofOutput, /Next action: inspect_summary/u);
+    const exampleLiveProof = JSON.parse(
+      fs.readFileSync(path.join(exampleLiveRoot, '_live-proof', 'android-live-proof-smoke', 'live-proof.json'), 'utf8'),
+    );
+    assert.equal(exampleLiveProof.interactionProofs.length, 1);
+    assert.equal(exampleLiveProof.interactionProofs[0].healthStatus, 'passed');
+    assert.equal(exampleLiveProof.interactionProofs[0].runnerId, 'agent-device');
     for (const [scenarioDir, runId] of [
       ['app-startup', 'android-live-startup'],
       ['open-close-cycle', 'android-live-open-close'],
@@ -1255,6 +1312,11 @@ function main(): void {
       '--run-suffix',
       'smoke',
       '--compare-latest',
+      '--agent-device-proof',
+      '--agent-device',
+      fakeAgentDevicePath,
+      '--agent-device-session',
+      'package-smoke-ios',
     ], {
       cwd: installDir,
       env,
@@ -1264,6 +1326,22 @@ function main(): void {
       fs.existsSync(path.join(exampleIosLiveRoot, '_live-proof', 'ios-live-proof-smoke', 'live-proof.json')),
       true,
     );
+    const exampleIosLiveProofOutput = run(packageBinPath(installDir, 'asl-live-proof'), [
+      '--file',
+      path.join(exampleIosLiveRoot, '_live-proof', 'ios-live-proof-smoke', 'live-proof.json'),
+      '--fail-on-regression',
+    ], {
+      cwd: installDir,
+      env,
+    });
+    assert.match(exampleIosLiveProofOutput, /Comparison status: unchanged/u);
+    assert.match(exampleIosLiveProofOutput, /startup-ui \(agent-device\/app-startup\/ios-agent-device-startup-smoke\): health=passed verdict=not_evaluated/u);
+    const exampleIosLiveProof = JSON.parse(
+      fs.readFileSync(path.join(exampleIosLiveRoot, '_live-proof', 'ios-live-proof-smoke', 'live-proof.json'), 'utf8'),
+    );
+    assert.equal(exampleIosLiveProof.interactionProofs.length, 1);
+    assert.equal(exampleIosLiveProof.interactionProofs[0].healthStatus, 'passed');
+    assert.equal(exampleIosLiveProof.interactionProofs[0].runnerId, 'agent-device');
     for (const [scenarioDir, runId] of [
       ['app-startup', 'ios-live-startup'],
       ['open-close-cycle', 'ios-live-open-close'],
