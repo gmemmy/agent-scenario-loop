@@ -237,6 +237,9 @@ test('runs portable adb driver actions and writes raw evidence', async (t: TestC
     '-s emulator-5554 exec-out screencap -p': { stdout: 'PNG' },
     '-s emulator-5554 shell screenrecord --time-limit 2 /sdcard/asl-record.mp4': { stdout: '' },
     '-s emulator-5554 shell rm -f /sdcard/asl-record.mp4': { stdout: '' },
+    '-s emulator-5554 logcat -d -v time -t 25': {
+      stdout: '06-16 12:00:00.000 I ReactNativeJS: [profile-event] {"event":"done"}\n',
+    },
   });
   const executor = async (command: string, args: string[]): Promise<CommandResult> => {
     const key = args.join(' ');
@@ -268,7 +271,9 @@ test('runs portable adb driver actions and writes raw evidence', async (t: TestC
         stepId: 'record-final',
       },
     ],
+    captureLogcat: true,
     executor,
+    logcatLines: 25,
     outputDir,
     runId: 'android-driver-actions',
   });
@@ -282,12 +287,14 @@ test('runs portable adb driver actions and writes raw evidence', async (t: TestC
   assert.ok(fs.existsSync(path.join(outputDir, 'raw', 'adb-assert-visible-4.xml')));
   assert.ok(fs.existsSync(path.join(outputDir, 'raw', 'adb-screenshot-5.png')));
   assert.ok(fs.existsSync(path.join(outputDir, 'raw', 'adb-record-6.txt')));
+  assert.ok(fs.existsSync(path.join(outputDir, 'raw', 'adb-logcat.txt')));
   assert.ok(fs.existsSync(path.join(outputDir, 'captures', 'adb-record-6.mp4')));
   assert.deepEqual(
     (metadata.driverActions as Array<{ driverAction: string }>).map((item) => item.driverAction),
-    ['tap', 'scroll', 'inspectTree', 'assertVisible', 'screenshot', 'record'],
+    ['tap', 'scroll', 'inspectTree', 'assertVisible', 'screenshot', 'record', 'readLogs'],
   );
   assert.equal((metadata.driverActions as Array<{ capturePath?: string }>)[5]?.capturePath, 'captures/adb-record-6.mp4');
+  assert.equal((metadata.logcat as { rawPath: string }).rawPath, 'raw/adb-logcat.txt');
   assert.ok(
     (result.health.checks as Array<{ code: string }>).some((check) => check.code === 'android_tap_completed'),
   );

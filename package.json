@@ -44,6 +44,8 @@
     "asl-example-ios-live": "dist/runner/example-ios-live.js",
     "asl-init": "dist/runner/init-project.js",
     "asl-ios-simctl": "dist/runner/ios-simctl.js",
+    "asl-live-android": "dist/runner/live-android.js",
+    "asl-live-ios": "dist/runner/live-ios.js",
     "asl-live-proof": "dist/runner/live-proof.js",
     "asl-profile-android": "dist/runner/profile-android.js",
     "asl-profile-ios": "dist/runner/profile-ios.js",
@@ -113,6 +115,14 @@
     "./runner/ios-simctl-driver": {
       "types": "./dist/runner/ios-simctl-driver.d.ts",
       "require": "./dist/runner/ios-simctl-driver.js"
+    },
+    "./runner/live-android": {
+      "types": "./dist/runner/live-android.d.ts",
+      "require": "./dist/runner/live-android.js"
+    },
+    "./runner/live-ios": {
+      "types": "./dist/runner/live-ios.d.ts",
+      "require": "./dist/runner/live-ios.js"
     },
     "./runner/live-proof": {
       "types": "./dist/runner/live-proof.d.ts",

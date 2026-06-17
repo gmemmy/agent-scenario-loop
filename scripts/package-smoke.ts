@@ -314,6 +314,8 @@ function writeFakeExampleLiveAdb({
     "if (key === '-s emulator-5554 reverse tcp:8097 tcp:8097') ok('');",
     "if (key.includes(`shell run-as ${packageName} sh -c`) && key.includes('debug_http_host') && key.includes('localhost:8097')) ok('');",
     "if (key.endsWith(`shell monkey -p ${packageName} -c android.intent.category.LAUNCHER 1`)) ok('Events injected: 1\\n');",
+    "if (key.endsWith('shell uiautomator dump /dev/tty')) ok('<?xml version=\"1.0\" encoding=\"UTF-8\"?><hierarchy><node resource-id=\"dev.agentscenarioloop.example:id/asl-example-title\" text=\"Example Mobile App\" bounds=\"[10,20][300,80]\" /></hierarchy>\\n');",
+    "if (key.endsWith('exec-out screencap -p')) ok('fake png');",
     "if (key.endsWith('logcat -c')) ok('');",
     "if (key.includes('profile-session/start')) {",
     "  state.currentRunId = /runId=([^&']+)/u.exec(key)?.[1] ?? state.currentRunId;",
@@ -477,6 +479,11 @@ function writeFakeExampleLiveXcrun({
     "if (key === `simctl get_app_container ${deviceId} ${bundleId} data`) { fs.mkdirSync(storageDir(), { recursive: true }); ok(`${dataContainer}\\n`); }",
     "if (key === `simctl terminate ${deviceId} ${bundleId}`) ok('');",
     "if (key === `simctl launch ${deviceId} ${bundleId}`) { writeCurrentEvents(); ok(`${bundleId}: 1234\\n`); }",
+    "if (args[0] === 'simctl' && args[1] === 'io' && args[2] === deviceId && args[3] === 'screenshot' && typeof args[4] === 'string') {",
+    "  fs.mkdirSync(path.dirname(args[4]), { recursive: true });",
+    "  fs.writeFileSync(args[4], 'fake screenshot', 'utf8');",
+    "  ok('');",
+    "}",
     "if (key === `simctl spawn ${deviceId} log show --style compact --last 2m --predicate eventMessage CONTAINS \"[profile-event]\" OR eventMessage CONTAINS \"[profile-session]\"`) ok('Timestamp Ty Process[PID:TID]\\n');",
     "process.stderr.write(`unexpected fake xcrun command: ${key}\\n`);",
     "process.exit(1);",
@@ -826,8 +833,13 @@ function main(): void {
     assert.match(initializedScripts['asl:argent:android'], /ASL_ARGENT_BASE_ARGS/u);
     assert.match(initializedScripts['asl:argent:ios'], /ASL_ARGENT_COMMAND_TIMEOUT_MS/u);
     assert.match(initializedScripts['asl:argent:android'], /ASL_ARGENT_COMMAND_TIMEOUT_MS/u);
+    assert.match(initializedScripts['asl:ios:live'], /^asl-live-ios /u);
+    assert.match(initializedScripts['asl:ios:live'], /--scenario scenarios\/mobile\/checkout-submit\.json/u);
+    assert.match(initializedScripts['asl:android:live'], /^asl-live-android /u);
+    assert.match(initializedScripts['asl:android:live'], /--scenario scenarios\/mobile\/checkout-submit\.json/u);
     assert.match(initializedScripts['asl:ios:live:runners'], /--agent-device-proof --argent-proof/u);
     assert.match(initializedScripts['asl:android:live:runners'], /--agent-device-proof --argent-proof/u);
+    assert.equal(Object.values(initializedScripts).some((script) => String(script).startsWith('asl-example-')), false);
     assert.match(initializedScripts['asl:compare:ios'], /--fail-on-regression/u);
     assert.match(initializedScripts['asl:compare:android'], /--fail-on-regression/u);
     assert.match(initializedScripts['asl:compare:ios'], /\$\{ASL_COMPARE_IOS_CURRENT:\?set_ASL_COMPARE_IOS_CURRENT\}/u);
@@ -1397,6 +1409,86 @@ function main(): void {
       packageName: androidPackageName,
     });
     writeFakeAgentDevice(fakeAgentDevicePath);
+    const genericAndroidLiveRoot = path.join(tempRoot, 'generic-android-live-proof');
+    const genericAndroidLiveOutput = run(packageBinPath(installDir, 'asl-live-android'), [
+      '--config',
+      path.join(exampleAppRoot, 'asl.config.json'),
+      '--scenario',
+      path.join(exampleAppRoot, 'scenarios', 'mobile', 'app-startup.json'),
+      '--adb',
+      fakeExampleLiveAdbPath,
+      '--package',
+      androidPackageName,
+      '--out',
+      genericAndroidLiveRoot,
+      '--wait-ms',
+      '1',
+      '--command-wait-ms',
+      '1',
+      '--agent-device-proof',
+      '--agent-device',
+      fakeAgentDevicePath,
+      '--agent-device-session',
+      'package-smoke-android',
+      '--argent-proof',
+    ], {
+      cwd: installDir,
+      env: {
+        ...env,
+        ASL_ARGENT_BIN: fakeArgentPath,
+      },
+    });
+    assert.match(genericAndroidLiveOutput, /_live-proof\/android-live-proof\/agent-summary\.md/u);
+    assert.equal(
+      fs.existsSync(path.join(genericAndroidLiveRoot, '_live-proof', 'android-live-proof', 'live-proof.json')),
+      true,
+    );
+    const genericAndroidLiveCompareOutput = run(packageBinPath(installDir, 'asl-live-android'), [
+      '--config',
+      path.join(exampleAppRoot, 'asl.config.json'),
+      '--scenario',
+      path.join(exampleAppRoot, 'scenarios', 'mobile', 'app-startup.json'),
+      '--adb',
+      fakeExampleLiveAdbPath,
+      '--package',
+      androidPackageName,
+      '--out',
+      genericAndroidLiveRoot,
+      '--wait-ms',
+      '1',
+      '--command-wait-ms',
+      '1',
+      '--run-suffix',
+      'smoke',
+      '--compare-latest',
+      '--fail-on-regression',
+      '--agent-device-proof',
+      '--agent-device',
+      fakeAgentDevicePath,
+      '--agent-device-session',
+      'package-smoke-android',
+      '--argent-proof',
+    ], {
+      cwd: installDir,
+      env: {
+        ...env,
+        ASL_ARGENT_BIN: fakeArgentPath,
+      },
+    });
+    assert.match(genericAndroidLiveCompareOutput, /_live-proof\/android-live-proof-smoke\/agent-summary\.md/u);
+    const genericAndroidProofOutput = run(packageBinPath(installDir, 'asl-live-proof'), [
+      '--file',
+      path.join(genericAndroidLiveRoot, '_live-proof', 'android-live-proof-smoke', 'live-proof.json'),
+      '--fail-on-regression',
+    ], {
+      cwd: installDir,
+      env,
+    });
+    assert.match(genericAndroidProofOutput, /Comparison status: unchanged/u);
+    assert.match(genericAndroidProofOutput, /app-startup \(app-startup\/app-startup-android-live-smoke\): unchanged/u);
+    assert.match(genericAndroidProofOutput, /interaction-agent-device \(agent-device\/app-startup\/app-startup-android-agent-device-smoke\): health=passed verdict=not_evaluated/u);
+    assert.match(genericAndroidProofOutput, /interaction-argent \(argent\/app-startup\/app-startup-android-argent-smoke\): health=passed verdict=not_evaluated/u);
+
     const exampleLiveOutput = run(packageBinPath(installDir, 'asl-example-android-live'), [
       '--adb',
       fakeExampleLiveAdbPath,
@@ -1563,6 +1655,86 @@ function main(): void {
         },
       },
     });
+    const genericIosLiveRoot = path.join(tempRoot, 'generic-ios-live-proof');
+    const genericIosLiveOutput = run(packageBinPath(installDir, 'asl-live-ios'), [
+      '--config',
+      path.join(exampleAppRoot, 'asl.config.json'),
+      '--scenario',
+      path.join(exampleAppRoot, 'scenarios', 'mobile', 'app-startup.json'),
+      '--xcrun',
+      fakeExampleLiveXcrunPath,
+      '--device',
+      iosDeviceId,
+      '--bundle',
+      iosBundleId,
+      '--out',
+      genericIosLiveRoot,
+      '--wait-ms',
+      '1',
+      '--agent-device-proof',
+      '--agent-device',
+      fakeAgentDevicePath,
+      '--agent-device-session',
+      'package-smoke-ios',
+      '--argent-proof',
+    ], {
+      cwd: installDir,
+      env: {
+        ...env,
+        ASL_ARGENT_BIN: fakeArgentPath,
+      },
+    });
+    assert.match(genericIosLiveOutput, /_live-proof\/ios-live-proof\/agent-summary\.md/u);
+    assert.equal(
+      fs.existsSync(path.join(genericIosLiveRoot, '_live-proof', 'ios-live-proof', 'live-proof.json')),
+      true,
+    );
+    const genericIosLiveCompareOutput = run(packageBinPath(installDir, 'asl-live-ios'), [
+      '--config',
+      path.join(exampleAppRoot, 'asl.config.json'),
+      '--scenario',
+      path.join(exampleAppRoot, 'scenarios', 'mobile', 'app-startup.json'),
+      '--xcrun',
+      fakeExampleLiveXcrunPath,
+      '--device',
+      iosDeviceId,
+      '--bundle',
+      iosBundleId,
+      '--out',
+      genericIosLiveRoot,
+      '--wait-ms',
+      '1',
+      '--run-suffix',
+      'smoke',
+      '--compare-latest',
+      '--fail-on-regression',
+      '--agent-device-proof',
+      '--agent-device',
+      fakeAgentDevicePath,
+      '--agent-device-session',
+      'package-smoke-ios',
+      '--argent-proof',
+    ], {
+      cwd: installDir,
+      env: {
+        ...env,
+        ASL_ARGENT_BIN: fakeArgentPath,
+      },
+    });
+    assert.match(genericIosLiveCompareOutput, /_live-proof\/ios-live-proof-smoke\/agent-summary\.md/u);
+    const genericIosProofOutput = run(packageBinPath(installDir, 'asl-live-proof'), [
+      '--file',
+      path.join(genericIosLiveRoot, '_live-proof', 'ios-live-proof-smoke', 'live-proof.json'),
+      '--fail-on-regression',
+    ], {
+      cwd: installDir,
+      env,
+    });
+    assert.match(genericIosProofOutput, /Comparison status: unchanged/u);
+    assert.match(genericIosProofOutput, /app-startup \(app-startup\/app-startup-ios-live-smoke\): unchanged/u);
+    assert.match(genericIosProofOutput, /interaction-agent-device \(agent-device\/app-startup\/app-startup-ios-agent-device-smoke\): health=passed verdict=not_evaluated/u);
+    assert.match(genericIosProofOutput, /interaction-argent \(argent\/app-startup\/app-startup-ios-argent-smoke\): health=passed verdict=not_evaluated/u);
+
     const exampleIosLiveOutput = run(packageBinPath(installDir, 'asl-example-ios-live'), [
       '--xcrun',
       fakeExampleLiveXcrunPath,

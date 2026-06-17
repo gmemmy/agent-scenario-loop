@@ -206,7 +206,9 @@ function buildMetricsFromProfileEvents({
     opened: cycleEventNames?.opened ?? 'surface_opened',
     closeRequested: cycleEventNames?.closeRequested ?? 'surface_close_requested',
     dismissed: cycleEventNames?.dismissed ?? 'surface_dismissed',
+    milestone: cycleEventNames?.milestone,
   };
+  const usesMilestoneOnlyCycle = typeof resolvedCycleEventNames.milestone === 'string';
   const iterations = new Map();
 
   for (const event of [...events].sort((left, right) => {
@@ -252,6 +254,12 @@ function buildMetricsFromProfileEvents({
     ) {
       current.dismissedAt = event.atMs;
     }
+    if (
+      event.event === resolvedCycleEventNames.milestone &&
+      typeof current.milestoneAt !== 'number'
+    ) {
+      current.milestoneAt = event.atMs;
+    }
 
     iterations.set(event.iteration, current);
   }
@@ -282,8 +290,15 @@ function buildMetricsFromProfileEvents({
       typeof record.closeRequestedAt === 'number' &&
       typeof record.dismissedAt === 'number' &&
       record.dismissedAt >= record.closeRequestedAt;
+    const hasMilestoneDuration =
+      usesMilestoneOnlyCycle &&
+      typeof record.milestoneAt === 'number' &&
+      record.milestoneAt >= 0;
 
-    if (hasCycleDuration) {
+    if (hasMilestoneDuration) {
+      durationsMs.push(roundMs(record.milestoneAt));
+      openDurationsMs.push(roundMs(record.milestoneAt));
+    } else if (hasCycleDuration) {
       durationsMs.push(roundMs(record.dismissedAt - record.presentRequestedAt));
     }
     if (hasOpenDuration) {
@@ -293,7 +308,10 @@ function buildMetricsFromProfileEvents({
       closeDurationsMs.push(roundMs(record.dismissedAt - record.closeRequestedAt));
     }
 
-    if (!(hasCycleDuration && hasOpenDuration && hasCloseDuration)) {
+    const iterationComplete = usesMilestoneOnlyCycle
+      ? hasMilestoneDuration
+      : hasCycleDuration && hasOpenDuration && hasCloseDuration;
+    if (!iterationComplete) {
       failures += 1;
       incompleteIterations.push(iteration);
     }

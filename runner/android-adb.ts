@@ -422,7 +422,7 @@ function resolveAndroidAdbDriverSteps({
 }): AndroidAdbDriverStep[] {
   if (driverSteps.length > 0) {
     let readLogsIndex = 0;
-    return driverSteps.map((step, index) => {
+    const resolved = driverSteps.map((step, index) => {
       const actionIndex = index + 1;
       if (step.driverAction === 'readLogs') {
         readLogsIndex += 1;
@@ -447,6 +447,16 @@ function resolveAndroidAdbDriverSteps({
         required: step.required !== false,
       };
     });
+    if (captureLogcat && readLogsIndex === 0) {
+      resolved.push({
+        driverAction: 'readLogs',
+        lines: logcatLines,
+        rawFileName: 'adb-logcat.txt',
+        required: true,
+        ...(waitMs > 0 ? { waitMs } : {}),
+      });
+    }
+    return resolved;
   }
 
   return captureLogcat

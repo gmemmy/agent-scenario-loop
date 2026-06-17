@@ -1189,6 +1189,11 @@ function resolveProfileMetricEvents(scenario: Record<string, unknown>): Record<s
     }
     const fromEvent = findMilestoneEvent(scenario, budget.fromMilestone);
     const toEvent = findMilestoneEvent(scenario, budget.toMilestone);
+    if (!fromEvent && toEvent) {
+      return {
+        milestone: toEvent,
+      };
+    }
     if (fromEvent && toEvent) {
       return {
         closeRequested: toEvent,

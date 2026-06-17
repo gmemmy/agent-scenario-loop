@@ -59,3 +59,31 @@ test('keeps first valid lifecycle timestamps when duplicate completion events ar
   assert.deepEqual(metrics.closeDurationsMs, [0]);
   assert.deepEqual(metrics.incompleteIterations, []);
 });
+
+test('treats milestone-only startup proof as a complete cycle', () => {
+  const metrics = buildMetricsFromProfileEvents({
+    scenario: 'app-startup',
+    runId: 'android-live-startup',
+    expectedIterations: 1,
+    cycleEventNames: {
+      milestone: 'home_ready',
+    },
+    budgets: {
+      metric: 'startup first usable',
+      pass: {
+        cycleP95Ms: 1700,
+      },
+    },
+    events: [
+      { event: 'app_launch_requested', iteration: 1, atMs: 0 },
+      { event: 'home_ready', iteration: 1, atMs: 1020 },
+    ],
+  });
+
+  assert.equal(metrics.status, 'passed');
+  assert.deepEqual(metrics.durationsMs, [1020]);
+  assert.deepEqual(metrics.openDurationsMs, [1020]);
+  assert.deepEqual(metrics.closeDurationsMs, []);
+  assert.deepEqual(metrics.incompleteIterations, []);
+  assert.equal(metrics.budgetEvaluation.pass, true);
+});

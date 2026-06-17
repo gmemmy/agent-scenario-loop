@@ -55,6 +55,19 @@ ASL_COMPARE_IOS_CURRENT=artifacts/asl/ios/{{SCENARIO_ID}}/{{SCENARIO_ID}}-ios-li
 ASL_COMPARE_ANDROID_CURRENT=artifacts/asl/android/{{SCENARIO_ID}}/{{SCENARIO_ID}}-android-live pnpm asl:compare:android
 ```
 
+## Portable Interaction Proof
+
+Use the generated interaction scripts when an external driver should prove launch, visible UI, gestures, screenshots, or another scenario-declared driver action without changing the scenario file:
+
+```bash
+ASL_IOS_UDID=<simulator-udid> ASL_IOS_APP_ID=<bundle-id> pnpm asl:agent-device:ios
+ASL_ANDROID_SERIAL=<emulator-or-device-serial> ASL_ANDROID_APP_ID=<package-name> pnpm asl:agent-device:android
+ASL_ARGENT_BIN=npx ASL_ARGENT_BASE_ARGS="--yes @swmansion/argent run" ASL_IOS_UDID=<simulator-udid> ASL_IOS_APP_ID=<bundle-id> pnpm asl:argent:ios
+ASL_ARGENT_BIN=npx ASL_ARGENT_BASE_ARGS="--yes @swmansion/argent run" ASL_ANDROID_SERIAL=<emulator-or-device-serial> ASL_ANDROID_APP_ID=<package-name> pnpm asl:argent:android
+```
+
+If agent-device already owns the device through a named session, set `ASL_IOS_AGENT_DEVICE_SESSION` or `ASL_ANDROID_AGENT_DEVICE_SESSION` instead of relying only on the direct UDID or serial. Argent uses `--udid` for both iOS simulators and Android emulators; set `ASL_ARGENT_COMMAND_TIMEOUT_MS` when package-manager or simulator startup is slower than the default command window.
+
 If your project adds an aggregate batch runner that writes `live-proof.json`, inspect it with:
 
 ```bash

@@ -18,6 +18,8 @@ const REQUIRED_BIN_TARGETS: Record<string, string> = {
   'asl-example-ios-live': 'dist/runner/example-ios-live.js',
   'asl-init': 'dist/runner/init-project.js',
   'asl-ios-simctl': 'dist/runner/ios-simctl.js',
+  'asl-live-android': 'dist/runner/live-android.js',
+  'asl-live-ios': 'dist/runner/live-ios.js',
   'asl-live-proof': 'dist/runner/live-proof.js',
   'asl-profile-android': 'dist/runner/profile-android.js',
   'asl-profile-ios': 'dist/runner/profile-ios.js',
@@ -90,6 +92,14 @@ const REQUIRED_EXPORTS: Record<string, string | Record<string, string>> = {
   './runner/ios-simctl-driver': {
     require: './dist/runner/ios-simctl-driver.js',
     types: './dist/runner/ios-simctl-driver.d.ts',
+  },
+  './runner/live-android': {
+    require: './dist/runner/live-android.js',
+    types: './dist/runner/live-android.d.ts',
+  },
+  './runner/live-ios': {
+    require: './dist/runner/live-ios.js',
+    types: './dist/runner/live-ios.d.ts',
   },
   './runner/live-proof': {
     require: './dist/runner/live-proof.js',
