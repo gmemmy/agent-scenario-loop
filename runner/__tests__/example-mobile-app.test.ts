@@ -163,9 +163,34 @@ test('example mobile app exposes consumer package scripts', () => {
     'asl:ios:live',
     'asl:live-proof:android',
     'asl:live-proof:ios',
+    'ios:prebuild',
   ]) {
     assert.equal(typeof scripts[scriptName], 'string', `${scriptName} should be defined`);
   }
+});
+
+test('example mobile app declares reproducible iOS build compatibility inputs', () => {
+  const appJson = readJson(fixturePath('examples/mobile-app/app.json'));
+  const packageJson = readJson(fixturePath('examples/mobile-app/package.json'));
+  const expo = appJson.expo as { plugins?: string[] };
+  const dependencies = packageJson.dependencies as Record<string, string>;
+  const pnpm = packageJson.pnpm as { patchedDependencies?: Record<string, string> };
+
+  assert.ok(
+    expo.plugins?.includes('./plugins/with-ios-build-compat'),
+    'iOS build compatibility plugin should run during Expo prebuild',
+  );
+  assert.equal(
+    dependencies['@expo/metro-runtime'],
+    '56.0.15',
+    'strict pnpm installs need the Metro runtime package at the app boundary',
+  );
+  assert.equal(
+    pnpm.patchedDependencies?.['expo-modules-jsi@56.0.10'],
+    'patches/expo-modules-jsi@56.0.10.patch',
+  );
+  assert.ok(fs.existsSync(fixturePath('examples/mobile-app/plugins/with-ios-build-compat.js')));
+  assert.ok(fs.existsSync(fixturePath('examples/mobile-app/patches/expo-modules-jsi@56.0.10.patch')));
 });
 
 test('example Android video scenario maps to optional adb record capture', () => {

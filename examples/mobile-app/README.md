@@ -12,6 +12,8 @@ Release checks use the committed Android and iOS profile-event logs in `event-lo
 
 The app is intentionally private and minimal. It uses a direct Expo entrypoint, a safe-area provider, and one screen so iOS and Android drivers can launch the same app surface without creating product-specific fixtures.
 
+The iOS app uses `plugins/with-ios-build-compat.js` during Expo prebuild. That plugin generates the scene lifecycle shape required by newer iOS simulator runtimes and keeps generated Pods on the app deployment target. The app also declares `@expo/metro-runtime` directly because strict pnpm installs do not let Expo resolve transitive Metro runtime imports across package boundaries.
+
 ## Consumer Scaffold
 
 The example app also carries the same project-local files a consuming app gets from `asl-init`:
@@ -44,6 +46,20 @@ pnpm example:app:android
 ```
 
 Keep Metro running after this command opens the app.
+
+Prepare the generated iOS project with:
+
+```bash
+pnpm ios:prebuild
+```
+
+From the package root, the same prebuild command is available as:
+
+```bash
+pnpm example:app:ios:prebuild
+```
+
+The generated `ios/` directory stays ignored. Commit the Expo config, package metadata, scenarios, patches, and config plugins that reproduce it, not the generated native output.
 
 For an isolated Metro server that does not collide with another React Native app on `8081`, start Metro from the package root with:
 

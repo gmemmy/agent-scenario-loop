@@ -187,6 +187,13 @@ pnpm profile:android -- --config <config> --scenario <scenario> --adb-capture --
 With the Expo example app installed on a booted iOS simulator and Metro connected, run the storage-backed iOS proof paths:
 
 ```bash
+pnpm example:app:ios:prebuild
+pnpm example:app:start:isolated
+```
+
+The prebuild command regenerates the ignored example-app `ios/` directory from committed Expo config, patches, and config plugins. Keep the generated native output local; the package ships the reproducible inputs instead.
+
+```bash
 pnpm example:ios:live
 ```
 
