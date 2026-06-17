@@ -39,6 +39,18 @@ type LiveProofArtifact = {
     scenarioId: string;
     summaryPath: string;
     verdictStatus: string;
+    warnings?: {
+      checks?: Array<{
+        code?: string;
+        message?: string;
+        name?: string;
+        nextAction?: {
+          code?: string;
+          summary?: string;
+        };
+      }>;
+      count?: number;
+    };
   }>;
   skippedInteractionProofs?: Array<{
     label: string;
@@ -312,6 +324,17 @@ function formatInteractionProofCaptures(proofPointer: {captures?: {screenshots?:
 }
 
 /**
+ * Formats warning counts for one interaction proof pointer.
+ *
+ * @param {{warnings?: {count?: number}}} proofPointer
+ * @returns {string}
+ */
+function formatInteractionProofWarnings(proofPointer: {warnings?: {count?: number}}): string {
+  const warningCount = proofPointer.warnings?.count ?? 0;
+  return warningCount > 0 ? ` warnings=${warningCount}` : '';
+}
+
+/**
  * Reads and validates a live-proof artifact.
  *
  * @param {string} filePath
@@ -343,7 +366,7 @@ function formatLiveProof(proof: LiveProofArtifact): string {
     )),
     `Interaction proofs: ${proof.interactionProofs?.length ?? 0}`,
     ...(proof.interactionProofs ?? []).map((proofPointer) => (
-      `- ${proofPointer.label} (${proofPointer.runnerId}/${proofPointer.scenarioId}/${proofPointer.runId}): health=${proofPointer.healthStatus} verdict=${proofPointer.verdictStatus}${formatInteractionProofCaptures(proofPointer)}`
+      `- ${proofPointer.label} (${proofPointer.runnerId}/${proofPointer.scenarioId}/${proofPointer.runId}): health=${proofPointer.healthStatus} verdict=${proofPointer.verdictStatus}${formatInteractionProofCaptures(proofPointer)}${formatInteractionProofWarnings(proofPointer)}`
     )),
     `Skipped interaction proofs: ${proof.skippedInteractionProofs?.length ?? 0}`,
     ...(proof.skippedInteractionProofs ?? []).map((proofPointer) => (
@@ -419,6 +442,7 @@ export {
   expectedLiveProofNextActionCode,
   formatComparisonPointerMetrics,
   formatInteractionProofCaptures,
+  formatInteractionProofWarnings,
   formatLiveProof,
   main,
   parseArgs,

@@ -10,6 +10,7 @@ const {
   buildLiveRunId,
   formatResult,
   normalizeRunSuffix,
+  resolveAndroidSerial,
   runExampleAndroidLiveProof,
 } = require('../example-android-live');
 
@@ -19,12 +20,30 @@ type ArgentCommandResult = import('../argent').CommandResult;
 type TestContext = import('node:test').TestContext;
 
 const ROOT = path.join(__dirname, '..', '..', '..');
+const SERIAL = 'emulator-7777';
 
 test('normalizes Android example live run suffixes', () => {
   assert.equal(normalizeRunSuffix(' PR 123 / before '), 'pr-123-before');
   assert.equal(normalizeRunSuffix('---'), null);
   assert.equal(buildLiveRunId('android-live-startup', 'pr-123'), 'android-live-startup-pr-123');
   assert.equal(buildLiveRunId('android-live-startup', null), 'android-live-startup');
+});
+
+test('resolves the Android example serial from args, env, then emulator fallback', () => {
+  const previous = process.env.ASL_EXAMPLE_ANDROID_SERIAL;
+  try {
+    delete process.env.ASL_EXAMPLE_ANDROID_SERIAL;
+    assert.equal(resolveAndroidSerial({}), 'emulator-5554');
+    process.env.ASL_EXAMPLE_ANDROID_SERIAL = SERIAL;
+    assert.equal(resolveAndroidSerial({}), SERIAL);
+    assert.equal(resolveAndroidSerial({ serial: 'explicit-serial' }), 'explicit-serial');
+  } finally {
+    if (typeof previous === 'string') {
+      process.env.ASL_EXAMPLE_ANDROID_SERIAL = previous;
+    } else {
+      delete process.env.ASL_EXAMPLE_ANDROID_SERIAL;
+    }
+  }
 });
 
 test('Android example live proof regression gate reports the aggregate summary', () => {
@@ -85,7 +104,14 @@ function readFixtureLog(scenario: string, runId: string): string {
 
 test('runs the packaged Android example live proof with a fake adb executor', async (t: TestContext) => {
   const outputDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-example-android-live-'));
+  const previousSerial = process.env.ASL_EXAMPLE_ANDROID_SERIAL;
+  process.env.ASL_EXAMPLE_ANDROID_SERIAL = SERIAL;
   t.after(async () => {
+    if (typeof previousSerial === 'string') {
+      process.env.ASL_EXAMPLE_ANDROID_SERIAL = previousSerial;
+    } else {
+      delete process.env.ASL_EXAMPLE_ANDROID_SERIAL;
+    }
     await fsp.rm(outputDir, { recursive: true, force: true });
   });
 
@@ -111,7 +137,7 @@ test('runs the packaged Android example live proof with a fake adb executor', as
         stderr: '',
         stdout: [
           'List of devices attached',
-          'emulator-5554 device product:sdk_gphone model:Pixel_6 device:emu64',
+          `${SERIAL} device product:sdk_gphone model:Pixel_6 device:emu64`,
         ].join('\n'),
       };
     }
@@ -133,7 +159,7 @@ test('runs the packaged Android example live proof with a fake adb executor', as
         stdout: 'package:/data/app/dev.agentscenarioloop.example/base.apk\n',
       };
     }
-    if (key === '-s emulator-5554 reverse tcp:8097 tcp:8097') {
+    if (key === `-s ${SERIAL} reverse tcp:8097 tcp:8097`) {
       return { command, args, exitCode: 0, stderr: '', stdout: '' };
     }
     if (key.includes('shell run-as dev.agentscenarioloop.example sh -c') && key.includes('debug_http_host') && key.includes('localhost:8097')) {
@@ -272,14 +298,14 @@ test('runs the packaged Android example live proof with a fake adb executor', as
   assert.match(formatResult(result), /Live proof:/u);
   assert.match(formatResult(result), /Comparisons:/u);
   assert.ok(calls.some((call) => call.includes('profile-session/start')));
-  assert.ok(calls.some((call) => call === '-s emulator-5554 reverse tcp:8097 tcp:8097'));
+  assert.ok(calls.some((call) => call === `-s ${SERIAL} reverse tcp:8097 tcp:8097`));
   assert.ok(calls.some((call) => call.includes('debug_http_host')));
   assert.ok(agentDeviceCalls.some((call) => call.includes('open dev.agentscenarioloop.example')));
   assert.ok(agentDeviceCalls.some((call) => call.includes('is visible id="asl-example-title"')));
   assert.ok(agentDeviceCalls.some((call) => call.includes('screenshot')));
-  assert.ok(argentCalls.some((call) => call.includes('launch-app --udid emulator-5554 --bundleId dev.agentscenarioloop.example')));
-  assert.ok(argentCalls.some((call) => call.includes('describe --udid emulator-5554 --bundleId dev.agentscenarioloop.example')));
-  assert.ok(argentCalls.some((call) => call.includes('screenshot --udid emulator-5554')));
+  assert.ok(argentCalls.some((call) => call.includes(`launch-app --udid ${SERIAL} --bundleId dev.agentscenarioloop.example`)));
+  assert.ok(argentCalls.some((call) => call.includes(`describe --udid ${SERIAL} --bundleId dev.agentscenarioloop.example`)));
+  assert.ok(argentCalls.some((call) => call.includes(`screenshot --udid ${SERIAL}`)));
   const firstProfileSessionStart = orderedCalls.findIndex((call) => call.includes('profile-session/start'));
   assert.ok(firstProfileSessionStart > -1, 'expected profile session start command');
   assert.ok(
@@ -287,7 +313,7 @@ test('runs the packaged Android example live proof with a fake adb executor', as
     'agent-device startup proof should run after profile evidence capture',
   );
   assert.ok(
-    orderedCalls.findIndex((call) => call.includes('argent:run launch-app --udid emulator-5554 --bundleId dev.agentscenarioloop.example')) > firstProfileSessionStart,
+    orderedCalls.findIndex((call) => call.includes(`argent:run launch-app --udid ${SERIAL} --bundleId dev.agentscenarioloop.example`)) > firstProfileSessionStart,
     'Argent startup proof should run after profile evidence capture',
   );
   assert.deepEqual(

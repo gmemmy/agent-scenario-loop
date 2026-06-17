@@ -152,6 +152,22 @@ function resolveAndroidPackageName({
 }
 
 /**
+ * Resolves the Android target used by every example proof lane.
+ *
+ * @param {CliArgs} args
+ * @returns {string}
+ */
+function resolveAndroidSerial(args: CliArgs): string {
+  if (typeof args.serial === 'string') {
+    return args.serial;
+  }
+  if (typeof process.env.ASL_EXAMPLE_ANDROID_SERIAL === 'string' && process.env.ASL_EXAMPLE_ANDROID_SERIAL.length > 0) {
+    return process.env.ASL_EXAMPLE_ANDROID_SERIAL;
+  }
+  return 'emulator-5554';
+}
+
+/**
  * Converts a caller-provided run suffix into a path-safe run-id segment.
  *
  * @param {unknown} value
@@ -295,6 +311,7 @@ async function runExampleAndroidLiveProof(
     : path.resolve('artifacts/example-mobile-app/android');
   const config = readJson(configPath);
   const packageName = resolveAndroidPackageName({ args, config });
+  const serial = resolveAndroidSerial(args);
   const runSuffix = normalizeRunSuffix(args['run-suffix']);
   const aggregateRunId = buildLiveRunId('android-live-proof', runSuffix);
   const preflightRunId = buildLiveRunId('android-live-preflight', runSuffix);
@@ -318,7 +335,7 @@ async function runExampleAndroidLiveProof(
     packageName,
     reactNativeDebugHost,
     runId: preflightRunId,
-    ...(typeof args.serial === 'string' ? { serial: args.serial } : {}),
+    serial,
   });
 
   if (preflight.health.healthStatus !== 'passed') {
@@ -344,7 +361,7 @@ async function runExampleAndroidLiveProof(
       'react-native-debug-host': reactNativeDebugHost,
       'run-id': profileRunId,
       scenario: path.join(exampleRoot, 'scenarios', 'mobile', profile.scenario),
-      ...(typeof args.serial === 'string' ? { serial: args.serial } : {}),
+      serial,
       'wait-ms': typeof args['wait-ms'] === 'string' ? args['wait-ms'] : '1000',
     }, {
       comparisonLane,
@@ -377,7 +394,7 @@ async function runExampleAndroidLiveProof(
       platform: 'android',
       runId: agentDeviceRunId,
       scenario: readJson(path.join(exampleRoot, 'scenarios', 'mobile', 'app-startup.json')),
-      ...(typeof args.serial === 'string' ? { serial: args.serial } : {}),
+      serial,
       ...(typeof args['agent-device-session'] === 'string' ? { session: args['agent-device-session'] } : {}),
       waitMs: parsePositiveInteger(args['agent-device-wait-ms'], 1000),
     });
@@ -402,7 +419,7 @@ async function runExampleAndroidLiveProof(
       argentCommand: process.env.ASL_ARGENT_BIN || 'argent',
       ...(argentBaseArgs ? { baseArgs: argentBaseArgs } : {}),
       commandTimeoutMs: parsePositiveInteger(process.env.ASL_ARGENT_COMMAND_TIMEOUT_MS, 60_000),
-      deviceId: typeof args.serial === 'string' ? args.serial : 'emulator-5554',
+      deviceId: serial,
       ...(options.delay ? { delay: options.delay } : {}),
       ...(options.argentExecutor ? { executor: options.argentExecutor } : {}),
       outputDir: path.join(outputDir, '_argent-captures', argentRunId),
@@ -518,6 +535,7 @@ export {
   buildInteractionComparisonLane,
   main,
   normalizeRunSuffix,
+  resolveAndroidSerial,
   runExampleAndroidLiveProof,
   usage,
 };

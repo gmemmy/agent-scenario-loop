@@ -10,6 +10,7 @@ const {
   buildLiveRunId,
   formatResult,
   normalizeRunSuffix,
+  resolveIosDeviceId,
   runExampleIosLiveProof,
 } = require('../example-ios-live');
 const {
@@ -30,6 +31,23 @@ test('normalizes iOS example live run suffixes', () => {
   assert.equal(normalizeRunSuffix('---'), null);
   assert.equal(buildLiveRunId('ios-live-startup', 'pr-123'), 'ios-live-startup-pr-123');
   assert.equal(buildLiveRunId('ios-live-startup', null), 'ios-live-startup');
+});
+
+test('resolves the iOS example device from args, env, then booted fallback', () => {
+  const previous = process.env.ASL_EXAMPLE_IOS_UDID;
+  try {
+    delete process.env.ASL_EXAMPLE_IOS_UDID;
+    assert.equal(resolveIosDeviceId({}), 'booted');
+    process.env.ASL_EXAMPLE_IOS_UDID = DEVICE_ID;
+    assert.equal(resolveIosDeviceId({}), DEVICE_ID);
+    assert.equal(resolveIosDeviceId({ device: 'explicit-device' }), 'explicit-device');
+  } finally {
+    if (typeof previous === 'string') {
+      process.env.ASL_EXAMPLE_IOS_UDID = previous;
+    } else {
+      delete process.env.ASL_EXAMPLE_IOS_UDID;
+    }
+  }
 });
 
 test('iOS example live proof regression gate reports the aggregate summary', () => {
@@ -116,8 +134,15 @@ function writeCurrentSessionEvents(dataContainer: string): void {
 
 test('runs the packaged iOS example live proof with a fake simctl executor', async (t: TestContext) => {
   const outputDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-example-ios-live-'));
+  const previousDevice = process.env.ASL_EXAMPLE_IOS_UDID;
+  process.env.ASL_EXAMPLE_IOS_UDID = DEVICE_ID;
   const dataContainer = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-example-ios-data-'));
   t.after(async () => {
+    if (typeof previousDevice === 'string') {
+      process.env.ASL_EXAMPLE_IOS_UDID = previousDevice;
+    } else {
+      delete process.env.ASL_EXAMPLE_IOS_UDID;
+    }
     await fsp.rm(outputDir, { recursive: true, force: true });
     await fsp.rm(dataContainer, { recursive: true, force: true });
   });
@@ -223,7 +248,6 @@ test('runs the packaged iOS example live proof with a fake simctl executor', asy
   await runExampleIosLiveProof({
     'agent-device-proof': true,
     'argent-proof': true,
-    device: DEVICE_ID,
     out: outputDir,
   }, {
     agentDeviceExecutor,
@@ -237,7 +261,6 @@ test('runs the packaged iOS example live proof with a fake simctl executor', asy
     'agent-device-proof': true,
     'argent-proof': true,
     'compare-latest': true,
-    device: DEVICE_ID,
     out: outputDir,
     'run-suffix': 'PR 123',
   }, {

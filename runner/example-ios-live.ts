@@ -150,6 +150,22 @@ function resolveIosBundleId({
 }
 
 /**
+ * Resolves the simulator target used by every iOS proof lane.
+ *
+ * @param {CliArgs} args
+ * @returns {string}
+ */
+function resolveIosDeviceId(args: CliArgs): string {
+  if (typeof args.device === 'string') {
+    return args.device;
+  }
+  if (typeof process.env.ASL_EXAMPLE_IOS_UDID === 'string' && process.env.ASL_EXAMPLE_IOS_UDID.length > 0) {
+    return process.env.ASL_EXAMPLE_IOS_UDID;
+  }
+  return 'booted';
+}
+
+/**
  * Converts a caller-provided run suffix into a path-safe run-id segment.
  *
  * @param {unknown} value
@@ -293,6 +309,7 @@ async function runExampleIosLiveProof(
     : path.resolve('artifacts/example-mobile-app/ios');
   const config = readJson(configPath);
   const bundleId = resolveIosBundleId({ args, config });
+  const deviceId = resolveIosDeviceId(args);
   const runSuffix = normalizeRunSuffix(args['run-suffix']);
   const aggregateRunId = buildLiveRunId('ios-live-proof', runSuffix);
   const preflightRunId = buildLiveRunId('ios-live-preflight', runSuffix);
@@ -307,7 +324,7 @@ async function runExampleIosLiveProof(
 
   const preflight = await runIosSimctlCapture({
     bundleId,
-    ...(typeof args.device === 'string' ? { device: args.device } : {}),
+    device: deviceId,
     ...(options.executor ? { executor: options.executor } : {}),
     outputDir: preflightDir,
     runId: preflightRunId,
@@ -324,7 +341,7 @@ async function runExampleIosLiveProof(
     const profileRunId = buildLiveRunId(profile.runId, runSuffix);
     const result = await runProfileIos({
       config: configPath,
-      ...(typeof args.device === 'string' ? { device: args.device } : {}),
+      device: deviceId,
       ...(typeof args['log-last'] === 'string' ? { 'log-last': args['log-last'] } : {}),
       launch: true,
       out: outputDir,
@@ -369,7 +386,7 @@ async function runExampleIosLiveProof(
       runId: agentDeviceRunId,
       scenario: readJson(path.join(exampleRoot, 'scenarios', 'mobile', 'app-startup.json')),
       ...(typeof args['agent-device-session'] === 'string' ? { session: args['agent-device-session'] } : {}),
-      ...(typeof args.device === 'string' ? { udid: args.device } : {}),
+      udid: deviceId,
       waitMs: parsePositiveInteger(args['agent-device-wait-ms'], 1000),
     });
     assertPassedInteractionProof({
@@ -393,7 +410,7 @@ async function runExampleIosLiveProof(
       argentCommand: process.env.ASL_ARGENT_BIN || 'argent',
       ...(argentBaseArgs ? { baseArgs: argentBaseArgs } : {}),
       commandTimeoutMs: parsePositiveInteger(process.env.ASL_ARGENT_COMMAND_TIMEOUT_MS, 60_000),
-      deviceId: typeof args.device === 'string' ? args.device : 'booted',
+      deviceId,
       ...(options.delay ? { delay: options.delay } : {}),
       ...(options.argentExecutor ? { executor: options.argentExecutor } : {}),
       outputDir: path.join(outputDir, '_argent-captures', argentRunId),
@@ -509,6 +526,7 @@ export {
   buildInteractionComparisonLane,
   main,
   normalizeRunSuffix,
+  resolveIosDeviceId,
   runExampleIosLiveProof,
   usage,
 };

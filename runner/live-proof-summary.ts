@@ -24,6 +24,7 @@ type LiveProofInteractionProofPointer = {
   runId: string;
   runnerId: string;
   scenarioId: string;
+  warnings?: LiveProofInteractionProofWarnings;
   verdictStatus?: string;
 };
 
@@ -41,6 +42,21 @@ type LiveProofSkippedInteractionProofPointer = {
 
 type LiveProofInteractionProofCaptures = {
   screenshots: string[];
+};
+
+type LiveProofInteractionProofWarning = {
+  code: string;
+  message: string;
+  name: string;
+  nextAction?: {
+    code: string;
+    summary: string;
+  };
+};
+
+type LiveProofInteractionProofWarnings = {
+  checks: LiveProofInteractionProofWarning[];
+  count: number;
 };
 
 type LiveProofComparisonPointer = {
@@ -179,6 +195,52 @@ function readInteractionProofCaptures(runDir: string): LiveProofInteractionProof
 }
 
 /**
+ * Reads warning checks from a sidecar interaction proof health artifact.
+ *
+ * @param {string} runDir
+ * @returns {LiveProofInteractionProofWarnings | null}
+ */
+function readInteractionProofWarnings(runDir: string): LiveProofInteractionProofWarnings | null {
+  const healthPath = path.join(runDir, 'health.json');
+  if (!fs.existsSync(healthPath)) {
+    return null;
+  }
+
+  try {
+    const health = JSON.parse(fs.readFileSync(healthPath, 'utf8')) as Record<string, unknown>;
+    const checks = Array.isArray(health.checks) ? health.checks : [];
+    const warnings = checks
+      .filter((check): check is Record<string, unknown> => (
+        check &&
+        typeof check === 'object' &&
+        !Array.isArray(check) &&
+        check.status === 'warning'
+      ))
+      .map((check) => {
+        const metadata = check.metadata && typeof check.metadata === 'object' && !Array.isArray(check.metadata)
+          ? check.metadata as Record<string, unknown>
+          : {};
+        return {
+          code: typeof check.code === 'string' ? check.code : 'warning',
+          message: typeof check.message === 'string' ? check.message : 'Interaction proof emitted a warning.',
+          name: typeof check.name === 'string' ? check.name : 'interaction_warning',
+          ...(typeof metadata.nextActionCode === 'string' || typeof metadata.nextAction === 'string'
+            ? {
+              nextAction: {
+                code: typeof metadata.nextActionCode === 'string' ? metadata.nextActionCode : 'inspect_interaction_warning',
+                summary: typeof metadata.nextAction === 'string' ? metadata.nextAction : 'Inspect the interaction proof warning.',
+              },
+            }
+            : {}),
+        };
+      });
+    return warnings.length > 0 ? { checks: warnings, count: warnings.length } : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Builds a compact summary sentence for an aggregate live proof.
  *
  * @param {{platform: string, profileCount: number, comparisonCount: number}} options
@@ -188,6 +250,7 @@ function buildLiveProofSummary({
   comparisonCount,
   comparisonStatus,
   interactionProofCount = 0,
+  interactionWarningCount = 0,
   platform,
   profileCount,
   skippedInteractionProofCount = 0,
@@ -196,6 +259,7 @@ function buildLiveProofSummary({
   comparisonCount: number;
   comparisonStatus: LiveProofComparisonStatus;
   interactionProofCount?: number;
+  interactionWarningCount?: number;
   platform: string;
   profileCount: number;
   skippedInteractionProofCount?: number;
@@ -211,7 +275,10 @@ function buildLiveProofSummary({
   const skippedText = skippedInteractionProofCount > 0
     ? `; skipped ${skippedInteractionProofCount} interaction proof(s)`
     : '';
-  return `${platform} live proof ${statusText} ${profileCount} profile run(s)${interactionText} ${comparisonText}${skippedText}.`;
+  const warningText = interactionWarningCount > 0
+    ? `; ${interactionWarningCount} interaction warning(s)`
+    : '';
+  return `${platform} live proof ${statusText} ${profileCount} profile run(s)${interactionText} ${comparisonText}${skippedText}${warningText}.`;
 }
 
 /**
@@ -416,6 +483,17 @@ function formatInteractionProofCaptures(proof: LiveProofInteractionProofPointer)
 }
 
 /**
+ * Formats sidecar warnings for aggregate markdown.
+ *
+ * @param {LiveProofInteractionProofPointer} proof
+ * @returns {string}
+ */
+function formatInteractionProofWarnings(proof: LiveProofInteractionProofPointer): string {
+  const warningCount = proof.warnings?.count ?? 0;
+  return warningCount > 0 ? ` warnings=${warningCount}` : '';
+}
+
+/**
  * Builds markdown for the aggregate live proof entrypoint.
  *
  * @param {LiveProofArtifact} artifact
@@ -449,7 +527,7 @@ function buildLiveProofMarkdown(artifact: LiveProofArtifact): string {
       '## Interaction Proofs',
       '',
       ...artifact.interactionProofs.map((proof) => (
-        `- ${proof.label} (${proof.runnerId}/${proof.scenarioId}): health=${proof.healthStatus} verdict=${proof.verdictStatus}${formatInteractionProofCaptures(proof)} - ${proof.summaryPath}`
+        `- ${proof.label} (${proof.runnerId}/${proof.scenarioId}): health=${proof.healthStatus} verdict=${proof.verdictStatus}${formatInteractionProofCaptures(proof)}${formatInteractionProofWarnings(proof)} - ${proof.summaryPath}`
       )),
     );
   }
@@ -513,6 +591,7 @@ async function writeLiveProofSummary({
   }));
   const interactionProofPointers = interactionProofs.map((proof) => {
     const captures = readInteractionProofCaptures(proof.runDir);
+    const warnings = readInteractionProofWarnings(proof.runDir);
     return {
       ...readProfileRunStatus(proof.runDir),
       ...(captures ? { captures } : {}),
@@ -522,8 +601,10 @@ async function writeLiveProofSummary({
       runnerId: proof.runnerId,
       scenarioId: proof.scenarioId,
       summaryPath: path.join(proof.runDir, 'agent-summary.md'),
+      ...(warnings ? { warnings } : {}),
     };
   });
+  const interactionWarningCount = interactionProofPointers.reduce((sum, proof) => sum + (proof.warnings?.count ?? 0), 0);
   const status = buildLiveProofStatus({
     interactionProofs: interactionProofPointers,
     preflight: preflightStatus,
@@ -553,6 +634,7 @@ async function writeLiveProofSummary({
       comparisonCount: comparisons.length,
       comparisonStatus,
       interactionProofCount: interactionProofs.length,
+      interactionWarningCount,
       platform,
       profileCount: profiles.length,
       skippedInteractionProofCount: skippedInteractionProofs.length,
@@ -587,8 +669,10 @@ export {
   buildLiveProofStatus,
   formatComparisonMetricSummary,
   formatInteractionProofCaptures,
+  formatInteractionProofWarnings,
   isTrustedLiveRunStatus,
   readInteractionProofCaptures,
+  readInteractionProofWarnings,
   readProfileRunStatus,
   writeLiveProofSummary,
 };

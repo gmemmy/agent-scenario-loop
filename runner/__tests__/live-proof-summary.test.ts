@@ -205,7 +205,25 @@ test('writes optional interaction proof pointers into aggregate live proof artif
   await fsp.writeFile(path.join(profileDir, 'health.json'), '{"healthStatus":"passed"}\n', 'utf8');
   await fsp.writeFile(path.join(profileDir, 'verdict.json'), '{"verdictStatus":"passed"}\n', 'utf8');
   await fsp.writeFile(path.join(interactionDir, 'agent-summary.md'), '# interaction\n', 'utf8');
-  await fsp.writeFile(path.join(interactionDir, 'health.json'), '{"healthStatus":"passed"}\n', 'utf8');
+  await fsp.writeFile(
+    path.join(interactionDir, 'health.json'),
+    JSON.stringify({
+      healthStatus: 'passed',
+      checks: [
+        {
+          code: 'argent_screenshot_failed',
+          message: 'Argent driver action screenshot failed.',
+          metadata: {
+            nextAction: 'Inspect raw screenshot output.',
+            nextActionCode: 'inspect_argent_driver_action',
+          },
+          name: 'argent_screenshot',
+          status: 'warning',
+        },
+      ],
+    }),
+    'utf8',
+  );
   await fsp.writeFile(path.join(interactionDir, 'verdict.json'), '{"verdictStatus":"not_evaluated"}\n', 'utf8');
   await fsp.mkdir(path.join(interactionDir, 'raw'), { recursive: true });
   await fsp.writeFile(
@@ -247,7 +265,7 @@ test('writes optional interaction proof pointers into aggregate live proof artif
   });
 
   const artifact = JSON.parse(fs.readFileSync(result.liveProofPath, 'utf8'));
-  assert.equal(artifact.summary, 'android live proof passed 1 profile run(s) and 1 interaction proof(s) without comparison results.');
+  assert.equal(artifact.summary, 'android live proof passed 1 profile run(s) and 1 interaction proof(s) without comparison results; 1 interaction warning(s).');
   assert.deepEqual(
     {
       healthStatus: artifact.preflight.healthStatus,
@@ -259,13 +277,14 @@ test('writes optional interaction proof pointers into aggregate live proof artif
     },
   );
   assert.deepEqual(
-    artifact.interactionProofs.map((proof: { captures?: { screenshots: string[] }; healthStatus: string; label: string; runnerId: string; summaryPath: string }) => ({
+    artifact.interactionProofs.map((proof: { captures?: { screenshots: string[] }; healthStatus: string; label: string; runnerId: string; summaryPath: string; warnings?: Record<string, unknown> }) => ({
       captures: proof.captures,
-      healthStatus: proof.healthStatus,
-      label: proof.label,
-      runnerId: proof.runnerId,
-      summaryPath: proof.summaryPath,
-    })),
+        healthStatus: proof.healthStatus,
+        label: proof.label,
+        runnerId: proof.runnerId,
+        summaryPath: proof.summaryPath,
+        warnings: proof.warnings,
+      })),
     [
       {
         captures: {
@@ -275,10 +294,25 @@ test('writes optional interaction proof pointers into aggregate live proof artif
         label: 'startup-ui',
         runnerId: 'agent-device',
         summaryPath: path.join(interactionDir, 'agent-summary.md'),
+        warnings: {
+          checks: [
+            {
+              code: 'argent_screenshot_failed',
+              message: 'Argent driver action screenshot failed.',
+              name: 'argent_screenshot',
+              nextAction: {
+                code: 'inspect_argent_driver_action',
+                summary: 'Inspect raw screenshot output.',
+              },
+            },
+          ],
+          count: 1,
+        },
       },
     ],
   );
   const summary = fs.readFileSync(result.summaryPath, 'utf8');
   assert.match(summary, /## Interaction Proofs/u);
   assert.match(summary, /screenshots=1/u);
+  assert.match(summary, /warnings=1/u);
 });
