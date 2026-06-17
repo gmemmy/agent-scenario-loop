@@ -2,7 +2,7 @@
 
 The runner owns host execution. It is the boundary between scenario contracts and whichever tool actually drives the device or captures evidence.
 
-The package ships fifteen public runner entrypoints. Package scripts build them into `dist/` before execution:
+The package ships seventeen public runner entrypoints. Package scripts build them into `dist/` before execution:
 
 - `agent-device.ts`: executes scenario-declared portable driver actions through the external `agent-device` CLI, then writes ASL health, verdict, raw command transcripts, and capture artifacts.
 - `android-adb.ts`: checks adb availability, connected Android device readiness, optional package installation, optional React Native debug-host setup, optional package launch, ordered adb driver actions, bounded logcat output, and raw adb evidence.
@@ -15,6 +15,8 @@ The package ships fifteen public runner entrypoints. Package scripts build them 
 - `example-ios-live.ts`: runs the packaged example iOS live proof with simctl preflight and the canonical startup, open-close, and scroll-settle scenarios.
 - `init-project.ts`: copies package templates into a conventional consuming app layout without overwriting existing files by default.
 - `ios-simctl.ts`: checks iOS simulator readiness, optional app installation, optional app launch, profile-session storage seeding, storage-backed command seeding, profile-session deep links, bounded simulator logs, stored profile-event collection, and writes raw simctl evidence.
+- `live-android.ts`: runs one generic Android scenario through adb preflight, profile-session capture, optional agent-device and Argent sidecars, optional latest-trusted comparison, and aggregate live-proof writing.
+- `live-ios.ts`: runs one generic iOS scenario through simctl preflight, profile-session storage capture, optional agent-device and Argent sidecars, optional latest-trusted comparison, and aggregate live-proof writing.
 - `live-proof.ts`: validates aggregate `live-proof.json` artifacts, prints their status and next action, and can fail on regressions.
 - `profile-android.ts`: reads project config and an Android scenario manifest, then profiles explicit event logs, prior adb artifacts, or an owned adb capture window. During profile-session capture, Android-specific command metadata takes precedence; otherwise it derives command steps from `buildScenarioExecutionPlan()`.
 - `profile-ios.ts`: reads project config and an iOS scenario manifest, then profiles explicit event logs, prior simctl artifacts, or an owned simctl capture window. During profile-session capture, iOS-specific command metadata takes precedence; otherwise it derives command steps from `buildScenarioExecutionPlan()`.
@@ -130,6 +132,15 @@ pnpm example:app:android
 pnpm example:android:live
 pnpm example:ios:live
 ```
+
+To run one portable scenario in a consuming app through the generic live proof runners:
+
+```bash
+asl-live-android --config asl.config.json --scenario scenarios/mobile/app-startup.json --package com.example.app --serial <emulator-serial> --out artifacts/asl/android-live
+asl-live-ios --config asl.config.json --scenario scenarios/mobile/app-startup.json --bundle com.example.app --device <simulator-udid> --out artifacts/asl/ios-live
+```
+
+Add `--agent-device-proof`, `--argent-proof`, `--compare-latest`, and `--fail-on-regression` when those sidecars and gates should contribute to the same aggregate proof.
 
 The aggregate Android and iOS live proof commands accept `--run-suffix <label>` when you want artifact directories that do not overwrite the deterministic default run ids:
 

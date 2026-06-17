@@ -14,6 +14,44 @@ pnpm demo:loop -- --out artifacts/demo-loop
 
 The command runs preflight, profiles baseline/current event logs, writes run artifacts, compares the current run against the latest trusted prior run, and refreshes the current run's `agent-summary.md`.
 
+## Generic Mobile Proof
+
+Use the generic live runners in a consuming app after `asl-init` has created `asl.config.json`, `scenarios/mobile/<id>.json`, and the `asl:*` package-script snippets:
+
+```bash
+asl-live-android \
+  --config asl.config.json \
+  --scenario scenarios/mobile/app-startup.json \
+  --package dev.example.app \
+  --serial <emulator-serial> \
+  --out artifacts/asl/android-live
+
+asl-live-ios \
+  --config asl.config.json \
+  --scenario scenarios/mobile/app-startup.json \
+  --bundle dev.example.app \
+  --device <simulator-udid> \
+  --out artifacts/asl/ios-live
+```
+
+These commands run one portable scenario through the platform preflight, profile-session capture, profile artifact pipeline, optional sidecar interaction runners, optional latest-trusted comparison, and aggregate live-proof writer.
+
+Add sidecars when external drivers are available:
+
+```bash
+ASL_ARGENT_BIN=npx ASL_ARGENT_BASE_ARGS="--yes @swmansion/argent run" \
+  asl-live-android --config asl.config.json --scenario scenarios/mobile/app-startup.json \
+  --package dev.example.app --serial <emulator-serial> --out artifacts/asl/android-live \
+  --agent-device-proof --argent-proof --compare-latest --fail-on-regression
+
+ASL_ARGENT_BIN=npx ASL_ARGENT_BASE_ARGS="--yes @swmansion/argent run" \
+  asl-live-ios --config asl.config.json --scenario scenarios/mobile/app-startup.json \
+  --bundle dev.example.app --device <simulator-udid> --out artifacts/asl/ios-live \
+  --agent-device-proof --argent-proof --compare-latest --fail-on-regression
+```
+
+The platform runner still owns profile evidence. `agent-device` and Argent contribute interaction proof pointers under the same aggregate `live-proof.json`; if a sidecar fails a required step, the aggregate command fails after preserving raw output and `agent-summary.md`.
+
 ## Android Proof
 
 With the neutral Expo example app installed on an online Android emulator or device, run:
