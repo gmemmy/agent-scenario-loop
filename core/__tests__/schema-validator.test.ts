@@ -420,6 +420,7 @@ test('accepts project validation artifacts', () => {
     rootDir: '/app',
     runnerPath: '/app/runner-manifests/primary-runner.json',
     scripts: {
+      invalidScripts: [],
       missingPaths: [],
       missingScripts: [],
       path: '/app/asl/package-scripts.json',

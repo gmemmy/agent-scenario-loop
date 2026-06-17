@@ -13,6 +13,7 @@ const {
   resolvePlatforms,
   validateConfigPlaceholders,
   validateAppHelper,
+  validatePackageScriptShape,
   validatePackageScripts,
   validateProject,
 } = require('../validate-project');
@@ -152,6 +153,10 @@ test('validates generated package-script snippets', async (t: TestContext) => {
   const scripts = validatePackageScripts({ packageRoot: ROOT, rootDir: targetDir });
 
   assert.equal(scripts.status, 'incomplete');
+  assert.deepEqual(scripts.invalidScripts, [
+    'asl:check:ios is missing required flag(s): --out.',
+    'asl:validate should start with asl-validate-project.',
+  ]);
   assert.deepEqual(scripts.missingScripts, [
     'asl:check:android',
     'asl:profile:ios',
@@ -164,6 +169,25 @@ test('validates generated package-script snippets', async (t: TestContext) => {
   ]);
   assert.deepEqual(scripts.unknownCommands, ['not-an-asl-bin']);
   assert.equal(scripts.missingPaths.some((missingPath: string) => missingPath.endsWith('scenarios/mobile/missing.json')), true);
+});
+
+test('validates required package-script lifecycle shapes', () => {
+  assert.equal(validatePackageScriptShape({
+    scriptName: 'asl:profile:ios:live',
+    command: 'asl-profile-ios --config asl.config.json --scenario scenarios/mobile/checkout.json --simctl-capture --profile-session --launch --out artifacts/asl/ios --run-id checkout-ios-live',
+  }), null);
+  assert.equal(validatePackageScriptShape({
+    scriptName: 'asl:profile:android:live',
+    command: 'asl-profile-android --config asl.config.json --scenario scenarios/mobile/checkout.json --profile-session --launch --out artifacts/asl/android --run-id checkout-android-live',
+  }), 'asl:profile:android:live is missing required flag(s): --adb-capture.');
+  assert.equal(validatePackageScriptShape({
+    scriptName: 'asl:check:ios',
+    command: 'asl-check-plan --scenario scenarios/mobile/checkout.json --runner runner-manifests/primary-runner.json --platform android --out artifacts/asl/plan/checkout-ios',
+  }), 'asl:check:ios has incorrect required value(s): --platform=ios.');
+  assert.equal(validatePackageScriptShape({
+    scriptName: 'asl:live-proof',
+    command: 'asl-live-proof --file artifacts/asl/ios/_live-proof/ios-live-proof/live-proof.json',
+  }), 'asl:live-proof is missing required flag(s): --fail-on-regression.');
 });
 
 test('warns when config values still use scaffold placeholders', () => {

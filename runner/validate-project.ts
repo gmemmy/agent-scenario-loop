@@ -31,6 +31,7 @@ type ProjectValidationAppHelper = {
 };
 
 type ProjectValidationScripts = {
+  invalidScripts: string[];
   missingPaths: string[];
   missingScripts: string[];
   path: string;
@@ -82,6 +83,59 @@ const REQUIRED_PACKAGE_SCRIPT_NAMES = [
 ];
 
 const PATH_ARGUMENT_FLAGS = new Set(['--config', '--runner', '--scenario']);
+
+const REQUIRED_PACKAGE_SCRIPT_SHAPES = {
+  'asl:check:ios': {
+    command: 'asl-check-plan',
+    flags: ['--scenario', '--runner', '--platform', '--out'],
+    values: { '--platform': 'ios' },
+  },
+  'asl:check:android': {
+    command: 'asl-check-plan',
+    flags: ['--scenario', '--runner', '--platform', '--out'],
+    values: { '--platform': 'android' },
+  },
+  'asl:validate': {
+    command: 'asl-validate-project',
+    flags: ['--root', '--platform', '--out'],
+    values: {},
+  },
+  'asl:profile:ios': {
+    command: 'asl-profile-ios',
+    flags: ['--config', '--scenario', '--out', '--run-id'],
+    values: {},
+  },
+  'asl:profile:android': {
+    command: 'asl-profile-android',
+    flags: ['--config', '--scenario', '--out', '--run-id'],
+    values: {},
+  },
+  'asl:profile:ios:live': {
+    command: 'asl-profile-ios',
+    flags: ['--config', '--scenario', '--simctl-capture', '--profile-session', '--launch', '--out', '--run-id'],
+    values: {},
+  },
+  'asl:profile:android:live': {
+    command: 'asl-profile-android',
+    flags: ['--config', '--scenario', '--adb-capture', '--profile-session', '--launch', '--out', '--run-id'],
+    values: {},
+  },
+  'asl:compare:ios': {
+    command: 'asl-compare-latest',
+    flags: ['--root', '--scenario', '--current', '--out'],
+    values: {},
+  },
+  'asl:compare:android': {
+    command: 'asl-compare-latest',
+    flags: ['--root', '--scenario', '--current', '--out'],
+    values: {},
+  },
+  'asl:live-proof': {
+    command: 'asl-live-proof',
+    flags: ['--file', '--fail-on-regression'],
+    values: {},
+  },
+} satisfies Record<string, { command: string; flags: string[]; values: Record<string, string> }>;
 
 const CONFIG_PLACEHOLDER_VALUES = [
   {
@@ -319,6 +373,62 @@ function tokenizeScript(command: string): string[] {
 }
 
 /**
+ * Reads a script flag value from tokenized package-script snippets.
+ *
+ * @param {string[]} tokens
+ * @param {string} flag
+ * @returns {string | null}
+ */
+function readScriptFlagValue(tokens: string[], flag: string): string | null {
+  const index = tokens.indexOf(flag);
+  if (index === -1) {
+    return null;
+  }
+
+  const value = tokens[index + 1];
+  return value && !value.startsWith('--') ? value : null;
+}
+
+/**
+ * Validates one generated package-script snippet against its expected lifecycle shape.
+ *
+ * @param {{command: string, scriptName: string}} options
+ * @returns {string | null}
+ */
+function validatePackageScriptShape({
+  command,
+  scriptName,
+}: {
+  command: string;
+  scriptName: string;
+}): string | null {
+  const expected = REQUIRED_PACKAGE_SCRIPT_SHAPES[scriptName as keyof typeof REQUIRED_PACKAGE_SCRIPT_SHAPES];
+  if (!expected) {
+    return null;
+  }
+
+  const tokens = tokenizeScript(command);
+  if (tokens[0] !== expected.command) {
+    return `${scriptName} should start with ${expected.command}.`;
+  }
+
+  const missingFlags = expected.flags.filter((flag) => !tokens.includes(flag));
+  if (missingFlags.length > 0) {
+    return `${scriptName} is missing required flag(s): ${missingFlags.join(', ')}.`;
+  }
+
+  const wrongValues = Object.entries(expected.values).flatMap(([flag, expectedValue]) => {
+    const actual = readScriptFlagValue(tokens, flag);
+    return actual === expectedValue ? [] : [`${flag}=${expectedValue}`];
+  });
+  if (wrongValues.length > 0) {
+    return `${scriptName} has incorrect required value(s): ${wrongValues.join(', ')}.`;
+  }
+
+  return null;
+}
+
+/**
  * Returns true for concrete path-like script arguments while leaving ids and placeholders alone.
  *
  * @param {string} value
@@ -344,6 +454,7 @@ function validatePackageScripts({
   const scriptPath = path.join(rootDir, 'asl', 'package-scripts.json');
   if (!fs.existsSync(scriptPath)) {
     return {
+      invalidScripts: [],
       missingPaths: [],
       missingScripts: REQUIRED_PACKAGE_SCRIPT_NAMES,
       path: scriptPath,
@@ -358,11 +469,21 @@ function validatePackageScripts({
   const scriptNames = Object.keys(scripts).sort();
   const missingScripts = REQUIRED_PACKAGE_SCRIPT_NAMES.filter((scriptName) => !(scriptName in scripts));
   const commandNames = new Set<string>();
+  const invalidScripts: string[] = [];
   const missingPaths = new Set<string>();
 
-  for (const value of Object.values(scripts)) {
+  for (const [scriptName, value] of Object.entries(scripts)) {
     if (typeof value !== 'string') {
+      invalidScripts.push(`${scriptName} should be a string command.`);
       continue;
+    }
+
+    const shapeError = validatePackageScriptShape({
+      command: value,
+      scriptName,
+    });
+    if (shapeError) {
+      invalidScripts.push(shapeError);
     }
 
     const tokens = tokenizeScript(value);
@@ -386,11 +507,12 @@ function validatePackageScripts({
 
   const unknownCommands = [...commandNames].filter((commandName) => !binNames.has(commandName)).sort();
   return {
+    invalidScripts: invalidScripts.sort(),
     missingPaths: [...missingPaths].sort(),
     missingScripts,
     path: scriptPath,
     scriptNames,
-    status: missingScripts.length > 0 || missingPaths.size > 0 || unknownCommands.length > 0 ? 'incomplete' : 'present',
+    status: missingScripts.length > 0 || missingPaths.size > 0 || unknownCommands.length > 0 || invalidScripts.length > 0 ? 'incomplete' : 'present',
     unknownCommands,
   };
 }
@@ -485,7 +607,7 @@ function buildNextActions({
   } else if (scripts.status === 'incomplete') {
     actions.push({
       code: 'fix_package_script_snippets',
-      message: 'Fix missing package-script snippets, unknown CLI commands, or missing project-local paths before live proof.',
+      message: 'Fix missing package-script snippets, invalid snippet shapes, unknown CLI commands, or missing project-local paths before live proof.',
       severity: 'error',
       target: scripts.path,
     });
@@ -571,6 +693,9 @@ async function validateProject(options: {
     }
     if (scripts.unknownCommands.length > 0) {
       errors.push(`Package-script snippets reference unknown command(s): ${scripts.unknownCommands.join(', ')}.`);
+    }
+    if (scripts.invalidScripts.length > 0) {
+      errors.push(`Package-script snippets have invalid command shape(s): ${scripts.invalidScripts.join(' ')}`);
     }
     if (scripts.missingPaths.length > 0) {
       errors.push(`Package-script snippets reference missing path(s): ${scripts.missingPaths.join(', ')}.`);
@@ -733,6 +858,7 @@ export {
   validateConfigPlaceholders,
   validateProject,
   validateAppHelper,
+  validatePackageScriptShape,
   validatePackageScripts,
 };
 

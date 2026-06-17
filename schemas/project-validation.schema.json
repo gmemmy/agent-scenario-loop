@@ -149,6 +149,7 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
+        "invalidScripts",
         "missingPaths",
         "missingScripts",
         "path",
@@ -157,6 +158,12 @@
         "unknownCommands"
       ],
       "properties": {
+        "invalidScripts": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
         "missingPaths": {
           "type": "array",
           "items": {
