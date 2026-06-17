@@ -278,35 +278,6 @@ async function runExampleAndroidLiveProof(
     throw new Error(`Android live proof preflight failed; inspect ${preflight.runDir}/agent-summary.md.`);
   }
 
-  const interactionProofs: AndroidInteractionProof[] = [];
-  if (isEnabledFlag(args['agent-device-proof'])) {
-    const agentDeviceCapture = await runAgentDeviceCapture({
-      ...(typeof args['agent-device'] === 'string' ? { agentDevicePath: args['agent-device'] } : {}),
-      app: packageName,
-      ...(options.agentDeviceExecutor ? { executor: options.agentDeviceExecutor } : {}),
-      open: true,
-      outputDir: path.join(outputDir, '_agent-device-captures', interactionRunId),
-      platform: 'android',
-      runId: interactionRunId,
-      scenario: readJson(path.join(exampleRoot, 'scenarios', 'mobile', 'app-startup.json')),
-      ...(typeof args.serial === 'string' ? { serial: args.serial } : {}),
-      ...(typeof args['agent-device-session'] === 'string' ? { session: args['agent-device-session'] } : {}),
-      waitMs: parsePositiveInteger(args['agent-device-wait-ms'], 1000),
-    });
-    assertPassedInteractionProof({
-      health: agentDeviceCapture.health,
-      label: 'startup-ui',
-      runDir: agentDeviceCapture.runDir,
-    });
-    interactionProofs.push({
-      label: 'startup-ui',
-      runDir: agentDeviceCapture.runDir,
-      runId: interactionRunId,
-      runnerId: 'agent-device',
-      scenarioId: 'app-startup',
-    });
-  }
-
   const profiles: AndroidLiveProfile[] = [];
   for (const profile of EXAMPLE_PROFILES) {
     const profileRunId = buildLiveRunId(profile.runId, runSuffix);
@@ -343,6 +314,35 @@ async function runExampleAndroidLiveProof(
       runId: profileRunId,
       scenario: profile.scenario,
       scenarioId: profile.scenarioId,
+    });
+  }
+
+  const interactionProofs: AndroidInteractionProof[] = [];
+  if (isEnabledFlag(args['agent-device-proof'])) {
+    const agentDeviceCapture = await runAgentDeviceCapture({
+      ...(typeof args['agent-device'] === 'string' ? { agentDevicePath: args['agent-device'] } : {}),
+      app: packageName,
+      ...(options.agentDeviceExecutor ? { executor: options.agentDeviceExecutor } : {}),
+      open: true,
+      outputDir: path.join(outputDir, '_agent-device-captures', interactionRunId),
+      platform: 'android',
+      runId: interactionRunId,
+      scenario: readJson(path.join(exampleRoot, 'scenarios', 'mobile', 'app-startup.json')),
+      ...(typeof args.serial === 'string' ? { serial: args.serial } : {}),
+      ...(typeof args['agent-device-session'] === 'string' ? { session: args['agent-device-session'] } : {}),
+      waitMs: parsePositiveInteger(args['agent-device-wait-ms'], 1000),
+    });
+    assertPassedInteractionProof({
+      health: agentDeviceCapture.health,
+      label: 'startup-ui',
+      runDir: agentDeviceCapture.runDir,
+    });
+    interactionProofs.push({
+      label: 'startup-ui',
+      runDir: agentDeviceCapture.runDir,
+      runId: interactionRunId,
+      runnerId: 'agent-device',
+      scenarioId: 'app-startup',
     });
   }
 
