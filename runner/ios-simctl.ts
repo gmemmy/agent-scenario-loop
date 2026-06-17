@@ -26,6 +26,9 @@ type CliArgs = {
   'profile-session-storage'?: string | boolean;
   'run-id'?: string | boolean;
   screenshot?: string | boolean;
+  'screenshot-display'?: string | boolean;
+  'screenshot-mask'?: string | boolean;
+  'screenshot-type'?: string | boolean;
   'terminate-before-launch'?: string | boolean;
   'wait-ms'?: string | boolean;
   xcrun?: string | boolean;
@@ -77,6 +80,9 @@ type IosSimctlCaptureOptions = {
   profileSessionStorage?: IosProfileSessionStorageSeed | null;
   runId?: string;
   screenshot?: boolean;
+  screenshotDisplay?: string;
+  screenshotMask?: string;
+  screenshotType?: string;
   terminateBeforeLaunch?: boolean;
   waitMs?: number;
   xcrunPath?: string;
@@ -112,6 +118,7 @@ const PROFILE_STORAGE_RESET_KEYS = [
   PROFILE_COMMAND_STORAGE_KEY,
   PROFILE_SESSION_ENTRIES_STORAGE_KEY,
 ];
+const SCREENSHOT_EXTENSIONS = new Set(['bmp', 'gif', 'jpeg', 'png', 'tiff']);
 
 /**
  * Prints CLI usage to stderr.
@@ -125,9 +132,22 @@ function usage(output: { write: (message: string) => unknown } = process.stderr)
     'Checks iOS simulator readiness and writes health.json, verdict.json, agent-summary.md, and raw simctl evidence.',
     'Use --launch with --bundle <id> to launch the app before capturing a bounded simulator log window.',
     'Use --screenshot to save a simulator screenshot into captures/ios-screenshot.png.',
+    'Use --screenshot-type, --screenshot-display, or --screenshot-mask to pass supported simctl screenshot options.',
     'Use --profile-session-storage <scenario> with --bundle <id> to seed the app profile session before launch.',
     'Use --collect-profile-storage with --bundle <id> to collect stored profile events after the capture window.',
   ], output);
+}
+
+/**
+ * Resolves the capture filename for the selected simctl screenshot type.
+ *
+ * @param {string | undefined} screenshotType
+ * @returns {string}
+ */
+function screenshotCaptureFileName(screenshotType: string | undefined): string {
+  const normalized = screenshotType?.toLowerCase();
+  const extension = normalized && SCREENSHOT_EXTENSIONS.has(normalized) ? normalized : 'png';
+  return `ios-screenshot.${extension}`;
 }
 
 /**
@@ -545,6 +565,9 @@ async function runIosSimctlCapture({
   profileSessionStorage = null,
   runId = createRunId(),
   screenshot = false,
+  screenshotDisplay,
+  screenshotMask,
+  screenshotType,
   terminateBeforeLaunch = false,
   waitMs = 0,
   xcrunPath = 'xcrun',
@@ -878,12 +901,18 @@ async function runIosSimctlCapture({
 
     if (screenshot) {
       await fsp.mkdir(layout.captures, { recursive: true });
-      const screenshotPath = path.join(layout.captures, 'ios-screenshot.png');
-      const screenshotResult = await driver.screenshot({ outputPath: screenshotPath });
+      const screenshotFileName = screenshotCaptureFileName(screenshotType);
+      const screenshotPath = path.join(layout.captures, screenshotFileName);
+      const screenshotResult = await driver.screenshot({
+        outputPath: screenshotPath,
+        ...(screenshotDisplay ? { display: screenshotDisplay } : {}),
+        ...(screenshotMask ? { mask: screenshotMask } : {}),
+        ...(screenshotType ? { imageType: screenshotType } : {}),
+      });
       raw[screenshotResult.rawFileName] = formatIosSimctlRawOutput(screenshotResult);
       const screenshotCaptured = screenshotResult.exitCode === 0 && fs.existsSync(screenshotPath);
       if (screenshotCaptured) {
-        captures.screenshot = 'captures/ios-screenshot.png';
+        captures.screenshot = `captures/${screenshotFileName}`;
       }
       checks.push({
         name: 'ios_screenshot_captured',
@@ -904,6 +933,11 @@ async function runIosSimctlCapture({
         args: screenshotResult.args,
         capturePath: captures.screenshot,
         exitCode: screenshotResult.exitCode,
+        options: {
+          ...(screenshotDisplay ? { display: screenshotDisplay } : {}),
+          ...(screenshotMask ? { mask: screenshotMask } : {}),
+          ...(screenshotType ? { type: screenshotType } : {}),
+        },
         rawPath: `raw/${screenshotResult.rawFileName}`,
       };
     }
@@ -1081,6 +1115,9 @@ async function main(): Promise<void> {
       : {}),
     runId,
     screenshot: args.screenshot === true || args.screenshot === 'true',
+    ...(typeof args['screenshot-display'] === 'string' ? { screenshotDisplay: args['screenshot-display'] } : {}),
+    ...(typeof args['screenshot-mask'] === 'string' ? { screenshotMask: args['screenshot-mask'] } : {}),
+    ...(typeof args['screenshot-type'] === 'string' ? { screenshotType: args['screenshot-type'] } : {}),
     terminateBeforeLaunch: args['terminate-before-launch'] === true || args['terminate-before-launch'] === 'true',
     waitMs: parsePositiveInteger(args['wait-ms'], 0),
     ...(typeof args.xcrun === 'string' ? { xcrunPath: args.xcrun } : {}),

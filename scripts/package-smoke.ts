@@ -1610,7 +1610,7 @@ function main(): void {
       '  }),',
       '});',
       "const iosLogs = iosDriver.readLogs({ last: '30s' });",
-      "const iosScreenshot = iosDriver.screenshot({ outputPath: 'ios-screenshot.png' });",
+      "const iosScreenshot = iosDriver.screenshot({ display: 'Internal-1', imageType: 'jpeg', mask: 'black', outputPath: 'ios-screenshot.jpeg' });",
       "const args: CliArgs = { config: 'config.json', scenario: 'scenario.json' };",
       'const comparison = buildComparisonArtifact({',
       "  baselineHealth: { schemaVersion: '1.0.0', scenarioId: 'startup', runId: 'before', healthStatus: 'passed', checks: [] },",

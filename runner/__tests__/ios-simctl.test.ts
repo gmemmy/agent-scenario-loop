@@ -113,8 +113,8 @@ test('captures bounded iOS simulator log evidence', async (t: TestContext) => {
   const executor = async (command: string, args: string[]): Promise<CommandResult> => {
     const key = args.join(' ');
     calls.push(key);
-    const screenshotPath = path.join(outputDir, 'captures', 'ios-screenshot.png');
-    if (key === `simctl io A692ED28-893E-453F-8866-C69331AE757F screenshot ${screenshotPath}`) {
+    const screenshotPath = path.join(outputDir, 'captures', 'ios-screenshot.jpeg');
+    if (key === `simctl io A692ED28-893E-453F-8866-C69331AE757F screenshot --type=jpeg --display=Internal-1 --mask=black ${screenshotPath}`) {
       await fsp.mkdir(path.dirname(screenshotPath), { recursive: true });
       await fsp.writeFile(screenshotPath, 'PNG', 'utf8');
       return {
@@ -174,12 +174,15 @@ test('captures bounded iOS simulator log evidence', async (t: TestContext) => {
     outputDir,
     runId: 'ios-live',
     screenshot: true,
+    screenshotDisplay: 'Internal-1',
+    screenshotMask: 'black',
+    screenshotType: 'jpeg',
     waitMs: 250,
   });
 
   assert.equal(result.health.healthStatus, 'passed', JSON.stringify(result.health.checks, null, 2));
   assert.deepEqual(waits, [250]);
-  assert.equal(result.captures.screenshot, 'captures/ios-screenshot.png');
+  assert.equal(result.captures.screenshot, 'captures/ios-screenshot.jpeg');
   assert.deepEqual((result.metadata.deepLinkResults as Array<Record<string, unknown>>)[0], {
     args: [
       'simctl',
@@ -193,7 +196,27 @@ test('captures bounded iOS simulator log evidence', async (t: TestContext) => {
     url: 'asl-example://profile-session/start?scenario=app-startup&runId=ios-live',
     waitMs: 0,
   });
-  assert.ok(fs.existsSync(path.join(outputDir, 'captures', 'ios-screenshot.png')));
+  assert.deepEqual(result.metadata.screenshot, {
+    args: [
+      'simctl',
+      'io',
+      'A692ED28-893E-453F-8866-C69331AE757F',
+      'screenshot',
+      '--type=jpeg',
+      '--display=Internal-1',
+      '--mask=black',
+      path.join(outputDir, 'captures', 'ios-screenshot.jpeg'),
+    ],
+    capturePath: 'captures/ios-screenshot.jpeg',
+    exitCode: 0,
+    options: {
+      display: 'Internal-1',
+      mask: 'black',
+      type: 'jpeg',
+    },
+    rawPath: 'raw/ios-screenshot.txt',
+  });
+  assert.ok(fs.existsSync(path.join(outputDir, 'captures', 'ios-screenshot.jpeg')));
   assert.ok(fs.readFileSync(path.join(outputDir, 'raw', 'ios-simctl-log.txt'), 'utf8').includes('[profile-event]'));
   assert.ok(calls.indexOf('simctl launch A692ED28-893E-453F-8866-C69331AE757F dev.agent-scenario-loop.example') < calls.indexOf('simctl openurl A692ED28-893E-453F-8866-C69331AE757F asl-example://profile-session/start?scenario=app-startup&runId=ios-live'));
   assert.ok(

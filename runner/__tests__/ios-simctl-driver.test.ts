@@ -95,3 +95,36 @@ test('iOS simctl driver captures logs and screenshots through portable evidence 
   assert.equal(screenshot.rawFileName, 'ios-screenshot.txt');
   assert.deepEqual(screenshot.args, ['simctl', 'io', 'BOOTED', 'screenshot', screenshotPath]);
 });
+
+test('iOS simctl driver preserves screenshot options in command args', async () => {
+  const screenshotPath = '/tmp/asl-ios-screenshot.jpeg';
+  const executor = createExecutor({
+    [`simctl io BOOTED screenshot --type=jpeg --display=Internal-1 --mask=black ${screenshotPath}`]: {
+      stdout: 'Wrote screenshot\n',
+    },
+  });
+  const driver = createIosSimctlDriver({
+    deviceUdid: 'BOOTED',
+    executor,
+    xcrunPath: 'fake-xcrun',
+  });
+
+  const screenshot = await driver.screenshot({
+    display: 'Internal-1',
+    imageType: 'jpeg',
+    mask: 'black',
+    outputPath: screenshotPath,
+  });
+
+  assert.equal(screenshot.action, 'screenshot');
+  assert.deepEqual(screenshot.args, [
+    'simctl',
+    'io',
+    'BOOTED',
+    'screenshot',
+    '--type=jpeg',
+    '--display=Internal-1',
+    '--mask=black',
+    screenshotPath,
+  ]);
+});

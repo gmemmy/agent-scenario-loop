@@ -34,6 +34,9 @@ type IosSimctlReadLogsOptions = {
 };
 
 type IosSimctlScreenshotOptions = {
+  display?: string;
+  imageType?: string;
+  mask?: string;
   outputPath: string;
   rawFileName?: string;
 };
@@ -136,10 +139,24 @@ function createIosSimctlDriver({
     },
 
     async screenshot({
+      display,
+      imageType,
+      mask,
       outputPath,
       rawFileName = 'ios-screenshot.txt',
     }: IosSimctlScreenshotOptions): Promise<IosSimctlCommandResult> {
-      const result = await executor(xcrunPath, ['simctl', 'io', deviceUdid, 'screenshot', outputPath]);
+      const args = ['simctl', 'io', deviceUdid, 'screenshot'];
+      if (imageType) {
+        args.push(`--type=${imageType}`);
+      }
+      if (display) {
+        args.push(`--display=${display}`);
+      }
+      if (mask) {
+        args.push(`--mask=${mask}`);
+      }
+      args.push(outputPath);
+      const result = await executor(xcrunPath, args);
       return buildDriverResult({ action: 'screenshot', rawFileName, result });
     },
 
