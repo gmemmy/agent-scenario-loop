@@ -12,6 +12,24 @@ Release checks use the committed Android and iOS profile-event logs in `event-lo
 
 The app is intentionally private and minimal. It uses a direct Expo entrypoint, a safe-area provider, and one screen so iOS and Android drivers can launch the same app surface without creating product-specific fixtures.
 
+## Consumer Scaffold
+
+The example app also carries the same project-local files a consuming app gets from `asl-init`:
+
+- `src/devtools/profile-session.ts`: local app helper entrypoint used by the screen
+- `runner-manifests/primary-runner.json`: portable iOS and Android runner capability manifest
+- `runner-manifests/evidence-provider.json`: optional profiler provider manifest
+- `scenarios/mobile/app-startup.json`: portable startup scenario used for project validation
+- `asl/package-scripts.json`: public CLI snippets that a consuming app can merge into `package.json`
+
+Validate the example app exactly like a consumer project:
+
+```bash
+pnpm asl:validate
+```
+
+The app-local `asl:*` scripts build the package from the repo root, then call the compiled public CLIs from the example app directory.
+
 Start the example app on Android with:
 
 ```bash
@@ -50,10 +68,13 @@ If a selected Xcode beta cannot run the current Expo/RN toolchain cleanly, point
 ## Files
 
 - `index.ts`: direct Expo entrypoint and safe-area provider
-- `src/example-screen.tsx`: scenario surface wired to `app/profile-session.ts`
+- `src/example-screen.tsx`: scenario surface wired to the local profile-session helper
 - `package.json`, `app.json`, `tsconfig.json`: private Expo app configuration
 - `metro.config.js`: allows the app to import the package helper from the repo/package root
 - `asl.config.json`: runner config for example app artifact output
+- `asl/package-scripts.json`: consumer-facing package-script snippets
+- `runner-manifests/*.json`: project-local runner and provider capability manifests
+- `scenarios/mobile/app-startup.json`: portable consumer-validation scenario
 - `scenarios/android/*.json`: Android profile scenario manifests
 - `scenarios/ios/*.json`: iOS profile scenario manifests
 - `event-logs/*.log`: deterministic profile-event evidence fixtures
@@ -64,6 +85,25 @@ Run one example scenario through the package runner:
 
 ```bash
 pnpm example:profile:startup
+```
+
+From inside `examples/mobile-app`, the consumer-shaped scripts are:
+
+```bash
+pnpm asl:validate
+pnpm asl:check:ios
+pnpm asl:check:android
+pnpm asl:profile:ios
+pnpm asl:profile:android
+```
+
+Live proof and inspection scripts are also available from the app directory:
+
+```bash
+pnpm asl:android:live
+pnpm asl:live-proof:android
+pnpm asl:ios:live
+pnpm asl:live-proof:ios
 ```
 
 The runner writes `health.json`, `verdict.json`, `agent-summary.md`, `metrics.json`, `causal-run.json`, and raw evidence under the printed run directory.

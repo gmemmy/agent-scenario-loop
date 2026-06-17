@@ -1,0 +1,73 @@
+{
+  "schemaVersion": "1.0.0",
+  "id": "app-startup",
+  "flowId": "example-startup",
+  "description": "Launch the example app and wait for the home screen to become usable.",
+  "journey": {
+    "name": "Example app startup",
+    "intent": "Open the neutral example app and prove the first usable screen is ready.",
+    "actor": "mobile app user",
+    "startState": "example app not running",
+    "endState": "example app home screen ready"
+  },
+  "platforms": ["ios", "android"],
+  "requiredCapabilities": ["launch", "sessionControl", "logCapture", "artifactWrite"],
+  "optionalCapabilities": ["screenshot", "video"],
+  "truthEvents": {
+    "firstUsable": {
+      "event": "home_ready",
+      "required": true,
+      "timeoutMs": 8000,
+      "phase": "visual"
+    }
+  },
+  "milestones": [
+    {
+      "id": "firstUsable",
+      "event": "home_ready",
+      "description": "The example app home screen emitted its ready event.",
+      "required": true,
+      "timeoutMs": 8000,
+      "phase": "visual"
+    }
+  ],
+  "expectedEvents": ["home_ready"],
+  "cycles": {
+    "iterations": 1,
+    "warmupIterations": 0,
+    "stopOnFailure": true
+  },
+  "budgets": [
+    {
+      "name": "startup first usable p95",
+      "source": "milestone",
+      "metric": "p95",
+      "unit": "ms",
+      "limit": 1700,
+      "toMilestone": "firstUsable"
+    }
+  ],
+  "steps": [
+    {
+      "id": "launch",
+      "kind": "launch"
+    },
+    {
+      "id": "wait-for-home-ready",
+      "kind": "waitForMilestone",
+      "milestone": "firstUsable",
+      "timeoutMs": 8000
+    },
+    {
+      "id": "capture-final-screen",
+      "kind": "captureEvidence",
+      "artifact": "screenshot",
+      "driverAction": "screenshot",
+      "required": false
+    }
+  ],
+  "artifacts": {
+    "required": ["logs", "signals"],
+    "optional": ["screenshot", "video"]
+  }
+}

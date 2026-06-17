@@ -7,7 +7,7 @@ import {
   registerProfileCommandTargetHandler,
   useProfileSession,
   useProfileSessionBootstrap,
-} from '../../../app/profile-session';
+} from './devtools/profile-session';
 
 const CARDS = [
   'Profile session control',

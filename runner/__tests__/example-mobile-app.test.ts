@@ -13,6 +13,9 @@ const PROFILE_IOS = path.join(DIST_ROOT, 'runner', 'profile-ios.js');
 const {
   resolveAndroidAdbDriverSteps,
 } = require('../profile-android');
+const {
+  validateProject,
+} = require('../validate-project');
 
 type ExecOutput = {
   stdout: string;
@@ -117,6 +120,52 @@ test('example mobile app config matches Expo app identity', () => {
 
   assert.equal(app.androidPackage, expo.android?.package);
   assert.equal(app.iosBundleId, expo.ios?.bundleIdentifier);
+});
+
+test('example mobile app satisfies initialized consumer validation', async () => {
+  const result = await validateProject({
+    packageRoot: ROOT,
+    rootDir: fixturePath('examples/mobile-app'),
+  });
+
+  assert.equal(result.status, 'passed');
+  assert.equal(result.appHelper.status, 'present');
+  assert.equal(result.scripts.status, 'present');
+  assert.equal(result.scenarioPaths.length, 1);
+  assert.equal(result.providerPaths.length, 1);
+  assert.deepEqual(
+    result.plans.map((plan: { healthStatus: string; platform: string; scenarioId: string }) => ({
+      healthStatus: plan.healthStatus,
+      platform: plan.platform,
+      scenarioId: plan.scenarioId,
+    })).sort((
+      left: { platform: string },
+      right: { platform: string },
+    ) => left.platform.localeCompare(right.platform)),
+    [
+      { healthStatus: 'passed', platform: 'android', scenarioId: 'app-startup' },
+      { healthStatus: 'passed', platform: 'ios', scenarioId: 'app-startup' },
+    ],
+  );
+});
+
+test('example mobile app exposes consumer package scripts', () => {
+  const packageJson = readJson(fixturePath('examples/mobile-app/package.json'));
+  const scripts = packageJson.scripts as Record<string, string>;
+
+  for (const scriptName of [
+    'asl:validate',
+    'asl:check:ios',
+    'asl:check:android',
+    'asl:profile:ios',
+    'asl:profile:android',
+    'asl:android:live',
+    'asl:ios:live',
+    'asl:live-proof:android',
+    'asl:live-proof:ios',
+  ]) {
+    assert.equal(typeof scripts[scriptName], 'string', `${scriptName} should be defined`);
+  }
 });
 
 test('example Android video scenario maps to optional adb record capture', () => {

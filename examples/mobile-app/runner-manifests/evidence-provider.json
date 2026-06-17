@@ -1,0 +1,10 @@
+{
+  "schemaVersion": "1.0.0",
+  "runnerId": "example-mobile-app-profiler-provider",
+  "kind": "evidenceProvider",
+  "platforms": ["ios", "android"],
+  "capabilities": ["profiler"],
+  "driverActions": ["collectPerfSignals"],
+  "artifactOutputs": ["profiler", "signals"],
+  "lifecycle": ["prepare", "startWindow", "capture", "stopWindow", "finalize"]
+}

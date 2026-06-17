@@ -1,0 +1,10 @@
+{
+  "asl:check:ios": "asl-check-plan --scenario scenarios/mobile/app-startup.json --runner runner-manifests/primary-runner.json --platform ios --out artifacts/asl/plan/app-startup-ios",
+  "asl:check:android": "asl-check-plan --scenario scenarios/mobile/app-startup.json --runner runner-manifests/primary-runner.json --platform android --out artifacts/asl/plan/app-startup-android",
+  "asl:validate": "asl-validate-project --root . --platform all --out artifacts/asl/project-validation",
+  "asl:profile:ios": "asl-profile-ios --config asl.config.json --scenario scenarios/ios/app-startup.json --events event-logs/app-startup.log --out artifacts/asl/ios --run-id app-startup-ios-fixture",
+  "asl:profile:android": "asl-profile-android --config asl.config.json --scenario scenarios/android/app-startup.json --events event-logs/android-app-startup.log --out artifacts/asl/android --run-id app-startup-android-fixture",
+  "asl:compare:ios": "asl-compare-latest --root artifacts/asl/ios --scenario app-startup --current <run-dir> --out artifacts/asl/ios/comparisons/app-startup",
+  "asl:compare:android": "asl-compare-latest --root artifacts/asl/android --scenario app-startup --current <run-dir> --out artifacts/asl/android/comparisons/app-startup",
+  "asl:live-proof": "asl-live-proof --file <live-proof.json> --fail-on-regression"
+}

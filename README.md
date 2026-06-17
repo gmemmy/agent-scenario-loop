@@ -284,7 +284,7 @@ No simulator available yet? Use the committed fixture logs:
 pnpm demo:loop -- --out artifacts/demo-loop
 ```
 
-To inspect the neutral Expo example app used for package dogfooding, start with [examples/mobile-app](examples/mobile-app/README.md). Its committed Android and iOS event logs are part of `pnpm release:check`, so the package has to prove the example app scenarios can produce passed artifacts before publishing. Android adb and iOS simctl capture paths can also feed the same profile artifact contract when the app is installed on a live device or simulator.
+To inspect the neutral Expo example app used for package dogfooding, start with [examples/mobile-app](examples/mobile-app/README.md). It carries the same consumer scaffold shape that `asl-init` creates, and `pnpm release:check` validates that scaffold before profiling committed Android and iOS event logs. Android adb and iOS simctl capture paths can also feed the same profile artifact contract when the app is installed on a live device or simulator.
 
 To validate a portable scenario, runner manifest, and initial planning artifacts before execution:
 
@@ -317,6 +317,7 @@ Current package guarantees:
 - installable CLIs print help and run against packaged examples, including Android and iOS example-live proof paths
 - `asl-init` scaffolds config, scenario, runner manifests, local script snippets, and React Native profile-session wiring into a consuming app layout from the installed tarball
 - `asl-validate-project` validates initialized app scaffolds and planner compatibility from the installed tarball
+- `examples/mobile-app` dogfoods the initialized consumer scaffold shape in addition to fixture-backed scenario profiling
 - packaged schemas, scenarios, runner manifests, templates, docs, and app helper resolve after install
 - canonical fixture and neutral Expo-app event logs produce passed profile artifacts
 - explicit baseline/current run folders can produce schema-checked `comparison.json`
