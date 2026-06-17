@@ -57,6 +57,15 @@ ASL_COMPARE_IOS_CURRENT=artifacts/asl/ios/{{SCENARIO_ID}}/{{SCENARIO_ID}}-ios-li
 ASL_COMPARE_ANDROID_CURRENT=artifacts/asl/android/{{SCENARIO_ID}}/{{SCENARIO_ID}}-android-live pnpm asl:compare:android
 ```
 
+For aggregate live proof, use the generated live scripts:
+
+```bash
+ASL_IOS_UDID=<simulator-udid> ASL_IOS_APP_ID=<bundle-id> pnpm asl:ios:live
+ASL_ANDROID_SERIAL=<emulator-or-device-serial> ASL_ANDROID_APP_ID=<package-name> pnpm asl:android:live
+```
+
+Those scripts pass `--compare-latest --fail-on-regression`. A missing trusted baseline is recorded as skipped comparison evidence; a real regression exits nonzero after artifacts are written.
+
 ## Portable Interaction Proof
 
 Use the generated interaction scripts when an external driver should prove launch, visible UI, gestures, screenshots, or another scenario-declared driver action without changing the scenario file:

@@ -196,42 +196,42 @@ const REQUIRED_PACKAGE_SCRIPT_SHAPES = {
   },
   'asl:ios:live': {
     command: 'asl-live-ios',
-    flags: ['--config', '--scenario', '--out'],
+    flags: ['--config', '--scenario', '--out', '--compare-latest', '--fail-on-regression'],
     values: {},
   },
   'asl:android:live': {
     command: 'asl-live-android',
-    flags: ['--config', '--scenario', '--out'],
+    flags: ['--config', '--scenario', '--out', '--compare-latest', '--fail-on-regression'],
     values: {},
   },
   'asl:ios:live:agent-device': {
     command: 'asl-live-ios',
-    flags: ['--config', '--scenario', '--out', '--agent-device-proof'],
+    flags: ['--config', '--scenario', '--out', '--agent-device-proof', '--compare-latest', '--fail-on-regression'],
     values: {},
   },
   'asl:android:live:agent-device': {
     command: 'asl-live-android',
-    flags: ['--config', '--scenario', '--out', '--agent-device-proof'],
+    flags: ['--config', '--scenario', '--out', '--agent-device-proof', '--compare-latest', '--fail-on-regression'],
     values: {},
   },
   'asl:ios:live:argent': {
     command: 'asl-live-ios',
-    flags: ['--config', '--scenario', '--out', '--argent-proof'],
+    flags: ['--config', '--scenario', '--out', '--argent-proof', '--compare-latest', '--fail-on-regression'],
     values: {},
   },
   'asl:android:live:argent': {
     command: 'asl-live-android',
-    flags: ['--config', '--scenario', '--out', '--argent-proof'],
+    flags: ['--config', '--scenario', '--out', '--argent-proof', '--compare-latest', '--fail-on-regression'],
     values: {},
   },
   'asl:ios:live:runners': {
     command: 'asl-live-ios',
-    flags: ['--config', '--scenario', '--out', '--agent-device-proof', '--argent-proof'],
+    flags: ['--config', '--scenario', '--out', '--agent-device-proof', '--argent-proof', '--compare-latest', '--fail-on-regression'],
     values: {},
   },
   'asl:android:live:runners': {
     command: 'asl-live-android',
-    flags: ['--config', '--scenario', '--out', '--agent-device-proof', '--argent-proof'],
+    flags: ['--config', '--scenario', '--out', '--agent-device-proof', '--argent-proof', '--compare-latest', '--fail-on-regression'],
     values: {},
   },
   'asl:profile:ios:live': {

@@ -473,6 +473,14 @@ test('validates required package-script lifecycle shapes', () => {
     command: 'asl-argent --platform ios --scenario scenarios/mobile/checkout.json --app com.example.app --device emulator-5554 --out artifacts/asl/argent-android --run-id checkout-android-argent',
   }), 'asl:argent:android has incorrect required value(s): --platform=android.');
   assert.equal(validatePackageScriptShape({
+    scriptName: 'asl:ios:live',
+    command: 'asl-live-ios --config asl.config.json --scenario scenarios/mobile/checkout.json --out artifacts/asl/ios-live',
+  }), 'asl:ios:live is missing required flag(s): --compare-latest, --fail-on-regression.');
+  assert.equal(validatePackageScriptShape({
+    scriptName: 'asl:android:live',
+    command: 'asl-live-android --config asl.config.json --scenario scenarios/mobile/checkout.json --out artifacts/asl/android-live --compare-latest --fail-on-regression',
+  }), null);
+  assert.equal(validatePackageScriptShape({
     scriptName: 'asl:profile:ios:live',
     command: 'asl-profile-ios --config asl.config.json --scenario scenarios/mobile/checkout.json --simctl-capture --profile-session --launch --comparison-lane checkout-ios-live --out artifacts/asl/ios --run-id checkout-ios-live',
   }), null);

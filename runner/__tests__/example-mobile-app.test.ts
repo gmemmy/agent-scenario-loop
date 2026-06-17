@@ -192,7 +192,18 @@ test('example mobile app exposes consumer package scripts', () => {
     assert.equal(typeof scripts[scriptName], 'string', `${scriptName} should be defined`);
   }
 
-  for (const scriptName of ['asl:live-proof:android', 'asl:live-proof:ios']) {
+  for (const scriptName of [
+    'asl:android:live',
+    'asl:android:live:agent-device',
+    'asl:android:live:argent',
+    'asl:android:live:runners',
+    'asl:ios:live',
+    'asl:ios:live:agent-device',
+    'asl:ios:live:argent',
+    'asl:ios:live:runners',
+    'asl:live-proof:android',
+    'asl:live-proof:ios',
+  ]) {
     assert.match(scripts[scriptName], /--fail-on-regression/u, `${scriptName} should fail strict gates on regressions`);
   }
 
@@ -205,8 +216,10 @@ test('example mobile app exposes consumer package scripts', () => {
   for (const [scriptName, command] of Object.entries(snippetScripts)) {
     assert.doesNotMatch(command, /\.\.\/\.\.|dist\/runner|pnpm --dir/u, `${scriptName} should use public package commands`);
   }
-  assert.match(snippetScripts['asl:android:live:runners'], /--agent-device-proof --argent-proof/u);
-  assert.match(snippetScripts['asl:ios:live:runners'], /--agent-device-proof --argent-proof/u);
+  assert.match(snippetScripts['asl:android:live'], /--compare-latest --fail-on-regression/u);
+  assert.match(snippetScripts['asl:ios:live'], /--compare-latest --fail-on-regression/u);
+  assert.match(snippetScripts['asl:android:live:runners'], /--agent-device-proof --argent-proof --compare-latest --fail-on-regression/u);
+  assert.match(snippetScripts['asl:ios:live:runners'], /--agent-device-proof --argent-proof --compare-latest --fail-on-regression/u);
 
   assert.deepEqual(
     Object.keys(templateScripts).sort(),

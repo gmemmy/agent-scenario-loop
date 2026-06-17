@@ -85,10 +85,12 @@ test('init-project scaffolds templates into a consuming app layout', async (t: T
   assert.match(readJson(path.join(targetDir, 'asl', 'package-scripts.json'))['asl:argent:android'], /checkout-submit-android-argent/u);
   assert.match(readJson(path.join(targetDir, 'asl', 'package-scripts.json'))['asl:ios:live'], /^asl-live-ios /u);
   assert.match(readJson(path.join(targetDir, 'asl', 'package-scripts.json'))['asl:ios:live'], /--scenario scenarios\/mobile\/checkout-submit\.json/u);
+  assert.match(readJson(path.join(targetDir, 'asl', 'package-scripts.json'))['asl:ios:live'], /--compare-latest --fail-on-regression/u);
   assert.match(readJson(path.join(targetDir, 'asl', 'package-scripts.json'))['asl:android:live'], /^asl-live-android /u);
   assert.match(readJson(path.join(targetDir, 'asl', 'package-scripts.json'))['asl:android:live'], /--scenario scenarios\/mobile\/checkout-submit\.json/u);
-  assert.match(readJson(path.join(targetDir, 'asl', 'package-scripts.json'))['asl:ios:live:runners'], /--agent-device-proof --argent-proof/u);
-  assert.match(readJson(path.join(targetDir, 'asl', 'package-scripts.json'))['asl:android:live:runners'], /--agent-device-proof --argent-proof/u);
+  assert.match(readJson(path.join(targetDir, 'asl', 'package-scripts.json'))['asl:android:live'], /--compare-latest --fail-on-regression/u);
+  assert.match(readJson(path.join(targetDir, 'asl', 'package-scripts.json'))['asl:ios:live:runners'], /--agent-device-proof --argent-proof --compare-latest --fail-on-regression/u);
+  assert.match(readJson(path.join(targetDir, 'asl', 'package-scripts.json'))['asl:android:live:runners'], /--agent-device-proof --argent-proof --compare-latest --fail-on-regression/u);
   assert.equal(readJson(path.join(targetDir, 'asl', 'package-scripts.json'))['asl:profile:ios:live'], 'asl-profile-ios --config asl.config.json --scenario scenarios/mobile/checkout-submit.json --simctl-capture --profile-session --profile-session-storage --launch --wait-ms 5000 --comparison-lane checkout-submit-ios-live --out artifacts/asl/ios --run-id checkout-submit-ios-live');
   assert.match(readJson(path.join(targetDir, 'asl', 'package-scripts.json'))['asl:compare:ios'], /--fail-on-regression/u);
   assert.match(readJson(path.join(targetDir, 'asl', 'package-scripts.json'))['asl:compare:ios'], /\$\{ASL_COMPARE_IOS_CURRENT:\?set_ASL_COMPARE_IOS_CURRENT\}/u);

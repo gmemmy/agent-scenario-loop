@@ -845,10 +845,12 @@ function main(): void {
     assert.match(initializedScripts['asl:argent:android'], /ASL_ARGENT_COMMAND_TIMEOUT_MS/u);
     assert.match(initializedScripts['asl:ios:live'], /^asl-live-ios /u);
     assert.match(initializedScripts['asl:ios:live'], /--scenario scenarios\/mobile\/checkout-submit\.json/u);
+    assert.match(initializedScripts['asl:ios:live'], /--compare-latest --fail-on-regression/u);
     assert.match(initializedScripts['asl:android:live'], /^asl-live-android /u);
     assert.match(initializedScripts['asl:android:live'], /--scenario scenarios\/mobile\/checkout-submit\.json/u);
-    assert.match(initializedScripts['asl:ios:live:runners'], /--agent-device-proof --argent-proof/u);
-    assert.match(initializedScripts['asl:android:live:runners'], /--agent-device-proof --argent-proof/u);
+    assert.match(initializedScripts['asl:android:live'], /--compare-latest --fail-on-regression/u);
+    assert.match(initializedScripts['asl:ios:live:runners'], /--agent-device-proof --argent-proof --compare-latest --fail-on-regression/u);
+    assert.match(initializedScripts['asl:android:live:runners'], /--agent-device-proof --argent-proof --compare-latest --fail-on-regression/u);
     assert.equal(Object.values(initializedScripts).some((script) => String(script).startsWith('asl-example-')), false);
     assert.match(initializedScripts['asl:compare:ios'], /--fail-on-regression/u);
     assert.match(initializedScripts['asl:compare:android'], /--fail-on-regression/u);

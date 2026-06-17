@@ -24,17 +24,22 @@ asl-live-android \
   --scenario scenarios/mobile/app-startup.json \
   --package dev.example.app \
   --serial <emulator-serial> \
-  --out artifacts/asl/android-live
+  --out artifacts/asl/android-live \
+  --compare-latest \
+  --fail-on-regression
 
 asl-live-ios \
   --config asl.config.json \
   --scenario scenarios/mobile/app-startup.json \
   --bundle dev.example.app \
   --device <simulator-udid> \
-  --out artifacts/asl/ios-live
+  --out artifacts/asl/ios-live \
+  --compare-latest \
+  --fail-on-regression
 ```
 
 These commands run one portable scenario through the platform preflight, profile-session capture, profile artifact pipeline, optional sidecar interaction runners, optional latest-trusted comparison, and aggregate live-proof writer. The platform profile runner captures app-owned truth first; sidecars run afterward so a UI-driver session cannot interfere with the evidence-producing adb or simctl window.
+When no trusted prior run exists, the comparison is recorded as skipped without failing the live proof. When a comparable prior run exists, `--fail-on-regression` makes a regression exit nonzero after artifacts are written.
 
 Add sidecars when external drivers are available:
 
