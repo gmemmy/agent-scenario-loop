@@ -966,7 +966,7 @@ async function runAgentDeviceCapture({
     platform,
     ...(!sessionOwnsTarget && serial ? { serial } : {}),
     ...(session ? { session } : {}),
-    target,
+    ...(!sessionOwnsTarget ? { target } : {}),
     ...(!sessionOwnsTarget && udid ? { udid } : {}),
   });
 

@@ -241,6 +241,30 @@ function readInteractionProofWarnings(runDir: string): LiveProofInteractionProof
 }
 
 /**
+ * Formats aggregate gate counts without hiding which linked proof lane failed.
+ *
+ * @param {{failed: number, label: string, passed: number}} options
+ * @returns {string}
+ */
+function formatGateCountSummary({
+  failed,
+  label,
+  passed,
+}: {
+  failed: number;
+  label: string;
+  passed: number;
+}): string {
+  if (failed === 0) {
+    return `${passed} passed ${label}`;
+  }
+  if (passed === 0) {
+    return `${failed} failed ${label}`;
+  }
+  return `${passed} passed and ${failed} failed ${label}`;
+}
+
+/**
  * Builds a compact summary sentence for an aggregate live proof.
  *
  * @param {{platform: string, profileCount: number, comparisonCount: number}} options
@@ -249,6 +273,8 @@ function readInteractionProofWarnings(runDir: string): LiveProofInteractionProof
 function buildLiveProofSummary({
   comparisonCount,
   comparisonStatus,
+  failedInteractionProofCount = 0,
+  failedProfileCount = 0,
   interactionProofCount = 0,
   interactionWarningCount = 0,
   platform,
@@ -258,6 +284,8 @@ function buildLiveProofSummary({
 }: {
   comparisonCount: number;
   comparisonStatus: LiveProofComparisonStatus;
+  failedInteractionProofCount?: number;
+  failedProfileCount?: number;
   interactionProofCount?: number;
   interactionWarningCount?: number;
   platform: string;
@@ -266,11 +294,20 @@ function buildLiveProofSummary({
   status?: 'failed' | 'passed';
 }): string {
   const statusText = status === 'passed' ? 'passed' : 'failed';
+  const profileText = formatGateCountSummary({
+    failed: failedProfileCount,
+    label: 'profile run(s)',
+    passed: profileCount - failedProfileCount,
+  });
   const comparisonText = comparisonCount > 0
     ? `with ${comparisonCount} comparison result(s): ${comparisonStatus}`
     : 'without comparison results';
   const interactionText = interactionProofCount > 0
-    ? ` and ${interactionProofCount} interaction proof(s)`
+    ? ` and ${formatGateCountSummary({
+      failed: failedInteractionProofCount,
+      label: 'interaction proof(s)',
+      passed: interactionProofCount - failedInteractionProofCount,
+    })}`
     : '';
   const skippedText = skippedInteractionProofCount > 0
     ? `; skipped ${skippedInteractionProofCount} interaction proof(s)`
@@ -278,7 +315,7 @@ function buildLiveProofSummary({
   const warningText = interactionWarningCount > 0
     ? `; ${interactionWarningCount} interaction warning(s)`
     : '';
-  return `${platform} live proof ${statusText} ${profileCount} profile run(s)${interactionText} ${comparisonText}${skippedText}${warningText}.`;
+  return `${platform} live proof ${statusText} with ${profileText}${interactionText} ${comparisonText}${skippedText}${warningText}.`;
 }
 
 /**
@@ -649,6 +686,8 @@ async function writeLiveProofSummary({
     summary: buildLiveProofSummary({
       comparisonCount: comparisons.length,
       comparisonStatus,
+      failedInteractionProofCount: interactionProofPointers.filter((proof) => !isTrustedLiveRunStatus(proof)).length,
+      failedProfileCount: profilePointers.filter((profile) => profile.healthStatus !== 'passed' || profile.verdictStatus !== 'passed').length,
       interactionProofCount: interactionProofs.length,
       interactionWarningCount,
       platform,

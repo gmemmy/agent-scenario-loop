@@ -184,6 +184,7 @@ test('writes failed aggregate proofs with skipped interaction proof pointers', a
   const artifact = JSON.parse(fs.readFileSync(result.liveProofPath, 'utf8'));
   assert.equal(artifact.status, 'failed');
   assert.equal(artifact.nextAction.code, 'inspect_failed_run');
+  assert.equal(artifact.summary, 'ios live proof failed with 1 failed profile run(s) without comparison results; skipped 1 interaction proof(s).');
   assert.equal(artifact.skippedInteractionProofs[0].runnerId, 'argent');
   assert.match(fs.readFileSync(result.summaryPath, 'utf8'), /## Skipped Interaction Proofs/u);
 });
@@ -265,7 +266,7 @@ test('writes optional interaction proof pointers into aggregate live proof artif
   });
 
   const artifact = JSON.parse(fs.readFileSync(result.liveProofPath, 'utf8'));
-  assert.equal(artifact.summary, 'android live proof passed 1 profile run(s) and 1 interaction proof(s) without comparison results; 1 interaction warning(s).');
+  assert.equal(artifact.summary, 'android live proof passed with 1 passed profile run(s) and 1 passed interaction proof(s) without comparison results; 1 interaction warning(s).');
   assert.deepEqual(
     {
       healthStatus: artifact.preflight.healthStatus,

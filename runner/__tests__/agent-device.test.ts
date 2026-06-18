@@ -352,8 +352,8 @@ test('agent-device capture lets named sessions own target selection', async (t: 
   });
 
   assert.deepEqual(calls, [
-    'open dev.example.app --platform android --target mobile --session android-example --json',
-    'is visible id="home-title" --platform android --target mobile --session android-example --json',
+    'open dev.example.app --platform android --session android-example --json',
+    'is visible id="home-title" --platform android --session android-example --json',
   ]);
   const metadata = readJson(path.join(tempDir, 'raw', 'agent-device-metadata.json'));
   assert.equal(metadata.requestedTarget, 'emulator-5554');
