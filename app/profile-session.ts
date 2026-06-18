@@ -15,6 +15,7 @@ export type ProfileSessionCommand = {
   scenario?: string;
   runId?: string;
   command: string;
+  source?: 'deeplink' | 'storage';
   timestamp: number;
 };
 
@@ -402,6 +403,10 @@ function shouldSkipProfileCommandForDuplicateWindow(
   command: ProfileSessionCommand,
   commandTimestamp: number,
 ): boolean {
+  if (command.source === 'storage') {
+    return false;
+  }
+
   const signature = getProfileCommandSignature(command);
   return (
     signature === lastProfileCommandSignature &&
@@ -555,6 +560,7 @@ export function applyProfileSessionUrl(url: string | null | undefined): boolean 
       scenario: route.scenario,
       runId: route.runId,
       command: route.command,
+      source: 'deeplink' as const,
       timestamp,
     };
     logProfileSession('command', command);
@@ -760,13 +766,18 @@ export function useProfileSessionBootstrap(): void {
           continue;
         }
 
-        if (hasProcessedProfileCommandId(command)) {
+        const storageCommand = {
+          ...command,
+          source: 'storage' as const,
+        };
+
+        if (hasProcessedProfileCommandId(storageCommand)) {
           continue;
         }
 
-        markProfileCommandIdProcessed(command);
-        logProfileSession('command', command);
-        notifyProfileCommandListeners(command);
+        markProfileCommandIdProcessed(storageCommand);
+        logProfileSession('command', storageCommand);
+        notifyProfileCommandListeners(storageCommand);
       }
     };
 

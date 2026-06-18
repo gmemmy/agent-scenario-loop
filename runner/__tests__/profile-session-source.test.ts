@@ -25,11 +25,19 @@ test('profile-session helper keeps storage-backed command control safeguards', (
   assert.match(source, /reason: 'duplicate-command-window'/u);
   assert.match(
     source,
+    /if \(command\.source === 'storage'\) \{\s+return false;\s+\}/u,
+  );
+  assert.match(
+    source,
     /const targetDispatched = dispatchProfileCommandTarget\(command\);\s+if \(targetDispatched\) \{\s+return;\s+\}/u,
   );
   assert.match(
     source,
-    /if \(hasProcessedProfileCommandId\(command\)\) \{\s+continue;\s+\}\s+markProfileCommandIdProcessed\(command\);\s+logProfileSession\('command', command\);/u,
+    /source: 'deeplink' as const/u,
+  );
+  assert.match(
+    source,
+    /const storageCommand = \{\s+\.\.\.command,\s+source: 'storage' as const,\s+\};\s+if \(hasProcessedProfileCommandId\(storageCommand\)\) \{\s+continue;\s+\}\s+markProfileCommandIdProcessed\(storageCommand\);\s+logProfileSession\('command', storageCommand\);\s+notifyProfileCommandListeners\(storageCommand\);/u,
   );
 });
 
