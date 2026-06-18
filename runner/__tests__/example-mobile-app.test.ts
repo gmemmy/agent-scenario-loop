@@ -233,6 +233,14 @@ test('example mobile app exposes consumer package scripts', () => {
   }
   assert.match(snippetScripts['asl:android:live'], /--compare-latest --fail-on-regression/u);
   assert.match(snippetScripts['asl:ios:live'], /--compare-latest --fail-on-regression/u);
+  assert.match(snippetScripts['asl:android:live:agent-device'], /ASL_ANDROID_AGENT_DEVICE_SESSION:\+--agent-device-session/u);
+  assert.match(snippetScripts['asl:ios:live:agent-device'], /ASL_IOS_AGENT_DEVICE_SESSION:\+--agent-device-session/u);
+  assert.match(snippetScripts['asl:android:live:runners'], /ASL_ANDROID_AGENT_DEVICE_SESSION:\+--agent-device-session/u);
+  assert.match(snippetScripts['asl:ios:live:runners'], /ASL_IOS_AGENT_DEVICE_SESSION:\+--agent-device-session/u);
+  assert.match(scripts['asl:android:live:runners'], /ASL_ANDROID_AGENT_DEVICE_SESSION:\+--agent-device-session/u);
+  assert.match(scripts['asl:ios:live:runners'], /ASL_IOS_AGENT_DEVICE_SESSION:\+--agent-device-session/u);
+  assert.match(rootScripts['example:android:live:runners'], /ASL_EXAMPLE_ANDROID_AGENT_DEVICE_SESSION:\+--agent-device-session/u);
+  assert.match(rootScripts['example:ios:live:runners'], /ASL_EXAMPLE_IOS_AGENT_DEVICE_SESSION:\+--agent-device-session/u);
   assert.match(snippetScripts['asl:android:live:runners'], /--agent-device-proof --argent-proof --compare-latest --fail-on-regression/u);
   assert.match(snippetScripts['asl:ios:live:runners'], /--agent-device-proof --argent-proof --compare-latest --fail-on-regression/u);
   assert.match(snippetScripts['asl:live-proof:both'], /--require-platforms android,ios --out artifacts\/asl\/live-proof-set --fail-on-regression/u);

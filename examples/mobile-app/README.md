@@ -186,9 +186,9 @@ The aggregate command writes `_live-proof/android-live-proof/live-proof.json` an
 When `agent-device` or Argent is available, attach the same startup interaction assertion as a sidecar proof:
 
 ```bash
-pnpm example:android:live:agent-device -- --agent-device-session <name>
+ASL_EXAMPLE_ANDROID_AGENT_DEVICE_SESSION=<name> pnpm example:android:live:agent-device
 pnpm example:android:live:argent
-pnpm example:android:live:runners -- --agent-device-session <name>
+ASL_EXAMPLE_ANDROID_AGENT_DEVICE_SESSION=<name> pnpm example:android:live:runners
 ```
 
 For Argent without a global binary, set `ASL_ARGENT_BIN=/path/to/argent` to the installed executable. The `npx --yes @swmansion/argent run` wrapper shape is supported through `ASL_ARGENT_BIN=npx` and `ASL_ARGENT_BASE_ARGS="--yes @swmansion/argent run"`, but verify it with `pnpm asl:argent:check` before relying on it.
@@ -243,9 +243,9 @@ The aggregate command runs simctl preflight, startup, open-close, and scroll-set
 When `agent-device` or Argent is available, attach the same startup interaction assertion as a sidecar proof:
 
 ```bash
-pnpm example:ios:live:agent-device -- --agent-device-session <name>
+ASL_EXAMPLE_IOS_AGENT_DEVICE_SESSION=<name> pnpm example:ios:live:agent-device
 pnpm example:ios:live:argent
-pnpm example:ios:live:runners -- --agent-device-session <name>
+ASL_EXAMPLE_IOS_AGENT_DEVICE_SESSION=<name> pnpm example:ios:live:runners
 ```
 
 For Argent without a global binary, set `ASL_ARGENT_BIN=/path/to/argent` to the installed executable. The `npx --yes @swmansion/argent run` wrapper shape is supported through `ASL_ARGENT_BIN=npx` and `ASL_ARGENT_BASE_ARGS="--yes @swmansion/argent run"`, but verify it with `pnpm asl:argent:check` before relying on it.
