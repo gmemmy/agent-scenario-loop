@@ -39,6 +39,8 @@ asl-check-plan --scenario scenarios/mobile/{{SCENARIO_ID}}.json --runner runner-
 asl-check-plan --scenario scenarios/mobile/{{SCENARIO_ID}}.json --runner runner-manifests/primary-runner.json --provider runner-manifests/evidence-provider.json --platform android --out artifacts/asl/plan/{{SCENARIO_ID}}-android
 ```
 
+Keep deterministic validation and live device proof as separate lanes. Planner checks and fixture profile runs should work in ordinary build or agent sandboxes. Live runs that touch adb, simctl, agent-device, Argent, emulators, simulators, or physical devices need host/device access. If a live command cannot reach those host services, classify it as runner environment health before treating it as a scenario regression.
+
 When the app emits profile events, run platform profile commands against captured evidence or a live runner:
 
 ```bash

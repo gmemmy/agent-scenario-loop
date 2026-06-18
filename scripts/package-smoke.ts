@@ -815,6 +815,14 @@ function main(): void {
       fs.readFileSync(path.join(initOutputDir, 'asl', 'README.md'), 'utf8'),
       /ASL_COMPARE_ANDROID_CURRENT=/u,
     );
+    assert.match(
+      fs.readFileSync(path.join(initOutputDir, 'asl', 'README.md'), 'utf8'),
+      /Keep deterministic validation and live device proof as separate lanes/u,
+    );
+    assert.match(
+      fs.readFileSync(path.join(initOutputDir, 'asl', 'README.md'), 'utf8'),
+      /host\/device access/u,
+    );
     const initializedScripts = JSON.parse(
       fs.readFileSync(path.join(initOutputDir, 'asl', 'package-scripts.json'), 'utf8'),
     );
