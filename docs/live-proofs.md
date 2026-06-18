@@ -189,6 +189,17 @@ pnpm asl:live-proof:both
 
 Both commands call `asl-live-proof` with two `--file` values, `--require-platforms android,ios`, `--out`, and `--fail-on-regression`. The gate writes `live-proof-set.json` and `agent-summary.md` under the proof-set artifact directory, then exits nonzero when a required platform proof is missing, when any proof artifact has `status: failed`, or when a required regression gate reports `comparisonStatus: regressed`. Use `ASL_ANDROID_LIVE_PROOF` and `ASL_IOS_LIVE_PROOF` in consumer apps, or `ASL_EXAMPLE_ANDROID_LIVE_PROOF` and `ASL_EXAMPLE_IOS_LIVE_PROOF` in the checked-in example app, to point at suffixed proof files.
 
+For a final local proof before an agent claims improvement, enable artifact pointer checks:
+
+```bash
+ASL_REQUIRE_LIVE_PROOF_ARTIFACTS=1 pnpm example:mobile:live-proof
+ASL_REQUIRE_LIVE_PROOF_ARTIFACTS=1 pnpm asl:live-proof:both
+```
+
+This passes `--require-artifacts` so `asl-live-proof` verifies that each referenced run directory, summary, comparison artifact, and interaction capture exists on disk. Leave it off when inspecting copied or archived `live-proof.json` files without the full artifact tree.
+
+By default, relative pointers are resolved from the current working directory. Use `--artifact-base-dir <dir>` with direct `asl-live-proof` calls when inspecting a project from a different shell location.
+
 ## Comparison
 
 Compare explicit completed runs:

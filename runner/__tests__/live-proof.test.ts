@@ -6,7 +6,9 @@ const path = require('node:path');
 const test = require('node:test');
 
 const {
+  assertLiveProofArtifactPointers,
   buildLiveProofSetArtifact,
+  collectLiveProofArtifactPointerIssues,
   countLiveProofComparisons,
   deriveLiveProofComparisonStatus,
   expectedLiveProofNextActionCode,
@@ -17,10 +19,12 @@ const {
   parseRequiredPlatforms,
   readLiveProof,
   readLiveProofSet,
+  resolveLiveProofArtifactBaseDir,
   resolveLiveProofFiles,
   writeLiveProofSetArtifact,
   shouldFailLiveProofSet,
   shouldFailOnRegression,
+  shouldRequireArtifacts,
 } = require('../live-proof');
 
 type TestContext = import('node:test').TestContext;
@@ -201,6 +205,55 @@ function writeProof(tempDir: string, proof: Record<string, unknown>): string {
   return proofPath;
 }
 
+/**
+ * Writes the files and directories referenced by a generated live-proof fixture.
+ *
+ * @param {string} artifactBaseDir
+ * @param {Record<string, unknown>} proof
+ * @returns {Promise<void>}
+ */
+async function materializeLiveProofPointers(
+  artifactBaseDir: string,
+  proof: Record<string, unknown>,
+): Promise<void> {
+  const writePointerFile = async (filePath: string): Promise<void> => {
+    const resolved = path.resolve(artifactBaseDir, filePath);
+    await fsp.mkdir(path.dirname(resolved), { recursive: true });
+    await fsp.writeFile(resolved, 'summary\n', 'utf8');
+  };
+  const writePointerDir = async (dirPath: string): Promise<void> => {
+    await fsp.mkdir(path.resolve(artifactBaseDir, dirPath), { recursive: true });
+  };
+
+  const preflight = proof.preflight as {runDir: string; summaryPath: string};
+  await writePointerDir(preflight.runDir);
+  await writePointerFile(preflight.summaryPath);
+
+  for (const profile of proof.profiles as Array<{runDir: string; summaryPath: string}>) {
+    await writePointerDir(profile.runDir);
+    await writePointerFile(profile.summaryPath);
+  }
+
+  for (const interactionProof of (proof.interactionProofs ?? []) as Array<Record<string, unknown>>) {
+    const runDir = interactionProof.runDir as string;
+    await writePointerDir(runDir);
+    await writePointerFile(interactionProof.summaryPath as string);
+    const captures = interactionProof.captures as {screenshots?: string[]} | undefined;
+    for (const screenshot of captures?.screenshots ?? []) {
+      await writePointerFile(path.join(runDir, screenshot));
+    }
+  }
+
+  for (const comparison of proof.comparisons as Array<Record<string, string | null>>) {
+    if (comparison.status === 'skipped') {
+      continue;
+    }
+    await writePointerDir(comparison.baselineDir as string);
+    await writePointerDir(comparison.comparisonDir as string);
+    await writePointerFile(comparison.summaryPath as string);
+  }
+}
+
 test('parses live-proof CLI arguments', () => {
   const args = parseArgs([
     '--file',
@@ -213,18 +266,25 @@ test('parses live-proof CLI arguments', () => {
     'artifacts/asl/live-proof-set',
     '--run-id',
     'current-platform-set',
+    '--artifact-base-dir',
+    'project-root',
+    '--require-artifacts',
     '--fail-on-regression',
   ]);
 
   assert.deepEqual(args, {
     file: ['android-live-proof.json', 'ios-live-proof.json'],
     'fail-on-regression': true,
+    'artifact-base-dir': 'project-root',
     out: 'artifacts/asl/live-proof-set',
+    'require-artifacts': true,
     'require-platforms': 'android,ios',
     'run-id': 'current-platform-set',
   });
   assert.deepEqual(resolveLiveProofFiles(args), ['android-live-proof.json', 'ios-live-proof.json']);
   assert.deepEqual(parseRequiredPlatforms(args['require-platforms']), ['android', 'ios']);
+  assert.equal(shouldRequireArtifacts(args), true);
+  assert.equal(resolveLiveProofArtifactBaseDir(args), path.resolve('project-root'));
 });
 
 test('counts live-proof comparison statuses from pointers', () => {
@@ -312,6 +372,92 @@ test('rejects live-proof artifacts with inconsistent next action', async (t: Tes
     () => readLiveProof(proofPath),
     /nextAction\.code expected inspect_summary for passed\/unchanged but found inspect_regressions/u,
   );
+});
+
+test('validates local live-proof artifact pointers when requested', async (t: TestContext) => {
+  const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-live-proof-pointers-'));
+  t.after(async () => {
+    await fsp.rm(tempDir, { recursive: true, force: true });
+  });
+  const proof = buildProof('unchanged');
+  await materializeLiveProofPointers(tempDir, proof);
+  const proofPath = writeProof(tempDir, proof);
+
+  const issues = collectLiveProofArtifactPointerIssues(proof, {
+    artifactBaseDir: tempDir,
+  });
+  const readProof = readLiveProof(proofPath, {
+    artifactBaseDir: tempDir,
+    requireArtifacts: true,
+  });
+
+  assert.deepEqual(issues, []);
+  assert.equal(readProof.runId, 'android-live-proof');
+});
+
+test('rejects missing local live-proof artifact pointers when requested', async (t: TestContext) => {
+  const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-live-proof-missing-pointers-'));
+  t.after(async () => {
+    await fsp.rm(tempDir, { recursive: true, force: true });
+  });
+  const proof = buildProof('unchanged');
+  await materializeLiveProofPointers(tempDir, proof);
+  const preflight = proof.preflight as Record<string, string>;
+  await fsp.rm(path.resolve(tempDir, preflight.summaryPath));
+  const proofPath = writeProof(tempDir, proof);
+
+  assert.throws(
+    () => assertLiveProofArtifactPointers(proof as ReturnType<typeof readLiveProof>, {
+      artifactBaseDir: tempDir,
+    }),
+    /preflight android-live-preflight summaryPath.+path does not exist/u,
+  );
+  assert.throws(
+    () => readLiveProof(proofPath, {
+      artifactBaseDir: tempDir,
+      requireArtifacts: true,
+    }),
+    /Live proof artifact pointers missing/u,
+  );
+});
+
+test('does not require skipped comparison artifact pointers', async (t: TestContext) => {
+  const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-live-proof-skipped-pointers-'));
+  t.after(async () => {
+    await fsp.rm(tempDir, { recursive: true, force: true });
+  });
+  const proof = buildProof('unchanged');
+  proof.comparisons = [
+    {
+      label: 'startup',
+      scenarioId: 'app-startup',
+      runId: 'android-live-startup',
+      status: 'skipped',
+      baselineDir: null,
+      comparisonDir: null,
+      summaryPath: null,
+      reason: 'No trusted baseline.',
+    },
+  ];
+  proof.comparisonCounts = {
+    better: 0,
+    inconclusive: 0,
+    mixed: 0,
+    skipped: 1,
+    unchanged: 0,
+    worse: 0,
+  };
+  proof.comparisonStatus = 'baseline_missing';
+  (proof.nextAction as Record<string, string>).code = 'establish_baseline';
+  await materializeLiveProofPointers(tempDir, proof);
+  const proofPath = writeProof(tempDir, proof);
+
+  const readProof = readLiveProof(proofPath, {
+    artifactBaseDir: tempDir,
+    requireArtifacts: true,
+  });
+
+  assert.equal(readProof.comparisonStatus, 'baseline_missing');
 });
 
 test('reads and formats a required Android and iOS live-proof set', async (t: TestContext) => {

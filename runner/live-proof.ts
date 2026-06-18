@@ -9,9 +9,11 @@ const { SCHEMAS, assertValidJson } = require('../core/schema-validator');
 const { hasHelpFlag, writeUsage } = require('./cli');
 
 type CliArgs = {
+  'artifact-base-dir'?: string | boolean;
   file?: string | string[] | boolean;
   'fail-on-regression'?: string | boolean;
   out?: string | boolean;
+  'require-artifacts'?: string | boolean;
   'require-platforms'?: string | boolean;
   'run-id'?: string | boolean;
   [key: string]: string | string[] | boolean | undefined;
@@ -72,13 +74,17 @@ type LiveProofArtifact = {
   preflight: {
     healthStatus: string;
     runId: string;
+    runDir: string;
+    summaryPath: string;
     verdictStatus: string;
   };
   profiles: Array<{
     healthStatus: string;
     label: string;
     runId: string;
+    runDir: string;
     scenarioId: string;
+    summaryPath: string;
     verdictStatus: string;
   }>;
   runId: string;
@@ -90,6 +96,8 @@ type LiveProofComparisonStatus = keyof LiveProofComparisonCounts;
 type LiveProofMetricStatus = 'better' | 'worse' | 'unchanged' | 'inconclusive';
 type LiveProofPlatform = LiveProofArtifact['platform'];
 type LiveProofComparisonPointer = {
+  baselineDir?: string | null;
+  comparisonDir?: string | null;
   label?: string;
   metricSummary?: {
     counts?: Record<LiveProofMetricStatus, number>;
@@ -103,6 +111,7 @@ type LiveProofComparisonPointer = {
   runId?: string;
   scenarioId?: string;
   status?: string;
+  summaryPath?: string | null;
 };
 type LiveProofAggregateStatus = (
   'baseline_missing' |
@@ -161,6 +170,16 @@ type LiveProofSetInteractionWarningPointer = {
   runnerId: string;
   scenarioId: string;
 };
+type LiveProofArtifactPointerIssue = {
+  expected: 'directory' | 'file';
+  label: string;
+  path: string;
+  reason: string;
+};
+type LiveProofArtifactReadOptions = {
+  artifactBaseDir?: string;
+  requireArtifacts?: boolean;
+};
 
 /**
  * Prints CLI usage.
@@ -174,6 +193,8 @@ function usage(output: { write: (message: string) => unknown } = process.stderr)
     '',
     'Validates one or more aggregate live-proof artifacts and prints status and next action details.',
     'Use --require-platforms to fail when a platform proof is missing from a multi-artifact gate.',
+    'Use --require-artifacts to fail when live-proof pointers reference missing local evidence files.',
+    'Use --artifact-base-dir <dir> to resolve relative artifact pointers from a directory other than cwd.',
     'Use --out to write live-proof-set.json and agent-summary.md for a durable platform-set gate.',
     'Use --fail-on-regression to exit nonzero when comparisonStatus is regressed.',
   ], output);
@@ -403,6 +424,198 @@ function assertLiveProofAggregateSignals(proof: LiveProofArtifact): void {
 }
 
 /**
+ * Resolves a pointer path using the CLI working directory by default.
+ *
+ * @param {string} pointerPath
+ * @param {string} baseDir
+ * @returns {string}
+ */
+function resolveLiveProofPointerPath(pointerPath: string, baseDir: string): string {
+  return path.isAbsolute(pointerPath) ? pointerPath : path.resolve(baseDir, pointerPath);
+}
+
+/**
+ * Records a pointer issue when a referenced local artifact is missing.
+ *
+ * @param {LiveProofArtifactPointerIssue[]} issues
+ * @param {{baseDir: string, expected: 'directory' | 'file', label: string, pointerPath?: string | null | undefined}} options
+ * @returns {void}
+ */
+function collectExistingPointerIssue(
+  issues: LiveProofArtifactPointerIssue[],
+  {
+    baseDir,
+    expected,
+    label,
+    pointerPath,
+  }: {
+    baseDir: string;
+    expected: 'directory' | 'file';
+    label: string;
+    pointerPath?: string | null | undefined;
+  },
+): void {
+  if (!pointerPath) {
+    issues.push({
+      expected,
+      label,
+      path: '<missing pointer>',
+      reason: 'pointer is empty',
+    });
+    return;
+  }
+
+  const resolvedPath = resolveLiveProofPointerPath(pointerPath, baseDir);
+  let stats: ReturnType<typeof fs.statSync>;
+  try {
+    stats = fs.statSync(resolvedPath);
+  } catch {
+    issues.push({
+      expected,
+      label,
+      path: resolvedPath,
+      reason: 'path does not exist',
+    });
+    return;
+  }
+
+  if (expected === 'directory' && !stats.isDirectory()) {
+    issues.push({
+      expected,
+      label,
+      path: resolvedPath,
+      reason: 'path is not a directory',
+    });
+  }
+  if (expected === 'file' && !stats.isFile()) {
+    issues.push({
+      expected,
+      label,
+      path: resolvedPath,
+      reason: 'path is not a file',
+    });
+  }
+}
+
+/**
+ * Collects missing local evidence pointers from one live-proof artifact.
+ *
+ * @param {LiveProofArtifact} proof
+ * @param {{artifactBaseDir?: string}} [options]
+ * @returns {LiveProofArtifactPointerIssue[]}
+ */
+function collectLiveProofArtifactPointerIssues(
+  proof: LiveProofArtifact,
+  { artifactBaseDir = process.cwd() }: {artifactBaseDir?: string} = {},
+): LiveProofArtifactPointerIssue[] {
+  const issues: LiveProofArtifactPointerIssue[] = [];
+  const baseDir = path.resolve(artifactBaseDir);
+  collectExistingPointerIssue(issues, {
+    baseDir,
+    expected: 'directory',
+    label: `preflight ${proof.preflight.runId} runDir`,
+    pointerPath: proof.preflight.runDir,
+  });
+  collectExistingPointerIssue(issues, {
+    baseDir,
+    expected: 'file',
+    label: `preflight ${proof.preflight.runId} summaryPath`,
+    pointerPath: proof.preflight.summaryPath,
+  });
+
+  for (const profile of proof.profiles) {
+    collectExistingPointerIssue(issues, {
+      baseDir,
+      expected: 'directory',
+      label: `profile ${profile.label} runDir`,
+      pointerPath: profile.runDir,
+    });
+    collectExistingPointerIssue(issues, {
+      baseDir,
+      expected: 'file',
+      label: `profile ${profile.label} summaryPath`,
+      pointerPath: profile.summaryPath,
+    });
+  }
+
+  for (const interactionProof of proof.interactionProofs ?? []) {
+    collectExistingPointerIssue(issues, {
+      baseDir,
+      expected: 'directory',
+      label: `interaction ${interactionProof.label} runDir`,
+      pointerPath: interactionProof.runDir,
+    });
+    collectExistingPointerIssue(issues, {
+      baseDir,
+      expected: 'file',
+      label: `interaction ${interactionProof.label} summaryPath`,
+      pointerPath: interactionProof.summaryPath,
+    });
+    for (const screenshotPath of interactionProof.captures?.screenshots ?? []) {
+      collectExistingPointerIssue(issues, {
+        baseDir,
+        expected: 'file',
+        label: `interaction ${interactionProof.label} screenshot`,
+        pointerPath: path.isAbsolute(screenshotPath)
+          ? screenshotPath
+          : path.join(interactionProof.runDir, screenshotPath),
+      });
+    }
+  }
+
+  for (const comparison of proof.comparisons) {
+    if (comparison.status === 'skipped') {
+      continue;
+    }
+
+    collectExistingPointerIssue(issues, {
+      baseDir,
+      expected: 'directory',
+      label: `comparison ${comparison.label ?? 'comparison'} baselineDir`,
+      pointerPath: comparison.baselineDir,
+    });
+    collectExistingPointerIssue(issues, {
+      baseDir,
+      expected: 'directory',
+      label: `comparison ${comparison.label ?? 'comparison'} comparisonDir`,
+      pointerPath: comparison.comparisonDir,
+    });
+    collectExistingPointerIssue(issues, {
+      baseDir,
+      expected: 'file',
+      label: `comparison ${comparison.label ?? 'comparison'} summaryPath`,
+      pointerPath: comparison.summaryPath,
+    });
+  }
+
+  return issues;
+}
+
+/**
+ * Fails when a live-proof artifact references missing local evidence.
+ *
+ * @param {LiveProofArtifact} proof
+ * @param {{artifactBaseDir?: string}} [options]
+ * @returns {void}
+ */
+function assertLiveProofArtifactPointers(
+  proof: LiveProofArtifact,
+  options: {artifactBaseDir?: string} = {},
+): void {
+  const issues = collectLiveProofArtifactPointerIssues(proof, options);
+  if (issues.length === 0) {
+    return;
+  }
+
+  const preview = issues
+    .slice(0, 8)
+    .map((issue) => `${issue.label} -> ${issue.path} (${issue.reason})`)
+    .join('; ');
+  const suffix = issues.length > 8 ? `; ${issues.length - 8} more` : '';
+  throw new Error(`Live proof artifact pointers missing: ${preview}${suffix}.`);
+}
+
+/**
  * Formats one metric highlight from a comparison pointer.
  *
  * @param {{delta?: number | null, name?: string, status?: string, unit?: string}} metric
@@ -486,13 +699,20 @@ function formatInteractionProofWarningDetails(proofPointer: {
  * Reads and validates a live-proof artifact.
  *
  * @param {string} filePath
+ * @param {LiveProofArtifactReadOptions} [options]
  * @returns {LiveProofArtifact}
  */
-function readLiveProof(filePath: string): LiveProofArtifact {
+function readLiveProof(filePath: string, options: LiveProofArtifactReadOptions = {}): LiveProofArtifact {
   const proof = JSON.parse(fs.readFileSync(path.resolve(filePath), 'utf8'));
   const validated = assertValidJson(proof, SCHEMAS.liveProof, 'Live proof artifact') as LiveProofArtifact;
   assertLiveProofComparisonCounts(validated);
   assertLiveProofAggregateSignals(validated);
+  if (options.requireArtifacts) {
+    assertLiveProofArtifactPointers(
+      validated,
+      options.artifactBaseDir === undefined ? {} : { artifactBaseDir: options.artifactBaseDir },
+    );
+  }
   return validated;
 }
 
@@ -526,17 +746,25 @@ function assertLiveProofSetRequiredPlatforms(
 /**
  * Reads and validates a platform proof set.
  *
- * @param {{files: string[], requiredPlatforms?: LiveProofPlatform[]}} options
+ * @param {{artifactBaseDir?: string, files: string[], requiredPlatforms?: LiveProofPlatform[], requireArtifacts?: boolean}} options
  * @returns {LiveProofArtifact[]}
  */
 function readLiveProofSet({
+  artifactBaseDir,
   files,
   requiredPlatforms = [],
+  requireArtifacts = false,
 }: {
+  artifactBaseDir?: string;
   files: string[];
   requiredPlatforms?: LiveProofPlatform[];
+  requireArtifacts?: boolean;
 }): LiveProofArtifact[] {
-  const proofs = files.map(readLiveProof);
+  const readOptions: LiveProofArtifactReadOptions = { requireArtifacts };
+  if (artifactBaseDir !== undefined) {
+    readOptions.artifactBaseDir = artifactBaseDir;
+  }
+  const proofs = files.map((file) => readLiveProof(file, readOptions));
   assertLiveProofSetRequiredPlatforms(proofs, requiredPlatforms);
   return proofs;
 }
@@ -569,6 +797,32 @@ function resolveLiveProofSetRunId(args: CliArgs): string {
     .replace(/^-+|-+$/gu, '')
     .slice(0, 96);
   return normalized.length > 0 ? normalized : 'live-proof-set';
+}
+
+/**
+ * Resolves the base directory for local artifact pointer checks.
+ *
+ * @param {CliArgs} args
+ * @returns {string | undefined}
+ */
+function resolveLiveProofArtifactBaseDir(args: CliArgs): string | undefined {
+  if (args['artifact-base-dir'] === undefined) {
+    return undefined;
+  }
+  if (typeof args['artifact-base-dir'] !== 'string') {
+    throw new Error('--artifact-base-dir expects a directory path.');
+  }
+  return path.resolve(args['artifact-base-dir']);
+}
+
+/**
+ * Returns whether the caller requested local artifact pointer checks.
+ *
+ * @param {CliArgs} args
+ * @returns {boolean}
+ */
+function shouldRequireArtifacts(args: CliArgs): boolean {
+  return args['require-artifacts'] === true || args['require-artifacts'] === 'true';
 }
 
 /**
@@ -959,7 +1213,13 @@ async function main(): Promise<void> {
   }
 
   const requiredPlatforms = parseRequiredPlatforms(args['require-platforms']);
-  const proofs = files.map(readLiveProof);
+  const requireArtifacts = shouldRequireArtifacts(args);
+  const artifactBaseDir = resolveLiveProofArtifactBaseDir(args);
+  const readOptions: LiveProofArtifactReadOptions = { requireArtifacts };
+  if (artifactBaseDir !== undefined) {
+    readOptions.artifactBaseDir = artifactBaseDir;
+  }
+  const proofs = files.map((file) => readLiveProof(file, readOptions));
   const failOnRegression = args['fail-on-regression'] === true || args['fail-on-regression'] === 'true';
   const proofSet = buildLiveProofSetArtifact({
     failOnRegression,
@@ -995,12 +1255,14 @@ if (require.main === module) {
 }
 
 export {
+  assertLiveProofArtifactPointers,
   assertLiveProofAggregateSignals,
   assertLiveProofComparisonCounts,
   assertLiveProofSetRequiredPlatforms,
   buildLiveProofSetArtifact,
   buildLiveProofSetFailureReasons,
   buildLiveProofSetNextAction,
+  collectLiveProofArtifactPointerIssues,
   countLiveProofComparisons,
   deriveLiveProofComparisonStatus,
   expectedLiveProofNextActionCode,
@@ -1018,8 +1280,10 @@ export {
   readLiveProof,
   readLiveProofSet,
   resolveLiveProofSetOutputDir,
+  resolveLiveProofArtifactBaseDir,
   resolveLiveProofFiles,
   resolveLiveProofSetRunId,
+  shouldRequireArtifacts,
   shouldFailLiveProofSet,
   shouldFailOnRegression,
   usage,
@@ -1029,6 +1293,8 @@ export {
 export type {
   CliArgs,
   LiveProofArtifact,
+  LiveProofArtifactPointerIssue,
+  LiveProofArtifactReadOptions,
   LiveProofSetArtifact,
   LiveProofSetProofPointer,
 };

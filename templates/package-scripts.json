@@ -27,6 +27,6 @@
   "asl:compare:android": "asl-compare-latest --root artifacts/asl/android --scenario {{SCENARIO_ID}} --current ${ASL_COMPARE_ANDROID_CURRENT:?set_ASL_COMPARE_ANDROID_CURRENT} --out artifacts/asl/android/comparisons/{{SCENARIO_ID}} --fail-on-regression",
   "asl:live-proof:android": "asl-live-proof --file ${ASL_ANDROID_LIVE_PROOF:-artifacts/asl/android-live/_live-proof/android-live-proof/live-proof.json} --fail-on-regression",
   "asl:live-proof:ios": "asl-live-proof --file ${ASL_IOS_LIVE_PROOF:-artifacts/asl/ios-live/_live-proof/ios-live-proof/live-proof.json} --fail-on-regression",
-  "asl:live-proof:both": "asl-live-proof --file ${ASL_ANDROID_LIVE_PROOF:-artifacts/asl/android-live/_live-proof/android-live-proof/live-proof.json} --file ${ASL_IOS_LIVE_PROOF:-artifacts/asl/ios-live/_live-proof/ios-live-proof/live-proof.json} --require-platforms android,ios --out artifacts/asl/live-proof-set --fail-on-regression",
+  "asl:live-proof:both": "asl-live-proof --file ${ASL_ANDROID_LIVE_PROOF:-artifacts/asl/android-live/_live-proof/android-live-proof/live-proof.json} --file ${ASL_IOS_LIVE_PROOF:-artifacts/asl/ios-live/_live-proof/ios-live-proof/live-proof.json} --require-platforms android,ios --out artifacts/asl/live-proof-set --fail-on-regression ${ASL_REQUIRE_LIVE_PROOF_ARTIFACTS:+--require-artifacts}",
   "asl:live-proof": "asl-live-proof --file ${ASL_LIVE_PROOF:?set_ASL_LIVE_PROOF} --fail-on-regression"
 }
