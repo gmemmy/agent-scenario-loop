@@ -67,6 +67,23 @@ test('agent-device availability check verifies command surface and booted platfo
           }),
         };
       }
+      if (args.join(' ') === 'session list --json') {
+        return {
+          args,
+          command,
+          exitCode: 0,
+          stderr: '',
+          stdout: JSON.stringify({
+            success: true,
+            data: {
+              sessions: [
+                { name: 'android-example', platform: 'android', target: 'mobile', device: 'emulator-5554' },
+                { name: 'default', platform: 'ios', target: 'mobile', device: 'SIM-123' },
+              ],
+            },
+          }),
+        };
+      }
       return {
         args,
         command,
@@ -92,6 +109,12 @@ test('agent-device availability check verifies command surface and booted platfo
   assert.equal(result.status, 'passed');
   assert.deepEqual(result.requiredPlatforms, ['ios', 'android']);
   assert.equal(result.devices.length, 2);
+  assert.equal(result.sessions.length, 2);
+  assert.equal(result.checks.find((check: {name: string}) => check.name === 'agent_device_sessions')?.status, 'passed');
+  assert.match(
+    String(result.checks.find((check: {name: string}) => check.name === 'agent_device_sessions')?.metadata?.activeSessions),
+    /android-example:android:mobile:emulator-5554/u,
+  );
   assert.equal(result.checks.find((check: {name: string}) => check.name === 'agent_device_booted_ios')?.status, 'passed');
   assert.equal(result.checks.find((check: {name: string}) => check.name === 'agent_device_booted_android')?.status, 'passed');
 });
@@ -117,6 +140,48 @@ test('agent-device availability check preserves failed command diagnostics', asy
   assert.equal(devicesCheck?.metadata?.failureClass, 'host_access');
   assert.equal(devicesCheck?.metadata?.nextActionCode, 'rerun_with_host_access');
   assert.equal(result.checks.find((check: {name: string}) => check.name === 'agent_device_booted_ios')?.status, 'failed');
+});
+
+test('agent-device availability check fails when active sessions cannot be inspected', async () => {
+  const result = await checkAgentDeviceAvailability({
+    executor: async (command: string, args: string[]): Promise<CommandResult> => {
+      if (args.join(' ') === 'devices --json') {
+        return {
+          args,
+          command,
+          exitCode: 0,
+          stderr: '',
+          stdout: JSON.stringify({
+            success: true,
+            data: { devices: [{ platform: 'android', id: 'emulator-5554', target: 'mobile', booted: true }] },
+          }),
+        };
+      }
+      if (args.join(' ') === 'session list --json') {
+        return {
+          args,
+          command,
+          exitCode: 1,
+          stderr: 'session daemon unavailable',
+          stdout: '',
+        };
+      }
+      return {
+        args,
+        command,
+        exitCode: 0,
+        stderr: '',
+        stdout: 'CLI to control iOS and Android devices\nopen\nsnapshot\nscreenshot\nis\nclick\nscroll\nlogs\ndevices\nsession list\n',
+      };
+    },
+  });
+
+  const sessionsCheck = result.checks.find((check: {name: string}) => check.name === 'agent_device_sessions');
+  assert.equal(result.status, 'failed');
+  assert.equal(sessionsCheck?.exitCode, 1);
+  assert.equal(sessionsCheck?.stderrPreview, 'session daemon unavailable');
+  assert.equal(sessionsCheck?.metadata?.failureClass, 'host_access');
+  assert.equal(sessionsCheck?.metadata?.nextActionCode, 'rerun_with_host_access');
 });
 
 test('agent-device availability check classifies missing binaries', async () => {
@@ -156,6 +221,18 @@ test('agent-device availability check writes ASL artifacts when requested', asyn
           }),
         };
       }
+      if (args.join(' ') === 'session list --json') {
+        return {
+          args,
+          command,
+          exitCode: 0,
+          stderr: '',
+          stdout: JSON.stringify({
+            success: true,
+            data: { sessions: [{ name: 'android-example', platform: 'android', target: 'mobile' }] },
+          }),
+        };
+      }
       return {
         args,
         command,
@@ -181,6 +258,9 @@ test('agent-device availability check writes ASL artifacts when requested', asyn
   assert.equal(health.healthStatus, 'passed');
   assert.equal(verdict.verdictStatus, 'not_evaluated');
   assert.equal(raw.status, 'passed');
+  assert.equal(raw.sessions.length, 1);
+  assert.match(fs.readFileSync(path.join(tempDir, 'agent-summary.md'), 'utf8'), /Active sessions: 1/u);
+  assert.match(fs.readFileSync(path.join(tempDir, 'agent-summary.md'), 'utf8'), /android-example:android:mobile/u);
   assert.equal(fs.existsSync(path.join(tempDir, 'agent-summary.md')), true);
 });
 

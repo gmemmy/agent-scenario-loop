@@ -83,6 +83,7 @@ type AgentDeviceAvailabilityResult = {
   devices: Array<Record<string, unknown>>;
   requiredCommands: string[];
   requiredPlatforms: string[];
+  sessions: Array<Record<string, unknown>>;
   status: 'failed' | 'passed';
 };
 
@@ -460,6 +461,84 @@ function readAgentDeviceDiscoveryDevices(result: CommandResult): Array<Record<st
 }
 
 /**
+ * Parses agent-device active session JSON.
+ *
+ * @param {CommandResult} result
+ * @returns {Array<Record<string, unknown>>}
+ */
+function readAgentDeviceSessions(result: CommandResult): Array<Record<string, unknown>> {
+  if (result.exitCode !== 0 || result.stdout.trim().length === 0) {
+    return [];
+  }
+  try {
+    const parsed = JSON.parse(result.stdout) as Record<string, unknown>;
+    const data = parsed.data && typeof parsed.data === 'object' && !Array.isArray(parsed.data)
+      ? parsed.data as Record<string, unknown>
+      : parsed;
+    const sessions = Array.isArray(data.sessions)
+      ? data.sessions
+      : Array.isArray(parsed.sessions)
+        ? parsed.sessions
+        : [];
+    return sessions.filter((session): session is Record<string, unknown> =>
+      Boolean(session) && typeof session === 'object' && !Array.isArray(session),
+    );
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Formats active agent-device sessions for compact health metadata.
+ *
+ * @param {Array<Record<string, unknown>>} sessions
+ * @returns {string}
+ */
+function summarizeAgentDeviceSessions(sessions: Array<Record<string, unknown>>): string {
+  return sessions
+    .slice(0, 8)
+    .map((session, index) => {
+      const name = typeof session.name === 'string'
+        ? session.name
+        : typeof session.id === 'string'
+          ? session.id
+          : `session-${index + 1}`;
+      const platform = typeof session.platform === 'string' ? session.platform : null;
+      const target = typeof session.target === 'string' ? session.target : null;
+      const device = typeof session.device === 'string'
+        ? session.device
+        : typeof session.deviceId === 'string'
+          ? session.deviceId
+          : typeof session.udid === 'string'
+            ? session.udid
+            : typeof session.serial === 'string'
+              ? session.serial
+              : null;
+      return [name, platform, target, device].filter(Boolean).join(':');
+    })
+    .join(', ');
+}
+
+/**
+ * Builds an agent-readable availability addendum with device and session counts.
+ *
+ * @param {AgentDeviceAvailabilityResult} result
+ * @returns {string}
+ */
+function buildAgentDeviceAvailabilitySummary(result: AgentDeviceAvailabilityResult): string {
+  const sessionSummary = summarizeAgentDeviceSessions(result.sessions);
+  return [
+    '',
+    '## agent-device availability',
+    '',
+    `- Devices: ${result.devices.length}`,
+    `- Active sessions: ${result.sessions.length}`,
+    ...(sessionSummary ? [`- Session hints: ${sessionSummary}`] : []),
+    '',
+  ].join('\n');
+}
+
+/**
  * Checks whether device discovery found a booted mobile target for one platform.
  *
  * @param {Array<Record<string, unknown>>} devices
@@ -540,6 +619,40 @@ async function checkAgentDeviceAvailability({
   }
   checks.push(devicesCheck);
 
+  const sessionsResult = await run(agentDevicePath, ['session', 'list', '--json']);
+  const sessions = readAgentDeviceSessions(sessionsResult);
+  const sessionsPassed = sessionsResult.exitCode === 0;
+  const sessionsCheck: AgentDeviceAvailabilityCheck = {
+    args: sessionsResult.args,
+    code: 'agent_device_sessions_available',
+    command: sessionsResult.command,
+    exitCode: sessionsResult.exitCode,
+    message: sessionsPassed
+      ? `agent-device reported ${sessions.length} active session(s).`
+      : 'agent-device could not list active sessions.',
+    metadata: {
+      sessionCount: sessions.length,
+      ...(sessions.length > 0 ? { activeSessions: summarizeAgentDeviceSessions(sessions) } : {}),
+    },
+    name: 'agent_device_sessions',
+    status: sessionsPassed ? 'passed' : 'failed',
+  };
+  if (!sessionsPassed) {
+    const stderrPreview = previewCommandOutput(sessionsResult.stderr);
+    const stdoutPreview = previewCommandOutput(sessionsResult.stdout);
+    sessionsCheck.metadata = {
+      ...sessionsCheck.metadata,
+      ...classifyAgentDeviceAvailabilityFailure(sessionsResult),
+    };
+    if (stderrPreview) {
+      sessionsCheck.stderrPreview = stderrPreview;
+    }
+    if (stdoutPreview) {
+      sessionsCheck.stdoutPreview = stdoutPreview;
+    }
+  }
+  checks.push(sessionsCheck);
+
   for (const platform of requiredPlatforms) {
     const passed = hasBootedMobilePlatform(devices, platform);
     checks.push({
@@ -562,6 +675,7 @@ async function checkAgentDeviceAvailability({
     devices,
     requiredCommands,
     requiredPlatforms,
+    sessions,
     status,
   };
 }
@@ -828,7 +942,10 @@ async function writeAgentDeviceAvailabilityArtifacts({
     SCHEMAS.verdict,
     'Verdict artifact',
   ) as Record<string, unknown>;
-  const agentSummary = buildAgentSummaryMarkdown({ health, verdict });
+  const agentSummary = [
+    buildAgentSummaryMarkdown({ health, verdict }).trimEnd(),
+    buildAgentDeviceAvailabilitySummary(result),
+  ].join('\n');
 
   await fsp.mkdir(layout.raw, { recursive: true });
   await writeJsonArtifact({
@@ -1425,6 +1542,7 @@ export {
   parseArgs,
   parseAgentDeviceSessionMode,
   parseRequiredPlatforms,
+  readAgentDeviceSessions,
   readAgentDeviceStepOptions,
   resolveAgentDeviceDriverSteps,
   runAgentDeviceCapture,
