@@ -160,7 +160,7 @@ const REQUIRED_PACKAGE_SCRIPT_SHAPES = {
   },
   'asl:host:doctor': {
     command: 'asl-host-doctor',
-    flags: ['--require', '--out'],
+    flags: ['--out'],
     values: {},
   },
   'asl:profile:ios': {

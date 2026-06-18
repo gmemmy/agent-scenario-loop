@@ -16,6 +16,7 @@ const {
   createAgentDeviceDriver,
   formatAgentDeviceRawOutput,
 } = require('./agent-device-driver');
+const { loadAslLocalEnv, readStringArgOrEnv } = require('./local-env');
 
 type CliArgs = {
   app?: string | boolean;
@@ -1324,13 +1325,23 @@ async function main(): Promise<void> {
     return;
   }
 
+  loadAslLocalEnv();
   const args = parseArgs(argv);
-  const commandTimeoutMs = readPositiveInteger(args['command-timeout-ms'], 60_000);
+  const commandTimeoutMsValue = readStringArgOrEnv(
+    args['command-timeout-ms'],
+    ['ASL_AGENT_DEVICE_COMMAND_TIMEOUT_MS'],
+  );
+  const commandTimeoutMs = readPositiveInteger(commandTimeoutMsValue, 60_000);
+  const agentDevicePath = readStringArgOrEnv(args['agent-device'], ['ASL_AGENT_DEVICE_BIN']);
   if (args.check === true || args.check === 'true') {
+    const requiredPlatforms = readStringArgOrEnv(
+      args['require-platforms'],
+      ['ASL_AGENT_DEVICE_REQUIRED_PLATFORMS'],
+    );
     const result = await checkAgentDeviceAvailability({
-      ...(typeof args['agent-device'] === 'string' ? { agentDevicePath: args['agent-device'] } : {}),
+      ...(agentDevicePath ? { agentDevicePath } : {}),
       commandTimeoutMs,
-      requiredPlatforms: parseRequiredPlatforms(args['require-platforms']),
+      requiredPlatforms: parseRequiredPlatforms(requiredPlatforms),
     });
     if (typeof args.out === 'string') {
       await writeAgentDeviceAvailabilityArtifacts({
@@ -1355,23 +1366,35 @@ async function main(): Promise<void> {
     throw new Error('--platform must be one of android, ios, macos, linux, or apple.');
   }
 
+  const platform = args.platform as import('./agent-device-driver').AgentDevicePlatform;
+  const app = readStringArgOrEnv(args.app, platform === 'android'
+    ? ['ASL_ANDROID_APP_ID', 'ASL_EXAMPLE_ANDROID_APP_ID']
+    : ['ASL_IOS_APP_ID', 'ASL_EXAMPLE_IOS_APP_ID']);
+  const serial = readStringArgOrEnv(args.serial, ['ASL_ANDROID_SERIAL', 'ASL_EXAMPLE_ANDROID_SERIAL']);
+  const session = readStringArgOrEnv(args.session, platform === 'android'
+    ? ['ASL_ANDROID_AGENT_DEVICE_SESSION', 'ASL_EXAMPLE_ANDROID_AGENT_DEVICE_SESSION']
+    : ['ASL_IOS_AGENT_DEVICE_SESSION', 'ASL_EXAMPLE_IOS_AGENT_DEVICE_SESSION']);
+  const sessionMode = readStringArgOrEnv(args['session-mode'], platform === 'android'
+    ? ['ASL_ANDROID_AGENT_DEVICE_SESSION_MODE', 'ASL_EXAMPLE_ANDROID_AGENT_DEVICE_SESSION_MODE']
+    : ['ASL_IOS_AGENT_DEVICE_SESSION_MODE', 'ASL_EXAMPLE_IOS_AGENT_DEVICE_SESSION_MODE']);
+  const udid = readStringArgOrEnv(args.udid, ['ASL_IOS_UDID', 'ASL_EXAMPLE_IOS_UDID']);
   const result = await runAgentDeviceCapture({
-    ...(typeof args['agent-device'] === 'string' ? { agentDevicePath: args['agent-device'] } : {}),
-    ...(typeof args.app === 'string' ? { app: args.app } : {}),
+    ...(agentDevicePath ? { agentDevicePath } : {}),
+    ...(app ? { app } : {}),
     commandTimeoutMs,
     ...(typeof args.device === 'string' ? { device: args.device } : {}),
     ...(typeof args.out === 'string' ? { outputDir: args.out } : {}),
     open: isEnabled(args.open),
-    platform: args.platform as import('./agent-device-driver').AgentDevicePlatform,
+    platform,
     ...(typeof args['run-id'] === 'string' ? { runId: args['run-id'] } : {}),
     scenario: readJson(path.resolve(args.scenario)),
-    ...(typeof args.serial === 'string' ? { serial: args.serial } : {}),
-    ...(typeof args.session === 'string' ? { session: args.session } : {}),
-    ...(typeof args['session-mode'] === 'string' ? { sessionMode: parseAgentDeviceSessionMode(args['session-mode']) } : {}),
+    ...(serial ? { serial } : {}),
+    ...(session ? { session } : {}),
+    ...(sessionMode ? { sessionMode: parseAgentDeviceSessionMode(sessionMode) } : {}),
     ...(typeof args.target === 'string' && ['desktop', 'mobile', 'tv'].includes(args.target)
       ? { target: args.target as 'desktop' | 'mobile' | 'tv' }
       : {}),
-    ...(typeof args.udid === 'string' ? { udid: args.udid } : {}),
+    ...(udid ? { udid } : {}),
     waitMs: readPositiveInteger(args['wait-ms'], 0),
   });
   process.stdout.write(`${result.runDir}\n`);

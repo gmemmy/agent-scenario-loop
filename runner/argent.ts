@@ -21,6 +21,11 @@ const {
   createIosSimctlDriver,
   formatIosSimctlRawOutput,
 } = require('./ios-simctl-driver');
+const {
+  loadAslLocalEnv,
+  readBooleanArgOrEnv,
+  readStringArgOrEnv,
+} = require('./local-env');
 
 type CliArgs = {
   app?: string | boolean;
@@ -1466,12 +1471,17 @@ async function main(): Promise<void> {
     return;
   }
 
+  loadAslLocalEnv();
   const args = parseArgs(argv);
-  const baseArgs = parseBaseArgs(args['base-args']);
-  const commandTimeoutMs = readPositiveInteger(args['command-timeout-ms'], 60_000);
+  const argentCommand = readStringArgOrEnv(args.argent, ['ASL_ARGENT_BIN']);
+  const baseArgs = parseBaseArgs(readStringArgOrEnv(args['base-args'], ['ASL_ARGENT_BASE_ARGS']));
+  const commandTimeoutMs = readPositiveInteger(
+    readStringArgOrEnv(args['command-timeout-ms'], ['ASL_ARGENT_COMMAND_TIMEOUT_MS']),
+    60_000,
+  );
   if (args.check === true || args.check === 'true') {
     const result = await checkArgentAvailability({
-      ...(typeof args.argent === 'string' ? { argentCommand: args.argent } : {}),
+      ...(argentCommand ? { argentCommand } : {}),
       ...(baseArgs ? { baseArgs } : {}),
       commandTimeoutMs,
     });
@@ -1498,13 +1508,23 @@ async function main(): Promise<void> {
     throw new Error('--platform must be one of android or ios.');
   }
 
+  const platform = args.platform as 'android' | 'ios';
+  const app = readStringArgOrEnv(args.app, platform === 'ios'
+    ? ['ASL_IOS_APP_ID', 'ASL_EXAMPLE_IOS_APP_ID']
+    : ['ASL_ANDROID_APP_ID', 'ASL_EXAMPLE_ANDROID_APP_ID']);
+  const envDevice = readStringArgOrEnv(undefined, platform === 'ios'
+    ? ['ASL_IOS_UDID', 'ASL_EXAMPLE_IOS_UDID']
+    : ['ASL_ANDROID_SERIAL', 'ASL_EXAMPLE_ANDROID_SERIAL']);
+  const deviceFlag = readStringArgOrEnv(args['device-flag'], ['ASL_ARGENT_DEVICE_FLAG']);
+  const appFlag = readStringArgOrEnv(args['app-flag'], ['ASL_ARGENT_APP_FLAG']);
+  const xcrunPath = readStringArgOrEnv(args.xcrun, ['ASL_XCRUN_PATH', 'ASL_IOS_XCRUN_BIN']);
   const deviceId = typeof args.device === 'string'
     ? args.device
-    : args.platform === 'ios' && typeof args.udid === 'string'
+    : platform === 'ios' && typeof args.udid === 'string'
       ? args.udid
-      : args.platform === 'android' && typeof args.serial === 'string'
+      : platform === 'android' && typeof args.serial === 'string'
         ? args.serial
-        : null;
+        : envDevice ?? null;
   if (!deviceId) {
     usage();
     process.exitCode = 1;
@@ -1513,24 +1533,22 @@ async function main(): Promise<void> {
 
   const screenSize = readScreenSize({ height: args['screen-height'], width: args['screen-width'] });
   const result = await runArgentCapture({
-    ...(typeof args.app === 'string' ? { app: args.app } : {}),
-    ...(typeof args['app-flag'] === 'string' ? { appFlag: args['app-flag'] } : {}),
-    ...(typeof args.argent === 'string' ? { argentCommand: args.argent } : {}),
+    ...(app ? { app } : {}),
+    ...(appFlag ? { appFlag } : {}),
+    ...(argentCommand ? { argentCommand } : {}),
     ...(baseArgs ? { baseArgs } : {}),
     commandTimeoutMs,
-    ...(typeof args['device-flag'] === 'string'
-      ? { deviceFlag: args['device-flag'] }
-      : {}),
+    ...(deviceFlag ? { deviceFlag } : {}),
     deviceId,
     iosSimctlScreenshotFallback: args['ios-simctl-screenshot-fallback'] === true ||
-      args['ios-simctl-screenshot-fallback'] === 'true',
+      readBooleanArgOrEnv(args['ios-simctl-screenshot-fallback'], ['ASL_ARGENT_IOS_SIMCTL_SCREENSHOT_FALLBACK']),
     ...(typeof args.out === 'string' ? { outputDir: args.out } : {}),
-    platform: args.platform as 'android' | 'ios',
+    platform,
     ...(typeof args['run-id'] === 'string' ? { runId: args['run-id'] } : {}),
     scenario: readJson(path.resolve(args.scenario)),
     ...(screenSize ? { screenSize } : {}),
     waitMs: readPositiveInteger(args['wait-ms'], 0),
-    ...(typeof args.xcrun === 'string' ? { xcrunPath: args.xcrun } : {}),
+    ...(xcrunPath ? { xcrunPath } : {}),
   });
   process.stdout.write(`${result.runDir}\n`);
   if (result.health.healthStatus !== 'passed') {

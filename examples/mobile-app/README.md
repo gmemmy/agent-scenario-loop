@@ -138,6 +138,18 @@ ASL_ARGENT_BIN=/path/to/argent pnpm asl:argent:android
 
 The `*:provider` scripts execute `runner-manifests/evidence-provider.json`, which runs the deterministic provider scripts and inventories generated accessibility, profiler, memory, and network evidence in `manifest.artifacts.evidenceAttachments`.
 
+For repeated local runs, put machine-specific runner values in an ignored `.asl.local.env` file at the example app or repo root instead of repeating inline environment variables. ASL CLIs load the nearest `.asl.local.env` without overriding already-exported values:
+
+```bash
+ASL_HOST_DOCTOR_REQUIRE=android,ios,agent-device,argent
+ASL_AGENT_DEVICE_REQUIRED_PLATFORMS=ios,android
+ASL_ANDROID_AGENT_DEVICE_SESSION=android-example
+ASL_IOS_AGENT_DEVICE_SESSION=default
+ASL_ARGENT_BIN=pnpm
+ASL_ARGENT_BASE_ARGS="dlx @swmansion/argent run"
+ASL_ARGENT_IOS_SIMCTL_SCREENSHOT_FALLBACK=1
+```
+
 The `asl:agent-device:*` and `asl:argent:*` scripts are portable interaction proof lanes. They require the corresponding external tool and a running device or simulator, but they write the same ASL health, verdict, raw, capture, and summary artifacts. `asl:agent-device:check` verifies the configured agent-device command surface and device discovery before a scenario starts, writing availability artifacts under `artifacts/asl/agent-device-check`; set `ASL_AGENT_DEVICE_REQUIRED_PLATFORMS=ios,android` when both OS targets must be booted. `asl:argent:check` verifies the configured Argent command and ASL-required tool surface before any device scenario starts, writing availability artifacts under `artifacts/asl/argent-check`. For Argent, prefer a real `argent` executable on PATH, or set `ASL_ARGENT_BIN=/path/to/argent` when the package manager installed it somewhere else. `ASL_ARGENT_BIN=npx` with `ASL_ARGENT_BASE_ARGS="--yes @swmansion/argent run"` is supported as a wrapper shape, but run `pnpm asl:argent:check` before relying on it. Argent uses `--udid` for both iOS simulators and Android emulators, and ASL resolves the iOS `booted` shorthand to the concrete simulator UDID before invoking Argent.
 
 Live proof and inspection scripts are also available from the app directory:

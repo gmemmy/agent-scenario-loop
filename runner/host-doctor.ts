@@ -13,6 +13,7 @@ const { runAndroidAdbPreflight } = require('./android-adb');
 const { checkArgentAvailability, parseBaseArgs } = require('./argent');
 const { hasHelpFlag, writeUsage } = require('./cli');
 const { runIosSimctlCapture } = require('./ios-simctl');
+const { loadAslLocalEnv, readStringArgOrEnv } = require('./local-env');
 
 type HostDoctorRequirement = 'agent-device' | 'android' | 'argent' | 'ios';
 type CliArgs = {
@@ -713,29 +714,59 @@ async function main(): Promise<void> {
     return;
   }
 
+  loadAslLocalEnv();
   const args = parseArgs(argv);
-  const requirements = parseRequirements(args.require);
-  const agentDeviceRequiredPlatforms = typeof args['agent-device-require-platforms'] === 'string'
-    ? parseRequiredPlatforms(args['agent-device-require-platforms'])
+  const requirements = parseRequirements(readStringArgOrEnv(args.require, ['ASL_HOST_DOCTOR_REQUIRE']));
+  const agentDeviceRequiredPlatformsValue = readStringArgOrEnv(
+    args['agent-device-require-platforms'],
+    ['ASL_AGENT_DEVICE_REQUIRED_PLATFORMS'],
+  );
+  const agentDeviceRequiredPlatforms = agentDeviceRequiredPlatformsValue
+    ? parseRequiredPlatforms(agentDeviceRequiredPlatformsValue)
     : [];
-  const argentBaseArgs = typeof args['base-args'] === 'string'
-    ? parseBaseArgs(args['base-args'])
+  const argentBaseArgsValue = readStringArgOrEnv(args['base-args'], ['ASL_ARGENT_BASE_ARGS']);
+  const argentBaseArgs = argentBaseArgsValue
+    ? parseBaseArgs(argentBaseArgsValue)
     : null;
+  const adbPath = readStringArgOrEnv(args.adb, ['ASL_ANDROID_ADB_BIN']);
+  const agentDevicePath = readStringArgOrEnv(args['agent-device'], ['ASL_AGENT_DEVICE_BIN']);
+  const androidPackageName = readStringArgOrEnv(args['android-package'], [
+    'ASL_ANDROID_APP_ID',
+    'ASL_EXAMPLE_ANDROID_APP_ID',
+  ]);
+  const androidSerial = readStringArgOrEnv(args['android-serial'], [
+    'ASL_ANDROID_SERIAL',
+    'ASL_EXAMPLE_ANDROID_SERIAL',
+  ]);
+  const argentCommand = readStringArgOrEnv(args.argent, ['ASL_ARGENT_BIN']);
+  const commandTimeoutMsValue = readStringArgOrEnv(
+    args['command-timeout-ms'],
+    ['ASL_HOST_DOCTOR_COMMAND_TIMEOUT_MS'],
+  );
+  const iosBundleId = readStringArgOrEnv(args['ios-bundle'], [
+    'ASL_IOS_APP_ID',
+    'ASL_EXAMPLE_IOS_APP_ID',
+  ]);
+  const iosDevice = readStringArgOrEnv(args['ios-device'], [
+    'ASL_IOS_UDID',
+    'ASL_EXAMPLE_IOS_UDID',
+  ]);
+  const xcrunPath = readStringArgOrEnv(args.xcrun, ['ASL_XCRUN_PATH', 'ASL_IOS_XCRUN_BIN']);
   const result = await runHostDoctor({
-    ...(typeof args.adb === 'string' ? { adbPath: args.adb } : {}),
-    ...(typeof args['agent-device'] === 'string' ? { agentDevicePath: args['agent-device'] } : {}),
+    ...(adbPath ? { adbPath } : {}),
+    ...(agentDevicePath ? { agentDevicePath } : {}),
     agentDeviceRequiredPlatforms,
-    ...(typeof args['android-package'] === 'string' ? { androidPackageName: args['android-package'] } : {}),
-    ...(typeof args['android-serial'] === 'string' ? { androidSerial: args['android-serial'] } : {}),
-    ...(typeof args.argent === 'string' ? { argentCommand: args.argent } : {}),
+    ...(androidPackageName ? { androidPackageName } : {}),
+    ...(androidSerial ? { androidSerial } : {}),
+    ...(argentCommand ? { argentCommand } : {}),
     ...(argentBaseArgs ? { argentBaseArgs } : {}),
-    commandTimeoutMs: parsePositiveInteger(args['command-timeout-ms'], 30_000),
-    ...(typeof args['ios-bundle'] === 'string' ? { iosBundleId: args['ios-bundle'] } : {}),
-    ...(typeof args['ios-device'] === 'string' ? { iosDevice: args['ios-device'] } : {}),
+    commandTimeoutMs: parsePositiveInteger(commandTimeoutMsValue, 30_000),
+    ...(iosBundleId ? { iosBundleId } : {}),
+    ...(iosDevice ? { iosDevice } : {}),
     ...(typeof args.out === 'string' ? { outputDir: args.out } : {}),
     requirements,
     ...(typeof args['run-id'] === 'string' ? { runId: args['run-id'] } : {}),
-    ...(typeof args.xcrun === 'string' ? { xcrunPath: args.xcrun } : {}),
+    ...(xcrunPath ? { xcrunPath } : {}),
   });
   process.stdout.write(`${result.runDir}\n`);
   if (result.health.healthStatus !== 'passed') {

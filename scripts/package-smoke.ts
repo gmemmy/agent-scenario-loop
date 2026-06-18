@@ -874,9 +874,7 @@ function main(): void {
     assert.match(initializedScripts['asl:check:ios'], /checkout-submit/u);
     assert.match(initializedScripts['asl:check:ios'], /--provider runner-manifests\/evidence-provider\.json/u);
     assert.match(initializedScripts['asl:check:android'], /--provider runner-manifests\/evidence-provider\.json/u);
-    assert.match(initializedScripts['asl:host:doctor'], /^asl-host-doctor --require/u);
-    assert.match(initializedScripts['asl:host:doctor'], /ASL_HOST_DOCTOR_REQUIRE/u);
-    assert.match(initializedScripts['asl:host:doctor'], /ASL_ARGENT_BASE_ARGS/u);
+    assert.match(initializedScripts['asl:host:doctor'], /^asl-host-doctor --out artifacts\/asl\/host-doctor$/u);
     assert.match(initializedScripts['asl:host:doctor'], /--out artifacts\/asl\/host-doctor/u);
     assert.match(initializedScripts['asl:profile:ios'], /\$\{ASL_PROFILE_IOS_EVENTS:\+--events \$ASL_PROFILE_IOS_EVENTS\}/u);
     assert.match(initializedScripts['asl:profile:ios:provider'], /--provider runner-manifests\/evidence-provider\.json/u);
@@ -893,13 +891,9 @@ function main(): void {
     assert.match(initializedScripts['asl:agent-device:android'], /checkout-submit-android-agent-device/u);
     assert.match(initializedScripts['asl:agent-device:ios'], /ASL_AGENT_DEVICE_COMMAND_TIMEOUT_MS/u);
     assert.match(initializedScripts['asl:agent-device:android'], /ASL_AGENT_DEVICE_COMMAND_TIMEOUT_MS/u);
-    assert.match(initializedScripts['asl:agent-device:check'], /^asl-agent-device --check/u);
-    assert.match(initializedScripts['asl:agent-device:check'], /ASL_AGENT_DEVICE_COMMAND_TIMEOUT_MS/u);
-    assert.match(initializedScripts['asl:agent-device:check'], /ASL_AGENT_DEVICE_REQUIRED_PLATFORMS/u);
+    assert.match(initializedScripts['asl:agent-device:check'], /^asl-agent-device --check --out artifacts\/asl\/agent-device-check$/u);
     assert.match(initializedScripts['asl:agent-device:check'], /--out artifacts\/asl\/agent-device-check/u);
-    assert.match(initializedScripts['asl:argent:check'], /^asl-argent --check/u);
-    assert.match(initializedScripts['asl:argent:check'], /ASL_ARGENT_BASE_ARGS/u);
-    assert.match(initializedScripts['asl:argent:check'], /ASL_ARGENT_COMMAND_TIMEOUT_MS/u);
+    assert.match(initializedScripts['asl:argent:check'], /^asl-argent --check --out artifacts\/asl\/argent-check$/u);
     assert.match(initializedScripts['asl:argent:check'], /--out artifacts\/asl\/argent-check/u);
     assert.match(initializedScripts['asl:argent:ios'], /checkout-submit-ios-argent/u);
     assert.match(initializedScripts['asl:argent:android'], /checkout-submit-android-argent/u);

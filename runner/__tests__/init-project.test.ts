@@ -83,13 +83,12 @@ test('init-project scaffolds templates into a consuming app layout', async (t: T
   assert.match(readJson(path.join(targetDir, 'asl', 'package-scripts.json'))['asl:profile:android'], /\$\{ASL_PROFILE_ANDROID_EVENTS:\+--events \$ASL_PROFILE_ANDROID_EVENTS\}/u);
   assert.match(readJson(path.join(targetDir, 'asl', 'package-scripts.json'))['asl:profile:ios:provider'], /--provider runner-manifests\/evidence-provider\.json/u);
   assert.match(readJson(path.join(targetDir, 'asl', 'package-scripts.json'))['asl:profile:android:provider'], /--provider runner-manifests\/evidence-provider\.json/u);
-  assert.match(readJson(path.join(targetDir, 'asl', 'package-scripts.json'))['asl:host:doctor'], /^asl-host-doctor --require/u);
+  assert.equal(readJson(path.join(targetDir, 'asl', 'package-scripts.json'))['asl:host:doctor'], 'asl-host-doctor --out artifacts/asl/host-doctor');
   assert.match(readJson(path.join(targetDir, 'asl', 'package-scripts.json'))['asl:host:doctor'], /--out artifacts\/asl\/host-doctor/u);
   assert.match(readJson(path.join(targetDir, 'asl', 'package-scripts.json'))['asl:agent-device:ios'], /checkout-submit-ios-agent-device/u);
   assert.match(readJson(path.join(targetDir, 'asl', 'package-scripts.json'))['asl:agent-device:android'], /checkout-submit-android-agent-device/u);
   assert.match(readJson(path.join(targetDir, 'asl', 'package-scripts.json'))['asl:agent-device:check'], /--out artifacts\/asl\/agent-device-check/u);
   assert.match(readJson(path.join(targetDir, 'asl', 'package-scripts.json'))['asl:argent:check'], /^asl-argent --check/u);
-  assert.match(readJson(path.join(targetDir, 'asl', 'package-scripts.json'))['asl:argent:check'], /ASL_ARGENT_BASE_ARGS/u);
   assert.match(readJson(path.join(targetDir, 'asl', 'package-scripts.json'))['asl:argent:check'], /--out artifacts\/asl\/argent-check/u);
   assert.match(readJson(path.join(targetDir, 'asl', 'package-scripts.json'))['asl:argent:ios'], /checkout-submit-ios-argent/u);
   assert.match(readJson(path.join(targetDir, 'asl', 'package-scripts.json'))['asl:argent:android'], /checkout-submit-android-argent/u);
@@ -127,7 +126,7 @@ test('init-project scaffolds templates into a consuming app layout', async (t: T
   assert.match(integrationReadme, /ASL_IOS_AGENT_DEVICE_SESSION_MODE=bind/u);
   assert.match(integrationReadme, /ASL_ANDROID_AGENT_DEVICE_SESSION/u);
   assert.match(integrationReadme, /ASL_ANDROID_AGENT_DEVICE_SESSION_MODE=bind/u);
-  assert.match(integrationReadme, /ASL_ARGENT_BIN=\/path\/to\/argent pnpm asl:argent:check/u);
+  assert.match(integrationReadme, /ASL_ARGENT_BIN=pnpm/u);
   assert.match(integrationReadme, /ASL_ARGENT_BIN=npx/u);
   assert.match(integrationReadme, /booted` shorthand/u);
   assert.match(integrationReadme, /ASL_ARGENT_COMMAND_TIMEOUT_MS/u);

@@ -74,6 +74,19 @@ ASL_ANDROID_SERIAL=<emulator-or-device-serial> ASL_ANDROID_APP_ID=<package-name>
 
 Those scripts pass `--compare-latest --fail-on-regression`. A missing trusted baseline is recorded as skipped comparison evidence; a real regression exits nonzero after artifacts are written.
 
+For repeated local runs, put machine-specific runner values in an ignored `.asl.local.env` file at your app root instead of repeating inline environment variables. ASL CLIs load the nearest `.asl.local.env` without overriding already-exported values:
+
+```bash
+ASL_HOST_DOCTOR_REQUIRE=android,ios,agent-device,argent
+ASL_AGENT_DEVICE_REQUIRED_PLATFORMS=ios,android
+ASL_ANDROID_SERIAL=<emulator-or-device-serial>
+ASL_IOS_UDID=<simulator-udid>
+ASL_ANDROID_APP_ID=<package-name>
+ASL_IOS_APP_ID=<bundle-id>
+ASL_ARGENT_BIN=pnpm
+ASL_ARGENT_BASE_ARGS="dlx @swmansion/argent run"
+```
+
 ## Portable Interaction Proof
 
 Use the generated interaction scripts when an external driver should prove launch, visible UI, gestures, screenshots, or another scenario-declared driver action without changing the scenario file:
@@ -104,6 +117,6 @@ That script requires both platform proofs, writes `artifacts/asl/live-proof-set/
 
 Set `ASL_REQUIRE_LIVE_PROOF_ARTIFACTS=1` before this gate when the local artifact tree itself is part of the proof, not just the aggregate `live-proof.json` files.
 
-Run `pnpm asl:host:doctor` before host/device live proof when adb, CoreSimulator, agent-device, or Argent availability is uncertain. Set `ASL_HOST_DOCTOR_REQUIRE=android,ios,agent-device,argent` when sidecar proof availability is part of the gate.
+Run `pnpm asl:host:doctor` before host/device live proof when adb, CoreSimulator, agent-device, or Argent availability is uncertain. Set `ASL_HOST_DOCTOR_REQUIRE=android,ios,agent-device,argent` in `.asl.local.env` or the shell when sidecar proof availability is part of the gate.
 
 The package-script snippets in `asl/package-scripts.json` include fixture, host doctor, portable agent-device and Argent interaction proof, live profile, compare, and proof-inspection commands. Merge the snippets you use into your app `package.json` so future agents can run the loop without rediscovering command arguments.

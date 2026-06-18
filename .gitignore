@@ -1,5 +1,7 @@
 node_modules/
 .agents/
+.asl.local.env
+**/.asl.local.env
 dist/
 core/artifacts/
 artifacts/

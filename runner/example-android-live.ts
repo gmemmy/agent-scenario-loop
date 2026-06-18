@@ -16,6 +16,7 @@ const {
 const { writeLiveProofSummary } = require('./live-proof-summary');
 const { runAgentDeviceCapture } = require('./agent-device');
 const { parseBaseArgs: parseArgentBaseArgs, runArgentCapture } = require('./argent');
+const { loadAslLocalEnv, readStringArgOrEnv } = require('./local-env');
 const { runProfileAndroid } = require('./profile-android');
 
 type CliArgs = import('./android-adb').CliArgs;
@@ -162,13 +163,7 @@ function resolveAndroidPackageName({
  * @returns {string}
  */
 function resolveAndroidSerial(args: CliArgs): string {
-  if (typeof args.serial === 'string') {
-    return args.serial;
-  }
-  if (typeof process.env.ASL_EXAMPLE_ANDROID_SERIAL === 'string' && process.env.ASL_EXAMPLE_ANDROID_SERIAL.length > 0) {
-    return process.env.ASL_EXAMPLE_ANDROID_SERIAL;
-  }
-  return 'emulator-5554';
+  return readStringArgOrEnv(args.serial, ['ASL_ANDROID_SERIAL', 'ASL_EXAMPLE_ANDROID_SERIAL']) ?? 'emulator-5554';
 }
 
 /**
@@ -328,6 +323,14 @@ async function runExampleAndroidLiveProof(
   const config = readJson(configPath);
   const packageName = resolveAndroidPackageName({ args, config });
   const serial = resolveAndroidSerial(args);
+  const agentDeviceSession = readStringArgOrEnv(args['agent-device-session'], [
+    'ASL_ANDROID_AGENT_DEVICE_SESSION',
+    'ASL_EXAMPLE_ANDROID_AGENT_DEVICE_SESSION',
+  ]);
+  const agentDeviceSessionMode = readStringArgOrEnv(args['agent-device-session-mode'], [
+    'ASL_ANDROID_AGENT_DEVICE_SESSION_MODE',
+    'ASL_EXAMPLE_ANDROID_AGENT_DEVICE_SESSION_MODE',
+  ]);
   const runSuffix = normalizeRunSuffix(args['run-suffix']);
   const aggregateRunId = buildLiveRunId('android-live-proof', runSuffix);
   const preflightRunId = buildLiveRunId('android-live-preflight', runSuffix);
@@ -423,9 +426,9 @@ async function runExampleAndroidLiveProof(
       runId: agentDeviceRunId,
       scenario: readJson(path.join(exampleRoot, 'scenarios', 'mobile', 'app-startup.json')),
       serial,
-      ...(typeof args['agent-device-session'] === 'string' ? { session: args['agent-device-session'] } : {}),
-      ...(typeof args['agent-device-session-mode'] === 'string'
-        ? { sessionMode: args['agent-device-session-mode'] as import('./agent-device').AgentDeviceSessionMode }
+      ...(agentDeviceSession ? { session: agentDeviceSession } : {}),
+      ...(agentDeviceSessionMode
+        ? { sessionMode: agentDeviceSessionMode as import('./agent-device').AgentDeviceSessionMode }
         : {}),
       waitMs: parsePositiveInteger(args['agent-device-wait-ms'], 1000),
     });
@@ -540,6 +543,7 @@ async function main(): Promise<void> {
     return;
   }
 
+  loadAslLocalEnv();
   const args = parseArgs(argv);
   const result = await runExampleAndroidLiveProof(args);
   process.stdout.write(`${formatResult(result)}\n`);

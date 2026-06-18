@@ -78,6 +78,18 @@ ASL_EXAMPLE_ANDROID_AGENT_DEVICE_SESSION=android-example ASL_EXAMPLE_ANDROID_SER
 
 In sandboxed agent environments, run these commands with permission to access the local device driver state. The runner shells out to `agent-device`, which needs access to its daemon files and simulator or emulator control surfaces.
 
+For repeated local work, put host-specific runner values in an ignored `.asl.local.env` file at the app or repo root. ASL CLIs load the nearest file before resolving defaults and never override values already exported by the shell:
+
+```bash
+ASL_HOST_DOCTOR_REQUIRE=android,ios,agent-device,argent
+ASL_AGENT_DEVICE_REQUIRED_PLATFORMS=ios,android
+ASL_ANDROID_AGENT_DEVICE_SESSION=android-example
+ASL_IOS_AGENT_DEVICE_SESSION=default
+ASL_ARGENT_BIN=pnpm
+ASL_ARGENT_BASE_ARGS="dlx @swmansion/argent run"
+ASL_ARGENT_IOS_SIMCTL_SCREENSHOT_FALLBACK=1
+```
+
 To wrap an existing Argent install in ASL artifacts:
 
 ```bash
@@ -100,10 +112,7 @@ To check the host/device lane before starting mobile live proof:
 
 ```bash
 pnpm host:doctor
-ASL_HOST_DOCTOR_REQUIRE=android,ios,agent-device,argent \
-  ASL_ARGENT_BIN=pnpm \
-  ASL_ARGENT_BASE_ARGS="dlx @swmansion/argent run" \
-  pnpm host:doctor
+pnpm host:doctor -- --require android,ios,agent-device,argent
 ```
 
 The host doctor writes `health.json`, `verdict.json`, `agent-summary.md`, and child preflight artifacts under `artifacts/host-doctor`. Use it when sandbox or daemon access is uncertain so adb, CoreSimulator, agent-device, and Argent failures are classified as runner-environment health before any scenario timing evidence is trusted.

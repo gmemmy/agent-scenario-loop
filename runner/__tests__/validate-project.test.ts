@@ -720,7 +720,7 @@ test('validates required package-script lifecycle shapes', () => {
   }), 'asl:profile:android:provider is missing required flag(s): --provider.');
   assert.equal(validatePackageScriptShape({
     scriptName: 'asl:host:doctor',
-    command: 'asl-host-doctor --require android,ios --out artifacts/asl/host-doctor',
+    command: 'asl-host-doctor --out artifacts/asl/host-doctor',
   }), null);
   assert.equal(validatePackageScriptShape({
     scriptName: 'asl:host:doctor',

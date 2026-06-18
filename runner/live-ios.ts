@@ -9,6 +9,7 @@ const { compareLiveProfilesToLatest, isEnabledFlag } = require('./live-compariso
 const { writeLiveProofSummary } = require('./live-proof-summary');
 const { runAgentDeviceCapture } = require('./agent-device');
 const { parseBaseArgs: parseArgentBaseArgs, runArgentCapture } = require('./argent');
+const { loadAslLocalEnv, readStringArgOrEnv } = require('./local-env');
 const { runProfileIos } = require('./profile-ios');
 
 type CliArgs = import('./ios-simctl').CliArgs;
@@ -99,6 +100,10 @@ function resolveIosBundleId({
 }): string | null {
   if (typeof args.bundle === 'string') {
     return args.bundle;
+  }
+  const envBundleId = readStringArgOrEnv(undefined, ['ASL_IOS_APP_ID', 'ASL_EXAMPLE_IOS_APP_ID']);
+  if (envBundleId) {
+    return envBundleId;
   }
 
   const app = readObjectProperty(config, 'app');
@@ -289,6 +294,16 @@ async function runIosLiveProof(
   const scenario = readJson(scenarioPath);
   const scenarioId = resolveScenarioId({ scenario, scenarioPath });
   const bundleId = resolveIosBundleId({ args, config });
+  const deviceId = readStringArgOrEnv(args.device, ['ASL_IOS_UDID', 'ASL_EXAMPLE_IOS_UDID']);
+  const xcrunPath = readStringArgOrEnv(args.xcrun, ['ASL_XCRUN_PATH', 'ASL_IOS_XCRUN_BIN']);
+  const agentDeviceSession = readStringArgOrEnv(args['agent-device-session'], [
+    'ASL_IOS_AGENT_DEVICE_SESSION',
+    'ASL_EXAMPLE_IOS_AGENT_DEVICE_SESSION',
+  ]);
+  const agentDeviceSessionMode = readStringArgOrEnv(args['agent-device-session-mode'], [
+    'ASL_IOS_AGENT_DEVICE_SESSION_MODE',
+    'ASL_EXAMPLE_IOS_AGENT_DEVICE_SESSION_MODE',
+  ]);
   const outputDir = typeof args.out === 'string' ? path.resolve(args.out) : path.resolve('artifacts/asl/ios-live');
   const runSuffix = normalizeRunSuffix(args['run-suffix']);
   const aggregateRunId = buildRunId(typeof args['run-id'] === 'string' ? args['run-id'] : 'ios-live-proof', runSuffix);
@@ -312,11 +327,11 @@ async function runIosLiveProof(
   const preflight = await runIosSimctlCapture({
     bundleId,
     conflictingBundleIds: resolveIosConflictingBundleIds(config),
-    ...(typeof args.device === 'string' ? { device: args.device } : {}),
+    ...(deviceId ? { device: deviceId } : {}),
     ...(options.executor ? { executor: options.executor } : {}),
     outputDir: preflightDir,
     runId: preflightRunId,
-    ...(typeof args.xcrun === 'string' ? { xcrunPath: args.xcrun } : {}),
+    ...(xcrunPath ? { xcrunPath } : {}),
   });
   if (preflight.health.healthStatus !== 'passed') {
     throw new Error(`iOS live proof preflight failed; inspect ${preflight.runDir}/agent-summary.md.`);
@@ -331,7 +346,7 @@ async function runIosLiveProof(
   }> = [];
   const profile = await runProfileIos({
     config: configPath,
-    ...(typeof args.device === 'string' ? { device: args.device } : {}),
+    ...(deviceId ? { device: deviceId } : {}),
     launch: true,
     out: outputDir,
     'profile-session': true,
@@ -342,7 +357,7 @@ async function runIosLiveProof(
     'simctl-out': path.join(outputDir, '_ios-simctl-captures', profileRunId),
     ...(typeof args['wait-ms'] === 'string' ? { 'wait-ms': args['wait-ms'] } : {}),
     ...(bundleId ? { bundle: bundleId } : {}),
-    ...(typeof args.xcrun === 'string' ? { xcrun: args.xcrun } : {}),
+    ...(xcrunPath ? { xcrun: xcrunPath } : {}),
   }, {
     comparisonLane,
     ...(options.delay ? { delay: options.delay } : {}),
@@ -371,10 +386,10 @@ async function runIosLiveProof(
       platform: 'ios',
       runId: agentDeviceRunId,
       scenario,
-      ...(typeof args.device === 'string' ? { udid: args.device } : {}),
-      ...(typeof args['agent-device-session'] === 'string' ? { session: args['agent-device-session'] } : {}),
-      ...(typeof args['agent-device-session-mode'] === 'string'
-        ? { sessionMode: args['agent-device-session-mode'] as import('./agent-device').AgentDeviceSessionMode }
+      ...(deviceId ? { udid: deviceId } : {}),
+      ...(agentDeviceSession ? { session: agentDeviceSession } : {}),
+      ...(agentDeviceSessionMode
+        ? { sessionMode: agentDeviceSessionMode as import('./agent-device').AgentDeviceSessionMode }
         : {}),
       waitMs: parsePositiveInteger(args['agent-device-wait-ms'], 1000),
     });
@@ -394,7 +409,7 @@ async function runIosLiveProof(
       argentCommand: process.env.ASL_ARGENT_BIN || 'argent',
       ...(argentBaseArgs ? { baseArgs: argentBaseArgs } : {}),
       commandTimeoutMs: parsePositiveInteger(process.env.ASL_ARGENT_COMMAND_TIMEOUT_MS, 60_000),
-      deviceId: typeof args.device === 'string' ? args.device : 'booted',
+      deviceId: deviceId ?? 'booted',
       ...(options.delay ? { delay: options.delay } : {}),
       ...(options.argentExecutor ? { executor: options.argentExecutor } : {}),
       iosSimctlScreenshotFallback: true,
@@ -458,6 +473,7 @@ async function main(): Promise<void> {
     return;
   }
 
+  loadAslLocalEnv();
   const args = parseArgs(argv);
   if (typeof args.config !== 'string' || typeof args.scenario !== 'string') {
     usage();

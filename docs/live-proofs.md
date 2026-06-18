@@ -42,6 +42,18 @@ If a live command cannot reach adb, CoreSimulator, `agent-device`, Argent, a sim
 
 For repeated local work, prefer narrow, reusable permissions for the exact package scripts you run often instead of one-off retries after expected preflight failures. Keep Metro on an isolated port for the proof app, use direct installed binaries when available, and keep bounded command timeouts on wrapper-based tools such as `npx`-launched Argent.
 
+Put machine-specific runner settings in an ignored `.asl.local.env` file at the app or repo root instead of repeating inline environment variables in every command. ASL CLIs load the nearest `.asl.local.env` without overriding already-exported values, so CI and explicit shell overrides still win. Typical local values include:
+
+```sh
+ASL_HOST_DOCTOR_REQUIRE=android,ios,agent-device,argent
+ASL_AGENT_DEVICE_REQUIRED_PLATFORMS=ios,android
+ASL_ANDROID_AGENT_DEVICE_SESSION=android-example
+ASL_IOS_AGENT_DEVICE_SESSION=default
+ASL_ARGENT_BIN=pnpm
+ASL_ARGENT_BASE_ARGS="dlx @swmansion/argent run"
+ASL_ARGENT_IOS_SIMCTL_SCREENSHOT_FALLBACK=1
+```
+
 Before a live proof, run the host doctor for the lanes you intend to use:
 
 ```bash
