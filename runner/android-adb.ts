@@ -1202,8 +1202,8 @@ async function runAndroidAdbPreflight({
     }
 
     const appLifecycleMetadata: Record<string, unknown> = {};
-    let launchedPackageName: string | null = null;
-    let afterLaunchPids: string[] = [];
+    let lifecyclePackageName: string | null = null;
+    let knownLifecyclePids: string[] = [];
 
     if (launch) {
       if (!packageName) {
@@ -1256,7 +1256,7 @@ async function runAndroidAdbPreflight({
           metadata.launchWaitMs = launchWaitMs;
         }
         if (launchPassed) {
-          launchedPackageName = packageName;
+          lifecyclePackageName = packageName;
           const pidofAfterLaunch = await executor(adbPath, [
             '-s',
             device.serial,
@@ -1266,7 +1266,8 @@ async function runAndroidAdbPreflight({
           ]);
           const rawPath = 'raw/adb-app-pidof-after-launch.txt';
           raw['adb-app-pidof-after-launch.txt'] = formatAndroidCommandRawOutput(pidofAfterLaunch);
-          afterLaunchPids = parseAndroidPidofOutput(pidofAfterLaunch.stdout);
+          const afterLaunchPids = parseAndroidPidofOutput(pidofAfterLaunch.stdout);
+          knownLifecyclePids = afterLaunchPids;
           const runningAfterLaunch = pidofAfterLaunch.exitCode === 0 && afterLaunchPids.length > 0;
           checks.push({
             name: 'android_app_process_running_after_launch',
@@ -1330,6 +1331,45 @@ async function runAndroidAdbPreflight({
           source: 'runner',
           code: 'android_deep_link_waited',
           message: `Waited ${deepLink.waitMs}ms after Android deep link ${deepLink.label ?? index + 1}.`,
+        });
+      }
+
+      if (deepLinkOpened && packageName && !lifecyclePackageName) {
+        lifecyclePackageName = packageName;
+        const pidofAfterDeepLink = await executor(adbPath, [
+          '-s',
+          device.serial,
+          'shell',
+          'pidof',
+          packageName,
+        ]);
+        const rawPath = 'raw/adb-app-pidof-after-deep-link.txt';
+        raw['adb-app-pidof-after-deep-link.txt'] = formatAndroidCommandRawOutput(pidofAfterDeepLink);
+        const afterDeepLinkPids = parseAndroidPidofOutput(pidofAfterDeepLink.stdout);
+        knownLifecyclePids = afterDeepLinkPids;
+        const runningAfterDeepLink = pidofAfterDeepLink.exitCode === 0 && afterDeepLinkPids.length > 0;
+        checks.push({
+          name: 'android_app_process_running_after_deep_link',
+          status: runningAfterDeepLink ? 'passed' : 'failed',
+          source: 'runner',
+          code: runningAfterDeepLink
+            ? 'android_app_process_running_after_deep_link'
+            : 'android_app_not_running_after_deep_link',
+          message: runningAfterDeepLink
+            ? `Package ${packageName} is running after deep link with PID ${afterDeepLinkPids.join(', ')}.`
+            : `Package ${packageName} is not running after opening the deep link.`,
+          ...(!runningAfterDeepLink
+            ? {
+                metadata: nextActionHint(
+                  'inspect_android_deep_link_launch',
+                  `Inspect ${rawPath} and the app's device logs to find why the package-targeted deep link did not leave the app process running.`,
+                ),
+              }
+            : {}),
+        });
+        Object.assign(appLifecycleMetadata, {
+          afterDeepLinkPids,
+          afterDeepLinkRawPath: rawPath,
         });
       }
     }
@@ -1460,13 +1500,13 @@ async function runAndroidAdbPreflight({
       metadata.logcat = logcatMetadata;
     }
 
-    if (launchedPackageName) {
+    if (lifecyclePackageName) {
       const pidofAfterCapture = await executor(adbPath, [
         '-s',
         device.serial,
         'shell',
         'pidof',
-        launchedPackageName,
+        lifecyclePackageName,
       ]);
       const pidofAfterCaptureRawPath = 'raw/adb-app-pidof-after-capture.txt';
       raw['adb-app-pidof-after-capture.txt'] = formatAndroidCommandRawOutput(pidofAfterCapture);
@@ -1477,11 +1517,11 @@ async function runAndroidAdbPreflight({
         rawFileName: 'adb-app-lifecycle-log.txt',
       });
       raw[lifecycleLog.rawFileName] = formatAndroidAdbRawOutput(lifecycleLog);
-      const allKnownPids = Array.from(new Set([...afterLaunchPids, ...afterCapturePids]));
+      const allKnownPids = Array.from(new Set([...knownLifecyclePids, ...afterCapturePids]));
       const scan = lifecycleLog.exitCode === 0
         ? scanAndroidAppLifecycleLog({
             logText: `${lifecycleLog.stdout}\n${lifecycleLog.stderr}`,
-            packageName: launchedPackageName,
+            packageName: lifecyclePackageName,
             pids: allKnownPids,
           })
         : { crashed: false, evidence: [] };
@@ -1503,12 +1543,12 @@ async function runAndroidAdbPreflight({
               ? 'android_app_lifecycle_stable'
               : 'android_app_lifecycle_log_unavailable',
         message: !runningAfterCapture
-          ? `Package ${launchedPackageName} was not running after evidence capture.`
+          ? `Package ${lifecyclePackageName} was not running after evidence capture.`
           : scan.crashed
-            ? `Package ${launchedPackageName} emitted crash evidence during capture.`
+            ? `Package ${lifecyclePackageName} emitted crash evidence during capture.`
             : lifecycleLog.exitCode === 0
-              ? `Package ${launchedPackageName} remained running with no crash evidence in the bounded log window.`
-              : `Could not read Android lifecycle logs for package ${launchedPackageName}.`,
+              ? `Package ${lifecyclePackageName} remained running with no crash evidence in the bounded log window.`
+              : `Could not read Android lifecycle logs for package ${lifecyclePackageName}.`,
         ...(!runningAfterCapture || scan.crashed
           ? {
               metadata: nextActionHint(
@@ -1532,7 +1572,7 @@ async function runAndroidAdbPreflight({
         crashEvidence: scan.evidence,
         lifecycleLogLines,
         lifecycleLogRawPath: `raw/${lifecycleLog.rawFileName}`,
-        packageName: launchedPackageName,
+        packageName: lifecyclePackageName,
       };
     }
   } else {

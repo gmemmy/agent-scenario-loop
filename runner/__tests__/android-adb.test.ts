@@ -633,8 +633,14 @@ test('opens profile-session deep links before logcat capture', async (t: TestCon
       "-s emulator-5554 shell am start -a 'android.intent.action.VIEW' -d 'asl-example://profile-session/start?scenario=app-startup&runId=android-live' -p 'dev.agentscenarioloop.example'": {
         stdout: 'Starting: Intent { act=android.intent.action.VIEW }\n',
       },
+      '-s emulator-5554 shell pidof dev.agentscenarioloop.example': {
+        stdout: '1234\n',
+      },
       '-s emulator-5554 logcat -d -v time -t 25': {
         stdout: '06-16 10:00:00.000 I/ReactNativeJS(123): [profile-event] event=home_ready\n',
+      },
+      '-s emulator-5554 logcat -d -v time -t 200': {
+        stdout: '06-16 10:00:00.000 I/ReactNativeJS(1234): [profile-event] event=home_ready\n',
       },
     };
     const response = responses[key] ?? { exitCode: 1, stderr: `unexpected command: ${key}` };
@@ -670,12 +676,27 @@ test('opens profile-session deep links before logcat capture', async (t: TestCon
   assert.equal(result.health.healthStatus, 'passed');
   assert.deepEqual(waits, [125]);
   assert.ok(fs.existsSync(path.join(outputDir, 'raw', 'adb-deep-link-1.txt')));
+  assert.ok(fs.existsSync(path.join(outputDir, 'raw', 'adb-app-pidof-after-deep-link.txt')));
+  assert.ok(fs.existsSync(path.join(outputDir, 'raw', 'adb-app-pidof-after-capture.txt')));
+  assert.ok(fs.existsSync(path.join(outputDir, 'raw', 'adb-app-lifecycle-log.txt')));
   assert.ok(
     calls.indexOf("-s emulator-5554 shell am start -a 'android.intent.action.VIEW' -d 'asl-example://profile-session/start?scenario=app-startup&runId=android-live' -p 'dev.agentscenarioloop.example'") <
       calls.indexOf('-s emulator-5554 logcat -d -v time -t 25'),
   );
   assert.ok(
+    calls.indexOf("-s emulator-5554 shell am start -a 'android.intent.action.VIEW' -d 'asl-example://profile-session/start?scenario=app-startup&runId=android-live' -p 'dev.agentscenarioloop.example'") <
+      calls.indexOf('-s emulator-5554 shell pidof dev.agentscenarioloop.example'),
+  );
+  assert.ok(
     (result.health.checks as Array<{ code: string }>).some((check) => check.code === 'android_deep_link_opened'),
+  );
+  assert.ok(
+    (result.health.checks as Array<{ code: string }>).some(
+      (check) => check.code === 'android_app_process_running_after_deep_link',
+    ),
+  );
+  assert.ok(
+    (result.health.checks as Array<{ code: string }>).some((check) => check.code === 'android_app_lifecycle_stable'),
   );
 });
 
