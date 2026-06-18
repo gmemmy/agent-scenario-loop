@@ -5,6 +5,7 @@
     "scheme": "example-app",
     "profileSessionScheme": "example-app",
     "iosBundleId": "com.example.app",
+    "iosConflictingBundleIds": [],
     "androidPackage": "com.example.app",
     "ios": {
       "xcodeScheme": "Example App",

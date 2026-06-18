@@ -63,6 +63,7 @@ test('generic iOS live proof captures profile evidence before sidecar proofs', a
   });
 
   const orderedCalls: string[] = [];
+  const waits: number[] = [];
   const executor = async (command: string, args: string[]): Promise<CommandResult> => {
     const key = args.join(' ');
     orderedCalls.push(`simctl:${key}`);
@@ -137,7 +138,9 @@ test('generic iOS live proof captures profile evidence before sidecar proofs', a
   }, {
     agentDeviceExecutor,
     argentExecutor,
-    delay: async () => {},
+    delay: async (ms: number) => {
+      waits.push(ms);
+    },
     executor,
   });
 
@@ -160,6 +163,7 @@ test('generic iOS live proof captures profile evidence before sidecar proofs', a
     orderedCalls.findIndex((call) => call.includes(`argent:run launch-app --udid ${DEVICE_ID} --bundleId ${BUNDLE_ID}`)) > profileCapture,
     'Argent proof should run after iOS profile evidence capture',
   );
+  assert.ok(waits.includes(9000), 'expected generic iOS live proof to derive the startup capture window from scenario timeouts');
 
   const failedAgentDeviceExecutor = async (command: string, args: string[]): Promise<AgentDeviceCommandResult> => {
     orderedCalls.push(`failed-agent-device:${args.join(' ')}`);
@@ -182,7 +186,9 @@ test('generic iOS live proof captures profile evidence before sidecar proofs', a
       scenario: path.join(ROOT, 'examples', 'mobile-app', 'scenarios', 'mobile', 'app-startup.json'),
     }, {
       agentDeviceExecutor: failedAgentDeviceExecutor,
-      delay: async () => {},
+      delay: async (ms: number) => {
+        waits.push(ms);
+      },
       executor,
     }),
     /iOS live proof failed\. Inspect/u,

@@ -154,6 +154,20 @@ function resolveIosBundleId({
 }
 
 /**
+ * Resolves optional sibling iOS bundle ids that make simulator targeting ambiguous.
+ *
+ * @param {Record<string, unknown>} config
+ * @returns {string[]}
+ */
+function resolveIosConflictingBundleIds(config: Record<string, unknown>): string[] {
+  const app = readObjectProperty(config, 'app');
+  const configured = app?.iosConflictingBundleIds;
+  return Array.isArray(configured)
+    ? configured.filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+    : [];
+}
+
+/**
  * Resolves the simulator target used by every iOS proof lane.
  *
  * @param {CliArgs} args
@@ -344,6 +358,7 @@ async function runExampleIosLiveProof(
 
   const preflight = await runIosSimctlCapture({
     bundleId,
+    conflictingBundleIds: resolveIosConflictingBundleIds(config),
     device: deviceId,
     ...(options.executor ? { executor: options.executor } : {}),
     outputDir: preflightDir,

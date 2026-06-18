@@ -309,7 +309,12 @@ test('validates platform-specific project config fields', async (t: TestContext)
 
   const configPath = path.join(targetDir, 'asl.config.json');
   const config = JSON.parse(await fsp.readFile(configPath, 'utf8')) as {
-    app: { androidPackage?: string | number; iosBundleId?: string; profileSessionScheme?: string };
+    app: {
+      androidPackage?: string | number;
+      iosBundleId?: string;
+      iosConflictingBundleIds?: unknown;
+      profileSessionScheme?: string;
+    };
     drivers: { supported?: unknown };
     paths: {
       androidArtifactsRoot?: string | number;
@@ -397,7 +402,15 @@ test('validates platform-specific project config fields', async (t: TestContext)
   assert.deepEqual(result.config.packageSupportedDrivers, ['agent-device', 'argent']);
   assert.deepEqual(result.config.missingSupportedDrivers, ['fixture-log-ingest', 'adb', 'ios-simctl']);
 
+  config.drivers.supported = ['fixture-log-ingest', 'adb', 'ios-simctl'];
+  config.app.iosConflictingBundleIds = ['com.example.app.beta', 42];
+  await fsp.writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
+  result = await validateProject({ rootDir: targetDir });
+  assert.equal(result.status, 'failed');
+  assert.deepEqual(result.config.invalidFields, ['app.iosConflictingBundleIds']);
+
   config.drivers.supported = 'adb';
+  config.app.iosConflictingBundleIds = [];
   await fsp.writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
   result = await validateProject({ rootDir: targetDir });
   assert.equal(result.status, 'failed');

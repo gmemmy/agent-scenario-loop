@@ -157,6 +157,19 @@ function resolveIosBundleId({
 }
 
 /**
+ * Resolves optional sibling iOS bundle ids that make simulator targeting ambiguous.
+ *
+ * @param {Record<string, unknown>} config
+ * @returns {string[]}
+ */
+function resolveIosConflictingBundleIds(config: Record<string, any>): string[] {
+  const configured = config.app?.iosConflictingBundleIds;
+  return Array.isArray(configured)
+    ? configured.filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+    : [];
+}
+
+/**
  * Builds a profile-session deep link for the example app or another configured app.
  *
  * @param {{config: Record<string, unknown>, action: 'start' | 'command', scenario: string, runId: string, command?: string}} options
@@ -459,6 +472,7 @@ async function runProfileIos(
     ? await runIosSimctlCapture({
         bundleId: resolveIosBundleId({ args, config }),
         collectProfileStorage: profileSessionStorageEnabled,
+        conflictingBundleIds: resolveIosConflictingBundleIds(config),
         deepLinks: profileSessionDeepLinks,
         ...(options.delay ? { delay: options.delay } : {}),
         ...(typeof args.device === 'string' ? { device: args.device } : {}),
@@ -589,6 +603,7 @@ export {
   main,
   parseArgs,
   resolveIosBundleId,
+  resolveIosConflictingBundleIds,
   resolveIosSimctlProfileCommands,
   resolveProfileSessionCaptureWaitMs,
   resolveSimctlCaptureOutputDir,

@@ -5,6 +5,7 @@
     "scheme": "asl-example",
     "profileSessionScheme": "asl-example",
     "iosBundleId": "dev.agent-scenario-loop.example",
+    "iosConflictingBundleIds": [],
     "androidPackage": "dev.agentscenarioloop.example",
     "ios": {
       "xcodeScheme": "ASL Example",

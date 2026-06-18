@@ -833,6 +833,17 @@ function validateProjectConfig({
     }
   }
 
+  const iosConflictingBundleIds = readNestedValue(config, ['app', 'iosConflictingBundleIds']);
+  if (
+    iosConflictingBundleIds !== undefined &&
+    (
+      !Array.isArray(iosConflictingBundleIds) ||
+      iosConflictingBundleIds.some((value) => typeof value !== 'string' || value.trim().length === 0)
+    )
+  ) {
+    invalidFields.push('app.iosConflictingBundleIds');
+  }
+
   const rawSupportedDrivers = readNestedValue(config, ['drivers', 'supported']);
   const supportedDrivers = Array.isArray(rawSupportedDrivers)
     ? rawSupportedDrivers

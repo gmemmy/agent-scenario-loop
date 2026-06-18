@@ -70,6 +70,7 @@ type IosProfileSessionStorageSeed = {
 type IosSimctlCaptureOptions = {
   bundleId?: string | null;
   collectProfileStorage?: boolean;
+  conflictingBundleIds?: string[];
   deepLinks?: IosSimctlDeepLink[];
   delay?: (ms: number) => Promise<void>;
   device?: string | null;
@@ -119,6 +120,16 @@ const PROFILE_STORAGE_RESET_KEYS = [
   PROFILE_SESSION_ENTRIES_STORAGE_KEY,
 ];
 const SCREENSHOT_EXTENSIONS = new Set(['bmp', 'gif', 'jpeg', 'png', 'tiff']);
+
+/**
+ * Builds a filesystem-safe raw artifact suffix for a bundle identifier.
+ *
+ * @param {string} bundleId
+ * @returns {string}
+ */
+function rawBundleIdSuffix(bundleId: string): string {
+  return bundleId.replace(/[^A-Za-z0-9._-]+/gu, '-').slice(0, 80) || 'bundle';
+}
 
 /**
  * Prints CLI usage to stderr.
@@ -194,6 +205,31 @@ function parsePositiveInteger(value: string | boolean | undefined, fallback: num
 
   const parsed = Number(value);
   return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+/**
+ * Normalizes configured sibling bundle ids, excluding the selected target bundle.
+ *
+ * @param {{bundleId: string | null, conflictingBundleIds: string[]}} options
+ * @returns {string[]}
+ */
+function normalizeConflictingBundleIds({
+  bundleId,
+  conflictingBundleIds,
+}: {
+  bundleId: string | null;
+  conflictingBundleIds: string[];
+}): string[] {
+  const ids = new Set<string>();
+  for (const candidate of conflictingBundleIds) {
+    const normalized = typeof candidate === 'string' ? candidate.trim() : '';
+    if (normalized.length === 0 || normalized === bundleId) {
+      continue;
+    }
+    ids.add(normalized);
+  }
+
+  return [...ids].sort();
 }
 
 /**
@@ -555,6 +591,7 @@ function buildIosSimctlVerdict({ runId, health }: { runId: string; health: Recor
 async function runIosSimctlCapture({
   bundleId = null,
   collectProfileStorage = false,
+  conflictingBundleIds = [],
   deepLinks = [],
   delay: wait = delay,
   device = null,
@@ -629,6 +666,7 @@ async function runIosSimctlCapture({
   const metadata: Record<string, unknown> = {
     bundleId,
     collectProfileStorage,
+    conflictingBundleIds: [],
     deepLinks,
     deepLinkResults,
     launch,
@@ -656,6 +694,7 @@ async function runIosSimctlCapture({
       xcrunPath,
     });
     let dataContainerPath: string | null = null;
+    let hasInstalledConflictingBundle = false;
     if (bundleId) {
       const appContainer = await executor(xcrunPath, ['simctl', 'get_app_container', simulator.udid, bundleId, 'app']);
       raw['ios-app-container.txt'] = [appContainer.stdout, appContainer.stderr].filter(Boolean).join('\n');
@@ -682,6 +721,60 @@ async function runIosSimctlCapture({
       metadata.appContainer = {
         rawPath: 'raw/ios-app-container.txt',
       };
+
+      const checkedConflictingBundleIds = normalizeConflictingBundleIds({
+        bundleId,
+        conflictingBundleIds,
+      });
+      if (checkedConflictingBundleIds.length > 0) {
+        const installedConflictingBundleIds: string[] = [];
+        const conflictChecks: Array<{ bundleId: string; rawPath: string; installed: boolean }> = [];
+        for (const [index, conflictingBundleId] of checkedConflictingBundleIds.entries()) {
+          const rawFileName = `ios-conflicting-bundle-${index + 1}-${rawBundleIdSuffix(conflictingBundleId)}.txt`;
+          const conflictContainer = await executor(xcrunPath, [
+            'simctl',
+            'get_app_container',
+            simulator.udid,
+            conflictingBundleId,
+            'app',
+          ]);
+          raw[rawFileName] = [conflictContainer.stdout, conflictContainer.stderr].filter(Boolean).join('\n');
+          const installed = conflictContainer.exitCode === 0 && conflictContainer.stdout.trim().length > 0;
+          if (installed) {
+            installedConflictingBundleIds.push(conflictingBundleId);
+          }
+          conflictChecks.push({
+            bundleId: conflictingBundleId,
+            installed,
+            rawPath: `raw/${rawFileName}`,
+          });
+        }
+
+        hasInstalledConflictingBundle = installedConflictingBundleIds.length > 0;
+        checks.push({
+          name: 'ios_conflicting_bundles_absent',
+          status: hasInstalledConflictingBundle ? 'failed' : 'passed',
+          source: 'runner',
+          code: hasInstalledConflictingBundle
+            ? 'ios_conflicting_bundles_installed'
+            : 'ios_conflicting_bundles_absent',
+          message: hasInstalledConflictingBundle
+            ? `Conflicting iOS bundle id(s) are installed on ${simulator.udid}: ${installedConflictingBundleIds.join(', ')}.`
+            : 'No configured conflicting iOS bundle ids are installed on the selected simulator.',
+          ...(hasInstalledConflictingBundle
+            ? {
+                metadata: nextActionHint(
+                  'uninstall_ios_conflicting_bundles',
+                  'Uninstall the conflicting app variant(s) from the selected simulator, or use a clean simulator dedicated to the target bundle before trusting launch, deep-link, or profile-session evidence.',
+                ),
+              }
+            : {}),
+        });
+        metadata.conflictingBundleIds = {
+          checked: conflictChecks,
+          installed: installedConflictingBundleIds,
+        };
+      }
 
       if (collectProfileStorage || profileSessionStorage) {
         const dataContainer = await executor(xcrunPath, [
@@ -718,7 +811,7 @@ async function runIosSimctlCapture({
       }
     }
 
-    if (terminateBeforeLaunch) {
+    if (terminateBeforeLaunch && !hasInstalledConflictingBundle) {
       if (!bundleId) {
         checks.push({
           name: 'ios_app_terminated',
@@ -762,7 +855,7 @@ async function runIosSimctlCapture({
       }
     }
 
-    if (profileSessionStorage) {
+    if (profileSessionStorage && !hasInstalledConflictingBundle) {
       if (!bundleId || !dataContainerPath) {
         checks.push({
           name: 'ios_profile_session_seeded',
@@ -806,7 +899,7 @@ async function runIosSimctlCapture({
       }
     }
 
-    if (launch) {
+    if (launch && !hasInstalledConflictingBundle) {
       if (!bundleId) {
         checks.push({
           name: 'ios_app_launched',
@@ -846,7 +939,7 @@ async function runIosSimctlCapture({
       }
     }
 
-    for (const [index, deepLink] of deepLinks.entries()) {
+    for (const [index, deepLink] of (hasInstalledConflictingBundle ? [] : deepLinks).entries()) {
       const rawFileName = `ios-deep-link-${index + 1}.txt`;
       const deepLinkResult = await driver.openDeepLink({ rawFileName, url: deepLink.url });
       const deepLinkOpened = deepLinkResult.exitCode === 0;
@@ -1145,6 +1238,7 @@ export {
   parseArgs,
   parsePositiveInteger,
   parseSimctlDevices,
+  normalizeConflictingBundleIds,
   readAsyncStorageValueSync,
   readProfileStorageJson,
   resolveAsyncStorageDirectory,

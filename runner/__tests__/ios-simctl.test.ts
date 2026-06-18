@@ -254,6 +254,82 @@ test('captures bounded iOS simulator log evidence', async (t: TestContext) => {
   );
 });
 
+test('fails iOS capture when configured sibling bundle variants are installed', async (t: TestContext) => {
+  const outputDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-ios-simctl-conflict-'));
+  t.after(async () => {
+    await fsp.rm(outputDir, { recursive: true, force: true });
+  });
+  const calls: string[] = [];
+  const executor = async (command: string, args: string[]): Promise<CommandResult> => {
+    const key = args.join(' ');
+    calls.push(key);
+    const responses: Record<string, Partial<CommandResult>> = {
+      'simctl list devices': {
+        stdout: [
+          '== Devices ==',
+          '-- iOS 26.3 --',
+          '    iPhone 17 Pro Max (A692ED28-893E-453F-8866-C69331AE757F) (Booted)',
+        ].join('\n'),
+      },
+      'simctl get_app_container A692ED28-893E-453F-8866-C69331AE757F dev.agent-scenario-loop.example app': {
+        stdout: '/tmp/ASLExampleMobile.app\n',
+      },
+      'simctl get_app_container A692ED28-893E-453F-8866-C69331AE757F dev.agent-scenario-loop.beta app': {
+        stdout: '/tmp/ASLExampleMobileBeta.app\n',
+      },
+      'simctl get_app_container A692ED28-893E-453F-8866-C69331AE757F dev.agent-scenario-loop.prod app': {
+        exitCode: 1,
+        stderr: 'An error was encountered processing the command',
+      },
+      'simctl spawn A692ED28-893E-453F-8866-C69331AE757F log show --style compact --last 2m --predicate eventMessage CONTAINS "[profile-event]" OR eventMessage CONTAINS "[profile-session]"': {
+        stdout: 'Timestamp Ty Process[PID:TID]\n',
+      },
+    };
+    const response = responses[key] ?? { exitCode: 1, stderr: `unexpected command: ${key}` };
+    return {
+      command,
+      args,
+      exitCode: response.exitCode ?? 0,
+      stderr: response.stderr ?? '',
+      stdout: response.stdout ?? '',
+    };
+  };
+
+  const result = await runIosSimctlCapture({
+    bundleId: 'dev.agent-scenario-loop.example',
+    conflictingBundleIds: [
+      'dev.agent-scenario-loop.example',
+      'dev.agent-scenario-loop.beta',
+      'dev.agent-scenario-loop.prod',
+    ],
+    deepLinks: [
+      {
+        label: 'profile-session-start',
+        url: 'asl-example://profile-session/start?scenario=app-startup&runId=ios-conflict',
+      },
+    ],
+    executor,
+    launch: true,
+    outputDir,
+    runId: 'ios-conflict',
+    terminateBeforeLaunch: true,
+  });
+
+  assert.equal(result.health.healthStatus, 'failed');
+  assert.ok(
+    (result.health.checks as Array<{ code: string; metadata?: { nextActionCode?: string } }>).some(
+      (check) => check.code === 'ios_conflicting_bundles_installed'
+        && check.metadata?.nextActionCode === 'uninstall_ios_conflicting_bundles',
+    ),
+  );
+  assert.equal(calls.some((call) => call.includes('simctl launch ')), false);
+  assert.equal(calls.some((call) => call.includes('simctl openurl ')), false);
+  assert.equal(calls.some((call) => call.includes('simctl terminate ')), false);
+  assert.deepEqual((result.metadata.conflictingBundleIds as { installed: string[] }).installed, [
+    'dev.agent-scenario-loop.beta',
+  ]);
+});
+
 test('seeds profile-session AsyncStorage while preserving unrelated app keys', async (t: TestContext) => {
   const dataContainer = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-ios-storage-'));
   t.after(async () => {

@@ -106,6 +106,20 @@ function resolveIosBundleId({
 }
 
 /**
+ * Resolves optional sibling iOS bundle ids that make simulator targeting ambiguous.
+ *
+ * @param {Record<string, unknown>} config
+ * @returns {string[]}
+ */
+function resolveIosConflictingBundleIds(config: Record<string, unknown>): string[] {
+  const app = readObjectProperty(config, 'app');
+  const configured = app?.iosConflictingBundleIds;
+  return Array.isArray(configured)
+    ? configured.filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+    : [];
+}
+
+/**
  * Converts an optional run suffix into a path-safe segment.
  *
  * @param {unknown} value
@@ -297,6 +311,7 @@ async function runIosLiveProof(
 
   const preflight = await runIosSimctlCapture({
     bundleId,
+    conflictingBundleIds: resolveIosConflictingBundleIds(config),
     ...(typeof args.device === 'string' ? { device: args.device } : {}),
     ...(options.executor ? { executor: options.executor } : {}),
     outputDir: preflightDir,
@@ -325,7 +340,7 @@ async function runIosLiveProof(
     scenario: scenarioPath,
     'simctl-capture': true,
     'simctl-out': path.join(outputDir, '_ios-simctl-captures', profileRunId),
-    'wait-ms': typeof args['wait-ms'] === 'string' ? args['wait-ms'] : '5000',
+    ...(typeof args['wait-ms'] === 'string' ? { 'wait-ms': args['wait-ms'] } : {}),
     ...(bundleId ? { bundle: bundleId } : {}),
     ...(typeof args.xcrun === 'string' ? { xcrun: args.xcrun } : {}),
   }, {
