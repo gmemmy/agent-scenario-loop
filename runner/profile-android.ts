@@ -6,6 +6,7 @@ const path = require('node:path');
 
 const { hasHelpFlag } = require('./cli');
 const {
+  ANDROID_DEVICE_EPOCH_MS_PLACEHOLDER,
   parsePositiveInteger,
   runAndroidAdbPreflight,
 } = require('./android-adb');
@@ -17,6 +18,7 @@ const {
 } = require('./profile-mobile');
 const { buildScenarioExecutionPlan } = require('../core/execution-plan');
 const { runAgentDeviceCapture } = require('./agent-device');
+const { loadAslLocalEnv, readStringArgOrEnv } = require('./local-env');
 
 type AndroidProfileOptions = {
   agentDeviceExecutor?: import('./agent-device').CommandExecutor;
@@ -32,10 +34,13 @@ type AndroidAdbProfileCommand = {
 };
 
 type AndroidAdbDriverStep = import('./android-adb').AndroidAdbDriverStep;
+type AndroidAsyncStorageWrite = import('./android-adb').AndroidAsyncStorageWrite;
 type ScenarioExecutionStep = import('../core/execution-plan').ScenarioExecutionStep;
 
 const PROFILE_SESSION_CAPTURE_BOOTSTRAP_MS = 1000;
 const PROFILE_SESSION_CAPTURE_MAX_MS = 30000;
+const DEFAULT_ANDROID_PROFILE_SESSION_STORAGE_KEY = 'agent-scenario-loop.profile-session.1';
+const DEFAULT_ANDROID_PROFILE_COMMAND_STORAGE_KEY = 'agent-scenario-loop.profile-commands.1';
 
 /**
  * Reads and parses a JSON object from disk.
@@ -185,6 +190,58 @@ function buildProfileSessionUrl({
   }
 
   return `${scheme}://profile-session/${action}?${params.toString()}`;
+}
+
+/**
+ * Builds Android AsyncStorage writes for one profile-session run.
+ *
+ * @param {{commands: AndroidAdbProfileCommand[], commandStorageKey: string, commandWaitMs: number, runId: string, scenario: string, sessionStorageKey: string}} options
+ * @returns {import('./android-adb').AndroidAsyncStorageWrite[]}
+ */
+function buildProfileSessionStorageWrites({
+  commands,
+  commandStorageKey,
+  commandWaitMs,
+  runId,
+  scenario,
+  sessionStorageKey,
+}: {
+  commands: AndroidAdbProfileCommand[];
+  commandStorageKey: string;
+  commandWaitMs: number;
+  runId: string;
+  scenario: string;
+  sessionStorageKey: string;
+}): AndroidAsyncStorageWrite[] {
+  return [
+    {
+      clearKeys: [commandStorageKey],
+      key: sessionStorageKey,
+      label: 'profile-session-start',
+      value: JSON.stringify({
+        active: true,
+        scenario,
+        runId,
+        startedAt: ANDROID_DEVICE_EPOCH_MS_PLACEHOLDER,
+      }).replace(`"${ANDROID_DEVICE_EPOCH_MS_PLACEHOLDER}"`, ANDROID_DEVICE_EPOCH_MS_PLACEHOLDER),
+      waitMs: commandWaitMs,
+    },
+    ...commands.map((profileCommand, index) => {
+      const timestamp = Date.now() + index + 1;
+      return {
+        key: commandStorageKey,
+        label: profileCommand.label ?? `profile-command-${index + 1}`,
+        value: JSON.stringify([{
+          id: `${timestamp}-${scenario}-${profileCommand.command}`,
+          scenario,
+          runId,
+          command: profileCommand.command,
+          timestamp,
+        }]),
+        ...(typeof profileCommand.waitMs === 'number' ? { waitMs: profileCommand.waitMs } : {}),
+      };
+    }),
+  ];
 }
 
 /**
@@ -561,6 +618,44 @@ async function runProfileAndroid(
   const adbCaptureEnabled = isEnabled(args['adb-capture']);
   const agentDeviceCaptureEnabled = isEnabled(args['agent-device-capture']);
   const profileSessionEnabled = isEnabled(args['profile-session']);
+  const profileSessionStorageEnabled = isEnabled(args['android-profile-session-storage']);
+  const profileSessionStorageKey = readStringArgOrEnv(args['android-profile-session-storage-key'], [
+    'ASL_ANDROID_PROFILE_SESSION_STORAGE_KEY',
+    'ASL_EXAMPLE_ANDROID_PROFILE_SESSION_STORAGE_KEY',
+  ]) ?? DEFAULT_ANDROID_PROFILE_SESSION_STORAGE_KEY;
+  const profileCommandStorageKey = readStringArgOrEnv(args['android-profile-command-storage-key'], [
+    'ASL_ANDROID_PROFILE_COMMAND_STORAGE_KEY',
+    'ASL_EXAMPLE_ANDROID_PROFILE_COMMAND_STORAGE_KEY',
+  ]) ?? DEFAULT_ANDROID_PROFILE_COMMAND_STORAGE_KEY;
+  const androidDevClientUrl = readStringArgOrEnv(args['android-dev-client-url'], [
+    'ASL_ANDROID_DEV_CLIENT_URL',
+    'ASL_EXAMPLE_ANDROID_DEV_CLIENT_URL',
+  ]);
+  const androidDevClientWaitMs = parsePositiveInteger(
+    readStringArgOrEnv(args['android-dev-client-wait-ms'], [
+      'ASL_ANDROID_DEV_CLIENT_WAIT_MS',
+      'ASL_EXAMPLE_ANDROID_DEV_CLIENT_WAIT_MS',
+    ]),
+    1000,
+  );
+  const androidDevClientReadyPattern = readStringArgOrEnv(args['android-dev-client-ready-pattern'], [
+    'ASL_ANDROID_DEV_CLIENT_READY_PATTERN',
+    'ASL_EXAMPLE_ANDROID_DEV_CLIENT_READY_PATTERN',
+  ]);
+  const androidDevClientReadyQuietMs = parsePositiveInteger(
+    readStringArgOrEnv(args['android-dev-client-ready-quiet-ms'], [
+      'ASL_ANDROID_DEV_CLIENT_READY_QUIET_MS',
+      'ASL_EXAMPLE_ANDROID_DEV_CLIENT_READY_QUIET_MS',
+    ]),
+    0,
+  );
+  const androidDevClientReadyTimeoutMs = parsePositiveInteger(
+    readStringArgOrEnv(args['android-dev-client-ready-timeout-ms'], [
+      'ASL_ANDROID_DEV_CLIENT_READY_TIMEOUT_MS',
+      'ASL_EXAMPLE_ANDROID_DEV_CLIENT_READY_TIMEOUT_MS',
+    ]),
+    60000,
+  );
   const scenarioName = typeof scenario.name === 'string' ? scenario.name : path.basename(args.scenario, '.json');
   const driverSteps = adbCaptureEnabled ? resolveAndroidAdbDriverSteps(scenario) : [];
   if (adbCaptureEnabled) {
@@ -569,7 +664,9 @@ async function runProfileAndroid(
       throw new Error(`Invalid Android adb driver step metadata: ${driverStepErrors.join(' ')}`);
     }
   }
-  const profileSessionDeepLinks = profileSessionEnabled
+  const profileSessionCommands = profileSessionEnabled ? resolveAndroidAdbProfileCommands(scenario) : [];
+  const commandWaitMs = parsePositiveInteger(readScalarArg(args['command-wait-ms']), 250);
+  const profileSessionDeepLinks = profileSessionEnabled && !profileSessionStorageEnabled
     ? [
         {
           label: 'profile-session-start',
@@ -579,9 +676,9 @@ async function runProfileAndroid(
             runId,
             scenario: scenarioName,
           }),
-          waitMs: parsePositiveInteger(readScalarArg(args['command-wait-ms']), 250),
+          waitMs: commandWaitMs,
         },
-        ...resolveAndroidAdbProfileCommands(scenario).map((profileCommand, index) => ({
+        ...profileSessionCommands.map((profileCommand, index) => ({
           label: profileCommand.label ?? `profile-command-${index + 1}`,
           url: buildProfileSessionUrl({
             action: 'command',
@@ -592,6 +689,28 @@ async function runProfileAndroid(
           }),
           waitMs: profileCommand.waitMs,
         })),
+      ]
+    : [];
+  const profileSessionStorageWrites = profileSessionEnabled && profileSessionStorageEnabled
+    ? buildProfileSessionStorageWrites({
+        commandStorageKey: profileCommandStorageKey,
+        commandWaitMs,
+        commands: profileSessionCommands,
+        runId,
+        scenario: scenarioName,
+        sessionStorageKey: profileSessionStorageKey,
+      })
+    : [];
+  const startupDeepLinks = androidDevClientUrl
+    ? [
+        {
+          label: 'android-dev-client-url',
+          ...(androidDevClientReadyPattern ? { readyLogPattern: androidDevClientReadyPattern } : {}),
+          readyLogQuietMs: androidDevClientReadyQuietMs,
+          readyLogTimeoutMs: androidDevClientReadyTimeoutMs,
+          url: androidDevClientUrl,
+          waitMs: androidDevClientWaitMs,
+        },
       ]
     : [];
   const adbCapture = adbCaptureEnabled
@@ -613,6 +732,8 @@ async function runProfileAndroid(
           : {}),
         runId,
         ...(typeof args.serial === 'string' ? { serial: args.serial } : {}),
+        startupDeepLinks,
+        storageWrites: profileSessionStorageWrites,
         waitMs: resolveProfileSessionCaptureWaitMs({
           args,
           profileSessionEnabled,
@@ -697,6 +818,7 @@ async function main(): Promise<void> {
   }
 
   const args = parseArgs(argv);
+  loadAslLocalEnv();
   if (typeof args.config !== 'string' || typeof args.scenario !== 'string') {
     usage({ binaryName: 'asl-profile-android', platform: 'android' });
     process.exitCode = 1;

@@ -89,7 +89,7 @@ The command targets the booted simulator and the example app bundle id by defaul
 ASL_EXAMPLE_IOS_DEVICE=<simulator-udid> ASL_EXAMPLE_METRO_PORT=8097 pnpm example:app:ios:metro-port
 ```
 
-For Expo dev-client iOS builds, also set `ASL_EXAMPLE_IOS_DEV_CLIENT_URL` to the example app's dev-client URL for the same Metro port. The iOS live runners open that URL after launching the native shell and before collecting stored profile-session evidence.
+For Expo dev-client builds, set `ASL_EXAMPLE_ANDROID_DEV_CLIENT_URL` or `ASL_EXAMPLE_IOS_DEV_CLIENT_URL` to the example app's dev-client URL for the same Metro port. Android live runners open that URL before profile-session deep links; iOS live runners open it after launching the native shell and before collecting stored profile-session evidence.
 
 If a selected Xcode beta cannot run the current Expo/RN toolchain cleanly, point `ASL_EXAMPLE_XCODE_DEVELOPER_DIR` at a stable Xcode developer directory before running the iOS Metro-port, live proof, or raw local iOS build commands.
 
@@ -241,7 +241,9 @@ pnpm example:profile:android:live:scroll
 
 The command targets live in the scenario `adapterOptions.androidAdb.commands` block, while the app handles them through `registerProfileCommandTargetHandler`. If adb, the package, or the device is unavailable, the adb capture folder gets a failed `health.json` and the profile run stops before making timing claims.
 
-The example Android live proof uses a short `--launch-wait-ms` delay before sending profile-session deep links so React Native has time to attach its deep-link listener after cold launch. Keep that delay separate from `--command-wait-ms`, which waits after app-handled profile commands, and `--wait-ms`, which controls the final logcat capture window.
+The example Android live proof uses a short `--launch-wait-ms` delay before sending profile-session deep links so React Native has time to attach its deep-link listener after cold launch. Expo dev-client builds can also pass `--android-dev-client-url` or set `ASL_EXAMPLE_ANDROID_DEV_CLIENT_URL` so the runner opens the Metro session before profile-session links. Add `--android-dev-client-ready-pattern 'Running "main"'` or `ASL_EXAMPLE_ANDROID_DEV_CLIENT_READY_PATTERN='Running "main"'` when the dev client needs bounded logcat proof that the JS bundle is ready. Keep those waits separate from `--command-wait-ms`, which waits after app-handled profile commands, and `--wait-ms`, which controls the final logcat capture window.
+
+Use `--android-profile-session-storage` only when the app has mounted the ASL AsyncStorage profile-session bridge and Android URL events are not reliable enough for startup control. Storage-backed Android sessions use the selected device clock for `startedAt`, so app-emitted milestone offsets remain meaningful even when the host and emulator clocks differ.
 
 If direct `adb devices` works but the Node-based runner reports no online device and raw `adb-devices.txt` mentions the adb daemon or `Operation not permitted`, rerun with adb daemon permissions before treating the failure as an app, package, or emulator issue.
 

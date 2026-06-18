@@ -81,7 +81,9 @@ asl-check-plan --scenario scenarios/mobile/first-journey.json --runner runner-ma
 asl-profile-ios --config asl.config.json --scenario scenarios/mobile/first-journey.json --simctl-capture --profile-session --profile-session-storage --launch --out artifacts/asl/ios --run-id first-journey-ios-live --comparison-lane first-journey-ios-live
 ```
 
-For Expo dev-client builds, set `ASL_IOS_DEV_CLIENT_URL` to the app's dev-client URL in ignored local env state. `asl-profile-ios` and `asl-live-ios` open it before reading stored profile-session evidence.
+For Expo dev-client builds, set `ASL_ANDROID_DEV_CLIENT_URL` or `ASL_IOS_DEV_CLIENT_URL` to the app's dev-client URL in ignored local env state. Android opens it before profile-session deep links; iOS opens it before reading stored profile-session evidence. If Android bundle startup is slow, set `ASL_ANDROID_DEV_CLIENT_READY_PATTERN='Running "main"'` so profile-session links wait for app runtime readiness evidence.
+
+When Android deep-link delivery is unreliable in a dev-client shell, use `--android-profile-session-storage` so `asl-profile-android` seeds the app-owned AsyncStorage session through `run-as` before collecting evidence. The runner reads the selected device clock for the session start timestamp, which keeps app-emitted milestone durations meaningful. Keep custom storage key overrides local to the consuming app.
 
 When `--wait-ms` is omitted, profile-session live capture derives the final adb or simctl evidence window from the scenario execution steps and cycle count. Use an explicit `--wait-ms` only for an app-specific override.
 

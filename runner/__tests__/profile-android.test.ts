@@ -1192,6 +1192,9 @@ test('profile-android starts profile sessions and executes scenario commands dur
       '-s emulator-5554 shell pidof dev.agentscenarioloop.example': {
         stdout: '1234\n',
       },
+      "-s emulator-5554 shell am start -a 'android.intent.action.VIEW' -d 'asl-example://expo-development-client/?url=http%3A%2F%2F10.0.2.2%3A8097' -p 'dev.agentscenarioloop.example'": {
+        stdout: 'Starting: Intent { act=android.intent.action.VIEW }\n',
+      },
       "-s emulator-5554 shell am start -a 'android.intent.action.VIEW' -d 'asl-example://profile-session/start?runId=android-live-open-close&scenario=open-close-cycle' -p 'dev.agentscenarioloop.example'": {
         stdout: 'Starting: Intent { act=android.intent.action.VIEW }\n',
       },
@@ -1221,6 +1224,8 @@ test('profile-android starts profile sessions and executes scenario commands dur
   const result = await runProfileAndroid({
     'adb-capture': true,
     'adb-out': adbCaptureRoot,
+    'android-dev-client-url': 'asl-example://expo-development-client/?url=http%3A%2F%2F10.0.2.2%3A8097',
+    'android-dev-client-wait-ms': '125',
     'clear-logcat': true,
     config: fixturePath('examples/mobile-app/asl.config.json'),
     launch: true,
@@ -1246,11 +1251,16 @@ test('profile-android starts profile sessions and executes scenario commands dur
   assert.equal(health.healthStatus, 'passed');
   assert.equal(adbHealth.healthStatus, 'passed');
   assert.equal(deepLinkCount, 7);
-  assert.deepEqual(waits, [500, 250, 300, 300, 300, 300, 300, 300, 1000]);
+  assert.deepEqual(waits, [500, 125, 250, 300, 300, 300, 300, 300, 300, 1000]);
+  assert.ok(
+    calls.indexOf("-s emulator-5554 shell am start -a 'android.intent.action.VIEW' -d 'asl-example://expo-development-client/?url=http%3A%2F%2F10.0.2.2%3A8097' -p 'dev.agentscenarioloop.example'") <
+      calls.indexOf("-s emulator-5554 shell am start -a 'android.intent.action.VIEW' -d 'asl-example://profile-session/start?runId=android-live-open-close&scenario=open-close-cycle' -p 'dev.agentscenarioloop.example'"),
+  );
   assert.ok(
     calls.indexOf('-s emulator-5554 logcat -c') <
       calls.indexOf("-s emulator-5554 shell am start -a 'android.intent.action.VIEW' -d 'asl-example://profile-session/start?runId=android-live-open-close&scenario=open-close-cycle' -p 'dev.agentscenarioloop.example'"),
   );
+  assert.ok(fs.existsSync(path.join(adbCaptureRoot, 'raw', 'adb-startup-deep-link-1.txt')));
   assert.ok(fs.existsSync(path.join(result.runDir, 'raw', 'adb-logcat.txt')));
 });
 

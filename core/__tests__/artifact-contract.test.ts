@@ -75,8 +75,8 @@ test('treats milestone-only startup proof as a complete cycle', () => {
       },
     },
     events: [
-      { event: 'app_launch_requested', iteration: 1, atMs: 0 },
-      { event: 'home_ready', iteration: 1, atMs: 1020 },
+      { event: 'app_launch_requested', atMs: 0 },
+      { event: 'home_ready', atMs: 1020 },
     ],
   });
 

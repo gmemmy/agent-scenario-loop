@@ -6,6 +6,7 @@ const path = require('node:path');
 const test = require('node:test');
 
 const {
+  ANDROID_DEVICE_EPOCH_MS_PLACEHOLDER,
   buildReactNativeDebugHostPreferenceCommand,
   escapeAndroidPreferenceXml,
   parseAdbDevices,
@@ -173,6 +174,85 @@ test('configures React Native debug host and adb reverse when requested', async 
   assert.ok(
     (result.health.checks as Array<{ code: string }>).some((check) => (
       check.code === 'android_react_native_debug_host_configured'
+    )),
+  );
+});
+
+test('writes Android AsyncStorage values through package-scoped RKStorage', async (t: TestContext) => {
+  const outputDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-android-adb-storage-'));
+  t.after(async () => {
+    await fsp.rm(outputDir, { recursive: true, force: true });
+  });
+  const calls: string[] = [];
+  const fallbackExecutor = createExecutor({
+    version: { stdout: 'Android Debug Bridge version 1.0.41\n' },
+    'devices -l': {
+      stdout: [
+        'List of devices attached',
+        'emulator-5554 device product:sdk_gphone model:Pixel_6 device:emu64',
+      ].join('\n'),
+    },
+    '-s emulator-5554 shell getprop ro.product.model': { stdout: 'Pixel 6\n' },
+    '-s emulator-5554 shell getprop ro.build.version.release': { stdout: '15\n' },
+    '-s emulator-5554 shell getprop ro.build.version.sdk': { stdout: '35\n' },
+    '-s emulator-5554 shell pm path com.example.app': { stdout: 'package:/data/app/com.example.app/base.apk\n' },
+    '-s emulator-5554 shell date +%s': { stdout: '1800000000\n' },
+  });
+  const executor = async (command: string, args: string[]): Promise<CommandResult> => {
+    const key = args.join(' ');
+    calls.push(key);
+    if (
+      key.includes('run-as') &&
+      key.includes('com.example.app') &&
+      key.includes('sqlite3') &&
+      key.includes('databases/RKStorage') &&
+      key.includes('agent-scenario-loop.profile-session.1') &&
+      key.includes('"startedAt":1800000000000') &&
+      !key.includes(ANDROID_DEVICE_EPOCH_MS_PLACEHOLDER)
+    ) {
+      return { args, command, exitCode: 0, stderr: '', stdout: '' };
+    }
+
+    return fallbackExecutor(command, args);
+  };
+  const waits: number[] = [];
+
+  const result = await runAndroidAdbPreflight({
+    delay: async (ms: number) => {
+      waits.push(ms);
+    },
+    executor,
+    outputDir,
+    packageName: 'com.example.app',
+    runId: 'android-storage',
+    storageWrites: [{
+      clearKeys: ['agent-scenario-loop.profile-commands.1'],
+      key: 'agent-scenario-loop.profile-session.1',
+      label: 'profile-session-start',
+      value: JSON.stringify({
+        active: true,
+        scenario: 'app-startup',
+        runId: 'android-storage',
+        startedAt: ANDROID_DEVICE_EPOCH_MS_PLACEHOLDER,
+      }).replace(`"${ANDROID_DEVICE_EPOCH_MS_PLACEHOLDER}"`, ANDROID_DEVICE_EPOCH_MS_PLACEHOLDER),
+      waitMs: 125,
+    }],
+  });
+
+  assert.equal(result.health.healthStatus, 'passed', JSON.stringify(result.health.checks, null, 2));
+  assert.deepEqual(waits, [125]);
+  assert.ok(calls.includes('-s emulator-5554 shell date +%s'));
+  assert.ok(calls.some((call) => call.includes('catalystLocalStorage')));
+  assert.ok(fs.existsSync(path.join(outputDir, 'raw', 'adb-device-epoch-ms.txt')));
+  assert.ok(fs.existsSync(path.join(outputDir, 'raw', 'adb-async-storage-write-1.txt')));
+  assert.ok(
+    (result.health.checks as Array<{ code: string }>).some((check) => (
+      check.code === 'android_async_storage_written'
+    )),
+  );
+  assert.ok(
+    (result.health.checks as Array<{ code: string }>).some((check) => (
+      check.code === 'android_device_clock_read'
     )),
   );
 });
@@ -607,6 +687,56 @@ test('fails health when launched Android app emits crash evidence', async (t: Te
   assert.match(fs.readFileSync(path.join(outputDir, 'raw', 'adb-app-lifecycle-log.txt'), 'utf8'), /FATAL EXCEPTION/u);
 });
 
+test('does not treat Android WebView renderer crashes as app process crashes', async (t: TestContext) => {
+  const outputDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-android-adb-renderer-crash-'));
+  t.after(async () => {
+    await fsp.rm(outputDir, { recursive: true, force: true });
+  });
+  const executor = createExecutor({
+    version: { stdout: 'Android Debug Bridge version 1.0.41\n' },
+    'devices -l': {
+      stdout: [
+        'List of devices attached',
+        'emulator-5554 device product:sdk_gphone model:Pixel_6 device:emu64',
+      ].join('\n'),
+    },
+    '-s emulator-5554 shell getprop ro.product.model': { stdout: 'Pixel 6\n' },
+    '-s emulator-5554 shell getprop ro.build.version.release': { stdout: '15\n' },
+    '-s emulator-5554 shell getprop ro.build.version.sdk': { stdout: '35\n' },
+    '-s emulator-5554 shell pm path dev.agentscenarioloop.example': {
+      stdout: 'package:/data/app/dev.agentscenarioloop.example/base.apk\n',
+    },
+    '-s emulator-5554 shell monkey -p dev.agentscenarioloop.example -c android.intent.category.LAUNCHER 1': {
+      stdout: 'Events injected: 1\n',
+    },
+    '-s emulator-5554 shell pidof dev.agentscenarioloop.example': {
+      stdout: '1234\n',
+    },
+    '-s emulator-5554 logcat -d -v time -t 1000': {
+      stdout: [
+        '06-16 10:00:00.000 E/chromium(1234): [ERROR:aw_browser_terminator.cc(154)] Renderer process (5678) crash detected (code -1).',
+        '06-16 10:00:01.000 I/ReactNativeJS(1234): Running "main"',
+      ].join('\n'),
+    },
+  });
+
+  const result = await runAndroidAdbPreflight({
+    executor,
+    launch: true,
+    outputDir,
+    packageName: 'dev.agentscenarioloop.example',
+    runId: 'android-renderer-crash',
+  });
+
+  assert.equal(result.health.healthStatus, 'passed');
+  assert.ok(
+    (result.health.checks as Array<{ code: string }>).some(
+      (check) => check.code === 'android_app_lifecycle_stable',
+    ),
+  );
+  assert.match(fs.readFileSync(path.join(outputDir, 'raw', 'adb-app-lifecycle-log.txt'), 'utf8'), /Renderer process/u);
+});
+
 test('opens profile-session deep links before logcat capture', async (t: TestContext) => {
   const outputDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-android-adb-deep-link-'));
   t.after(async () => {
@@ -630,6 +760,9 @@ test('opens profile-session deep links before logcat capture', async (t: TestCon
       '-s emulator-5554 shell pm path dev.agentscenarioloop.example': {
         stdout: 'package:/data/app/dev.agentscenarioloop.example/base.apk\n',
       },
+      "-s emulator-5554 shell am start -a 'android.intent.action.VIEW' -d 'asl-example://expo-development-client/?url=http%3A%2F%2F10.0.2.2%3A8097' -p 'dev.agentscenarioloop.example'": {
+        stdout: 'Starting: Intent { act=android.intent.action.VIEW }\n',
+      },
       "-s emulator-5554 shell am start -a 'android.intent.action.VIEW' -d 'asl-example://profile-session/start?scenario=app-startup&runId=android-live' -p 'dev.agentscenarioloop.example'": {
         stdout: 'Starting: Intent { act=android.intent.action.VIEW }\n',
       },
@@ -637,7 +770,10 @@ test('opens profile-session deep links before logcat capture', async (t: TestCon
         stdout: '1234\n',
       },
       '-s emulator-5554 logcat -d -v time -t 25': {
-        stdout: '06-16 10:00:00.000 I/ReactNativeJS(123): [profile-event] event=home_ready\n',
+        stdout: [
+          '06-16 10:00:00.000 I/ReactNativeJS(123): Running "main" with {"rootTag":1}',
+          '06-16 10:00:00.100 I/ReactNativeJS(123): [profile-event] event=home_ready',
+        ].join('\n'),
       },
       '-s emulator-5554 logcat -d -v time -t 200': {
         stdout: '06-16 10:00:00.000 I/ReactNativeJS(1234): [profile-event] event=home_ready\n',
@@ -671,21 +807,45 @@ test('opens profile-session deep links before logcat capture', async (t: TestCon
     outputDir,
     packageName: 'dev.agentscenarioloop.example',
     runId: 'android-live',
+    startupDeepLinks: [
+      {
+        label: 'android-dev-client-url',
+        readyLogPattern: 'Running "main"',
+        url: 'asl-example://expo-development-client/?url=http%3A%2F%2F10.0.2.2%3A8097',
+        waitMs: 80,
+      },
+    ],
   });
 
   assert.equal(result.health.healthStatus, 'passed');
-  assert.deepEqual(waits, [125]);
+  assert.deepEqual(waits, [80, 125]);
+  assert.ok(fs.existsSync(path.join(outputDir, 'raw', 'adb-startup-deep-link-1.txt')));
+  assert.ok(fs.existsSync(path.join(outputDir, 'raw', 'adb-startup-deep-link-1-ready-log.txt')));
   assert.ok(fs.existsSync(path.join(outputDir, 'raw', 'adb-deep-link-1.txt')));
   assert.ok(fs.existsSync(path.join(outputDir, 'raw', 'adb-app-pidof-after-deep-link.txt')));
   assert.ok(fs.existsSync(path.join(outputDir, 'raw', 'adb-app-pidof-after-capture.txt')));
   assert.ok(fs.existsSync(path.join(outputDir, 'raw', 'adb-app-lifecycle-log.txt')));
   assert.ok(
+    calls.indexOf("-s emulator-5554 shell am start -a 'android.intent.action.VIEW' -d 'asl-example://expo-development-client/?url=http%3A%2F%2F10.0.2.2%3A8097' -p 'dev.agentscenarioloop.example'") <
+      calls.indexOf("-s emulator-5554 shell am start -a 'android.intent.action.VIEW' -d 'asl-example://profile-session/start?scenario=app-startup&runId=android-live' -p 'dev.agentscenarioloop.example'"),
+  );
+  assert.ok(
     calls.indexOf("-s emulator-5554 shell am start -a 'android.intent.action.VIEW' -d 'asl-example://profile-session/start?scenario=app-startup&runId=android-live' -p 'dev.agentscenarioloop.example'") <
-      calls.indexOf('-s emulator-5554 logcat -d -v time -t 25'),
+      calls.lastIndexOf('-s emulator-5554 logcat -d -v time -t 25'),
   );
   assert.ok(
     calls.indexOf("-s emulator-5554 shell am start -a 'android.intent.action.VIEW' -d 'asl-example://profile-session/start?scenario=app-startup&runId=android-live' -p 'dev.agentscenarioloop.example'") <
       calls.indexOf('-s emulator-5554 shell pidof dev.agentscenarioloop.example'),
+  );
+  assert.ok(
+    (result.health.checks as Array<{ code: string }>).some((check) => (
+      check.code === 'android_startup_deep_link_opened'
+    )),
+  );
+  assert.ok(
+    (result.health.checks as Array<{ code: string }>).some((check) => (
+      check.code === 'android_startup_deep_link_ready'
+    )),
   );
   assert.ok(
     (result.health.checks as Array<{ code: string }>).some((check) => check.code === 'android_deep_link_opened'),

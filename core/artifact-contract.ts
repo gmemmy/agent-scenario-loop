@@ -216,14 +216,19 @@ function buildMetricsFromProfileEvents({
     const rightAt = typeof right.atMs === 'number' ? right.atMs : Number.POSITIVE_INFINITY;
     return leftAt - rightAt;
   })) {
-    if (typeof event.iteration !== 'number') {
+    const eventIteration = typeof event.iteration === 'number'
+      ? event.iteration
+      : expectedIterations === 1
+        ? 1
+        : null;
+    if (eventIteration === null) {
       continue;
     }
     if (typeof event.atMs !== 'number') {
       continue;
     }
 
-    const current = iterations.get(event.iteration) ?? {};
+    const current = iterations.get(eventIteration) ?? {};
     if (
       event.event === resolvedCycleEventNames.openRequested &&
       typeof current.presentRequestedAt !== 'number'
@@ -261,7 +266,7 @@ function buildMetricsFromProfileEvents({
       current.milestoneAt = event.atMs;
     }
 
-    iterations.set(event.iteration, current);
+    iterations.set(eventIteration, current);
   }
 
   const durationsMs: number[] = [];

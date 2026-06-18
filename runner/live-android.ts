@@ -38,6 +38,8 @@ function usage(output: { write: (message: string) => unknown } = process.stderr)
     'Usage: asl-live-android --config <path> --scenario <path> [--out <dir>] [--package <name>] [--serial <device>] [--run-id <id>] [--run-suffix <label>] [--compare-latest] [--fail-on-regression] [--agent-device-proof] [--argent-proof]',
     '',
     'Runs one generic Android live proof: adb preflight, profile-session adb capture, optional sidecars, optional latest-trusted comparison, and aggregate live-proof artifacts.',
+    'Use --android-dev-client-url <url> [--android-dev-client-wait-ms <ms>] [--android-dev-client-ready-pattern <pattern>] for Expo dev-client shells that must open a Metro session before profile-session deep links.',
+    'Use --android-profile-session-storage [--android-profile-session-storage-key <key>] [--android-profile-command-storage-key <key>] when app startup control must be delivered through Android AsyncStorage.',
     'Use --agent-device-proof to attach scenario-declared portable driver actions through agent-device; pass --agent-device-session-mode bind when a named session should still receive the configured serial.',
     'Use --argent-proof to attach scenario-declared Argent-compatible driver actions; set ASL_ARGENT_BIN and ASL_ARGENT_BASE_ARGS for non-global installs.',
   ], output);
@@ -285,6 +287,38 @@ async function runAndroidLiveProof(
     'ASL_ANDROID_REACT_NATIVE_DEBUG_HOST',
     'ASL_EXAMPLE_ANDROID_DEBUG_HOST',
   ]);
+  const androidDevClientUrl = readStringArgOrEnv(args['android-dev-client-url'], [
+    'ASL_ANDROID_DEV_CLIENT_URL',
+    'ASL_EXAMPLE_ANDROID_DEV_CLIENT_URL',
+  ]);
+  const androidDevClientWaitMs = readStringArgOrEnv(args['android-dev-client-wait-ms'], [
+    'ASL_ANDROID_DEV_CLIENT_WAIT_MS',
+    'ASL_EXAMPLE_ANDROID_DEV_CLIENT_WAIT_MS',
+  ]);
+  const androidDevClientReadyPattern = readStringArgOrEnv(args['android-dev-client-ready-pattern'], [
+    'ASL_ANDROID_DEV_CLIENT_READY_PATTERN',
+    'ASL_EXAMPLE_ANDROID_DEV_CLIENT_READY_PATTERN',
+  ]);
+  const androidDevClientReadyQuietMs = readStringArgOrEnv(args['android-dev-client-ready-quiet-ms'], [
+    'ASL_ANDROID_DEV_CLIENT_READY_QUIET_MS',
+    'ASL_EXAMPLE_ANDROID_DEV_CLIENT_READY_QUIET_MS',
+  ]);
+  const androidDevClientReadyTimeoutMs = readStringArgOrEnv(args['android-dev-client-ready-timeout-ms'], [
+    'ASL_ANDROID_DEV_CLIENT_READY_TIMEOUT_MS',
+    'ASL_EXAMPLE_ANDROID_DEV_CLIENT_READY_TIMEOUT_MS',
+  ]);
+  const androidProfileSessionStorage = readStringArgOrEnv(args['android-profile-session-storage'], [
+    'ASL_ANDROID_PROFILE_SESSION_STORAGE',
+    'ASL_EXAMPLE_ANDROID_PROFILE_SESSION_STORAGE',
+  ]);
+  const androidProfileSessionStorageKey = readStringArgOrEnv(args['android-profile-session-storage-key'], [
+    'ASL_ANDROID_PROFILE_SESSION_STORAGE_KEY',
+    'ASL_EXAMPLE_ANDROID_PROFILE_SESSION_STORAGE_KEY',
+  ]);
+  const androidProfileCommandStorageKey = readStringArgOrEnv(args['android-profile-command-storage-key'], [
+    'ASL_ANDROID_PROFILE_COMMAND_STORAGE_KEY',
+    'ASL_EXAMPLE_ANDROID_PROFILE_COMMAND_STORAGE_KEY',
+  ]);
   const agentDeviceSession = readStringArgOrEnv(args['agent-device-session'], [
     'ASL_ANDROID_AGENT_DEVICE_SESSION',
     'ASL_EXAMPLE_ANDROID_AGENT_DEVICE_SESSION',
@@ -347,6 +381,16 @@ async function runAndroidLiveProof(
     ...(packageName ? { package: packageName } : {}),
     'profile-session': true,
     ...(reactNativeDebugHost ? { 'react-native-debug-host': reactNativeDebugHost } : {}),
+    ...(androidDevClientUrl ? { 'android-dev-client-url': androidDevClientUrl } : {}),
+    ...(androidDevClientWaitMs ? { 'android-dev-client-wait-ms': androidDevClientWaitMs } : {}),
+    ...(androidDevClientReadyPattern ? { 'android-dev-client-ready-pattern': androidDevClientReadyPattern } : {}),
+    ...(androidDevClientReadyQuietMs ? { 'android-dev-client-ready-quiet-ms': androidDevClientReadyQuietMs } : {}),
+    ...(androidDevClientReadyTimeoutMs ? { 'android-dev-client-ready-timeout-ms': androidDevClientReadyTimeoutMs } : {}),
+    ...(isEnabledFlag(args['android-profile-session-storage']) || androidProfileSessionStorage === 'true'
+      ? { 'android-profile-session-storage': true }
+      : {}),
+    ...(androidProfileSessionStorageKey ? { 'android-profile-session-storage-key': androidProfileSessionStorageKey } : {}),
+    ...(androidProfileCommandStorageKey ? { 'android-profile-command-storage-key': androidProfileCommandStorageKey } : {}),
     'run-id': profileRunId,
     scenario: scenarioPath,
     ...(serial ? { serial } : {}),

@@ -169,6 +169,8 @@ function usage({
   if (platform === 'android') {
     lines.push('Use --adb-artifacts <dir> to read raw/adb-logcat.txt from a prior asl-android-adb capture.');
     lines.push('Use --adb-capture [--clear-logcat] [--launch] [--launch-wait-ms <ms>] [--wait-ms <ms>] to capture adb logcat before profiling.');
+    lines.push('Use --android-dev-client-url <url> [--android-dev-client-wait-ms <ms>] [--android-dev-client-ready-pattern <pattern>] with --adb-capture to open an Expo dev-client session before profile-session deep links.');
+    lines.push('Use --android-profile-session-storage with --profile-session to seed startup control through Android AsyncStorage.');
     lines.push('Use --profile-session with --adb-capture to start the app profile session and execute scenario-declared Android commands.');
   } else {
     lines.push('Use --simctl-artifacts <dir> to read raw/ios-simctl-log.txt from a prior iOS simctl capture.');

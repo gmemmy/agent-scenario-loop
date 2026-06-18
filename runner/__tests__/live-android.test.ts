@@ -75,6 +75,9 @@ test('generic Android live proof captures profile evidence before sidecar proofs
     if (key.endsWith('logcat -c')) {
       return { command, args, exitCode: 0, stderr: '', stdout: '' };
     }
+    if (key.includes('expo-development-client')) {
+      return { command, args, exitCode: 0, stderr: '', stdout: 'Starting: Intent\n' };
+    }
     if (key.includes('profile-session/start')) {
       currentRunId = /runId=([^&']+)/u.exec(key)?.[1] ?? currentRunId;
       return { command, args, exitCode: 0, stderr: '', stdout: 'Starting: Intent\n' };
@@ -125,6 +128,8 @@ test('generic Android live proof captures profile evidence before sidecar proofs
   const result = await runAndroidLiveProof({
     'agent-device-proof': true,
     'argent-proof': true,
+    'android-dev-client-url': 'asl-example://expo-development-client/?url=http%3A%2F%2F10.0.2.2%3A8097',
+    'android-dev-client-wait-ms': '15',
     config: path.join(ROOT, 'examples', 'mobile-app', 'asl.config.json'),
     out: outputDir,
     package: ANDROID_PACKAGE,
@@ -157,6 +162,16 @@ test('generic Android live proof captures profile evidence before sidecar proofs
     'Argent proof should run after Android profile evidence capture',
   );
   assert.ok(waits.includes(9000), 'expected generic Android live proof to derive the startup capture window from scenario timeouts');
+  assert.ok(waits.includes(15), 'expected generic Android live proof to wait after opening the dev-client URL');
+  assert.ok(
+    orderedCalls.some((call) => call.startsWith(`adb:-s emulator-5554 shell am start -a 'android.intent.action.VIEW' -d 'asl-example://expo-development-client/`)),
+    'expected generic Android live proof to open the dev-client URL before evidence capture',
+  );
+  assert.ok(
+    orderedCalls.findIndex((call) => call.includes('expo-development-client')) <
+      orderedCalls.findIndex((call) => call.includes('profile-session/start')),
+    'expected generic Android live proof to open the dev-client URL before profile-session start',
+  );
 
   const failedAgentDeviceExecutor = async (command: string, args: string[]): Promise<AgentDeviceCommandResult> => {
     orderedCalls.push(`failed-agent-device:${args.join(' ')}`);

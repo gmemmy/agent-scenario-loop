@@ -136,6 +136,10 @@ pnpm example:android:live -- --run-suffix after-change
 
 Read [Example Mobile App: Android Capture](../examples/mobile-app/README.md#android-capture) for Metro routing, adb permissions, individual scenario commands, selector behavior, and optional video capture.
 
+Expo dev-client Android shells may need an explicit Metro deep link after the native app launches. Put that local URL in ignored env state, for example `ASL_EXAMPLE_ANDROID_DEV_CLIENT_URL=asl-example://expo-development-client/?url=http%3A%2F%2F10.0.2.2%3A8097`, so Android profile capture opens the correct app session before profile-session deep links. When bundle load time is variable, also set `ASL_EXAMPLE_ANDROID_DEV_CLIENT_READY_PATTERN='Running "main"'` so the runner waits for bounded logcat readiness evidence before sending scenario links.
+
+Apps using the ASL profile-session AsyncStorage bridge can opt into storage delivery with `--android-profile-session-storage`. The Android runner resolves the session `startedAt` from the selected device clock before writing AsyncStorage, so milestone timing stays device-relative instead of host-clock-relative. Override the default storage keys with `ASL_ANDROID_PROFILE_SESSION_STORAGE_KEY` and `ASL_ANDROID_PROFILE_COMMAND_STORAGE_KEY` only when adopting an existing app-owned bridge.
+
 ## iOS Proof
 
 With the neutral Expo example app installed on a booted iOS simulator and Metro connected, run:
@@ -159,7 +163,7 @@ The root example live scripts pass `--compare-latest --fail-on-regression` by de
 pnpm example:ios:live -- --run-suffix after-change
 ```
 
-Expo dev-client shells may need an explicit Metro deep link after the native app launches. Put that local URL in ignored env state, for example `ASL_EXAMPLE_IOS_DEV_CLIENT_URL=asl-example://expo-development-client/?url=http%3A%2F%2Flocalhost%3A8097`, so the iOS profile capture opens the correct app session before collecting evidence.
+Expo dev-client iOS shells may need an explicit Metro deep link after the native app launches. Put that local URL in ignored env state, for example `ASL_EXAMPLE_IOS_DEV_CLIENT_URL=asl-example://expo-development-client/?url=http%3A%2F%2Flocalhost%3A8097`, so iOS profile capture opens the correct app session before collecting evidence.
 
 Read [Example Mobile App: iOS Capture](../examples/mobile-app/README.md#ios-capture) for prebuild, Xcode selection, simulator permissions, stored profile events, and individual scenario commands.
 

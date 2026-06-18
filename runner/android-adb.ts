@@ -23,6 +23,14 @@ type CliArgs = {
   'capture-logcat'?: string | boolean;
   'clear-logcat'?: string | boolean;
   launch?: string | boolean;
+  'android-dev-client-url'?: string | boolean;
+  'android-dev-client-wait-ms'?: string | boolean;
+  'android-dev-client-ready-pattern'?: string | boolean;
+  'android-dev-client-ready-quiet-ms'?: string | boolean;
+  'android-dev-client-ready-timeout-ms'?: string | boolean;
+  'android-profile-session-storage'?: string | boolean;
+  'android-profile-session-storage-key'?: string | boolean;
+  'android-profile-command-storage-key'?: string | boolean;
   'launch-wait-ms'?: string | boolean;
   'logcat-lines'?: string | boolean;
   out?: string | boolean;
@@ -65,7 +73,18 @@ type AndroidPreflightResult = {
 
 type AndroidDeepLinkCommand = {
   label?: string;
+  readyLogPattern?: string;
+  readyLogQuietMs?: number;
+  readyLogTimeoutMs?: number;
   url: string;
+  waitMs?: number;
+};
+
+type AndroidAsyncStorageWrite = {
+  clearKeys?: string[];
+  key: string;
+  label?: string;
+  value: string;
   waitMs?: number;
 };
 
@@ -114,6 +133,8 @@ type AndroidPreflightOptions = {
   reactNativeDebugHost?: string | null;
   runId?: string;
   serial?: string | null;
+  startupDeepLinks?: AndroidDeepLinkCommand[];
+  storageWrites?: AndroidAsyncStorageWrite[];
   waitMs?: number;
 };
 type NextActionHint = {
@@ -125,6 +146,9 @@ type AndroidAppLifecycleScan = {
   crashed: boolean;
   evidence: string[];
 };
+
+const ANDROID_DEVICE_EPOCH_MS_PLACEHOLDER = '__ASL_ANDROID_DEVICE_EPOCH_MS__';
+const ANDROID_READY_LOG_POLL_MS = 1000;
 
 /**
  * Prints CLI usage to stderr.
@@ -139,6 +163,7 @@ function usage(output: { write: (message: string) => unknown } = process.stderr)
     'Use --capture-logcat [--logcat-lines <count>] to attach a bounded adb logcat snapshot under raw/adb-logcat.txt.',
     'Use --clear-logcat --launch [--launch-wait-ms <ms>] --wait-ms <ms> with --package <name> to capture a bounded app launch window.',
     'Use --react-native-debug-host <host:port> with --package <name> to set the app debug server and adb reverse for React Native dev builds.',
+    'Use --android-dev-client-url <url> [--android-dev-client-wait-ms <ms>] [--android-dev-client-ready-pattern <pattern>] to open an Expo dev-client session before scenario deep links.',
   ], output);
 }
 
@@ -402,6 +427,94 @@ function buildReactNativeDebugHostPreferenceCommand({
 }
 
 /**
+ * Escapes a string for insertion as a SQLite string literal.
+ *
+ * @param {string} value
+ * @returns {string}
+ */
+function escapeSqliteString(value: string): string {
+  return value.replace(/'/gu, "''");
+}
+
+/**
+ * Builds SQL that updates React Native AsyncStorage's Android RKStorage table.
+ *
+ * @param {{clearKeys?: string[], key: string, value: string}} options
+ * @returns {string}
+ */
+function buildAndroidAsyncStorageWriteSql({
+  clearKeys = [],
+  key,
+  value,
+}: {
+  clearKeys?: string[];
+  key: string;
+  value: string;
+}): string {
+  return [
+    'PRAGMA busy_timeout=5000;',
+    ...clearKeys.map((clearKey) => (
+      `DELETE FROM catalystLocalStorage WHERE key='${escapeSqliteString(clearKey)}';`
+    )),
+    `INSERT OR REPLACE INTO catalystLocalStorage (key,value) VALUES ('${escapeSqliteString(key)}','${escapeSqliteString(value)}');`,
+  ].join('\n');
+}
+
+/**
+ * Builds a package-scoped command for writing one Android AsyncStorage value.
+ *
+ * @param {{packageName: string, write: AndroidAsyncStorageWrite}} options
+ * @returns {string}
+ */
+function buildAndroidAsyncStorageWriteCommand({
+  packageName,
+  write,
+}: {
+  packageName: string;
+  write: AndroidAsyncStorageWrite;
+}): string {
+  const sql = buildAndroidAsyncStorageWriteSql({
+    ...(write.clearKeys ? { clearKeys: write.clearKeys } : {}),
+    key: write.key,
+    value: write.value,
+  });
+  return [
+    'run-as',
+    quoteAndroidShellArg(packageName),
+    'sqlite3',
+    quoteAndroidShellArg('databases/RKStorage'),
+    quoteAndroidShellArg(sql),
+  ].join(' ');
+}
+
+/**
+ * Reads the selected device clock as epoch milliseconds for app-side timing.
+ *
+ * @param {{adbPath: string, deviceSerial: string, executor: CommandExecutor}} options
+ * @returns {Promise<CommandResult & {epochMs: number | null}>}
+ */
+async function readAndroidDeviceEpochMs({
+  adbPath,
+  deviceSerial,
+  executor,
+}: {
+  adbPath: string;
+  deviceSerial: string;
+  executor: CommandExecutor;
+}): Promise<CommandResult & {epochMs: number | null}> {
+  const result = await executor(adbPath, ['-s', deviceSerial, 'shell', 'date', '+%s']);
+  const seconds = Number(result.stdout.trim());
+  const epochMs = result.exitCode === 0 && Number.isFinite(seconds) && seconds > 0
+    ? Math.round(seconds * 1000)
+    : null;
+
+  return {
+    ...result,
+    epochMs,
+  };
+}
+
+/**
  * Combines one adb command result into raw evidence text.
  *
  * @param {CommandResult} result
@@ -461,7 +574,7 @@ function scanAndroidAppLifecycleLog({
   const lines = String(logText).split(/\r?\n/u);
   const packagePattern = new RegExp(escapeRegExp(packageName), 'u');
   const pidPatterns = pids.map((pid) => new RegExp(`\\b${escapeRegExp(pid)}\\b`, 'u'));
-  const crashPattern = /\b(FATAL EXCEPTION|Fatal signal|SIGSEGV|SIGABRT|ANR in|Force finishing activity|has died|Process .* died|crash)\b/iu;
+  const crashPattern = /\b(FATAL EXCEPTION|Fatal signal|SIGSEGV|SIGABRT|ANR in|Force finishing activity|has died|Process .* died)\b/iu;
   const evidence = new Set<string>();
 
   for (let index = 0; index < lines.length; index += 1) {
@@ -490,6 +603,74 @@ function scanAndroidAppLifecycleLog({
     crashed: evidence.size > 0,
     evidence: Array.from(evidence),
   };
+}
+
+/**
+ * Counts readiness markers in a bounded Android logcat snapshot.
+ *
+ * @param {{logText: string, pattern: string}} options
+ * @returns {number}
+ */
+function countAndroidReadyLogMatches({
+  logText,
+  pattern,
+}: {
+  logText: string;
+  pattern: string;
+}): number {
+  try {
+    return Array.from(String(logText).matchAll(new RegExp(pattern, 'gu'))).length;
+  } catch {
+    return String(logText).split(pattern).length - 1;
+  }
+}
+
+/**
+ * Waits until a startup deep link has produced an expected Android log marker.
+ *
+ * @param {{driver: import('./android-adb-driver').AndroidAdbDriver, logcatLines: number, pattern: string, quietMs: number, rawFileName: string, timeoutMs: number, wait: (ms: number) => Promise<void>}} options
+ * @returns {Promise<{ready: boolean, result: import('./android-adb-driver').AndroidAdbCommandResult}>}
+ */
+async function waitForAndroidReadyLog({
+  driver,
+  logcatLines,
+  pattern,
+  quietMs,
+  rawFileName,
+  timeoutMs,
+  wait,
+}: {
+  driver: import('./android-adb-driver').AndroidAdbDriver;
+  logcatLines: number;
+  pattern: string;
+  quietMs: number;
+  rawFileName: string;
+  timeoutMs: number;
+  wait: (ms: number) => Promise<void>;
+}): Promise<{ready: boolean; result: import('./android-adb-driver').AndroidAdbCommandResult}> {
+  const deadline = Date.now() + timeoutMs;
+  let lastMatchCount = -1;
+  let lastChangeAt = Date.now();
+  let result = await driver.readLogs({ lines: logcatLines, rawFileName });
+
+  for (;;) {
+    const matchCount = countAndroidReadyLogMatches({
+      logText: `${result.stdout}\n${result.stderr}`,
+      pattern,
+    });
+    if (matchCount !== lastMatchCount) {
+      lastMatchCount = matchCount;
+      lastChangeAt = Date.now();
+    }
+
+    const ready = matchCount > 0 && Date.now() - lastChangeAt >= quietMs;
+    if (ready || Date.now() >= deadline) {
+      return { ready, result };
+    }
+
+    await wait(ANDROID_READY_LOG_POLL_MS);
+    result = await driver.readLogs({ lines: logcatLines, rawFileName });
+  }
 }
 
 /**
@@ -934,6 +1115,8 @@ async function runAndroidAdbPreflight({
   reactNativeDebugHost = null,
   runId = createRunId(),
   serial = null,
+  startupDeepLinks = [],
+  storageWrites = [],
   waitMs = 0,
 }: AndroidPreflightOptions = {}): Promise<AndroidPreflightResult> {
   const runDir = path.resolve(outputDir);
@@ -1005,6 +1188,13 @@ async function runAndroidAdbPreflight({
     selectedDevice: device,
     packageName,
     reactNativeDebugHost,
+    startupDeepLinks,
+    storageWrites: storageWrites.map((write) => ({
+      clearKeys: write.clearKeys,
+      key: write.key,
+      label: write.label,
+      waitMs: write.waitMs,
+    })),
     waitMs,
   };
   const resolvedDriverSteps = resolveAndroidAdbDriverSteps({
@@ -1296,6 +1486,169 @@ async function runAndroidAdbPreflight({
       }
     }
 
+    for (const [index, deepLink] of startupDeepLinks.entries()) {
+      const rawFileName = `adb-startup-deep-link-${index + 1}.txt`;
+      const deepLinkResult = await driver.openDeepLink({
+        packageName,
+        rawFileName,
+        url: deepLink.url,
+      });
+      const deepLinkOpened = deepLinkResult.exitCode === 0;
+      raw[deepLinkResult.rawFileName] = formatAndroidAdbRawOutput(deepLinkResult);
+      checks.push({
+        name: 'android_startup_deep_link_opened',
+        status: deepLinkOpened ? 'passed' : 'failed',
+        source: 'runner',
+        code: deepLinkOpened ? 'android_startup_deep_link_opened' : 'android_startup_deep_link_failed',
+        message: deepLinkOpened
+          ? `Opened Android startup deep link ${deepLink.label ?? index + 1}.`
+          : `Failed to open Android startup deep link ${deepLink.label ?? index + 1}.`,
+        ...(!deepLinkOpened
+          ? {
+              metadata: nextActionHint(
+                'inspect_android_startup_deep_link',
+                `Inspect raw/${deepLinkResult.rawFileName}, verify the dev-client URL and package intent filter, then rerun the capture.`,
+              ),
+            }
+          : {}),
+      });
+
+      if (deepLink.waitMs && deepLink.waitMs > 0) {
+        await wait(deepLink.waitMs);
+        checks.push({
+          name: 'android_startup_deep_link_waited',
+          status: 'passed',
+          source: 'runner',
+          code: 'android_startup_deep_link_waited',
+          message: `Waited ${deepLink.waitMs}ms after Android startup deep link ${deepLink.label ?? index + 1}.`,
+        });
+      }
+
+      if (deepLink.readyLogPattern) {
+        const rawFileName = `adb-startup-deep-link-${index + 1}-ready-log.txt`;
+        const readyLog = await waitForAndroidReadyLog({
+          driver,
+          logcatLines,
+          pattern: deepLink.readyLogPattern,
+          quietMs: deepLink.readyLogQuietMs ?? 0,
+          rawFileName,
+          timeoutMs: deepLink.readyLogTimeoutMs ?? 60000,
+          wait,
+        });
+        raw[rawFileName] = formatAndroidAdbRawOutput(readyLog.result);
+        checks.push({
+          name: 'android_startup_deep_link_ready',
+          status: readyLog.ready ? 'passed' : 'failed',
+          source: 'runner',
+          code: readyLog.ready
+            ? 'android_startup_deep_link_ready'
+            : 'android_startup_deep_link_not_ready',
+          message: readyLog.ready
+            ? `Android startup deep link ${deepLink.label ?? index + 1} emitted readiness log evidence.`
+            : `Android startup deep link ${deepLink.label ?? index + 1} did not emit readiness log evidence before timeout.`,
+          ...(!readyLog.ready
+            ? {
+                metadata: nextActionHint(
+                  'inspect_android_startup_deep_link_ready_log',
+                  `Inspect raw/${rawFileName}, confirm the dev-client loaded the app bundle, and increase the ready timeout only if the app is still making progress.`,
+                ),
+              }
+            : {}),
+        });
+      }
+    }
+
+    for (const [index, write] of storageWrites.entries()) {
+      const rawFileName = `adb-async-storage-write-${index + 1}.txt`;
+      if (!packageName) {
+        checks.push({
+          name: 'android_async_storage_written',
+          status: 'failed',
+          source: 'runner',
+          code: 'android_async_storage_missing_package',
+          message: 'Android AsyncStorage write was requested, but --package was not provided.',
+          metadata: nextActionHint(
+            'provide_android_package',
+            'Rerun with --package set to the installed Android application id when Android AsyncStorage profile-session storage is enabled.',
+          ),
+        });
+        continue;
+      }
+
+      let resolvedWrite = write;
+      if (write.value.includes(ANDROID_DEVICE_EPOCH_MS_PLACEHOLDER)) {
+        const deviceEpoch = await readAndroidDeviceEpochMs({
+          adbPath,
+          deviceSerial: device.serial,
+          executor,
+        });
+        raw['adb-device-epoch-ms.txt'] = formatAndroidCommandRawOutput(deviceEpoch);
+        const deviceClockRead = typeof deviceEpoch.epochMs === 'number';
+        checks.push({
+          name: 'android_device_clock_read',
+          status: deviceClockRead ? 'passed' : 'failed',
+          source: 'runner',
+          code: deviceClockRead ? 'android_device_clock_read' : 'android_device_clock_unavailable',
+          message: deviceClockRead
+            ? `Read Android device clock as ${deviceEpoch.epochMs}ms since epoch.`
+            : 'Failed to read Android device clock for AsyncStorage timing evidence.',
+          ...(!deviceClockRead
+            ? {
+                metadata: nextActionHint(
+                  'inspect_android_device_clock',
+                  'Inspect raw/adb-device-epoch-ms.txt and confirm the selected Android device supports `adb shell date +%s` before using storage-backed timing evidence.',
+                ),
+              }
+            : {}),
+        });
+        if (!deviceClockRead || deviceEpoch.epochMs === null) {
+          continue;
+        }
+
+        resolvedWrite = {
+          ...write,
+          value: write.value.replaceAll(ANDROID_DEVICE_EPOCH_MS_PLACEHOLDER, String(deviceEpoch.epochMs)),
+        };
+      }
+
+      const writeResult = await executor(adbPath, [
+        '-s',
+        device.serial,
+        'shell',
+        buildAndroidAsyncStorageWriteCommand({ packageName, write: resolvedWrite }),
+      ]);
+      const writePassed = writeResult.exitCode === 0;
+      raw[rawFileName] = formatAndroidCommandRawOutput(writeResult);
+      checks.push({
+        name: 'android_async_storage_written',
+        status: writePassed ? 'passed' : 'failed',
+        source: 'runner',
+        code: writePassed ? 'android_async_storage_written' : 'android_async_storage_write_failed',
+        message: writePassed
+          ? `Wrote Android AsyncStorage value ${write.label ?? index + 1}.`
+          : `Failed to write Android AsyncStorage value ${write.label ?? index + 1}.`,
+        ...(!writePassed
+          ? {
+              metadata: nextActionHint(
+                'inspect_android_async_storage_write',
+                `Inspect raw/${rawFileName}, confirm the app is debuggable and sqlite3 can access RKStorage through run-as, then rerun the capture.`,
+              ),
+            }
+          : {}),
+      });
+
+      if (write.waitMs && write.waitMs > 0) {
+        await wait(write.waitMs);
+        checks.push({
+          name: 'android_async_storage_waited',
+          status: 'passed',
+          source: 'runner',
+          code: 'android_async_storage_waited',
+          message: `Waited ${write.waitMs}ms after Android AsyncStorage write ${write.label ?? index + 1}.`,
+        });
+      }
+    }
+
     for (const [index, deepLink] of deepLinks.entries()) {
       const rawFileName = `adb-deep-link-${index + 1}.txt`;
       const deepLinkResult = await driver.openDeepLink({
@@ -1576,7 +1929,7 @@ async function runAndroidAdbPreflight({
       };
     }
   } else {
-    if (clearLogcat || launch) {
+    if (clearLogcat || launch || startupDeepLinks.length > 0 || storageWrites.length > 0) {
       checks.push({
         name: 'android_capture_window_started',
         status: 'failed',
@@ -1684,6 +2037,20 @@ async function main(): Promise<void> {
       : {}),
     ...(typeof args['run-id'] === 'string' ? { runId: args['run-id'] } : {}),
     ...(typeof args.serial === 'string' ? { serial: args.serial } : {}),
+    ...(typeof args['android-dev-client-url'] === 'string'
+      ? {
+          startupDeepLinks: [{
+            label: 'android-dev-client-url',
+            ...(typeof args['android-dev-client-ready-pattern'] === 'string'
+              ? { readyLogPattern: args['android-dev-client-ready-pattern'] }
+              : {}),
+            readyLogQuietMs: parsePositiveInteger(args['android-dev-client-ready-quiet-ms'], 0),
+            readyLogTimeoutMs: parsePositiveInteger(args['android-dev-client-ready-timeout-ms'], 60000),
+            url: args['android-dev-client-url'],
+            waitMs: parsePositiveInteger(args['android-dev-client-wait-ms'], 1000),
+          }],
+        }
+      : {}),
     waitMs: parsePositiveInteger(args['wait-ms'], 0),
   });
   process.stdout.write(`${result.runDir}\n`);
@@ -1700,6 +2067,7 @@ if (require.main === module) {
 }
 
 export {
+  ANDROID_DEVICE_EPOCH_MS_PLACEHOLDER,
   buildAndroidHealth,
   buildAndroidVerdict,
   buildReactNativeDebugHostPreferenceCommand,
@@ -1723,6 +2091,7 @@ export {
 export type {
   AndroidDevice,
   AndroidAdbDriverStep,
+  AndroidAsyncStorageWrite,
   AndroidDeepLinkCommand,
   AndroidPreflightOptions,
   AndroidPreflightResult,
