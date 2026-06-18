@@ -1268,10 +1268,23 @@ test('profile-android derives adb capture waits from scenario execution windows'
   const startup = readJson(fixturePath('examples/mobile-app/scenarios/mobile/app-startup.json'));
   const openClose = readJson(fixturePath('examples/mobile-app/scenarios/mobile/open-close-cycle.json'));
   const scroll = readJson(fixturePath('examples/mobile-app/scenarios/mobile/scroll-settle.json'));
+  const longStartup = {
+    ...startup,
+    steps: [
+      { id: 'launch', kind: 'launch' },
+      {
+        id: 'wait-for-first-usable',
+        kind: 'waitForMilestone',
+        milestone: 'firstUsable',
+        timeoutMs: 120000,
+      },
+    ],
+  };
 
   assert.equal(deriveProfileSessionCaptureWaitMs(startup), 9000);
   assert.equal(deriveProfileSessionCaptureWaitMs(openClose), 17800);
   assert.equal(deriveProfileSessionCaptureWaitMs(scroll), 9400);
+  assert.equal(deriveProfileSessionCaptureWaitMs(longStartup), 120000);
   assert.equal(resolveProfileSessionCaptureWaitMs({
     args: { 'wait-ms': '25' },
     profileSessionEnabled: true,

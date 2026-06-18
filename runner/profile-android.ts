@@ -38,7 +38,7 @@ type AndroidAsyncStorageWrite = import('./android-adb').AndroidAsyncStorageWrite
 type ScenarioExecutionStep = import('../core/execution-plan').ScenarioExecutionStep;
 
 const PROFILE_SESSION_CAPTURE_BOOTSTRAP_MS = 1000;
-const PROFILE_SESSION_CAPTURE_MAX_MS = 30000;
+const PROFILE_SESSION_CAPTURE_MAX_MS = 120000;
 const DEFAULT_ANDROID_PROFILE_SESSION_STORAGE_KEY = 'agent-scenario-loop.profile-session.1';
 const DEFAULT_ANDROID_PROFILE_COMMAND_STORAGE_KEY = 'agent-scenario-loop.profile-commands.1';
 
