@@ -10,6 +10,7 @@ const { hasHelpFlag, writeUsage } = require('./cli');
 const { buildPlanArtifacts } = require('./check-plan');
 
 type CliArgs = {
+  config?: string | boolean;
   out?: string | boolean;
   platform?: string | boolean;
   root?: string | boolean;
@@ -328,8 +329,6 @@ const CONFIG_PLACEHOLDER_VALUES = [
 
 const REQUIRED_GITIGNORE_PATTERNS = [
   '.asl.local.env',
-  'artifacts/asl/',
-  'artifacts/example-mobile-app/',
   '*.memgraph',
   '*.trace',
   '*.xcresult',
@@ -350,25 +349,28 @@ const PACKAGE_SUPPORTED_DRIVERS = [
 ];
 
 const KNOWN_EXTERNAL_TARGET_DRIVERS = [
+  'axe',
   'xcodebuildmcp',
 ];
 
 const REQUIRED_COMMON_CONFIG_STRING_FIELDS = [
   ['app', 'profileSessionScheme'],
-  ['paths', 'artifactRoot'],
   ['drivers', 'supported'],
 ];
 
 const PLATFORM_CONFIG_STRING_FIELDS = {
   android: [
     ['app', 'androidPackage'],
-    ['paths', 'androidArtifactsRoot'],
   ],
   ios: [
     ['app', 'iosBundleId'],
-    ['paths', 'iosArtifactsRoot'],
   ],
 } satisfies Record<string, string[][]>;
+
+const PLATFORM_ARTIFACT_ROOT_FIELDS = {
+  android: ['paths', 'androidArtifactsRoot'],
+  ios: ['paths', 'iosArtifactsRoot'],
+} satisfies Record<string, string[]>;
 
 const PLATFORM_SCENARIO_ROOT_FIELDS = {
   android: ['paths', 'androidScenarioRoot'],
@@ -383,7 +385,7 @@ const PLATFORM_SCENARIO_ROOT_FIELDS = {
  */
 function usage(output: { write: (message: string) => unknown } = process.stderr): void {
   writeUsage([
-    'Usage: asl-validate-project [--root <dir>] [--platform <ios|android|all>] [--out <dir>]',
+    'Usage: asl-validate-project [--root <dir>] [--config <file>] [--platform <ios|android|all>] [--out <dir>]',
     '',
     'Validates an initialized Agent Scenario Loop project before live device execution.',
     'Checks config presence, scenario manifests, runner manifests, and planner compatibility.',
@@ -822,6 +824,10 @@ function validateProjectConfig({
   if (commonScenarioRoot !== undefined && !isNonEmptyString(commonScenarioRoot)) {
     invalidFields.push('paths.scenarioRoot');
   }
+  const commonArtifactRoot = readNestedValue(config, ['paths', 'artifactRoot']);
+  if (commonArtifactRoot !== undefined && !isNonEmptyString(commonArtifactRoot)) {
+    invalidFields.push('paths.artifactRoot');
+  }
   for (const platform of requiredPlatforms) {
     const platformRootPath = PLATFORM_SCENARIO_ROOT_FIELDS[platform] ?? [];
     const platformRootLabel = platformRootPath.join('.');
@@ -831,6 +837,16 @@ function validateProjectConfig({
     }
     if (commonScenarioRoot === undefined && platformScenarioRoot === undefined) {
       missingFields.push(`paths.scenarioRoot or ${platformRootLabel}`);
+    }
+
+    const platformArtifactRootPath = PLATFORM_ARTIFACT_ROOT_FIELDS[platform] ?? [];
+    const platformArtifactRootLabel = platformArtifactRootPath.join('.');
+    const platformArtifactRoot = readNestedValue(config, platformArtifactRootPath);
+    if (platformArtifactRoot !== undefined && !isNonEmptyString(platformArtifactRoot)) {
+      invalidFields.push(platformArtifactRootLabel);
+    }
+    if (commonArtifactRoot === undefined && platformArtifactRoot === undefined) {
+      missingFields.push(`paths.artifactRoot or ${platformArtifactRootLabel}`);
     }
   }
 
@@ -846,12 +862,24 @@ function validateProjectConfig({
   }
 
   const rawSupportedDrivers = readNestedValue(config, ['drivers', 'supported']);
-  const supportedDrivers = Array.isArray(rawSupportedDrivers)
-    ? rawSupportedDrivers
-        .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
-        .map((value) => value.trim())
-        .sort()
-    : [];
+  const rawAndroidSupportedDrivers = readNestedValue(config, ['androidDrivers', 'supported']);
+  if (
+    rawAndroidSupportedDrivers !== undefined &&
+    (
+      !Array.isArray(rawAndroidSupportedDrivers) ||
+      rawAndroidSupportedDrivers.some((item) => typeof item !== 'string' || item.trim().length === 0)
+    )
+  ) {
+    invalidFields.push('androidDrivers.supported');
+  }
+  const supportedDrivers = [
+    ...(Array.isArray(rawSupportedDrivers) ? rawSupportedDrivers : []),
+    ...(Array.isArray(rawAndroidSupportedDrivers) ? rawAndroidSupportedDrivers : []),
+  ]
+    .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+    .map((value) => value.trim())
+    .filter((value, index, values) => values.indexOf(value) === index)
+    .sort();
   const missingSupportedDrivers = PACKAGE_SUPPORTED_DRIVERS
     .filter((driver) => !supportedDrivers.includes(driver));
   const packageSupportedDrivers = supportedDrivers
@@ -1565,17 +1593,18 @@ function buildNextActions({
 /**
  * Validates a generated or hand-authored Agent Scenario Loop project.
  *
- * @param {{rootDir?: string, platform?: string}} [options]
+ * @param {{rootDir?: string, configPath?: string, platform?: string}} [options]
  * @returns {Promise<ProjectValidationResult>}
  */
 async function validateProject(options: {
+  configPath?: string;
   packageRoot?: string;
   rootDir?: string;
   platform?: string;
 } = {}): Promise<ProjectValidationResult> {
   const rootDir = path.resolve(options.rootDir ?? process.cwd());
   const requestedPlatform = options.platform ?? 'all';
-  const configPath = path.join(rootDir, 'asl.config.json');
+  const configPath = path.resolve(rootDir, options.configPath ?? 'asl.config.json');
   const config = validateProjectConfig({ configPath, requestedPlatform });
   const runnerPath = path.join(rootDir, 'runner-manifests', 'primary-runner.json');
   const providerPaths = listJsonFiles(path.join(rootDir, 'runner-manifests'))
@@ -1583,7 +1612,7 @@ async function validateProject(options: {
   const scenarioCandidateDirectories = resolveScenarioDirectories({ configPath, requestedPlatform, rootDir });
   const scenarioPaths = listScenarioFilesFromDirectories(scenarioCandidateDirectories);
   const appHelper = validateAppHelper(rootDir);
-  const gitignore = validateGitignore(rootDir);
+  const gitignore = validateGitignore(rootDir, configPath);
   const scripts = validatePackageScripts({
     ...(options.packageRoot ? { packageRoot: options.packageRoot } : {}),
     rootDir,
@@ -1793,6 +1822,7 @@ async function main(): Promise<void> {
 
   const args = parseArgs(argv);
   const result = await validateProject({
+    ...(typeof args.config === 'string' ? { configPath: args.config } : {}),
     ...(typeof args.root === 'string' ? { rootDir: args.root } : {}),
     ...(typeof args.platform === 'string' ? { platform: args.platform } : {}),
   });

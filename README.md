@@ -49,6 +49,8 @@ Wire the generated app helper, emit truth events around one real journey, merge 
 asl-validate-project --root . --platform all --out artifacts/asl/project-validation
 ```
 
+Use `--config <file>` when a mature app keeps its ASL config outside the root `asl.config.json`.
+
 Before runtime execution, validate a scenario and runner plan:
 
 ```bash

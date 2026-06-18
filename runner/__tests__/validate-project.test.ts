@@ -57,7 +57,8 @@ async function writeMergedPackageJson(rootDir: string): Promise<void> {
 }
 
 test('parses project validation arguments', () => {
-  assert.deepEqual(parseArgs(['--root', 'app', '--platform', 'ios', '--out', 'artifacts/validation']), {
+  assert.deepEqual(parseArgs(['--root', 'app', '--config', 'tools/asl/project.config.json', '--platform', 'ios', '--out', 'artifacts/validation']), {
+    config: 'tools/asl/project.config.json',
     out: 'artifacts/validation',
     platform: 'ios',
     root: 'app',
@@ -193,6 +194,60 @@ test('validates an initialized project for iOS and Android', async (t: TestConte
   assert.match(formatResult(result), /Next actions:/u);
 });
 
+test('validates an initialized project with config outside the project root default', async (t: TestContext) => {
+  const targetDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-validate-project-custom-config-'));
+  t.after(async () => {
+    await fsp.rm(targetDir, { recursive: true, force: true });
+  });
+
+  await initProject({
+    outDir: targetDir,
+    packageRoot: ROOT,
+    scenarioId: 'Checkout Submit',
+  });
+  await writeMergedPackageJson(targetDir);
+
+  const defaultConfigPath = path.join(targetDir, 'asl.config.json');
+  const customConfigPath = path.join(targetDir, 'tools', 'mobile-agent-profile-loop', 'project.config.json');
+  const customConfigScriptPath = path.join('tools', 'mobile-agent-profile-loop', 'project.config.json');
+  await fsp.mkdir(path.dirname(customConfigPath), { recursive: true });
+  await fsp.rename(defaultConfigPath, customConfigPath);
+  const generatedScripts = await readJsonFile(path.join(targetDir, 'asl', 'package-scripts.json')) as Record<string, string>;
+  const customScripts = Object.fromEntries(
+    Object.entries(generatedScripts).map(([scriptName, command]) => [
+      scriptName,
+      typeof command === 'string' ? command.replace(/asl\.config\.json/gu, customConfigScriptPath) : command,
+    ]),
+  );
+  await writeJsonFile(path.join(targetDir, 'asl', 'package-scripts.json'), customScripts);
+  await fsp.writeFile(
+    path.join(targetDir, 'package.json'),
+    `${JSON.stringify({
+      name: 'consumer-app',
+      private: true,
+      scripts: customScripts,
+    }, null, 2)}\n`,
+    'utf8',
+  );
+
+  const result = await validateProject({
+    configPath: customConfigPath,
+    rootDir: targetDir,
+  });
+
+  assert.equal(result.status, 'passed');
+  assert.equal(result.configPath, customConfigPath);
+  assert.equal(result.config.path, customConfigPath);
+  assert.equal(result.errors.some((error: string) => error.includes('Missing config')), false);
+  assert.deepEqual(
+    result.scenarioCandidateDirectories.map((directory: string) => path.relative(targetDir, directory)),
+    [
+      'scenarios',
+      path.join('scenarios', 'mobile'),
+    ],
+  );
+});
+
 test('validates project scenarios from configured platform roots', async (t: TestContext) => {
   const targetDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-validate-platform-roots-'));
   t.after(async () => {
@@ -315,6 +370,7 @@ test('validates platform-specific project config fields', async (t: TestContext)
       iosConflictingBundleIds?: unknown;
       profileSessionScheme?: string;
     };
+    androidDrivers?: { supported?: unknown };
     drivers: { supported?: unknown };
     paths: {
       androidArtifactsRoot?: string | number;
@@ -374,6 +430,7 @@ test('validates platform-specific project config fields', async (t: TestContext)
   assert.deepEqual(result.config.invalidFields, ['paths.androidArtifactsRoot']);
 
   config.paths.androidArtifactsRoot = 'artifacts/android';
+  delete config.paths.artifactRoot;
   config.app.androidPackage = 'com.example.app';
   config.drivers.supported = ['fixture-log-ingest', 'adb', 'ios-simctl'];
   await fsp.writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
@@ -394,15 +451,17 @@ test('validates platform-specific project config fields', async (t: TestContext)
   assert.equal(result.status, 'passed');
   assert.deepEqual(result.config.customDrivers, ['custom-driver']);
 
-  config.drivers.supported = ['agent-device', 'argent', 'xcodebuildmcp'];
+  config.drivers.supported = ['agent-device', 'argent', 'axe', 'xcodebuildmcp'];
+  config.androidDrivers = { supported: ['adb', 'argent'] };
   await fsp.writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
   result = await validateProject({ rootDir: targetDir });
   assert.equal(result.status, 'passed');
-  assert.deepEqual(result.config.externalTargetDrivers, ['xcodebuildmcp']);
-  assert.deepEqual(result.config.packageSupportedDrivers, ['agent-device', 'argent']);
-  assert.deepEqual(result.config.missingSupportedDrivers, ['fixture-log-ingest', 'adb', 'ios-simctl']);
+  assert.deepEqual(result.config.externalTargetDrivers, ['axe', 'xcodebuildmcp']);
+  assert.deepEqual(result.config.packageSupportedDrivers, ['adb', 'agent-device', 'argent']);
+  assert.deepEqual(result.config.missingSupportedDrivers, ['fixture-log-ingest', 'ios-simctl']);
 
   config.drivers.supported = ['fixture-log-ingest', 'adb', 'ios-simctl'];
+  delete config.androidDrivers;
   config.app.iosConflictingBundleIds = ['com.example.app.beta', 42];
   await fsp.writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
   result = await validateProject({ rootDir: targetDir });
@@ -425,14 +484,12 @@ test('validates runtime artifact gitignore patterns', async (t: TestContext) => 
 
   let gitignore = validateGitignore(targetDir);
   assert.equal(gitignore.status, 'missing');
-  assert.equal(gitignore.missingPatterns.includes('artifacts/asl/'), true);
+  assert.equal(gitignore.missingPatterns.includes('artifacts/asl/'), false);
   assert.deepEqual(gitignore.requiredPatterns, [
     '*.memgraph',
     '*.trace',
     '*.xcresult',
     '.asl.local.env',
-    'artifacts/asl/',
-    'artifacts/example-mobile-app/',
   ]);
 
   await fsp.writeFile(path.join(targetDir, '.gitignore'), 'node_modules/\nartifacts/asl/\n', 'utf8');
@@ -443,7 +500,6 @@ test('validates runtime artifact gitignore patterns', async (t: TestContext) => 
     '*.trace',
     '*.xcresult',
     '.asl.local.env',
-    'artifacts/example-mobile-app/',
   ]);
 
   await fsp.writeFile(
@@ -451,8 +507,6 @@ test('validates runtime artifact gitignore patterns', async (t: TestContext) => 
     [
       'node_modules/',
       '.asl.local.env',
-      'artifacts/asl/',
-      'artifacts/example-mobile-app/',
       '*.memgraph',
       '*.trace',
       '*.xcresult',

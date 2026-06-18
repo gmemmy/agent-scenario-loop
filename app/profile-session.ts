@@ -84,6 +84,9 @@ const PROFILE_SESSION_STORAGE_KEY = `${STORAGE_PREFIX}.profile-session.${PROFILE
 const PROFILE_COMMAND_STORAGE_KEY = `${STORAGE_PREFIX}.profile-commands.${PROFILE_STORAGE_SCHEMA}`;
 const PROFILE_SESSION_ENTRIES_STORAGE_KEY = `${STORAGE_PREFIX}.profile-session-entries.${PROFILE_STORAGE_SCHEMA}`;
 const PROFILE_STORAGE_POLL_INTERVAL_MS = 350;
+const PROFILE_SESSION_MAX_AGE_MS = 2 * 60 * 60_000;
+const PROFILE_COMMAND_DUPLICATE_WINDOW_MS = 750;
+const PROCESSED_PROFILE_COMMAND_ID_LIMIT = 120;
 const MAX_STORED_PROFILE_EVENTS = 300;
 const MAX_STORED_PROFILE_SESSION_ENTRIES = 120;
 
@@ -93,6 +96,9 @@ const listeners = new Set<() => void>();
 const profileCommandListeners = new Set<(command: ProfileSessionCommand) => void>();
 const profileCommandTargetHandlers = new Map<string, () => void>();
 const pendingProfileCommands: ProfileSessionCommand[] = [];
+const processedProfileCommandIds = new Set<string>();
+let lastProfileCommandSignature: string | null = null;
+let lastProfileCommandTimestamp = 0;
 
 function writeProfileLog(line: string) {
   if (Platform.OS === 'ios') {
@@ -200,6 +206,15 @@ function clearPendingProfileCommands() {
   });
 }
 
+/**
+ * Clears command replay guards when a scenario session boundary changes.
+ */
+function clearProfileCommandDedupe() {
+  lastProfileCommandSignature = null;
+  lastProfileCommandTimestamp = 0;
+  processedProfileCommandIds.clear();
+}
+
 function setProfileSessionState(nextState: ProfileSessionState) {
   profileSessionState = nextState;
   queueProfileStorageMutation(async () => {
@@ -246,6 +261,26 @@ function shouldApplyStoredProfileSession(storedSession: ProfileSessionState): bo
   const storedStartedAt = readProfileSessionStartedAt(storedSession);
   const activeStartedAt = readProfileSessionStartedAt(profileSessionState);
   return storedStartedAt !== null && activeStartedAt !== null && storedStartedAt > activeStartedAt;
+}
+
+/**
+ * Returns true when a stored session is fresh enough to revive after app startup.
+ *
+ * @param {Pick<ProfileSessionState, 'active' | 'startedAt'>} session
+ * @param {number} [now]
+ * @returns {boolean}
+ */
+export function isProfileSessionFresh(
+  session: Pick<ProfileSessionState, 'active' | 'startedAt'>,
+  now = Date.now(),
+): boolean {
+  if (!session.active) {
+    return false;
+  }
+  if (typeof session.startedAt !== 'number' || !Number.isFinite(session.startedAt)) {
+    return false;
+  }
+  return now - session.startedAt <= PROFILE_SESSION_MAX_AGE_MS;
 }
 
 function logProfileSession(kind: 'start' | 'stop' | 'command', payload: Record<string, unknown>) {
@@ -322,12 +357,20 @@ function queuePendingProfileCommand(command: ProfileSessionCommand) {
   });
 }
 
-function dispatchProfileCommandTarget(command: ProfileSessionCommand) {
-  if (!command.command.startsWith('activate-target:')) {
-    return false;
+/**
+ * Resolves the semantic target id for runner commands that activate app-owned controls.
+ */
+function getProfileCommandTargetId(command: string): string | null {
+  if (!command.startsWith('activate-target:')) {
+    return null;
   }
 
-  const targetId = command.command.slice('activate-target:'.length);
+  const targetId = command.slice('activate-target:'.length);
+  return targetId.length > 0 ? targetId : null;
+}
+
+function dispatchProfileCommandTarget(command: ProfileSessionCommand) {
+  const targetId = getProfileCommandTargetId(command.command);
   if (!targetId) {
     return false;
   }
@@ -341,9 +384,77 @@ function dispatchProfileCommandTarget(command: ProfileSessionCommand) {
   return true;
 }
 
+/**
+ * Builds a stable key for duplicate command suppression across delivery lanes.
+ */
+function getProfileCommandSignature(command: ProfileSessionCommand): string {
+  return [
+    command.scenario ?? '',
+    command.runId ?? '',
+    command.command,
+  ].join('|');
+}
+
+/**
+ * Detects duplicate runner commands delivered repeatedly during one short native handoff window.
+ */
+function shouldSkipProfileCommandForDuplicateWindow(
+  command: ProfileSessionCommand,
+  commandTimestamp: number,
+): boolean {
+  const signature = getProfileCommandSignature(command);
+  return (
+    signature === lastProfileCommandSignature &&
+    commandTimestamp - lastProfileCommandTimestamp >= 0 &&
+    commandTimestamp - lastProfileCommandTimestamp <= PROFILE_COMMAND_DUPLICATE_WINDOW_MS
+  );
+}
+
+/**
+ * Returns true when a stored command id has already been replayed into the app.
+ */
+function hasProcessedProfileCommandId(command: ProfileSessionCommand): boolean {
+  return command.id.length > 0 && processedProfileCommandIds.has(command.id);
+}
+
+/**
+ * Records a stored command id while keeping the replay cache bounded.
+ */
+function markProfileCommandIdProcessed(command: ProfileSessionCommand) {
+  if (!command.id) {
+    return;
+  }
+
+  processedProfileCommandIds.add(command.id);
+  while (processedProfileCommandIds.size > PROCESSED_PROFILE_COMMAND_ID_LIMIT) {
+    const oldestId = processedProfileCommandIds.keys().next().value;
+    if (typeof oldestId !== 'string') {
+      break;
+    }
+    processedProfileCommandIds.delete(oldestId);
+  }
+}
+
 function notifyProfileCommandListeners(command: ProfileSessionCommand) {
+  const commandTimestamp = Number.isFinite(command.timestamp) ? command.timestamp : Date.now();
+  if (shouldSkipProfileCommandForDuplicateWindow(command, commandTimestamp)) {
+    logProfileSession('command', {
+      ...command,
+      status: 'skipped',
+      reason: 'duplicate-command-window',
+    });
+    return;
+  }
+
+  lastProfileCommandSignature = getProfileCommandSignature(command);
+  lastProfileCommandTimestamp = commandTimestamp;
+
   const targetDispatched = dispatchProfileCommandTarget(command);
-  if (profileCommandListeners.size === 0 && !targetDispatched) {
+  if (targetDispatched) {
+    return;
+  }
+
+  if (profileCommandListeners.size === 0) {
     queuePendingProfileCommand(command);
     return;
   }
@@ -368,6 +479,7 @@ function flushPendingProfileCommands(listener: (command: ProfileSessionCommand) 
 
 function startProfileSessionInternal(nextState: ProfileSessionState) {
   clearPendingProfileCommands();
+  clearProfileCommandDedupe();
   resetStoredProfileArtifacts();
   setProfileSessionState(nextState);
   logProfileSession('start', {
@@ -380,6 +492,7 @@ function startProfileSessionInternal(nextState: ProfileSessionState) {
 function stopProfileSessionInternal() {
   const previousState = profileSessionState;
   clearPendingProfileCommands();
+  clearProfileCommandDedupe();
   setProfileSessionState(INITIAL_STATE);
   logProfileSession('stop', {
     scenario: previousState.scenario ?? 'unknown',
@@ -421,6 +534,7 @@ export function applyProfileSessionUrl(url: string | null | undefined): boolean 
   }
 
   if (route.action === 'command' && route.command) {
+    const timestamp = Date.now();
     if (
       route.scenario &&
       route.runId &&
@@ -432,16 +546,16 @@ export function applyProfileSessionUrl(url: string | null | undefined): boolean 
         active: true,
         scenario: route.scenario,
         runId: route.runId,
-        startedAt: Date.now(),
+        startedAt: timestamp,
       });
     }
 
     const command = {
-      id: `${Date.now()}-${route.scenario ?? 'profile'}-${route.command}`,
+      id: `${timestamp}-${route.scenario ?? 'profile'}-${route.command}`,
       scenario: route.scenario,
       runId: route.runId,
       command: route.command,
-      timestamp: Date.now(),
+      timestamp,
     };
     logProfileSession('command', command);
     notifyProfileCommandListeners(command);
@@ -588,6 +702,11 @@ export function useProfileSessionBootstrap(): void {
         typeof storedSession.scenario === 'string' &&
         typeof storedSession.runId === 'string'
       ) {
+        if (!isProfileSessionFresh(storedSession)) {
+          stopProfileSessionInternal();
+          return;
+        }
+
         const shouldStartFromStorage =
           shouldApplyStoredProfileSession(storedSession) &&
           (!profileSessionState.active ||
@@ -641,6 +760,11 @@ export function useProfileSessionBootstrap(): void {
           continue;
         }
 
+        if (hasProcessedProfileCommandId(command)) {
+          continue;
+        }
+
+        markProfileCommandIdProcessed(command);
         logProfileSession('command', command);
         notifyProfileCommandListeners(command);
       }
