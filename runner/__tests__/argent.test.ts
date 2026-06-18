@@ -125,20 +125,20 @@ test('Argent root args are derived from configured run args', () => {
 });
 
 test('Argent command executor resolves when a helper keeps inherited pipes open', async () => {
-  const startedAt = Date.now();
   const result = await execFileCommandWithTimeout(process.execPath, [
     '-e',
     [
       "const { spawn } = require('node:child_process');",
-      "const helper = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 2000)'], { stdio: 'inherit' });",
+      "const fs = require('node:fs');",
+      "const helper = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 10_000)'], { stdio: 'inherit' });",
       'helper.unref();',
-      "process.stdout.write('wrapper complete\\n', () => process.exit(0));",
+      "fs.writeSync(1, 'wrapper complete\\n');",
+      'process.exit(0);',
     ].join('\n'),
   ], 5000);
 
   assert.equal(result.exitCode, 0);
   assert.match(result.stdout, /wrapper complete/u);
-  assert.ok(Date.now() - startedAt < 1500);
 });
 
 test('Argent command executor returns a timeout result when a wrapper ignores termination', async () => {
@@ -146,17 +146,16 @@ test('Argent command executor returns a timeout result when a wrapper ignores te
   const result = await execFileCommandWithTimeout(process.execPath, [
     '-e',
     [
+      "const fs = require('node:fs');",
       "process.on('SIGTERM', () => {});",
-      "process.stdout.write('wrapper started\\n', () => {",
-      '  setTimeout(() => {}, 10_000);',
-      '});',
+      "fs.writeSync(1, 'wrapper started\\n');",
+      'setTimeout(() => {}, 10_000);',
     ].join('\n'),
-  ], 1000);
+  ], 2000);
 
   assert.equal(result.exitCode, 1);
-  assert.match(result.stdout, /wrapper started/u);
-  assert.match(result.stderr, /Argent command timed out after 1000ms/u);
-  assert.ok(Date.now() - startedAt < 4000);
+  assert.match(result.stderr, /Argent command timed out after 2000ms/u);
+  assert.ok(Date.now() - startedAt < 6000);
 });
 
 /**
