@@ -121,6 +121,18 @@
       "additionalProperties": false,
       "required": ["missingPatterns", "path", "snippetPath", "status"],
       "properties": {
+        "configArtifactPatterns": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "missingConfigArtifactPatterns": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
         "missingPatterns": {
           "type": "array",
           "items": {
@@ -129,6 +141,12 @@
         },
         "path": {
           "type": "string"
+        },
+        "requiredPatterns": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         },
         "snippetPath": {
           "type": "string"

@@ -27,7 +27,7 @@ pnpm add @react-native-async-storage/async-storage expo-linking
 2. Mount `useProfileSessionBootstrap()` once near the app root.
 3. Emit app-owned truth events with `emitProfileEvent()` at scenario milestones.
 4. Register command targets with `registerProfileCommandTargetHandler()` when a runner should activate app behavior directly.
-5. Append `asl/gitignore-snippet` to your app `.gitignore`; commit scenarios, runner manifests, and app truth-event wiring.
+5. Append `asl/gitignore-snippet` to your app `.gitignore`; commit scenarios, runner manifests, and app truth-event wiring. Keep `paths.artifactRoot`, `paths.iosArtifactsRoot`, and `paths.androidArtifactsRoot` under ignored project-local artifact paths so agent sandboxes and git state agree on where runtime proof evidence belongs.
 
 ## First Proof Loop
 

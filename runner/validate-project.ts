@@ -60,8 +60,11 @@ type ProjectValidationScripts = {
 };
 
 type ProjectValidationGitignore = {
+  configArtifactPatterns: string[];
+  missingConfigArtifactPatterns: string[];
   missingPatterns: string[];
   path: string;
+  requiredPatterns: string[];
   snippetPath: string;
   status: 'present' | 'missing' | 'incomplete';
 };
@@ -323,6 +326,12 @@ const REQUIRED_GITIGNORE_PATTERNS = [
   '*.memgraph',
   '*.trace',
   '*.xcresult',
+];
+
+const CONFIG_ARTIFACT_ROOT_FIELDS = [
+  ['paths', 'artifactRoot'],
+  ['paths', 'iosArtifactsRoot'],
+  ['paths', 'androidArtifactsRoot'],
 ];
 
 const PACKAGE_SUPPORTED_DRIVERS = [
@@ -853,34 +862,169 @@ function validateProjectConfig({
 }
 
 /**
+ * Normalizes a relative directory path into the simple gitignore form this scaffold emits.
+ *
+ * @param {string} value
+ * @returns {string}
+ */
+function normalizeGitignoreDirectoryPattern(value: string): string {
+  const normalized = path.normalize(value).split(path.sep).join('/');
+  const trimmed = normalized.replace(/^\.\//u, '').replace(/\/+$/u, '');
+  return trimmed.length > 0 ? `${trimmed}/` : '';
+}
+
+/**
+ * Returns true when one simple gitignore directory pattern covers another.
+ *
+ * @param {string} pattern
+ * @param {string} requiredPattern
+ * @returns {boolean}
+ */
+function gitignorePatternCovers(pattern: string, requiredPattern: string): boolean {
+  const normalizedPattern = pattern.trim().replace(/^\.\//u, '');
+  const normalizedRequired = requiredPattern.trim().replace(/^\.\//u, '');
+  if (normalizedPattern === normalizedRequired) {
+    return true;
+  }
+
+  if (normalizedPattern.endsWith('/')) {
+    return normalizedRequired.startsWith(normalizedPattern);
+  }
+
+  if (normalizedPattern.endsWith('/**')) {
+    return normalizedRequired.startsWith(normalizedPattern.slice(0, -2));
+  }
+
+  return false;
+}
+
+/**
+ * Removes required ignore patterns already covered by a broader required directory pattern.
+ *
+ * @param {string[]} patterns
+ * @returns {string[]}
+ */
+function compactGitignorePatterns(patterns: string[]): string[] {
+  return [...new Set(patterns)]
+    .filter((pattern) => pattern.length > 0)
+    .sort()
+    .reduce<string[]>((result, pattern) => {
+      if (result.some((existing) => gitignorePatternCovers(existing, pattern))) {
+        return result;
+      }
+
+      result.push(pattern);
+      return result;
+    }, []);
+}
+
+/**
+ * Reads configured artifact roots and converts project-local roots into gitignore directory patterns.
+ *
+ * @param {{configPath: string, rootDir: string}} options
+ * @returns {string[]}
+ */
+function collectConfigArtifactPatterns({
+  configPath,
+  rootDir,
+}: {
+  configPath: string;
+  rootDir: string;
+}): string[] {
+  if (!fs.existsSync(configPath)) {
+    return [];
+  }
+
+  const config = readJson(configPath);
+  return compactGitignorePatterns(CONFIG_ARTIFACT_ROOT_FIELDS
+    .map((fieldPath) => readNestedString(config, fieldPath))
+    .filter(isNonEmptyString)
+    .map((artifactRoot) => {
+      const absoluteArtifactRoot = path.isAbsolute(artifactRoot)
+        ? path.normalize(artifactRoot)
+        : path.resolve(rootDir, artifactRoot);
+      const relativeArtifactRoot = path.relative(rootDir, absoluteArtifactRoot);
+      if (
+        relativeArtifactRoot.startsWith('..') ||
+        path.isAbsolute(relativeArtifactRoot) ||
+        relativeArtifactRoot.length === 0
+      ) {
+        return '';
+      }
+
+      return normalizeGitignoreDirectoryPattern(relativeArtifactRoot);
+    }));
+}
+
+/**
+ * Builds the full set of runtime artifact ignore patterns required for the project.
+ *
+ * @param {{configPath: string, rootDir: string}} options
+ * @returns {{configArtifactPatterns: string[], requiredPatterns: string[]}}
+ */
+function buildRequiredGitignorePatterns({
+  configPath,
+  rootDir,
+}: {
+  configPath: string;
+  rootDir: string;
+}): {
+  configArtifactPatterns: string[];
+  requiredPatterns: string[];
+} {
+  const configArtifactPatterns = collectConfigArtifactPatterns({ configPath, rootDir });
+  return {
+    configArtifactPatterns,
+    requiredPatterns: compactGitignorePatterns([
+      ...REQUIRED_GITIGNORE_PATTERNS,
+      ...configArtifactPatterns,
+    ]),
+  };
+}
+
+/**
  * Validates that runtime proof artifacts are ignored by the consuming app.
  *
  * @param {string} rootDir
+ * @param {string} [configPath]
  * @returns {ProjectValidationGitignore}
  */
-function validateGitignore(rootDir: string): ProjectValidationGitignore {
+function validateGitignore(rootDir: string, configPath: string = path.join(rootDir, 'asl.config.json')): ProjectValidationGitignore {
   const gitignorePath = path.join(rootDir, '.gitignore');
   const snippetPath = path.join(rootDir, 'asl', 'gitignore-snippet');
+  const { configArtifactPatterns, requiredPatterns } = buildRequiredGitignorePatterns({ configPath, rootDir });
   if (!fs.existsSync(gitignorePath)) {
     return {
-      missingPatterns: REQUIRED_GITIGNORE_PATTERNS,
+      configArtifactPatterns,
+      missingConfigArtifactPatterns: configArtifactPatterns,
+      missingPatterns: requiredPatterns,
       path: gitignorePath,
+      requiredPatterns,
       snippetPath,
       status: 'missing',
     };
   }
 
-  const lines = new Set(
+  const lines = new Set<string>(
     fs.readFileSync(gitignorePath, 'utf8')
       .split(/\r?\n/u)
       .map((line: string) => line.trim())
-      .filter((line: string) => line.length > 0 && !line.startsWith('#')),
+      .filter((line: string) => line.length > 0 && !line.startsWith('#') && !line.startsWith('!')),
   );
-  const missingPatterns = REQUIRED_GITIGNORE_PATTERNS.filter((pattern) => !lines.has(pattern));
+  const presentPatterns = [...lines];
+  const missingPatterns = requiredPatterns.filter((pattern) => (
+    !presentPatterns.some((existingPattern) => gitignorePatternCovers(existingPattern, pattern))
+  ));
+  const missingConfigArtifactPatterns = configArtifactPatterns.filter((pattern) => (
+    !presentPatterns.some((existingPattern) => gitignorePatternCovers(existingPattern, pattern))
+  ));
 
   return {
+    configArtifactPatterns,
+    missingConfigArtifactPatterns,
     missingPatterns,
     path: gitignorePath,
+    requiredPatterns,
     snippetPath,
     status: missingPatterns.length > 0 ? 'incomplete' : 'present',
   };
@@ -1584,6 +1728,7 @@ function formatResult(result: ProjectValidationResult): string {
     `Custom drivers: ${result.config.customDrivers.length > 0 ? result.config.customDrivers.join(', ') : 'none'}`,
     `App helper: ${result.appHelper.status}`,
     `Gitignore: ${result.gitignore.status}`,
+    `Config artifact ignore patterns: ${result.gitignore.configArtifactPatterns.length > 0 ? result.gitignore.configArtifactPatterns.join(', ') : 'none'}`,
     `Package scripts: ${result.scripts.status}`,
     `Package.json scripts: ${result.scripts.packageJsonStatus}`,
     `Scenario candidate directories: ${result.scenarioCandidateDirectories.length}`,

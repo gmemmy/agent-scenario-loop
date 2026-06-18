@@ -13,9 +13,9 @@
     }
   },
   "paths": {
-    "artifactRoot": "artifacts",
-    "iosArtifactsRoot": "artifacts/ios",
-    "androidArtifactsRoot": "artifacts/android",
+    "artifactRoot": "artifacts/asl",
+    "iosArtifactsRoot": "artifacts/asl/ios",
+    "androidArtifactsRoot": "artifacts/asl/android",
     "scenarioRoot": "examples/scenarios/mobile",
     "iosScenarioRoot": "examples/scenarios/ios",
     "androidScenarioRoot": "examples/scenarios/mobile"
@@ -33,8 +33,7 @@
       "docs/**"
     ],
     "ignore": [
-      "artifacts/ios/**",
-      "artifacts/android/**",
+      "artifacts/asl/**",
       "raw simulator recordings, screenshots, and ephemeral profiler exports"
     ]
   }

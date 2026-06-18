@@ -412,15 +412,22 @@ test('validates runtime artifact gitignore patterns', async (t: TestContext) => 
   let gitignore = validateGitignore(targetDir);
   assert.equal(gitignore.status, 'missing');
   assert.equal(gitignore.missingPatterns.includes('artifacts/asl/'), true);
+  assert.deepEqual(gitignore.requiredPatterns, [
+    '*.memgraph',
+    '*.trace',
+    '*.xcresult',
+    'artifacts/asl/',
+    'artifacts/example-mobile-app/',
+  ]);
 
   await fsp.writeFile(path.join(targetDir, '.gitignore'), 'node_modules/\nartifacts/asl/\n', 'utf8');
   gitignore = validateGitignore(targetDir);
   assert.equal(gitignore.status, 'incomplete');
   assert.deepEqual(gitignore.missingPatterns, [
-    'artifacts/example-mobile-app/',
     '*.memgraph',
     '*.trace',
     '*.xcresult',
+    'artifacts/example-mobile-app/',
   ]);
 
   await fsp.writeFile(
@@ -438,6 +445,60 @@ test('validates runtime artifact gitignore patterns', async (t: TestContext) => 
   );
   gitignore = validateGitignore(targetDir);
   assert.equal(gitignore.status, 'present');
+  assert.deepEqual(gitignore.missingPatterns, []);
+});
+
+test('validates config artifact roots against runtime artifact gitignore patterns', async (t: TestContext) => {
+  const targetDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-validate-project-config-gitignore-'));
+  t.after(async () => {
+    await fsp.rm(targetDir, { recursive: true, force: true });
+  });
+
+  const configPath = path.join(targetDir, 'asl.config.json');
+  await writeJsonFile(configPath, {
+    paths: {
+      artifactRoot: 'artifacts/custom',
+      androidArtifactsRoot: 'artifacts/custom/android',
+      iosArtifactsRoot: 'artifacts/custom/ios',
+    },
+  });
+
+  await fsp.writeFile(
+    path.join(targetDir, '.gitignore'),
+    [
+      'node_modules/',
+      'artifacts/asl/',
+      'artifacts/example-mobile-app/',
+      '*.memgraph',
+      '*.trace',
+      '*.xcresult',
+      '',
+    ].join('\n'),
+    'utf8',
+  );
+  let gitignore = validateGitignore(targetDir, configPath);
+  assert.equal(gitignore.status, 'incomplete');
+  assert.deepEqual(gitignore.configArtifactPatterns, ['artifacts/custom/']);
+  assert.deepEqual(gitignore.missingConfigArtifactPatterns, ['artifacts/custom/']);
+  assert.deepEqual(gitignore.missingPatterns, ['artifacts/custom/']);
+
+  await fsp.writeFile(
+    path.join(targetDir, '.gitignore'),
+    [
+      'node_modules/',
+      'artifacts/custom/',
+      'artifacts/asl/',
+      'artifacts/example-mobile-app/',
+      '*.memgraph',
+      '*.trace',
+      '*.xcresult',
+      '',
+    ].join('\n'),
+    'utf8',
+  );
+  gitignore = validateGitignore(targetDir, configPath);
+  assert.equal(gitignore.status, 'present');
+  assert.deepEqual(gitignore.missingConfigArtifactPatterns, []);
   assert.deepEqual(gitignore.missingPatterns, []);
 });
 

@@ -13,9 +13,9 @@
     }
   },
   "paths": {
-    "artifactRoot": "artifacts",
-    "iosArtifactsRoot": "artifacts/ios",
-    "androidArtifactsRoot": "artifacts/android",
+    "artifactRoot": "artifacts/asl",
+    "iosArtifactsRoot": "artifacts/asl/ios",
+    "androidArtifactsRoot": "artifacts/asl/android",
     "scenarioRoot": "scenarios/mobile"
   },
   "drivers": {
@@ -29,7 +29,7 @@
       "docs/**"
     ],
     "ignore": [
-      "artifacts/**",
+      "artifacts/asl/**",
       "raw simulator recordings, screenshots, and ephemeral profiler exports"
     ]
   }
