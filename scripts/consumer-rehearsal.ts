@@ -437,6 +437,66 @@ function assertPackageScriptDriftFails({
 }
 
 /**
+ * Asserts that installed project validation rejects invalid path config.
+ *
+ * @param {{appRoot: string, env: NodeJS.ProcessEnv}} options
+ * @returns {void}
+ */
+function assertProjectPathConfigFails({
+  appRoot,
+  env,
+}: {
+  appRoot: string;
+  env: NodeJS.ProcessEnv;
+}): void {
+  const configPath = path.join(appRoot, 'asl.config.json');
+  const originalConfig = readJson(configPath) as Record<string, any>;
+  const brokenConfig = JSON.parse(JSON.stringify(originalConfig)) as Record<string, any>;
+  brokenConfig.paths = {
+    ...(brokenConfig.paths ?? {}),
+    androidArtifactsRoot: 42,
+  };
+  delete brokenConfig.paths.scenarioRoot;
+  delete brokenConfig.paths.iosScenarioRoot;
+  delete brokenConfig.paths.androidScenarioRoot;
+  writeJson(configPath, brokenConfig);
+
+  try {
+    const outDir = path.join(appRoot, 'artifacts', 'asl', 'project-validation-path-config');
+    const failure = runExpectFailure(packageBinPath(appRoot, 'asl-validate-project'), [
+      '--root',
+      appRoot,
+      '--platform',
+      'all',
+      '--out',
+      outDir,
+    ], {
+      cwd: appRoot,
+      env,
+    });
+    assert.notEqual(failure.status, 0);
+    assert.match(failure.stdout, /project validation failed/u);
+    assert.match(failure.stdout, /Project config is missing required field\(s\)/u);
+    assert.match(failure.stdout, /Project config has invalid required field\(s\)/u);
+
+    const validation = readJson(path.join(outDir, 'project-validation.json')) as Record<string, any>;
+    assert.equal(validation.status, 'failed');
+    assert.equal(validation.config.status, 'incomplete');
+    assert.deepEqual(validation.config.missingFields, [
+      'paths.scenarioRoot or paths.iosScenarioRoot',
+      'paths.scenarioRoot or paths.androidScenarioRoot',
+    ]);
+    assert.deepEqual(validation.config.invalidFields, ['paths.androidArtifactsRoot']);
+    assert.equal(
+      validation.nextActions.some((action: { code: string }) => action.code === 'fix_project_config'),
+      true,
+    );
+  } finally {
+    writeJson(configPath, originalConfig);
+  }
+}
+
+/**
  * Asserts that the installed package can initialize and validate an existing app.
  *
  * @param {{appRoot: string, env: NodeJS.ProcessEnv, tarballPath: string}} options
@@ -611,6 +671,7 @@ function rehearseConsumerInstall({
     );
   }
 
+  assertProjectPathConfigFails({ appRoot, env });
   assertPackageScriptDriftFails({ appRoot, env });
 }
 
