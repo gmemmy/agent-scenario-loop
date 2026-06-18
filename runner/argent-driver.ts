@@ -329,7 +329,8 @@ function matchesArgentSelector({
   selector: ArgentSelector;
 }): boolean {
   const descriptionText = readArgentDescription(description);
-  if (selector.match === 'regex') {
+  const matchMode = selector.match ?? (selector.kind === 'regex' ? 'regex' : undefined);
+  if (matchMode === 'regex') {
     try {
       return new RegExp(selector.value, 'u').test(descriptionText);
     } catch {
@@ -378,7 +379,7 @@ function createArgentDriver(options: ArgentDriverOptions): ArgentDriver {
       selector,
     }: ArgentAssertVisibleOptions): Promise<ArgentCommandResult> {
       const result = await run('assertVisible', 'describe', rawFileName, appArgs(appId));
-      if (!matchesArgentSelector({ description: result.stdout, selector })) {
+      if (!matchesArgentSelector({ description: formatArgentRawOutput(result), selector })) {
         return {
           ...result,
           exitCode: result.exitCode === 0 ? 1 : result.exitCode,
@@ -387,7 +388,10 @@ function createArgentDriver(options: ArgentDriverOptions): ArgentDriver {
             .join('\n'),
         };
       }
-      return result;
+      return {
+        ...result,
+        exitCode: 0,
+      };
     },
 
     async inspectTree({

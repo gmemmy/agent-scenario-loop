@@ -214,3 +214,51 @@ test('argent driver fails assertVisible when description cannot prove the select
     false,
   );
 });
+
+test('argent driver accepts assertVisible evidence emitted on stderr', async () => {
+  const driver = createArgentDriver({
+    appId: 'dev.example.app',
+    argentCommand: 'argent',
+    deviceId: 'SIM-123',
+    executor: createExecutor({
+      'run describe --udid SIM-123 --bundleId dev.example.app': {
+        exitCode: 1,
+        stderr: '{"description":"ViewGroup id=\\"home-screen\\""}\n',
+      },
+    }),
+  });
+
+  const result = await driver.assertVisible({
+    selector: { kind: 'regex', match: 'regex', value: 'app-entry-root|home-screen|auth-gate-root' },
+  });
+
+  assert.equal(result.action, 'assertVisible');
+  assert.equal(result.exitCode, 0);
+});
+
+test('argent driver accepts Argent-specific regex selector kind', async () => {
+  const driver = createArgentDriver({
+    appId: 'dev.example.app',
+    argentCommand: 'argent',
+    deviceId: 'SIM-123',
+    executor: createExecutor({
+      'run describe --udid SIM-123 --bundleId dev.example.app': {
+        stdout: '{"description":"ViewGroup id=\\"home-screen\\""}\n',
+      },
+    }),
+  });
+
+  const result = await driver.assertVisible({
+    selector: { kind: 'regex', value: 'app-entry-root|home-screen|auth-gate-root' },
+  });
+
+  assert.equal(result.action, 'assertVisible');
+  assert.equal(result.exitCode, 0);
+  assert.equal(
+    matchesArgentSelector({
+      description: 'ViewGroup id="home-screen"',
+      selector: { kind: 'regex', value: 'app-entry-root|home-screen|auth-gate-root' },
+    }),
+    true,
+  );
+});
