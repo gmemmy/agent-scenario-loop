@@ -106,9 +106,13 @@ test('host doctor writes passed ASL artifacts for requested host lanes', async (
   assert.equal(readJson(path.join(tempDir, 'health.json')).healthStatus, 'passed');
   assert.equal(readJson(path.join(tempDir, 'verdict.json')).verdictStatus, 'not_evaluated');
   assert.equal(fs.existsSync(path.join(tempDir, 'agent-summary.md')), true);
-  assert.match(fs.readFileSync(path.join(tempDir, 'agent-summary.md'), 'utf8'), /## host checks/u);
-  assert.match(fs.readFileSync(path.join(tempDir, 'agent-summary.md'), 'utf8'), /android_adb: passed/u);
-  assert.match(fs.readFileSync(path.join(tempDir, 'agent-summary.md'), 'utf8'), /argent: passed/u);
+  const summary = fs.readFileSync(path.join(tempDir, 'agent-summary.md'), 'utf8');
+  assert.match(summary, /# host doctor/u);
+  assert.match(summary, /Host\/device preflight passed/u);
+  assert.match(summary, /## host checks/u);
+  assert.match(summary, /android_adb: passed/u);
+  assert.match(summary, /argent: passed/u);
+  assert.doesNotMatch(summary, /Scenario health passed/u);
   assert.equal(fs.existsSync(path.join(tempDir, 'raw', 'host-doctor.json')), true);
   assert.equal(fs.existsSync(path.join(tempDir, 'raw', 'agent-device-check.json')), true);
   assert.equal(fs.existsSync(path.join(tempDir, 'raw', 'argent-check.json')), true);
@@ -158,7 +162,9 @@ test('host doctor fails health when a required sidecar command surface fails', a
   assert.equal(result.health.healthStatus, 'failed');
   assert.equal(health.healthStatus, 'failed');
   assert.equal(readJson(path.join(tempDir, 'verdict.json')).verdictStatus, 'inconclusive');
-  assert.match(fs.readFileSync(path.join(tempDir, 'agent-summary.md'), 'utf8'), /Do not optimize from this run/u);
+  const summary = fs.readFileSync(path.join(tempDir, 'agent-summary.md'), 'utf8');
+  assert.match(summary, /Do not start live proof from this host state/u);
+  assert.doesNotMatch(summary, /Do not optimize from this run/u);
   assert.deepEqual(
     (health.checks as Array<{name: string; status: string}>).map((check) => [check.name, check.status]),
     [

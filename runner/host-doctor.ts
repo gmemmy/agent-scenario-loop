@@ -5,7 +5,6 @@ const fs = require('node:fs');
 const fsp = require('node:fs/promises');
 const path = require('node:path');
 
-const { buildAgentSummaryMarkdown } = require('../core/agent-summary');
 const { createArtifactLayout } = require('../core/artifact-layout');
 const { writeJsonArtifact, writeTextArtifact } = require('../core/artifact-writer');
 const { SCHEMAS } = require('../core/schema-validator');
@@ -319,7 +318,69 @@ function buildExceptionCheck({
 }
 
 /**
- * Builds an agent-facing host doctor summary that includes passed checks too.
+ * Reads a string field from an artifact record.
+ *
+ * @param {Record<string, unknown>} record
+ * @param {string} key
+ * @param {string} fallback
+ * @returns {string}
+ */
+function readStringField(record: Record<string, unknown>, key: string, fallback: string): string {
+  const value = record[key];
+  return typeof value === 'string' && value.trim() ? value : fallback;
+}
+
+/**
+ * Formats a scalar value as inline markdown code.
+ *
+ * @param {unknown} value
+ * @returns {string}
+ */
+function formatCode(value: unknown): string {
+  const text = typeof value === 'string' && value.trim() ? value : 'unknown';
+  return `\`${text.replace(/`/gu, '\\`')}\``;
+}
+
+/**
+ * Reads string metadata from a host check.
+ *
+ * @param {Record<string, unknown>} check
+ * @param {string} key
+ * @returns {string | null}
+ */
+function readCheckMetadataString(check: Record<string, unknown>, key: string): string | null {
+  const metadata = check.metadata;
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) {
+    return null;
+  }
+  const value = (metadata as Record<string, unknown>)[key];
+  return typeof value === 'string' && value.trim() ? value : null;
+}
+
+/**
+ * Formats one host check for an agent-facing markdown summary.
+ *
+ * @param {unknown} check
+ * @returns {string}
+ */
+function formatHostCheckLine(check: unknown): string {
+  if (!check || typeof check !== 'object') {
+    return '- unknown_host_check: unknown - No check details were recorded.';
+  }
+  const record = check as Record<string, unknown>;
+  const name = readStringField(record, 'name', 'unknown_host_check');
+  const status = readStringField(record, 'status', 'unknown');
+  const message = readStringField(record, 'message', 'No message was recorded.');
+  const nextAction = readCheckMetadataString(record, 'nextAction');
+  const nextActionCode = readCheckMetadataString(record, 'nextActionCode');
+  const suffix = nextAction
+    ? ` Next action${nextActionCode ? ` ${formatCode(nextActionCode)}` : ''}: ${nextAction}`
+    : '';
+  return `- ${name}: ${status} - ${message}${suffix}`;
+}
+
+/**
+ * Builds a host-specific agent summary for live-proof readiness.
  *
  * @param {{health: Record<string, unknown>, verdict: Record<string, unknown>}} options
  * @returns {string}
@@ -331,19 +392,33 @@ function buildHostDoctorSummary({
   health: Record<string, unknown>;
   verdict: Record<string, unknown>;
 }): string {
-  const base = buildAgentSummaryMarkdown({ health, verdict }).trimEnd();
+  const runId = readStringField(health, 'runId', readStringField(verdict, 'runId', 'unknown-run'));
+  const healthStatus = readStringField(health, 'healthStatus', 'failed');
+  const verdictStatus = readStringField(verdict, 'verdictStatus', 'inconclusive');
   const checks = Array.isArray(health.checks) ? health.checks : [];
-  const checkLines = checks.map((check) => {
-    if (!check || typeof check !== 'object') {
-      return '- unknown_host_check: unknown';
-    }
-    const record = check as Record<string, unknown>;
-    const name = typeof record.name === 'string' ? record.name : 'unknown_host_check';
-    const status = typeof record.status === 'string' ? record.status : 'unknown';
-    const message = typeof record.message === 'string' ? record.message : 'no message';
-    return `- ${name}: ${status} - ${message}`;
-  });
-  return `${base}\n\n## host checks\n\n${checkLines.join('\n')}\n`;
+  const checkLines = checks.length > 0
+    ? checks.map(formatHostCheckLine)
+    : ['- no_host_checks: unknown - No host checks were recorded.'];
+  const gate = healthStatus === 'passed'
+    ? 'Host/device preflight passed. Live proof can start with the requested host services.'
+    : 'Do not start live proof from this host state. Fix failed host/device checks before treating runtime failures as app or scenario regressions.';
+
+  return [
+    '# host doctor',
+    '',
+    `- Run ID: ${formatCode(runId)}`,
+    `- Health: ${healthStatus}`,
+    `- Verdict: ${verdictStatus}`,
+    '',
+    '## gate',
+    '',
+    gate,
+    '',
+    '## host checks',
+    '',
+    ...checkLines,
+    '',
+  ].join('\n');
 }
 
 /**
