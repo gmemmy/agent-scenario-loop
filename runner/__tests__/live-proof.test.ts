@@ -381,8 +381,29 @@ test('builds a durable live-proof-set artifact for Android and iOS proofs', asyn
   assert.deepEqual(artifact.missingPlatforms, []);
   assert.deepEqual(artifact.failureReasons, []);
   assert.equal(artifact.proofs[0].interactionWarningCount, 1);
+  assert.deepEqual(artifact.proofs[0].interactionWarnings, [
+    {
+      checks: [
+        {
+          code: 'argent_screenshot_failed',
+          message: 'Argent driver action screenshot failed.',
+          name: 'argent_screenshot',
+          nextAction: {
+            code: 'inspect_argent_driver_action',
+            summary: 'Inspect raw screenshot output.',
+          },
+        },
+      ],
+      label: 'startup-ui',
+      runId: 'agent-device-startup',
+      runnerId: 'agent-device',
+      scenarioId: 'app-startup',
+    },
+  ]);
   assert.match(markdown, /Status: passed/u);
   assert.match(markdown, /- android android-live-proof: status=passed comparison=unchanged/u);
+  assert.match(markdown, /warning android\/startup-ui \(agent-device\/app-startup\/agent-device-startup\): argent_screenshot argent_screenshot_failed - Argent driver action screenshot failed\./u);
+  assert.match(markdown, /Next action: inspect_argent_driver_action - Inspect raw screenshot output\./u);
   assert.match(markdown, /- ios ios-live-proof: status=passed comparison=unchanged/u);
 });
 
@@ -430,7 +451,9 @@ test('writes live-proof-set artifact and agent summary', async (t: TestContext) 
   assert.equal(written.summaryPath, path.join(outputDir, 'agent-summary.md'));
   assert.equal(writtenJson.runId, 'android-only');
   assert.equal(writtenJson.status, 'passed');
+  assert.equal(writtenJson.proofs[0].interactionWarnings[0].checks[0].code, 'argent_screenshot_failed');
   assert.match(writtenSummary, /Live Proof Set android-only/u);
+  assert.match(writtenSummary, /warning android\/startup-ui/u);
 });
 
 test('accepts failed live-proof artifacts with skipped interaction proofs', async (t: TestContext) => {

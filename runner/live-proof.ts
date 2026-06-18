@@ -134,6 +134,7 @@ type LiveProofSetProofPointer = {
   comparisonStatus: string;
   filePath: string;
   interactionProofCount: number;
+  interactionWarnings?: LiveProofSetInteractionWarningPointer[];
   interactionWarningCount: number;
   nextAction: {
     code: string;
@@ -144,6 +145,21 @@ type LiveProofSetProofPointer = {
   runId: string;
   status: string;
   summaryPath: string;
+};
+type LiveProofSetInteractionWarningPointer = {
+  checks: Array<{
+    code: string;
+    message: string;
+    name: string;
+    nextAction?: {
+      code: string;
+      summary: string;
+    };
+  }>;
+  label: string;
+  runId: string;
+  runnerId: string;
+  scenarioId: string;
 };
 
 /**
@@ -568,6 +584,36 @@ function countInteractionWarnings(proof: LiveProofArtifact): number {
 }
 
 /**
+ * Builds warning detail pointers from one platform live-proof artifact.
+ *
+ * @param {LiveProofArtifact} proof
+ * @returns {LiveProofSetInteractionWarningPointer[]}
+ */
+function buildLiveProofSetInteractionWarnings(proof: LiveProofArtifact): LiveProofSetInteractionWarningPointer[] {
+  return (proof.interactionProofs ?? [])
+    .filter((interactionProof) => (interactionProof.warnings?.checks?.length ?? 0) > 0)
+    .map((interactionProof) => ({
+      checks: (interactionProof.warnings?.checks ?? []).map((warning) => ({
+        code: warning.code ?? 'warning',
+        message: warning.message ?? 'Interaction proof emitted a warning.',
+        name: warning.name ?? 'interaction_warning',
+        ...(warning.nextAction?.code || warning.nextAction?.summary
+          ? {
+            nextAction: {
+              code: warning.nextAction?.code ?? 'inspect_interaction_warning',
+              summary: warning.nextAction?.summary ?? 'Inspect the interaction proof warning.',
+            },
+          }
+          : {}),
+      })),
+      label: interactionProof.label,
+      runId: interactionProof.runId,
+      runnerId: interactionProof.runnerId,
+      scenarioId: interactionProof.scenarioId,
+    }));
+}
+
+/**
  * Builds the compact pointer for one platform live-proof artifact.
  *
  * @param {{filePath: string, proof: LiveProofArtifact}} options
@@ -580,10 +626,12 @@ function buildLiveProofSetProofPointer({
   filePath: string;
   proof: LiveProofArtifact;
 }): LiveProofSetProofPointer {
+  const interactionWarnings = buildLiveProofSetInteractionWarnings(proof);
   return {
     comparisonStatus: proof.comparisonStatus,
     filePath,
     interactionProofCount: proof.interactionProofs?.length ?? 0,
+    ...(interactionWarnings.length > 0 ? { interactionWarnings } : {}),
     interactionWarningCount: countInteractionWarnings(proof),
     nextAction: proof.nextAction,
     platform: proof.platform,
@@ -722,6 +770,23 @@ function buildLiveProofSetArtifact({
 }
 
 /**
+ * Formats proof-set interaction warning details for agent-readable markdown.
+ *
+ * @param {LiveProofSetProofPointer} proof
+ * @returns {string[]}
+ */
+function formatLiveProofSetWarningDetails(proof: LiveProofSetProofPointer): string[] {
+  return (proof.interactionWarnings ?? []).flatMap((interactionWarning) => (
+    interactionWarning.checks.map((warning) => {
+      const nextAction = warning.nextAction
+        ? ` Next action: ${warning.nextAction.code} - ${warning.nextAction.summary}`
+        : '';
+      return `  - warning ${proof.platform}/${interactionWarning.label} (${interactionWarning.runnerId}/${interactionWarning.scenarioId}/${interactionWarning.runId}): ${warning.name} ${warning.code} - ${warning.message}${nextAction}`;
+    })
+  ));
+}
+
+/**
  * Formats a proof-set artifact for agent-readable markdown.
  *
  * @param {LiveProofSetArtifact} artifact
@@ -736,9 +801,10 @@ function formatLiveProofSetArtifactMarkdown(artifact: LiveProofSetArtifact): str
     `Present platforms: ${artifact.presentPlatforms.join(', ') || 'none'}`,
     `Missing platforms: ${artifact.missingPlatforms.join(', ') || 'none'}`,
     `Proofs: ${artifact.proofCount}`,
-    ...artifact.proofs.map((proof) => (
-      `- ${proof.platform} ${proof.runId}: status=${proof.status} comparison=${proof.comparisonStatus} profiles=${proof.profileCount} interactionProofs=${proof.interactionProofCount} warnings=${proof.interactionWarningCount} summary=${proof.summaryPath}`
-    )),
+    ...artifact.proofs.flatMap((proof) => [
+      `- ${proof.platform} ${proof.runId}: status=${proof.status} comparison=${proof.comparisonStatus} profiles=${proof.profileCount} interactionProofs=${proof.interactionProofCount} warnings=${proof.interactionWarningCount} summary=${proof.summaryPath}`,
+      ...formatLiveProofSetWarningDetails(proof),
+    ]),
     `Failure reasons: ${artifact.failureReasons.length > 0 ? artifact.failureReasons.join(' ') : 'none'}`,
     `Next action: ${artifact.nextAction.code} - ${artifact.nextAction.summary}`,
     '',
@@ -942,6 +1008,7 @@ export {
   formatInteractionProofCaptures,
   formatInteractionProofWarningDetails,
   formatInteractionProofWarnings,
+  formatLiveProofSetWarningDetails,
   formatLiveProof,
   formatLiveProofSet,
   formatLiveProofSetArtifactMarkdown,

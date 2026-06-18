@@ -122,6 +122,57 @@
           "type": "integer",
           "minimum": 0
         },
+        "interactionWarnings": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/interactionWarningPointer"
+          }
+        },
+        "nextAction": {
+          "$ref": "#/$defs/nextAction"
+        }
+      }
+    },
+    "interactionWarningPointer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["label", "runnerId", "scenarioId", "runId", "checks"],
+      "properties": {
+        "label": {
+          "type": "string"
+        },
+        "runnerId": {
+          "type": "string"
+        },
+        "scenarioId": {
+          "type": "string"
+        },
+        "runId": {
+          "type": "string"
+        },
+        "checks": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/interactionWarningCheck"
+          }
+        }
+      }
+    },
+    "interactionWarningCheck": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "code", "message"],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "code": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
         "nextAction": {
           "$ref": "#/$defs/nextAction"
         }
