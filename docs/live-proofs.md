@@ -165,6 +165,8 @@ pnpm example:ios:live -- --run-suffix after-change
 
 Expo dev-client iOS shells may need an explicit Metro deep link after the native app launches. Put that local URL in ignored env state, for example `ASL_EXAMPLE_IOS_DEV_CLIENT_URL=asl-example://expo-development-client/?url=http%3A%2F%2Flocalhost%3A8097`, so iOS profile capture opens the correct app session before collecting evidence.
 
+The default iOS live proof transport seeds profile-session control into simulator app storage. Use `--ios-profile-session-transport deeplink` when the app should receive profile-session start and command control through app URLs instead.
+
 When an iOS app exits during the capture window, inspect `raw/ios-app-lifecycle-log.txt` first. If the host wrote a matching DiagnosticReports crash file in time, ASL also attaches it as `raw/ios-host-diagnostic-report-<bundle>.ips` and records the bounded search in `raw/ios-host-diagnostic-report-search.txt`.
 
 Read [Example Mobile App: iOS Capture](../examples/mobile-app/README.md#ios-capture) for prebuild, Xcode selection, simulator permissions, stored profile events, and individual scenario commands.

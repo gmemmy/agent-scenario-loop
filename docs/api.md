@@ -58,7 +58,7 @@ Runner subpaths are public when a consuming project needs to compose a workflow 
 | `agent-scenario-loop/runner/ios-simctl` | iOS simctl readiness, storage-backed session control, stored event capture, lifecycle crash detection, and host crash-report attachment |
 | `agent-scenario-loop/runner/ios-simctl-driver` | simctl-backed `screenshot` and `readLogs` driver adapter |
 | `agent-scenario-loop/runner/live-android` | generic one-scenario Android live proof runner with adb preflight, profile-session capture, optional agent-device and Argent sidecars, latest-trusted comparison, and aggregate live-proof artifacts |
-| `agent-scenario-loop/runner/live-ios` | generic one-scenario iOS live proof runner with simctl preflight, profile-session storage capture, optional agent-device and Argent sidecars, latest-trusted comparison, and aggregate live-proof artifacts |
+| `agent-scenario-loop/runner/live-ios` | generic one-scenario iOS live proof runner with simctl preflight, storage or deep-link profile-session capture, optional agent-device and Argent sidecars, latest-trusted comparison, and aggregate live-proof artifacts |
 | `agent-scenario-loop/runner/live-proof` | aggregate live-proof artifact validation, multi-artifact platform-set checks, durable `live-proof-set.json` writing, formatting, failed-proof gating, and regression gating |
 | `agent-scenario-loop/runner/profile-android` | Android profile artifact pipeline |
 | `agent-scenario-loop/runner/profile-ios` | iOS profile artifact pipeline |

@@ -28,7 +28,7 @@ The package is intentionally contract-first: adopt the scenario and artifact sha
 - [runner/argent-driver.ts](../runner/argent-driver.ts): optional Argent adapter for normalized gestures, app launch, screenshot requests, and UI descriptions without making Argent a package dependency
 - [runner/ios-simctl-driver.ts](../runner/ios-simctl-driver.ts): simctl-backed iOS driver adapter for screenshot and log capture plus explicit iOS lifecycle helpers
 - [runner/live-android.ts](../runner/live-android.ts): generic Android live proof for one portable scenario with adb preflight, profile-session capture, optional agent-device and Argent sidecars, optional comparison, and aggregate proof writing
-- [runner/live-ios.ts](../runner/live-ios.ts): generic iOS live proof for one portable scenario with simctl preflight, profile-session storage capture, optional agent-device and Argent sidecars, optional comparison, and aggregate proof writing
+- [runner/live-ios.ts](../runner/live-ios.ts): generic iOS live proof for one portable scenario with simctl preflight, storage or deep-link profile-session capture, optional agent-device and Argent sidecars, optional comparison, and aggregate proof writing
 - [runner/example-android-live.ts](../runner/example-android-live.ts): packaged Android example live proof for adb preflight plus canonical startup, open-close, and scroll-settle scenarios
 - [runner/example-ios-live.ts](../runner/example-ios-live.ts): packaged iOS example live proof for simctl preflight plus canonical startup, open-close, and scroll-settle scenarios
 - [runner/host-doctor.ts](../runner/host-doctor.ts): aggregate host/device preflight for adb, simctl, agent-device, and Argent command availability before live proof starts

@@ -17,7 +17,7 @@ The package ships eighteen public runner entrypoints. Package scripts build them
 - `init-project.ts`: copies package templates into a conventional consuming app layout without overwriting existing files by default.
 - `ios-simctl.ts`: checks iOS simulator readiness, optional app installation, optional app launch, profile-session storage seeding, storage-backed command seeding, profile-session deep links, bounded simulator logs, stored profile-event collection, lifecycle crash detection, host crash-report attachment, and raw simctl evidence.
 - `live-android.ts`: runs one generic Android scenario through adb preflight, profile-session capture, optional agent-device and Argent sidecars, optional latest-trusted comparison, and aggregate live-proof writing.
-- `live-ios.ts`: runs one generic iOS scenario through simctl preflight, profile-session storage capture, optional agent-device and Argent sidecars, optional latest-trusted comparison, and aggregate live-proof writing.
+- `live-ios.ts`: runs one generic iOS scenario through simctl preflight, storage or deep-link profile-session capture, optional agent-device and Argent sidecars, optional latest-trusted comparison, and aggregate live-proof writing.
 - `live-proof.ts`: validates aggregate `live-proof.json` artifacts, prints their status and next action, and can fail on regressions.
 - `profile-android.ts`: reads project config and an Android scenario manifest, then profiles explicit event logs, prior adb artifacts, or an owned adb capture window. During profile-session capture, Android-specific command metadata takes precedence; otherwise it derives command steps from `buildScenarioExecutionPlan()`.
 - `profile-ios.ts`: reads project config and an iOS scenario manifest, then profiles explicit event logs, prior simctl artifacts, or an owned simctl capture window. During profile-session capture, iOS-specific command metadata takes precedence; otherwise it derives command steps from `buildScenarioExecutionPlan()`.
@@ -210,6 +210,8 @@ pnpm example:profile:ios:live:scroll
 ```
 
 The iOS live commands seed the app-owned profile session into native AsyncStorage before launch. Command scenarios also seed a command queue into the same storage contract. After the capture window, the runner collects stored profile events from the simulator app data container. When stored events are present, `profile-ios` ingests `raw/ios-profile-events.log`; otherwise it falls back to bounded `raw/ios-simctl-log.txt` from the simctl capture artifact.
+
+Generic iOS live proof can use `--ios-profile-session-transport deeplink` when profile-session control should use app URLs instead of simulator storage seeding.
 
 If the launched simulator app exits during the capture window, `ios-simctl` fails `ios_app_lifecycle_stable` and writes `raw/ios-app-lifecycle-log.txt`. When a recent matching macOS DiagnosticReports `.ips` file is available for the bundle id, the runner also copies it to `raw/ios-host-diagnostic-report-<bundle>.ips` and records the search in `raw/ios-host-diagnostic-report-search.txt`.
 
