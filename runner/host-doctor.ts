@@ -258,6 +258,73 @@ function buildChildRunCheck({
 }
 
 /**
+ * Reads the first failed command-surface check from an availability result.
+ *
+ * @param {Record<string, unknown>} result
+ * @returns {Record<string, unknown> | null}
+ */
+function readFailedAvailabilityCheck(result: Record<string, unknown>): Record<string, unknown> | null {
+  const checks = Array.isArray(result.checks) ? result.checks : [];
+  for (const check of checks) {
+    if (!check || typeof check !== 'object' || Array.isArray(check)) {
+      continue;
+    }
+    const record = check as Record<string, unknown>;
+    if (record.status === 'failed') {
+      return record;
+    }
+  }
+  return null;
+}
+
+/**
+ * Builds scalar metadata from a failed command-surface check.
+ *
+ * @param {{failedCheck: Record<string, unknown>, label: string, name: string, rawPath: string}} options
+ * @returns {Record<string, string>}
+ */
+function buildAvailabilityFailureMetadata({
+  failedCheck,
+  label,
+  name,
+  rawPath,
+}: {
+  failedCheck: Record<string, unknown>;
+  label: string;
+  name: string;
+  rawPath: string;
+}): Record<string, string> {
+  const failedCheckName = typeof failedCheck.name === 'string' ? failedCheck.name : `${name}_availability`;
+  const failedCheckCode = typeof failedCheck.code === 'string' ? failedCheck.code : `${name}_availability_failed`;
+  const failedCheckMessage = typeof failedCheck.message === 'string' ? failedCheck.message : `${label} availability check failed.`;
+  const stderrPreview = typeof failedCheck.stderrPreview === 'string' ? failedCheck.stderrPreview : '';
+  const stdoutPreview = typeof failedCheck.stdoutPreview === 'string' ? failedCheck.stdoutPreview : '';
+  const diagnostic = `${failedCheckMessage}\n${stderrPreview}\n${stdoutPreview}`;
+  const hostAccessFailure = /operation not permitted|permission denied|sandbox|daemon|smartsocket|cannot bind/iu.test(diagnostic);
+  const timedOut = /timed out|timeout/iu.test(diagnostic);
+  const nextActionCode = hostAccessFailure
+    ? 'rerun_with_host_access'
+    : timedOut
+      ? `increase_${name}_timeout`
+      : `inspect_${name}_availability`;
+  const nextAction = hostAccessFailure
+    ? `Rerun the host doctor outside the restricted sandbox or grant host/device access before treating ${label} failures as app or scenario regressions.`
+    : timedOut
+      ? `Confirm ${label} can run without prompts, increase --command-timeout-ms if it is legitimately slow, then rerun the host doctor.`
+      : `Inspect ${rawPath}, fix the ${label} command surface, then rerun the host doctor before starting live proof.`;
+
+  return {
+    failedCheckCode,
+    failedCheckMessage,
+    failedCheckName,
+    nextAction,
+    nextActionCode,
+    ...(stderrPreview ? { stderrPreview } : {}),
+    ...(stdoutPreview ? { stdoutPreview } : {}),
+  };
+}
+
+/**
  * Builds a scalar ASL health check from a command-surface availability result.
  *
  * @param {{label: string, name: string, rawPath: string, result: Record<string, unknown>}} options
@@ -275,6 +342,7 @@ function buildAvailabilityCheck({
   result: Record<string, unknown>;
 }): HostDoctorCheck {
   const passed = result.status === 'passed';
+  const failedCheck = passed ? null : readFailedAvailabilityCheck(result);
   return {
     code: passed ? `${name}_available` : `${name}_unavailable`,
     message: passed
@@ -282,6 +350,9 @@ function buildAvailabilityCheck({
       : `${label} command surface failed; inspect ${rawPath}.`,
     metadata: {
       rawPath,
+      ...(failedCheck
+        ? buildAvailabilityFailureMetadata({ failedCheck, label, name, rawPath })
+        : {}),
     },
     name,
     source: 'runner',
