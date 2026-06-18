@@ -4,6 +4,7 @@ const { execFile } = require('node:child_process');
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const fsp = require('node:fs/promises');
+const os = require('node:os');
 const path = require('node:path');
 
 const { buildAgentSummaryMarkdown } = require('../core/agent-summary');
@@ -20,6 +21,7 @@ type CliArgs = {
   bundle?: string | boolean;
   'collect-profile-storage'?: string | boolean;
   device?: string | boolean;
+  'diagnostic-reports-dir'?: string | boolean;
   launch?: string | boolean;
   'log-last'?: string | boolean;
   out?: string | boolean;
@@ -74,6 +76,7 @@ type IosSimctlCaptureOptions = {
   deepLinks?: IosSimctlDeepLink[];
   delay?: (ms: number) => Promise<void>;
   device?: string | null;
+  diagnosticReportsDir?: string | null;
   executor?: CommandExecutor;
   launch?: boolean;
   logLast?: string;
@@ -110,6 +113,10 @@ type SimulatorLaunchEnvironmentProbe = {
   metadata: Record<string, unknown>;
   raw: Record<string, string>;
 };
+type HostDiagnosticReportProbe = {
+  metadata: Record<string, unknown>;
+  raw: Record<string, string>;
+};
 
 const PROFILE_STORAGE_PREFIX = 'agent-scenario-loop';
 const PROFILE_STORAGE_SCHEMA = '1';
@@ -129,6 +136,8 @@ const SIMULATOR_LAUNCH_ENV_KEYS = [
   'DYLD_INSERT_LIBRARIES',
   'NATIVE_DEVTOOLS_IOS_CDP_SOCKET',
 ];
+const HOST_DIAGNOSTIC_REPORT_MAX_AGE_MS = 10 * 60 * 1000;
+const HOST_DIAGNOSTIC_REPORT_SEARCH_LIMIT = 25;
 
 /**
  * Builds a filesystem-safe raw artifact suffix for a bundle identifier.
@@ -138,6 +147,118 @@ const SIMULATOR_LAUNCH_ENV_KEYS = [
  */
 function rawBundleIdSuffix(bundleId: string): string {
   return bundleId.replace(/[^A-Za-z0-9._-]+/gu, '-').slice(0, 80) || 'bundle';
+}
+
+/**
+ * Resolves the default macOS host crash-report directory used by Simulator apps.
+ *
+ * @returns {string}
+ */
+function defaultDiagnosticReportsDir(): string {
+  return path.join(os.homedir(), 'Library', 'Logs', 'DiagnosticReports');
+}
+
+/**
+ * Builds a short raw evidence filename for an attached host diagnostic report.
+ *
+ * @param {string} bundleId
+ * @returns {string}
+ */
+function hostDiagnosticReportRawFileName(bundleId: string): string {
+  return `ios-host-diagnostic-report-${rawBundleIdSuffix(bundleId)}.ips`;
+}
+
+/**
+ * Searches recent macOS host crash reports for the launched iOS bundle id.
+ *
+ * @param {{bundleId: string, diagnosticReportsDir?: string | null}} options
+ * @returns {Promise<HostDiagnosticReportProbe>}
+ */
+async function inspectHostDiagnosticReport({
+  bundleId,
+  diagnosticReportsDir,
+}: {
+  bundleId: string;
+  diagnosticReportsDir?: string | null;
+}): Promise<HostDiagnosticReportProbe> {
+  const reportsDir = diagnosticReportsDir || defaultDiagnosticReportsDir();
+  const searchRawFileName = 'ios-host-diagnostic-report-search.txt';
+  const reportRawFileName = hostDiagnosticReportRawFileName(bundleId);
+  const startedAt = Date.now();
+  const lines = [
+    `searchDir=${reportsDir}`,
+    `bundleId=${bundleId}`,
+    `maxAgeMs=${HOST_DIAGNOSTIC_REPORT_MAX_AGE_MS}`,
+    `limit=${HOST_DIAGNOSTIC_REPORT_SEARCH_LIMIT}`,
+  ];
+
+  try {
+    const entries: import('node:fs').Dirent[] = await fsp.readdir(reportsDir, { withFileTypes: true });
+    const candidates = await Promise.all(
+      entries
+        .filter((entry) => entry.isFile() && entry.name.endsWith('.ips'))
+        .map(async (entry) => {
+          const filePath = path.join(reportsDir, entry.name);
+          const stat = await fsp.stat(filePath);
+          return { filePath, modifiedAtMs: stat.mtimeMs, name: entry.name };
+        }),
+    );
+    const recentCandidates = candidates
+      .filter((candidate) => startedAt - candidate.modifiedAtMs <= HOST_DIAGNOSTIC_REPORT_MAX_AGE_MS)
+      .sort((a, b) => b.modifiedAtMs - a.modifiedAtMs)
+      .slice(0, HOST_DIAGNOSTIC_REPORT_SEARCH_LIMIT);
+
+    lines.push(`candidateCount=${candidates.length}`);
+    lines.push(`recentCandidateCount=${recentCandidates.length}`);
+
+    for (const candidate of recentCandidates) {
+      lines.push(`checked=${candidate.name}`);
+      const content = await fsp.readFile(candidate.filePath, 'utf8');
+      if (!content.includes(`"bundleID":"${bundleId}"`) && !content.includes(`"bundleID" : "${bundleId}"`)) {
+        continue;
+      }
+
+      lines.push(`matched=${candidate.filePath}`);
+      return {
+        metadata: {
+          matched: true,
+          modifiedAt: new Date(candidate.modifiedAtMs).toISOString(),
+          rawPath: `raw/${reportRawFileName}`,
+          reportPath: candidate.filePath,
+          searchRawPath: `raw/${searchRawFileName}`,
+        },
+        raw: {
+          [reportRawFileName]: content,
+          [searchRawFileName]: lines.join('\n'),
+        },
+      };
+    }
+
+    lines.push('matched=');
+    return {
+      metadata: {
+        matched: false,
+        reportPath: null,
+        searchRawPath: `raw/${searchRawFileName}`,
+      },
+      raw: {
+        [searchRawFileName]: lines.join('\n'),
+      },
+    };
+  } catch (error) {
+    lines.push(`error=${error instanceof Error ? error.message : String(error)}`);
+    return {
+      metadata: {
+        error: error instanceof Error ? error.message : String(error),
+        matched: false,
+        reportPath: null,
+        searchRawPath: `raw/${searchRawFileName}`,
+      },
+      raw: {
+        [searchRawFileName]: lines.join('\n'),
+      },
+    };
+  }
 }
 
 /**
@@ -155,6 +276,7 @@ function usage(output: { write: (message: string) => unknown } = process.stderr)
     'Use --screenshot-type, --screenshot-display, or --screenshot-mask to pass supported simctl screenshot options.',
     'Use --profile-session-storage <scenario> with --bundle <id> to seed the app profile session before launch.',
     'Use --collect-profile-storage with --bundle <id> to collect stored profile events after the capture window.',
+    'Use --diagnostic-reports-dir <path> when host crash reports live outside ~/Library/Logs/DiagnosticReports.',
   ], output);
 }
 
@@ -724,6 +846,7 @@ async function runIosSimctlCapture({
   deepLinks = [],
   delay: wait = delay,
   device = null,
+  diagnosticReportsDir = null,
   executor = execFileCommand,
   launch = false,
   logLast = '2m',
@@ -798,6 +921,7 @@ async function runIosSimctlCapture({
     conflictingBundleIds: [],
     deepLinks,
     deepLinkResults,
+    diagnosticReportsDir: diagnosticReportsDir || defaultDiagnosticReportsDir(),
     launch,
     logLast,
     profileSessionStorage: profileSessionStorage
@@ -1191,6 +1315,12 @@ async function runIosSimctlCapture({
       const appLifecycleCaptured = appLifecycleLog.exitCode === 0;
       const appLifecycleCrashed = appLifecycleCaptured && iosAppLifecycleLogHasCrash(appLifecycleOutput);
       raw[appLifecycleRawFileName] = appLifecycleOutput;
+      const hostDiagnosticReport = appLifecycleCrashed
+        ? await inspectHostDiagnosticReport({ bundleId, diagnosticReportsDir })
+        : null;
+      if (hostDiagnosticReport) {
+        Object.assign(raw, hostDiagnosticReport.raw);
+      }
       checks.push({
         name: 'ios_app_lifecycle_stable',
         status: !appLifecycleCaptured ? 'warning' : appLifecycleCrashed ? 'failed' : 'passed',
@@ -1216,7 +1346,9 @@ async function runIosSimctlCapture({
             ? {
                 metadata: nextActionHint(
                   'inspect_ios_app_crash',
-                  `Inspect raw/${appLifecycleRawFileName} and the latest host DiagnosticReports crash file for ${bundleId}; do not trust timing or profile evidence until the app remains foregrounded.`,
+                  hostDiagnosticReport?.metadata?.matched
+                    ? `Inspect raw/${appLifecycleRawFileName} and ${hostDiagnosticReport.metadata.rawPath}; do not trust timing or profile evidence until the app remains foregrounded.`
+                    : `Inspect raw/${appLifecycleRawFileName}, raw/ios-host-diagnostic-report-search.txt, and the latest host DiagnosticReports crash file for ${bundleId}; do not trust timing or profile evidence until the app remains foregrounded.`,
                 ),
               }
             : {}),
@@ -1226,7 +1358,29 @@ async function runIosSimctlCapture({
         exitCode: appLifecycleLog.exitCode,
         pid: launchedAppPid,
         rawPath: `raw/${appLifecycleRawFileName}`,
+        ...(hostDiagnosticReport ? { hostDiagnosticReport: hostDiagnosticReport.metadata } : {}),
       };
+      if (appLifecycleCrashed) {
+        checks.push({
+          name: 'ios_host_diagnostic_report_attached',
+          status: hostDiagnosticReport?.metadata?.matched ? 'passed' : 'warning',
+          source: 'runner',
+          code: hostDiagnosticReport?.metadata?.matched
+            ? 'ios_host_diagnostic_report_attached'
+            : 'ios_host_diagnostic_report_missing',
+          message: hostDiagnosticReport?.metadata?.matched
+            ? 'Attached the latest matching host DiagnosticReports crash file.'
+            : 'Could not find a recent matching host DiagnosticReports crash file.',
+          ...(!hostDiagnosticReport?.metadata?.matched
+            ? {
+                metadata: nextActionHint(
+                  'inspect_host_diagnostic_reports',
+                  'Inspect raw/ios-host-diagnostic-report-search.txt and the host DiagnosticReports directory; Simulator may write the crash report after this capture window.',
+                ),
+              }
+            : {}),
+        });
+      }
     }
 
     if (screenshot) {
@@ -1432,6 +1586,9 @@ async function main(): Promise<void> {
       args['collect-profile-storage'] === true ||
       args['collect-profile-storage'] === 'true',
     ...(typeof args.device === 'string' ? { device: args.device } : {}),
+    ...(typeof args['diagnostic-reports-dir'] === 'string'
+      ? { diagnosticReportsDir: args['diagnostic-reports-dir'] }
+      : {}),
     launch: args.launch === true || args.launch === 'true',
     ...(typeof args['log-last'] === 'string' ? { logLast: args['log-last'] } : {}),
     ...(typeof args.out === 'string' ? { outputDir: args.out } : {}),

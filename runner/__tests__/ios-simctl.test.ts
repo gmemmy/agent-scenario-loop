@@ -259,9 +259,17 @@ test('captures bounded iOS simulator log evidence', async (t: TestContext) => {
 
 test('fails iOS capture when launched app exits during the capture window', async (t: TestContext) => {
   const outputDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-ios-simctl-crash-'));
+  const diagnosticReportsDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-ios-diagnostic-reports-'));
   t.after(async () => {
     await fsp.rm(outputDir, { recursive: true, force: true });
+    await fsp.rm(diagnosticReportsDir, { recursive: true, force: true });
   });
+  const crashReportPath = path.join(diagnosticReportsDir, 'ASLExampleMobile-2026-06-18-194524.ips');
+  await fsp.writeFile(
+    crashReportPath,
+    '{"app_name":"ASLExampleMobile","timestamp":"2026-06-18 19:45:24.00 +0100","bundleID":"dev.agent-scenario-loop.example","exception":{"type":"EXC_BAD_ACCESS","signal":"SIGSEGV"}}\n',
+    'utf8',
+  );
   const executor = createExecutor({
     'simctl list devices': {
       stdout: [
@@ -289,6 +297,7 @@ test('fails iOS capture when launched app exits during the capture window', asyn
 
   const result = await runIosSimctlCapture({
     bundleId: 'dev.agent-scenario-loop.example',
+    diagnosticReportsDir,
     executor,
     launch: true,
     logLast: '1m',
@@ -298,13 +307,27 @@ test('fails iOS capture when launched app exits during the capture window', asyn
 
   const summary = fs.readFileSync(path.join(outputDir, 'agent-summary.md'), 'utf8');
   const lifecycleLog = fs.readFileSync(path.join(outputDir, 'raw', 'ios-app-lifecycle-log.txt'), 'utf8');
+  const attachedCrashReport = fs.readFileSync(
+    path.join(outputDir, 'raw', 'ios-host-diagnostic-report-dev.agent-scenario-loop.example.ips'),
+    'utf8',
+  );
+  const appLifecycle = result.metadata.appLifecycle as {
+    hostDiagnosticReport: { modifiedAt: string };
+  };
 
   assert.equal(result.health.healthStatus, 'failed');
   assert.ok(lifecycleLog.includes('SIGSEGV'));
+  assert.ok(attachedCrashReport.includes('EXC_BAD_ACCESS'));
   assert.ok(
-    (result.health.checks as Array<{ code: string; metadata?: { nextActionCode?: string } }>).some(
+    (result.health.checks as Array<{ code: string; metadata?: { nextAction?: string; nextActionCode?: string } }>).some(
       (check) => check.code === 'ios_app_exited_during_capture'
-        && check.metadata?.nextActionCode === 'inspect_ios_app_crash',
+        && check.metadata?.nextActionCode === 'inspect_ios_app_crash'
+        && /ios-host-diagnostic-report/u.test(check.metadata.nextAction ?? ''),
+    ),
+  );
+  assert.ok(
+    (result.health.checks as Array<{ code: string }>).some(
+      (check) => check.code === 'ios_host_diagnostic_report_attached',
     ),
   );
   assert.match(summary, /inspect_ios_app_crash/u);
@@ -323,6 +346,13 @@ test('fails iOS capture when launched app exits during the capture window', asyn
       'eventMessage CONTAINS "dev.agent-scenario-loop.example" AND eventMessage CONTAINS "74759"',
     ],
     exitCode: 0,
+    hostDiagnosticReport: {
+      matched: true,
+      modifiedAt: appLifecycle.hostDiagnosticReport.modifiedAt,
+      rawPath: 'raw/ios-host-diagnostic-report-dev.agent-scenario-loop.example.ips',
+      reportPath: crashReportPath,
+      searchRawPath: 'raw/ios-host-diagnostic-report-search.txt',
+    },
     pid: '74759',
     rawPath: 'raw/ios-app-lifecycle-log.txt',
   });
