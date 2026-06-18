@@ -476,6 +476,8 @@ test('reads, validates, and formats live-proof artifacts', async (t: TestContext
   assert.match(output, /Preflight: android-live-preflight health=passed verdict=not_evaluated/u);
   assert.match(output, /startup \(app-startup\/android-live-startup\): health=passed verdict=passed/u);
   assert.match(output, /startup-ui \(agent-device\/app-startup\/agent-device-startup\): health=passed verdict=not_evaluated screenshots=1 warnings=1/u);
+  assert.match(output, /warning argent_screenshot: argent_screenshot_failed - Argent driver action screenshot failed\./u);
+  assert.match(output, /next=inspect_argent_driver_action - Inspect raw screenshot output\./u);
   assert.match(output, /Comparison counts: better=0 worse=0 unchanged=1 mixed=0 inconclusive=0 skipped=0/u);
   assert.match(output, /startup \(app-startup\/android-live-startup\): unchanged \(metrics better=0 worse=0 unchanged=1 inconclusive=0\)/u);
   assert.match(output, /Next action: inspect_summary/u);

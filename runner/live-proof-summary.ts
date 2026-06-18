@@ -494,6 +494,21 @@ function formatInteractionProofWarnings(proof: LiveProofInteractionProofPointer)
 }
 
 /**
+ * Formats sidecar warning details for aggregate markdown.
+ *
+ * @param {LiveProofInteractionProofPointer} proof
+ * @returns {string[]}
+ */
+function formatInteractionProofWarningDetails(proof: LiveProofInteractionProofPointer): string[] {
+  return (proof.warnings?.checks ?? []).map((warning) => {
+    const nextAction = warning.nextAction
+      ? ` Next action: ${warning.nextAction.code} - ${warning.nextAction.summary}`
+      : '';
+    return `  - warning ${warning.name}: ${warning.code} - ${warning.message}${nextAction}`;
+  });
+}
+
+/**
  * Builds markdown for the aggregate live proof entrypoint.
  *
  * @param {LiveProofArtifact} artifact
@@ -526,9 +541,10 @@ function buildLiveProofMarkdown(artifact: LiveProofArtifact): string {
       '',
       '## Interaction Proofs',
       '',
-      ...artifact.interactionProofs.map((proof) => (
-        `- ${proof.label} (${proof.runnerId}/${proof.scenarioId}): health=${proof.healthStatus} verdict=${proof.verdictStatus}${formatInteractionProofCaptures(proof)}${formatInteractionProofWarnings(proof)} - ${proof.summaryPath}`
-      )),
+      ...artifact.interactionProofs.flatMap((proof) => [
+        `- ${proof.label} (${proof.runnerId}/${proof.scenarioId}): health=${proof.healthStatus} verdict=${proof.verdictStatus}${formatInteractionProofCaptures(proof)}${formatInteractionProofWarnings(proof)} - ${proof.summaryPath}`,
+        ...formatInteractionProofWarningDetails(proof),
+      ]),
     );
   }
 
@@ -669,6 +685,7 @@ export {
   buildLiveProofStatus,
   formatComparisonMetricSummary,
   formatInteractionProofCaptures,
+  formatInteractionProofWarningDetails,
   formatInteractionProofWarnings,
   isTrustedLiveRunStatus,
   readInteractionProofCaptures,

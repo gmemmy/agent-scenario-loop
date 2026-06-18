@@ -440,6 +440,33 @@ function formatInteractionProofWarnings(proofPointer: {warnings?: {count?: numbe
 }
 
 /**
+ * Formats warning check details for one interaction proof pointer.
+ *
+ * @param {{warnings?: {checks?: Array<{code?: string, message?: string, name?: string, nextAction?: {code?: string, summary?: string}}>}}} proofPointer
+ * @returns {string[]}
+ */
+function formatInteractionProofWarningDetails(proofPointer: {
+  warnings?: {
+    checks?: Array<{
+      code?: string;
+      message?: string;
+      name?: string;
+      nextAction?: {
+        code?: string;
+        summary?: string;
+      };
+    }>;
+  };
+}): string[] {
+  return (proofPointer.warnings?.checks ?? []).map((warning) => {
+    const nextAction = warning.nextAction?.code || warning.nextAction?.summary
+      ? ` next=${warning.nextAction?.code ?? 'inspect_interaction_warning'}${warning.nextAction?.summary ? ` - ${warning.nextAction.summary}` : ''}`
+      : '';
+    return `  warning ${warning.name ?? 'interaction_warning'}: ${warning.code ?? 'warning'} - ${warning.message ?? 'Interaction proof emitted a warning.'}${nextAction}`;
+  });
+}
+
+/**
  * Reads and validates a live-proof artifact.
  *
  * @param {string} filePath
@@ -766,9 +793,10 @@ function formatLiveProof(proof: LiveProofArtifact): string {
       `- ${profile.label} (${profile.scenarioId}/${profile.runId}): health=${profile.healthStatus} verdict=${profile.verdictStatus}`
     )),
     `Interaction proofs: ${proof.interactionProofs?.length ?? 0}`,
-    ...(proof.interactionProofs ?? []).map((proofPointer) => (
-      `- ${proofPointer.label} (${proofPointer.runnerId}/${proofPointer.scenarioId}/${proofPointer.runId}): health=${proofPointer.healthStatus} verdict=${proofPointer.verdictStatus}${formatInteractionProofCaptures(proofPointer)}${formatInteractionProofWarnings(proofPointer)}`
-    )),
+    ...(proof.interactionProofs ?? []).flatMap((proofPointer) => [
+      `- ${proofPointer.label} (${proofPointer.runnerId}/${proofPointer.scenarioId}/${proofPointer.runId}): health=${proofPointer.healthStatus} verdict=${proofPointer.verdictStatus}${formatInteractionProofCaptures(proofPointer)}${formatInteractionProofWarnings(proofPointer)}`,
+      ...formatInteractionProofWarningDetails(proofPointer),
+    ]),
     `Skipped interaction proofs: ${proof.skippedInteractionProofs?.length ?? 0}`,
     ...(proof.skippedInteractionProofs ?? []).map((proofPointer) => (
       `- ${proofPointer.label} (${proofPointer.runnerId}/${proofPointer.scenarioId}/${proofPointer.runId}): ${proofPointer.reason} next=${proofPointer.nextAction.code}`
@@ -912,6 +940,7 @@ export {
   expectedLiveProofNextActionCode,
   formatComparisonPointerMetrics,
   formatInteractionProofCaptures,
+  formatInteractionProofWarningDetails,
   formatInteractionProofWarnings,
   formatLiveProof,
   formatLiveProofSet,

@@ -315,4 +315,6 @@ test('writes optional interaction proof pointers into aggregate live proof artif
   assert.match(summary, /## Interaction Proofs/u);
   assert.match(summary, /screenshots=1/u);
   assert.match(summary, /warnings=1/u);
+  assert.match(summary, /warning argent_screenshot: argent_screenshot_failed - Argent driver action screenshot failed\./u);
+  assert.match(summary, /Next action: inspect_argent_driver_action - Inspect raw screenshot output\./u);
 });
