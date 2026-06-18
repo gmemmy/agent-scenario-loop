@@ -488,8 +488,19 @@ test('clears logs, launches package, waits, and captures a bounded Android windo
       '-s emulator-5554 shell monkey -p dev.agentscenarioloop.example -c android.intent.category.LAUNCHER 1': {
         stdout: 'Events injected: 1\n',
       },
+      '-s emulator-5554 shell pidof dev.agentscenarioloop.example': {
+        stdout: '1234\n',
+      },
       '-s emulator-5554 logcat -d -v time -t 50': {
         stdout: '06-16 10:00:00.000 I/ReactNativeJS(123): [profile-event] {"event":"app_ready"}\n',
+      },
+      '-s emulator-5554 logcat -d -v time -t 200': {
+        stdout: [
+          '06-16 10:00:00.100 D/AndroidRuntime(4321): Calling main entry com.android.commands.monkey.Monkey',
+          '06-16 10:00:00.101 W/Monkey  (4321): args: [-p, dev.agentscenarioloop.example, -c, android.intent.category.LAUNCHER, 1]',
+          '06-16 10:00:00.200 I/AndroidRuntime(4321): VM exiting with result code 0.',
+          '06-16 10:00:01.000 I/ReactNativeJS(1234): [profile-event] {"event":"app_ready"}',
+        ].join('\n'),
       },
     };
     const response = responses[key] ?? { exitCode: 1, stderr: `unexpected command: ${key}` };
@@ -523,6 +534,9 @@ test('clears logs, launches package, waits, and captures a bounded Android windo
   assert.deepEqual(waits, [125, 250]);
   assert.ok(fs.existsSync(path.join(outputDir, 'raw', 'adb-logcat-clear.txt')));
   assert.ok(fs.existsSync(path.join(outputDir, 'raw', 'adb-launch.txt')));
+  assert.ok(fs.existsSync(path.join(outputDir, 'raw', 'adb-app-pidof-after-launch.txt')));
+  assert.ok(fs.existsSync(path.join(outputDir, 'raw', 'adb-app-pidof-after-capture.txt')));
+  assert.ok(fs.existsSync(path.join(outputDir, 'raw', 'adb-app-lifecycle-log.txt')));
   assert.ok(fs.existsSync(path.join(outputDir, 'raw', 'adb-logcat.txt')));
   assert.ok(calls.indexOf('-s emulator-5554 logcat -c') < calls.indexOf('-s emulator-5554 shell monkey -p dev.agentscenarioloop.example -c android.intent.category.LAUNCHER 1'));
   assert.ok(calls.indexOf('-s emulator-5554 shell monkey -p dev.agentscenarioloop.example -c android.intent.category.LAUNCHER 1') < calls.indexOf('-s emulator-5554 logcat -d -v time -t 50'));
@@ -535,6 +549,62 @@ test('clears logs, launches package, waits, and captures a bounded Android windo
   assert.ok(
     (result.health.checks as Array<{ code: string }>).some((check) => check.code === 'android_capture_window_waited'),
   );
+  assert.ok(
+    (result.health.checks as Array<{ code: string }>).some((check) => check.code === 'android_app_lifecycle_stable'),
+  );
+});
+
+test('fails health when launched Android app emits crash evidence', async (t: TestContext) => {
+  const outputDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-android-adb-crash-'));
+  t.after(async () => {
+    await fsp.rm(outputDir, { recursive: true, force: true });
+  });
+  const executor = createExecutor({
+    version: { stdout: 'Android Debug Bridge version 1.0.41\n' },
+    'devices -l': {
+      stdout: [
+        'List of devices attached',
+        'emulator-5554 device product:sdk_gphone model:Pixel_6 device:emu64',
+      ].join('\n'),
+    },
+    '-s emulator-5554 shell getprop ro.product.model': { stdout: 'Pixel 6\n' },
+    '-s emulator-5554 shell getprop ro.build.version.release': { stdout: '15\n' },
+    '-s emulator-5554 shell getprop ro.build.version.sdk': { stdout: '35\n' },
+    '-s emulator-5554 shell pm path dev.agentscenarioloop.example': {
+      stdout: 'package:/data/app/dev.agentscenarioloop.example/base.apk\n',
+    },
+    '-s emulator-5554 shell monkey -p dev.agentscenarioloop.example -c android.intent.category.LAUNCHER 1': {
+      stdout: 'Events injected: 1\n',
+    },
+    '-s emulator-5554 shell pidof dev.agentscenarioloop.example': {
+      stdout: '1234\n',
+    },
+    '-s emulator-5554 logcat -d -v time -t 1000': {
+      stdout: [
+        '06-16 10:00:00.000 E/AndroidRuntime(1234): FATAL EXCEPTION: main',
+        '06-16 10:00:00.000 E/AndroidRuntime(1234): Process: dev.agentscenarioloop.example, PID: 1234',
+        '06-16 10:00:00.000 E/AndroidRuntime(1234): java.lang.RuntimeException: boom',
+      ].join('\n'),
+    },
+  });
+
+  const result = await runAndroidAdbPreflight({
+    executor,
+    launch: true,
+    outputDir,
+    packageName: 'dev.agentscenarioloop.example',
+    runId: 'android-crash',
+  });
+
+  assert.equal(result.health.healthStatus, 'failed');
+  assert.ok(fs.existsSync(path.join(outputDir, 'raw', 'adb-app-lifecycle-log.txt')));
+  assert.ok(
+    (result.health.checks as Array<{ code: string; metadata?: { nextActionCode?: string } }>).some(
+      (check) => check.code === 'android_app_crashed_during_capture'
+        && check.metadata?.nextActionCode === 'inspect_android_app_crash',
+    ),
+  );
+  assert.match(fs.readFileSync(path.join(outputDir, 'raw', 'adb-app-lifecycle-log.txt'), 'utf8'), /FATAL EXCEPTION/u);
 });
 
 test('opens profile-session deep links before logcat capture', async (t: TestContext) => {

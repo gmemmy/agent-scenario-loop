@@ -265,6 +265,7 @@ function writeFakeAdb({
     "  [`-s emulator-5554 shell pm path ${packageName}`, { stdout: `package:/data/app/${packageName}/base.apk\\n` }],",
     "  ['-s emulator-5554 logcat -c', { stdout: '' }],",
     "  [`-s emulator-5554 shell monkey -p ${packageName} -c android.intent.category.LAUNCHER 1`, { stdout: 'Events injected: 1\\n' }],",
+    "  [`-s emulator-5554 shell pidof ${packageName}`, { stdout: '1234\\n' }],",
     "  ['-s emulator-5554 shell rm -f /sdcard/agent-scenario-loop-ui.xml; uiautomator dump /sdcard/agent-scenario-loop-ui.xml >/dev/null; cat /sdcard/agent-scenario-loop-ui.xml; status=$?; rm -f /sdcard/agent-scenario-loop-ui.xml; exit $status', { stdout: '<?xml version=\"1.0\" encoding=\"UTF-8\"?><hierarchy><node resource-id=\"dev.agentscenarioloop.example:id/asl-example-title\" text=\"Example Mobile App\" bounds=\"[10,20][300,80]\" /></hierarchy>\\n' }],",
     "  ['-s emulator-5554 exec-out screencap -p', { stdout: 'fake png' }],",
     "  ['-s emulator-5554 logcat -d -v time -t 25', { stdout: logcatText }],",
@@ -333,6 +334,7 @@ function writeFakeExampleLiveAdb({
     "if (key === '-s emulator-5554 reverse tcp:8097 tcp:8097') ok('');",
     "if (key.includes(`shell run-as ${packageName} sh -c`) && key.includes('debug_http_host') && key.includes('localhost:8097')) ok('');",
     "if (key.endsWith(`shell monkey -p ${packageName} -c android.intent.category.LAUNCHER 1`)) ok('Events injected: 1\\n');",
+    "if (key.endsWith(`shell pidof ${packageName}`)) ok('1234\\n');",
     "if (key.endsWith('shell rm -f /sdcard/agent-scenario-loop-ui.xml; uiautomator dump /sdcard/agent-scenario-loop-ui.xml >/dev/null; cat /sdcard/agent-scenario-loop-ui.xml; status=$?; rm -f /sdcard/agent-scenario-loop-ui.xml; exit $status')) ok('<?xml version=\"1.0\" encoding=\"UTF-8\"?><hierarchy><node resource-id=\"dev.agentscenarioloop.example:id/asl-example-title\" text=\"Example Mobile App\" bounds=\"[10,20][300,80]\" /></hierarchy>\\n');",
     "if (key.endsWith('exec-out screencap -p')) ok('fake png');",
     "if (key.endsWith('logcat -c')) ok('');",
@@ -1412,6 +1414,9 @@ function main(): void {
     assert.equal(adbCaptureVerdict.verdictStatus, 'passed');
     assert.equal(adbCaptureRunnerHealth.healthStatus, 'passed');
     assert.equal(fs.existsSync(path.join(adbCaptureProfileRunDir, 'raw', 'adb-logcat.txt')), true);
+    assert.equal(fs.existsSync(path.join(adbCaptureRoot, 'raw', 'adb-app-pidof-after-launch.txt')), true);
+    assert.equal(fs.existsSync(path.join(adbCaptureRoot, 'raw', 'adb-app-pidof-after-capture.txt')), true);
+    assert.equal(fs.existsSync(path.join(adbCaptureRoot, 'raw', 'adb-app-lifecycle-log.txt')), true);
 
     const adbDriverStepRunId = 'package-smoke-adb-driver-step';
     const fakeAdbDriverStepPath = path.join(

@@ -69,6 +69,9 @@ test('generic Android live proof captures profile evidence before sidecar proofs
     if (key.endsWith(`shell monkey -p ${ANDROID_PACKAGE} -c android.intent.category.LAUNCHER 1`)) {
       return { command, args, exitCode: 0, stderr: '', stdout: 'Events injected: 1\n' };
     }
+    if (key.endsWith(`shell pidof ${ANDROID_PACKAGE}`)) {
+      return { command, args, exitCode: 0, stderr: '', stdout: '1234\n' };
+    }
     if (key.endsWith('logcat -c')) {
       return { command, args, exitCode: 0, stderr: '', stdout: '' };
     }
@@ -256,6 +259,9 @@ test('generic Android live proof writes failed aggregate before skipping sidecar
     }
     if (key.endsWith(`shell monkey -p ${ANDROID_PACKAGE} -c android.intent.category.LAUNCHER 1`)) {
       return { command, args, exitCode: 0, stderr: '', stdout: 'Events injected: 1\n' };
+    }
+    if (key.endsWith(`shell pidof ${ANDROID_PACKAGE}`)) {
+      return { command, args, exitCode: 0, stderr: '', stdout: '1234\n' };
     }
     if (key.endsWith('logcat -c')) {
       return { command, args, exitCode: 0, stderr: '', stdout: '' };

@@ -121,6 +121,11 @@ type NextActionHint = {
   nextActionCode: string;
 };
 
+type AndroidAppLifecycleScan = {
+  crashed: boolean;
+  evidence: string[];
+};
+
 /**
  * Prints CLI usage to stderr.
  *
@@ -409,6 +414,82 @@ function formatAndroidCommandRawOutput(result: CommandResult): string {
     result.stdout,
     result.stderr,
   ].filter(Boolean).join('\n');
+}
+
+/**
+ * Parses Android `pidof` output into stable process ids.
+ *
+ * @param {string} output
+ * @returns {string[]}
+ */
+function parseAndroidPidofOutput(output: string): string[] {
+  return String(output)
+    .trim()
+    .split(/\s+/u)
+    .filter((pid) => /^\d+$/u.test(pid));
+}
+
+/**
+ * Escapes text so it can be embedded in a regular expression.
+ *
+ * @param {string} value
+ * @returns {string}
+ */
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
+}
+
+/**
+ * Finds crash-like Android logcat windows for one app process.
+ *
+ * Android crash logs often split the signal line from the `Process:` line, so
+ * this scans a small neighborhood around each crash marker before deciding it
+ * belongs to the launched app.
+ *
+ * @param {{logText: string, packageName: string, pids?: string[]}} options
+ * @returns {AndroidAppLifecycleScan}
+ */
+function scanAndroidAppLifecycleLog({
+  logText,
+  packageName,
+  pids = [],
+}: {
+  logText: string;
+  packageName: string;
+  pids?: string[];
+}): AndroidAppLifecycleScan {
+  const lines = String(logText).split(/\r?\n/u);
+  const packagePattern = new RegExp(escapeRegExp(packageName), 'u');
+  const pidPatterns = pids.map((pid) => new RegExp(`\\b${escapeRegExp(pid)}\\b`, 'u'));
+  const crashPattern = /\b(FATAL EXCEPTION|Fatal signal|SIGSEGV|SIGABRT|ANR in|Force finishing activity|has died|Process .* died|crash)\b/iu;
+  const evidence = new Set<string>();
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index] ?? '';
+    if (!crashPattern.test(line)) {
+      continue;
+    }
+
+    const windowStart = Math.max(0, index - 3);
+    const windowEnd = Math.min(lines.length, index + 4);
+    const windowLines = lines.slice(windowStart, windowEnd);
+    const windowText = windowLines.join('\n');
+    const belongsToApp = packagePattern.test(windowText)
+      || pidPatterns.some((pattern) => pattern.test(windowText));
+
+    if (belongsToApp) {
+      for (const evidenceLine of windowLines) {
+        if (evidenceLine.trim()) {
+          evidence.add(evidenceLine);
+        }
+      }
+    }
+  }
+
+  return {
+    crashed: evidence.size > 0,
+    evidence: Array.from(evidence),
+  };
 }
 
 /**
@@ -1120,6 +1201,10 @@ async function runAndroidAdbPreflight({
       };
     }
 
+    const appLifecycleMetadata: Record<string, unknown> = {};
+    let launchedPackageName: string | null = null;
+    let afterLaunchPids: string[] = [];
+
     if (launch) {
       if (!packageName) {
         checks.push({
@@ -1169,6 +1254,43 @@ async function runAndroidAdbPreflight({
             message: `Waited ${launchWaitMs}ms after Android package launch.`,
           });
           metadata.launchWaitMs = launchWaitMs;
+        }
+        if (launchPassed) {
+          launchedPackageName = packageName;
+          const pidofAfterLaunch = await executor(adbPath, [
+            '-s',
+            device.serial,
+            'shell',
+            'pidof',
+            packageName,
+          ]);
+          const rawPath = 'raw/adb-app-pidof-after-launch.txt';
+          raw['adb-app-pidof-after-launch.txt'] = formatAndroidCommandRawOutput(pidofAfterLaunch);
+          afterLaunchPids = parseAndroidPidofOutput(pidofAfterLaunch.stdout);
+          const runningAfterLaunch = pidofAfterLaunch.exitCode === 0 && afterLaunchPids.length > 0;
+          checks.push({
+            name: 'android_app_process_running_after_launch',
+            status: runningAfterLaunch ? 'passed' : 'failed',
+            source: 'runner',
+            code: runningAfterLaunch
+              ? 'android_app_process_running_after_launch'
+              : 'android_app_not_running_after_launch',
+            message: runningAfterLaunch
+              ? `Package ${packageName} is running after launch with PID ${afterLaunchPids.join(', ')}.`
+              : `Package ${packageName} is not running after launch.`,
+            ...(!runningAfterLaunch
+              ? {
+                  metadata: nextActionHint(
+                    'inspect_android_app_launch',
+                    `Inspect ${rawPath} and the app's device logs to find why the launched process exited before evidence capture.`,
+                  ),
+                }
+              : {}),
+          });
+          Object.assign(appLifecycleMetadata, {
+            afterLaunchPids,
+            afterLaunchRawPath: rawPath,
+          });
         }
       }
     }
@@ -1336,6 +1458,82 @@ async function runAndroidAdbPreflight({
       metadata.logcat = logcatMetadata[0];
     } else if (logcatMetadata.length > 1) {
       metadata.logcat = logcatMetadata;
+    }
+
+    if (launchedPackageName) {
+      const pidofAfterCapture = await executor(adbPath, [
+        '-s',
+        device.serial,
+        'shell',
+        'pidof',
+        launchedPackageName,
+      ]);
+      const pidofAfterCaptureRawPath = 'raw/adb-app-pidof-after-capture.txt';
+      raw['adb-app-pidof-after-capture.txt'] = formatAndroidCommandRawOutput(pidofAfterCapture);
+      const afterCapturePids = parseAndroidPidofOutput(pidofAfterCapture.stdout);
+      const lifecycleLogLines = Math.max(logcatLines, 200);
+      const lifecycleLog = await driver.readLogs({
+        lines: lifecycleLogLines,
+        rawFileName: 'adb-app-lifecycle-log.txt',
+      });
+      raw[lifecycleLog.rawFileName] = formatAndroidAdbRawOutput(lifecycleLog);
+      const allKnownPids = Array.from(new Set([...afterLaunchPids, ...afterCapturePids]));
+      const scan = lifecycleLog.exitCode === 0
+        ? scanAndroidAppLifecycleLog({
+            logText: `${lifecycleLog.stdout}\n${lifecycleLog.stderr}`,
+            packageName: launchedPackageName,
+            pids: allKnownPids,
+          })
+        : { crashed: false, evidence: [] };
+      const runningAfterCapture = pidofAfterCapture.exitCode === 0 && afterCapturePids.length > 0;
+      const lifecycleStatus = !runningAfterCapture || scan.crashed
+        ? 'failed'
+        : lifecycleLog.exitCode === 0
+          ? 'passed'
+          : 'warning';
+      checks.push({
+        name: 'android_app_lifecycle_stable',
+        status: lifecycleStatus,
+        source: 'runner',
+        code: !runningAfterCapture
+          ? 'android_app_exited_during_capture'
+          : scan.crashed
+            ? 'android_app_crashed_during_capture'
+            : lifecycleLog.exitCode === 0
+              ? 'android_app_lifecycle_stable'
+              : 'android_app_lifecycle_log_unavailable',
+        message: !runningAfterCapture
+          ? `Package ${launchedPackageName} was not running after evidence capture.`
+          : scan.crashed
+            ? `Package ${launchedPackageName} emitted crash evidence during capture.`
+            : lifecycleLog.exitCode === 0
+              ? `Package ${launchedPackageName} remained running with no crash evidence in the bounded log window.`
+              : `Could not read Android lifecycle logs for package ${launchedPackageName}.`,
+        ...(!runningAfterCapture || scan.crashed
+          ? {
+              metadata: nextActionHint(
+                'inspect_android_app_crash',
+                `Inspect raw/${lifecycleLog.rawFileName} and ${pidofAfterCaptureRawPath}; scenario timing evidence is not trustworthy until the app stays alive.`,
+              ),
+            }
+          : lifecycleLog.exitCode !== 0
+            ? {
+                metadata: nextActionHint(
+                  'inspect_android_lifecycle_log',
+                  `Inspect raw/${lifecycleLog.rawFileName}; lifecycle log capture failed but the app process was still running.`,
+                ),
+              }
+            : {}),
+      });
+      metadata.appLifecycle = {
+        ...appLifecycleMetadata,
+        afterCapturePids,
+        afterCaptureRawPath: pidofAfterCaptureRawPath,
+        crashEvidence: scan.evidence,
+        lifecycleLogLines,
+        lifecycleLogRawPath: `raw/${lifecycleLog.rawFileName}`,
+        packageName: launchedPackageName,
+      };
     }
   } else {
     if (clearLogcat || launch) {

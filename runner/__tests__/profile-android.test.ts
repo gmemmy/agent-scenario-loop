@@ -841,6 +841,9 @@ test('profile-android can capture adb logs and profile them in one run', async (
     '-s emulator-5554 shell monkey -p dev.agentscenarioloop.example -c android.intent.category.LAUNCHER 1': {
       stdout: 'Events injected: 1\n',
     },
+    '-s emulator-5554 shell pidof dev.agentscenarioloop.example': {
+      stdout: '1234\n',
+    },
     '-s emulator-5554 logcat -d -v time -t 1000': {
       stdout: fs
         .readFileSync(fixturePath('examples/mobile-app/event-logs/android-app-startup.log'), 'utf8')
@@ -1185,6 +1188,9 @@ test('profile-android starts profile sessions and executes scenario commands dur
       '-s emulator-5554 logcat -c': { stdout: '' },
       '-s emulator-5554 shell monkey -p dev.agentscenarioloop.example -c android.intent.category.LAUNCHER 1': {
         stdout: 'Events injected: 1\n',
+      },
+      '-s emulator-5554 shell pidof dev.agentscenarioloop.example': {
+        stdout: '1234\n',
       },
       "-s emulator-5554 shell am start -a 'android.intent.action.VIEW' -d 'asl-example://profile-session/start?runId=android-live-open-close&scenario=open-close-cycle' -p 'dev.agentscenarioloop.example'": {
         stdout: 'Starting: Intent { act=android.intent.action.VIEW }\n',
