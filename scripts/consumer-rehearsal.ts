@@ -12,6 +12,7 @@ type RunOptions = {
 };
 
 type ExecFileSyncError = Error & {
+  signal?: string | null;
   status?: number | null;
   stderr?: Buffer | string;
   stdout?: Buffer | string;
@@ -22,6 +23,8 @@ type FailedRunOutput = {
   stderr: string;
   stdout: string;
 };
+
+const DEFAULT_COMMAND_TIMEOUT_MS = 180_000;
 
 /**
  * Creates a clean npm environment for local tarball install rehearsals.
@@ -45,6 +48,19 @@ function createRehearsalEnv(tempRoot: string): NodeJS.ProcessEnv {
 }
 
 /**
+ * Resolves the per-command timeout for package gate child processes.
+ *
+ * @param {NodeJS.ProcessEnv} env
+ * @returns {number}
+ */
+function resolveCommandTimeoutMs(env: NodeJS.ProcessEnv): number {
+  const timeoutMs = Number.parseInt(env.ASL_PACKAGE_GATE_TIMEOUT_MS ?? '', 10);
+  return Number.isFinite(timeoutMs) && timeoutMs > 0
+    ? timeoutMs
+    : DEFAULT_COMMAND_TIMEOUT_MS;
+}
+
+/**
  * Runs a command and returns stdout while preserving child stderr on failure.
  *
  * @param {string} command
@@ -59,11 +75,13 @@ function run(command: string, args: string[], options: RunOptions): string {
       encoding: 'utf8',
       env: options.env,
       stdio: ['ignore', 'pipe', 'inherit'],
+      timeout: resolveCommandTimeoutMs(options.env),
     });
   } catch (error) {
     const failed = error as ExecFileSyncError;
     const stdout = Buffer.isBuffer(failed.stdout) ? failed.stdout.toString('utf8') : String(failed.stdout ?? '');
-    throw new Error(`${command} ${args.join(' ')} failed with status ${failed.status ?? 'unknown'}\n${stdout}`);
+    const status = failed.signal === 'SIGTERM' ? 'timeout' : failed.status ?? 'unknown';
+    throw new Error(`${command} ${args.join(' ')} failed with status ${status}\n${stdout}`);
   }
 }
 
@@ -82,6 +100,7 @@ function runExpectFailure(command: string, args: string[], options: RunOptions):
       encoding: 'utf8',
       env: options.env,
       stdio: ['ignore', 'pipe', 'pipe'],
+      timeout: resolveCommandTimeoutMs(options.env),
     });
     throw new Error(`Expected command to fail, but it passed with stdout: ${stdout}`);
   } catch (error) {

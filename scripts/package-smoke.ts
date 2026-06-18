@@ -24,6 +24,8 @@ type ExecFileSyncError = Error & {
   stdout?: Buffer | string;
 };
 
+const DEFAULT_COMMAND_TIMEOUT_MS = 180_000;
+
 /**
  * Hashes a package-smoke fixture file.
  *
@@ -170,6 +172,19 @@ function createSmokeEnv(tempRoot: string): NodeJS.ProcessEnv {
 }
 
 /**
+ * Resolves the per-command timeout for package gate child processes.
+ *
+ * @param {NodeJS.ProcessEnv} env
+ * @returns {number}
+ */
+function resolveCommandTimeoutMs(env: NodeJS.ProcessEnv): number {
+  const timeoutMs = Number.parseInt(env.ASL_PACKAGE_GATE_TIMEOUT_MS ?? '', 10);
+  return Number.isFinite(timeoutMs) && timeoutMs > 0
+    ? timeoutMs
+    : DEFAULT_COMMAND_TIMEOUT_MS;
+}
+
+/**
  * Runs a command and returns stdout while preserving stderr for failures.
  *
  * @param {string} command
@@ -183,6 +198,7 @@ function run(command: string, args: string[], options: RunOptions): string {
     encoding: 'utf8',
     env: options.env,
     stdio: ['ignore', 'pipe', 'inherit'],
+    timeout: resolveCommandTimeoutMs(options.env),
   });
 }
 
@@ -201,6 +217,7 @@ function runExpectFailure(command: string, args: string[], options: RunOptions):
       encoding: 'utf8',
       env: options.env,
       stdio: ['ignore', 'pipe', 'pipe'],
+      timeout: resolveCommandTimeoutMs(options.env),
     });
     throw new Error(`Expected command to fail, but it passed with stdout: ${stdout}`);
   } catch (error) {
