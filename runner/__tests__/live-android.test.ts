@@ -36,6 +36,7 @@ test('generic Android live proof captures profile evidence before sidecar proofs
   });
 
   let currentRunId = 'app-startup-android-live';
+  let emitArgentHelperCrash = false;
   const orderedCalls: string[] = [];
   const waits: number[] = [];
   const executor = async (command: string, args: string[]): Promise<CommandResult> => {
@@ -96,6 +97,17 @@ test('generic Android live proof captures profile evidence before sidecar proofs
     }
     if (key.endsWith('logcat -d -v time -t 1000')) {
       return { command, args, exitCode: 0, stderr: '', stdout: readStartupLog(currentRunId) };
+    }
+    if (key.endsWith('logcat -d -v time -t 400')) {
+      return {
+        command,
+        args,
+        exitCode: 0,
+        stderr: '',
+        stdout: emitArgentHelperCrash
+          ? '06-18 21:31:28.152 W ActivityManager: Crash of app com.argent.androiddevtools running instrumentation ComponentInfo{com.argent.androiddevtools/com.argent.androiddevtools.SnapshotInstrumentation}\n'
+          : '',
+      };
     }
 
     return { command, args, exitCode: 1, stderr: `unexpected command: ${key}`, stdout: '' };
@@ -172,6 +184,35 @@ test('generic Android live proof captures profile evidence before sidecar proofs
       orderedCalls.findIndex((call) => call.includes('profile-session/start')),
     'expected generic Android live proof to open the dev-client URL before profile-session start',
   );
+
+  emitArgentHelperCrash = true;
+  const helperCrashResult = await runAndroidLiveProof({
+    'argent-proof': true,
+    config: path.join(ROOT, 'examples', 'mobile-app', 'asl.config.json'),
+    out: outputDir,
+    package: ANDROID_PACKAGE,
+    'run-suffix': 'argent helper crash',
+    scenario: path.join(ROOT, 'examples', 'mobile-app', 'scenarios', 'mobile', 'app-startup.json'),
+    serial: 'emulator-5554',
+  }, {
+    argentExecutor,
+    delay: async (ms: number) => {
+      waits.push(ms);
+    },
+    executor,
+  });
+  const helperCrashProof = JSON.parse(fs.readFileSync(helperCrashResult.aggregateSummary.liveProofPath, 'utf8'));
+  assert.equal(helperCrashProof.status, 'passed');
+  assert.equal(helperCrashProof.interactionProofs[0].warnings.count, 1);
+  assert.equal(helperCrashProof.interactionProofs[0].warnings.checks[0].code, 'argent_android_helper_crash');
+  assert.ok(fs.existsSync(path.join(
+    outputDir,
+    '_argent-captures',
+    'app-startup-android-argent-argent-helper-crash',
+    'raw',
+    'adb-runner-logcat-after-argent.txt',
+  )));
+  emitArgentHelperCrash = false;
 
   const failedAgentDeviceExecutor = async (command: string, args: string[]): Promise<AgentDeviceCommandResult> => {
     orderedCalls.push(`failed-agent-device:${args.join(' ')}`);

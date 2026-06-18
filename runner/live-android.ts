@@ -3,8 +3,10 @@
 const fs = require('node:fs');
 const path = require('node:path');
 
+const { writeJsonArtifact } = require('../core/artifact-writer');
+const { SCHEMAS } = require('../core/schema-validator');
 const { hasHelpFlag, writeUsage } = require('./cli');
-const { parseArgs, parsePositiveInteger, runAndroidAdbPreflight } = require('./android-adb');
+const { execFileCommand, parseArgs, parsePositiveInteger, runAndroidAdbPreflight } = require('./android-adb');
 const { compareLiveProfilesToLatest, isEnabledFlag } = require('./live-comparison');
 const { writeLiveProofSummary } = require('./live-proof-summary');
 const { runAgentDeviceCapture } = require('./agent-device');
@@ -221,6 +223,122 @@ function buildSkippedInteractionProofs({
     runnerId,
     scenarioId,
   }));
+}
+
+/**
+ * Builds adb arguments with an optional device serial prefix.
+ *
+ * @param {string | null} serial
+ * @param {string[]} args
+ * @returns {string[]}
+ */
+function buildAndroidRunnerAdbArgs(serial: string | null, args: string[]): string[] {
+  return serial ? ['-s', serial, ...args] : args;
+}
+
+/**
+ * Formats an adb command result as raw diagnostic evidence.
+ *
+ * @param {import('./android-adb').CommandResult} result
+ * @returns {string}
+ */
+function formatAndroidRunnerCommandResult(result: import('./android-adb').CommandResult): string {
+  return [
+    `$ ${result.command} ${result.args.join(' ')}`,
+    `exitCode=${result.exitCode}`,
+    result.stdout.trimEnd(),
+    result.stderr.trimEnd(),
+  ].filter(Boolean).join('\n');
+}
+
+/**
+ * Detects the known Argent Android instrumentation-helper crash signature.
+ *
+ * @param {string} text
+ * @returns {boolean}
+ */
+function hasArgentAndroidDevtoolsCrash(text: string): boolean {
+  return /(?:Process:\s*com\.argent\.androiddevtools|Crash of app com\.argent\.androiddevtools|FATAL EXCEPTION:\s*argent-androiddevtools)/u.test(text);
+}
+
+/**
+ * Runs one adb diagnostic command through the live proof executor seam.
+ *
+ * @param {{adbPath: string, args: string[], executor?: import('./android-adb').CommandExecutor}} options
+ * @returns {Promise<import('./android-adb').CommandResult>}
+ */
+async function runAndroidRunnerAdbCommand({
+  adbPath,
+  args,
+  executor,
+}: {
+  adbPath: string;
+  args: string[];
+  executor?: import('./android-adb').CommandExecutor;
+}): Promise<import('./android-adb').CommandResult> {
+  return executor ? executor(adbPath, args) : execFileCommand(adbPath, args);
+}
+
+/**
+ * Attaches runner-side logcat evidence to an Argent Android sidecar proof.
+ *
+ * The Android live proof already owns adb, so this preserves Argent helper
+ * instability without making the standalone Argent runner depend on adb.
+ *
+ * @param {{adbPath: string, capture: import('./argent').ArgentCaptureResult, executor?: import('./android-adb').CommandExecutor, serial: string | null}} options
+ * @returns {Promise<void>}
+ */
+async function attachArgentAndroidRunnerDiagnostics({
+  adbPath,
+  capture,
+  executor,
+  serial,
+}: {
+  adbPath: string;
+  capture: import('./argent').ArgentCaptureResult;
+  executor?: import('./android-adb').CommandExecutor;
+  serial: string | null;
+}): Promise<void> {
+  const logcatResult = await runAndroidRunnerAdbCommand({
+    adbPath,
+    args: buildAndroidRunnerAdbArgs(serial, ['logcat', '-d', '-v', 'time', '-t', '400']),
+    ...(executor ? { executor } : {}),
+  });
+  const rawDir = path.join(capture.runDir, 'raw');
+  await fs.promises.mkdir(rawDir, { recursive: true });
+  await fs.promises.writeFile(
+    path.join(rawDir, 'adb-runner-logcat-after-argent.txt'),
+    `${formatAndroidRunnerCommandResult(logcatResult)}\n`,
+    'utf8',
+  );
+
+  const rawOutput = `${logcatResult.stdout}\n${logcatResult.stderr}`;
+  if (!hasArgentAndroidDevtoolsCrash(rawOutput)) {
+    return;
+  }
+
+  const healthPath = path.join(capture.runDir, 'health.json');
+  const health = JSON.parse(fs.readFileSync(healthPath, 'utf8')) as Record<string, any>;
+  health.checks = Array.isArray(health.checks) ? health.checks : [];
+  health.checks.push({
+    name: 'argent_android_helper_crash',
+    status: 'warning',
+    source: 'runner',
+    code: 'argent_android_helper_crash',
+    message: 'Argent Android helper crashed after producing sidecar evidence.',
+    metadata: {
+      nextAction: 'Inspect raw/adb-runner-logcat-after-argent.txt and rerun Argent if sidecar evidence becomes flaky.',
+      nextActionCode: 'inspect_argent_android_helper_crash',
+      rawPath: 'raw/adb-runner-logcat-after-argent.txt',
+      runnerProcess: 'com.argent.androiddevtools',
+    },
+  });
+  await writeJsonArtifact({
+    filePath: healthPath,
+    value: health,
+    schema: SCHEMAS.health,
+    label: 'Argent health artifact',
+  });
 }
 
 /**
@@ -441,6 +559,12 @@ async function runAndroidLiveProof(
 
   if (profileTrusted && isEnabledFlag(args['argent-proof'])) {
     const argentBaseArgs = parseArgentBaseArgs(process.env.ASL_ARGENT_BASE_ARGS);
+    const adbPath = typeof args.adb === 'string' ? args.adb : 'adb';
+    await runAndroidRunnerAdbCommand({
+      adbPath,
+      args: buildAndroidRunnerAdbArgs(serial ?? null, ['logcat', '-c']),
+      ...(options.executor ? { executor: options.executor } : {}),
+    });
     const capture = await runArgentCapture({
       app: packageName,
       argentCommand: process.env.ASL_ARGENT_BIN || 'argent',
@@ -453,6 +577,12 @@ async function runAndroidLiveProof(
       platform: 'android',
       runId: argentRunId,
       scenario,
+    });
+    await attachArgentAndroidRunnerDiagnostics({
+      adbPath,
+      capture,
+      ...(options.executor ? { executor: options.executor } : {}),
+      serial: serial ?? null,
     });
     interactionProofs.push({
       label: 'interaction-argent',
