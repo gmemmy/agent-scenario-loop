@@ -224,6 +224,93 @@ test('generic iOS live proof captures profile evidence before sidecar proofs', a
   );
 });
 
+test('generic iOS live proof can use deep-link profile transport without terminating the app', async (t: TestContext) => {
+  const outputDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-live-ios-deeplink-'));
+  t.after(async () => {
+    await fsp.rm(outputDir, { recursive: true, force: true });
+  });
+
+  const profileRunId = 'app-startup-ios-live-warm-path';
+  const orderedCalls: string[] = [];
+  const waits: number[] = [];
+  const executor = async (command: string, args: string[]): Promise<CommandResult> => {
+    const key = args.join(' ');
+    orderedCalls.push(`simctl:${key}`);
+
+    if (key === 'simctl list devices') {
+      return {
+        command,
+        args,
+        exitCode: 0,
+        stderr: '',
+        stdout: ['== Devices ==', '-- iOS 26.3 --', `    iPhone 17 Pro Max (${DEVICE_ID}) (Booted)`].join('\n'),
+      };
+    }
+    if (key === `simctl spawn ${DEVICE_ID} launchctl getenv DYLD_INSERT_LIBRARIES`) {
+      return { command, args, exitCode: 0, stderr: '', stdout: '' };
+    }
+    if (key === `simctl spawn ${DEVICE_ID} launchctl getenv NATIVE_DEVTOOLS_IOS_CDP_SOCKET`) {
+      return { command, args, exitCode: 0, stderr: '', stdout: '' };
+    }
+    if (key === `simctl get_app_container ${DEVICE_ID} ${BUNDLE_ID} app`) {
+      return { command, args, exitCode: 0, stderr: '', stdout: '/tmp/ASLExampleMobile.app\n' };
+    }
+    if (key === `simctl launch ${DEVICE_ID} ${BUNDLE_ID}`) {
+      return { command, args, exitCode: 0, stderr: '', stdout: `${BUNDLE_ID}: 4321\n` };
+    }
+    if (key.startsWith(`simctl openurl ${DEVICE_ID} asl-example://expo-development-client/`)) {
+      return { command, args, exitCode: 0, stderr: '', stdout: '' };
+    }
+    if (key.startsWith(`simctl openurl ${DEVICE_ID} asl-example://profile-session/start`)) {
+      return { command, args, exitCode: 0, stderr: '', stdout: '' };
+    }
+    if (key.startsWith(`simctl io ${DEVICE_ID} screenshot `)) {
+      const screenshotPath = args.at(-1);
+      assert.equal(typeof screenshotPath, 'string');
+      await fsp.writeFile(screenshotPath, 'fake screenshot', 'utf8');
+      return { command, args, exitCode: 0, stderr: '', stdout: `Wrote screenshot to ${screenshotPath}\n` };
+    }
+    if (key === `simctl spawn ${DEVICE_ID} log show --style compact --last 2m --predicate eventMessage CONTAINS "${BUNDLE_ID}" AND eventMessage CONTAINS "4321"`) {
+      return { command, args, exitCode: 0, stderr: '', stdout: 'No native app exit was found.\n' };
+    }
+    if (key === `simctl spawn ${DEVICE_ID} log show --style compact --last 2m --predicate eventMessage CONTAINS "[profile-event]" OR eventMessage CONTAINS "[profile-session]"`) {
+      const stdout = readStartupEvents(profileRunId)
+        .map((event) => `HelpBnk [profile-event] ${JSON.stringify(event)}`)
+        .join('\n');
+      return { command, args, exitCode: 0, stderr: '', stdout };
+    }
+
+    return { command, args, exitCode: 1, stderr: `unexpected command: ${key}`, stdout: '' };
+  };
+
+  const result = await runIosLiveProof({
+    bundle: BUNDLE_ID,
+    config: path.join(ROOT, 'examples', 'mobile-app', 'asl.config.json'),
+    device: DEVICE_ID,
+    'ios-dev-client-url': 'asl-example://expo-development-client/?url=http%3A%2F%2Flocalhost%3A8097',
+    'ios-dev-client-wait-ms': '15',
+    'ios-profile-session-transport': 'deeplink',
+    out: outputDir,
+    'run-suffix': 'warm path',
+    scenario: path.join(ROOT, 'examples', 'mobile-app', 'scenarios', 'mobile', 'app-startup.json'),
+  }, {
+    delay: async (ms: number) => {
+      waits.push(ms);
+    },
+    executor,
+  });
+
+  const liveProof = JSON.parse(fs.readFileSync(result.aggregateSummary.liveProofPath, 'utf8'));
+  assert.equal(liveProof.status, 'passed');
+  assert.equal(orderedCalls.some((call) => call.includes('simctl terminate ')), false);
+  assert.equal(orderedCalls.some((call) => call.includes(`get_app_container ${DEVICE_ID} ${BUNDLE_ID} data`)), false);
+  assert.ok(
+    orderedCalls.some((call) => call.startsWith(`simctl:simctl openurl ${DEVICE_ID} asl-example://profile-session/start`)),
+    'expected deep-link profile session start',
+  );
+  assert.ok(waits.includes(9000), 'expected warm proof to still use the scenario capture window');
+});
+
 test('generic iOS live proof writes failed aggregate before skipping sidecars on failed profile gate', async (t: TestContext) => {
   const outputDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-live-ios-failed-'));
   const dataContainer = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-live-ios-data-failed-'));

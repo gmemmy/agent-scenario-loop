@@ -105,6 +105,11 @@ type NextActionHint = {
   nextAction: string;
   nextActionCode: string;
 };
+type SimulatorLaunchEnvironmentProbe = {
+  clean: boolean;
+  metadata: Record<string, unknown>;
+  raw: Record<string, string>;
+};
 
 const PROFILE_STORAGE_PREFIX = 'agent-scenario-loop';
 const PROFILE_STORAGE_SCHEMA = '1';
@@ -120,6 +125,10 @@ const PROFILE_STORAGE_RESET_KEYS = [
   PROFILE_SESSION_ENTRIES_STORAGE_KEY,
 ];
 const SCREENSHOT_EXTENSIONS = new Set(['bmp', 'gif', 'jpeg', 'png', 'tiff']);
+const SIMULATOR_LAUNCH_ENV_KEYS = [
+  'DYLD_INSERT_LIBRARIES',
+  'NATIVE_DEVTOOLS_IOS_CDP_SOCKET',
+];
 
 /**
  * Builds a filesystem-safe raw artifact suffix for a bundle identifier.
@@ -585,6 +594,76 @@ function nextActionHint(nextActionCode: string, nextAction: string): NextActionH
 }
 
 /**
+ * Creates a raw artifact filename for a simulator launch environment key.
+ *
+ * @param {string} key
+ * @returns {string}
+ */
+function launchEnvironmentRawFileName(key: string): string {
+  return `ios-launch-env-${key.toLowerCase().replace(/[^a-z0-9]+/gu, '-')}.txt`;
+}
+
+/**
+ * Reports whether the requested capture path can mutate simulator app lifecycle.
+ *
+ * @param {{deepLinks: IosSimctlDeepLink[], launch: boolean, profileSessionStorage: IosProfileSessionStorageSeed | null, terminateBeforeLaunch: boolean}} options
+ * @returns {boolean}
+ */
+function mutatesSimulatorLifecycle({
+  deepLinks,
+  launch,
+  profileSessionStorage,
+  terminateBeforeLaunch,
+}: {
+  deepLinks: IosSimctlDeepLink[];
+  launch: boolean;
+  profileSessionStorage: IosProfileSessionStorageSeed | null;
+  terminateBeforeLaunch: boolean;
+}): boolean {
+  return launch || terminateBeforeLaunch || Boolean(profileSessionStorage) || deepLinks.length > 0;
+}
+
+/**
+ * Reads simulator launch environment values that can silently inject runner behavior.
+ *
+ * @param {{deviceUdid: string, executor: CommandExecutor, xcrunPath: string}} options
+ * @returns {Promise<SimulatorLaunchEnvironmentProbe>}
+ */
+async function inspectSimulatorLaunchEnvironment({
+  deviceUdid,
+  executor,
+  xcrunPath,
+}: {
+  deviceUdid: string;
+  executor: CommandExecutor;
+  xcrunPath: string;
+}): Promise<SimulatorLaunchEnvironmentProbe> {
+  const values: Record<string, Record<string, unknown>> = {};
+  const raw: Record<string, string> = {};
+
+  for (const key of SIMULATOR_LAUNCH_ENV_KEYS) {
+    const result = await executor(xcrunPath, ['simctl', 'spawn', deviceUdid, 'launchctl', 'getenv', key]);
+    const rawFileName = launchEnvironmentRawFileName(key);
+    const output = [result.stdout, result.stderr].filter(Boolean).join('\n');
+    raw[rawFileName] = output;
+    values[key] = {
+      args: result.args,
+      exitCode: result.exitCode,
+      rawPath: `raw/${rawFileName}`,
+      value: result.exitCode === 0 ? result.stdout.trim() : null,
+    };
+  }
+
+  return {
+    clean: Object.values(values).every((entry) => (
+      entry.exitCode !== 0 || typeof entry.value !== 'string' || entry.value.length === 0
+    )),
+    metadata: values,
+    raw,
+  };
+}
+
+/**
  * Builds a health artifact from iOS simulator capture checks.
  *
  * @param {{runId: string, checks: Record<string, unknown>[]}} options
@@ -738,6 +817,50 @@ async function runIosSimctlCapture({
   };
 
   if (simulator && simulator.state === 'Booted') {
+    const launchEnvironmentNeedsCleanState = mutatesSimulatorLifecycle({
+      deepLinks,
+      launch,
+      profileSessionStorage,
+      terminateBeforeLaunch,
+    });
+    const launchEnvironment = await inspectSimulatorLaunchEnvironment({
+      deviceUdid: simulator.udid,
+      executor,
+      xcrunPath,
+    });
+    Object.assign(raw, launchEnvironment.raw);
+    const launchEnvironmentProbeAvailable = Object.values(launchEnvironment.metadata).some((entry) => (
+      typeof entry === 'object'
+        && entry !== null
+        && (entry as { exitCode?: unknown }).exitCode === 0
+    ));
+    const launchEnvironmentCleanEnough = launchEnvironment.clean || !launchEnvironmentNeedsCleanState;
+    checks.push({
+      name: 'ios_simulator_launch_environment_clean',
+      status: launchEnvironmentProbeAvailable
+        ? launchEnvironmentCleanEnough ? 'passed' : 'failed'
+        : 'warning',
+      source: 'runner',
+      code: launchEnvironmentProbeAvailable
+        ? launchEnvironmentCleanEnough
+          ? 'ios_simulator_launch_environment_clean'
+          : 'ios_simulator_launch_environment_contaminated'
+        : 'ios_simulator_launch_environment_unavailable',
+      message: launchEnvironmentProbeAvailable
+        ? launchEnvironmentCleanEnough
+          ? 'Simulator launch environment has no known hidden runner injection for this capture mode.'
+          : 'Simulator launch environment contains hidden runner injection that can contaminate simctl proof.'
+        : 'Could not inspect simulator launch environment.',
+      ...(launchEnvironmentProbeAvailable && !launchEnvironmentCleanEnough
+        ? {
+            metadata: nextActionHint(
+              'clear_ios_simulator_launch_environment',
+              `Clear ${SIMULATOR_LAUNCH_ENV_KEYS.join(' and ')} for the selected simulator, or use the runner that owns that injected environment instead of simctl proof.`,
+            ),
+          }
+        : {}),
+    });
+    metadata.launchEnvironment = launchEnvironment.metadata;
     const driver = createIosSimctlDriver({
       deviceUdid: simulator.udid,
       executor,
@@ -746,6 +869,7 @@ async function runIosSimctlCapture({
     let dataContainerPath: string | null = null;
     let hasInstalledConflictingBundle = false;
     let launchedAppPid: string | null = null;
+    const lifecycleMutationBlocked = launchEnvironmentProbeAvailable && !launchEnvironmentCleanEnough;
     if (bundleId) {
       const appContainer = await executor(xcrunPath, ['simctl', 'get_app_container', simulator.udid, bundleId, 'app']);
       raw['ios-app-container.txt'] = [appContainer.stdout, appContainer.stderr].filter(Boolean).join('\n');
@@ -862,7 +986,7 @@ async function runIosSimctlCapture({
       }
     }
 
-    if (terminateBeforeLaunch && !hasInstalledConflictingBundle) {
+    if (terminateBeforeLaunch && !hasInstalledConflictingBundle && !lifecycleMutationBlocked) {
       if (!bundleId) {
         checks.push({
           name: 'ios_app_terminated',
@@ -906,7 +1030,7 @@ async function runIosSimctlCapture({
       }
     }
 
-    if (profileSessionStorage && !hasInstalledConflictingBundle) {
+    if (profileSessionStorage && !hasInstalledConflictingBundle && !lifecycleMutationBlocked) {
       if (!bundleId || !dataContainerPath) {
         checks.push({
           name: 'ios_profile_session_seeded',
@@ -950,7 +1074,7 @@ async function runIosSimctlCapture({
       }
     }
 
-    if (launch && !hasInstalledConflictingBundle) {
+    if (launch && !hasInstalledConflictingBundle && !lifecycleMutationBlocked) {
       if (!bundleId) {
         checks.push({
           name: 'ios_app_launched',
@@ -992,7 +1116,7 @@ async function runIosSimctlCapture({
       }
     }
 
-    for (const [index, deepLink] of (hasInstalledConflictingBundle ? [] : deepLinks).entries()) {
+    for (const [index, deepLink] of (hasInstalledConflictingBundle || lifecycleMutationBlocked ? [] : deepLinks).entries()) {
       const rawFileName = `ios-deep-link-${index + 1}.txt`;
       const deepLinkResult = await driver.openDeepLink({ rawFileName, url: deepLink.url });
       const deepLinkOpened = deepLinkResult.exitCode === 0;

@@ -328,6 +328,77 @@ test('fails iOS capture when launched app exits during the capture window', asyn
   });
 });
 
+test('blocks lifecycle mutation when simulator launch environment is contaminated', async (t: TestContext) => {
+  const outputDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-ios-simctl-launch-env-'));
+  t.after(async () => {
+    await fsp.rm(outputDir, { recursive: true, force: true });
+  });
+  const calls: string[] = [];
+  const executor = async (command: string, args: string[]): Promise<CommandResult> => {
+    const key = args.join(' ');
+    calls.push(key);
+    const responses: Record<string, Partial<CommandResult>> = {
+      'simctl list devices': {
+        stdout: [
+          '== Devices ==',
+          '-- iOS 26.3 --',
+          '    iPhone 17 Pro Max (A692ED28-893E-453F-8866-C69331AE757F) (Booted)',
+        ].join('\n'),
+      },
+      'simctl spawn A692ED28-893E-453F-8866-C69331AE757F launchctl getenv DYLD_INSERT_LIBRARIES': {
+        stdout: '/tmp/libInjectedRunner.dylib\n',
+      },
+      'simctl spawn A692ED28-893E-453F-8866-C69331AE757F launchctl getenv NATIVE_DEVTOOLS_IOS_CDP_SOCKET': {
+        stdout: '/tmp/runner.sock\n',
+      },
+      'simctl get_app_container A692ED28-893E-453F-8866-C69331AE757F dev.agent-scenario-loop.example app': {
+        stdout: '/tmp/ASLExampleMobile.app\n',
+      },
+      'simctl spawn A692ED28-893E-453F-8866-C69331AE757F log show --style compact --last 2m --predicate eventMessage CONTAINS "[profile-event]" OR eventMessage CONTAINS "[profile-session]"': {
+        stdout: 'Timestamp Ty Process[PID:TID]\n',
+      },
+    };
+    const response = responses[key] ?? { exitCode: 1, stderr: `unexpected command: ${key}` };
+    return {
+      command,
+      args,
+      exitCode: response.exitCode ?? 0,
+      stderr: response.stderr ?? '',
+      stdout: response.stdout ?? '',
+    };
+  };
+
+  const result = await runIosSimctlCapture({
+    bundleId: 'dev.agent-scenario-loop.example',
+    deepLinks: [
+      {
+        label: 'profile-session-start',
+        url: 'asl-example://profile-session/start?scenario=app-startup&runId=ios-contaminated',
+      },
+    ],
+    executor,
+    launch: true,
+    outputDir,
+    runId: 'ios-contaminated',
+    terminateBeforeLaunch: true,
+  });
+
+  assert.equal(result.health.healthStatus, 'failed');
+  assert.equal(calls.some((call) => call.includes('simctl terminate ')), false);
+  assert.equal(calls.some((call) => call.includes('simctl launch ')), false);
+  assert.equal(calls.some((call) => call.includes('simctl openurl ')), false);
+  assert.ok(
+    (result.health.checks as Array<{ code: string; metadata?: { nextActionCode?: string } }>).some(
+      (check) => check.code === 'ios_simulator_launch_environment_contaminated'
+        && check.metadata?.nextActionCode === 'clear_ios_simulator_launch_environment',
+    ),
+  );
+  assert.match(
+    fs.readFileSync(path.join(outputDir, 'raw', 'ios-launch-env-dyld-insert-libraries.txt'), 'utf8'),
+    /libInjectedRunner/u,
+  );
+});
+
 test('fails iOS capture when configured sibling bundle variants are installed', async (t: TestContext) => {
   const outputDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-ios-simctl-conflict-'));
   t.after(async () => {
