@@ -19,7 +19,7 @@ The package is intentionally contract-first: adopt the scenario and artifact sha
 - [core/run-index.ts](../core/run-index.ts): read-only artifact root index for finding trusted prior runs
 - [core/schema-validator.ts](../core/schema-validator.ts): dependency-free validation for the JSON Schema subset used by the public contracts
 - [runner/profile-android.ts](../runner/profile-android.ts): Android profile runner that can ingest profile-event logs directly, read adb artifact folders, or own a bounded adb capture window before writing the full artifact set
-- [runner/ios-simctl.ts](../runner/ios-simctl.ts): iOS simulator capture runner for launch, profile-session storage seeding, profile-session deep links, bounded logs, stored profile-event collection, and raw simctl evidence
+- [runner/ios-simctl.ts](../runner/ios-simctl.ts): iOS simulator capture runner for launch, profile-session storage seeding, profile-session deep links, bounded logs, stored profile-event collection, lifecycle crash detection, host crash-report attachment, and raw simctl evidence
 - [runner/profile-ios.ts](../runner/profile-ios.ts): iOS profile runner that can ingest profile-event logs directly, read simctl artifact folders, or own a bounded simctl capture window before writing the full artifact set
 - [runner/android-adb.ts](../runner/android-adb.ts): Android adb readiness preflight, optional package launch, ordered driver actions, and bounded logcat capture that write runner health and raw adb evidence
 - [runner/android-adb-driver.ts](../runner/android-adb-driver.ts): adb-backed Android driver adapter for tap, scroll, UI tree, screenshot, and log capture plus Android-specific lifecycle helpers

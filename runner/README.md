@@ -15,7 +15,7 @@ The package ships eighteen public runner entrypoints. Package scripts build them
 - `example-ios-live.ts`: runs the packaged example iOS live proof with simctl preflight and the canonical startup, open-close, and scroll-settle scenarios.
 - `host-doctor.ts`: runs aggregate host/device preflight checks for adb, simctl, agent-device, and Argent, then writes ASL health and verdict artifacts before live proof starts.
 - `init-project.ts`: copies package templates into a conventional consuming app layout without overwriting existing files by default.
-- `ios-simctl.ts`: checks iOS simulator readiness, optional app installation, optional app launch, profile-session storage seeding, storage-backed command seeding, profile-session deep links, bounded simulator logs, stored profile-event collection, and writes raw simctl evidence.
+- `ios-simctl.ts`: checks iOS simulator readiness, optional app installation, optional app launch, profile-session storage seeding, storage-backed command seeding, profile-session deep links, bounded simulator logs, stored profile-event collection, lifecycle crash detection, host crash-report attachment, and raw simctl evidence.
 - `live-android.ts`: runs one generic Android scenario through adb preflight, profile-session capture, optional agent-device and Argent sidecars, optional latest-trusted comparison, and aggregate live-proof writing.
 - `live-ios.ts`: runs one generic iOS scenario through simctl preflight, profile-session storage capture, optional agent-device and Argent sidecars, optional latest-trusted comparison, and aggregate live-proof writing.
 - `live-proof.ts`: validates aggregate `live-proof.json` artifacts, prints their status and next action, and can fail on regressions.
@@ -210,5 +210,7 @@ pnpm example:profile:ios:live:scroll
 ```
 
 The iOS live commands seed the app-owned profile session into native AsyncStorage before launch. Command scenarios also seed a command queue into the same storage contract. After the capture window, the runner collects stored profile events from the simulator app data container. When stored events are present, `profile-ios` ingests `raw/ios-profile-events.log`; otherwise it falls back to bounded `raw/ios-simctl-log.txt` from the simctl capture artifact.
+
+If the launched simulator app exits during the capture window, `ios-simctl` fails `ios_app_lifecycle_stable` and writes `raw/ios-app-lifecycle-log.txt`. When a recent matching macOS DiagnosticReports `.ips` file is available for the bundle id, the runner also copies it to `raw/ios-host-diagnostic-report-<bundle>.ips` and records the search in `raw/ios-host-diagnostic-report-search.txt`.
 
 When multiple Xcode versions are installed, set `DEVELOPER_DIR` before invoking the Node runner to scope `xcrun simctl` to a specific Xcode without changing global `xcode-select`.
