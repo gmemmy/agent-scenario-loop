@@ -50,7 +50,7 @@ ASL_PROFILE_IOS_EVENTS=event-logs/{{SCENARIO_ID}}-ios.log pnpm asl:profile:ios
 ASL_PROFILE_ANDROID_EVENTS=event-logs/{{SCENARIO_ID}}-android.log pnpm asl:profile:android
 ASL_PROFILE_IOS_EVENTS=event-logs/{{SCENARIO_ID}}-ios.log pnpm asl:profile:ios:provider
 ASL_PROFILE_ANDROID_EVENTS=event-logs/{{SCENARIO_ID}}-android.log pnpm asl:profile:android:provider
-asl-profile-ios --config asl.config.json --scenario scenarios/mobile/{{SCENARIO_ID}}.json --simctl-capture --profile-session --profile-session-storage --launch --wait-ms 5000 --comparison-lane {{SCENARIO_ID}}-ios-live --out artifacts/asl/ios --run-id {{SCENARIO_ID}}-ios-live
+asl-profile-ios --config asl.config.json --scenario scenarios/mobile/{{SCENARIO_ID}}.json --simctl-capture --profile-session --profile-session-storage --launch --comparison-lane {{SCENARIO_ID}}-ios-live --out artifacts/asl/ios --run-id {{SCENARIO_ID}}-ios-live
 asl-profile-android --config asl.config.json --scenario scenarios/mobile/{{SCENARIO_ID}}.json --adb-capture --profile-session --clear-logcat --launch --wait-ms 5000 --comparison-lane {{SCENARIO_ID}}-android-live --out artifacts/asl/android --run-id {{SCENARIO_ID}}-android-live
 ```
 

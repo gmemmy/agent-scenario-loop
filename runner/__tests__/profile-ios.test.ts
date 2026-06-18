@@ -10,7 +10,9 @@ const DIST_ROOT = path.join(__dirname, '..', '..');
 const ROOT = path.join(DIST_ROOT, '..');
 const PROFILE_IOS = path.join(DIST_ROOT, 'runner', 'profile-ios.js');
 const {
+  deriveProfileSessionCaptureWaitMs,
   resolveIosSimctlProfileCommands,
+  resolveProfileSessionCaptureWaitMs,
   runProfileIos,
 } = require('../profile-ios');
 const {
@@ -824,6 +826,7 @@ test('profile-ios writes failed health instead of crashing when simctl capture h
     scenario: fixturePath('examples/mobile-app/scenarios/ios/app-startup.json'),
     'simctl-capture': true,
     'simctl-out': simctlCaptureRoot,
+    'wait-ms': '0',
   }, {
     executor,
   });
@@ -835,6 +838,26 @@ test('profile-ios writes failed health instead of crashing when simctl capture h
   assert.equal(health.healthStatus, 'failed');
   assert.equal(verdict.verdictStatus, 'inconclusive');
   assert.deepEqual(causalRun.timeline, []);
+});
+
+test('profile-ios derives storage capture waits from scenario execution windows', () => {
+  const startup = readJson(fixturePath('examples/mobile-app/scenarios/mobile/app-startup.json'));
+  const openClose = readJson(fixturePath('examples/mobile-app/scenarios/mobile/open-close-cycle.json'));
+  const scroll = readJson(fixturePath('examples/mobile-app/scenarios/mobile/scroll-settle.json'));
+
+  assert.equal(deriveProfileSessionCaptureWaitMs(startup), 9000);
+  assert.equal(deriveProfileSessionCaptureWaitMs(openClose), 17800);
+  assert.equal(deriveProfileSessionCaptureWaitMs(scroll), 9400);
+  assert.equal(resolveProfileSessionCaptureWaitMs({
+    args: { 'wait-ms': '25' },
+    profileSessionEnabled: true,
+    scenario: startup,
+  }), 25);
+  assert.equal(resolveProfileSessionCaptureWaitMs({
+    args: {},
+    profileSessionEnabled: false,
+    scenario: startup,
+  }), 0);
 });
 
 test('profile-ios derives simctl commands from scenario adapter metadata', () => {

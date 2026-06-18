@@ -34,6 +34,9 @@ type IosSimctlProfileCommand = {
 
 type ScenarioExecutionStep = import('../core/execution-plan').ScenarioExecutionStep;
 
+const PROFILE_SESSION_CAPTURE_BOOTSTRAP_MS = 1000;
+const PROFILE_SESSION_CAPTURE_MAX_MS = 30000;
+
 /**
  * Reads and parses a JSON object from disk.
  *
@@ -64,6 +67,16 @@ function isEnabled(value: string | boolean | Array<string | boolean> | undefined
 function readPositiveInteger(value: unknown, fallback: number): number {
   const parsed = typeof value === 'string' ? Number(value) : value;
   return typeof parsed === 'number' && Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+/**
+ * Reads the number of scenario iterations that can emit app-owned truth events.
+ *
+ * @param {Record<string, unknown>} scenario
+ * @returns {number}
+ */
+function readScenarioIterationCount(scenario: Record<string, any>): number {
+  return readPositiveInteger(scenario.defaultIterations, readPositiveInteger(scenario.cycles?.iterations, 1));
 }
 
 /**
@@ -191,6 +204,52 @@ function readStepWaitMs(step: ScenarioExecutionStep): number {
   }
 
   return readPositiveInteger(step.timeoutMs, 0);
+}
+
+/**
+ * Derives a storage-backed profile capture window from scenario waits and cycles.
+ *
+ * @param {Record<string, unknown>} scenario
+ * @returns {number}
+ */
+function deriveProfileSessionCaptureWaitMs(scenario: Record<string, any>): number {
+  const executionPlan = buildScenarioExecutionPlan(scenario);
+  const iterations = readScenarioIterationCount(scenario);
+  const perIterationWaitMs = executionPlan.steps.reduce((total: number, step: ScenarioExecutionStep) => {
+    if (step.kind === 'command') {
+      return total + readStepWaitMs(step);
+    }
+    if (step.portMethod === 'waitForTruthEvent') {
+      return total + readPositiveInteger(step.timeoutMs, 0);
+    }
+    return total;
+  }, 0);
+  const derivedWaitMs = PROFILE_SESSION_CAPTURE_BOOTSTRAP_MS + (perIterationWaitMs * iterations);
+
+  return Math.min(Math.max(derivedWaitMs, PROFILE_SESSION_CAPTURE_BOOTSTRAP_MS), PROFILE_SESSION_CAPTURE_MAX_MS);
+}
+
+/**
+ * Resolves the iOS capture wait, keeping explicit CLI waits authoritative.
+ *
+ * @param {{args: import('./profile-mobile').CliArgs, scenario: Record<string, unknown>, profileSessionEnabled: boolean}} options
+ * @returns {number}
+ */
+function resolveProfileSessionCaptureWaitMs({
+  args,
+  profileSessionEnabled,
+  scenario,
+}: {
+  args: import('./profile-mobile').CliArgs;
+  profileSessionEnabled: boolean;
+  scenario: Record<string, any>;
+}): number {
+  const explicitWaitMs = readScalarArg(args['wait-ms']);
+  if (explicitWaitMs !== undefined) {
+    return readPositiveInteger(explicitWaitMs, 0);
+  }
+
+  return profileSessionEnabled ? deriveProfileSessionCaptureWaitMs(scenario) : 0;
 }
 
 /**
@@ -425,7 +484,11 @@ async function runProfileIos(
             }),
         runId,
         screenshot: isEnabled(args.screenshot) || requiresIosSimctlScreenshot(scenario),
-        waitMs: readPositiveInteger(readScalarArg(args['wait-ms']), 0),
+        waitMs: resolveProfileSessionCaptureWaitMs({
+          args,
+          profileSessionEnabled,
+          scenario,
+        }),
         ...(typeof args.xcrun === 'string' ? { xcrunPath: args.xcrun } : {}),
       })
     : null;
@@ -522,10 +585,12 @@ export {
   buildProfileVerdict,
   buildVerdictBudgetChecks,
   buildProfileSessionUrl,
+  deriveProfileSessionCaptureWaitMs,
   main,
   parseArgs,
   resolveIosBundleId,
   resolveIosSimctlProfileCommands,
+  resolveProfileSessionCaptureWaitMs,
   resolveSimctlCaptureOutputDir,
   requiresIosSimctlScreenshot,
   runProfileIos,

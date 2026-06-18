@@ -372,7 +372,7 @@ async function runExampleIosLiveProof(
       scenario: path.join(exampleRoot, 'scenarios', 'mobile', profile.scenario),
       'simctl-capture': true,
       'simctl-out': path.join(outputDir, '_ios-simctl-captures', profileRunId),
-      'wait-ms': typeof args['wait-ms'] === 'string' ? args['wait-ms'] : '1000',
+      ...(typeof args['wait-ms'] === 'string' ? { 'wait-ms': args['wait-ms'] } : {}),
       ...(bundleId ? { bundle: bundleId } : {}),
       ...(typeof args.xcrun === 'string' ? { xcrun: args.xcrun } : {}),
     }, {
