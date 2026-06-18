@@ -71,15 +71,17 @@ Prefer Android first when iOS tooling is unstable:
 
 ```bash
 asl-check-plan --scenario scenarios/mobile/first-journey.json --runner runner-manifests/primary-runner.json --platform android --out artifacts/asl/plan/first-journey-android
-asl-profile-android --config asl.config.json --scenario scenarios/mobile/first-journey.json --adb-capture --profile-session --clear-logcat --launch --wait-ms 5000 --out artifacts/asl/android --run-id first-journey-android-live --comparison-lane first-journey-android-live
+asl-profile-android --config asl.config.json --scenario scenarios/mobile/first-journey.json --adb-capture --profile-session --clear-logcat --launch --out artifacts/asl/android --run-id first-journey-android-live --comparison-lane first-journey-android-live
 ```
 
 Use iOS once the app is installed on a booted simulator:
 
 ```bash
 asl-check-plan --scenario scenarios/mobile/first-journey.json --runner runner-manifests/primary-runner.json --platform ios --out artifacts/asl/plan/first-journey-ios
-asl-profile-ios --config asl.config.json --scenario scenarios/mobile/first-journey.json --simctl-capture --profile-session --profile-session-storage --launch --wait-ms 5000 --out artifacts/asl/ios --run-id first-journey-ios-live --comparison-lane first-journey-ios-live
+asl-profile-ios --config asl.config.json --scenario scenarios/mobile/first-journey.json --simctl-capture --profile-session --profile-session-storage --launch --out artifacts/asl/ios --run-id first-journey-ios-live --comparison-lane first-journey-ios-live
 ```
+
+When `--wait-ms` is omitted, profile-session live capture derives the final adb or simctl evidence window from the scenario execution steps and cycle count. Use an explicit `--wait-ms` only for an app-specific override.
 
 ## 5. Compare Only Trusted Runs
 

@@ -336,7 +336,7 @@ async function runAndroidLiveProof(
     'run-id': profileRunId,
     scenario: scenarioPath,
     ...(typeof args.serial === 'string' ? { serial: args.serial } : {}),
-    'wait-ms': typeof args['wait-ms'] === 'string' ? args['wait-ms'] : '5000',
+    ...(typeof args['wait-ms'] === 'string' ? { 'wait-ms': args['wait-ms'] } : {}),
   }, {
     comparisonLane,
     ...(options.delay ? { delay: options.delay } : {}),

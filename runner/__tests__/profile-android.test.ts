@@ -11,8 +11,10 @@ const DIST_ROOT = path.join(__dirname, '..', '..');
 const ROOT = path.join(DIST_ROOT, '..');
 const PROFILE_ANDROID = path.join(DIST_ROOT, 'runner', 'profile-android.js');
 const {
+  deriveProfileSessionCaptureWaitMs,
   resolveAndroidAdbDriverSteps,
   resolveAndroidAdbProfileCommands,
+  resolveProfileSessionCaptureWaitMs,
   runProfileAndroid,
   validateAndroidAdbDriverSteps,
 } = require('../profile-android');
@@ -1233,12 +1235,32 @@ test('profile-android starts profile sessions and executes scenario commands dur
   assert.equal(health.healthStatus, 'passed');
   assert.equal(adbHealth.healthStatus, 'passed');
   assert.equal(deepLinkCount, 7);
-  assert.deepEqual(waits, [500, 250, 300, 300, 300, 300, 300, 300]);
+  assert.deepEqual(waits, [500, 250, 300, 300, 300, 300, 300, 300, 1000]);
   assert.ok(
     calls.indexOf('-s emulator-5554 logcat -c') <
       calls.indexOf("-s emulator-5554 shell am start -a 'android.intent.action.VIEW' -d 'asl-example://profile-session/start?runId=android-live-open-close&scenario=open-close-cycle' -p 'dev.agentscenarioloop.example'"),
   );
   assert.ok(fs.existsSync(path.join(result.runDir, 'raw', 'adb-logcat.txt')));
+});
+
+test('profile-android derives adb capture waits from scenario execution windows', () => {
+  const startup = readJson(fixturePath('examples/mobile-app/scenarios/mobile/app-startup.json'));
+  const openClose = readJson(fixturePath('examples/mobile-app/scenarios/mobile/open-close-cycle.json'));
+  const scroll = readJson(fixturePath('examples/mobile-app/scenarios/mobile/scroll-settle.json'));
+
+  assert.equal(deriveProfileSessionCaptureWaitMs(startup), 9000);
+  assert.equal(deriveProfileSessionCaptureWaitMs(openClose), 17800);
+  assert.equal(deriveProfileSessionCaptureWaitMs(scroll), 9400);
+  assert.equal(resolveProfileSessionCaptureWaitMs({
+    args: { 'wait-ms': '25' },
+    profileSessionEnabled: true,
+    scenario: startup,
+  }), 25);
+  assert.equal(resolveProfileSessionCaptureWaitMs({
+    args: {},
+    profileSessionEnabled: false,
+    scenario: startup,
+  }), 0);
 });
 
 test('profile-android derives commands from normalized execution-plan steps', () => {

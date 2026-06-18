@@ -37,6 +37,7 @@ test('generic Android live proof captures profile evidence before sidecar proofs
 
   let currentRunId = 'app-startup-android-live';
   const orderedCalls: string[] = [];
+  const waits: number[] = [];
   const executor = async (command: string, args: string[]): Promise<CommandResult> => {
     const key = args.join(' ');
     orderedCalls.push(`adb:${key}`);
@@ -129,7 +130,9 @@ test('generic Android live proof captures profile evidence before sidecar proofs
   }, {
     agentDeviceExecutor,
     argentExecutor,
-    delay: async () => {},
+    delay: async (ms: number) => {
+      waits.push(ms);
+    },
     executor,
   });
 
@@ -150,6 +153,7 @@ test('generic Android live proof captures profile evidence before sidecar proofs
     orderedCalls.findIndex((call) => call.includes(`argent:run launch-app --udid emulator-5554 --bundleId ${ANDROID_PACKAGE}`)) > profileCapture,
     'Argent proof should run after Android profile evidence capture',
   );
+  assert.ok(waits.includes(9000), 'expected generic Android live proof to derive the startup capture window from scenario timeouts');
 
   const failedAgentDeviceExecutor = async (command: string, args: string[]): Promise<AgentDeviceCommandResult> => {
     orderedCalls.push(`failed-agent-device:${args.join(' ')}`);
@@ -172,7 +176,9 @@ test('generic Android live proof captures profile evidence before sidecar proofs
       serial: 'emulator-5554',
     }, {
       agentDeviceExecutor: failedAgentDeviceExecutor,
-      delay: async () => {},
+      delay: async (ms: number) => {
+        waits.push(ms);
+      },
       executor,
     }),
     /Android live proof failed\. Inspect/u,

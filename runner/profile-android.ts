@@ -34,6 +34,9 @@ type AndroidAdbProfileCommand = {
 type AndroidAdbDriverStep = import('./android-adb').AndroidAdbDriverStep;
 type ScenarioExecutionStep = import('../core/execution-plan').ScenarioExecutionStep;
 
+const PROFILE_SESSION_CAPTURE_BOOTSTRAP_MS = 1000;
+const PROFILE_SESSION_CAPTURE_MAX_MS = 30000;
+
 /**
  * Reads and parses a JSON object from disk.
  *
@@ -63,6 +66,16 @@ function isEnabled(value: string | boolean | Array<string | boolean> | undefined
  */
 function readPositiveInteger(value: unknown, fallback: number): number {
   return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : fallback;
+}
+
+/**
+ * Reads the number of scenario iterations that can emit app-owned truth events.
+ *
+ * @param {Record<string, unknown>} scenario
+ * @returns {number}
+ */
+function readScenarioIterationCount(scenario: Record<string, any>): number {
+  return readPositiveInteger(scenario.defaultIterations, readPositiveInteger(scenario.cycles?.iterations, 1));
 }
 
 /**
@@ -190,6 +203,52 @@ function readStepWaitMs(step: ScenarioExecutionStep): number {
   }
 
   return readPositiveInteger(step.timeoutMs, 0);
+}
+
+/**
+ * Derives a logcat-backed profile capture window from scenario waits and cycles.
+ *
+ * @param {Record<string, unknown>} scenario
+ * @returns {number}
+ */
+function deriveProfileSessionCaptureWaitMs(scenario: Record<string, any>): number {
+  const executionPlan = buildScenarioExecutionPlan(scenario);
+  const iterations = readScenarioIterationCount(scenario);
+  const perIterationWaitMs = executionPlan.steps.reduce((total: number, step: ScenarioExecutionStep) => {
+    if (step.kind === 'command') {
+      return total + readStepWaitMs(step);
+    }
+    if (step.portMethod === 'waitForTruthEvent') {
+      return total + readPositiveInteger(step.timeoutMs, 0);
+    }
+    return total;
+  }, 0);
+  const derivedWaitMs = PROFILE_SESSION_CAPTURE_BOOTSTRAP_MS + (perIterationWaitMs * iterations);
+
+  return Math.min(Math.max(derivedWaitMs, PROFILE_SESSION_CAPTURE_BOOTSTRAP_MS), PROFILE_SESSION_CAPTURE_MAX_MS);
+}
+
+/**
+ * Resolves the Android adb capture wait, keeping explicit CLI waits authoritative.
+ *
+ * @param {{args: import('./profile-mobile').CliArgs, scenario: Record<string, unknown>, profileSessionEnabled: boolean}} options
+ * @returns {number}
+ */
+function resolveProfileSessionCaptureWaitMs({
+  args,
+  profileSessionEnabled,
+  scenario,
+}: {
+  args: import('./profile-mobile').CliArgs;
+  profileSessionEnabled: boolean;
+  scenario: Record<string, any>;
+}): number {
+  const explicitWaitMs = readScalarArg(args['wait-ms']);
+  if (explicitWaitMs !== undefined) {
+    return parsePositiveInteger(explicitWaitMs, 0);
+  }
+
+  return profileSessionEnabled ? deriveProfileSessionCaptureWaitMs(scenario) : 0;
 }
 
 /**
@@ -554,7 +613,11 @@ async function runProfileAndroid(
           : {}),
         runId,
         ...(typeof args.serial === 'string' ? { serial: args.serial } : {}),
-        waitMs: parsePositiveInteger(readScalarArg(args['wait-ms']), 0),
+        waitMs: resolveProfileSessionCaptureWaitMs({
+          args,
+          profileSessionEnabled,
+          scenario,
+        }),
       })
     : null;
 
@@ -649,10 +712,12 @@ if (require.main === module) {
 }
 
 export {
+  deriveProfileSessionCaptureWaitMs,
   main,
   parseArgs,
   resolveAndroidAdbProfileCommands,
   resolveAndroidAdbDriverSteps,
+  resolveProfileSessionCaptureWaitMs,
   readAndroidAdbVideoCapturePath,
   validateAndroidAdbDriverSteps,
   runProfileAndroid,
