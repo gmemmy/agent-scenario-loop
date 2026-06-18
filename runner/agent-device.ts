@@ -520,6 +520,70 @@ function summarizeAgentDeviceSessions(sessions: Array<Record<string, unknown>>):
 }
 
 /**
+ * Returns the stable session name that agent-device accepts.
+ *
+ * @param {Record<string, unknown>} session
+ * @returns {string | null}
+ */
+function readAgentDeviceSessionName(session: Record<string, unknown>): string | null {
+  return typeof session.name === 'string' && session.name.length > 0
+    ? session.name
+    : typeof session.id === 'string' && session.id.length > 0
+      ? session.id
+      : null;
+}
+
+/**
+ * Returns known device identifiers attached to one agent-device session.
+ *
+ * @param {Record<string, unknown>} session
+ * @returns {string[]}
+ */
+function readAgentDeviceSessionTargets(session: Record<string, unknown>): string[] {
+  return [
+    session.id,
+    session.deviceId,
+    session.device_id,
+    session.device_udid,
+    session.serial,
+    session.udid,
+  ].filter((value): value is string => typeof value === 'string' && value.length > 0);
+}
+
+/**
+ * Selects a single active session for the requested platform and device target.
+ *
+ * @param {{platform: import('./agent-device-driver').AgentDevicePlatform, requestedTarget: string | null, sessions: Array<Record<string, unknown>>, target: string}} options
+ * @returns {string | null}
+ */
+function selectAgentDeviceSession({
+  platform,
+  requestedTarget,
+  sessions,
+  target,
+}: {
+  platform: import('./agent-device-driver').AgentDevicePlatform;
+  requestedTarget: string | null;
+  sessions: Array<Record<string, unknown>>;
+  target: string;
+}): string | null {
+  const platformCandidates = sessions.filter((session) =>
+    session.platform === platform &&
+    (typeof session.target !== 'string' || session.target === target),
+  );
+  const targetCandidates = requestedTarget
+    ? platformCandidates.filter((session) => readAgentDeviceSessionTargets(session).includes(requestedTarget))
+    : platformCandidates;
+
+  if (targetCandidates.length !== 1) {
+    return null;
+  }
+
+  const [selectedSession] = targetCandidates;
+  return selectedSession ? readAgentDeviceSessionName(selectedSession) : null;
+}
+
+/**
  * Builds an agent-readable availability addendum with device and session counts.
  *
  * @param {AgentDeviceAvailabilityResult} result
@@ -1245,7 +1309,31 @@ async function runAgentDeviceCapture({
     throw new Error(`Invalid agent-device driver step metadata: ${driverStepErrors.join(' ')}`);
   }
   const requestedTarget = udid ?? serial ?? device ?? null;
-  const sessionName = typeof session === 'string' && session.length > 0 ? session : null;
+  let sessionName = typeof session === 'string' && session.length > 0 ? session : null;
+  let sessionSelectionMode: 'explicit' | 'auto' | 'none' = sessionName ? 'explicit' : 'none';
+  if (!sessionName) {
+    const sessionList = await run(agentDevicePath, ['session', 'list', '--json']);
+    raw['agent-device-session-list.txt'] = formatAgentDeviceRawOutput(sessionList);
+    if (sessionList.exitCode === 0) {
+      const selectedSession = selectAgentDeviceSession({
+        platform,
+        requestedTarget,
+        sessions: readAgentDeviceSessions(sessionList),
+        target,
+      });
+      if (selectedSession) {
+        sessionName = selectedSession;
+        sessionSelectionMode = 'auto';
+        checks.push({
+          name: 'agent_device_session_selected',
+          status: 'passed',
+          source: 'runner',
+          code: 'agent_device_session_auto_selected',
+          message: `Selected agent-device session ${selectedSession} for ${platform}.`,
+        });
+      }
+    }
+  }
   const normalizedSessionMode = parseAgentDeviceSessionMode(sessionMode);
   const sessionOwnsTarget = Boolean(sessionName) && (normalizedSessionMode === 'reuse' || !requestedTarget);
 
@@ -1269,6 +1357,7 @@ async function runAgentDeviceCapture({
     ...(requestedTarget ? { requestedTarget } : {}),
     selectedTarget: sessionOwnsTarget ? sessionName : requestedTarget,
     session: sessionName,
+    sessionSelectionMode,
     sessionMode: normalizedSessionMode,
     target,
     targetSelectionMode: sessionOwnsTarget ? 'session' : sessionName ? 'session_bind' : 'direct',
