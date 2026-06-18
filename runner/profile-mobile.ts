@@ -79,6 +79,10 @@ type AttachedEvidence = {
   copies: EvidenceAttachment[];
   signals: Record<SignalEvidenceKind, string[]>;
 };
+type RuntimeTarget = {
+  name: string;
+  udid: string;
+};
 type ProviderCommandOutput = {
   channel: EvidenceChannel;
   kind: EvidenceKind;
@@ -1085,6 +1089,108 @@ function resolveEventLogPath({ args, platform }: { args: CliArgs; platform: Prof
 }
 
 /**
+ * Reads a JSON artifact if it exists and contains an object.
+ *
+ * @param {string} filePath
+ * @returns {Record<string, unknown> | null}
+ */
+function readOptionalJsonObject(filePath: string): Record<string, unknown> | null {
+  if (!fs.existsSync(filePath)) {
+    return null;
+  }
+
+  const value = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+/**
+ * Builds an Android target label from adb capture metadata.
+ *
+ * @param {Record<string, unknown>} metadata
+ * @returns {RuntimeTarget | null}
+ */
+function resolveAndroidRuntimeTarget(metadata: Record<string, unknown>): RuntimeTarget | null {
+  const selectedDevice = metadata.selectedDevice && typeof metadata.selectedDevice === 'object' && !Array.isArray(metadata.selectedDevice)
+    ? metadata.selectedDevice as Record<string, unknown>
+    : null;
+  const deviceProperties = metadata.deviceProperties && typeof metadata.deviceProperties === 'object' && !Array.isArray(metadata.deviceProperties)
+    ? metadata.deviceProperties as Record<string, unknown>
+    : null;
+  const serial = typeof selectedDevice?.serial === 'string' ? selectedDevice.serial : null;
+  if (!serial) {
+    return null;
+  }
+
+  const model = typeof deviceProperties?.model === 'string' && deviceProperties.model.trim().length > 0
+    ? deviceProperties.model.trim()
+    : 'android device';
+  const release = typeof deviceProperties?.release === 'string' && deviceProperties.release.trim().length > 0
+    ? ` Android ${deviceProperties.release.trim()}`
+    : '';
+  const sdk = typeof deviceProperties?.sdk === 'string' && deviceProperties.sdk.trim().length > 0
+    ? ` API ${deviceProperties.sdk.trim()}`
+    : '';
+
+  return {
+    name: `${model}${release}${sdk}`.trim(),
+    udid: serial,
+  };
+}
+
+/**
+ * Builds an iOS target label from simctl capture metadata.
+ *
+ * @param {Record<string, unknown>} metadata
+ * @returns {RuntimeTarget | null}
+ */
+function resolveIosRuntimeTarget(metadata: Record<string, unknown>): RuntimeTarget | null {
+  const selectedSimulator = metadata.selectedSimulator && typeof metadata.selectedSimulator === 'object' && !Array.isArray(metadata.selectedSimulator)
+    ? metadata.selectedSimulator as Record<string, unknown>
+    : null;
+  const name = typeof selectedSimulator?.name === 'string' ? selectedSimulator.name : null;
+  const udid = typeof selectedSimulator?.udid === 'string' ? selectedSimulator.udid : null;
+  if (!name || !udid) {
+    return null;
+  }
+
+  return {
+    name,
+    udid,
+  };
+}
+
+/**
+ * Resolves the runtime target attached to adb or simctl capture artifacts.
+ *
+ * @param {{args: CliArgs, platform: ProfilePlatform}} options
+ * @returns {RuntimeTarget}
+ */
+function resolveRuntimeTarget({ args, platform }: { args: CliArgs; platform: ProfilePlatform }): RuntimeTarget {
+  if (platform === 'android' && typeof args['adb-artifacts'] === 'string') {
+    const metadata = readOptionalJsonObject(path.resolve(args['adb-artifacts'], 'raw', 'android-metadata.json'));
+    const target = metadata ? resolveAndroidRuntimeTarget(metadata) : null;
+    if (target) {
+      return target;
+    }
+  }
+
+  if (platform === 'ios' && typeof args['simctl-artifacts'] === 'string') {
+    const metadata = readOptionalJsonObject(path.resolve(args['simctl-artifacts'], 'raw', 'ios-metadata.json'));
+    const target = metadata ? resolveIosRuntimeTarget(metadata) : null;
+    if (target) {
+      return target;
+    }
+  }
+
+  return {
+    name: platform === 'android' ? 'unknown android device' : 'unknown',
+    udid: 'unknown',
+  };
+}
+
+/**
  * Resolves the profile scenario name from modern or legacy scenario identity fields.
  *
  * @param {{scenario: Record<string, unknown>, scenarioPath: string}} options
@@ -1431,6 +1537,7 @@ async function runProfileMobile(args: CliArgs, options: ProfileMobileOptions): P
     scenario: scenarioName,
     runId,
   });
+  const runtimeTarget = resolveRuntimeTarget({ args, platform: options.platform });
 
   const metrics = buildMetricsFromProfileEvents({
     scenario: scenarioName,
@@ -1455,10 +1562,7 @@ async function runProfileMobile(args: CliArgs, options: ProfileMobileOptions): P
     interactionDriver,
     comparisonLane,
     startedAt,
-    simulator: {
-      name: options.platform === 'android' ? 'unknown android device' : 'unknown',
-      udid: 'unknown',
-    },
+    simulator: runtimeTarget,
     bundleId: resolveAppId({ config, platform: options.platform }),
     gitSha: 'unknown',
     toolVersions: {

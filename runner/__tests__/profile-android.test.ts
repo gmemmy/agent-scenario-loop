@@ -798,6 +798,10 @@ test('profile-android reads logcat from adb artifact folders', async (t: TestCon
 
   assert.equal(artifacts.raw.interactionLog, 'raw/adb-logcat.txt');
   assert.equal(manifest.interactionDriver, 'adb-logcat');
+  assert.deepEqual(manifest.simulator, {
+    name: 'unknown android device',
+    udid: 'unknown',
+  });
   assert.equal((causalRun.scenario as { driver: string }).driver, 'adb-logcat');
   assert.equal(health.healthStatus, 'passed');
   assert.equal(verdict.verdictStatus, 'passed');
@@ -864,6 +868,10 @@ test('profile-android can capture adb logs and profile them in one run', async (
   assert.equal(result.runDir, path.join(profileRoot, 'app-startup', 'android-captured-startup'));
   assert.equal(health.healthStatus, 'passed');
   assert.equal(adbHealth.healthStatus, 'passed');
+  assert.deepEqual(manifest.simulator, {
+    name: 'Pixel 6 Android 15 API 35',
+    udid: 'emulator-5554',
+  });
   assert.equal((manifest.artifacts as { raw: { interactionLog: string } }).raw.interactionLog, 'raw/adb-logcat.txt');
   assert.equal(manifest.interactionDriver, 'adb-logcat');
   assert.equal((causalRun.scenario as { driver: string }).driver, 'adb-logcat');

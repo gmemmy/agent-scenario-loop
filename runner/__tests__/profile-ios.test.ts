@@ -496,6 +496,10 @@ test('profile-ios can capture simctl logs and profile them in one run', async (t
   assert.equal(result.runDir, path.join(profileRoot, 'app-startup', 'ios-live-startup'));
   assert.equal(health.healthStatus, 'passed');
   assert.equal(simctlHealth.healthStatus, 'passed');
+  assert.deepEqual(manifest.simulator, {
+    name: 'iPhone 17 Pro Max',
+    udid: 'A692ED28-893E-453F-8866-C69331AE757F',
+  });
   assert.equal((manifest.artifacts as { raw: { interactionLog: string } }).raw.interactionLog, 'raw/ios-simctl-log.txt');
   assert.deepEqual((manifest.artifacts as { captures: { screenshots: string[] } }).captures.screenshots, [
     'captures/ios-screenshot.png',
