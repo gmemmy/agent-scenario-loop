@@ -310,6 +310,14 @@ test('validates platform-specific project config fields', async (t: TestContext)
   const config = JSON.parse(await fsp.readFile(configPath, 'utf8')) as {
     app: { androidPackage?: string | number; iosBundleId?: string; profileSessionScheme?: string };
     drivers: { supported?: unknown };
+    paths: {
+      androidArtifactsRoot?: string | number;
+      androidScenarioRoot?: string | number;
+      artifactRoot?: string | number;
+      iosArtifactsRoot?: string | number;
+      iosScenarioRoot?: string | number;
+      scenarioRoot?: string | number;
+    };
   };
   delete config.app.androidPackage;
   await fsp.writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
@@ -336,6 +344,30 @@ test('validates platform-specific project config fields', async (t: TestContext)
   assert.equal(result.status, 'failed');
   assert.deepEqual(result.config.invalidFields, ['app.androidPackage']);
 
+  config.app.androidPackage = 'com.example.app';
+  delete config.paths.scenarioRoot;
+  await fsp.writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
+  result = await validateProject({ rootDir: targetDir });
+  assert.equal(result.status, 'failed');
+  assert.deepEqual(result.config.missingFields, [
+    'paths.scenarioRoot or paths.iosScenarioRoot',
+    'paths.scenarioRoot or paths.androidScenarioRoot',
+  ]);
+
+  config.paths.scenarioRoot = 42;
+  await fsp.writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
+  result = await validateProject({ rootDir: targetDir, platform: 'ios' });
+  assert.equal(result.status, 'failed');
+  assert.deepEqual(result.config.invalidFields, ['paths.scenarioRoot']);
+
+  config.paths.scenarioRoot = 'scenarios/mobile';
+  config.paths.androidArtifactsRoot = 42;
+  await fsp.writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
+  result = await validateProject({ rootDir: targetDir, platform: 'android' });
+  assert.equal(result.status, 'failed');
+  assert.deepEqual(result.config.invalidFields, ['paths.androidArtifactsRoot']);
+
+  config.paths.androidArtifactsRoot = 'artifacts/android';
   config.app.androidPackage = 'com.example.app';
   config.drivers.supported = ['fixture-log-ingest', 'adb', 'ios-simctl'];
   await fsp.writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8');

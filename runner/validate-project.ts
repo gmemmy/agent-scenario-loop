@@ -24,6 +24,8 @@ type ProjectValidationPlan = {
   scenarioPath: string;
 };
 
+type MobilePlatform = 'android' | 'ios';
+
 type ProjectValidationAppHelper = {
   missingExports: string[];
   path: string;
@@ -335,6 +337,28 @@ const KNOWN_EXTERNAL_TARGET_DRIVERS = [
   'xcodebuildmcp',
 ];
 
+const REQUIRED_COMMON_CONFIG_STRING_FIELDS = [
+  ['app', 'profileSessionScheme'],
+  ['paths', 'artifactRoot'],
+  ['drivers', 'supported'],
+];
+
+const PLATFORM_CONFIG_STRING_FIELDS = {
+  android: [
+    ['app', 'androidPackage'],
+    ['paths', 'androidArtifactsRoot'],
+  ],
+  ios: [
+    ['app', 'iosBundleId'],
+    ['paths', 'iosArtifactsRoot'],
+  ],
+} satisfies Record<string, string[][]>;
+
+const PLATFORM_SCENARIO_ROOT_FIELDS = {
+  android: ['paths', 'androidScenarioRoot'],
+  ios: ['paths', 'iosScenarioRoot'],
+} satisfies Record<string, string[]>;
+
 /**
  * Prints CLI usage.
  *
@@ -422,6 +446,16 @@ function readNestedValue(source: Record<string, unknown>, pathSegments: string[]
   }
 
   return value;
+}
+
+/**
+ * Returns true when a config value is a non-empty string.
+ *
+ * @param {unknown} value
+ * @returns {value is string}
+ */
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.trim().length > 0;
 }
 
 /**
@@ -743,13 +777,14 @@ function validateProjectConfig({
     };
   }
 
-  const requiredFields = [
-    ['app', 'profileSessionScheme'],
-    ...(['ios', 'all'].includes(requestedPlatform) ? [['app', 'iosBundleId']] : []),
-    ...(['android', 'all'].includes(requestedPlatform) ? [['app', 'androidPackage']] : []),
-    ['drivers', 'supported'],
-  ];
   const config = readJson(configPath);
+  const requiredPlatforms: MobilePlatform[] = requestedPlatform === 'all'
+    ? ['ios', 'android']
+    : (['ios', 'android'] as MobilePlatform[]).filter((platform) => platform === requestedPlatform);
+  const requiredFields = [
+    ...REQUIRED_COMMON_CONFIG_STRING_FIELDS,
+    ...requiredPlatforms.flatMap((platform) => PLATFORM_CONFIG_STRING_FIELDS[platform] ?? []),
+  ];
   const missingFields: string[] = [];
   const invalidFields: string[] = [];
 
@@ -762,10 +797,27 @@ function validateProjectConfig({
       if (!Array.isArray(value) || value.some((item) => typeof item !== 'string' || item.trim().length === 0)) {
         invalidFields.push(label);
       }
-    } else if (typeof value !== 'string' || value.trim().length === 0) {
+    } else if (!isNonEmptyString(value)) {
       invalidFields.push(label);
     }
   }
+
+  const commonScenarioRoot = readNestedValue(config, ['paths', 'scenarioRoot']);
+  if (commonScenarioRoot !== undefined && !isNonEmptyString(commonScenarioRoot)) {
+    invalidFields.push('paths.scenarioRoot');
+  }
+  for (const platform of requiredPlatforms) {
+    const platformRootPath = PLATFORM_SCENARIO_ROOT_FIELDS[platform] ?? [];
+    const platformRootLabel = platformRootPath.join('.');
+    const platformScenarioRoot = readNestedValue(config, platformRootPath);
+    if (platformScenarioRoot !== undefined && !isNonEmptyString(platformScenarioRoot)) {
+      invalidFields.push(platformRootLabel);
+    }
+    if (commonScenarioRoot === undefined && platformScenarioRoot === undefined) {
+      missingFields.push(`paths.scenarioRoot or ${platformRootLabel}`);
+    }
+  }
+
   const rawSupportedDrivers = readNestedValue(config, ['drivers', 'supported']);
   const supportedDrivers = Array.isArray(rawSupportedDrivers)
     ? rawSupportedDrivers
