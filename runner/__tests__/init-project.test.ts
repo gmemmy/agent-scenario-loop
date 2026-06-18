@@ -65,8 +65,14 @@ test('init-project scaffolds templates into a consuming app layout', async (t: T
     'src/devtools/profile-session.ts',
   ]);
   assert.deepEqual(result.skipped, []);
-  assert.equal(readJson(path.join(targetDir, 'asl.config.json')).projectName, 'replace-me');
-  assert.deepEqual(readJson(path.join(targetDir, 'asl.config.json')).drivers, {
+  const config = readJson(path.join(targetDir, 'asl.config.json')) as {
+    drivers: Record<string, unknown>;
+    paths: { scenarioRoot: string };
+    projectName: string;
+  };
+  assert.equal(config.projectName, 'replace-me');
+  assert.equal(config.paths.scenarioRoot, 'scenarios/mobile');
+  assert.deepEqual(config.drivers, {
     default: 'fixture-log-ingest',
     supported: ['fixture-log-ingest', 'adb', 'ios-simctl', 'agent-device', 'argent', 'xcodebuildmcp'],
   });
