@@ -288,6 +288,58 @@ test('example mobile app declares reproducible iOS build compatibility inputs', 
   assert.ok(fs.existsSync(fixturePath('examples/mobile-app/patches/expo-modules-jsi@56.0.10.patch')));
 });
 
+test('example iOS build compatibility patch keeps AppDelegate factory setup nonrecursive', () => {
+  const { patchAppDelegate } = require(fixturePath('examples/mobile-app/plugins/with-ios-build-compat.js'));
+  const generatedAppDelegate = `internal import Expo
+import React
+import ReactAppDependencyProvider
+
+@main
+class AppDelegate: ExpoAppDelegate {
+  var window: UIWindow?
+
+  var reactNativeDelegate: ExpoReactNativeFactoryDelegate?
+  var reactNativeFactory: RCTReactNativeFactory?
+
+  public override func application(
+    _ application: UIApplication,
+    didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
+  ) -> Bool {
+    let delegate = ReactNativeDelegate()
+    let factory = ExpoReactNativeFactory(delegate: delegate)
+    delegate.dependencyProvider = RCTAppDependencyProvider()
+
+    reactNativeDelegate = delegate
+    reactNativeFactory = factory
+
+#if os(iOS) || os(tvOS)
+    window = UIWindow(frame: UIScreen.main.bounds)
+    factory.startReactNative(
+      withModuleName: "main",
+      in: window,
+      launchOptions: launchOptions)
+#endif
+
+    return super.application(application, didFinishLaunchingWithOptions: launchOptions)
+  }
+
+  // Linking API
+}
+`;
+
+  const patchedOnce = patchAppDelegate(generatedAppDelegate);
+  const patchedTwice = patchAppDelegate(patchedOnce);
+
+  assert.equal(patchedTwice, patchedOnce);
+  assert.match(patchedOnce, /func prepareReactNativeFactory\(\)/u);
+  assert.match(patchedOnce, /let delegate = ReactNativeDelegate\(\)/u);
+  assert.match(patchedOnce, /reactNativeFactory = factory/u);
+  assert.doesNotMatch(
+    patchedOnce,
+    /func prepareReactNativeFactory\(\) \{\n    if reactNativeFactory != nil \{\n      return\n    \}\n\n    prepareReactNativeFactory\(\)\n  \}/u,
+  );
+});
+
 test('example Android video scenario maps to optional adb record capture', () => {
   const scenario = readJson(fixturePath('examples/mobile-app/scenarios/android/app-startup-video.json'));
   const driverSteps = resolveAndroidAdbDriverSteps(scenario);

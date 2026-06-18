@@ -83,9 +83,12 @@ ASL_ANDROID_SERIAL=<emulator-or-device-serial>
 ASL_IOS_UDID=<simulator-udid>
 ASL_ANDROID_APP_ID=<package-name>
 ASL_IOS_APP_ID=<bundle-id>
+ASL_IOS_DEV_CLIENT_URL=<dev-client-url>
 ASL_ARGENT_BIN=pnpm
 ASL_ARGENT_BASE_ARGS="dlx @swmansion/argent run"
 ```
+
+Set `ASL_IOS_DEV_CLIENT_URL` only when an iOS dev-client shell must open a specific Metro URL before profile-session evidence is collected. Keep the actual URL in ignored local env state because it depends on the local app id, host, and port.
 
 ## Portable Interaction Proof
 

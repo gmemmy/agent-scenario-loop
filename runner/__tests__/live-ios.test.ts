@@ -90,6 +90,9 @@ test('generic iOS live proof captures profile evidence before sidecar proofs', a
       writeCurrentSessionEvents(dataContainer);
       return { command, args, exitCode: 0, stderr: '', stdout: `${BUNDLE_ID}: 1234\n` };
     }
+    if (key.startsWith(`simctl openurl ${DEVICE_ID} asl-example://expo-development-client/`)) {
+      return { command, args, exitCode: 0, stderr: '', stdout: '' };
+    }
     if (key.startsWith(`simctl io ${DEVICE_ID} screenshot `)) {
       const screenshotPath = args.at(-1);
       assert.equal(typeof screenshotPath, 'string');
@@ -133,6 +136,8 @@ test('generic iOS live proof captures profile evidence before sidecar proofs', a
     bundle: BUNDLE_ID,
     config: path.join(ROOT, 'examples', 'mobile-app', 'asl.config.json'),
     device: DEVICE_ID,
+    'ios-dev-client-url': 'asl-example://expo-development-client/?url=http%3A%2F%2Flocalhost%3A8097',
+    'ios-dev-client-wait-ms': '15',
     out: outputDir,
     scenario: path.join(ROOT, 'examples', 'mobile-app', 'scenarios', 'mobile', 'app-startup.json'),
   }, {
@@ -164,6 +169,11 @@ test('generic iOS live proof captures profile evidence before sidecar proofs', a
     'Argent proof should run after iOS profile evidence capture',
   );
   assert.ok(waits.includes(9000), 'expected generic iOS live proof to derive the startup capture window from scenario timeouts');
+  assert.ok(waits.includes(15), 'expected generic iOS live proof to wait after opening the dev-client URL');
+  assert.ok(
+    orderedCalls.some((call) => call.startsWith(`simctl:simctl openurl ${DEVICE_ID} asl-example://expo-development-client/`)),
+    'expected generic iOS live proof to open the dev-client URL before evidence capture',
+  );
 
   const failedAgentDeviceExecutor = async (command: string, args: string[]): Promise<AgentDeviceCommandResult> => {
     orderedCalls.push(`failed-agent-device:${args.join(' ')}`);

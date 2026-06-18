@@ -159,6 +159,8 @@ The root example live scripts pass `--compare-latest --fail-on-regression` by de
 pnpm example:ios:live -- --run-suffix after-change
 ```
 
+Expo dev-client shells may need an explicit Metro deep link after the native app launches. Put that local URL in ignored env state, for example `ASL_EXAMPLE_IOS_DEV_CLIENT_URL=asl-example://expo-development-client/?url=http%3A%2F%2Flocalhost%3A8097`, so the iOS profile capture opens the correct app session before collecting evidence.
+
 Read [Example Mobile App: iOS Capture](../examples/mobile-app/README.md#ios-capture) for prebuild, Xcode selection, simulator permissions, stored profile events, and individual scenario commands.
 
 ## Sidecar Interaction Proof

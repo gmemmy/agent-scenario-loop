@@ -18,6 +18,7 @@ const {
 } = require('./profile-mobile');
 const { runIosSimctlCapture } = require('./ios-simctl');
 const { runAgentDeviceCapture } = require('./agent-device');
+const { loadAslLocalEnv, readStringArgOrEnv } = require('./local-env');
 
 type IosProfileOptions = {
   agentDeviceExecutor?: import('./agent-device').CommandExecutor;
@@ -441,8 +442,28 @@ async function runProfileIos(
   const runId = typeof args['run-id'] === 'string' ? args['run-id'] : createRunId();
   const profileSessionEnabled = isEnabled(args['profile-session']);
   const profileSessionStorageEnabled = isEnabled(args['profile-session-storage']);
+  const iosDevClientUrl = readStringArgOrEnv(args['ios-dev-client-url'], [
+    'ASL_IOS_DEV_CLIENT_URL',
+    'ASL_EXAMPLE_IOS_DEV_CLIENT_URL',
+  ]);
+  const iosDevClientWaitMs = readPositiveInteger(
+    readStringArgOrEnv(args['ios-dev-client-wait-ms'], [
+      'ASL_IOS_DEV_CLIENT_WAIT_MS',
+      'ASL_EXAMPLE_IOS_DEV_CLIENT_WAIT_MS',
+    ]),
+    1000,
+  );
   const scenarioName = typeof scenario.name === 'string' ? scenario.name : path.basename(args.scenario, '.json');
   const profileSessionCommands = profileSessionEnabled ? resolveIosSimctlProfileCommands(scenario) : [];
+  const iosDevClientDeepLinks = iosDevClientUrl
+    ? [
+        {
+          label: 'ios-dev-client-url',
+          url: iosDevClientUrl,
+          waitMs: iosDevClientWaitMs,
+        },
+      ]
+    : [];
   const profileSessionDeepLinks = profileSessionEnabled && !profileSessionStorageEnabled
     ? [
         {
@@ -468,12 +489,13 @@ async function runProfileIos(
         })),
       ]
     : [];
+  const deepLinks = [...iosDevClientDeepLinks, ...profileSessionDeepLinks];
   const simctlCapture = isEnabled(args['simctl-capture'])
     ? await runIosSimctlCapture({
         bundleId: resolveIosBundleId({ args, config }),
         collectProfileStorage: profileSessionStorageEnabled,
         conflictingBundleIds: resolveIosConflictingBundleIds(config),
-        deepLinks: profileSessionDeepLinks,
+        deepLinks,
         ...(options.delay ? { delay: options.delay } : {}),
         ...(typeof args.device === 'string' ? { device: args.device } : {}),
         ...(options.executor ? { executor: options.executor } : {}),
@@ -579,6 +601,7 @@ async function main(): Promise<void> {
     return;
   }
 
+  loadAslLocalEnv();
   const args = parseArgs(argv);
   if (typeof args.config !== 'string' || typeof args.scenario !== 'string') {
     usage({ binaryName: 'asl-profile-ios', platform: 'ios' });

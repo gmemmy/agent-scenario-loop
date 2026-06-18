@@ -135,13 +135,27 @@ function writeCurrentSessionEvents(dataContainer: string): void {
 test('runs the packaged iOS example live proof with a fake simctl executor', async (t: TestContext) => {
   const outputDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-example-ios-live-'));
   const previousDevice = process.env.ASL_EXAMPLE_IOS_UDID;
+  const previousDevClientUrl = process.env.ASL_EXAMPLE_IOS_DEV_CLIENT_URL;
+  const previousDevClientWaitMs = process.env.ASL_EXAMPLE_IOS_DEV_CLIENT_WAIT_MS;
   process.env.ASL_EXAMPLE_IOS_UDID = DEVICE_ID;
+  process.env.ASL_EXAMPLE_IOS_DEV_CLIENT_URL = 'asl-example://expo-development-client/?url=http%3A%2F%2Flocalhost%3A8097';
+  process.env.ASL_EXAMPLE_IOS_DEV_CLIENT_WAIT_MS = '15';
   const dataContainer = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-example-ios-data-'));
   t.after(async () => {
     if (typeof previousDevice === 'string') {
       process.env.ASL_EXAMPLE_IOS_UDID = previousDevice;
     } else {
       delete process.env.ASL_EXAMPLE_IOS_UDID;
+    }
+    if (typeof previousDevClientUrl === 'string') {
+      process.env.ASL_EXAMPLE_IOS_DEV_CLIENT_URL = previousDevClientUrl;
+    } else {
+      delete process.env.ASL_EXAMPLE_IOS_DEV_CLIENT_URL;
+    }
+    if (typeof previousDevClientWaitMs === 'string') {
+      process.env.ASL_EXAMPLE_IOS_DEV_CLIENT_WAIT_MS = previousDevClientWaitMs;
+    } else {
+      delete process.env.ASL_EXAMPLE_IOS_DEV_CLIENT_WAIT_MS;
     }
     await fsp.rm(outputDir, { recursive: true, force: true });
     await fsp.rm(dataContainer, { recursive: true, force: true });
@@ -181,6 +195,9 @@ test('runs the packaged iOS example live proof with a fake simctl executor', asy
     if (key === `simctl launch ${DEVICE_ID} ${BUNDLE_ID}`) {
       writeCurrentSessionEvents(dataContainer);
       return { command, args, exitCode: 0, stderr: '', stdout: `${BUNDLE_ID}: 1234\n` };
+    }
+    if (key.startsWith(`simctl openurl ${DEVICE_ID} asl-example://expo-development-client/`)) {
+      return { command, args, exitCode: 0, stderr: '', stdout: '' };
     }
     if (key.startsWith(`simctl io ${DEVICE_ID} screenshot `)) {
       const screenshotPath = args.at(-1);
@@ -280,6 +297,10 @@ test('runs the packaged iOS example live proof with a fake simctl executor', asy
   assert.match(formatResult(result), /Live proof:/u);
   assert.match(formatResult(result), /Comparisons:/u);
   assert.ok(calls.some((call) => call === `simctl launch ${DEVICE_ID} ${BUNDLE_ID}`));
+  assert.equal(
+    calls.filter((call) => call.startsWith(`simctl openurl ${DEVICE_ID} asl-example://expo-development-client/`)).length,
+    6,
+  );
   assert.ok(agentDeviceCalls.some((call) => call.includes(`open ${BUNDLE_ID}`)));
   assert.ok(agentDeviceCalls.some((call) => call.includes('is visible id="asl-example-title"')));
   assert.ok(agentDeviceCalls.some((call) => call.includes('screenshot')));

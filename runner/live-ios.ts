@@ -35,9 +35,10 @@ type SkippedInteractionProof = import('./live-proof-summary').LiveProofSkippedIn
  */
 function usage(output: { write: (message: string) => unknown } = process.stderr): void {
   writeUsage([
-    'Usage: asl-live-ios --config <path> --scenario <path> [--out <dir>] [--bundle <id>] [--device <udid|booted>] [--run-id <id>] [--run-suffix <label>] [--compare-latest] [--fail-on-regression] [--agent-device-proof] [--argent-proof]',
+    'Usage: asl-live-ios --config <path> --scenario <path> [--out <dir>] [--bundle <id>] [--device <udid|booted>] [--ios-dev-client-url <url>] [--run-id <id>] [--run-suffix <label>] [--compare-latest] [--fail-on-regression] [--agent-device-proof] [--argent-proof]',
     '',
     'Runs one generic iOS live proof: simctl preflight, profile-session simctl capture, optional sidecars, optional latest-trusted comparison, and aggregate live-proof artifacts.',
+    'Set ASL_IOS_DEV_CLIENT_URL when an Expo dev-client shell must open a specific Metro URL before profile evidence is collected.',
     'Use --agent-device-proof to attach scenario-declared portable driver actions through agent-device; pass --agent-device-session-mode bind when a named session should still receive the configured UDID.',
     'Use --argent-proof to attach scenario-declared Argent-compatible driver actions; set ASL_ARGENT_BIN and ASL_ARGENT_BASE_ARGS for non-global installs. iOS Argent screenshots fall back to simctl when Argent screenshot is unavailable.',
   ], output);
@@ -304,6 +305,14 @@ async function runIosLiveProof(
     'ASL_IOS_AGENT_DEVICE_SESSION_MODE',
     'ASL_EXAMPLE_IOS_AGENT_DEVICE_SESSION_MODE',
   ]);
+  const iosDevClientUrl = readStringArgOrEnv(args['ios-dev-client-url'], [
+    'ASL_IOS_DEV_CLIENT_URL',
+    'ASL_EXAMPLE_IOS_DEV_CLIENT_URL',
+  ]);
+  const iosDevClientWaitMs = readStringArgOrEnv(args['ios-dev-client-wait-ms'], [
+    'ASL_IOS_DEV_CLIENT_WAIT_MS',
+    'ASL_EXAMPLE_IOS_DEV_CLIENT_WAIT_MS',
+  ]);
   const outputDir = typeof args.out === 'string' ? path.resolve(args.out) : path.resolve('artifacts/asl/ios-live');
   const runSuffix = normalizeRunSuffix(args['run-suffix']);
   const aggregateRunId = buildRunId(typeof args['run-id'] === 'string' ? args['run-id'] : 'ios-live-proof', runSuffix);
@@ -349,6 +358,8 @@ async function runIosLiveProof(
     ...(deviceId ? { device: deviceId } : {}),
     launch: true,
     out: outputDir,
+    ...(iosDevClientUrl ? { 'ios-dev-client-url': iosDevClientUrl } : {}),
+    ...(iosDevClientWaitMs ? { 'ios-dev-client-wait-ms': iosDevClientWaitMs } : {}),
     'profile-session': true,
     'profile-session-storage': true,
     'run-id': profileRunId,

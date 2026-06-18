@@ -40,6 +40,34 @@ const deploymentTargetPatch = `
     end
 `;
 
+const reactNativeFactorySetup = `    let delegate = ReactNativeDelegate()
+    let factory = ExpoReactNativeFactory(delegate: delegate)
+    delegate.dependencyProvider = RCTAppDependencyProvider()
+
+    reactNativeDelegate = delegate
+    reactNativeFactory = factory`;
+
+const prepareReactNativeFactoryFunction = `  func prepareReactNativeFactory() {
+    if reactNativeFactory != nil {
+      return
+    }
+
+    let delegate = ReactNativeDelegate()
+    let factory = ExpoReactNativeFactory(delegate: delegate)
+    delegate.dependencyProvider = RCTAppDependencyProvider()
+
+    reactNativeDelegate = delegate
+    reactNativeFactory = factory
+  }`;
+
+const recursivePrepareReactNativeFactoryFunction = `  func prepareReactNativeFactory() {
+    if reactNativeFactory != nil {
+      return
+    }
+
+    prepareReactNativeFactory()
+  }`;
+
 /**
  * Applies the generated iOS compatibility patches needed by the Expo example app.
  */
@@ -130,15 +158,15 @@ function withSceneAppDelegate(config) {
 function patchAppDelegate(contents) {
   let next = contents;
 
-  next = replaceOnce(
-    next,
-    `    let delegate = ReactNativeDelegate()
-    let factory = ExpoReactNativeFactory(delegate: delegate)
-    delegate.dependencyProvider = RCTAppDependencyProvider()
+  if (next.includes(recursivePrepareReactNativeFactoryFunction)) {
+    next = next.replace(recursivePrepareReactNativeFactoryFunction, prepareReactNativeFactoryFunction);
+  }
 
-    reactNativeDelegate = delegate
-    reactNativeFactory = factory`,
+  next = replaceBeforeAnchor(
+    next,
+    reactNativeFactorySetup,
     '    prepareReactNativeFactory()',
+    '#if os(iOS) || os(tvOS)',
     'Unable to replace React Native factory setup in AppDelegate.swift.'
   );
 
@@ -166,18 +194,7 @@ function patchAppDelegate(contents) {
     next = replaceOnce(
       next,
       `  // Linking API`,
-      `  func prepareReactNativeFactory() {
-    if reactNativeFactory != nil {
-      return
-    }
-
-    let delegate = ReactNativeDelegate()
-    let factory = ExpoReactNativeFactory(delegate: delegate)
-    delegate.dependencyProvider = RCTAppDependencyProvider()
-
-    reactNativeDelegate = delegate
-    reactNativeFactory = factory
-  }
+      `${prepareReactNativeFactoryFunction}
 
   func startReactNative(
     in window: UIWindow,
@@ -226,4 +243,25 @@ function replaceOnce(contents, search, replacement, message) {
   return contents.slice(0, first) + replacement + contents.slice(first + search.length);
 }
 
+/**
+ * Replaces a generated Swift fragment only when it appears before a known anchor.
+ */
+function replaceBeforeAnchor(contents, search, replacement, anchor, message) {
+  const anchorIndex = contents.indexOf(anchor);
+  if (anchorIndex === -1) {
+    throw new Error(message);
+  }
+
+  const first = contents.indexOf(search);
+  if (first === -1 || first > anchorIndex) {
+    if (contents.slice(0, anchorIndex).includes(replacement)) {
+      return contents;
+    }
+    throw new Error(message);
+  }
+
+  return contents.slice(0, first) + replacement + contents.slice(first + search.length);
+}
+
 module.exports = withIosBuildCompat;
+module.exports.patchAppDelegate = patchAppDelegate;

@@ -88,10 +88,10 @@ const EXAMPLE_PROFILES = [
  */
 function usage(output: { write: (message: string) => unknown } = process.stderr): void {
   writeUsage([
-    'Usage: asl-example-ios-live [--config <path>] [--out <dir>] [--bundle <id>] [--device <udid|booted>] [--xcrun <path>] [--run-suffix <label>] [--compare-latest] [--fail-on-regression] [--agent-device-proof] [--argent-proof]',
+    'Usage: asl-example-ios-live [--config <path>] [--out <dir>] [--bundle <id>] [--device <udid|booted>] [--xcrun <path>] [--ios-dev-client-url <url>] [--run-suffix <label>] [--compare-latest] [--fail-on-regression] [--agent-device-proof] [--argent-proof]',
     '',
     'Runs the packaged example iOS live proof: simctl preflight, startup, open-close, and scroll-settle.',
-    'The example app must already be installed on a booted iOS simulator and connected to Metro.',
+    'The example app must already be installed on a booted iOS simulator and connected to Metro. Set ASL_EXAMPLE_IOS_DEV_CLIENT_URL for Expo dev-client builds that need an explicit Metro URL.',
     'Use --run-suffix to preserve multiple live proof artifact sets without changing deterministic default run ids.',
     'Use --compare-latest to compare each passed scenario against the latest trusted prior run under the artifact root.',
     'Use --fail-on-regression with --compare-latest to exit nonzero after writing evidence when any comparison regressed.',
@@ -344,6 +344,14 @@ async function runExampleIosLiveProof(
     'ASL_EXAMPLE_IOS_AGENT_DEVICE_SESSION_MODE',
   ]);
   const runSuffix = normalizeRunSuffix(args['run-suffix']);
+  const iosDevClientUrl = readStringArgOrEnv(args['ios-dev-client-url'], [
+    'ASL_IOS_DEV_CLIENT_URL',
+    'ASL_EXAMPLE_IOS_DEV_CLIENT_URL',
+  ]);
+  const iosDevClientWaitMs = readStringArgOrEnv(args['ios-dev-client-wait-ms'], [
+    'ASL_IOS_DEV_CLIENT_WAIT_MS',
+    'ASL_EXAMPLE_IOS_DEV_CLIENT_WAIT_MS',
+  ]);
   const aggregateRunId = buildLiveRunId('ios-live-proof', runSuffix);
   const preflightRunId = buildLiveRunId('ios-live-preflight', runSuffix);
   const agentDeviceRunId = buildLiveRunId('ios-agent-device-startup', runSuffix);
@@ -384,6 +392,8 @@ async function runExampleIosLiveProof(
       ...(typeof args['log-last'] === 'string' ? { 'log-last': args['log-last'] } : {}),
       launch: true,
       out: outputDir,
+      ...(iosDevClientUrl ? { 'ios-dev-client-url': iosDevClientUrl } : {}),
+      ...(iosDevClientWaitMs ? { 'ios-dev-client-wait-ms': iosDevClientWaitMs } : {}),
       'profile-session': true,
       'profile-session-storage': true,
       'run-id': profileRunId,

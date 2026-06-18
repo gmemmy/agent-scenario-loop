@@ -81,6 +81,8 @@ asl-check-plan --scenario scenarios/mobile/first-journey.json --runner runner-ma
 asl-profile-ios --config asl.config.json --scenario scenarios/mobile/first-journey.json --simctl-capture --profile-session --profile-session-storage --launch --out artifacts/asl/ios --run-id first-journey-ios-live --comparison-lane first-journey-ios-live
 ```
 
+For Expo dev-client builds, set `ASL_IOS_DEV_CLIENT_URL` to the app's dev-client URL in ignored local env state. `asl-profile-ios` and `asl-live-ios` open it before reading stored profile-session evidence.
+
 When `--wait-ms` is omitted, profile-session live capture derives the final adb or simctl evidence window from the scenario execution steps and cycle count. Use an explicit `--wait-ms` only for an app-specific override.
 
 ## 5. Compare Only Trusted Runs

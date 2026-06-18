@@ -89,6 +89,8 @@ The command targets the booted simulator and the example app bundle id by defaul
 ASL_EXAMPLE_IOS_DEVICE=<simulator-udid> ASL_EXAMPLE_METRO_PORT=8097 pnpm example:app:ios:metro-port
 ```
 
+For Expo dev-client iOS builds, also set `ASL_EXAMPLE_IOS_DEV_CLIENT_URL` to the example app's dev-client URL for the same Metro port. The iOS live runners open that URL after launching the native shell and before collecting stored profile-session evidence.
+
 If a selected Xcode beta cannot run the current Expo/RN toolchain cleanly, point `ASL_EXAMPLE_XCODE_DEVELOPER_DIR` at a stable Xcode developer directory before running the iOS Metro-port, live proof, or raw local iOS build commands.
 
 ## Files
@@ -145,6 +147,7 @@ ASL_HOST_DOCTOR_REQUIRE=android,ios,agent-device,argent
 ASL_AGENT_DEVICE_REQUIRED_PLATFORMS=ios,android
 ASL_ANDROID_AGENT_DEVICE_SESSION=android-example
 ASL_IOS_AGENT_DEVICE_SESSION=default
+ASL_EXAMPLE_IOS_DEV_CLIENT_URL=asl-example://expo-development-client/?url=http%3A%2F%2Flocalhost%3A8097
 ASL_ARGENT_BIN=pnpm
 ASL_ARGENT_BASE_ARGS="dlx @swmansion/argent run"
 ASL_ARGENT_IOS_SIMCTL_SCREENSHOT_FALLBACK=1
