@@ -327,6 +327,7 @@ const CONFIG_PLACEHOLDER_VALUES = [
 ];
 
 const REQUIRED_GITIGNORE_PATTERNS = [
+  '.asl.local.env',
   'artifacts/asl/',
   'artifacts/example-mobile-app/',
   '*.memgraph',

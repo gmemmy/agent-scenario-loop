@@ -132,6 +132,7 @@ test('init-project scaffolds templates into a consuming app layout', async (t: T
   assert.match(integrationReadme, /ASL_ARGENT_COMMAND_TIMEOUT_MS/u);
   assert.match(integrationReadme, /Keep deterministic validation and live device proof as separate lanes/u);
   assert.match(integrationReadme, /host\/device access/u);
+  assert.match(fs.readFileSync(path.join(targetDir, 'asl', 'gitignore-snippet'), 'utf8'), /\.asl\.local\.env/u);
   assert.match(fs.readFileSync(path.join(targetDir, 'asl', 'gitignore-snippet'), 'utf8'), /artifacts\/asl\//u);
   const accessibilityProviderScript = fs.readFileSync(path.join(targetDir, 'scripts', 'asl-capture-accessibility-provider.mjs'), 'utf8');
   assert.match(accessibilityProviderScript, /writeAccessibilityEvidence/u);

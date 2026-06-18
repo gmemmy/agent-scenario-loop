@@ -430,6 +430,7 @@ test('validates runtime artifact gitignore patterns', async (t: TestContext) => 
     '*.memgraph',
     '*.trace',
     '*.xcresult',
+    '.asl.local.env',
     'artifacts/asl/',
     'artifacts/example-mobile-app/',
   ]);
@@ -441,6 +442,7 @@ test('validates runtime artifact gitignore patterns', async (t: TestContext) => 
     '*.memgraph',
     '*.trace',
     '*.xcresult',
+    '.asl.local.env',
     'artifacts/example-mobile-app/',
   ]);
 
@@ -448,6 +450,7 @@ test('validates runtime artifact gitignore patterns', async (t: TestContext) => 
     path.join(targetDir, '.gitignore'),
     [
       'node_modules/',
+      '.asl.local.env',
       'artifacts/asl/',
       'artifacts/example-mobile-app/',
       '*.memgraph',
@@ -481,6 +484,7 @@ test('validates config artifact roots against runtime artifact gitignore pattern
     path.join(targetDir, '.gitignore'),
     [
       'node_modules/',
+      '.asl.local.env',
       'artifacts/asl/',
       'artifacts/example-mobile-app/',
       '*.memgraph',
@@ -500,6 +504,7 @@ test('validates config artifact roots against runtime artifact gitignore pattern
     path.join(targetDir, '.gitignore'),
     [
       'node_modules/',
+      '.asl.local.env',
       'artifacts/custom/',
       'artifacts/asl/',
       'artifacts/example-mobile-app/',

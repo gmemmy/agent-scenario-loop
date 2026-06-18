@@ -938,6 +938,10 @@ function main(): void {
       fs.readFileSync(path.join(initOutputDir, 'asl', 'gitignore-snippet'), 'utf8'),
       /artifacts\/asl\//u,
     );
+    assert.match(
+      fs.readFileSync(path.join(initOutputDir, 'asl', 'gitignore-snippet'), 'utf8'),
+      /\.asl\.local\.env/u,
+    );
     assert.deepEqual(
       JSON.parse(fs.readFileSync(path.join(initOutputDir, 'runner-manifests', 'evidence-provider.json'), 'utf8')).capabilities,
       ['accessibility', 'memory', 'network', 'profiler'],

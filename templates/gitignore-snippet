@@ -1,4 +1,5 @@
 # Agent Scenario Loop runtime artifacts
+.asl.local.env
 artifacts/asl/
 artifacts/example-mobile-app/
 
