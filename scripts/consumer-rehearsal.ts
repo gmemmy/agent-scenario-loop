@@ -340,6 +340,185 @@ function assertArgentScriptRuns({
 }
 
 /**
+ * Writes a small, valid platform live-proof artifact with all local pointers present.
+ *
+ * @param {{appRoot: string, platform: 'android' | 'ios'}} options
+ * @returns {string}
+ */
+function writeConsumerLiveProofFixture({
+  appRoot,
+  platform,
+}: {
+  appRoot: string;
+  platform: 'android' | 'ios';
+}): string {
+  const scenarioId = 'account-overview';
+  const runId = `${platform}-live-proof-rehearsal`;
+  const platformRoot = path.join(appRoot, 'artifacts', 'asl', `${platform}-live`);
+  const liveProofDir = path.join(platformRoot, '_live-proof', `${platform}-live-proof`);
+  const preflightDir = path.join(platformRoot, 'preflight');
+  const profileDir = path.join(platformRoot, scenarioId, `${scenarioId}-${platform}-live`);
+  const interactionDir = path.join(platformRoot, 'interactions', `${scenarioId}-${platform}-agent-device`);
+  const comparisonBaselineDir = path.join(platformRoot, 'baselines', scenarioId);
+  const comparisonDir = path.join(platformRoot, 'comparisons', scenarioId, `${scenarioId}-${platform}-live`);
+
+  for (const dir of [
+    liveProofDir,
+    preflightDir,
+    profileDir,
+    interactionDir,
+    path.join(interactionDir, 'captures'),
+    comparisonBaselineDir,
+    comparisonDir,
+  ]) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+
+  for (const summaryPath of [
+    path.join(liveProofDir, 'agent-summary.md'),
+    path.join(preflightDir, 'agent-summary.md'),
+    path.join(profileDir, 'agent-summary.md'),
+    path.join(interactionDir, 'agent-summary.md'),
+    path.join(comparisonDir, 'agent-summary.md'),
+  ]) {
+    fs.writeFileSync(summaryPath, `# ${platform} ${scenarioId} rehearsal\n`, 'utf8');
+  }
+  fs.writeFileSync(path.join(interactionDir, 'captures', 'final.png'), 'fake screenshot', 'utf8');
+
+  const liveProofPath = path.join(liveProofDir, 'live-proof.json');
+  writeJson(liveProofPath, {
+    schemaVersion: '1.0.0',
+    platform,
+    runId,
+    status: 'passed',
+    outputDir: path.relative(appRoot, liveProofDir),
+    preflight: {
+      runId: `${platform}-preflight`,
+      runDir: path.relative(appRoot, preflightDir),
+      summaryPath: path.relative(appRoot, path.join(preflightDir, 'agent-summary.md')),
+      healthStatus: 'passed',
+      verdictStatus: 'passed',
+    },
+    profiles: [
+      {
+        label: 'startup',
+        scenarioId,
+        runId: `${scenarioId}-${platform}-live`,
+        runDir: path.relative(appRoot, profileDir),
+        summaryPath: path.relative(appRoot, path.join(profileDir, 'agent-summary.md')),
+        healthStatus: 'passed',
+        verdictStatus: 'passed',
+      },
+    ],
+    interactionProofs: [
+      {
+        label: 'agent-device startup',
+        runnerId: 'agent-device',
+        scenarioId,
+        runId: `${scenarioId}-${platform}-agent-device`,
+        runDir: path.relative(appRoot, interactionDir),
+        summaryPath: path.relative(appRoot, path.join(interactionDir, 'agent-summary.md')),
+        healthStatus: 'passed',
+        verdictStatus: 'not_evaluated',
+        captures: {
+          screenshots: ['captures/final.png'],
+        },
+      },
+    ],
+    comparisons: [
+      {
+        label: 'startup',
+        scenarioId,
+        runId: `${scenarioId}-${platform}-live`,
+        status: 'better',
+        baselineDir: path.relative(appRoot, comparisonBaselineDir),
+        comparisonDir: path.relative(appRoot, comparisonDir),
+        summaryPath: path.relative(appRoot, path.join(comparisonDir, 'agent-summary.md')),
+        reason: null,
+        metricSummary: {
+          counts: {
+            better: 1,
+            worse: 0,
+            unchanged: 0,
+            inconclusive: 0,
+          },
+          notableMetrics: [
+            {
+              name: 'durationMs.p50',
+              status: 'better',
+              unit: 'ms',
+              baseline: 900,
+              current: 800,
+              delta: -100,
+            },
+          ],
+        },
+      },
+    ],
+    comparisonCounts: {
+      better: 1,
+      worse: 0,
+      unchanged: 0,
+      mixed: 0,
+      inconclusive: 0,
+      skipped: 0,
+    },
+    comparisonStatus: 'improved',
+    nextAction: {
+      code: 'inspect_summary',
+      summary: 'Inspect the rehearsal proof summary.',
+    },
+    summary: `${platform} rehearsal live proof passed.`,
+  });
+
+  return path.relative(appRoot, liveProofPath);
+}
+
+/**
+ * Asserts the generated two-platform live-proof script works from an installed app.
+ *
+ * @param {{appRoot: string, env: NodeJS.ProcessEnv}} options
+ * @returns {void}
+ */
+function assertGeneratedLiveProofGateRuns({
+  appRoot,
+  env,
+}: {
+  appRoot: string;
+  env: NodeJS.ProcessEnv;
+}): void {
+  const androidLiveProof = writeConsumerLiveProofFixture({ appRoot, platform: 'android' });
+  const iosLiveProof = writeConsumerLiveProofFixture({ appRoot, platform: 'ios' });
+
+  run('npm', ['run', 'asl:live-proof:both', '--silent'], {
+    cwd: appRoot,
+    env: {
+      ...env,
+      ASL_ANDROID_LIVE_PROOF: androidLiveProof,
+      ASL_IOS_LIVE_PROOF: iosLiveProof,
+      ASL_REQUIRE_LIVE_PROOF_ARTIFACTS: '1',
+    },
+  });
+
+  const proofSet = readJson(path.join(appRoot, 'artifacts', 'asl', 'live-proof-set', 'live-proof-set.json')) as {
+    nextAction: { code: string };
+    presentPlatforms: string[];
+    proofCount: number;
+    requiredPlatforms: string[];
+    status: string;
+  };
+  const summary = fs.readFileSync(path.join(appRoot, 'artifacts', 'asl', 'live-proof-set', 'agent-summary.md'), 'utf8');
+
+  assert.equal(proofSet.status, 'passed');
+  assert.deepEqual(proofSet.requiredPlatforms, ['android', 'ios']);
+  assert.deepEqual(proofSet.presentPlatforms, ['android', 'ios']);
+  assert.equal(proofSet.proofCount, 2);
+  assert.equal(proofSet.nextAction.code, 'inspect_summary');
+  assert.match(summary, /Status: passed/u);
+  assert.match(summary, /Present platforms: android, ios/u);
+}
+
+/**
  * Merges generated Agent Scenario Loop package-script snippets into the app package.json.
  *
  * @param {string} appRoot
@@ -583,6 +762,7 @@ function rehearseConsumerInstall({
   });
   assertArgentScriptRuns({ appRoot, env, fakeArgentPath, platform: 'ios' });
   assertArgentScriptRuns({ appRoot, env, fakeArgentPath, platform: 'android' });
+  assertGeneratedLiveProofGateRuns({ appRoot, env });
   run('npm', ['run', 'asl:validate', '--silent'], {
     cwd: appRoot,
     env,
