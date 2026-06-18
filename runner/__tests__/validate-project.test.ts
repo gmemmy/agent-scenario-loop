@@ -9,6 +9,7 @@ const { initProject } = require('../init-project');
 const {
   buildValidationRunId,
   formatResult,
+  listScenarioFiles,
   parseArgs,
   resolvePlatforms,
   validateConfigPlaceholders,
@@ -28,6 +29,15 @@ const ROOT = path.join(__dirname, '..', '..', '..');
 
 function actionCodes(result: { nextActions: Array<{ code: string }> }): string[] {
   return result.nextActions.map((action) => action.code).sort();
+}
+
+async function readJsonFile(filePath: string): Promise<Record<string, any>> {
+  return JSON.parse(await fsp.readFile(filePath, 'utf8'));
+}
+
+async function writeJsonFile(filePath: string, value: Record<string, any>): Promise<void> {
+  await fsp.mkdir(path.dirname(filePath), { recursive: true });
+  await fsp.writeFile(filePath, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
 }
 
 async function writeMergedPackageJson(rootDir: string): Promise<void> {
@@ -67,6 +77,47 @@ test('resolves validation platforms from scenario manifests', () => {
     scenario: {},
   }), ['ios', 'android']);
   assert.equal(buildValidationRunId({ platform: 'android', scenarioId: 'checkout-submit' }), 'validate-android-checkout-submit');
+});
+
+test('discovers configured platform scenario roots', async (t: TestContext) => {
+  const targetDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-configured-scenarios-'));
+  t.after(async () => {
+    await fsp.rm(targetDir, { recursive: true, force: true });
+  });
+
+  await writeJsonFile(path.join(targetDir, 'asl.config.json'), {
+    paths: {
+      androidScenarioRoot: 'scenario-fixtures/android',
+      iosScenarioRoot: 'scenario-fixtures/ios',
+      scenarioRoot: 'scenario-fixtures/shared',
+    },
+  });
+  await writeJsonFile(path.join(targetDir, 'scenario-fixtures', 'android', 'android-only.json'), {});
+  await writeJsonFile(path.join(targetDir, 'scenario-fixtures', 'ios', 'ios-only.json'), {});
+  await writeJsonFile(path.join(targetDir, 'scenario-fixtures', 'shared', 'mobile', 'shared.json'), {});
+
+  assert.deepEqual(
+    listScenarioFiles({
+      configPath: path.join(targetDir, 'asl.config.json'),
+      requestedPlatform: 'ios',
+      rootDir: targetDir,
+    }).map((filePath: string) => path.relative(targetDir, filePath)),
+    [
+      path.join('scenario-fixtures', 'ios', 'ios-only.json'),
+      path.join('scenario-fixtures', 'shared', 'mobile', 'shared.json'),
+    ],
+  );
+  assert.deepEqual(
+    listScenarioFiles({
+      configPath: path.join(targetDir, 'asl.config.json'),
+      requestedPlatform: 'android',
+      rootDir: targetDir,
+    }).map((filePath: string) => path.relative(targetDir, filePath)),
+    [
+      path.join('scenario-fixtures', 'android', 'android-only.json'),
+      path.join('scenario-fixtures', 'shared', 'mobile', 'shared.json'),
+    ],
+  );
 });
 
 test('validates an initialized project for iOS and Android', async (t: TestContext) => {
@@ -118,6 +169,72 @@ test('validates an initialized project for iOS and Android', async (t: TestConte
   assert.match(formatResult(result), /project validation passed/u);
   assert.match(formatResult(result), /Warnings:/u);
   assert.match(formatResult(result), /Next actions:/u);
+});
+
+test('validates project scenarios from configured platform roots', async (t: TestContext) => {
+  const targetDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-validate-platform-roots-'));
+  t.after(async () => {
+    await fsp.rm(targetDir, { recursive: true, force: true });
+  });
+
+  await initProject({
+    outDir: targetDir,
+    packageRoot: ROOT,
+    scenarioId: 'Checkout Submit',
+  });
+  await writeMergedPackageJson(targetDir);
+
+  const configPath = path.join(targetDir, 'asl.config.json');
+  const config = await readJsonFile(configPath);
+  config.paths = {
+    ...(config.paths ?? {}),
+    androidScenarioRoot: 'scenarios/android',
+    iosScenarioRoot: 'scenarios/ios',
+    scenarioRoot: 'scenarios/mobile',
+  };
+  await writeJsonFile(configPath, config);
+
+  const portableScenarioPath = path.join(targetDir, 'scenarios', 'mobile', 'checkout-submit.json');
+  const portableScenario = await readJsonFile(portableScenarioPath);
+  await writeJsonFile(path.join(targetDir, 'scenarios', 'ios', 'checkout-submit-ios.json'), {
+    ...portableScenario,
+    flowId: 'checkout-submit-ios',
+    id: 'checkout-submit-ios',
+    platforms: ['ios'],
+  });
+  await writeJsonFile(path.join(targetDir, 'scenarios', 'android', 'checkout-submit-android.json'), {
+    ...portableScenario,
+    flowId: 'checkout-submit-android',
+    id: 'checkout-submit-android',
+    platforms: ['android'],
+  });
+
+  const result = await validateProject({ rootDir: targetDir });
+
+  assert.equal(result.status, 'passed');
+  assert.deepEqual(
+    result.scenarioPaths.map((scenarioPath: string) => path.relative(targetDir, scenarioPath)),
+    [
+      path.join('scenarios', 'android', 'checkout-submit-android.json'),
+      path.join('scenarios', 'ios', 'checkout-submit-ios.json'),
+      path.join('scenarios', 'mobile', 'checkout-submit.json'),
+    ],
+  );
+  assert.deepEqual(
+    result.plans.map((plan: { platform: string; scenarioId: string }) => ({
+      platform: plan.platform,
+      scenarioId: plan.scenarioId,
+    })).sort((
+      left: { platform: string; scenarioId: string },
+      right: { platform: string; scenarioId: string },
+    ) => left.platform.localeCompare(right.platform) || left.scenarioId.localeCompare(right.scenarioId)),
+    [
+      { platform: 'android', scenarioId: 'checkout-submit' },
+      { platform: 'android', scenarioId: 'checkout-submit-android' },
+      { platform: 'ios', scenarioId: 'checkout-submit' },
+      { platform: 'ios', scenarioId: 'checkout-submit-ios' },
+    ],
+  );
 });
 
 test('fails validation when initialized project files are missing', async (t: TestContext) => {

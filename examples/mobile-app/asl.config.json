@@ -16,9 +16,7 @@
     "artifactRoot": "artifacts/example-mobile-app",
     "androidArtifactsRoot": "artifacts/example-mobile-app/android",
     "iosArtifactsRoot": "artifacts/example-mobile-app/ios",
-    "scenarioRoot": "examples/mobile-app/scenarios",
-    "androidScenarioRoot": "examples/mobile-app/scenarios/android",
-    "iosScenarioRoot": "examples/mobile-app/scenarios/ios"
+    "scenarioRoot": "scenarios/mobile"
   },
   "drivers": {
     "default": "fixture-log-ingest",

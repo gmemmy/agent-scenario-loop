@@ -451,6 +451,132 @@ function listJsonFiles(directory: string): string[] {
 }
 
 /**
+ * Resolves a config path relative to the project root, falling back to the current cwd for repo-local examples.
+ *
+ * @param {{rootDir: string, value: string}} options
+ * @returns {string}
+ */
+function resolveProjectPath({
+  rootDir,
+  value,
+}: {
+  rootDir: string;
+  value: string;
+}): string {
+  if (path.isAbsolute(value)) {
+    return value;
+  }
+
+  const projectRelative = path.resolve(rootDir, value);
+  if (fs.existsSync(projectRelative)) {
+    return projectRelative;
+  }
+
+  return path.resolve(value);
+}
+
+/**
+ * Adds a directory and common scenario subdirectories to a candidate set.
+ *
+ * @param {{candidates: Set<string>, directory: string, platform?: string}} options
+ * @returns {void}
+ */
+function addScenarioDirectoryCandidates({
+  candidates,
+  directory,
+  platform,
+}: {
+  candidates: Set<string>;
+  directory: string;
+  platform?: string;
+}): void {
+  candidates.add(directory);
+  candidates.add(path.join(directory, 'mobile'));
+  if (platform) {
+    candidates.add(path.join(directory, platform));
+  }
+}
+
+/**
+ * Resolves scenario directories from project config plus the scaffold default.
+ *
+ * @param {{configPath: string, requestedPlatform: string, rootDir: string}} options
+ * @returns {string[]}
+ */
+function resolveScenarioDirectories({
+  configPath,
+  requestedPlatform,
+  rootDir,
+}: {
+  configPath: string;
+  requestedPlatform: string;
+  rootDir: string;
+}): string[] {
+  const candidates = new Set<string>();
+  addScenarioDirectoryCandidates({
+    candidates,
+    directory: path.join(rootDir, 'scenarios'),
+  });
+
+  if (!fs.existsSync(configPath)) {
+    return [...candidates].filter((directory) => fs.existsSync(directory)).sort();
+  }
+
+  const config = readJson(configPath);
+  const platformRoots = [
+    ...(['ios', 'all'].includes(requestedPlatform) ? [{ key: 'iosScenarioRoot', platform: 'ios' }] : []),
+    ...(['android', 'all'].includes(requestedPlatform) ? [{ key: 'androidScenarioRoot', platform: 'android' }] : []),
+  ];
+
+  for (const { key, platform } of platformRoots) {
+    const configuredRoot = readNestedString(config, ['paths', key]);
+    if (configuredRoot) {
+      addScenarioDirectoryCandidates({
+        candidates,
+        directory: resolveProjectPath({ rootDir, value: configuredRoot }),
+        platform,
+      });
+    }
+  }
+
+  const commonRoot = readNestedString(config, ['paths', 'scenarioRoot']);
+  if (commonRoot) {
+    addScenarioDirectoryCandidates({
+      candidates,
+      directory: resolveProjectPath({ rootDir, value: commonRoot }),
+      ...(requestedPlatform !== 'all' ? { platform: requestedPlatform } : {}),
+    });
+  }
+
+  return [...candidates].filter((directory) => fs.existsSync(directory)).sort();
+}
+
+/**
+ * Lists scenario JSON files from configured scenario directories.
+ *
+ * @param {{configPath: string, requestedPlatform: string, rootDir: string}} options
+ * @returns {string[]}
+ */
+function listScenarioFiles({
+  configPath,
+  requestedPlatform,
+  rootDir,
+}: {
+  configPath: string;
+  requestedPlatform: string;
+  rootDir: string;
+}): string[] {
+  const scenarioPaths = new Set<string>();
+  for (const directory of resolveScenarioDirectories({ configPath, requestedPlatform, rootDir })) {
+    for (const scenarioPath of listJsonFiles(directory)) {
+      scenarioPaths.add(scenarioPath);
+    }
+  }
+
+  return [...scenarioPaths].sort();
+}
+
+/**
  * Resolves platforms that should be validated for one scenario.
  *
  * @param {{requestedPlatform: string, scenario: Record<string, unknown>}} options
@@ -1120,7 +1246,7 @@ function buildNextActions({
   if (scenarioPaths.length === 0) {
     actions.push({
       code: 'add_mobile_scenario',
-      message: 'Add at least one scenario manifest under scenarios/mobile.',
+      message: 'Add at least one scenario manifest under a configured scenario root or scenarios/mobile.',
       severity: 'error',
       target: path.join(rootDir, 'scenarios', 'mobile'),
     });
@@ -1229,7 +1355,7 @@ async function validateProject(options: {
   const runnerPath = path.join(rootDir, 'runner-manifests', 'primary-runner.json');
   const providerPaths = listJsonFiles(path.join(rootDir, 'runner-manifests'))
     .filter((filePath) => path.basename(filePath) !== 'primary-runner.json');
-  const scenarioPaths = listJsonFiles(path.join(rootDir, 'scenarios', 'mobile'));
+  const scenarioPaths = listScenarioFiles({ configPath, requestedPlatform, rootDir });
   const appHelper = validateAppHelper(rootDir);
   const gitignore = validateGitignore(rootDir);
   const scripts = validatePackageScripts({
@@ -1271,7 +1397,7 @@ async function validateProject(options: {
   }
 
   if (scenarioPaths.length === 0) {
-    errors.push(`No scenario manifests found under ${path.join(rootDir, 'scenarios', 'mobile')}.`);
+    errors.push('No scenario manifests found under configured scenario roots or scenarios/mobile.');
   }
 
   if (appHelper.status === 'missing') {
@@ -1473,6 +1599,7 @@ if (require.main === module) {
 export {
   buildValidationRunId,
   formatResult,
+  listScenarioFiles,
   main,
   parseArgs,
   resolvePlatforms,
