@@ -354,7 +354,7 @@ async function runProfileIos(
   if (!isEnabled(args['simctl-capture']) && !isEnabled(args['agent-device-capture'])) {
     return runProfileMobile(args, {
       ...(options.comparisonLane ? { comparisonLane: options.comparisonLane } : {}),
-      defaultDriver: 'xcodebuildmcp',
+      defaultDriver: 'ios-simctl',
       ...(typeof args['simctl-artifacts'] === 'string' ? { interactionDriver: 'ios-simctl' } : {}),
       platform: 'ios',
     });
@@ -481,7 +481,7 @@ async function runProfileIos(
 
   return runProfileMobile(profileArgs, {
     ...(options.comparisonLane ? { comparisonLane: options.comparisonLane } : {}),
-    defaultDriver: 'xcodebuildmcp',
+    defaultDriver: 'ios-simctl',
     interactionDriver: agentDeviceCapture ? 'agent-device' : 'ios-simctl',
     platform: 'ios',
   });

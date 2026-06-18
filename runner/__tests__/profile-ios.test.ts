@@ -189,6 +189,57 @@ test('profile-ios profiles public scenario ids and milestone budgets', async (t:
   });
 });
 
+test('profile-ios falls back to bundled simctl driver metadata when no host driver is declared', async (t: TestContext) => {
+  const tempRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-ios-neutral-driver-'));
+  t.after(async () => {
+    await fsp.rm(tempRoot, { recursive: true, force: true });
+  });
+  const artifactRoot = path.join(tempRoot, 'artifacts');
+  const configPath = path.join(tempRoot, 'asl.config.json');
+  const scenarioPath = path.join(tempRoot, 'neutral-journey.json');
+  const eventLogPath = path.join(tempRoot, 'neutral-journey-ios.log');
+  const config = readJson(fixturePath('core/config-template.json'));
+  delete config.drivers.default;
+  const scenario = readJson(fixturePath('templates/mobile-scenario.json'));
+  scenario.id = 'neutral-journey';
+  scenario.flowId = 'neutral-journey';
+  delete scenario.interactionDriver;
+  await fsp.writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
+  await fsp.writeFile(scenarioPath, `${JSON.stringify(scenario, null, 2)}\n`, 'utf8');
+  await fsp.writeFile(
+    eventLogPath,
+    [
+      '2026-01-01T00:00:00.000Z neutral-ios [profile-event] {"event":"first_journey_started","scenario":"neutral-journey","runId":"neutral-journey-ios","iteration":1,"atMs":0}',
+      '2026-01-01T00:00:00.700Z neutral-ios [profile-event] {"event":"first_journey_completed","scenario":"neutral-journey","runId":"neutral-journey-ios","iteration":1,"atMs":700}',
+      '2026-01-01T00:00:01.000Z neutral-ios [profile-event] {"event":"first_journey_started","scenario":"neutral-journey","runId":"neutral-journey-ios","iteration":2,"atMs":1000}',
+      '2026-01-01T00:00:01.760Z neutral-ios [profile-event] {"event":"first_journey_completed","scenario":"neutral-journey","runId":"neutral-journey-ios","iteration":2,"atMs":1760}',
+      '2026-01-01T00:00:02.000Z neutral-ios [profile-event] {"event":"first_journey_started","scenario":"neutral-journey","runId":"neutral-journey-ios","iteration":3,"atMs":2000}',
+      '2026-01-01T00:00:02.830Z neutral-ios [profile-event] {"event":"first_journey_completed","scenario":"neutral-journey","runId":"neutral-journey-ios","iteration":3,"atMs":2830}',
+      '',
+    ].join('\n'),
+    'utf8',
+  );
+
+  const { stdout } = await execFileAsync(process.execPath, [
+    PROFILE_IOS,
+    '--config',
+    configPath,
+    '--scenario',
+    scenarioPath,
+    '--events',
+    eventLogPath,
+    '--out',
+    artifactRoot,
+    '--run-id',
+    'neutral-journey-ios',
+  ]);
+
+  const runDir = stdout.trim();
+  const manifest = readJson(path.join(runDir, 'manifest.json'));
+
+  assert.equal(manifest.interactionDriver, 'ios-simctl');
+});
+
 test('profile-ios maps schema-era open and close milestone budgets', async (t: TestContext) => {
   const tempRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-ios-open-close-budget-'));
   t.after(async () => {
