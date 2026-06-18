@@ -77,7 +77,7 @@ For an initialized app, use the project-level gate:
 asl-validate-project --root . --platform all --out artifacts/asl/project-validation
 ```
 
-The project-validation artifact gives agents structured `nextActions` for missing files, unsupported platforms, incomplete helper wiring, stale `drivers.supported` declarations, package-script drift, and planner failures.
+The project-validation artifact gives agents structured `nextActions` for missing files, unsupported platforms, incomplete helper wiring, invalid required config, package-script drift, and planner failures. Omitted optional package drivers are preserved as warnings so teams can declare only the runner lanes they intend to support.
 
 ## Implement The Port
 
