@@ -278,6 +278,62 @@ function nextActionHint(nextActionCode: string, nextAction: string): NextActionH
 }
 
 /**
+ * Detects adb daemon/socket failures that are distinct from a genuinely missing device.
+ *
+ * @param {CommandResult} result
+ * @returns {boolean}
+ */
+function isAdbDaemonUnavailable(result: CommandResult): boolean {
+  if (result.exitCode === 0) {
+    return false;
+  }
+
+  const output = `${result.stdout}\n${result.stderr}`.toLowerCase();
+  return (
+    output.includes('cannot connect to daemon') ||
+    output.includes('failed to check server version') ||
+    output.includes('could not install *smartsocket* listener') ||
+    output.includes('adb server didn')
+  );
+}
+
+/**
+ * Builds the health check details for device selection failures.
+ *
+ * @param {{devicesOutput: CommandResult, serial?: string | null}} options
+ * @returns {{code: string, message: string, metadata: NextActionHint}}
+ */
+function buildAndroidDeviceFailure({
+  devicesOutput,
+  serial,
+}: {
+  devicesOutput: CommandResult;
+  serial?: string | null;
+}): {code: string; message: string; metadata: NextActionHint} {
+  if (isAdbDaemonUnavailable(devicesOutput)) {
+    return {
+      code: 'adb_daemon_unreachable',
+      message: 'adb devices could not reach or start the adb daemon.',
+      metadata: nextActionHint(
+        'rerun_with_adb_daemon_access',
+        'Start the adb daemon from a host shell or rerun the live proof with host adb daemon access, then confirm `adb devices -l` lists the target device as `device`.',
+      ),
+    };
+  }
+
+  return {
+    code: 'android_device_missing',
+    message: serial
+      ? `No online Android device matched serial ${serial}.`
+      : 'No online Android device was found.',
+    metadata: nextActionHint(
+      'select_android_device',
+      'Start or unlock an Android emulator/device, confirm it appears as `device` in adb devices -l, or pass --serial for the intended device.',
+    ),
+  };
+}
+
+/**
  * Reads the TCP port from a React Native debug server host string.
  *
  * @param {string} debugHost
@@ -787,22 +843,20 @@ async function runAndroidAdbPreflight({
   const devices = parseAdbDevices(devicesOutput.stdout);
   const device = selectDevice(devices, serial);
   const deviceOnline = Boolean(device && device.state === 'device');
+  const deviceFailure = !deviceOnline
+    ? buildAndroidDeviceFailure({ devicesOutput, serial })
+    : null;
   checks.push({
     name: 'android_device_connected',
     status: deviceOnline ? 'passed' : 'failed',
     source: 'runner',
-    code: deviceOnline ? 'android_device_connected' : 'android_device_missing',
+    code: deviceOnline ? 'android_device_connected' : deviceFailure?.code,
     message: deviceOnline && device
       ? `Selected Android device ${device.serial}.`
-      : serial
-        ? `No online Android device matched serial ${serial}.`
-        : 'No online Android device was found.',
+      : deviceFailure?.message,
     ...(!deviceOnline
       ? {
-          metadata: nextActionHint(
-            'select_android_device',
-            'Start or unlock an Android emulator/device, confirm it appears as `device` in adb devices -l, or pass --serial for the intended device. If direct adb works but the Node runner cannot start or reach the adb daemon from an agent sandbox, rerun with adb daemon access outside the sandbox.',
-          ),
+          metadata: deviceFailure?.metadata,
         }
       : {}),
   });

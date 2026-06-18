@@ -617,12 +617,12 @@ test('explains agent sandbox access when adb daemon cannot be reached', async (t
   assert.equal(result.health.healthStatus, 'failed');
   assert.ok(
     (result.health.checks as Array<{ code: string; metadata?: { nextAction?: string; nextActionCode?: string } }>).some(
-      (check) => check.code === 'android_device_missing'
-        && check.metadata?.nextActionCode === 'select_android_device'
-        && /agent sandbox/u.test(check.metadata.nextAction ?? ''),
+      (check) => check.code === 'adb_daemon_unreachable'
+        && check.metadata?.nextActionCode === 'rerun_with_adb_daemon_access'
+        && /host adb daemon access/u.test(check.metadata.nextAction ?? ''),
     ),
   );
-  assert.match(summary, /agent sandbox/u);
+  assert.match(summary, /Next action `rerun_with_adb_daemon_access`/u);
 });
 
 test('fails logcat capture when no online Android device is connected', async (t: TestContext) => {
