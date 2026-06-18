@@ -98,7 +98,7 @@ Core artifacts:
 - `live-proof-set.json`: aggregate platform-set proof summary across Android and iOS live-proof artifacts
 - `agent-summary.md`: agent-readable health gate and next-action summary
 - `planner-compatibility.json`: optional preflight detail from runner/provider matching
-- `project-validation.json`: project-level validation result for initialized app scaffolds, including helper readiness, config readiness, declared `drivers.supported` readiness, package-supported driver classification, external target driver classification, custom driver declarations, package-script snippet readiness, app `package.json` script merge and direct-bin drift readiness, non-failing setup warnings, and structured next actions
+- `project-validation.json`: project-level validation result for initialized app scaffolds, including helper readiness, config readiness, scenario candidate directories, discovered scenario paths, declared `drivers.supported` readiness, package-supported driver classification, external target driver classification, custom driver declarations, package-script snippet readiness, app `package.json` script merge and direct-bin drift readiness, non-failing setup warnings, and structured next actions
 
 Profile runner artifacts:
 

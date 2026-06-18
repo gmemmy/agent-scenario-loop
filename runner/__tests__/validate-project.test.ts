@@ -10,6 +10,7 @@ const {
   buildValidationRunId,
   formatResult,
   listScenarioFiles,
+  resolveScenarioDirectories,
   parseArgs,
   resolvePlatforms,
   validateConfigPlaceholders,
@@ -118,6 +119,19 @@ test('discovers configured platform scenario roots', async (t: TestContext) => {
       path.join('scenario-fixtures', 'shared', 'mobile', 'shared.json'),
     ],
   );
+  assert.deepEqual(
+    resolveScenarioDirectories({
+      configPath: path.join(targetDir, 'asl.config.json'),
+      requestedPlatform: 'all',
+      rootDir: targetDir,
+    }).map((directory: string) => path.relative(targetDir, directory)),
+    [
+      path.join('scenario-fixtures', 'android'),
+      path.join('scenario-fixtures', 'ios'),
+      path.join('scenario-fixtures', 'shared'),
+      path.join('scenario-fixtures', 'shared', 'mobile'),
+    ],
+  );
 });
 
 test('validates an initialized project for iOS and Android', async (t: TestContext) => {
@@ -150,6 +164,13 @@ test('validates an initialized project for iOS and Android', async (t: TestConte
   assert.equal(result.warnings.some((warning: string) => warning.includes('projectName')), true);
   assert.equal(result.warnings.some((warning: string) => warning.includes('Runtime artifact gitignore')), true);
   assert.deepEqual(actionCodes(result), ['ignore_runtime_artifacts', 'replace_config_placeholders']);
+  assert.deepEqual(
+    result.scenarioCandidateDirectories.map((directory: string) => path.relative(targetDir, directory)),
+    [
+      'scenarios',
+      path.join('scenarios', 'mobile'),
+    ],
+  );
   assert.equal(result.scenarioPaths.length, 1);
   assert.equal(result.providerPaths.length, 1);
   assert.deepEqual(
@@ -212,6 +233,15 @@ test('validates project scenarios from configured platform roots', async (t: Tes
   const result = await validateProject({ rootDir: targetDir });
 
   assert.equal(result.status, 'passed');
+  assert.deepEqual(
+    result.scenarioCandidateDirectories.map((directory: string) => path.relative(targetDir, directory)),
+    [
+      'scenarios',
+      path.join('scenarios', 'android'),
+      path.join('scenarios', 'ios'),
+      path.join('scenarios', 'mobile'),
+    ],
+  );
   assert.deepEqual(
     result.scenarioPaths.map((scenarioPath: string) => path.relative(targetDir, scenarioPath)),
     [

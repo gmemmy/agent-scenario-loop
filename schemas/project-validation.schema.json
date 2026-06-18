@@ -17,6 +17,7 @@
     "rootDir",
     "runnerPath",
     "scripts",
+    "scenarioCandidateDirectories",
     "scenarioPaths",
     "status",
     "warnings"
@@ -70,6 +71,12 @@
     },
     "scripts": {
       "$ref": "#/$defs/scripts"
+    },
+    "scenarioCandidateDirectories": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
     },
     "scenarioPaths": {
       "type": "array",

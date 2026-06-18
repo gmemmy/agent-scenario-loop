@@ -135,6 +135,13 @@ test('example mobile app satisfies initialized consumer validation', async () =>
   assert.deepEqual(result.gitignore.missingPatterns, []);
   assert.deepEqual(result.nextActions.map((action: {code: string}) => action.code), []);
   assert.deepEqual(result.warnings, []);
+  assert.deepEqual(
+    result.scenarioCandidateDirectories.map((directory: string) => path.relative(fixturePath('examples/mobile-app'), directory)),
+    [
+      'scenarios',
+      path.join('scenarios', 'mobile'),
+    ],
+  );
   assert.equal(result.scenarioPaths.length, 3);
   assert.equal(result.providerPaths.length, 1);
   assert.deepEqual(

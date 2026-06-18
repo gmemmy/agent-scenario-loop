@@ -768,6 +768,7 @@ test('accepts project validation artifacts', () => {
       status: 'present',
       unknownCommands: [],
     },
+    scenarioCandidateDirectories: ['/app/scenarios', '/app/scenarios/mobile'],
     scenarioPaths: ['/app/scenarios/mobile/checkout-submit.json'],
     status: 'passed',
     warnings: ['Config field projectName still uses placeholder value \'replace-me\'.'],

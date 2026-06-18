@@ -518,6 +518,14 @@ function rehearseConsumerInstall({
   assert.deepEqual(validation.config.packageSupportedDrivers, ['adb', 'agent-device', 'argent', 'fixture-log-ingest', 'ios-simctl']);
   assert.deepEqual(validation.config.supportedDrivers, ['adb', 'agent-device', 'argent', 'fixture-log-ingest', 'ios-simctl', 'xcodebuildmcp']);
   assert.deepEqual(validation.config.missingSupportedDrivers, []);
+  const realAppRoot = fs.realpathSync(appRoot);
+  assert.deepEqual(
+    validation.scenarioCandidateDirectories.map((directory: string) => path.relative(realAppRoot, fs.realpathSync(directory))),
+    [
+      'scenarios',
+      path.join('scenarios', 'mobile'),
+    ],
+  );
   assert.equal(validation.scripts.status, 'present');
   assert.equal(validation.scripts.packageJsonStatus, 'present');
   assert.deepEqual(validation.warnings, []);

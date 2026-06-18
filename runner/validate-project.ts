@@ -90,6 +90,7 @@ type ProjectValidationResult = {
   rootDir: string;
   runnerPath: string;
   scripts: ProjectValidationScripts;
+  scenarioCandidateDirectories: string[];
   scenarioPaths: string[];
   status: 'passed' | 'failed';
   warnings: string[];
@@ -552,6 +553,23 @@ function resolveScenarioDirectories({
 }
 
 /**
+ * Lists scenario JSON files from resolved scenario directories.
+ *
+ * @param {string[]} scenarioCandidateDirectories
+ * @returns {string[]}
+ */
+function listScenarioFilesFromDirectories(scenarioCandidateDirectories: string[]): string[] {
+  const scenarioPaths = new Set<string>();
+  for (const directory of scenarioCandidateDirectories) {
+    for (const scenarioPath of listJsonFiles(directory)) {
+      scenarioPaths.add(scenarioPath);
+    }
+  }
+
+  return [...scenarioPaths].sort();
+}
+
+/**
  * Lists scenario JSON files from configured scenario directories.
  *
  * @param {{configPath: string, requestedPlatform: string, rootDir: string}} options
@@ -566,14 +584,7 @@ function listScenarioFiles({
   requestedPlatform: string;
   rootDir: string;
 }): string[] {
-  const scenarioPaths = new Set<string>();
-  for (const directory of resolveScenarioDirectories({ configPath, requestedPlatform, rootDir })) {
-    for (const scenarioPath of listJsonFiles(directory)) {
-      scenarioPaths.add(scenarioPath);
-    }
-  }
-
-  return [...scenarioPaths].sort();
+  return listScenarioFilesFromDirectories(resolveScenarioDirectories({ configPath, requestedPlatform, rootDir }));
 }
 
 /**
@@ -1355,7 +1366,8 @@ async function validateProject(options: {
   const runnerPath = path.join(rootDir, 'runner-manifests', 'primary-runner.json');
   const providerPaths = listJsonFiles(path.join(rootDir, 'runner-manifests'))
     .filter((filePath) => path.basename(filePath) !== 'primary-runner.json');
-  const scenarioPaths = listScenarioFiles({ configPath, requestedPlatform, rootDir });
+  const scenarioCandidateDirectories = resolveScenarioDirectories({ configPath, requestedPlatform, rootDir });
+  const scenarioPaths = listScenarioFilesFromDirectories(scenarioCandidateDirectories);
   const appHelper = validateAppHelper(rootDir);
   const gitignore = validateGitignore(rootDir);
   const scripts = validatePackageScripts({
@@ -1495,6 +1507,7 @@ async function validateProject(options: {
     rootDir,
     runnerPath,
     scripts,
+    scenarioCandidateDirectories,
     scenarioPaths,
     status: errors.length > 0 ? 'failed' : 'passed',
     warnings,
@@ -1521,6 +1534,7 @@ function formatResult(result: ProjectValidationResult): string {
     `Gitignore: ${result.gitignore.status}`,
     `Package scripts: ${result.scripts.status}`,
     `Package.json scripts: ${result.scripts.packageJsonStatus}`,
+    `Scenario candidate directories: ${result.scenarioCandidateDirectories.length}`,
     `Scenarios: ${result.scenarioPaths.length}`,
     `Providers: ${result.providerPaths.length}`,
     ...(result.warnings.length > 0
@@ -1600,8 +1614,10 @@ export {
   buildValidationRunId,
   formatResult,
   listScenarioFiles,
+  listScenarioFilesFromDirectories,
   main,
   parseArgs,
+  resolveScenarioDirectories,
   resolvePlatforms,
   usage,
   buildNextActions,
