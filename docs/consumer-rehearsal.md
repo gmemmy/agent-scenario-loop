@@ -10,6 +10,12 @@ pnpm consumer:rehearse
 
 It creates a temporary existing app-shaped package, installs the packed tarball, runs `asl-init`, merges generated scripts into `package.json`, replaces scaffold placeholders, runs both platform plan scripts, runs generated fixture profile scripts against deterministic event logs, runs the generated Argent interaction scripts through a deterministic adapter double, validates the project through the installed CLI, and proves stale merged scripts are rejected. Use the manual checklist below when rehearsing inside a real app.
 
+Package gates run child package-manager and CLI commands with a bounded timeout. Set `ASL_PACKAGE_GATE_TIMEOUT_MS` when a slow local registry, proxy, or package cache needs a larger budget:
+
+```bash
+ASL_PACKAGE_GATE_TIMEOUT_MS=300000 pnpm consumer:rehearse
+```
+
 ## 1. Initialize The Scaffold
 
 From the consuming app root:
@@ -58,6 +64,8 @@ asl-validate-project --root . --platform all --out artifacts/asl/project-validat
 Fix errors before runtime proof. Treat warnings and `nextActions` as setup work that should be resolved before the app depends on the scenario for regression decisions.
 
 ## 4. Prove One Platform First
+
+Keep deterministic validation and live device proof as separate lanes. `asl-check-plan`, fixture profile runs, `pnpm package:smoke`, and `pnpm consumer:rehearse` should work in ordinary build or agent sandboxes. Live runs that touch adb, simctl, agent-device, Argent, emulators, simulators, or physical devices need host/device access. If a live command cannot reach those host services, classify it as runner environment health before treating it as a scenario regression.
 
 Prefer Android first when iOS tooling is unstable:
 

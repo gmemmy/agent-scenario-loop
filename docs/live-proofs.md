@@ -179,6 +179,12 @@ pnpm release:check
 
 That gate runs tests, readiness checks, package smoke, installed-binary checks, fake-device example proofs, schema/example/template/doc packaging checks, and the packed-package consumer rehearsal.
 
+Package smoke and consumer rehearsal keep child commands bounded so package-manager stalls fail with the temporary rehearsal directory preserved. Set `ASL_PACKAGE_GATE_TIMEOUT_MS` to raise the per-command timeout when a local registry, proxy, or cold package cache is slow:
+
+```bash
+ASL_PACKAGE_GATE_TIMEOUT_MS=300000 pnpm release:check
+```
+
 Read next:
 
 - [Contracts](contracts.md) for artifact layout and supported runner surface
