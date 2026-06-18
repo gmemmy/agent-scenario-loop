@@ -237,6 +237,24 @@ test('low-level capture CLIs exit nonzero when health fails', async (t: TestCont
       path.join(DIST_ROOT, 'runner', 'agent-device.js'),
       '--agent-device',
       fakeAgentDevice,
+      '--check',
+      '--out',
+      path.join(tempDir, 'agent-device-check'),
+      '--run-id',
+      'agent-device-check-failed-health',
+    ]),
+    (error: unknown) => {
+      assert.ok(error instanceof Error);
+      assert.equal(readJson(path.join(tempDir, 'agent-device-check', 'health.json')).healthStatus, 'failed');
+      assert.equal(readJson(path.join(tempDir, 'agent-device-check', 'raw', 'agent-device-availability.json')).status, 'failed');
+      return true;
+    },
+  );
+  await assert.rejects(
+    execFileAsync(process.execPath, [
+      path.join(DIST_ROOT, 'runner', 'agent-device.js'),
+      '--agent-device',
+      fakeAgentDevice,
       '--platform',
       'ios',
       '--scenario',
@@ -261,6 +279,24 @@ test('low-level capture CLIs exit nonzero when health fails', async (t: TestCont
     "process.stderr.write(`fake Argent failure: ${process.argv.slice(2).join(' ')}\\n`);",
     "process.exit(1);",
   ].join('\n'));
+  await assert.rejects(
+    execFileAsync(process.execPath, [
+      path.join(DIST_ROOT, 'runner', 'argent.js'),
+      '--argent',
+      fakeArgent,
+      '--check',
+      '--out',
+      path.join(tempDir, 'argent-check'),
+      '--run-id',
+      'argent-check-failed-health',
+    ]),
+    (error: unknown) => {
+      assert.ok(error instanceof Error);
+      assert.equal(readJson(path.join(tempDir, 'argent-check', 'health.json')).healthStatus, 'failed');
+      assert.equal(readJson(path.join(tempDir, 'argent-check', 'raw', 'argent-availability.json')).status, 'failed');
+      return true;
+    },
+  );
   await assert.rejects(
     execFileAsync(process.execPath, [
       path.join(DIST_ROOT, 'runner', 'argent.js'),

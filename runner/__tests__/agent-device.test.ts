@@ -12,6 +12,7 @@ const {
   resolveAgentDeviceDriverSteps,
   runAgentDeviceCapture,
   validateAgentDeviceDriverSteps,
+  writeAgentDeviceAvailabilityArtifacts,
 } = require('../agent-device');
 
 type CommandResult = {
@@ -134,6 +135,53 @@ test('agent-device availability check classifies missing binaries', async () => 
   assert.equal(result.status, 'failed');
   assert.equal(failedCheck?.metadata?.failureClass, 'missing_binary');
   assert.equal(failedCheck?.metadata?.nextActionCode, 'configure_agent_device_binary');
+});
+
+test('agent-device availability check writes ASL artifacts when requested', async (t: TestContext) => {
+  const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-agent-device-check-'));
+  t.after(async () => {
+    await fsp.rm(tempDir, { recursive: true, force: true });
+  });
+  const result = await checkAgentDeviceAvailability({
+    executor: async (command: string, args: string[]): Promise<CommandResult> => {
+      if (args.join(' ') === 'devices --json') {
+        return {
+          args,
+          command,
+          exitCode: 0,
+          stderr: '',
+          stdout: JSON.stringify({
+            success: true,
+            data: { devices: [{ platform: 'android', id: 'emulator-5554', target: 'mobile', booted: true }] },
+          }),
+        };
+      }
+      return {
+        args,
+        command,
+        exitCode: 0,
+        stderr: '',
+        stdout: 'CLI to control iOS and Android devices\nopen\nsnapshot\nscreenshot\nis\nclick\nscroll\nlogs\ndevices\nsession list\n',
+      };
+    },
+    requiredPlatforms: ['android'],
+  });
+
+  const artifacts = await writeAgentDeviceAvailabilityArtifacts({
+    outputDir: tempDir,
+    result,
+    runId: 'agent-device-check',
+  });
+  const health = readJson(path.join(tempDir, 'health.json'));
+  const verdict = readJson(path.join(tempDir, 'verdict.json'));
+  const raw = readJson(path.join(tempDir, 'raw', 'agent-device-availability.json'));
+
+  assert.equal(artifacts.runDir, tempDir);
+  assert.equal(health.scenarioId, 'agent-device-availability');
+  assert.equal(health.healthStatus, 'passed');
+  assert.equal(verdict.verdictStatus, 'not_evaluated');
+  assert.equal(raw.status, 'passed');
+  assert.equal(fs.existsSync(path.join(tempDir, 'agent-summary.md')), true);
 });
 
 test('agent-device capture executes scenario driver actions and writes artifacts', async (t: TestContext) => {

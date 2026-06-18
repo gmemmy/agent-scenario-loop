@@ -185,7 +185,7 @@ const REQUIRED_PACKAGE_SCRIPT_SHAPES = {
   },
   'asl:agent-device:check': {
     command: 'asl-agent-device',
-    flags: ['--check'],
+    flags: ['--check', '--out'],
     values: {},
   },
   'asl:agent-device:ios': {
@@ -200,7 +200,7 @@ const REQUIRED_PACKAGE_SCRIPT_SHAPES = {
   },
   'asl:argent:check': {
     command: 'asl-argent',
-    flags: ['--check'],
+    flags: ['--check', '--out'],
     values: {},
   },
   'asl:argent:ios': {

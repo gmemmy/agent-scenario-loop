@@ -88,6 +88,12 @@ type ArgentAvailabilityResult = {
   status: 'failed' | 'passed';
 };
 
+type ArgentAvailabilityArtifactOptions = {
+  outputDir: string;
+  result: ArgentAvailabilityResult;
+  runId?: string;
+};
+
 type ArgentDriverStep = {
   appId?: string;
   captureFileName?: string;
@@ -177,7 +183,7 @@ function usage(output: {write: (message: string) => unknown} = process.stderr): 
     '',
     'Executes scenario-declared launch and portable driver actions through the external Argent CLI.',
     'Writes health.json, verdict.json, agent-summary.md, raw command transcripts, and screenshot captures.',
-    'Use --check to verify the configured Argent command and required tool surface without running a scenario.',
+    'Use --check --out <dir> to verify the configured Argent command and required tool surface and preserve availability artifacts.',
     'Use --argent <binary> and --base-args "<args>" to adapt local Argent installs without bundling Argent.',
     'Use --device-flag and --app-flag when your Argent command expects platform-specific flag names.',
     'Use --command-timeout-ms <ms> to bound each external Argent invocation.',
@@ -899,6 +905,104 @@ function deriveArgentRootArgs(baseArgs: string[]): string[] {
 }
 
 /**
+ * Converts one Argent availability check into a schema-safe health check.
+ *
+ * @param {ArgentAvailabilityCheck} check
+ * @returns {Record<string, unknown>}
+ */
+function argentAvailabilityHealthCheck(check: ArgentAvailabilityCheck): Record<string, unknown> {
+  return {
+    name: check.name,
+    status: check.status,
+    source: 'runner',
+    code: check.code,
+    message: check.message,
+    metadata: {
+      command: check.command,
+      args: check.args.join(' '),
+      exitCode: check.exitCode,
+      ...(check.stderrPreview ? { stderrPreview: check.stderrPreview } : {}),
+      ...(check.stdoutPreview ? { stdoutPreview: check.stdoutPreview } : {}),
+      ...(check.metadata ?? {}),
+    },
+  };
+}
+
+/**
+ * Writes ASL artifacts for an Argent command-surface availability check.
+ *
+ * @param {ArgentAvailabilityArtifactOptions} options
+ * @returns {Promise<{agentSummary: string, health: Record<string, unknown>, runDir: string, verdict: Record<string, unknown>}>}
+ */
+async function writeArgentAvailabilityArtifacts({
+  outputDir,
+  result,
+  runId = createRunId(),
+}: ArgentAvailabilityArtifactOptions): Promise<{
+  agentSummary: string;
+  health: Record<string, unknown>;
+  runDir: string;
+  verdict: Record<string, unknown>;
+}> {
+  const runDir = path.resolve(outputDir);
+  const layout = createArtifactLayout({ outputDir: runDir });
+  const checks = result.checks.map(argentAvailabilityHealthCheck);
+  const health = buildArgentHealth({
+    checks,
+    flowId: 'argent-availability',
+    runId,
+    scenarioId: 'argent-availability',
+  });
+  const verdict = assertValidJson(
+    {
+      schemaVersion: '1.0.0',
+      scenarioId: 'argent-availability',
+      flowId: 'argent-availability',
+      runId,
+      healthStatus: health.healthStatus,
+      verdictStatus: result.status === 'passed' ? 'not_evaluated' : 'inconclusive',
+      budgetChecks: [],
+      summary: result.status === 'passed'
+        ? 'Argent command surface is available; no product budget has been evaluated.'
+        : 'Argent command surface is unavailable; fix runner environment health before live proof.',
+    },
+    SCHEMAS.verdict,
+    'Verdict artifact',
+  ) as Record<string, unknown>;
+  const agentSummary = buildAgentSummaryMarkdown({ health, verdict });
+
+  await fsp.mkdir(layout.raw, { recursive: true });
+  await writeJsonArtifact({
+    filePath: layout.health,
+    value: health,
+    schema: SCHEMAS.health,
+    label: 'Health artifact',
+  });
+  await writeJsonArtifact({
+    filePath: layout.verdict,
+    value: verdict,
+    schema: SCHEMAS.verdict,
+    label: 'Verdict artifact',
+  });
+  await writeTextArtifact({
+    filePath: layout.agentSummary,
+    content: agentSummary,
+  });
+  await fsp.writeFile(
+    path.join(layout.raw, 'argent-availability.json'),
+    `${JSON.stringify(result, null, 2)}\n`,
+    'utf8',
+  );
+
+  return {
+    agentSummary,
+    health,
+    runDir,
+    verdict,
+  };
+}
+
+/**
  * Returns a compact single-line preview for command diagnostics.
  *
  * @param {string} value
@@ -1374,6 +1478,13 @@ async function main(): Promise<void> {
       ...(baseArgs ? { baseArgs } : {}),
       commandTimeoutMs,
     });
+    if (typeof args.out === 'string') {
+      await writeArgentAvailabilityArtifacts({
+        outputDir: args.out,
+        result,
+        ...(typeof args['run-id'] === 'string' ? { runId: args['run-id'] } : {}),
+      });
+    }
     process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
     if (result.status !== 'passed') {
       process.exitCode = 1;
@@ -1463,6 +1574,7 @@ export {
   sanitizeArtifactFileSegment,
   usage,
   validateArgentDriverSteps,
+  writeArgentAvailabilityArtifacts,
 };
 
 export type {

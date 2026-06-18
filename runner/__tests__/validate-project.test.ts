@@ -728,8 +728,12 @@ test('validates required package-script lifecycle shapes', () => {
   }), 'asl:host:doctor is missing required flag(s): --out.');
   assert.equal(validatePackageScriptShape({
     scriptName: 'asl:agent-device:check',
-    command: 'asl-agent-device --check',
+    command: 'asl-agent-device --check --out artifacts/asl/agent-device-check',
   }), null);
+  assert.equal(validatePackageScriptShape({
+    scriptName: 'asl:agent-device:check',
+    command: 'asl-agent-device --check',
+  }), 'asl:agent-device:check is missing required flag(s): --out.');
   assert.equal(validatePackageScriptShape({
     scriptName: 'asl:agent-device:ios',
     command: 'asl-agent-device --platform ios --scenario scenarios/mobile/checkout.json --app com.example.app --open --out artifacts/asl/agent-device-ios --run-id checkout-ios-agent-device',
@@ -740,8 +744,12 @@ test('validates required package-script lifecycle shapes', () => {
   }), 'asl:agent-device:android has incorrect required value(s): --platform=android.');
   assert.equal(validatePackageScriptShape({
     scriptName: 'asl:argent:check',
-    command: 'asl-argent --check',
+    command: 'asl-argent --check --out artifacts/asl/argent-check',
   }), null);
+  assert.equal(validatePackageScriptShape({
+    scriptName: 'asl:argent:check',
+    command: 'asl-argent --check',
+  }), 'asl:argent:check is missing required flag(s): --out.');
   assert.equal(validatePackageScriptShape({
     scriptName: 'asl:argent:ios',
     command: 'asl-argent --platform ios --scenario scenarios/mobile/checkout.json --app com.example.app --device booted --out artifacts/asl/argent-ios --run-id checkout-ios-argent',

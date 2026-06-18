@@ -90,7 +90,7 @@ Installed CLIs include:
 - project setup and validation: `asl-init`, `asl-validate-project`, `asl-check-plan`
 - profile and comparison pipelines: `asl-profile-android`, `asl-profile-ios`, `asl-compare`, `asl-compare-latest`
 - generic mobile live proofs: `asl-host-doctor`, `asl-live-android`, `asl-live-ios`, `asl-live-proof`
-- runner-specific helpers: `asl-android-adb`, `asl-ios-simctl`, `asl-agent-device`, `asl-argent` (`asl-agent-device --check` and `asl-argent --check` verify configured external tool surfaces)
+- runner-specific helpers: `asl-android-adb`, `asl-ios-simctl`, `asl-agent-device`, `asl-argent` (`asl-agent-device --check --out <dir>` and `asl-argent --check --out <dir>` verify configured external tool surfaces and preserve availability artifacts)
 - dogfood and fixture helpers: `asl-demo-loop`, `asl-example-android-live`, `asl-example-ios-live`
 
 Read [Public API](docs/api.md) for imports and [Contracts](docs/contracts.md) for artifact layout, schemas, and supported runner surfaces.

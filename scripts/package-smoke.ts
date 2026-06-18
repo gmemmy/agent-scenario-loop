@@ -896,9 +896,11 @@ function main(): void {
     assert.match(initializedScripts['asl:agent-device:check'], /^asl-agent-device --check/u);
     assert.match(initializedScripts['asl:agent-device:check'], /ASL_AGENT_DEVICE_COMMAND_TIMEOUT_MS/u);
     assert.match(initializedScripts['asl:agent-device:check'], /ASL_AGENT_DEVICE_REQUIRED_PLATFORMS/u);
+    assert.match(initializedScripts['asl:agent-device:check'], /--out artifacts\/asl\/agent-device-check/u);
     assert.match(initializedScripts['asl:argent:check'], /^asl-argent --check/u);
     assert.match(initializedScripts['asl:argent:check'], /ASL_ARGENT_BASE_ARGS/u);
     assert.match(initializedScripts['asl:argent:check'], /ASL_ARGENT_COMMAND_TIMEOUT_MS/u);
+    assert.match(initializedScripts['asl:argent:check'], /--out artifacts\/asl\/argent-check/u);
     assert.match(initializedScripts['asl:argent:ios'], /checkout-submit-ios-argent/u);
     assert.match(initializedScripts['asl:argent:android'], /checkout-submit-android-argent/u);
     assert.match(initializedScripts['asl:argent:ios'], /ASL_ARGENT_BASE_ARGS/u);

@@ -14,6 +14,7 @@ const {
   resolveArgentDriverSteps,
   runArgentCapture,
   validateArgentDriverSteps,
+  writeArgentAvailabilityArtifacts,
 } = require('../argent');
 
 type CommandResult = {
@@ -24,6 +25,16 @@ type CommandResult = {
   stdout: string;
 };
 type TestContext = import('node:test').TestContext;
+
+/**
+ * Reads a JSON artifact.
+ *
+ * @param {string} filePath
+ * @returns {Record<string, unknown>}
+ */
+function readJson(filePath: string): Record<string, any> {
+  return JSON.parse(fs.readFileSync(filePath, 'utf8'));
+}
 
 test('Argent CLI parser accepts dash-leading adapter flag values', () => {
   const args = parseArgs([
@@ -138,6 +149,41 @@ test('Argent availability check classifies host access failures', async () => {
   assert.equal(failedCheck?.metadata?.nextActionCode, 'rerun_with_host_access');
 });
 
+test('Argent availability check writes ASL artifacts when requested', async (t: TestContext) => {
+  const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-argent-check-'));
+  t.after(async () => {
+    await fsp.rm(tempDir, { recursive: true, force: true });
+  });
+  const result = await checkArgentAvailability({
+    executor: async (command: string, args: string[]): Promise<CommandResult> => ({
+      args,
+      command,
+      exitCode: 0,
+      stderr: '',
+      stdout: args.at(-1) === '--help'
+        ? 'Usage: argent run <tool> [flags]\n'
+        : `Tool: ${args.at(-1)}\n`,
+    }),
+    requiredTools: ['launch-app'],
+  });
+
+  const artifacts = await writeArgentAvailabilityArtifacts({
+    outputDir: tempDir,
+    result,
+    runId: 'argent-check',
+  });
+  const health = readJson(path.join(tempDir, 'health.json'));
+  const verdict = readJson(path.join(tempDir, 'verdict.json'));
+  const raw = readJson(path.join(tempDir, 'raw', 'argent-availability.json'));
+
+  assert.equal(artifacts.runDir, tempDir);
+  assert.equal(health.scenarioId, 'argent-availability');
+  assert.equal(health.healthStatus, 'passed');
+  assert.equal(verdict.summary, 'Argent command surface is available; no product budget has been evaluated.');
+  assert.equal(raw.status, 'passed');
+  assert.equal(fs.existsSync(path.join(tempDir, 'agent-summary.md')), true);
+});
+
 test('Argent root args are derived from configured run args', () => {
   assert.deepEqual(deriveArgentRootArgs(['run']), []);
   assert.deepEqual(deriveArgentRootArgs(['--yes', '@swmansion/argent', 'run']), ['--yes', '@swmansion/argent']);
@@ -177,16 +223,6 @@ test('Argent command executor returns a timeout result when a wrapper ignores te
   assert.match(result.stderr, /Argent command timed out after 2000ms/u);
   assert.ok(Date.now() - startedAt < 6000);
 });
-
-/**
- * Reads a JSON artifact.
- *
- * @param {string} filePath
- * @returns {Record<string, unknown>}
- */
-function readJson(filePath: string): Record<string, any> {
-  return JSON.parse(fs.readFileSync(filePath, 'utf8'));
-}
 
 test('Argent capture executes scenario driver actions and writes artifacts', async (t: TestContext) => {
   const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-argent-'));
