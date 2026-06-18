@@ -176,6 +176,7 @@ test('example mobile app exposes consumer package scripts', () => {
     'asl:validate',
     'asl:check:ios',
     'asl:check:android',
+    'asl:host:doctor',
     'asl:profile:ios',
     'asl:profile:android',
     'asl:profile:ios:provider',

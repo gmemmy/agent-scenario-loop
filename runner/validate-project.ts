@@ -111,6 +111,7 @@ const REQUIRED_PACKAGE_SCRIPT_NAMES = [
   'asl:check:ios',
   'asl:check:android',
   'asl:validate',
+  'asl:host:doctor',
   'asl:profile:ios',
   'asl:profile:android',
   'asl:profile:ios:provider',
@@ -155,6 +156,11 @@ const REQUIRED_PACKAGE_SCRIPT_SHAPES = {
   'asl:validate': {
     command: 'asl-validate-project',
     flags: ['--root', '--platform', '--out'],
+    values: {},
+  },
+  'asl:host:doctor': {
+    command: 'asl-host-doctor',
+    flags: ['--require', '--out'],
     values: {},
   },
   'asl:profile:ios': {

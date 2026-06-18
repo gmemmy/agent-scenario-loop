@@ -31,6 +31,7 @@ These commands are sandbox-safe because they use committed fixtures, generated t
 
 These commands are host/device lanes and should run with access to the local device driver state from the first attempt:
 
+- `asl-host-doctor`
 - `asl-android-adb`, `asl-profile-android --adb-capture`, and `asl-live-android`
 - `asl-ios-simctl`, `asl-profile-ios --simctl-capture`, and `asl-live-ios`
 - `asl-agent-device` and aggregate proofs with `--agent-device-proof`
@@ -40,6 +41,21 @@ These commands are host/device lanes and should run with access to the local dev
 If a live command cannot reach adb, CoreSimulator, `agent-device`, Argent, a simulator, an emulator, or a required local app service, classify the result as runner environment health. Do not call it an app regression or a scenario failure until the platform preflight and scenario health have passed. The runners write failed health artifacts and `nextAction` values for this case so agents can preserve the evidence trail while rerunning the same command with the right host/device access.
 
 For repeated local work, prefer narrow, reusable permissions for the exact package scripts you run often instead of one-off retries after expected preflight failures. Keep Metro on an isolated port for the proof app, use direct installed binaries when available, and keep bounded command timeouts on wrapper-based tools such as `npx`-launched Argent.
+
+Before a live proof, run the host doctor for the lanes you intend to use:
+
+```bash
+asl-host-doctor --require android,ios --out artifacts/asl/host-doctor
+
+ASL_ARGENT_BIN=pnpm \
+  ASL_ARGENT_BASE_ARGS="dlx @swmansion/argent run" \
+  asl-host-doctor \
+  --require android,ios,agent-device,argent \
+  --agent-device-require-platforms ios,android \
+  --out artifacts/asl/host-doctor
+```
+
+The doctor composes the existing adb, simctl, agent-device, and Argent checks into one ASL artifact set. A failed doctor is environment evidence, not product evidence: fix the host access or command shape before starting scenario execution.
 
 ## Generic Mobile Proof
 

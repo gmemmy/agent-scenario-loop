@@ -53,6 +53,7 @@ Runner subpaths are public when a consuming project needs to compose a workflow 
 | `agent-scenario-loop/runner/demo-loop` | fixture-only loop proof |
 | `agent-scenario-loop/runner/example-android-live` | packaged Android example live proof |
 | `agent-scenario-loop/runner/example-ios-live` | packaged iOS example live proof |
+| `agent-scenario-loop/runner/host-doctor` | aggregate host/device preflight for adb, simctl, agent-device, and Argent availability before live proof |
 | `agent-scenario-loop/runner/init-project` | template scaffold command for consuming app layouts |
 | `agent-scenario-loop/runner/ios-simctl` | iOS simctl readiness, storage-backed session control, and stored event capture |
 | `agent-scenario-loop/runner/ios-simctl-driver` | simctl-backed `screenshot` and `readLogs` driver adapter |

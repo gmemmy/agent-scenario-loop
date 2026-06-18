@@ -854,6 +854,7 @@ function main(): void {
       'asl:check:ios',
       'asl:compare:android',
       'asl:compare:ios',
+      'asl:host:doctor',
       'asl:ios:live',
       'asl:ios:live:agent-device',
       'asl:ios:live:argent',
@@ -873,6 +874,10 @@ function main(): void {
     assert.match(initializedScripts['asl:check:ios'], /checkout-submit/u);
     assert.match(initializedScripts['asl:check:ios'], /--provider runner-manifests\/evidence-provider\.json/u);
     assert.match(initializedScripts['asl:check:android'], /--provider runner-manifests\/evidence-provider\.json/u);
+    assert.match(initializedScripts['asl:host:doctor'], /^asl-host-doctor --require/u);
+    assert.match(initializedScripts['asl:host:doctor'], /ASL_HOST_DOCTOR_REQUIRE/u);
+    assert.match(initializedScripts['asl:host:doctor'], /ASL_ARGENT_BASE_ARGS/u);
+    assert.match(initializedScripts['asl:host:doctor'], /--out artifacts\/asl\/host-doctor/u);
     assert.match(initializedScripts['asl:profile:ios'], /\$\{ASL_PROFILE_IOS_EVENTS:\+--events \$ASL_PROFILE_IOS_EVENTS\}/u);
     assert.match(initializedScripts['asl:profile:ios:provider'], /--provider runner-manifests\/evidence-provider\.json/u);
     assert.match(initializedScripts['asl:profile:ios:provider'], /--comparison-lane checkout-submit-ios-provider/u);

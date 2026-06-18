@@ -161,6 +161,7 @@ test('validates an initialized project for iOS and Android', async (t: TestConte
   assert.equal(result.scripts.status, 'present');
   assert.equal(result.scripts.packageJsonStatus, 'present');
   assert.equal(result.scripts.scriptNames.includes('asl:validate'), true);
+  assert.equal(result.scripts.scriptNames.includes('asl:host:doctor'), true);
   assert.equal(result.warnings.some((warning: string) => warning.includes('projectName')), true);
   assert.equal(result.warnings.some((warning: string) => warning.includes('Runtime artifact gitignore')), true);
   assert.deepEqual(actionCodes(result), ['ignore_runtime_artifacts', 'replace_config_placeholders']);
@@ -580,6 +581,7 @@ test('validates generated package-script snippets', async (t: TestContext) => {
   ]);
   assert.deepEqual(scripts.missingScripts, [
     'asl:check:android',
+    'asl:host:doctor',
     'asl:profile:ios',
     'asl:profile:android',
     'asl:profile:ios:provider',
@@ -703,6 +705,14 @@ test('validates required package-script lifecycle shapes', () => {
     scriptName: 'asl:profile:android:provider',
     command: 'asl-profile-android --config asl.config.json --scenario scenarios/mobile/checkout.json --comparison-lane checkout-android-provider --out artifacts/asl/android --run-id checkout-android-provider',
   }), 'asl:profile:android:provider is missing required flag(s): --provider.');
+  assert.equal(validatePackageScriptShape({
+    scriptName: 'asl:host:doctor',
+    command: 'asl-host-doctor --require android,ios --out artifacts/asl/host-doctor',
+  }), null);
+  assert.equal(validatePackageScriptShape({
+    scriptName: 'asl:host:doctor',
+    command: 'asl-host-doctor --require android,ios',
+  }), 'asl:host:doctor is missing required flag(s): --out.');
   assert.equal(validatePackageScriptShape({
     scriptName: 'asl:agent-device:check',
     command: 'asl-agent-device --check',

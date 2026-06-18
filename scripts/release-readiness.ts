@@ -16,6 +16,7 @@ const REQUIRED_BIN_TARGETS: Record<string, string> = {
   'asl-demo-loop': 'dist/runner/demo-loop.js',
   'asl-example-android-live': 'dist/runner/example-android-live.js',
   'asl-example-ios-live': 'dist/runner/example-ios-live.js',
+  'asl-host-doctor': 'dist/runner/host-doctor.js',
   'asl-init': 'dist/runner/init-project.js',
   'asl-ios-simctl': 'dist/runner/ios-simctl.js',
   'asl-live-android': 'dist/runner/live-android.js',
@@ -80,6 +81,10 @@ const REQUIRED_EXPORTS: Record<string, string | Record<string, string>> = {
   './runner/example-ios-live': {
     require: './dist/runner/example-ios-live.js',
     types: './dist/runner/example-ios-live.d.ts',
+  },
+  './runner/host-doctor': {
+    require: './dist/runner/host-doctor.js',
+    types: './dist/runner/host-doctor.d.ts',
   },
   './runner/init-project': {
     require: './dist/runner/init-project.js',

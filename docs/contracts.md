@@ -31,6 +31,7 @@ The package is intentionally contract-first: adopt the scenario and artifact sha
 - [runner/live-ios.ts](../runner/live-ios.ts): generic iOS live proof for one portable scenario with simctl preflight, profile-session storage capture, optional agent-device and Argent sidecars, optional comparison, and aggregate proof writing
 - [runner/example-android-live.ts](../runner/example-android-live.ts): packaged Android example live proof for adb preflight plus canonical startup, open-close, and scroll-settle scenarios
 - [runner/example-ios-live.ts](../runner/example-ios-live.ts): packaged iOS example live proof for simctl preflight plus canonical startup, open-close, and scroll-settle scenarios
+- [runner/host-doctor.ts](../runner/host-doctor.ts): aggregate host/device preflight for adb, simctl, agent-device, and Argent command availability before live proof starts
 - [runner/live-proof.ts](../runner/live-proof.ts): live-proof artifact reader for validation, status formatting, and optional regression gating
 - [runner/validate-project.ts](../runner/validate-project.ts): initialized project validator for app helper presence, package-script snippets, app `package.json` script merge and direct-bin drift, required config fields, scenario manifests, runner manifests, and planner compatibility
 - [runner/demo-loop.ts](../runner/demo-loop.ts): fixture loop that proves preflight, profile history, and latest-trusted comparison without a simulator

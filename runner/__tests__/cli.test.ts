@@ -55,6 +55,10 @@ const HELP_CASES = [
     usage: 'Usage: asl-example-ios-live',
   },
   {
+    file: path.join(DIST_ROOT, 'runner', 'host-doctor.js'),
+    usage: 'Usage: asl-host-doctor',
+  },
+  {
     file: path.join(DIST_ROOT, 'runner', 'init-project.js'),
     usage: 'Usage: asl-init',
   },

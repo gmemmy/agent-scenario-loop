@@ -42,6 +42,7 @@
     "asl-demo-loop": "dist/runner/demo-loop.js",
     "asl-example-android-live": "dist/runner/example-android-live.js",
     "asl-example-ios-live": "dist/runner/example-ios-live.js",
+    "asl-host-doctor": "dist/runner/host-doctor.js",
     "asl-init": "dist/runner/init-project.js",
     "asl-ios-simctl": "dist/runner/ios-simctl.js",
     "asl-live-android": "dist/runner/live-android.js",
@@ -103,6 +104,10 @@
     "./runner/example-ios-live": {
       "types": "./dist/runner/example-ios-live.d.ts",
       "require": "./dist/runner/example-ios-live.js"
+    },
+    "./runner/host-doctor": {
+      "types": "./dist/runner/host-doctor.d.ts",
+      "require": "./dist/runner/host-doctor.js"
     },
     "./runner/init-project": {
       "types": "./dist/runner/init-project.d.ts",
@@ -184,6 +189,7 @@
     "compare:latest": "pnpm build && node dist/runner/compare-latest.js",
     "check-plan": "pnpm build && node dist/runner/check-plan.js",
     "demo:loop": "pnpm build && node dist/runner/demo-loop.js",
+    "host:doctor": "pnpm build && node dist/runner/host-doctor.js --require ${ASL_HOST_DOCTOR_REQUIRE:-android,ios} ${ASL_ANDROID_ADB_BIN:+--adb $ASL_ANDROID_ADB_BIN} ${ASL_EXAMPLE_ANDROID_APP_ID:+--android-package $ASL_EXAMPLE_ANDROID_APP_ID} ${ASL_EXAMPLE_ANDROID_SERIAL:+--android-serial $ASL_EXAMPLE_ANDROID_SERIAL} ${ASL_IOS_XCRUN_BIN:+--xcrun $ASL_IOS_XCRUN_BIN} ${ASL_EXAMPLE_IOS_APP_ID:+--ios-bundle $ASL_EXAMPLE_IOS_APP_ID} ${ASL_EXAMPLE_IOS_UDID:+--ios-device $ASL_EXAMPLE_IOS_UDID} ${ASL_AGENT_DEVICE_BIN:+--agent-device $ASL_AGENT_DEVICE_BIN} ${ASL_AGENT_DEVICE_REQUIRED_PLATFORMS:+--agent-device-require-platforms $ASL_AGENT_DEVICE_REQUIRED_PLATFORMS} ${ASL_ARGENT_BIN:+--argent $ASL_ARGENT_BIN} ${ASL_ARGENT_BASE_ARGS:+--base-args \"$ASL_ARGENT_BASE_ARGS\"} ${ASL_HOST_DOCTOR_COMMAND_TIMEOUT_MS:+--command-timeout-ms $ASL_HOST_DOCTOR_COMMAND_TIMEOUT_MS} --out artifacts/host-doctor",
     "agent-device:check": "pnpm build && node dist/runner/agent-device.js --check ${ASL_AGENT_DEVICE_BIN:+--agent-device $ASL_AGENT_DEVICE_BIN} ${ASL_AGENT_DEVICE_REQUIRED_PLATFORMS:+--require-platforms $ASL_AGENT_DEVICE_REQUIRED_PLATFORMS} ${ASL_AGENT_DEVICE_COMMAND_TIMEOUT_MS:+--command-timeout-ms $ASL_AGENT_DEVICE_COMMAND_TIMEOUT_MS}",
     "argent:check": "pnpm build && node dist/runner/argent.js --check ${ASL_ARGENT_BIN:+--argent $ASL_ARGENT_BIN} ${ASL_ARGENT_BASE_ARGS:+--base-args \"$ASL_ARGENT_BASE_ARGS\"} ${ASL_ARGENT_COMMAND_TIMEOUT_MS:+--command-timeout-ms $ASL_ARGENT_COMMAND_TIMEOUT_MS}",
     "example:profile:open-close": "pnpm build && node dist/runner/profile-ios.js --config examples/mobile-app/asl.config.json --scenario examples/mobile-app/scenarios/mobile/open-close-cycle.json --events examples/mobile-app/event-logs/open-close-cycle.log --out artifacts/example-mobile-app/ios --run-id example-open-close",

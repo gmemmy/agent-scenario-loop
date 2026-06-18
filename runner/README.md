@@ -2,7 +2,7 @@
 
 The runner owns host execution. It is the boundary between scenario contracts and whichever tool actually drives the device or captures evidence.
 
-The package ships seventeen public runner entrypoints. Package scripts build them into `dist/` before execution:
+The package ships eighteen public runner entrypoints. Package scripts build them into `dist/` before execution:
 
 - `agent-device.ts`: executes scenario-declared portable driver actions through the external `agent-device` CLI, then writes ASL health, verdict, raw command transcripts, and capture artifacts.
 - `android-adb.ts`: checks adb availability, connected Android device readiness, optional package installation, optional React Native debug-host setup, optional package launch, ordered adb driver actions, bounded logcat output, and raw adb evidence.
@@ -13,6 +13,7 @@ The package ships seventeen public runner entrypoints. Package scripts build the
 - `demo-loop.ts`: runs the fixture preflight, profile history, and latest-trusted comparison without requiring a simulator.
 - `example-android-live.ts`: runs the packaged example Android live proof with adb preflight and the canonical startup, open-close, and scroll-settle scenarios.
 - `example-ios-live.ts`: runs the packaged example iOS live proof with simctl preflight and the canonical startup, open-close, and scroll-settle scenarios.
+- `host-doctor.ts`: runs aggregate host/device preflight checks for adb, simctl, agent-device, and Argent, then writes ASL health and verdict artifacts before live proof starts.
 - `init-project.ts`: copies package templates into a conventional consuming app layout without overwriting existing files by default.
 - `ios-simctl.ts`: checks iOS simulator readiness, optional app installation, optional app launch, profile-session storage seeding, storage-backed command seeding, profile-session deep links, bounded simulator logs, stored profile-event collection, and writes raw simctl evidence.
 - `live-android.ts`: runs one generic Android scenario through adb preflight, profile-session capture, optional agent-device and Argent sidecars, optional latest-trusted comparison, and aggregate live-proof writing.
@@ -94,6 +95,18 @@ To check Android runtime readiness without starting scenario execution:
 ```bash
 pnpm android:preflight -- --package com.example.app --out artifacts/android-adb-preflight
 ```
+
+To check the host/device lane before starting mobile live proof:
+
+```bash
+pnpm host:doctor
+ASL_HOST_DOCTOR_REQUIRE=android,ios,agent-device,argent \
+  ASL_ARGENT_BIN=pnpm \
+  ASL_ARGENT_BASE_ARGS="dlx @swmansion/argent run" \
+  pnpm host:doctor
+```
+
+The host doctor writes `health.json`, `verdict.json`, `agent-summary.md`, and child preflight artifacts under `artifacts/host-doctor`. Use it when sandbox or daemon access is uncertain so adb, CoreSimulator, agent-device, and Argent failures are classified as runner-environment health before any scenario timing evidence is trusted.
 
 To attach raw Android logs around a manual or agent-driven run:
 

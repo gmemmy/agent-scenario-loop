@@ -83,6 +83,8 @@ test('init-project scaffolds templates into a consuming app layout', async (t: T
   assert.match(readJson(path.join(targetDir, 'asl', 'package-scripts.json'))['asl:profile:android'], /\$\{ASL_PROFILE_ANDROID_EVENTS:\+--events \$ASL_PROFILE_ANDROID_EVENTS\}/u);
   assert.match(readJson(path.join(targetDir, 'asl', 'package-scripts.json'))['asl:profile:ios:provider'], /--provider runner-manifests\/evidence-provider\.json/u);
   assert.match(readJson(path.join(targetDir, 'asl', 'package-scripts.json'))['asl:profile:android:provider'], /--provider runner-manifests\/evidence-provider\.json/u);
+  assert.match(readJson(path.join(targetDir, 'asl', 'package-scripts.json'))['asl:host:doctor'], /^asl-host-doctor --require/u);
+  assert.match(readJson(path.join(targetDir, 'asl', 'package-scripts.json'))['asl:host:doctor'], /--out artifacts\/asl\/host-doctor/u);
   assert.match(readJson(path.join(targetDir, 'asl', 'package-scripts.json'))['asl:agent-device:ios'], /checkout-submit-ios-agent-device/u);
   assert.match(readJson(path.join(targetDir, 'asl', 'package-scripts.json'))['asl:agent-device:android'], /checkout-submit-android-agent-device/u);
   assert.match(readJson(path.join(targetDir, 'asl', 'package-scripts.json'))['asl:argent:check'], /^asl-argent --check/u);

@@ -98,4 +98,6 @@ pnpm asl:live-proof:both
 
 That script requires both platform proofs, writes `artifacts/asl/live-proof-set/live-proof-set.json` plus `agent-summary.md`, and exits nonzero when either platform is missing, failed, or regressed.
 
-The package-script snippets in `asl/package-scripts.json` include fixture, portable agent-device and Argent interaction proof, live profile, compare, and proof-inspection commands. Merge the snippets you use into your app `package.json` so future agents can run the loop without rediscovering command arguments.
+Run `pnpm asl:host:doctor` before host/device live proof when adb, CoreSimulator, agent-device, or Argent availability is uncertain. Set `ASL_HOST_DOCTOR_REQUIRE=android,ios,agent-device,argent` when sidecar proof availability is part of the gate.
+
+The package-script snippets in `asl/package-scripts.json` include fixture, host doctor, portable agent-device and Argent interaction proof, live profile, compare, and proof-inspection commands. Merge the snippets you use into your app `package.json` so future agents can run the loop without rediscovering command arguments.
