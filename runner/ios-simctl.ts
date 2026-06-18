@@ -208,6 +208,56 @@ function parsePositiveInteger(value: string | boolean | undefined, fallback: num
 }
 
 /**
+ * Reads the process id from `simctl launch` output.
+ *
+ * @param {string} output
+ * @returns {string | null}
+ */
+function parseSimctlLaunchPid(output: string): string | null {
+  const match = /:\s*(?<pid>\d+)\s*$/u.exec(output.trim());
+  return match?.groups?.pid ?? null;
+}
+
+/**
+ * Escapes a value for a CoreSimulator log predicate string literal.
+ *
+ * @param {string} value
+ * @returns {string}
+ */
+function escapeLogPredicateString(value: string): string {
+  return value.replace(/\\/gu, '\\\\').replace(/"/gu, '\\"');
+}
+
+/**
+ * Builds a simulator log predicate for the launched app lifecycle.
+ *
+ * @param {{bundleId: string, pid?: string | null}} options
+ * @returns {string}
+ */
+function buildIosAppLifecycleLogPredicate({
+  bundleId,
+  pid = null,
+}: {
+  bundleId: string;
+  pid?: string | null;
+}): string {
+  const bundlePredicate = `eventMessage CONTAINS "${escapeLogPredicateString(bundleId)}"`;
+  return pid
+    ? `${bundlePredicate} AND eventMessage CONTAINS "${escapeLogPredicateString(pid)}"`
+    : bundlePredicate;
+}
+
+/**
+ * Detects native app exits that invalidate simulator capture evidence.
+ *
+ * @param {string} output
+ * @returns {boolean}
+ */
+function iosAppLifecycleLogHasCrash(output: string): boolean {
+  return /Process exited|exited with context|SIG[A-Z]+|Segmentation fault|EXC_BAD_ACCESS|scene-creation-failed/iu.test(output);
+}
+
+/**
  * Normalizes configured sibling bundle ids, excluding the selected target bundle.
  *
  * @param {{bundleId: string | null, conflictingBundleIds: string[]}} options
@@ -695,6 +745,7 @@ async function runIosSimctlCapture({
     });
     let dataContainerPath: string | null = null;
     let hasInstalledConflictingBundle = false;
+    let launchedAppPid: string | null = null;
     if (bundleId) {
       const appContainer = await executor(xcrunPath, ['simctl', 'get_app_container', simulator.udid, bundleId, 'app']);
       raw['ios-app-container.txt'] = [appContainer.stdout, appContainer.stderr].filter(Boolean).join('\n');
@@ -915,6 +966,7 @@ async function runIosSimctlCapture({
       } else {
         const launchResult = await driver.launchBundle(bundleId);
         const launchPassed = launchResult.exitCode === 0;
+        launchedAppPid = launchPassed ? parseSimctlLaunchPid(launchResult.stdout) : null;
         raw[launchResult.rawFileName] = formatIosSimctlRawOutput(launchResult);
         checks.push({
           name: 'ios_app_launched',
@@ -934,6 +986,7 @@ async function runIosSimctlCapture({
         metadata.launchResult = {
           args: launchResult.args,
           exitCode: launchResult.exitCode,
+          pid: launchedAppPid,
           rawPath: 'raw/ios-launch.txt',
         };
       }
@@ -990,6 +1043,66 @@ async function runIosSimctlCapture({
         code: 'ios_capture_window_waited',
         message: `Waited ${waitMs}ms before capturing iOS simulator logs.`,
       });
+    }
+
+    if (launch && bundleId && !hasInstalledConflictingBundle) {
+      const appLifecycleLog = await executor(xcrunPath, [
+        'simctl',
+        'spawn',
+        simulator.udid,
+        'log',
+        'show',
+        '--style',
+        'compact',
+        '--last',
+        logLast,
+        '--predicate',
+        buildIosAppLifecycleLogPredicate({
+          bundleId,
+          pid: launchedAppPid,
+        }),
+      ]);
+      const appLifecycleRawFileName = 'ios-app-lifecycle-log.txt';
+      const appLifecycleOutput = [appLifecycleLog.stdout, appLifecycleLog.stderr].filter(Boolean).join('\n');
+      const appLifecycleCaptured = appLifecycleLog.exitCode === 0;
+      const appLifecycleCrashed = appLifecycleCaptured && iosAppLifecycleLogHasCrash(appLifecycleOutput);
+      raw[appLifecycleRawFileName] = appLifecycleOutput;
+      checks.push({
+        name: 'ios_app_lifecycle_stable',
+        status: !appLifecycleCaptured ? 'warning' : appLifecycleCrashed ? 'failed' : 'passed',
+        source: 'runner',
+        code: !appLifecycleCaptured
+          ? 'ios_app_lifecycle_log_unavailable'
+          : appLifecycleCrashed
+            ? 'ios_app_exited_during_capture'
+            : 'ios_app_lifecycle_stable',
+        message: !appLifecycleCaptured
+          ? 'Could not inspect the launched iOS app lifecycle log.'
+          : appLifecycleCrashed
+            ? `App ${bundleId} exited during the simulator capture window.`
+            : `No native app exit was found for ${bundleId} during the simulator capture window.`,
+        ...(!appLifecycleCaptured
+          ? {
+              metadata: nextActionHint(
+                'inspect_ios_app_lifecycle',
+                `Inspect raw/${appLifecycleRawFileName}, confirm xcrun simctl log access works for the selected simulator, then rerun the capture.`,
+              ),
+            }
+          : appLifecycleCrashed
+            ? {
+                metadata: nextActionHint(
+                  'inspect_ios_app_crash',
+                  `Inspect raw/${appLifecycleRawFileName} and the latest host DiagnosticReports crash file for ${bundleId}; do not trust timing or profile evidence until the app remains foregrounded.`,
+                ),
+              }
+            : {}),
+      });
+      metadata.appLifecycle = {
+        args: appLifecycleLog.args,
+        exitCode: appLifecycleLog.exitCode,
+        pid: launchedAppPid,
+        rawPath: `raw/${appLifecycleRawFileName}`,
+      };
     }
 
     if (screenshot) {

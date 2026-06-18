@@ -172,6 +172,9 @@ test('captures bounded iOS simulator log evidence', async (t: TestContext) => {
       'simctl openurl A692ED28-893E-453F-8866-C69331AE757F asl-example://profile-session/start?scenario=app-startup&runId=ios-live': {
         stdout: '',
       },
+      'simctl spawn A692ED28-893E-453F-8866-C69331AE757F log show --style compact --last 1m --predicate eventMessage CONTAINS "dev.agent-scenario-loop.example" AND eventMessage CONTAINS "1234"': {
+        stdout: 'Timestamp Ty Process[PID:TID]\n',
+      },
       'simctl spawn A692ED28-893E-453F-8866-C69331AE757F log show --style compact --last 1m --predicate eventMessage CONTAINS "[profile-event]" OR eventMessage CONTAINS "[profile-session]"': {
         stdout: '[profile-event] scenario=app-startup runId=ios-live event=home_ready timestamp=1\n',
       },
@@ -252,6 +255,77 @@ test('captures bounded iOS simulator log evidence', async (t: TestContext) => {
   assert.ok(
     (result.health.checks as Array<{ code: string }>).some((check) => check.code === 'ios_logs_captured'),
   );
+});
+
+test('fails iOS capture when launched app exits during the capture window', async (t: TestContext) => {
+  const outputDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-ios-simctl-crash-'));
+  t.after(async () => {
+    await fsp.rm(outputDir, { recursive: true, force: true });
+  });
+  const executor = createExecutor({
+    'simctl list devices': {
+      stdout: [
+        '== Devices ==',
+        '-- iOS 26.3 --',
+        '    iPhone 17 Pro Max (A692ED28-893E-453F-8866-C69331AE757F) (Booted)',
+      ].join('\n'),
+    },
+    'simctl get_app_container A692ED28-893E-453F-8866-C69331AE757F dev.agent-scenario-loop.example app': {
+      stdout: '/tmp/ASLExampleMobile.app\n',
+    },
+    'simctl launch A692ED28-893E-453F-8866-C69331AE757F dev.agent-scenario-loop.example': {
+      stdout: 'dev.agent-scenario-loop.example: 74759\n',
+    },
+    'simctl spawn A692ED28-893E-453F-8866-C69331AE757F log show --style compact --last 1m --predicate eventMessage CONTAINS "dev.agent-scenario-loop.example" AND eventMessage CONTAINS "74759"': {
+      stdout: [
+        'SpringBoard Process exited: <FBApplicationProcess; app<dev.agent-scenario-loop.example>:74759> -> <RBSProcessExitContext| specific, status:<RBSProcessExitStatus| domain:signal(2) code:SIGSEGV(11)>>',
+        'runningboardd app<dev.agent-scenario-loop.example>:74759 exited with context signal SIGSEGV',
+      ].join('\n'),
+    },
+    'simctl spawn A692ED28-893E-453F-8866-C69331AE757F log show --style compact --last 1m --predicate eventMessage CONTAINS "[profile-event]" OR eventMessage CONTAINS "[profile-session]"': {
+      stdout: 'Timestamp Ty Process[PID:TID]\n',
+    },
+  });
+
+  const result = await runIosSimctlCapture({
+    bundleId: 'dev.agent-scenario-loop.example',
+    executor,
+    launch: true,
+    logLast: '1m',
+    outputDir,
+    runId: 'ios-crash',
+  });
+
+  const summary = fs.readFileSync(path.join(outputDir, 'agent-summary.md'), 'utf8');
+  const lifecycleLog = fs.readFileSync(path.join(outputDir, 'raw', 'ios-app-lifecycle-log.txt'), 'utf8');
+
+  assert.equal(result.health.healthStatus, 'failed');
+  assert.ok(lifecycleLog.includes('SIGSEGV'));
+  assert.ok(
+    (result.health.checks as Array<{ code: string; metadata?: { nextActionCode?: string } }>).some(
+      (check) => check.code === 'ios_app_exited_during_capture'
+        && check.metadata?.nextActionCode === 'inspect_ios_app_crash',
+    ),
+  );
+  assert.match(summary, /inspect_ios_app_crash/u);
+  assert.deepEqual(result.metadata.appLifecycle, {
+    args: [
+      'simctl',
+      'spawn',
+      'A692ED28-893E-453F-8866-C69331AE757F',
+      'log',
+      'show',
+      '--style',
+      'compact',
+      '--last',
+      '1m',
+      '--predicate',
+      'eventMessage CONTAINS "dev.agent-scenario-loop.example" AND eventMessage CONTAINS "74759"',
+    ],
+    exitCode: 0,
+    pid: '74759',
+    rawPath: 'raw/ios-app-lifecycle-log.txt',
+  });
 });
 
 test('fails iOS capture when configured sibling bundle variants are installed', async (t: TestContext) => {
@@ -441,6 +515,9 @@ test('captures stored iOS profile events from app data container', async (t: Tes
       },
       'simctl launch A692ED28-893E-453F-8866-C69331AE757F dev.agent-scenario-loop.example': {
         stdout: 'dev.agent-scenario-loop.example: 1234\n',
+      },
+      'simctl spawn A692ED28-893E-453F-8866-C69331AE757F log show --style compact --last 1m --predicate eventMessage CONTAINS "dev.agent-scenario-loop.example" AND eventMessage CONTAINS "1234"': {
+        stdout: 'Timestamp Ty Process[PID:TID]\n',
       },
       'simctl spawn A692ED28-893E-453F-8866-C69331AE757F log show --style compact --last 1m --predicate eventMessage CONTAINS "[profile-event]" OR eventMessage CONTAINS "[profile-session]"': {
         stdout: 'Timestamp Ty Process[PID:TID]\n',
