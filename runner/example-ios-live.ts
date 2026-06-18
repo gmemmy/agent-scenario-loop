@@ -35,12 +35,15 @@ type IosInteractionProof = {
   runnerId: string;
   scenarioId: string;
 };
+type IosSkippedInteractionProof = import('./live-proof-summary').LiveProofSkippedInteractionProofPointer;
 type IosLiveProfile = {
+  healthStatus?: string;
   label: string;
   runDir: string;
   runId: string;
   scenario: string;
   scenarioId: string;
+  verdictStatus?: string;
 };
 type IosLiveProofResult = {
   aggregateSummary: LiveProofSummaryResult;
@@ -49,6 +52,7 @@ type IosLiveProofResult = {
   outputDir: string;
   preflightDir: string;
   profiles: IosLiveProfile[];
+  skippedInteractionProofs: IosSkippedInteractionProof[];
 };
 type RegressionGateOptions = {
   platformLabel: string;
@@ -209,62 +213,74 @@ function buildInteractionComparisonLane(runnerIds: string[]): string {
 }
 
 /**
- * Throws when a profile run did not produce trusted evidence.
+ * Reports whether profile evidence is healthy enough to trust sidecar proofs and comparisons.
  *
- * @param {{label: string, runDir: string, health: Record<string, unknown>, verdict: Record<string, unknown>}} options
- * @returns {void}
+ * @param {{health: Record<string, unknown>, verdict: Record<string, unknown>}} run
+ * @returns {boolean}
  */
-function assertPassedProfile({
+function isTrustedProfileRun({
   health,
-  label,
-  runDir,
   verdict,
 }: {
   health: Record<string, unknown>;
-  label: string;
-  runDir: string;
   verdict: Record<string, unknown>;
-}): void {
-  if (health.healthStatus === 'passed' && verdict.verdictStatus === 'passed') {
-    return;
-  }
-
-  throw new Error(
-    [
-      `iOS live proof failed for ${label}.`,
-      `Health: ${health.healthStatus ?? 'unknown'}.`,
-      `Verdict: ${verdict.verdictStatus ?? 'unknown'}.`,
-      `Inspect ${runDir}/agent-summary.md.`,
-    ].join(' '),
-  );
+}): boolean {
+  return health.healthStatus === 'passed' && verdict.verdictStatus === 'passed';
 }
 
 /**
- * Throws when an interaction proof failed before aggregate summary writing.
+ * Builds skipped sidecar pointers for requested example runners when the profile batch failed.
  *
- * @param {{label: string, runDir: string, health: Record<string, unknown>}} options
+ * @param {{failedProfiles: IosLiveProfile[], requestedRunners: string[], runIdsByRunner: Record<string, string>}} options
+ * @returns {IosSkippedInteractionProof[]}
+ */
+function buildSkippedInteractionProofs({
+  failedProfiles,
+  requestedRunners,
+  runIdsByRunner,
+}: {
+  failedProfiles: IosLiveProfile[];
+  requestedRunners: string[];
+  runIdsByRunner: Record<string, string>;
+}): IosSkippedInteractionProof[] {
+  if (failedProfiles.length === 0) {
+    return [];
+  }
+
+  const failedSummary = failedProfiles
+    .map((profile) => `${profile.label}=health:${profile.healthStatus ?? 'unknown'}/verdict:${profile.verdictStatus ?? 'unknown'}`)
+    .join(', ');
+  const reason = `Profile batch failed (${failedSummary}); sidecar interaction proof was skipped because aggregate runner evidence would not be trustworthy.`;
+  const labelsByRunner: Record<string, string> = {
+    'agent-device': 'startup-ui',
+    argent: 'startup-ui-argent',
+  };
+  return requestedRunners.map((runnerId) => ({
+    label: labelsByRunner[runnerId] ?? `startup-ui-${runnerId}`,
+    nextAction: {
+      code: 'fix_profile_gate',
+      summary: 'Inspect the failed profile health and verdict before rerunning sidecar interaction proofs.',
+    },
+    reason,
+    runId: runIdsByRunner[runnerId] ?? `ios-${runnerId}-startup`,
+    runnerId,
+    scenarioId: 'app-startup',
+  }));
+}
+
+/**
+ * Throws after aggregate proof writing when the live proof itself failed.
+ *
+ * @param {IosLiveProofResult} result
  * @returns {void}
  */
-function assertPassedInteractionProof({
-  health,
-  label,
-  runDir,
-}: {
-  health: Record<string, unknown>;
-  label: string;
-  runDir: string;
-}): void {
-  if (health.healthStatus === 'passed') {
+function assertAggregatePassed(result: IosLiveProofResult): void {
+  const proof = readJson(result.aggregateSummary.liveProofPath);
+  if (proof.status === 'passed') {
     return;
   }
 
-  throw new Error(
-    [
-      `iOS interaction proof failed for ${label}.`,
-      `Health: ${health.healthStatus ?? 'unknown'}.`,
-      `Inspect ${runDir}/agent-summary.md.`,
-    ].join(' '),
-  );
+  throw new Error(`iOS example live proof failed. Inspect ${result.aggregateSummary.summaryPath}.`);
 }
 
 /**
@@ -320,6 +336,10 @@ async function runExampleIosLiveProof(
     ...(isEnabledFlag(args['argent-proof']) ? ['argent'] : []),
   ];
   const comparisonLane = buildInteractionComparisonLane(enabledInteractionRunners);
+  const runIdsByRunner = {
+    'agent-device': agentDeviceRunId,
+    argent: argentRunId,
+  };
   const preflightDir = path.join(outputDir, '_preflight', preflightRunId);
 
   const preflight = await runIosSimctlCapture({
@@ -337,6 +357,7 @@ async function runExampleIosLiveProof(
 
   const interactionProofs: IosInteractionProof[] = [];
   const profiles: IosLiveProfile[] = [];
+  const failedProfiles: IosLiveProfile[] = [];
   for (const profile of EXAMPLE_PROFILES) {
     const profileRunId = buildLiveRunId(profile.runId, runSuffix);
     const result = await runProfileIos({
@@ -360,22 +381,29 @@ async function runExampleIosLiveProof(
       ...(options.executor ? { executor: options.executor } : {}),
     });
 
-    assertPassedProfile({
-      health: result.health,
-      label: profile.label,
-      runDir: result.runDir,
-      verdict: result.verdict,
-    });
-    profiles.push({
+    const profilePointer = {
+      healthStatus: typeof result.health.healthStatus === 'string' ? result.health.healthStatus : 'unknown',
       label: profile.label,
       runDir: result.runDir,
       runId: profileRunId,
       scenario: profile.scenario,
       scenarioId: profile.scenarioId,
-    });
+      verdictStatus: typeof result.verdict.verdictStatus === 'string' ? result.verdict.verdictStatus : 'unknown',
+    };
+    profiles.push(profilePointer);
+    if (!isTrustedProfileRun({ health: result.health, verdict: result.verdict })) {
+      failedProfiles.push(profilePointer);
+    }
   }
 
-  if (isEnabledFlag(args['agent-device-proof'])) {
+  const skippedInteractionProofs = buildSkippedInteractionProofs({
+    failedProfiles,
+    requestedRunners: enabledInteractionRunners,
+    runIdsByRunner,
+  });
+  const profileBatchTrusted = failedProfiles.length === 0;
+
+  if (profileBatchTrusted && isEnabledFlag(args['agent-device-proof'])) {
     const agentDeviceCapture = await runAgentDeviceCapture({
       ...(typeof args['agent-device'] === 'string' ? { agentDevicePath: args['agent-device'] } : {}),
       app: bundleId,
@@ -389,11 +417,6 @@ async function runExampleIosLiveProof(
       udid: deviceId,
       waitMs: parsePositiveInteger(args['agent-device-wait-ms'], 1000),
     });
-    assertPassedInteractionProof({
-      health: agentDeviceCapture.health,
-      label: 'startup-ui',
-      runDir: agentDeviceCapture.runDir,
-    });
     interactionProofs.push({
       label: 'startup-ui',
       runDir: agentDeviceCapture.runDir,
@@ -403,7 +426,7 @@ async function runExampleIosLiveProof(
     });
   }
 
-  if (isEnabledFlag(args['argent-proof'])) {
+  if (profileBatchTrusted && isEnabledFlag(args['argent-proof'])) {
     const argentBaseArgs = parseArgentBaseArgs(process.env.ASL_ARGENT_BASE_ARGS);
     const argentCapture = await runArgentCapture({
       app: bundleId,
@@ -420,11 +443,6 @@ async function runExampleIosLiveProof(
       runId: argentRunId,
       scenario: readJson(path.join(exampleRoot, 'scenarios', 'mobile', 'app-startup.json')),
     });
-    assertPassedInteractionProof({
-      health: argentCapture.health,
-      label: 'startup-ui-argent',
-      runDir: argentCapture.runDir,
-    });
     interactionProofs.push({
       label: 'startup-ui-argent',
       runDir: argentCapture.runDir,
@@ -434,7 +452,7 @@ async function runExampleIosLiveProof(
     });
   }
 
-  const comparisons = isEnabledFlag(args['compare-latest'])
+  const comparisons = profileBatchTrusted && isEnabledFlag(args['compare-latest'])
     ? await compareLiveProfilesToLatest({ outputDir, profiles })
     : [];
   const aggregateSummary = await writeLiveProofSummary({
@@ -446,16 +464,25 @@ async function runExampleIosLiveProof(
     preflightRunId,
     profiles,
     runId: aggregateRunId,
+    skippedInteractionProofs,
   });
-
-  return {
+  const result = {
     aggregateSummary,
     comparisons,
     interactionProofs,
     outputDir,
     preflightDir: preflight.runDir,
     profiles,
+    skippedInteractionProofs,
   };
+  if (isEnabledFlag(args['fail-on-regression'])) {
+    assertNoRegressedComparisons({
+      platformLabel: 'iOS',
+      result,
+    });
+  }
+  assertAggregatePassed(result);
+  return result;
 }
 
 /**
@@ -506,12 +533,6 @@ async function main(): Promise<void> {
   const args = parseArgs(argv);
   const result = await runExampleIosLiveProof(args);
   process.stdout.write(`${formatResult(result)}\n`);
-  if (isEnabledFlag(args['fail-on-regression'])) {
-    assertNoRegressedComparisons({
-      platformLabel: 'iOS',
-      result,
-    });
-  }
 }
 
 if (require.main === module) {
@@ -522,10 +543,13 @@ if (require.main === module) {
 }
 
 export {
+  assertAggregatePassed,
   buildLiveRunId,
   formatResult,
   assertNoRegressedComparisons,
+  buildSkippedInteractionProofs,
   buildInteractionComparisonLane,
+  isTrustedProfileRun,
   main,
   normalizeRunSuffix,
   resolveIosDeviceId,

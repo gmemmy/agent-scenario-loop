@@ -419,4 +419,182 @@ test('runs the packaged Android example live proof with a fake adb executor', as
     ],
   );
   assert.equal(aggregate.comparisons.length, 3);
+
+  const failedAgentDeviceExecutor = async (command: string, args: string[]): Promise<AgentDeviceCommandResult> => {
+    orderedCalls.push(`failed-agent-device:${args.join(' ')}`);
+    return {
+      args,
+      command,
+      exitCode: 1,
+      stderr: 'agent-device could not inspect the app',
+      stdout: '',
+    };
+  };
+  await assert.rejects(
+    () => runExampleAndroidLiveProof({
+      'agent-device-proof': true,
+      adb: 'fake-adb',
+      out: outputDir,
+      'run-suffix': 'sidecar failure',
+    }, {
+      agentDeviceExecutor: failedAgentDeviceExecutor,
+      delay: async () => {},
+      executor,
+      packageRoot: ROOT,
+    }),
+    /Android example live proof failed\. Inspect /u,
+  );
+  const failedSidecarAggregate = JSON.parse(fs.readFileSync(
+    path.join(outputDir, '_live-proof', 'android-live-proof-sidecar-failure', 'live-proof.json'),
+    'utf8',
+  ));
+  assert.equal(failedSidecarAggregate.status, 'failed');
+  assert.equal(failedSidecarAggregate.nextAction.code, 'inspect_failed_run');
+  assert.equal(failedSidecarAggregate.skippedInteractionProofs, undefined);
+  assert.deepEqual(
+    failedSidecarAggregate.interactionProofs.map((proof: { healthStatus: string; runnerId: string }) => ({
+      healthStatus: proof.healthStatus,
+      runnerId: proof.runnerId,
+    })),
+    [
+      {
+        healthStatus: 'failed',
+        runnerId: 'agent-device',
+      },
+    ],
+  );
+});
+
+test('Android example live proof writes failed aggregate before skipping requested sidecars on failed profiles', async (t: TestContext) => {
+  const outputDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-example-android-live-failed-'));
+  t.after(async () => {
+    await fsp.rm(outputDir, { recursive: true, force: true });
+  });
+
+  const sidecarCalls: string[] = [];
+  const executor = async (command: string, args: string[]): Promise<CommandResult> => {
+    const key = args.join(' ');
+    if (key === 'version') {
+      return { command, args, exitCode: 0, stderr: '', stdout: 'Android Debug Bridge version 1.0.41\n' };
+    }
+    if (key === 'devices -l') {
+      return {
+        command,
+        args,
+        exitCode: 0,
+        stderr: '',
+        stdout: [
+          'List of devices attached',
+          `${SERIAL} device product:sdk_gphone model:Pixel_6 device:emu64`,
+        ].join('\n'),
+      };
+    }
+    if (key.endsWith('shell getprop ro.product.model')) {
+      return { command, args, exitCode: 0, stderr: '', stdout: 'Pixel 6\n' };
+    }
+    if (key.endsWith('shell getprop ro.build.version.release')) {
+      return { command, args, exitCode: 0, stderr: '', stdout: '15\n' };
+    }
+    if (key.endsWith('shell getprop ro.build.version.sdk')) {
+      return { command, args, exitCode: 0, stderr: '', stdout: '35\n' };
+    }
+    if (key.endsWith('shell pm path dev.agentscenarioloop.example')) {
+      return {
+        command,
+        args,
+        exitCode: 0,
+        stderr: '',
+        stdout: 'package:/data/app/dev.agentscenarioloop.example/base.apk\n',
+      };
+    }
+    if (key === `-s ${SERIAL} reverse tcp:8097 tcp:8097`) {
+      return { command, args, exitCode: 0, stderr: '', stdout: '' };
+    }
+    if (key.includes('shell run-as dev.agentscenarioloop.example sh -c') && key.includes('debug_http_host')) {
+      return { command, args, exitCode: 0, stderr: '', stdout: '' };
+    }
+    if (key.endsWith('shell monkey -p dev.agentscenarioloop.example -c android.intent.category.LAUNCHER 1')) {
+      return { command, args, exitCode: 0, stderr: '', stdout: 'Events injected: 1\n' };
+    }
+    if (key.endsWith('logcat -c')) {
+      return { command, args, exitCode: 0, stderr: '', stdout: '' };
+    }
+    if (key.includes('profile-session/start') || key.includes('profile-session/command')) {
+      return { command, args, exitCode: 0, stderr: '', stdout: 'Starting: Intent\n' };
+    }
+    if (key.endsWith('shell rm -f /sdcard/agent-scenario-loop-ui.xml; uiautomator dump /sdcard/agent-scenario-loop-ui.xml >/dev/null; cat /sdcard/agent-scenario-loop-ui.xml; status=$?; rm -f /sdcard/agent-scenario-loop-ui.xml; exit $status')) {
+      return {
+        command,
+        args,
+        exitCode: 0,
+        stderr: '',
+        stdout: [
+          '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>',
+          '<hierarchy rotation="0">',
+          '<node index="0" text="Example Mobile App" resource-id="dev.agentscenarioloop.example:id/asl-example-title" bounds="[32,96][720,180]" />',
+          '</hierarchy>',
+        ].join('\n'),
+      };
+    }
+    if (key.endsWith('exec-out screencap -p')) {
+      return { command, args, exitCode: 0, stderr: '', stdout: 'fake png bytes' };
+    }
+    if (key.endsWith('logcat -d -v time -t 1000')) {
+      return { command, args, exitCode: 0, stderr: '', stdout: '--------- beginning of main\n' };
+    }
+
+    return { command, args, exitCode: 1, stderr: `unexpected command: ${key}`, stdout: '' };
+  };
+  const sidecarExecutor = async (command: string, args: string[]): Promise<AgentDeviceCommandResult> => {
+    sidecarCalls.push(`${command} ${args.join(' ')}`);
+    return { args, command, exitCode: 0, stderr: '', stdout: '{"success":true}\n' };
+  };
+  const argentExecutor = async (command: string, args: string[]): Promise<ArgentCommandResult> => {
+    sidecarCalls.push(`${command} ${args.join(' ')}`);
+    return { args, command, exitCode: 0, stderr: '', stdout: '{"success":true}\n' };
+  };
+
+  await assert.rejects(
+    () => runExampleAndroidLiveProof({
+      'agent-device-proof': true,
+      'argent-proof': true,
+      adb: 'fake-adb',
+      out: outputDir,
+      serial: SERIAL,
+    }, {
+      agentDeviceExecutor: sidecarExecutor,
+      argentExecutor,
+      delay: async () => {},
+      executor,
+      packageRoot: ROOT,
+    }),
+    /Android example live proof failed\. Inspect /u,
+  );
+
+  assert.deepEqual(sidecarCalls, []);
+  const aggregatePath = path.join(outputDir, '_live-proof', 'android-live-proof', 'live-proof.json');
+  const aggregate = JSON.parse(fs.readFileSync(aggregatePath, 'utf8'));
+  assert.equal(aggregate.status, 'failed');
+  assert.equal(aggregate.nextAction.code, 'inspect_failed_run');
+  assert.equal(aggregate.profiles.length, 3);
+  assert.equal(aggregate.profiles.some((profile: { healthStatus: string }) => profile.healthStatus === 'failed'), true);
+  assert.deepEqual(
+    aggregate.skippedInteractionProofs.map((proof: { label: string; nextAction: { code: string }; runnerId: string }) => ({
+      label: proof.label,
+      nextActionCode: proof.nextAction.code,
+      runnerId: proof.runnerId,
+    })),
+    [
+      {
+        label: 'startup-ui',
+        nextActionCode: 'fix_profile_gate',
+        runnerId: 'agent-device',
+      },
+      {
+        label: 'startup-ui-argent',
+        nextActionCode: 'fix_profile_gate',
+        runnerId: 'argent',
+      },
+    ],
+  );
 });

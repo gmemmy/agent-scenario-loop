@@ -399,4 +399,149 @@ test('runs the packaged iOS example live proof with a fake simctl executor', asy
     ],
   );
   assert.equal(aggregate.comparisons.length, 3);
+
+  const failedAgentDeviceExecutor = async (command: string, args: string[]): Promise<AgentDeviceCommandResult> => {
+    orderedCalls.push(`failed-agent-device:${args.join(' ')}`);
+    return {
+      args,
+      command,
+      exitCode: 1,
+      stderr: 'agent-device could not inspect the app',
+      stdout: '',
+    };
+  };
+  await assert.rejects(
+    () => runExampleIosLiveProof({
+      'agent-device-proof': true,
+      device: DEVICE_ID,
+      out: outputDir,
+      'run-suffix': 'sidecar failure',
+    }, {
+      agentDeviceExecutor: failedAgentDeviceExecutor,
+      delay: async () => {},
+      executor,
+      packageRoot: ROOT,
+    }),
+    /iOS example live proof failed\. Inspect /u,
+  );
+  const failedSidecarAggregate = JSON.parse(fs.readFileSync(
+    path.join(outputDir, '_live-proof', 'ios-live-proof-sidecar-failure', 'live-proof.json'),
+    'utf8',
+  ));
+  assert.equal(failedSidecarAggregate.status, 'failed');
+  assert.equal(failedSidecarAggregate.nextAction.code, 'inspect_failed_run');
+  assert.equal(failedSidecarAggregate.skippedInteractionProofs, undefined);
+  assert.deepEqual(
+    failedSidecarAggregate.interactionProofs.map((proof: { healthStatus: string; runnerId: string }) => ({
+      healthStatus: proof.healthStatus,
+      runnerId: proof.runnerId,
+    })),
+    [
+      {
+        healthStatus: 'failed',
+        runnerId: 'agent-device',
+      },
+    ],
+  );
+});
+
+test('iOS example live proof writes failed aggregate before skipping requested sidecars on failed profiles', async (t: TestContext) => {
+  const outputDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-example-ios-live-failed-'));
+  const dataContainer = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-example-ios-data-failed-'));
+  t.after(async () => {
+    await fsp.rm(outputDir, { recursive: true, force: true });
+    await fsp.rm(dataContainer, { recursive: true, force: true });
+  });
+
+  const sidecarCalls: string[] = [];
+  const executor = async (command: string, args: string[]): Promise<CommandResult> => {
+    const key = args.join(' ');
+    if (key === 'simctl list devices') {
+      return {
+        command,
+        args,
+        exitCode: 0,
+        stderr: '',
+        stdout: [
+          '== Devices ==',
+          '-- iOS 26.3 --',
+          `    iPhone 17 Pro Max (${DEVICE_ID}) (Booted)`,
+        ].join('\n'),
+      };
+    }
+    if (key === `simctl get_app_container ${DEVICE_ID} ${BUNDLE_ID} app`) {
+      return { command, args, exitCode: 0, stderr: '', stdout: '/tmp/ASLExampleMobile.app\n' };
+    }
+    if (key === `simctl get_app_container ${DEVICE_ID} ${BUNDLE_ID} data`) {
+      return { command, args, exitCode: 0, stderr: '', stdout: `${dataContainer}\n` };
+    }
+    if (key === `simctl terminate ${DEVICE_ID} ${BUNDLE_ID}`) {
+      return { command, args, exitCode: 0, stderr: '', stdout: '' };
+    }
+    if (key === `simctl launch ${DEVICE_ID} ${BUNDLE_ID}`) {
+      return { command, args, exitCode: 0, stderr: '', stdout: `${BUNDLE_ID}: 1234\n` };
+    }
+    if (key.startsWith(`simctl io ${DEVICE_ID} screenshot `)) {
+      const screenshotPath = args.at(-1);
+      assert.equal(typeof screenshotPath, 'string');
+      await fsp.writeFile(screenshotPath, 'fake screenshot', 'utf8');
+      return { command, args, exitCode: 0, stderr: '', stdout: `Wrote screenshot to ${screenshotPath}\n` };
+    }
+    if (key === `simctl spawn ${DEVICE_ID} log show --style compact --last 2m --predicate eventMessage CONTAINS "[profile-event]" OR eventMessage CONTAINS "[profile-session]"`) {
+      return { command, args, exitCode: 0, stderr: '', stdout: 'Timestamp Ty Process[PID:TID]\n' };
+    }
+
+    return { command, args, exitCode: 1, stderr: `unexpected command: ${key}`, stdout: '' };
+  };
+  const sidecarExecutor = async (command: string, args: string[]): Promise<AgentDeviceCommandResult> => {
+    sidecarCalls.push(`${command} ${args.join(' ')}`);
+    return { args, command, exitCode: 0, stderr: '', stdout: '{"success":true}\n' };
+  };
+  const argentExecutor = async (command: string, args: string[]): Promise<ArgentCommandResult> => {
+    sidecarCalls.push(`${command} ${args.join(' ')}`);
+    return { args, command, exitCode: 0, stderr: '', stdout: '{"success":true}\n' };
+  };
+
+  await assert.rejects(
+    () => runExampleIosLiveProof({
+      'agent-device-proof': true,
+      'argent-proof': true,
+      device: DEVICE_ID,
+      out: outputDir,
+    }, {
+      agentDeviceExecutor: sidecarExecutor,
+      argentExecutor,
+      delay: async () => {},
+      executor,
+      packageRoot: ROOT,
+    }),
+    /iOS example live proof failed\. Inspect /u,
+  );
+
+  assert.deepEqual(sidecarCalls, []);
+  const aggregatePath = path.join(outputDir, '_live-proof', 'ios-live-proof', 'live-proof.json');
+  const aggregate = JSON.parse(fs.readFileSync(aggregatePath, 'utf8'));
+  assert.equal(aggregate.status, 'failed');
+  assert.equal(aggregate.nextAction.code, 'inspect_failed_run');
+  assert.equal(aggregate.profiles.length, 3);
+  assert.equal(aggregate.profiles.some((profile: { healthStatus: string }) => profile.healthStatus === 'failed'), true);
+  assert.deepEqual(
+    aggregate.skippedInteractionProofs.map((proof: { label: string; nextAction: { code: string }; runnerId: string }) => ({
+      label: proof.label,
+      nextActionCode: proof.nextAction.code,
+      runnerId: proof.runnerId,
+    })),
+    [
+      {
+        label: 'startup-ui',
+        nextActionCode: 'fix_profile_gate',
+        runnerId: 'agent-device',
+      },
+      {
+        label: 'startup-ui-argent',
+        nextActionCode: 'fix_profile_gate',
+        runnerId: 'argent',
+      },
+    ],
+  );
 });
