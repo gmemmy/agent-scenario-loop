@@ -193,20 +193,29 @@ test('validates platform-specific project config fields', async (t: TestContext)
   config.drivers.supported = ['fixture-log-ingest', 'adb', 'ios-simctl'];
   await fsp.writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
   result = await validateProject({ rootDir: targetDir });
-  assert.equal(result.status, 'failed');
+  assert.equal(result.status, 'passed');
+  assert.equal(result.config.status, 'present');
   assert.deepEqual(result.config.missingSupportedDrivers, ['agent-device', 'argent']);
   assert.equal(
-    result.errors.some((error: string) =>
-      error.includes('Project config drivers.supported is missing driver(s): agent-device, argent.')),
+    result.warnings.some((warning: string) =>
+      warning.includes('Project config drivers.supported does not list optional package driver(s): agent-device, argent.')),
     true,
   );
-  assert.equal(actionCodes(result).includes('fix_project_config'), true);
+  assert.equal(actionCodes(result).includes('fix_project_config'), false);
 
   config.drivers.supported = ['fixture-log-ingest', 'adb', 'ios-simctl', 'agent-device', 'argent', 'custom-driver'];
   await fsp.writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
   result = await validateProject({ rootDir: targetDir });
   assert.equal(result.status, 'passed');
   assert.deepEqual(result.config.customDrivers, ['custom-driver']);
+
+  config.drivers.supported = ['agent-device', 'argent', 'xcodebuildmcp'];
+  await fsp.writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
+  result = await validateProject({ rootDir: targetDir });
+  assert.equal(result.status, 'passed');
+  assert.deepEqual(result.config.externalTargetDrivers, ['xcodebuildmcp']);
+  assert.deepEqual(result.config.packageSupportedDrivers, ['agent-device', 'argent']);
+  assert.deepEqual(result.config.missingSupportedDrivers, ['fixture-log-ingest', 'adb', 'ios-simctl']);
 
   config.drivers.supported = 'adb';
   await fsp.writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8');

@@ -322,7 +322,7 @@ const REQUIRED_GITIGNORE_PATTERNS = [
   '*.xcresult',
 ];
 
-const REQUIRED_SUPPORTED_DRIVERS = [
+const PACKAGE_SUPPORTED_DRIVERS = [
   'fixture-log-ingest',
   'adb',
   'ios-simctl',
@@ -598,7 +598,7 @@ function validateProjectConfig({
       externalTargetDrivers: [],
       invalidFields: [],
       missingFields: [],
-      missingSupportedDrivers: REQUIRED_SUPPORTED_DRIVERS,
+      missingSupportedDrivers: PACKAGE_SUPPORTED_DRIVERS,
       packageSupportedDrivers: [],
       path: configPath,
       status: 'missing',
@@ -636,15 +636,15 @@ function validateProjectConfig({
         .map((value) => value.trim())
         .sort()
     : [];
-  const missingSupportedDrivers = REQUIRED_SUPPORTED_DRIVERS
+  const missingSupportedDrivers = PACKAGE_SUPPORTED_DRIVERS
     .filter((driver) => !supportedDrivers.includes(driver));
   const packageSupportedDrivers = supportedDrivers
-    .filter((driver) => REQUIRED_SUPPORTED_DRIVERS.includes(driver));
+    .filter((driver) => PACKAGE_SUPPORTED_DRIVERS.includes(driver));
   const externalTargetDrivers = supportedDrivers
     .filter((driver) => KNOWN_EXTERNAL_TARGET_DRIVERS.includes(driver));
   const customDrivers = supportedDrivers
     .filter((driver) => (
-      !REQUIRED_SUPPORTED_DRIVERS.includes(driver) &&
+      !PACKAGE_SUPPORTED_DRIVERS.includes(driver) &&
       !KNOWN_EXTERNAL_TARGET_DRIVERS.includes(driver)
     ));
 
@@ -656,7 +656,7 @@ function validateProjectConfig({
     missingSupportedDrivers,
     packageSupportedDrivers,
     path: configPath,
-    status: missingFields.length > 0 || invalidFields.length > 0 || missingSupportedDrivers.length > 0
+    status: missingFields.length > 0 || invalidFields.length > 0
       ? 'incomplete'
       : 'present',
     supportedDrivers,
@@ -1256,8 +1256,10 @@ async function validateProject(options: {
   if (config.invalidFields.length > 0) {
     errors.push(`Project config has invalid required field(s): ${config.invalidFields.join(', ')}.`);
   }
-  if (config.missingSupportedDrivers.length > 0) {
-    errors.push(`Project config drivers.supported is missing driver(s): ${config.missingSupportedDrivers.join(', ')}.`);
+  if (config.missingSupportedDrivers.length > 0 && fs.existsSync(configPath)) {
+    warnings.push(
+      `Project config drivers.supported does not list optional package driver(s): ${config.missingSupportedDrivers.join(', ')}.`,
+    );
   }
 
   if (gitignore.status !== 'present') {
