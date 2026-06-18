@@ -14,6 +14,33 @@ pnpm demo:loop -- --out artifacts/demo-loop
 
 The command runs preflight, profiles baseline/current event logs, writes run artifacts, compares the current run against the latest trusted prior run, and refreshes the current run's `agent-summary.md`.
 
+## Host/Device Access
+
+Keep deterministic validation and live device proof as separate execution lanes.
+
+These commands are sandbox-safe because they use committed fixtures, generated temporary apps, package metadata, or explicit artifact files:
+
+- `pnpm test`
+- `pnpm release:check`
+- `pnpm package:smoke`
+- `pnpm consumer:rehearse`
+- `pnpm demo:loop`
+- `asl-check-plan`
+- profile commands that read `--events`
+- `asl-live-proof`
+
+These commands are host/device lanes and should run with access to the local device driver state from the first attempt:
+
+- `asl-android-adb`, `asl-profile-android --adb-capture`, and `asl-live-android`
+- `asl-ios-simctl`, `asl-profile-ios --simctl-capture`, and `asl-live-ios`
+- `asl-agent-device` and aggregate proofs with `--agent-device-proof`
+- `asl-argent` and aggregate proofs with `--argent-proof`
+- example app install/build/start commands that touch emulators, simulators, Metro, or native build tools
+
+If a live command cannot reach adb, CoreSimulator, `agent-device`, Argent, a simulator, an emulator, or a required local app service, classify the result as runner environment health. Do not call it an app regression or a scenario failure until the platform preflight and scenario health have passed. The runners write failed health artifacts and `nextAction` values for this case so agents can preserve the evidence trail while rerunning the same command with the right host/device access.
+
+For repeated local work, prefer narrow, reusable permissions for the exact package scripts you run often instead of one-off retries after expected preflight failures. Keep Metro on an isolated port for the proof app, use direct installed binaries when available, and keep bounded command timeouts on wrapper-based tools such as `npx`-launched Argent.
+
 ## Generic Mobile Proof
 
 Use the generic live runners in a consuming app after `asl-init` has created `asl.config.json`, `scenarios/mobile/<id>.json`, and the `asl:*` package-script snippets:
