@@ -636,6 +636,9 @@ async function runProfileAndroid(
         ...(options.agentDeviceExecutor ? { executor: options.agentDeviceExecutor } : {}),
         ...(typeof args['agent-device-device'] === 'string' ? { device: args['agent-device-device'] } : {}),
         ...(typeof args['agent-device-session'] === 'string' ? { session: args['agent-device-session'] } : {}),
+        ...(typeof args['agent-device-session-mode'] === 'string'
+          ? { sessionMode: args['agent-device-session-mode'] as import('./agent-device').AgentDeviceSessionMode }
+          : {}),
         ...(typeof args.serial === 'string' ? { serial: args.serial } : {}),
         open: isEnabled(args['agent-device-open']),
         outputDir: resolveAgentDeviceCaptureOutputDir({ args, runId }),

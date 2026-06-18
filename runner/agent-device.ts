@@ -31,6 +31,7 @@ type CliArgs = {
   scenario?: string | boolean;
   serial?: string | boolean;
   session?: string | boolean;
+  'session-mode'?: string | boolean;
   target?: string | boolean;
   udid?: string | boolean;
   'wait-ms'?: string | boolean;
@@ -52,6 +53,7 @@ type ExecFileError = Error & {
   signal?: NodeJS.Signals;
 };
 type ScenarioExecutionStep = import('../core/execution-plan').ScenarioExecutionStep;
+type AgentDeviceSessionMode = 'bind' | 'reuse';
 
 type AgentDeviceAvailabilityOptions = {
   agentDevicePath?: string;
@@ -118,6 +120,7 @@ type AgentDeviceCaptureOptions = {
   scenario?: Record<string, unknown> | null;
   serial?: string | null;
   session?: string | null;
+  sessionMode?: AgentDeviceSessionMode;
   target?: 'desktop' | 'mobile' | 'tv';
   udid?: string | null;
   waitMs?: number;
@@ -178,6 +181,7 @@ function usage(output: {write: (message: string) => unknown} = process.stderr): 
     'Use --check to verify the configured agent-device command surface without running a scenario.',
     'Use --open --app <bundle-or-package> to open the app before running driver actions.',
     'Use --udid <id> for iOS simulators or --serial <id> for Android devices.',
+    'Use --session <name> [--session-mode reuse|bind] to reuse an existing session or bind a named session to direct target flags.',
     'Use --command-timeout-ms <ms> to bound each external agent-device invocation.',
     'Use --require-platforms ios,android with --check when device discovery must prove booted OS targets.',
   ], output);
@@ -326,6 +330,22 @@ function parseRequiredPlatforms(value: unknown): import('./agent-device-driver')
     .filter((platform): platform is import('./agent-device-driver').AgentDevicePlatform =>
       ['android', 'apple', 'ios', 'linux', 'macos'].includes(platform),
     );
+}
+
+/**
+ * Parses how a named agent-device session should participate in target selection.
+ *
+ * @param {unknown} value
+ * @returns {AgentDeviceSessionMode}
+ */
+function parseAgentDeviceSessionMode(value: unknown): AgentDeviceSessionMode {
+  if (value === undefined || value === false) {
+    return 'reuse';
+  }
+  if (value === 'bind' || value === 'reuse') {
+    return value;
+  }
+  throw new Error('--session-mode must be either reuse or bind.');
 }
 
 /**
@@ -934,6 +954,7 @@ async function runAgentDeviceCapture({
   scenario = null,
   serial = null,
   session = null,
+  sessionMode = 'reuse',
   target = 'mobile',
   udid = null,
   waitMs = 0,
@@ -956,8 +977,10 @@ async function runAgentDeviceCapture({
   if (driverStepErrors.length > 0) {
     throw new Error(`Invalid agent-device driver step metadata: ${driverStepErrors.join(' ')}`);
   }
-  const sessionOwnsTarget = typeof session === 'string' && session.length > 0;
   const requestedTarget = udid ?? serial ?? device ?? null;
+  const sessionName = typeof session === 'string' && session.length > 0 ? session : null;
+  const normalizedSessionMode = parseAgentDeviceSessionMode(sessionMode);
+  const sessionOwnsTarget = Boolean(sessionName) && (normalizedSessionMode === 'reuse' || !requestedTarget);
 
   const driver = createAgentDeviceDriver({
     agentDevicePath,
@@ -965,7 +988,7 @@ async function runAgentDeviceCapture({
     executor: run,
     platform,
     ...(!sessionOwnsTarget && serial ? { serial } : {}),
-    ...(session ? { session } : {}),
+    ...(sessionName ? { session: sessionName } : {}),
     ...(!sessionOwnsTarget ? { target } : {}),
     ...(!sessionOwnsTarget && udid ? { udid } : {}),
   });
@@ -977,10 +1000,11 @@ async function runAgentDeviceCapture({
     open,
     platform,
     ...(requestedTarget ? { requestedTarget } : {}),
-    selectedTarget: sessionOwnsTarget ? session : requestedTarget,
-    session,
+    selectedTarget: sessionOwnsTarget ? sessionName : requestedTarget,
+    session: sessionName,
+    sessionMode: normalizedSessionMode,
     target,
-    targetSelectionMode: sessionOwnsTarget ? 'session' : 'direct',
+    targetSelectionMode: sessionOwnsTarget ? 'session' : sessionName ? 'session_bind' : 'direct',
   };
 
   if (open) {
@@ -1187,6 +1211,7 @@ async function main(): Promise<void> {
     scenario: readJson(path.resolve(args.scenario)),
     ...(typeof args.serial === 'string' ? { serial: args.serial } : {}),
     ...(typeof args.session === 'string' ? { session: args.session } : {}),
+    ...(typeof args['session-mode'] === 'string' ? { sessionMode: parseAgentDeviceSessionMode(args['session-mode']) } : {}),
     ...(typeof args.target === 'string' && ['desktop', 'mobile', 'tv'].includes(args.target)
       ? { target: args.target as 'desktop' | 'mobile' | 'tv' }
       : {}),
@@ -1219,6 +1244,7 @@ export {
   isAgentDeviceSelector,
   main,
   parseArgs,
+  parseAgentDeviceSessionMode,
   parseRequiredPlatforms,
   readAgentDeviceStepOptions,
   resolveAgentDeviceDriverSteps,
@@ -1235,6 +1261,7 @@ export type {
   AgentDeviceAvailabilityOptions,
   AgentDeviceAvailabilityResult,
   AgentDeviceAvailabilityCheck,
+  AgentDeviceSessionMode,
   CliArgs,
   CommandExecutor,
   CommandResult,

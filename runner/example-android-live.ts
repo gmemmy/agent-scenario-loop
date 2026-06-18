@@ -96,7 +96,7 @@ function usage(output: { write: (message: string) => unknown } = process.stderr)
     'Use --run-suffix to preserve multiple live proof artifact sets without changing deterministic default run ids.',
     'Use --compare-latest to compare each passed scenario against the latest trusted prior run under the artifact root.',
     'Use --fail-on-regression with --compare-latest to exit nonzero after writing evidence when any comparison regressed.',
-    'Use --agent-device-proof to attach the shared startup UI assertion through agent-device; pass --agent-device-session to reuse an active named session.',
+    'Use --agent-device-proof to attach the shared startup UI assertion through agent-device; pass --agent-device-session-mode bind when a named session should still receive the configured serial.',
     'Use --argent-proof to attach the shared startup UI assertion through Argent; set ASL_ARGENT_BIN and ASL_ARGENT_BASE_ARGS for non-global installs.',
   ], output);
 }
@@ -424,6 +424,9 @@ async function runExampleAndroidLiveProof(
       scenario: readJson(path.join(exampleRoot, 'scenarios', 'mobile', 'app-startup.json')),
       serial,
       ...(typeof args['agent-device-session'] === 'string' ? { session: args['agent-device-session'] } : {}),
+      ...(typeof args['agent-device-session-mode'] === 'string'
+        ? { sessionMode: args['agent-device-session-mode'] as import('./agent-device').AgentDeviceSessionMode }
+        : {}),
       waitMs: parsePositiveInteger(args['agent-device-wait-ms'], 1000),
     });
     interactionProofs.push({

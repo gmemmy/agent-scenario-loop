@@ -177,6 +177,7 @@ function usage({
     lines.push('Use --profile-session-storage with --profile-session to seed startup control through iOS AsyncStorage and collect stored truth events.');
   }
   lines.push('Use --agent-device-capture to execute scenario-declared portable driver actions through agent-device and attach its captures.');
+  lines.push('Use --agent-device-session-mode bind when a named agent-device session should still receive the configured Android serial or iOS UDID.');
 
   writeUsage(lines, output);
 }

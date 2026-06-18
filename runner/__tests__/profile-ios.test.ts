@@ -384,6 +384,8 @@ test('profile-ios attaches agent-device capture artifacts with explicit event lo
     'run-id': 'ios-agent-device-profile',
     'agent-device-capture': true,
     device: 'BOOTED',
+    'agent-device-session': 'profile-ios',
+    'agent-device-session-mode': 'bind',
   }, { agentDeviceExecutor });
 
   const manifest = readJson(path.join(result.runDir, 'manifest.json'));
@@ -396,12 +398,15 @@ test('profile-ios attaches agent-device capture artifacts with explicit event lo
   ));
 
   assert.deepEqual(calls, [
-    `screenshot ${path.join(artifactRoot, '_agent-device-captures', 'ios-agent-device-profile', 'captures', 'agent-device-final.png')} --platform ios --target mobile --udid BOOTED --json`,
+    `screenshot ${path.join(artifactRoot, '_agent-device-captures', 'ios-agent-device-profile', 'captures', 'agent-device-final.png')} --platform ios --target mobile --udid BOOTED --session profile-ios --json`,
   ]);
   assert.equal(manifest.interactionDriver, 'agent-device');
   assert.deepEqual((manifest.artifacts as { captures: { screenshots: string[] } }).captures.screenshots, [
     'captures/agent-device-final.png',
   ]);
+  assert.equal(agentDeviceMetadata.session, 'profile-ios');
+  assert.equal(agentDeviceMetadata.sessionMode, 'bind');
+  assert.equal(agentDeviceMetadata.targetSelectionMode, 'session_bind');
   assert.equal((agentDeviceMetadata.captures as { screenshots: string[] }).screenshots[0], 'captures/agent-device-final.png');
   assert.equal(fs.existsSync(path.join(result.runDir, 'captures', 'agent-device-final.png')), true);
 });

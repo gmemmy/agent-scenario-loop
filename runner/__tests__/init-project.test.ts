@@ -98,9 +98,13 @@ test('init-project scaffolds templates into a consuming app layout', async (t: T
   assert.match(readJson(path.join(targetDir, 'asl', 'package-scripts.json'))['asl:android:live'], /--scenario scenarios\/mobile\/checkout-submit\.json/u);
   assert.match(readJson(path.join(targetDir, 'asl', 'package-scripts.json'))['asl:android:live'], /--compare-latest --fail-on-regression/u);
   assert.match(readJson(path.join(targetDir, 'asl', 'package-scripts.json'))['asl:ios:live:agent-device'], /ASL_IOS_AGENT_DEVICE_SESSION:\+--agent-device-session/u);
+  assert.match(readJson(path.join(targetDir, 'asl', 'package-scripts.json'))['asl:ios:live:agent-device'], /ASL_IOS_AGENT_DEVICE_SESSION_MODE:\+--agent-device-session-mode/u);
   assert.match(readJson(path.join(targetDir, 'asl', 'package-scripts.json'))['asl:android:live:agent-device'], /ASL_ANDROID_AGENT_DEVICE_SESSION:\+--agent-device-session/u);
+  assert.match(readJson(path.join(targetDir, 'asl', 'package-scripts.json'))['asl:android:live:agent-device'], /ASL_ANDROID_AGENT_DEVICE_SESSION_MODE:\+--agent-device-session-mode/u);
   assert.match(readJson(path.join(targetDir, 'asl', 'package-scripts.json'))['asl:ios:live:runners'], /ASL_IOS_AGENT_DEVICE_SESSION:\+--agent-device-session/u);
+  assert.match(readJson(path.join(targetDir, 'asl', 'package-scripts.json'))['asl:ios:live:runners'], /ASL_IOS_AGENT_DEVICE_SESSION_MODE:\+--agent-device-session-mode/u);
   assert.match(readJson(path.join(targetDir, 'asl', 'package-scripts.json'))['asl:android:live:runners'], /ASL_ANDROID_AGENT_DEVICE_SESSION:\+--agent-device-session/u);
+  assert.match(readJson(path.join(targetDir, 'asl', 'package-scripts.json'))['asl:android:live:runners'], /ASL_ANDROID_AGENT_DEVICE_SESSION_MODE:\+--agent-device-session-mode/u);
   assert.match(readJson(path.join(targetDir, 'asl', 'package-scripts.json'))['asl:ios:live:runners'], /--agent-device-proof --argent-proof --compare-latest --fail-on-regression/u);
   assert.match(readJson(path.join(targetDir, 'asl', 'package-scripts.json'))['asl:android:live:runners'], /--agent-device-proof --argent-proof --compare-latest --fail-on-regression/u);
   assert.equal(readJson(path.join(targetDir, 'asl', 'package-scripts.json'))['asl:profile:ios:live'], 'asl-profile-ios --config asl.config.json --scenario scenarios/mobile/checkout-submit.json --simctl-capture --profile-session --profile-session-storage --launch --comparison-lane checkout-submit-ios-live --out artifacts/asl/ios --run-id checkout-submit-ios-live');
@@ -118,7 +122,9 @@ test('init-project scaffolds templates into a consuming app layout', async (t: T
   assert.match(integrationReadme, /ASL_IOS_UDID=<simulator-udid>/u);
   assert.match(integrationReadme, /ASL_ANDROID_SERIAL=<emulator-or-device-serial>/u);
   assert.match(integrationReadme, /ASL_IOS_AGENT_DEVICE_SESSION/u);
+  assert.match(integrationReadme, /ASL_IOS_AGENT_DEVICE_SESSION_MODE=bind/u);
   assert.match(integrationReadme, /ASL_ANDROID_AGENT_DEVICE_SESSION/u);
+  assert.match(integrationReadme, /ASL_ANDROID_AGENT_DEVICE_SESSION_MODE=bind/u);
   assert.match(integrationReadme, /ASL_ARGENT_BIN=\/path\/to\/argent pnpm asl:argent:check/u);
   assert.match(integrationReadme, /ASL_ARGENT_BIN=npx/u);
   assert.match(integrationReadme, /booted` shorthand/u);

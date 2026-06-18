@@ -37,7 +37,7 @@ function usage(output: { write: (message: string) => unknown } = process.stderr)
     'Usage: asl-live-android --config <path> --scenario <path> [--out <dir>] [--package <name>] [--serial <device>] [--run-id <id>] [--run-suffix <label>] [--compare-latest] [--fail-on-regression] [--agent-device-proof] [--argent-proof]',
     '',
     'Runs one generic Android live proof: adb preflight, profile-session adb capture, optional sidecars, optional latest-trusted comparison, and aggregate live-proof artifacts.',
-    'Use --agent-device-proof to attach scenario-declared portable driver actions through agent-device.',
+    'Use --agent-device-proof to attach scenario-declared portable driver actions through agent-device; pass --agent-device-session-mode bind when a named session should still receive the configured serial.',
     'Use --argent-proof to attach scenario-declared Argent-compatible driver actions; set ASL_ARGENT_BIN and ASL_ARGENT_BASE_ARGS for non-global installs.',
   ], output);
 }
@@ -367,6 +367,9 @@ async function runAndroidLiveProof(
       scenario,
       ...(typeof args.serial === 'string' ? { serial: args.serial } : {}),
       ...(typeof args['agent-device-session'] === 'string' ? { session: args['agent-device-session'] } : {}),
+      ...(typeof args['agent-device-session-mode'] === 'string'
+        ? { sessionMode: args['agent-device-session-mode'] as import('./agent-device').AgentDeviceSessionMode }
+        : {}),
       waitMs: parsePositiveInteger(args['agent-device-wait-ms'], 1000),
     });
     interactionProofs.push({

@@ -345,6 +345,8 @@ test('profile-android attaches agent-device capture artifacts with explicit even
     'run-id': 'android-agent-device-profile',
     'agent-device-capture': true,
     serial: 'emulator-5554',
+    'agent-device-session': 'profile-android',
+    'agent-device-session-mode': 'bind',
   }, { agentDeviceExecutor });
 
   const manifest = readJson(path.join(result.runDir, 'manifest.json'));
@@ -357,12 +359,15 @@ test('profile-android attaches agent-device capture artifacts with explicit even
   ));
 
   assert.deepEqual(calls, [
-    `screenshot ${path.join(artifactRoot, '_agent-device-captures', 'android-agent-device-profile', 'captures', 'android-agent-device-final.png')} --platform android --target mobile --serial emulator-5554 --json`,
+    `screenshot ${path.join(artifactRoot, '_agent-device-captures', 'android-agent-device-profile', 'captures', 'android-agent-device-final.png')} --platform android --target mobile --serial emulator-5554 --session profile-android --json`,
   ]);
   assert.equal(manifest.interactionDriver, 'agent-device');
   assert.deepEqual((manifest.artifacts as { captures: { screenshots: string[] } }).captures.screenshots, [
     'captures/android-agent-device-final.png',
   ]);
+  assert.equal(agentDeviceMetadata.session, 'profile-android');
+  assert.equal(agentDeviceMetadata.sessionMode, 'bind');
+  assert.equal(agentDeviceMetadata.targetSelectionMode, 'session_bind');
   assert.equal((agentDeviceMetadata.captures as { screenshots: string[] }).screenshots[0], 'captures/android-agent-device-final.png');
   assert.equal(fs.existsSync(path.join(result.runDir, 'captures', 'android-agent-device-final.png')), true);
 });

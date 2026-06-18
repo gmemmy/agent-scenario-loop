@@ -914,9 +914,13 @@ function main(): void {
     assert.match(initializedScripts['asl:android:live'], /--scenario scenarios\/mobile\/checkout-submit\.json/u);
     assert.match(initializedScripts['asl:android:live'], /--compare-latest --fail-on-regression/u);
     assert.match(initializedScripts['asl:ios:live:agent-device'], /ASL_IOS_AGENT_DEVICE_SESSION:\+--agent-device-session/u);
+    assert.match(initializedScripts['asl:ios:live:agent-device'], /ASL_IOS_AGENT_DEVICE_SESSION_MODE:\+--agent-device-session-mode/u);
     assert.match(initializedScripts['asl:android:live:agent-device'], /ASL_ANDROID_AGENT_DEVICE_SESSION:\+--agent-device-session/u);
+    assert.match(initializedScripts['asl:android:live:agent-device'], /ASL_ANDROID_AGENT_DEVICE_SESSION_MODE:\+--agent-device-session-mode/u);
     assert.match(initializedScripts['asl:ios:live:runners'], /ASL_IOS_AGENT_DEVICE_SESSION:\+--agent-device-session/u);
+    assert.match(initializedScripts['asl:ios:live:runners'], /ASL_IOS_AGENT_DEVICE_SESSION_MODE:\+--agent-device-session-mode/u);
     assert.match(initializedScripts['asl:android:live:runners'], /ASL_ANDROID_AGENT_DEVICE_SESSION:\+--agent-device-session/u);
+    assert.match(initializedScripts['asl:android:live:runners'], /ASL_ANDROID_AGENT_DEVICE_SESSION_MODE:\+--agent-device-session-mode/u);
     assert.match(initializedScripts['asl:ios:live:runners'], /--agent-device-proof --argent-proof --compare-latest --fail-on-regression/u);
     assert.match(initializedScripts['asl:android:live:runners'], /--agent-device-proof --argent-proof --compare-latest --fail-on-regression/u);
     assert.equal(Object.values(initializedScripts).some((script) => String(script).startsWith('asl-example-')), false);
@@ -1516,6 +1520,8 @@ function main(): void {
       fakeAgentDevicePath,
       '--agent-device-session',
       'package-smoke-android',
+      '--agent-device-session-mode',
+      'bind',
       '--argent-proof',
     ], {
       cwd: installDir,
@@ -1553,6 +1559,8 @@ function main(): void {
       fakeAgentDevicePath,
       '--agent-device-session',
       'package-smoke-android',
+      '--agent-device-session-mode',
+      'bind',
       '--argent-proof',
     ], {
       cwd: installDir,
@@ -1589,6 +1597,8 @@ function main(): void {
       fakeAgentDevicePath,
       '--agent-device-session',
       'package-smoke-android',
+      '--agent-device-session-mode',
+      'bind',
       '--argent-proof',
     ], {
       cwd: installDir,
@@ -1636,6 +1646,8 @@ function main(): void {
       fakeAgentDevicePath,
       '--agent-device-session',
       'package-smoke-android',
+      '--agent-device-session-mode',
+      'bind',
       '--argent-proof',
     ], {
       cwd: installDir,
@@ -1775,6 +1787,8 @@ function main(): void {
       fakeAgentDevicePath,
       '--agent-device-session',
       'package-smoke-ios',
+      '--agent-device-session-mode',
+      'bind',
       '--argent-proof',
     ], {
       cwd: installDir,
@@ -1812,6 +1826,8 @@ function main(): void {
       fakeAgentDevicePath,
       '--agent-device-session',
       'package-smoke-ios',
+      '--agent-device-session-mode',
+      'bind',
       '--argent-proof',
     ], {
       cwd: installDir,
@@ -1848,6 +1864,8 @@ function main(): void {
       fakeAgentDevicePath,
       '--agent-device-session',
       'package-smoke-ios',
+      '--agent-device-session-mode',
+      'bind',
       '--argent-proof',
     ], {
       cwd: installDir,
@@ -1887,6 +1905,8 @@ function main(): void {
       fakeAgentDevicePath,
       '--agent-device-session',
       'package-smoke-ios',
+      '--agent-device-session-mode',
+      'bind',
       '--argent-proof',
     ], {
       cwd: installDir,

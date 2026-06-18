@@ -31,7 +31,7 @@ When `profile-ios` owns a simctl capture window, a scenario step with `driverAct
 
 When `profile-ios` or `profile-android` runs with `--agent-device-capture`, the profile runner executes scenario-declared portable driver actions through `agent-device` as a sidecar interaction window. App truth events still come from `--events`, `--simctl-capture`, or `--adb-capture`; agent-device contributes health-gated interaction proof and screenshots that are attached to the profile manifest.
 
-When `--agent-device-session <name>` is supplied, the sidecar lets that existing session own agent-device target selection. Direct selectors such as Android serials or iOS UDIDs can still drive the adb/simctl profile window, but they are not forwarded into the agent-device commands where they can conflict with a session lock.
+When `--agent-device-session <name>` is supplied, the sidecar defaults to `reuse`, where that existing session owns agent-device target selection. Direct selectors such as Android serials or iOS UDIDs can still drive the adb/simctl profile window, but they are not forwarded into the agent-device commands where they can conflict with a session lock. Use `--agent-device-session-mode bind` when ASL should name the sidecar session while still forwarding the selected Android serial or iOS UDID.
 
 When iOS profile-session commands run through deep links, `ios-simctl` writes one raw file per opened URL and inventories each result in `raw/ios-metadata.json` with the label, URL, argv, exit code, wait, and raw path. A failed deep-link command fails capture health before the profile runner trusts timing evidence.
 
@@ -173,15 +173,15 @@ pnpm example:ios:live -- --run-suffix after-change --compare-latest
 
 The comparison step writes `comparison.json` and `agent-summary.md` under `artifacts/example-mobile-app/<platform>/comparisons/<scenario-id>/<run-id>`. The comparison artifact records `comparisonBasis`, including explicit baseline/current run folders or latest-trusted selection counts. Example live profiles write `comparisonLane` and `scenarioHash` into `manifest.json`; latest-trusted comparison uses the lane to keep plain runs and sidecar-backed aggregate runs in separate baseline pools, then uses the scenario hash to keep migrated scenario contracts out of the baseline set. Runs without a lane compare only against other unlabeled trusted runs. A missing prior trusted run is reported as skipped without failing an otherwise healthy live proof.
 
-When external interaction tools are available, attach them as sidecar proofs without changing the scenario set. The adb or simctl profile runner captures app-owned truth first; sidecars run afterward and contribute pointers into the aggregate live proof. Use `--agent-device-proof`, `--argent-proof`, or the package scripts below. If `agent-device session list` shows the target device is already owned by a named session, pass `--agent-device-session <name>` so the aggregate proof reuses that session instead of contending for the device. For Argent without a global binary, set `ASL_ARGENT_BIN=/path/to/argent` to the installed executable and run `pnpm argent:check` before attaching it to live proof.
+When external interaction tools are available, attach them as sidecar proofs without changing the scenario set. The adb or simctl profile runner captures app-owned truth first; sidecars run afterward and contribute pointers into the aggregate live proof. Use `--agent-device-proof`, `--argent-proof`, or the package scripts below. If `agent-device session list` shows the target device is already owned by a named session, pass `--agent-device-session <name>` so the aggregate proof reuses that session instead of contending for the device. Use `--agent-device-session-mode bind` when the named session should still receive the aggregate runner's direct target selector. For Argent without a global binary, set `ASL_ARGENT_BIN=/path/to/argent` to the installed executable and run `pnpm argent:check` before attaching it to live proof.
 
 ```bash
-pnpm example:android:live:agent-device -- --agent-device-session <name> --run-suffix after-change --compare-latest
-pnpm example:ios:live:agent-device -- --agent-device-session <name> --run-suffix after-change --compare-latest
+pnpm example:android:live:agent-device -- --agent-device-session <name> --agent-device-session-mode bind --run-suffix after-change --compare-latest
+pnpm example:ios:live:agent-device -- --agent-device-session <name> --agent-device-session-mode bind --run-suffix after-change --compare-latest
 pnpm example:android:live:argent -- --run-suffix after-change --compare-latest
 pnpm example:ios:live:argent -- --run-suffix after-change --compare-latest
-pnpm example:android:live:runners -- --agent-device-session <name> --run-suffix after-change --compare-latest
-pnpm example:ios:live:runners -- --agent-device-session <name> --run-suffix after-change --compare-latest
+pnpm example:android:live:runners -- --agent-device-session <name> --agent-device-session-mode bind --run-suffix after-change --compare-latest
+pnpm example:ios:live:runners -- --agent-device-session <name> --agent-device-session-mode bind --run-suffix after-change --compare-latest
 ```
 
 Each aggregate live proof also writes `_live-proof/<run-id>/live-proof.json` and `_live-proof/<run-id>/agent-summary.md`, giving agents one batch entrypoint that links preflight evidence, scenario run summaries, per-profile health/verdict statuses, optional interaction proofs, optional comparisons, aggregate comparison counts, and per-comparison metric summaries.

@@ -7,6 +7,7 @@ const test = require('node:test');
 
 const {
   checkAgentDeviceAvailability,
+  parseAgentDeviceSessionMode,
   parseRequiredPlatforms,
   resolveAgentDeviceDriverSteps,
   runAgentDeviceCapture,
@@ -36,6 +37,13 @@ test('agent-device required platforms parser accepts comma-separated OS targets'
   assert.deepEqual(parseRequiredPlatforms('ios,android'), ['ios', 'android']);
   assert.deepEqual(parseRequiredPlatforms('ios, unknown, android'), ['ios', 'android']);
   assert.deepEqual(parseRequiredPlatforms(true), []);
+});
+
+test('agent-device session mode parser accepts explicit target-selection modes', () => {
+  assert.equal(parseAgentDeviceSessionMode(undefined), 'reuse');
+  assert.equal(parseAgentDeviceSessionMode('reuse'), 'reuse');
+  assert.equal(parseAgentDeviceSessionMode('bind'), 'bind');
+  assert.throws(() => parseAgentDeviceSessionMode('default'), /--session-mode must be either reuse or bind/u);
 });
 
 test('agent-device availability check verifies command surface and booted platforms', async () => {
@@ -359,6 +367,54 @@ test('agent-device capture lets named sessions own target selection', async (t: 
   assert.equal(metadata.requestedTarget, 'emulator-5554');
   assert.equal(metadata.selectedTarget, 'android-example');
   assert.equal(metadata.targetSelectionMode, 'session');
+});
+
+test('agent-device capture can bind a named session to direct target selectors', async (t: TestContext) => {
+  const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-agent-device-session-bind-'));
+  t.after(async () => {
+    await fsp.rm(tempDir, { recursive: true, force: true });
+  });
+  const calls: string[] = [];
+
+  await runAgentDeviceCapture({
+    app: 'dev.example.app',
+    driverSteps: [
+      {
+        driverAction: 'assertVisible',
+        required: true,
+        selector: { kind: 'testId', value: 'home-title' },
+        stepId: 'assert-home-visible',
+      },
+    ],
+    executor: async (command: string, args: string[]): Promise<CommandResult> => {
+      calls.push(args.join(' '));
+      return {
+        args,
+        command,
+        exitCode: 0,
+        stderr: '',
+        stdout: '{"success":true}\n',
+      };
+    },
+    open: true,
+    outputDir: tempDir,
+    platform: 'android',
+    runId: 'agent-device-session-bind',
+    serial: 'emulator-5554',
+    session: 'asl-android',
+    sessionMode: 'bind',
+  });
+
+  assert.deepEqual(calls, [
+    'open dev.example.app --platform android --target mobile --serial emulator-5554 --session asl-android --json',
+    'is visible id="home-title" --platform android --target mobile --serial emulator-5554 --session asl-android --json',
+  ]);
+  const metadata = readJson(path.join(tempDir, 'raw', 'agent-device-metadata.json'));
+  assert.equal(metadata.requestedTarget, 'emulator-5554');
+  assert.equal(metadata.selectedTarget, 'emulator-5554');
+  assert.equal(metadata.session, 'asl-android');
+  assert.equal(metadata.sessionMode, 'bind');
+  assert.equal(metadata.targetSelectionMode, 'session_bind');
 });
 
 test('agent-device driver step expansion preserves portable selectors and options', () => {

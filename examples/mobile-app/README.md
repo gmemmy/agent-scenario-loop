@@ -191,6 +191,8 @@ pnpm example:android:live:argent
 ASL_EXAMPLE_ANDROID_AGENT_DEVICE_SESSION=<name> pnpm example:android:live:runners
 ```
 
+Named agent-device sessions default to `reuse`, where the session owns target selection. If your direct Android serial is correct but the default agent-device session is bound elsewhere, set `ASL_EXAMPLE_ANDROID_AGENT_DEVICE_SESSION_MODE=bind` with `ASL_EXAMPLE_ANDROID_AGENT_DEVICE_SESSION=<name>` so the sidecar session still receives the configured serial.
+
 For Argent without a global binary, set `ASL_ARGENT_BIN=/path/to/argent` to the installed executable. The `npx --yes @swmansion/argent run` wrapper shape is supported through `ASL_ARGENT_BIN=npx` and `ASL_ARGENT_BASE_ARGS="--yes @swmansion/argent run"`, but verify it with `pnpm asl:argent:check` before relying on it.
 
 The adb profile scenarios run before sidecar proofs. This keeps app-owned profile events, logs, screenshots, metrics, and verdicts independent from any UI automation session opened by agent-device or Argent.
@@ -247,6 +249,8 @@ ASL_EXAMPLE_IOS_AGENT_DEVICE_SESSION=<name> pnpm example:ios:live:agent-device
 pnpm example:ios:live:argent
 ASL_EXAMPLE_IOS_AGENT_DEVICE_SESSION=<name> pnpm example:ios:live:runners
 ```
+
+Named agent-device sessions default to `reuse`, where the session owns target selection. If your direct simulator UDID is correct but the default agent-device session is bound elsewhere, set `ASL_EXAMPLE_IOS_AGENT_DEVICE_SESSION_MODE=bind` with `ASL_EXAMPLE_IOS_AGENT_DEVICE_SESSION=<name>` so the sidecar session still receives the configured UDID.
 
 For Argent without a global binary, set `ASL_ARGENT_BIN=/path/to/argent` to the installed executable. The `npx --yes @swmansion/argent run` wrapper shape is supported through `ASL_ARGENT_BIN=npx` and `ASL_ARGENT_BASE_ARGS="--yes @swmansion/argent run"`, but verify it with `pnpm asl:argent:check` before relying on it.
 
