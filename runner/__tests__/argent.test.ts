@@ -97,6 +97,8 @@ test('Argent availability check fails when a required tool is unavailable', asyn
   assert.equal(failedCheck?.status, 'failed');
   assert.equal(failedCheck?.exitCode, 1);
   assert.equal(failedCheck?.stderrPreview, 'unknown tool gesture-tap');
+  assert.equal(failedCheck?.metadata?.failureClass, 'command_surface');
+  assert.equal(failedCheck?.metadata?.nextActionCode, 'inspect_argent_availability');
 });
 
 test('Argent availability accepts expected output emitted before a wrapper timeout', async () => {
@@ -118,6 +120,24 @@ test('Argent availability accepts expected output emitted before a wrapper timeo
   assert.equal(result.checks[1].message, 'argent_tool_launch-app returned the expected Argent output before a wrapper timeout.');
 });
 
+test('Argent availability check classifies host access failures', async () => {
+  const result = await checkArgentAvailability({
+    executor: async (command: string, args: string[]): Promise<CommandResult> => ({
+      args,
+      command,
+      exitCode: 1,
+      stderr: 'operation not permitted while connecting to the local device service',
+      stdout: '',
+    }),
+    requiredTools: [],
+  });
+
+  const failedCheck = result.checks.find((check: {name: string}) => check.name === 'argent_run_help');
+  assert.equal(result.status, 'failed');
+  assert.equal(failedCheck?.metadata?.failureClass, 'host_access');
+  assert.equal(failedCheck?.metadata?.nextActionCode, 'rerun_with_host_access');
+});
+
 test('Argent root args are derived from configured run args', () => {
   assert.deepEqual(deriveArgentRootArgs(['run']), []);
   assert.deepEqual(deriveArgentRootArgs(['--yes', '@swmansion/argent', 'run']), ['--yes', '@swmansion/argent']);
@@ -130,12 +150,12 @@ test('Argent command executor resolves when a helper keeps inherited pipes open'
     [
       "const { spawn } = require('node:child_process');",
       "const fs = require('node:fs');",
-      "const helper = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 10_000)'], { stdio: 'inherit' });",
+      "const helper = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60_000)'], { stdio: 'inherit' });",
       'helper.unref();',
       "fs.writeSync(1, 'wrapper complete\\n');",
       'process.exit(0);',
     ].join('\n'),
-  ], 5000);
+  ], 20_000);
 
   assert.equal(result.exitCode, 0);
   assert.match(result.stdout, /wrapper complete/u);

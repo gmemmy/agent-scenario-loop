@@ -143,6 +143,11 @@ test('host doctor fails health when a required sidecar command surface fails', a
           command: 'agent-device',
           exitCode: 1,
           message: 'agent-device did not return any discoverable devices.',
+          metadata: {
+            failureClass: 'host_access',
+            nextAction: 'Rerun agent-device availability with host/device access before treating this as an app, scenario, or runner regression.',
+            nextActionCode: 'rerun_with_host_access',
+          },
           name: 'agent_device_devices',
           stderrPreview: 'adb server cannot bind smartsocket: Operation not permitted',
           status: 'failed',
@@ -166,10 +171,11 @@ test('host doctor fails health when a required sidecar command surface fails', a
   const summary = fs.readFileSync(path.join(tempDir, 'agent-summary.md'), 'utf8');
   assert.match(summary, /Do not start live proof from this host state/u);
   assert.match(summary, /Next action `rerun_with_host_access`/u);
-  assert.match(summary, /outside the restricted sandbox/u);
+  assert.match(summary, /host\/device access/u);
   assert.doesNotMatch(summary, /Do not optimize from this run/u);
   const agentDeviceCheck = (health.checks as Array<{metadata?: Record<string, unknown>; name: string}>)
     .find((check) => check.name === 'agent_device');
+  assert.equal(agentDeviceCheck?.metadata?.failureClass, 'host_access');
   assert.equal(agentDeviceCheck?.metadata?.nextActionCode, 'rerun_with_host_access');
   assert.equal(agentDeviceCheck?.metadata?.failedCheckCode, 'agent_device_devices_available');
   assert.equal(

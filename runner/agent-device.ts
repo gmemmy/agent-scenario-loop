@@ -68,6 +68,7 @@ type AgentDeviceAvailabilityCheck = {
   code: string;
   command: string;
   exitCode: number;
+  metadata?: Record<string, string | number | boolean | null>;
   message: string;
   name: string;
   stderrPreview?: string;
@@ -315,6 +316,42 @@ function previewCommandOutput(value: string): string | undefined {
 }
 
 /**
+ * Classifies an agent-device availability failure into the next operational step.
+ *
+ * @param {CommandResult} result
+ * @returns {Record<string, string>}
+ */
+function classifyAgentDeviceAvailabilityFailure(result: CommandResult): Record<string, string> {
+  const diagnostic = `${result.stderr}\n${result.stdout}`;
+  if (/operation not permitted|permission denied|sandbox|eacces|eperm|daemon|\.agent-device|cannot bind|smartsocket/iu.test(diagnostic)) {
+    return {
+      failureClass: 'host_access',
+      nextAction: 'Rerun agent-device availability with host/device access before treating this as an app, scenario, or runner regression.',
+      nextActionCode: 'rerun_with_host_access',
+    };
+  }
+  if (/timed out|timeout/iu.test(diagnostic)) {
+    return {
+      failureClass: 'timeout',
+      nextAction: 'Confirm agent-device can run without prompts, increase --command-timeout-ms if it is legitimately slow, then rerun the availability check.',
+      nextActionCode: 'increase_agent_device_timeout',
+    };
+  }
+  if (/enoent|not found|command not found|no such file or directory/iu.test(diagnostic)) {
+    return {
+      failureClass: 'missing_binary',
+      nextAction: 'Install agent-device or pass the correct binary with --agent-device before starting live proof.',
+      nextActionCode: 'configure_agent_device_binary',
+    };
+  }
+  return {
+    failureClass: 'command_surface',
+    nextAction: 'Inspect the failed agent-device command output, fix the command surface, then rerun the availability check before starting live proof.',
+    nextActionCode: 'inspect_agent_device_availability',
+  };
+}
+
+/**
  * Parses a comma-separated platform requirement list for availability checks.
  *
  * @param {unknown} value
@@ -379,6 +416,7 @@ function buildAgentDeviceAvailabilityCheck({
   if (!passed) {
     const stderrPreview = previewCommandOutput(result.stderr);
     const stdoutPreview = previewCommandOutput(result.stdout);
+    check.metadata = classifyAgentDeviceAvailabilityFailure(result);
     if (stderrPreview) {
       check.stderrPreview = stderrPreview;
     }
@@ -485,6 +523,7 @@ async function checkAgentDeviceAvailability({
   if (!discoveryPassed) {
     const stderrPreview = previewCommandOutput(devicesResult.stderr);
     const stdoutPreview = previewCommandOutput(devicesResult.stdout);
+    devicesCheck.metadata = classifyAgentDeviceAvailabilityFailure(devicesResult);
     if (stderrPreview) {
       devicesCheck.stderrPreview = stderrPreview;
     }

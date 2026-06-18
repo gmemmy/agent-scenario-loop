@@ -127,7 +127,7 @@ Evidence folders:
 
 The artifact contract separates scenario health from product verdict: `health.json` records execution validity, `verdict.json` records budget outcome, `comparison.json` records before/after baseline comparison, and `agent-summary.md` gives agents the health gate before they touch code.
 
-Failed or warning health checks may include scalar `metadata.nextActionCode` and `metadata.nextAction` fields. These are stable, agent-readable recovery hints for runner setup failures such as missing adb, an unbooted simulator, an uninstalled app package, or an unresolved selector. The summary builder renders those hints in `agent-summary.md`, but they do not make timing evidence trustworthy unless scenario health passes.
+Failed or warning health checks may include scalar `metadata.nextActionCode` and `metadata.nextAction` fields. These are stable, agent-readable recovery hints for runner setup failures such as missing adb, an unbooted simulator, an uninstalled app package, or an unresolved selector. Host-bound availability checks may also include `metadata.failureClass` values such as `host_access`, `timeout`, `missing_binary`, or `command_surface` so agents can distinguish sandbox or daemon access from a broken runner command. The summary builder renders those hints in `agent-summary.md`, but they do not make timing evidence trustworthy unless scenario health passes.
 
 The current profile runner writes health, verdict, agent summary, metrics, causal-run, and budget-verdict artifacts.
 

@@ -72,6 +72,7 @@ type ArgentAvailabilityCheck = {
   code: string;
   command: string;
   exitCode: number;
+  metadata?: Record<string, string | number | boolean | null>;
   message: string;
   name: string;
   stderrPreview?: string;
@@ -909,6 +910,42 @@ function previewCommandOutput(value: string): string | undefined {
 }
 
 /**
+ * Classifies an Argent availability failure into the next operational step.
+ *
+ * @param {CommandResult} result
+ * @returns {Record<string, string>}
+ */
+function classifyArgentAvailabilityFailure(result: CommandResult): Record<string, string> {
+  const diagnostic = `${result.stderr}\n${result.stdout}`;
+  if (/operation not permitted|permission denied|sandbox|eacces|eperm|cannot bind|smartsocket/iu.test(diagnostic)) {
+    return {
+      failureClass: 'host_access',
+      nextAction: 'Rerun Argent availability with host/device access before treating this as an app, scenario, or runner regression.',
+      nextActionCode: 'rerun_with_host_access',
+    };
+  }
+  if (/timed out|timeout/iu.test(diagnostic)) {
+    return {
+      failureClass: 'timeout',
+      nextAction: 'Confirm Argent can run without prompts, use a direct Argent binary when available, or increase --command-timeout-ms before rerunning the availability check.',
+      nextActionCode: 'increase_argent_timeout',
+    };
+  }
+  if (/enoent|not found|command not found|no such file or directory|could not determine executable/iu.test(diagnostic)) {
+    return {
+      failureClass: 'missing_binary',
+      nextAction: 'Install Argent, pass the correct binary with --argent, or provide the wrapper shape with --base-args before starting live proof.',
+      nextActionCode: 'configure_argent_binary',
+    };
+  }
+  return {
+    failureClass: 'command_surface',
+    nextAction: 'Inspect the failed Argent command output, fix the command surface, then rerun the availability check before starting live proof.',
+    nextActionCode: 'inspect_argent_availability',
+  };
+}
+
+/**
  * Builds one availability check result from an Argent command execution.
  *
  * @param {{code: string, expectedPattern: RegExp, name: string, result: CommandResult}} options
@@ -945,6 +982,7 @@ function buildArgentAvailabilityCheck({
   if (!passed) {
     const stderrPreview = previewCommandOutput(result.stderr);
     const stdoutPreview = previewCommandOutput(result.stdout);
+    check.metadata = classifyArgentAvailabilityFailure(result);
     if (stderrPreview) {
       check.stderrPreview = stderrPreview;
     }

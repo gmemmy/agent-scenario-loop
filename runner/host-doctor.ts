@@ -299,24 +299,37 @@ function buildAvailabilityFailureMetadata({
   const failedCheckMessage = typeof failedCheck.message === 'string' ? failedCheck.message : `${label} availability check failed.`;
   const stderrPreview = typeof failedCheck.stderrPreview === 'string' ? failedCheck.stderrPreview : '';
   const stdoutPreview = typeof failedCheck.stdoutPreview === 'string' ? failedCheck.stdoutPreview : '';
+  const checkMetadata = failedCheck.metadata && typeof failedCheck.metadata === 'object' && !Array.isArray(failedCheck.metadata)
+    ? failedCheck.metadata as Record<string, unknown>
+    : {};
+  const classifiedNextActionCode = typeof checkMetadata.nextActionCode === 'string'
+    ? checkMetadata.nextActionCode
+    : null;
+  const classifiedNextAction = typeof checkMetadata.nextAction === 'string'
+    ? checkMetadata.nextAction
+    : null;
+  const failureClass = typeof checkMetadata.failureClass === 'string'
+    ? checkMetadata.failureClass
+    : null;
   const diagnostic = `${failedCheckMessage}\n${stderrPreview}\n${stdoutPreview}`;
   const hostAccessFailure = /operation not permitted|permission denied|sandbox|daemon|smartsocket|cannot bind/iu.test(diagnostic);
   const timedOut = /timed out|timeout/iu.test(diagnostic);
-  const nextActionCode = hostAccessFailure
+  const nextActionCode = classifiedNextActionCode ?? (hostAccessFailure
     ? 'rerun_with_host_access'
     : timedOut
       ? `increase_${name}_timeout`
-      : `inspect_${name}_availability`;
-  const nextAction = hostAccessFailure
+      : `inspect_${name}_availability`);
+  const nextAction = classifiedNextAction ?? (hostAccessFailure
     ? `Rerun the host doctor outside the restricted sandbox or grant host/device access before treating ${label} failures as app or scenario regressions.`
     : timedOut
       ? `Confirm ${label} can run without prompts, increase --command-timeout-ms if it is legitimately slow, then rerun the host doctor.`
-      : `Inspect ${rawPath}, fix the ${label} command surface, then rerun the host doctor before starting live proof.`;
+      : `Inspect ${rawPath}, fix the ${label} command surface, then rerun the host doctor before starting live proof.`);
 
   return {
     failedCheckCode,
     failedCheckMessage,
     failedCheckName,
+    ...(failureClass ? { failureClass } : {}),
     nextAction,
     nextActionCode,
     ...(stderrPreview ? { stderrPreview } : {}),

@@ -113,7 +113,27 @@ test('agent-device availability check preserves failed command diagnostics', asy
   assert.equal(result.status, 'failed');
   assert.equal(devicesCheck?.exitCode, 1);
   assert.equal(devicesCheck?.stderrPreview, 'daemon unavailable');
+  assert.equal(devicesCheck?.metadata?.failureClass, 'host_access');
+  assert.equal(devicesCheck?.metadata?.nextActionCode, 'rerun_with_host_access');
   assert.equal(result.checks.find((check: {name: string}) => check.name === 'agent_device_booted_ios')?.status, 'failed');
+});
+
+test('agent-device availability check classifies missing binaries', async () => {
+  const result = await checkAgentDeviceAvailability({
+    executor: async (command: string, args: string[]): Promise<CommandResult> => ({
+      args,
+      command,
+      exitCode: 1,
+      stderr: 'spawn agent-device ENOENT',
+      stdout: '',
+    }),
+    requiredCommands: [],
+  });
+
+  const failedCheck = result.checks.find((check: {name: string}) => check.name === 'agent_device_help');
+  assert.equal(result.status, 'failed');
+  assert.equal(failedCheck?.metadata?.failureClass, 'missing_binary');
+  assert.equal(failedCheck?.metadata?.nextActionCode, 'configure_agent_device_binary');
 });
 
 test('agent-device capture executes scenario driver actions and writes artifacts', async (t: TestContext) => {
