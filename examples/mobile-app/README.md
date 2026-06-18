@@ -77,7 +77,7 @@ For an isolated Metro server that does not collide with another React Native app
 pnpm example:app:start:isolated
 ```
 
-The isolated command uses port `8097`. If the iOS simulator falls back to another Metro server, write the React Native packager override before launching the app:
+The isolated command binds Metro to `localhost:8097` and clears Metro cache state for the example app. If the iOS simulator falls back to another Metro server, write the React Native packager override before launching the app:
 
 ```bash
 pnpm example:app:ios:metro-port

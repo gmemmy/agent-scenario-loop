@@ -306,6 +306,54 @@ test('runs portable adb driver actions and writes raw evidence', async (t: TestC
   );
 });
 
+test('classifies Android UIAutomator contention as runner environment health', async (t: TestContext) => {
+  const outputDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-android-uiautomator-busy-'));
+  t.after(async () => {
+    await fsp.rm(outputDir, { recursive: true, force: true });
+  });
+  const executor = createExecutor({
+    version: { stdout: 'Android Debug Bridge version 1.0.41\n' },
+    'devices -l': {
+      stdout: [
+        'List of devices attached',
+        'emulator-5554 device product:sdk_gphone model:Pixel_6 device:emu64',
+      ].join('\n'),
+    },
+    '-s emulator-5554 shell getprop ro.product.model': { stdout: 'Pixel 6\n' },
+    '-s emulator-5554 shell getprop ro.build.version.release': { stdout: '15\n' },
+    '-s emulator-5554 shell getprop ro.build.version.sdk': { stdout: '35\n' },
+    '-s emulator-5554 shell rm -f /sdcard/agent-scenario-loop-ui.xml; uiautomator dump /sdcard/agent-scenario-loop-ui.xml >/dev/null; cat /sdcard/agent-scenario-loop-ui.xml; status=$?; rm -f /sdcard/agent-scenario-loop-ui.xml; exit $status': {
+      exitCode: 1,
+      stderr: 'java.lang.IllegalStateException: UiAutomationService already registered!',
+      stdout: 'Killed\ncat: /sdcard/agent-scenario-loop-ui.xml: No such file or directory\n',
+    },
+  });
+
+  const result = await runAndroidAdbPreflight({
+    driverSteps: [
+      {
+        driverAction: 'assertVisible',
+        selector: { kind: 'testId', value: 'asl-example-title' },
+        stepId: 'assert-home-visible',
+      },
+    ],
+    executor,
+    outputDir,
+    runId: 'android-uiautomator-busy',
+  });
+
+  const check = (result.health.checks as Array<{metadata?: Record<string, unknown>; name: string}>)
+    .find((item) => item.name === 'android_assert_visible');
+  assert.equal(result.health.healthStatus, 'failed');
+  assert.equal(check?.metadata?.nextActionCode, 'reset_android_uiautomator');
+  assert.match(String(check?.metadata?.nextAction), /another automation session owns the service/u);
+  assert.match(String(check?.metadata?.failurePreview), /UiAutomationService already registered/u);
+  assert.match(
+    fs.readFileSync(path.join(outputDir, 'agent-summary.md'), 'utf8'),
+    /Next action `reset_android_uiautomator`/u,
+  );
+});
+
 test('resolves portable selectors into adb tap and scroll coordinates', async (t: TestContext) => {
   const outputDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-android-adb-selector-actions-'));
   t.after(async () => {

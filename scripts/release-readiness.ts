@@ -345,6 +345,7 @@ function assertReleaseScripts(packageJson: Record<string, unknown>): void {
   assert.match(scripts['example:mobile:live-proof'], /--require-platforms android,ios/u);
   assert.match(scripts['example:mobile:live-proof'], /--out artifacts\/example-mobile-app\/live-proof-set/u);
   assert.match(scripts['example:mobile:live-proof'], /--fail-on-regression/u);
+  assert.match(scripts['example:app:start:isolated'], /--port 8097 --host localhost --clear/u);
 }
 
 /**

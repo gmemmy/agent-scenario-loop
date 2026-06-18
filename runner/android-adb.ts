@@ -669,6 +669,57 @@ function buildAndroidSelectorHealthMetadata(
 }
 
 /**
+ * Returns a compact single-line adb driver failure preview.
+ *
+ * @param {import('./android-adb-driver').AndroidAdbCommandResult} driverResult
+ * @returns {string | null}
+ */
+function previewAndroidDriverFailure(
+  driverResult: import('./android-adb-driver').AndroidAdbCommandResult,
+): string | null {
+  const preview = [driverResult.stderr, driverResult.stdout]
+    .filter(Boolean)
+    .join('\n')
+    .replace(/\s+/gu, ' ')
+    .trim();
+  return preview ? preview.slice(0, 500) : null;
+}
+
+/**
+ * Builds next-action metadata for failed adb driver steps.
+ *
+ * @param {{driverResult: import('./android-adb-driver').AndroidAdbCommandResult, isReadLogs: boolean}} options
+ * @returns {Record<string, string>}
+ */
+function buildAndroidDriverFailureMetadata({
+  driverResult,
+  isReadLogs,
+}: {
+  driverResult: import('./android-adb-driver').AndroidAdbCommandResult;
+  isReadLogs: boolean;
+}): Record<string, string> {
+  const failurePreview = previewAndroidDriverFailure(driverResult);
+  const diagnostic = `${driverResult.stderr}\n${driverResult.stdout}`;
+  const uiAutomationBusy = /uiautomationservice|uiautomator|already registered|\/sdcard\/agent-scenario-loop-ui\.xml|killed/iu
+    .test(diagnostic);
+  const metadata = uiAutomationBusy
+    ? nextActionHint(
+      'reset_android_uiautomator',
+      'Android UIAutomator could not provide a UI tree, likely because another automation session owns the service. Close or reset competing UI automation sessions, then rerun the capture before treating this as an app or selector failure.',
+    )
+    : nextActionHint(
+      isReadLogs ? 'inspect_android_logcat_capture' : 'inspect_android_driver_action',
+      isReadLogs
+        ? `Inspect raw/${driverResult.rawFileName}, confirm adb logcat access for the selected device, and rerun the capture.`
+        : `Inspect raw/${driverResult.rawFileName}, confirm the device is interactive and the action metadata is valid, then rerun the capture.`,
+    );
+  return {
+    ...metadata,
+    ...(failurePreview ? { failurePreview } : {}),
+  };
+}
+
+/**
  * Runs one normalized adb driver step through the Android driver adapter.
  *
  * @param {{driver: import('./android-adb-driver').AndroidAdbDriver, driverStep: AndroidAdbDriverStep, logcatLines: number}} options
@@ -1255,14 +1306,7 @@ async function runAndroidAdbPreflight({
         metadata: {
           driverAction: executableDriverStep.driverAction,
           ...buildAndroidSelectorHealthMetadata(executableDriverStep.selector),
-          ...(failed
-            ? nextActionHint(
-                isReadLogs ? 'inspect_android_logcat_capture' : 'inspect_android_driver_action',
-                isReadLogs
-                  ? `Inspect raw/${driverResult.rawFileName}, confirm adb logcat access for the selected device, and rerun the capture.`
-                  : `Inspect raw/${driverResult.rawFileName}, confirm the device is interactive and the action metadata is valid, then rerun the capture.`,
-              )
-            : {}),
+          ...(failed ? buildAndroidDriverFailureMetadata({ driverResult, isReadLogs }) : {}),
           ...(executableDriverStep.stepId ? { stepId: executableDriverStep.stepId } : {}),
         },
       });
