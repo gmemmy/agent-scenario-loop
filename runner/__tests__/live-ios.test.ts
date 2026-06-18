@@ -160,6 +160,52 @@ test('generic iOS live proof captures profile evidence before sidecar proofs', a
     orderedCalls.findIndex((call) => call.includes(`argent:run launch-app --udid ${DEVICE_ID} --bundleId ${BUNDLE_ID}`)) > profileCapture,
     'Argent proof should run after iOS profile evidence capture',
   );
+
+  const failedAgentDeviceExecutor = async (command: string, args: string[]): Promise<AgentDeviceCommandResult> => {
+    orderedCalls.push(`failed-agent-device:${args.join(' ')}`);
+    return {
+      args,
+      command,
+      exitCode: 1,
+      stderr: 'agent-device could not inspect the app',
+      stdout: '',
+    };
+  };
+  await assert.rejects(
+    () => runIosLiveProof({
+      'agent-device-proof': true,
+      bundle: BUNDLE_ID,
+      config: path.join(ROOT, 'examples', 'mobile-app', 'asl.config.json'),
+      device: DEVICE_ID,
+      out: outputDir,
+      'run-suffix': 'sidecar failure',
+      scenario: path.join(ROOT, 'examples', 'mobile-app', 'scenarios', 'mobile', 'app-startup.json'),
+    }, {
+      agentDeviceExecutor: failedAgentDeviceExecutor,
+      delay: async () => {},
+      executor,
+    }),
+    /iOS live proof failed\. Inspect/u,
+  );
+  const failedSidecarProof = JSON.parse(fs.readFileSync(
+    path.join(outputDir, '_live-proof', 'ios-live-proof-sidecar-failure', 'live-proof.json'),
+    'utf8',
+  ));
+  assert.equal(failedSidecarProof.status, 'failed');
+  assert.equal(failedSidecarProof.nextAction.code, 'inspect_failed_run');
+  assert.equal(failedSidecarProof.skippedInteractionProofs, undefined);
+  assert.deepEqual(
+    failedSidecarProof.interactionProofs.map((proof: { healthStatus: string; runnerId: string }) => ({
+      healthStatus: proof.healthStatus,
+      runnerId: proof.runnerId,
+    })),
+    [
+      {
+        healthStatus: 'failed',
+        runnerId: 'agent-device',
+      },
+    ],
+  );
 });
 
 test('generic iOS live proof writes failed aggregate before skipping sidecars on failed profile gate', async (t: TestContext) => {
