@@ -683,21 +683,6 @@ function validateArgentAdapterOptions({
     const selector = asObject(step.selector);
     const stepId = getScenarioStepId(step, index);
 
-    if (
-      typeof selector.match === 'string' &&
-      selector.match !== 'exact' &&
-      step.driverAction === 'assertVisible'
-    ) {
-      pushInvalidAdapterOption({
-        adapter: 'argent',
-        errors,
-        field: 'selector.match',
-        message: `Step \`${stepId}\` uses selector match \`${selector.match}\`, but the Argent adapter currently supports exact visibility selectors only.`,
-        scenario,
-        stepId,
-      });
-    }
-
     if (step.driverAction === 'assertVisible' && !hasPortableSelector(step)) {
       pushInvalidAdapterOption({
         adapter: 'argent',

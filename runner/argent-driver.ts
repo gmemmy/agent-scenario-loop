@@ -328,11 +328,15 @@ function matchesArgentSelector({
   description: string;
   selector: ArgentSelector;
 }): boolean {
-  if (selector.match && selector.match !== 'exact') {
-    throw new Error(`Argent selector match \`${selector.match}\` is not supported yet.`);
+  const descriptionText = readArgentDescription(description);
+  if (selector.match === 'regex') {
+    try {
+      return new RegExp(selector.value, 'u').test(descriptionText);
+    } catch {
+      return false;
+    }
   }
-
-  return readArgentDescription(description).includes(selector.value);
+  return descriptionText.includes(selector.value);
 }
 
 /**

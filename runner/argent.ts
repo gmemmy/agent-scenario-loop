@@ -602,9 +602,6 @@ function validateArgentDriverSteps(driverSteps: ArgentDriverStep[], options: {ap
     if (step.driverAction === 'assertVisible' && !step.selector) {
       errors.push(`${stepLabel} uses driverAction \`assertVisible\` but is missing a portable selector.`);
     }
-    if (step.selector?.match && step.selector.match !== 'exact') {
-      errors.push(`${stepLabel} uses selector match \`${step.selector.match}\`, but Argent supports exact visibility selectors only.`);
-    }
   }
 
   return errors;

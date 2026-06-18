@@ -442,16 +442,6 @@ test('argent runner target rejects unsupported adapter metadata before runtime',
       driverAction: 'assertVisible',
     },
     {
-      id: 'assert-contains',
-      kind: 'assertUi',
-      driverAction: 'assertVisible',
-      selector: {
-        kind: 'text',
-        match: 'contains',
-        value: 'Ready',
-      },
-    },
-    {
       id: 'tap-bad-duration',
       kind: 'gesture',
       driverAction: 'tap',
@@ -480,10 +470,41 @@ test('argent runner target rejects unsupported adapter metadata before runtime',
       { adapter: 'argent', field: 'x/y', stepId: 'tap-missing' },
       { adapter: 'argent', field: 'startX/startY/endX/endY', stepId: 'scroll-missing' },
       { adapter: 'argent', field: 'selector', stepId: 'assert-missing' },
-      { adapter: 'argent', field: 'selector.match', stepId: 'assert-contains' },
       { adapter: 'argent', field: 'durationMs', stepId: 'tap-bad-duration' },
     ],
   );
+});
+
+test('argent runner target accepts portable visibility selector match modes', () => {
+  const scenario = readJson('examples/scenarios/mobile/app-startup.json');
+  const runner = readJson('examples/runners/argent-ios.json');
+  scenario.steps.push(
+    {
+      id: 'assert-contains',
+      kind: 'assertUi',
+      driverAction: 'assertVisible',
+      selector: {
+        kind: 'text',
+        match: 'contains',
+        value: 'Ready',
+      },
+    },
+    {
+      id: 'assert-regex',
+      kind: 'assertUi',
+      driverAction: 'assertVisible',
+      selector: {
+        kind: 'text',
+        match: 'regex',
+        value: 'Ready|Loaded',
+      },
+    },
+  );
+
+  const result = evaluateRunnerCompatibility({ scenario, runner, platform: 'ios' });
+
+  assert.equal(result.compatible, true);
+  assert.deepEqual(result.errors, []);
 });
 
 test('argent runner target accepts coordinate-backed tap and scroll metadata', () => {

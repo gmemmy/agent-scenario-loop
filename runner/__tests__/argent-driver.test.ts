@@ -201,8 +201,16 @@ test('argent driver fails assertVisible when description cannot prove the select
   assert.equal(result.exitCode, 1);
   assert.match(result.stderr, /did not include text `Ready`/u);
   assert.equal(matchesArgentSelector({ description: 'Home Ready', selector: { kind: 'text', value: 'Ready' } }), true);
-  assert.throws(
-    () => matchesArgentSelector({ description: 'Home Ready', selector: { kind: 'text', match: 'contains', value: 'Ready' } }),
-    /selector match `contains` is not supported/u,
+  assert.equal(
+    matchesArgentSelector({ description: 'Home Ready', selector: { kind: 'text', match: 'contains', value: 'Ready' } }),
+    true,
+  );
+  assert.equal(
+    matchesArgentSelector({ description: 'Home Ready', selector: { kind: 'text', match: 'regex', value: 'Home\\s+Ready' } }),
+    true,
+  );
+  assert.equal(
+    matchesArgentSelector({ description: 'Home Ready', selector: { kind: 'text', match: 'regex', value: '[' } }),
+    false,
   );
 });
