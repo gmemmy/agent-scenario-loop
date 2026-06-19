@@ -28,10 +28,11 @@ async function writeJson(filePath: string, value: Record<string, unknown>): Prom
 /**
  * Writes the minimum run artifacts needed for the index.
  *
- * @param {{root: string, scenarioId: string, runId: string, verdictStatus: string, cohortHash?: string, comparisonLane?: string, endedAt?: string, healthStatus?: string, scenarioHash?: string}} options
+ * @param {{root: string, scenarioId: string, runId: string, verdictStatus: string, attempt?: Record<string, unknown>, cohortHash?: string, comparisonLane?: string, endedAt?: string, healthStatus?: string, scenarioHash?: string}} options
  * @returns {Promise<string>}
  */
 async function writeRun({
+  attempt,
   cohortHash,
   comparisonLane,
   endedAt,
@@ -42,6 +43,7 @@ async function writeRun({
   scenarioId,
   verdictStatus,
 }: {
+  attempt?: Record<string, unknown>;
   cohortHash?: string;
   endedAt?: string;
   healthStatus?: string;
@@ -78,6 +80,7 @@ async function writeRun({
     startedAt: '2026-06-16T10:00:00.000Z',
     endedAt,
     durationMs: 1200,
+    ...(attempt ? { attempt } : {}),
     ...(comparisonLane ? { comparisonLane } : {}),
     ...(cohortHash
       ? {
@@ -185,4 +188,87 @@ test('filters a run index by scenario id', async (t: TestContext) => {
   assert.equal(entry.scenarioHash, 'a'.repeat(64));
   assert.equal(entry.interactionDriver, 'adb-logcat');
   assert.equal(entry.trusted, true);
+  assert.equal(entry.trustReason, 'trusted_legacy_without_attempt');
+});
+
+test('does not trust retry or partial attempt artifacts as latest baselines', async (t: TestContext) => {
+  const root = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-run-index-'));
+  t.after(async () => {
+    await fsp.rm(root, { recursive: true, force: true });
+  });
+  await writeRun({
+    root,
+    scenarioId: 'open-close-cycle',
+    runId: 'clean-first-attempt',
+    verdictStatus: 'passed',
+    endedAt: '2026-06-16T10:00:00.000Z',
+    attempt: {
+      attemptId: 'attempt-1',
+      attemptNumber: 1,
+      maxAttempts: 3,
+      status: 'passed',
+      terminalState: 'passed',
+      cleanup: {
+        status: 'passed',
+      },
+      partialArtifacts: {
+        valid: false,
+        reason: 'complete successful run artifacts are present',
+      },
+    },
+  });
+  await writeRun({
+    root,
+    scenarioId: 'open-close-cycle',
+    runId: 'retry-passed',
+    verdictStatus: 'passed',
+    endedAt: '2026-06-16T11:00:00.000Z',
+    attempt: {
+      attemptId: 'attempt-2',
+      attemptNumber: 2,
+      maxAttempts: 3,
+      retryOfAttemptId: 'attempt-1',
+      retryReason: 'Previous attempt timed out.',
+      status: 'passed',
+      terminalState: 'passed',
+      cleanup: {
+        status: 'passed',
+      },
+      partialArtifacts: {
+        valid: false,
+        reason: 'complete successful run artifacts are present',
+      },
+    },
+  });
+  await writeRun({
+    root,
+    scenarioId: 'open-close-cycle',
+    runId: 'partial-cleanup',
+    verdictStatus: 'passed',
+    endedAt: '2026-06-16T12:00:00.000Z',
+    attempt: {
+      attemptId: 'attempt-1',
+      attemptNumber: 1,
+      maxAttempts: 1,
+      status: 'passed',
+      terminalState: 'passed',
+      cleanup: {
+        status: 'partial',
+      },
+      partialArtifacts: {
+        valid: false,
+        reason: 'complete successful run artifacts are present',
+      },
+    },
+  });
+
+  const index = buildRunIndex({ rootDir: root, scenarioId: 'open-close-cycle' });
+
+  assert.deepEqual(index.entries.map((entry: { runId: string; trustReason: string }) => [entry.runId, entry.trustReason]), [
+    ['partial-cleanup', 'cleanup_not_complete'],
+    ['retry-passed', 'retry_attempt_not_baseline_trusted'],
+    ['clean-first-attempt', 'trusted'],
+  ]);
+  assert.deepEqual(index.trusted.map((entry: { runId: string }) => entry.runId), ['clean-first-attempt']);
+  assert.equal(findLatestTrustedRun(index, 'open-close-cycle')?.runId, 'clean-first-attempt');
 });

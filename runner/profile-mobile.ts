@@ -1932,7 +1932,7 @@ async function runProfileMobile(args: CliArgs, options: ProfileMobileOptions): P
 
   const health = buildProfileHealth({ scenario: profileScenario, runId, metrics });
   const verdict = buildProfileVerdict({ scenario: profileScenario, runId, health, metrics });
-  const agentSummary = buildAgentSummaryMarkdown({ health, verdict });
+  const agentSummary = buildAgentSummaryMarkdown({ health, verdict, manifest });
   const summary = buildSummaryMarkdown({ manifest, metrics });
 
   await writeJsonArtifact({

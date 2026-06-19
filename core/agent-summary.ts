@@ -136,12 +136,58 @@ function formatComparisonBasis(comparison: SummaryRecord): string[] {
 }
 
 /**
+ * Formats attempt terminal semantics for agent-readable summaries.
+ *
+ * @param {SummaryRecord | null | undefined} manifest
+ * @returns {string[]}
+ */
+function formatAttempt(manifest: SummaryRecord | null | undefined): string[] {
+  const attempt = manifest?.attempt;
+  if (!attempt || typeof attempt !== 'object' || Array.isArray(attempt)) {
+    return [];
+  }
+
+  const attemptRecord = attempt as SummaryRecord;
+  const classification = attemptRecord.classification && typeof attemptRecord.classification === 'object' && !Array.isArray(attemptRecord.classification)
+    ? attemptRecord.classification as SummaryRecord
+    : {};
+  const cleanup = attemptRecord.cleanup && typeof attemptRecord.cleanup === 'object' && !Array.isArray(attemptRecord.cleanup)
+    ? attemptRecord.cleanup as SummaryRecord
+    : {};
+  const partialArtifacts = attemptRecord.partialArtifacts && typeof attemptRecord.partialArtifacts === 'object' && !Array.isArray(attemptRecord.partialArtifacts)
+    ? attemptRecord.partialArtifacts as SummaryRecord
+    : {};
+  const retryOfAttemptId = firstString([attemptRecord.retryOfAttemptId], '');
+  const retryReason = firstString([attemptRecord.retryReason], '');
+  const lines = [
+    '',
+    '## attempt',
+    '',
+    `- Attempt: ${code(firstString([attemptRecord.attemptId], 'unknown-attempt'))} (${attemptRecord.attemptNumber ?? 'unknown'}/${attemptRecord.maxAttempts ?? 'unknown'})`,
+    `- Terminal state: ${code(firstString([attemptRecord.terminalState], 'unknown'))}`,
+    `- Classification: ${code(firstString([classification.category], 'unknown'))}${classification.code ? ` ${code(classification.code)}` : ''}`,
+    `- Cleanup: ${code(firstString([cleanup.status], 'unknown'))}`,
+    `- Partial artifacts valid: ${partialArtifacts.valid === true ? 'true' : 'false'} - ${firstString([partialArtifacts.reason], 'no reason recorded')}`,
+  ];
+
+  if (retryOfAttemptId || retryReason) {
+    lines.push(`- Retry lineage: previous=${code(retryOfAttemptId || 'unknown')} reason=${retryReason || 'not recorded'}`);
+  }
+
+  if (Array.isArray(partialArtifacts.paths) && partialArtifacts.paths.length > 0) {
+    lines.push(`- Partial artifact paths: ${partialArtifacts.paths.map((item) => code(item)).join(', ')}`);
+  }
+
+  return lines;
+}
+
+/**
  * Builds the minimum agent-facing markdown summary for a run.
  *
- * @param {{health: Record<string, unknown>, verdict: Record<string, unknown>, comparison?: Record<string, unknown> | null}} options
+ * @param {{health: Record<string, unknown>, verdict: Record<string, unknown>, comparison?: Record<string, unknown> | null, manifest?: Record<string, unknown> | null}} options
  * @returns {string}
  */
-function buildAgentSummaryMarkdown({ health, verdict, comparison = null }: AgentSummaryInput): string {
+function buildAgentSummaryMarkdown({ health, verdict, comparison = null, manifest = null }: AgentSummaryInput): string {
   const scenarioId = firstString([health?.scenarioId, verdict?.scenarioId], 'unknown-scenario');
   const runId = firstString([health?.runId, verdict?.runId], 'unknown-run');
   const healthStatus = firstString([health?.healthStatus], 'failed');
@@ -188,6 +234,8 @@ function buildAgentSummaryMarkdown({ health, verdict, comparison = null }: Agent
     lines.push('', '## failed budgets', '', ...failedBudgets);
   }
 
+  lines.push(...formatAttempt(manifest));
+
   if (comparison) {
     lines.push('', '## comparison', '', firstString([comparison.summary], 'No comparison summary provided.'));
     lines.push(...formatComparisonBasis(comparison));
@@ -210,4 +258,5 @@ type AgentSummaryInput = {
   health: SummaryRecord;
   verdict: SummaryRecord;
   comparison?: SummaryRecord | null;
+  manifest?: SummaryRecord | null;
 };
