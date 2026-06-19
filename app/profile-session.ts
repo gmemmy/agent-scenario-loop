@@ -15,8 +15,12 @@ export type ProfileSessionCommand = {
   scenario?: string;
   runId?: string;
   command: string;
+  queueId?: string;
+  sequence?: number;
   source?: 'deeplink' | 'storage';
   timestamp: number;
+  waitForMilestone?: string;
+  waitTimeoutMs?: number;
 };
 
 export type ProfileSignalKind = 'js' | 'memory' | 'network';
@@ -326,6 +330,10 @@ function getProfileSessionRoute(url: string): {
   scenario?: string;
   runId?: string;
   command?: string;
+  queueId?: string;
+  sequence?: number;
+  waitForMilestone?: string;
+  waitTimeoutMs?: number;
 } | null {
   const parsed = ExpoLinking.parse(url);
   const segments = [parsed.hostname, parsed.path]
@@ -347,8 +355,20 @@ function getProfileSessionRoute(url: string): {
     typeof parsed.queryParams?.runId === 'string' ? parsed.queryParams.runId : undefined;
   const command =
     typeof parsed.queryParams?.command === 'string' ? parsed.queryParams.command : undefined;
+  const sequence =
+    typeof parsed.queryParams?.sequence === 'string' && Number.isInteger(Number(parsed.queryParams.sequence))
+      ? Number(parsed.queryParams.sequence)
+      : undefined;
+  const queueId =
+    typeof parsed.queryParams?.queueId === 'string' ? parsed.queryParams.queueId : undefined;
+  const waitForMilestone =
+    typeof parsed.queryParams?.waitForMilestone === 'string' ? parsed.queryParams.waitForMilestone : undefined;
+  const waitTimeoutMs =
+    typeof parsed.queryParams?.waitTimeoutMs === 'string' && Number.isInteger(Number(parsed.queryParams.waitTimeoutMs))
+      ? Number(parsed.queryParams.waitTimeoutMs)
+      : undefined;
 
-  return { action, scenario, runId, command };
+  return { action, scenario, runId, command, queueId, sequence, waitForMilestone, waitTimeoutMs };
 }
 
 function queuePendingProfileCommand(command: ProfileSessionCommand) {
@@ -560,8 +580,12 @@ export function applyProfileSessionUrl(url: string | null | undefined): boolean 
       scenario: route.scenario,
       runId: route.runId,
       command: route.command,
+      ...(route.queueId ? { queueId: route.queueId } : {}),
+      ...(typeof route.sequence === 'number' ? { sequence: route.sequence } : {}),
       source: 'deeplink' as const,
       timestamp,
+      ...(route.waitForMilestone ? { waitForMilestone: route.waitForMilestone } : {}),
+      ...(typeof route.waitTimeoutMs === 'number' ? { waitTimeoutMs: route.waitTimeoutMs } : {}),
     };
     logProfileSession('command', command);
     notifyProfileCommandListeners(command);

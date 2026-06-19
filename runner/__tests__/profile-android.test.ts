@@ -1057,6 +1057,9 @@ test('profile-android routes normalized readLogs evidence steps through adb driv
   const executor = async (command: string, args: string[]): Promise<CommandResult> => {
     const key = args.join(' ');
     calls.push(key);
+    if (key.includes('profile-session/command')) {
+      return { command, args, exitCode: 0, stderr: '', stdout: 'Starting: Intent { act=android.intent.action.VIEW }\n' };
+    }
     const responses: Record<string, Partial<CommandResult>> = {
       version: { stdout: 'Android Debug Bridge version 1.0.41\n' },
       'devices -l': {
@@ -1312,6 +1315,9 @@ test('profile-android starts profile sessions and executes scenario commands dur
   const executor = async (command: string, args: string[]): Promise<CommandResult> => {
     const key = args.join(' ');
     calls.push(key);
+    if (key.includes('profile-session/command')) {
+      return { command, args, exitCode: 0, stderr: '', stdout: 'Starting: Intent { act=android.intent.action.VIEW }\n' };
+    }
     const responses: Record<string, Partial<CommandResult>> = {
       version: { stdout: 'Android Debug Bridge version 1.0.41\n' },
       'devices -l': {
@@ -1393,6 +1399,12 @@ test('profile-android starts profile sessions and executes scenario commands dur
   assert.equal(adbHealth.healthStatus, 'passed');
   assert.equal(deepLinkCount, 7);
   assert.deepEqual(waits, [500, 125, 250, 300, 300, 300, 300, 300, 300, 1000]);
+  const firstCommandDeepLink = calls.find((call) => (
+    call.includes('profile-session/command') && call.includes('activate-target%3Aexample-card-1')
+  ));
+  assert.ok(firstCommandDeepLink);
+  assert.match(firstCommandDeepLink, /sequence=1/u);
+  assert.match(firstCommandDeepLink, /queueId=open-close-cycle/u);
   assert.ok(
     calls.indexOf("-s emulator-5554 shell am start -a 'android.intent.action.VIEW' -d 'asl-example://expo-development-client/?url=http%3A%2F%2F10.0.2.2%3A8097' -p 'dev.agentscenarioloop.example'") <
       calls.indexOf("-s emulator-5554 shell am start -a 'android.intent.action.VIEW' -d 'asl-example://profile-session/start?runId=android-live-open-close&scenario=open-close-cycle' -p 'dev.agentscenarioloop.example'"),
@@ -1491,6 +1503,9 @@ test('profile-android seeds Android scenario commands as one ordered storage que
   assert.ok(commandQueueWrite);
   assert.match(commandQueueWrite, /activate-target:example-card-1/u);
   assert.match(commandQueueWrite, /activate-target:close-card/u);
+  assert.match(commandQueueWrite, /"sequence":1/u);
+  assert.match(commandQueueWrite, /"sequence":6/u);
+  assert.match(commandQueueWrite, /"queueId":"open-close-cycle"/u);
   assert.doesNotMatch(commandQueueWrite, /DELETE FROM catalystLocalStorage WHERE key='agent-scenario-loop\.profile-commands\.1'.*DELETE FROM catalystLocalStorage WHERE key='agent-scenario-loop\.profile-commands\.1'/u);
   assert.deepEqual(waits, [500, 250, 1800, 25]);
   assert.ok(fs.existsSync(path.join(adbCaptureRoot, 'raw', 'adb-async-storage-write-2.txt')));
@@ -1545,6 +1560,12 @@ test('profile-android derives commands from normalized execution-plan steps', ()
       },
     },
     {
+      id: 'wait-opened',
+      kind: 'waitForMilestone',
+      milestone: 'card_opened',
+      timeoutMs: 1500,
+    },
+    {
       id: 'close-card',
       kind: 'command',
       command: 'activate-target:close-card',
@@ -1553,10 +1574,10 @@ test('profile-android derives commands from normalized execution-plan steps', ()
   ];
 
   assert.deepEqual(resolveAndroidAdbProfileCommands(scenario), [
-    { command: 'activate-target:example-card-1', label: 'open-card', waitMs: 125 },
-    { command: 'activate-target:close-card', label: 'close-card', waitMs: 225 },
-    { command: 'activate-target:example-card-1', label: 'open-card', waitMs: 125 },
-    { command: 'activate-target:close-card', label: 'close-card', waitMs: 225 },
+    { command: 'activate-target:example-card-1', label: 'open-card', queueId: 'open-close-cycle', sequence: 1, waitForMilestone: 'card_opened', waitMs: 125, waitTimeoutMs: 1500 },
+    { command: 'activate-target:close-card', label: 'close-card', queueId: 'open-close-cycle', sequence: 2, waitMs: 225 },
+    { command: 'activate-target:example-card-1', label: 'open-card', queueId: 'open-close-cycle', sequence: 3, waitForMilestone: 'card_opened', waitMs: 125, waitTimeoutMs: 1500 },
+    { command: 'activate-target:close-card', label: 'close-card', queueId: 'open-close-cycle', sequence: 4, waitMs: 225 },
   ]);
 });
 

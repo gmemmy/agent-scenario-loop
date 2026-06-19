@@ -30,7 +30,11 @@ type AndroidProfileOptions = {
 type AndroidAdbProfileCommand = {
   command: string;
   label?: string;
+  queueId?: string;
+  sequence?: number;
+  waitForMilestone?: string;
   waitMs?: number;
+  waitTimeoutMs?: number;
 };
 
 type AndroidAdbDriverStep = import('./android-adb').AndroidAdbDriverStep;
@@ -170,14 +174,22 @@ function buildProfileSessionUrl({
   action,
   command,
   config,
+  queueId,
   runId,
   scenario,
+  sequence,
+  waitForMilestone,
+  waitTimeoutMs,
 }: {
   action: 'start' | 'command';
   command?: string;
   config: Record<string, any>;
+  queueId?: string;
   runId: string;
   scenario: string;
+  sequence?: number;
+  waitForMilestone?: string;
+  waitTimeoutMs?: number;
 }): string {
   const scheme = typeof config.app?.profileSessionScheme === 'string'
     ? config.app.profileSessionScheme
@@ -187,6 +199,18 @@ function buildProfileSessionUrl({
   const params = new URLSearchParams({ runId, scenario });
   if (action === 'command' && command) {
     params.set('command', command);
+    if (typeof sequence === 'number') {
+      params.set('sequence', String(sequence));
+    }
+    if (queueId) {
+      params.set('queueId', queueId);
+    }
+    if (waitForMilestone) {
+      params.set('waitForMilestone', waitForMilestone);
+    }
+    if (typeof waitTimeoutMs === 'number') {
+      params.set('waitTimeoutMs', String(waitTimeoutMs));
+    }
   }
 
   return `${scheme}://profile-session/${action}?${params.toString()}`;
@@ -221,6 +245,10 @@ function buildProfileSessionStorageWrites({
       scenario,
       runId,
       command: profileCommand.command,
+      ...(typeof profileCommand.sequence === 'number' ? { sequence: profileCommand.sequence } : {}),
+      ...(typeof profileCommand.queueId === 'string' ? { queueId: profileCommand.queueId } : {}),
+      ...(typeof profileCommand.waitForMilestone === 'string' ? { waitForMilestone: profileCommand.waitForMilestone } : {}),
+      ...(typeof profileCommand.waitTimeoutMs === 'number' ? { waitTimeoutMs: profileCommand.waitTimeoutMs } : {}),
       timestamp,
     };
   });
@@ -380,15 +408,33 @@ function appendCaptureArg({
 function resolveExecutionPlanProfileCommands(scenario: Record<string, any>): AndroidAdbProfileCommand[] {
   const executionPlan = buildScenarioExecutionPlan(scenario);
   const repeat = readPositiveInteger(scenario.defaultIterations, readPositiveInteger(scenario.cycles?.iterations, 1));
-  const commands = executionPlan.steps
-    .filter((step: ScenarioExecutionStep) => step.portMethod === 'executeStep' && typeof step.command === 'string')
-    .map((step: ScenarioExecutionStep) => ({
+  const commands: AndroidAdbProfileCommand[] = [];
+  for (const [index, step] of executionPlan.steps.entries()) {
+    if (step.portMethod !== 'executeStep' || typeof step.command !== 'string') {
+      continue;
+    }
+
+    const nextStep = executionPlan.steps[index + 1];
+    commands.push({
       command: step.command as string,
       label: step.id,
+      queueId: scenario.id ?? scenario.name,
       waitMs: readStepWaitMs(step),
-    }));
+      ...(nextStep?.portMethod === 'waitForTruthEvent' && typeof nextStep.milestone === 'string'
+        ? {
+            waitForMilestone: nextStep.milestone,
+            waitTimeoutMs: readPositiveInteger(nextStep.timeoutMs, 0),
+          }
+        : {}),
+    });
+  }
 
-  return Array.from({ length: repeat }).flatMap(() => commands);
+  return Array.from({ length: repeat }).flatMap((_, iteration) =>
+    commands.map((command, commandIndex) => ({
+      ...command,
+      sequence: (iteration * commands.length) + commandIndex + 1,
+    })),
+  );
 }
 
 /**
@@ -522,6 +568,8 @@ function resolveAndroidAdbProfileCommands(scenario: Record<string, any>): Androi
       commands.push({
         command: command.command,
         ...(typeof command.label === 'string' ? { label: command.label } : {}),
+        queueId: scenario.id ?? scenario.name,
+        sequence: commands.length + 1,
         waitMs: readPositiveInteger(command.waitMs, 0),
       });
     }
@@ -694,6 +742,10 @@ async function runProfileAndroid(
             config,
             runId,
             scenario: scenarioName,
+            ...(typeof profileCommand.queueId === 'string' ? { queueId: profileCommand.queueId } : {}),
+            ...(typeof profileCommand.sequence === 'number' ? { sequence: profileCommand.sequence } : {}),
+            ...(typeof profileCommand.waitForMilestone === 'string' ? { waitForMilestone: profileCommand.waitForMilestone } : {}),
+            ...(typeof profileCommand.waitTimeoutMs === 'number' ? { waitTimeoutMs: profileCommand.waitTimeoutMs } : {}),
           }),
           waitMs: profileCommand.waitMs,
         })),

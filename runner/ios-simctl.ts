@@ -66,7 +66,11 @@ type IosProfileSessionStorageCommand = {
   command: string;
   id?: string;
   label?: string;
+  queueId?: string;
+  sequence?: number;
   timestamp?: number;
+  waitForMilestone?: string;
+  waitTimeoutMs?: number;
 };
 type IosProfileSessionStorageSeed = {
   commands?: IosProfileSessionStorageCommand[];
@@ -657,7 +661,12 @@ async function seedProfileSessionStorage({
     scenario,
     runId,
     command: profileCommand.command,
+    ...(typeof profileCommand.label === 'string' ? { label: profileCommand.label } : {}),
+    ...(typeof profileCommand.queueId === 'string' ? { queueId: profileCommand.queueId } : {}),
+    ...(typeof profileCommand.sequence === 'number' ? { sequence: profileCommand.sequence } : {}),
     timestamp: typeof profileCommand.timestamp === 'number' ? profileCommand.timestamp : startedAt + index + 1,
+    ...(typeof profileCommand.waitForMilestone === 'string' ? { waitForMilestone: profileCommand.waitForMilestone } : {}),
+    ...(typeof profileCommand.waitTimeoutMs === 'number' ? { waitTimeoutMs: profileCommand.waitTimeoutMs } : {}),
   }));
   manifest[profileStorageKeys.session] = JSON.stringify(session);
   if (queuedCommands.length > 0) {
