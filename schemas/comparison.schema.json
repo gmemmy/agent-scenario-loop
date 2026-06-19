@@ -46,6 +46,9 @@
     "comparisonBasis": {
       "$ref": "#/$defs/comparisonBasis"
     },
+    "measurementPolicy": {
+      "$ref": "#/$defs/measurementPolicy"
+    },
     "metricComparisons": {
       "type": "array",
       "items": {
@@ -197,6 +200,120 @@
         },
         "notes": {
           "type": "string"
+        }
+      }
+    },
+    "measurementPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["baselineSelection", "samples", "tolerance", "confidence"],
+      "properties": {
+        "baselineSelection": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode", "poisoningProtection"],
+          "properties": {
+            "mode": {
+              "type": "string",
+              "enum": ["explicit", "latestTrustedPrior"]
+            },
+            "poisoningProtection": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["requirePassedHealth", "requirePassedVerdict", "requireMatchingScenarioId"],
+              "properties": {
+                "requirePassedHealth": {
+                  "type": "boolean"
+                },
+                "requirePassedVerdict": {
+                  "type": "boolean"
+                },
+                "requireMatchingScenarioId": {
+                  "type": "boolean"
+                },
+                "comparisonLane": {
+                  "type": "string"
+                },
+                "scenarioHash": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                },
+                "cohortHash": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                }
+              }
+            }
+          }
+        },
+        "samples": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["baseline", "current"],
+          "properties": {
+            "baseline": {
+              "$ref": "#/$defs/samplePolicy"
+            },
+            "current": {
+              "$ref": "#/$defs/samplePolicy"
+            }
+          }
+        },
+        "tolerance": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["timing"],
+          "properties": {
+            "timing": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["absoluteMs", "relative"],
+              "properties": {
+                "absoluteMs": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "relative": {
+                  "type": "number",
+                  "minimum": 0
+                }
+              }
+            }
+          }
+        },
+        "confidence": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["level", "minValidSamples"],
+          "properties": {
+            "level": {
+              "type": "string",
+              "enum": ["single_run", "multi_sample", "insufficient"]
+            },
+            "minValidSamples": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        }
+      }
+    },
+    "samplePolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["validSamples", "warmupSamples", "outliersExcluded"],
+      "properties": {
+        "validSamples": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "warmupSamples": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "outliersExcluded": {
+          "type": "integer",
+          "minimum": 0
         }
       }
     }

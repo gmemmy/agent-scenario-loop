@@ -147,6 +147,38 @@ test('builds a better comparison only after both runs passed health', () => {
   assert.equal(comparison.baselineRunId, 'baseline-run');
   assert.equal(comparison.runId, 'current-run');
   assert.equal(comparison.metricComparisons[0].delta, -300);
+  assert.deepEqual(comparison.measurementPolicy, {
+    baselineSelection: {
+      mode: 'explicit',
+      poisoningProtection: {
+        requireMatchingScenarioId: true,
+        requirePassedHealth: true,
+        requirePassedVerdict: false,
+      },
+    },
+    confidence: {
+      level: 'single_run',
+      minValidSamples: 1,
+    },
+    samples: {
+      baseline: {
+        outliersExcluded: 0,
+        validSamples: 1,
+        warmupSamples: 0,
+      },
+      current: {
+        outliersExcluded: 0,
+        validSamples: 1,
+        warmupSamples: 0,
+      },
+    },
+    tolerance: {
+      timing: {
+        absoluteMs: 16,
+        relative: 0.05,
+      },
+    },
+  });
   assert.equal(validateJson(comparison, SCHEMAS.comparison, 'Comparison artifact').valid, true);
 });
 

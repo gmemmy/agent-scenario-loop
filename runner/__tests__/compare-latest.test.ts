@@ -171,6 +171,38 @@ test('compares current run against latest trusted prior run', async (t: TestCont
   assert.equal(comparison.runId, 'current-run');
   assert.equal(comparison.comparisonStatus, 'better');
   assert.equal(comparison.metricComparisons[0].delta, -190);
+  assert.deepEqual(comparison.measurementPolicy, {
+    baselineSelection: {
+      mode: 'latestTrustedPrior',
+      poisoningProtection: {
+        requireMatchingScenarioId: true,
+        requirePassedHealth: true,
+        requirePassedVerdict: true,
+      },
+    },
+    confidence: {
+      level: 'single_run',
+      minValidSamples: 1,
+    },
+    samples: {
+      baseline: {
+        outliersExcluded: 0,
+        validSamples: 1,
+        warmupSamples: 0,
+      },
+      current: {
+        outliersExcluded: 0,
+        validSamples: 1,
+        warmupSamples: 0,
+      },
+    },
+    tolerance: {
+      timing: {
+        absoluteMs: 16,
+        relative: 0.05,
+      },
+    },
+  });
   assert.deepEqual(comparison.comparisonBasis, {
     strategy: 'latest_trusted_prior',
     baseline: {
@@ -385,6 +417,17 @@ test('filters latest trusted prior runs by provenance cohort hash when current i
   assert.equal(comparison.baselineRunId, 'older-same-cohort-run');
   assert.equal(comparison.comparisonStatus, 'better');
   assert.equal(comparison.comparisonBasis.selection.cohortHash, 'c'.repeat(64));
+  assert.deepEqual(comparison.measurementPolicy.baselineSelection, {
+    mode: 'latestTrustedPrior',
+    poisoningProtection: {
+      cohortHash: 'c'.repeat(64),
+      comparisonLane: 'example-android-live+agent-device',
+      requireMatchingScenarioId: true,
+      requirePassedHealth: true,
+      requirePassedVerdict: true,
+      scenarioHash: 'a'.repeat(64),
+    },
+  });
   assert.equal(comparison.comparisonBasis.selection.trustedComparableCandidates, 2);
   assert.equal(comparison.comparisonBasis.selection.trustedScenarioContractCandidates, 2);
   assert.equal(comparison.comparisonBasis.selection.trustedCohortCandidates, 1);

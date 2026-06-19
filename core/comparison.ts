@@ -36,12 +36,18 @@ type ComparisonRunBasis = {
 type ComparisonSelectionBasis = {
   artifactRoot?: string;
   candidatesInspected?: number;
+  cohortHash?: string;
+  comparisonLane?: string;
   scenarioId?: string;
+  scenarioHash?: string;
   selectedRunDir?: string;
   selectedRunId?: string;
   skippedCurrentRun?: boolean;
+  trustedCohortCandidates?: number;
+  trustedComparableCandidates?: number;
   trustedCandidates?: number;
   trustedPriorCandidates?: number;
+  trustedScenarioContractCandidates?: number;
 };
 
 type ComparisonBasis = {
@@ -49,6 +55,41 @@ type ComparisonBasis = {
   current: ComparisonRunBasis;
   selection?: ComparisonSelectionBasis;
   strategy: ComparisonBasisStrategy;
+};
+type MeasurementPolicy = {
+  baselineSelection: {
+    mode: 'explicit' | 'latestTrustedPrior';
+    poisoningProtection: {
+      requirePassedHealth: boolean;
+      requirePassedVerdict: boolean;
+      requireMatchingScenarioId: boolean;
+      comparisonLane?: string;
+      scenarioHash?: string;
+      cohortHash?: string;
+    };
+  };
+  samples: {
+    baseline: {
+      validSamples: number;
+      warmupSamples: number;
+      outliersExcluded: number;
+    };
+    current: {
+      validSamples: number;
+      warmupSamples: number;
+      outliersExcluded: number;
+    };
+  };
+  tolerance: {
+    timing: {
+      absoluteMs: number;
+      relative: number;
+    };
+  };
+  confidence: {
+    level: 'single_run' | 'multi_sample' | 'insufficient';
+    minValidSamples: number;
+  };
 };
 
 type BuildComparisonOptions = {
@@ -274,6 +315,91 @@ function buildComparisonBasis({
 }
 
 /**
+ * Counts valid numeric or boolean budget samples in a verdict artifact.
+ *
+ * @param {unknown} checks
+ * @returns {number}
+ */
+function countValidBudgetSamples(checks: unknown): number {
+  if (!Array.isArray(checks)) {
+    return 0;
+  }
+
+  return checks.filter((check) => (
+    check &&
+    typeof check === 'object' &&
+    (
+      typeof (check as {actual?: unknown}).actual === 'number' ||
+      typeof (check as {actual?: unknown}).actual === 'boolean'
+    )
+  )).length;
+}
+
+/**
+ * Builds the measurement policy block for a comparison artifact.
+ *
+ * @param {{baselineVerdict: Record<string, unknown>, comparisonBasis?: ComparisonBasis, currentVerdict: Record<string, unknown>, metricComparisons: MetricComparison[]}} options
+ * @returns {MeasurementPolicy}
+ */
+function buildMeasurementPolicy({
+  baselineVerdict,
+  comparisonBasis,
+  currentVerdict,
+  metricComparisons,
+}: {
+  baselineVerdict: ComparisonRecord;
+  comparisonBasis: ComparisonBasis | undefined;
+  currentVerdict: ComparisonRecord;
+  metricComparisons: MetricComparison[];
+}): MeasurementPolicy {
+  const selection = comparisonBasis?.selection;
+  const validSamples = metricComparisons.length;
+  const confidenceLevel =
+    validSamples === 0
+      ? 'insufficient'
+      : validSamples === 1
+        ? 'single_run'
+        : 'multi_sample';
+  const poisoningProtection = {
+    requirePassedHealth: true,
+    requirePassedVerdict: comparisonBasis?.strategy === 'latest_trusted_prior',
+    requireMatchingScenarioId: true,
+    ...(typeof selection?.comparisonLane === 'string' ? { comparisonLane: selection.comparisonLane } : {}),
+    ...(typeof selection?.scenarioHash === 'string' ? { scenarioHash: selection.scenarioHash } : {}),
+    ...(typeof selection?.cohortHash === 'string' ? { cohortHash: selection.cohortHash } : {}),
+  };
+
+  return {
+    baselineSelection: {
+      mode: comparisonBasis?.strategy === 'latest_trusted_prior' ? 'latestTrustedPrior' : 'explicit',
+      poisoningProtection,
+    },
+    samples: {
+      baseline: {
+        validSamples: countValidBudgetSamples(baselineVerdict.budgetChecks),
+        warmupSamples: 0,
+        outliersExcluded: 0,
+      },
+      current: {
+        validSamples: countValidBudgetSamples(currentVerdict.budgetChecks),
+        warmupSamples: 0,
+        outliersExcluded: 0,
+      },
+    },
+    tolerance: {
+      timing: {
+        absoluteMs: MIN_MS_COMPARISON_TOLERANCE,
+        relative: RELATIVE_MS_COMPARISON_TOLERANCE,
+      },
+    },
+    confidence: {
+      level: confidenceLevel,
+      minValidSamples: 1,
+    },
+  };
+}
+
+/**
  * Builds a comparison artifact from two validated run artifact sets.
  *
  * @param {BuildComparisonOptions} options
@@ -345,6 +471,12 @@ function buildComparisonArtifact({
     healthStatus: canCompare ? 'passed' : 'failed',
     verdictStatus: typeof currentVerdict.verdictStatus === 'string' ? currentVerdict.verdictStatus : 'inconclusive',
     ...(comparisonBasis ? { comparisonBasis } : {}),
+    measurementPolicy: buildMeasurementPolicy({
+      baselineVerdict,
+      comparisonBasis,
+      currentVerdict,
+      metricComparisons,
+    }),
     ...(metricComparisons.length > 0 ? { metricComparisons } : {}),
     evidence: {
       missingRequired,
@@ -440,6 +572,7 @@ export {
   buildComparisonArtifact,
   compareBudgetCheck,
   compareRunDirectories,
+  buildMeasurementPolicy,
   indexBudgetChecks,
   readRunArtifacts,
   resolveComparisonStatus,
@@ -454,5 +587,6 @@ export type {
   ComparisonBudgetCheck,
   ComparisonRecord,
   ComparisonStatus,
+  MeasurementPolicy,
   MetricComparison,
 };
