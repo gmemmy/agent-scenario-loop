@@ -50,6 +50,7 @@ function sampleEnvironmentLifecycle() {
     postconditions: {
       appState: unknownLifecycleAssertion(),
       artifactState: unknownLifecycleAssertion(),
+      lifecyclePhase: unknownLifecycleAssertion(),
       cleanupState: unknownLifecycleAssertion(),
       dataState: unknownLifecycleAssertion(),
     },
@@ -60,6 +61,7 @@ function sampleEnvironmentLifecycle() {
       deviceLockState: unknownLifecycleAssertion(),
       fontScale: unknownLifecycleAssertion(),
       foregroundState: unknownLifecycleAssertion(),
+      lifecyclePhase: unknownLifecycleAssertion(),
       initialRoute: unknownLifecycleAssertion(),
       installedState: unknownLifecycleAssertion(),
       locale: unknownLifecycleAssertion(),
@@ -747,6 +749,184 @@ test('rejects malformed manifest environment preconditions', () => {
   assert.equal(result.valid, false);
   assert.ok(result.errors.some((error: ValidationIssue) => error.path === '$.environment.preconditions.networkState.evidence'), result.message);
   assert.ok(result.errors.some((error: ValidationIssue) => error.path === '$.environment.postconditions.artifactState'), result.message);
+});
+
+test('accepts manifest lifecycle phase and expanded terminal vocabulary', () => {
+  const manifest = {
+    scenario: 'app-startup',
+    runId: 'run-1',
+    platform: 'android',
+    status: 'failed',
+    startedAt: '2026-01-01T00:00:00.000Z',
+    endedAt: '2026-01-01T00:00:01.000Z',
+    durationMs: 1000,
+    interactionDriver: 'adb-logcat',
+    simulator: {
+      name: 'Pixel',
+      udid: 'emulator-5554',
+    },
+    bundleId: 'com.example.app',
+    gitSha: 'unknown',
+    toolVersions: {
+      node: 'v25.0.0',
+    },
+    provenance: {
+      gitSha: 'unknown',
+      toolVersions: {
+        node: 'v25.0.0',
+      },
+    },
+    attempt: {
+      attemptId: 'attempt-1',
+      runId: 'run-1',
+      status: 'failed',
+      terminalState: 'unsupported',
+      startedAt: '2026-01-01T00:00:00.000Z',
+      endedAt: '2026-01-01T00:00:01.000Z',
+      durationMs: 1000,
+      interactionDriver: 'adb-logcat',
+      classification: {
+        category: 'environment',
+      },
+      cleanup: {
+        status: 'unknown',
+      },
+      partialArtifacts: {
+        valid: true,
+        reason: 'unsupported lifecycle proof preserved diagnostic artifacts',
+      },
+    },
+    environment: {
+      ...sampleEnvironment(),
+      preconditions: {
+        ...sampleEnvironment().preconditions,
+        lifecyclePhase: {
+          value: 'cold-launch',
+          evidence: 'asserted',
+          source: 'scenario precondition',
+        },
+      },
+      postconditions: {
+        ...sampleEnvironment().postconditions,
+        lifecyclePhase: {
+          value: 'foreground',
+          evidence: 'observed',
+          artifact: 'raw/device.log',
+        },
+      },
+    },
+    artifacts: {
+      causalRun: 'causal-run.json',
+      budgetVerdict: 'budget-verdict.json',
+      manifest: 'manifest.json',
+      metrics: 'metrics.json',
+      summary: 'summary.md',
+      scenario: 'scenarios/android/app-startup.json',
+      raw: {
+        interactionLog: 'raw/adb-logcat.txt',
+        deviceLog: 'raw/device.log',
+      },
+      captures: {
+        video: 'captures/run.mp4',
+        uiTree: 'captures/ui-tree.json',
+      },
+      signals: {
+        js: [],
+        memory: [],
+        network: [],
+      },
+    },
+    failureReason: 'Lifecycle proof is unsupported on this runner.',
+  };
+
+  const result = validateJson(manifest, SCHEMAS.manifest, 'Manifest artifact');
+
+  assert.equal(result.valid, true, result.message);
+});
+
+test('rejects unknown manifest lifecycle phase values', () => {
+  const manifest: JsonRecord = {
+    scenario: 'app-startup',
+    runId: 'run-1',
+    platform: 'android',
+    status: 'passed',
+    startedAt: '2026-01-01T00:00:00.000Z',
+    endedAt: '2026-01-01T00:00:01.000Z',
+    durationMs: 1000,
+    interactionDriver: 'adb-logcat',
+    simulator: {
+      name: 'Pixel',
+      udid: 'emulator-5554',
+    },
+    bundleId: 'com.example.app',
+    gitSha: 'unknown',
+    toolVersions: {
+      node: 'v25.0.0',
+    },
+    provenance: {
+      gitSha: 'unknown',
+      toolVersions: {
+        node: 'v25.0.0',
+      },
+    },
+    attempt: {
+      attemptId: 'attempt-1',
+      runId: 'run-1',
+      status: 'passed',
+      terminalState: 'passed',
+      startedAt: '2026-01-01T00:00:00.000Z',
+      endedAt: '2026-01-01T00:00:01.000Z',
+      durationMs: 1000,
+      interactionDriver: 'adb-logcat',
+      classification: {
+        category: 'none',
+      },
+      cleanup: {
+        status: 'not-required',
+      },
+      partialArtifacts: {
+        valid: false,
+        reason: 'complete successful run artifacts are present',
+      },
+    },
+    environment: {
+      ...sampleEnvironment(),
+      postconditions: {
+        ...sampleEnvironment().postconditions,
+        lifecyclePhase: {
+          value: 'half-awake',
+          evidence: 'observed',
+        },
+      },
+    },
+    artifacts: {
+      causalRun: 'causal-run.json',
+      budgetVerdict: 'budget-verdict.json',
+      manifest: 'manifest.json',
+      metrics: 'metrics.json',
+      summary: 'summary.md',
+      scenario: 'scenarios/android/app-startup.json',
+      raw: {
+        interactionLog: 'raw/adb-logcat.txt',
+        deviceLog: 'raw/device.log',
+      },
+      captures: {
+        video: 'captures/run.mp4',
+        uiTree: 'captures/ui-tree.json',
+      },
+      signals: {
+        js: [],
+        memory: [],
+        network: [],
+      },
+    },
+    failureReason: null,
+  };
+
+  const result = validateJson(manifest, SCHEMAS.manifest, 'Manifest artifact');
+
+  assert.equal(result.valid, false);
+  assert.ok(result.errors.some((error: ValidationIssue) => error.path === '$.environment.postconditions.lifecyclePhase.value'), result.message);
 });
 
 test('rejects unstable evidence attachment inventory entries', () => {

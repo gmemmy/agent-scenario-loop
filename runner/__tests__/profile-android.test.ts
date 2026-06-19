@@ -45,6 +45,7 @@ function sampleEnvironmentLifecycle() {
     postconditions: {
       appState: unknownLifecycleAssertion(),
       artifactState: unknownLifecycleAssertion(),
+      lifecyclePhase: unknownLifecycleAssertion(),
       cleanupState: unknownLifecycleAssertion(),
       dataState: unknownLifecycleAssertion(),
     },
@@ -55,6 +56,7 @@ function sampleEnvironmentLifecycle() {
       deviceLockState: unknownLifecycleAssertion(),
       fontScale: unknownLifecycleAssertion(),
       foregroundState: unknownLifecycleAssertion(),
+      lifecyclePhase: unknownLifecycleAssertion(),
       initialRoute: unknownLifecycleAssertion(),
       installedState: unknownLifecycleAssertion(),
       locale: unknownLifecycleAssertion(),

@@ -46,6 +46,7 @@ function sampleEnvironmentLifecycle() {
     postconditions: {
       appState: unknownLifecycleAssertion(),
       artifactState: unknownLifecycleAssertion(),
+      lifecyclePhase: unknownLifecycleAssertion(),
       cleanupState: unknownLifecycleAssertion(),
       dataState: unknownLifecycleAssertion(),
     },
@@ -56,6 +57,7 @@ function sampleEnvironmentLifecycle() {
       deviceLockState: unknownLifecycleAssertion(),
       fontScale: unknownLifecycleAssertion(),
       foregroundState: unknownLifecycleAssertion(),
+      lifecyclePhase: unknownLifecycleAssertion(),
       initialRoute: unknownLifecycleAssertion(),
       installedState: unknownLifecycleAssertion(),
       locale: unknownLifecycleAssertion(),
@@ -129,6 +131,61 @@ test('builds schema-valid manifest provenance attempt and environment artifacts'
       name: 'Pixel_8',
       udid: 'emulator-5554',
     },
+  });
+});
+
+test('builds schema-valid manifest with asserted mobile lifecycle phases', () => {
+  const manifest = buildManifest({
+    scenario: 'public-journey',
+    runId: 'public-journey-rich-lifecycle',
+    platform: 'ios',
+    status: 'failed',
+    terminalState: 'unhealthy',
+    startedAt: '2026-01-01T00:00:00.000Z',
+    endedAt: '2026-01-01T00:00:02.000Z',
+    interactionDriver: 'simctl',
+    preconditions: {
+      lifecyclePhase: {
+        value: 'cold-launch',
+        evidence: 'observed',
+        source: 'runner',
+        artifact: 'raw/ios-app-lifecycle-log.txt',
+      },
+    },
+    postconditions: {
+      lifecyclePhase: {
+        value: 'os-reclaim',
+        evidence: 'inferred',
+        source: 'host diagnostics',
+        artifact: 'raw/ios-host-diagnostic-report-search.txt',
+      },
+    },
+    simulator: {
+      name: 'iPhone 16',
+      udid: 'SIM-UDID',
+    },
+    bundleId: 'dev.agent.example',
+    gitSha: 'abc123',
+    toolVersions: {
+      node: 'v24.0.0',
+    },
+    artifacts: sampleManifestArtifacts(),
+    failureReason: 'Runtime became unhealthy after OS reclaim.',
+  });
+
+  assert.equal(validateJson(manifest, SCHEMAS.manifest, 'Manifest artifact').valid, true);
+  assert.equal(manifest.attempt.terminalState, 'unhealthy');
+  assert.deepEqual(manifest.environment.preconditions.lifecyclePhase, {
+    artifact: 'raw/ios-app-lifecycle-log.txt',
+    evidence: 'observed',
+    source: 'runner',
+    value: 'cold-launch',
+  });
+  assert.deepEqual(manifest.environment.postconditions.lifecyclePhase, {
+    artifact: 'raw/ios-host-diagnostic-report-search.txt',
+    evidence: 'inferred',
+    source: 'host diagnostics',
+    value: 'os-reclaim',
   });
 });
 

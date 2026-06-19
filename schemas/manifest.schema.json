@@ -107,8 +107,7 @@
           "enum": ["passed", "failed"]
         },
         "terminalState": {
-          "type": "string",
-          "enum": ["passed", "failed", "timeout", "cancelled", "aborted", "inconclusive"]
+          "$ref": "#/$defs/terminalState"
         },
         "startedAt": {
           "type": "string"
@@ -230,6 +229,7 @@
             "authState",
             "initialRoute",
             "foregroundState",
+            "lifecyclePhase",
             "deviceLockState",
             "permissions",
             "locale",
@@ -255,6 +255,9 @@
             },
             "foregroundState": {
               "$ref": "#/$defs/lifecycleAssertion"
+            },
+            "lifecyclePhase": {
+              "$ref": "#/$defs/lifecycleStateAssertion"
             },
             "deviceLockState": {
               "$ref": "#/$defs/lifecycleAssertion"
@@ -288,10 +291,13 @@
         "postconditions": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["appState", "cleanupState", "dataState", "artifactState"],
+          "required": ["appState", "lifecyclePhase", "cleanupState", "dataState", "artifactState"],
           "properties": {
             "appState": {
               "$ref": "#/$defs/lifecycleAssertion"
+            },
+            "lifecyclePhase": {
+              "$ref": "#/$defs/lifecycleStateAssertion"
             },
             "cleanupState": {
               "$ref": "#/$defs/lifecycleAssertion"
@@ -453,6 +459,28 @@
     }
   },
   "$defs": {
+    "terminalState": {
+      "type": "string",
+      "enum": ["passed", "failed", "timeout", "cancelled", "aborted", "inconclusive", "unsupported", "skipped", "unhealthy"]
+    },
+    "lifecycleState": {
+      "type": "string",
+      "enum": [
+        "unknown",
+        "cold-launch",
+        "warm-launch",
+        "hot-launch",
+        "foreground",
+        "background",
+        "force-stop",
+        "process-death",
+        "scene-recreation",
+        "activity-recreation",
+        "os-reclaim",
+        "reboot",
+        "relaunch"
+      ]
+    },
     "lifecycleAssertion": {
       "type": "object",
       "additionalProperties": false,
@@ -460,6 +488,28 @@
       "properties": {
         "value": {
           "type": ["string", "number", "boolean", "null"]
+        },
+        "evidence": {
+          "type": "string",
+          "enum": ["not-asserted", "unknown", "asserted", "observed", "inferred"]
+        },
+        "source": {
+          "type": "string",
+          "minLength": 1
+        },
+        "artifact": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "lifecycleStateAssertion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["value", "evidence"],
+      "properties": {
+        "value": {
+          "$ref": "#/$defs/lifecycleState"
         },
         "evidence": {
           "type": "string",
