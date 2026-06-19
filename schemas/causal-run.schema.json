@@ -98,6 +98,23 @@
         }
       }
     },
+    "provenanceRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["manifest", "runId"],
+      "properties": {
+        "manifest": {
+          "type": "string"
+        },
+        "runId": {
+          "type": "string"
+        },
+        "scenarioHash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      }
+    },
     "budgets": {
       "type": "object",
       "description": "Named budget thresholds the run should be evaluated against.",

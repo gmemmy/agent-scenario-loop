@@ -1,8 +1,141 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
 
-const { buildBudgetVerdict, buildMetricsFromProfileEvents } = require('../artifact-contract');
+const {
+  buildBudgetVerdict,
+  buildCausalRun,
+  buildManifest,
+  buildMetricsFromProfileEvents,
+} = require('../artifact-contract');
 const { SCHEMAS, validateJson } = require('../schema-validator');
+
+function sampleManifestArtifacts() {
+  return {
+    causalRun: 'causal-run.json',
+    budgetVerdict: 'budget-verdict.json',
+    manifest: 'manifest.json',
+    metrics: 'metrics.json',
+    summary: 'summary.md',
+    scenario: 'scenario.json',
+    raw: {
+      interactionLog: 'raw/interaction.log',
+      deviceLog: 'raw/device.log',
+    },
+    captures: {
+      video: 'captures/run.mp4',
+      uiTree: 'captures/ui-tree.json',
+      screenshots: ['captures/first.png'],
+    },
+    signals: {
+      js: [],
+      memory: [],
+      network: [],
+    },
+  };
+}
+
+test('builds schema-valid manifest provenance attempt and environment artifacts', () => {
+  const manifest = buildManifest({
+    scenario: 'public-journey',
+    scenarioHash: 'a'.repeat(64),
+    runId: 'public-journey-1',
+    platform: 'android',
+    status: 'passed',
+    startedAt: '2026-01-01T00:00:00.000Z',
+    endedAt: '2026-01-01T00:00:01.250Z',
+    interactionDriver: 'adb-logcat',
+    comparisonLane: 'android-adb',
+    simulator: {
+      name: 'Pixel_8',
+      udid: 'emulator-5554',
+    },
+    bundleId: 'dev.agent.example',
+    gitSha: 'abc123',
+    toolVersions: {
+      node: 'v24.0.0',
+    },
+    artifacts: sampleManifestArtifacts(),
+  });
+
+  assert.equal(validateJson(manifest, SCHEMAS.manifest, 'Manifest artifact').valid, true);
+  assert.deepEqual(manifest.provenance, {
+    gitSha: 'abc123',
+    scenarioHash: 'a'.repeat(64),
+    toolVersions: {
+      node: 'v24.0.0',
+    },
+  });
+  assert.deepEqual(manifest.attempt, {
+    comparisonLane: 'android-adb',
+    durationMs: 1250,
+    endedAt: '2026-01-01T00:00:01.250Z',
+    interactionDriver: 'adb-logcat',
+    runId: 'public-journey-1',
+    startedAt: '2026-01-01T00:00:00.000Z',
+    status: 'passed',
+  });
+  assert.deepEqual(manifest.environment, {
+    bundleId: 'dev.agent.example',
+    nodeVersion: 'v24.0.0',
+    platform: 'android',
+    runtimeTarget: {
+      name: 'Pixel_8',
+      udid: 'emulator-5554',
+    },
+  });
+});
+
+test('builds schema-valid causal-run provenance reference to manifest', () => {
+  const artifacts = sampleManifestArtifacts();
+  const manifest = buildManifest({
+    scenario: 'public-journey',
+    scenarioHash: 'b'.repeat(64),
+    runId: 'public-journey-1',
+    platform: 'ios',
+    status: 'passed',
+    startedAt: '2026-01-01T00:00:00.000Z',
+    endedAt: '2026-01-01T00:00:01.000Z',
+    interactionDriver: 'ios-simctl',
+    simulator: {
+      name: 'iPhone 16',
+      udid: 'ios-sim-1',
+    },
+    bundleId: 'dev.agent.example',
+    gitSha: 'def456',
+    toolVersions: {
+      node: 'v24.0.0',
+    },
+    artifacts,
+  });
+  const causalRun = buildCausalRun({
+    scenario: {
+      name: 'public-journey',
+      description: 'Public journey',
+    },
+    flowId: 'public-journey',
+    runId: 'public-journey-1',
+    platform: 'ios',
+    buildFlavor: 'unknown',
+    interactionDriver: 'ios-simctl',
+    budgets: {
+      cycleP95Ms: 2000,
+    },
+    timeline: [],
+    artifacts,
+    manifest,
+    metrics: {
+      status: 'passed',
+      iterations: 1,
+    },
+  });
+
+  assert.equal(validateJson(causalRun, SCHEMAS.causalRun, 'Causal run artifact').valid, true);
+  assert.deepEqual(causalRun.provenanceRef, {
+    manifest: 'manifest.json',
+    runId: 'public-journey-1',
+    scenarioHash: 'b'.repeat(64),
+  });
+});
 
 test('builds baseline regression metadata without stale implementation disclaimers', () => {
   const verdict = buildBudgetVerdict({

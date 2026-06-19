@@ -55,6 +55,86 @@
     "comparisonLane": {
       "type": "string"
     },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["gitSha", "toolVersions"],
+      "properties": {
+        "scenarioHash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "gitSha": {
+          "type": "string"
+        },
+        "toolVersions": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "attempt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["runId", "status", "startedAt", "endedAt", "durationMs", "interactionDriver"],
+      "properties": {
+        "runId": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["passed", "failed"]
+        },
+        "startedAt": {
+          "type": "string"
+        },
+        "endedAt": {
+          "type": "string"
+        },
+        "durationMs": {
+          "type": "number",
+          "minimum": 0
+        },
+        "interactionDriver": {
+          "type": "string"
+        },
+        "comparisonLane": {
+          "type": "string"
+        }
+      }
+    },
+    "environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["platform", "bundleId", "runtimeTarget"],
+      "properties": {
+        "platform": {
+          "type": "string",
+          "enum": ["ios", "android"]
+        },
+        "bundleId": {
+          "type": "string"
+        },
+        "runtimeTarget": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["name", "udid"],
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "udid": {
+              "type": "string"
+            }
+          }
+        },
+        "nodeVersion": {
+          "type": "string"
+        }
+      }
+    },
     "simulator": {
       "type": "object",
       "additionalProperties": false,

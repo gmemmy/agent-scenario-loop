@@ -901,6 +901,13 @@ function buildCausalRun({
             kind: 'unknown',
             label: scenario.description ?? scenario.name,
           },
+    provenanceRef: {
+      manifest: artifacts.manifest,
+      runId,
+      ...(typeof manifest.scenarioHash === 'string' && manifest.scenarioHash.length > 0
+        ? { scenarioHash: manifest.scenarioHash }
+        : {}),
+    },
     budgets: normalizeBudgetsForCausalRun(budgets),
     timeline,
     artifacts: {
@@ -944,6 +951,10 @@ function buildManifest({
   artifacts,
   failureReason = null,
 }: ArtifactRecord): ArtifactRecord {
+  const durationMs = roundMs(Math.max(0, Date.parse(endedAt) - Date.parse(startedAt)));
+  const sortedToolVersions = sortValue(toolVersions);
+  const sortedSimulator = sortValue(simulator);
+
   return {
     scenario,
     ...(typeof scenarioHash === 'string' && scenarioHash.length > 0 ? { scenarioHash } : {}),
@@ -952,13 +963,33 @@ function buildManifest({
     status,
     startedAt,
     endedAt,
-    durationMs: roundMs(Math.max(0, Date.parse(endedAt) - Date.parse(startedAt))),
+    durationMs,
     interactionDriver,
     ...(typeof comparisonLane === 'string' && comparisonLane.length > 0 ? { comparisonLane } : {}),
-    simulator: sortValue(simulator),
+    provenance: {
+      ...(typeof scenarioHash === 'string' && scenarioHash.length > 0 ? { scenarioHash } : {}),
+      gitSha,
+      toolVersions: sortedToolVersions,
+    },
+    attempt: {
+      runId,
+      status,
+      startedAt,
+      endedAt,
+      durationMs,
+      interactionDriver,
+      ...(typeof comparisonLane === 'string' && comparisonLane.length > 0 ? { comparisonLane } : {}),
+    },
+    environment: {
+      platform,
+      bundleId,
+      runtimeTarget: sortedSimulator,
+      ...(typeof sortedToolVersions.node === 'string' ? { nodeVersion: sortedToolVersions.node } : {}),
+    },
+    simulator: sortedSimulator,
     bundleId,
     gitSha,
-    toolVersions: sortValue(toolVersions),
+    toolVersions: sortedToolVersions,
     artifacts: sortValue(artifacts),
     failureReason,
   };

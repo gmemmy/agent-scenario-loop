@@ -128,6 +128,7 @@ test('profile-android writes artifacts from fixture event logs', async (t: TestC
 
   const runDir = stdout.trim();
   const manifest = readJson(path.join(runDir, 'manifest.json'));
+  const causalRun = readJson(path.join(runDir, 'causal-run.json'));
   const health = readJson(path.join(runDir, 'health.json'));
   const verdict = readJson(path.join(runDir, 'verdict.json'));
   const summary = fs.readFileSync(path.join(runDir, 'agent-summary.md'), 'utf8');
@@ -137,6 +138,32 @@ test('profile-android writes artifacts from fixture event logs', async (t: TestC
   assert.equal(typeof manifest.scenarioHash, 'string');
   assert.match(manifest.scenarioHash, /^[a-f0-9]{64}$/u);
   assert.equal(manifest.bundleId, 'dev.agentscenarioloop.example');
+  assert.deepEqual(manifest.provenance, {
+    gitSha: 'unknown',
+    scenarioHash: manifest.scenarioHash,
+    toolVersions: {
+      node: process.version,
+    },
+  });
+  assert.deepEqual(manifest.attempt, {
+    durationMs: manifest.durationMs,
+    endedAt: manifest.endedAt,
+    interactionDriver: manifest.interactionDriver,
+    runId: 'android-example-startup',
+    startedAt: manifest.startedAt,
+    status: 'passed',
+  });
+  assert.deepEqual(manifest.environment, {
+    bundleId: 'dev.agentscenarioloop.example',
+    nodeVersion: process.version,
+    platform: 'android',
+    runtimeTarget: manifest.simulator,
+  });
+  assert.deepEqual(causalRun.provenanceRef, {
+    manifest: 'manifest.json',
+    runId: 'android-example-startup',
+    scenarioHash: manifest.scenarioHash,
+  });
   assert.equal(health.healthStatus, 'passed');
   assert.equal(verdict.verdictStatus, 'passed');
   assert.match(summary, /Scenario health passed/u);
