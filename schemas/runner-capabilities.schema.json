@@ -60,6 +60,13 @@
         "$ref": "#/$defs/driverAction"
       }
     },
+    "uiContexts": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/uiContext"
+      }
+    },
     "artifactOutputs": {
       "type": "array",
       "uniqueItems": true,
@@ -141,6 +148,19 @@
         "record",
         "readLogs",
         "collectPerfSignals"
+      ]
+    },
+    "uiContext": {
+      "type": "string",
+      "enum": [
+        "app",
+        "systemDialog",
+        "notificationShade",
+        "externalBrowser",
+        "webView",
+        "shareSheet",
+        "picker",
+        "otherApp"
       ]
     },
     "providerCommand": {

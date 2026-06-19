@@ -14,6 +14,7 @@
   ],
   "driverActions": ["tap", "scroll", "assertVisible", "inspectTree", "screenshot"],
   "artifactOutputs": ["logs", "signals", "screenshot", "uiTree"],
+  "uiContexts": ["app"],
   "lifecycle": [
     "prepare",
     "launch",

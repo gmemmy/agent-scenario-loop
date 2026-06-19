@@ -7,7 +7,9 @@ const {
   buildCompatibilityHealth,
   buildUnevaluatedVerdict,
   collectProvidedDriverActions,
+  collectProvidedUiContexts,
   collectScenarioDriverActions,
+  collectScenarioUiContexts,
   evaluateRunnerCompatibility,
 } = require('../planner');
 
@@ -23,6 +25,7 @@ type PlannerIssue = {
   field?: string;
   status?: string;
   stepId?: string;
+  uiContext?: string;
 };
 type HealthCheck = {
   code?: string;
@@ -159,6 +162,123 @@ test('accepts scenario steps when the runner declares required driver actions', 
   assert.equal(result.compatible, true);
   assert.deepEqual(result.errors, []);
   assert.ok(result.matched.driverActions.includes('scroll'));
+  assert.ok(result.matched.uiContexts.includes('app'));
+});
+
+test('collects app UI context by default for UI driver actions', () => {
+  const scenario = readJson('examples/scenarios/mobile/app-startup.json');
+  const runner = readJson('examples/runners/xcodebuildmcp-ios.json');
+  scenario.steps.push({
+    id: 'capture-final',
+    kind: 'captureEvidence',
+    driverAction: 'screenshot',
+  });
+
+  assert.deepEqual(collectScenarioUiContexts(scenario), {
+    optional: [],
+    required: ['app'],
+  });
+  assert.deepEqual(collectProvidedUiContexts({
+    runner,
+    evidenceProviders: [],
+    effectivePlatforms: ['ios'],
+  }), ['app']);
+});
+
+test('fails when a required system UI context has no owner', () => {
+  const scenario = readJson('examples/scenarios/mobile/app-startup.json');
+  const runner = readJson('examples/runners/xcodebuildmcp-ios.json');
+  scenario.steps.push({
+    id: 'accept-permission',
+    kind: 'gesture',
+    driverAction: 'tap',
+    selector: {
+      kind: 'text',
+      value: 'Allow',
+    },
+    uiContext: 'systemDialog',
+  });
+
+  const result = evaluateRunnerCompatibility({ scenario, runner, platform: 'ios' });
+
+  assert.equal(result.compatible, false);
+  assert.deepEqual(
+    result.errors
+      .filter((error: PlannerIssue) => error.code === 'missing_required_ui_context')
+      .map((error: PlannerIssue) => error.uiContext),
+    ['systemDialog'],
+  );
+  assert.ok(result.downgradePolicy.unsupported.some((entry: Record<string, unknown>) => (
+    entry.kind === 'uiContext' &&
+    entry.name === 'systemDialog' &&
+    entry.code === 'missing_required_ui_context'
+  )));
+});
+
+test('allows active providers to satisfy required system UI contexts', () => {
+  const scenario = readJson('examples/scenarios/mobile/app-startup.json');
+  const runner = readJson('examples/runners/xcodebuildmcp-ios.json');
+  const provider = {
+    schemaVersion: '1.0.0',
+    runnerId: 'system-dialog-provider',
+    kind: 'evidenceProvider',
+    platforms: ['ios'],
+    capabilities: ['accessibility'],
+    driverActions: ['tap'],
+    uiContexts: ['systemDialog'],
+    artifactOutputs: ['accessibility'],
+  };
+  scenario.steps.push({
+    id: 'accept-permission',
+    kind: 'gesture',
+    driverAction: 'tap',
+    selector: {
+      kind: 'text',
+      value: 'Allow',
+    },
+    uiContext: 'systemDialog',
+  });
+
+  const result = evaluateRunnerCompatibility({
+    scenario,
+    runner,
+    evidenceProviders: [provider],
+    platform: 'ios',
+  });
+
+  assert.equal(result.compatible, true);
+  assert.deepEqual(
+    result.errors.filter((error: PlannerIssue) => error.code === 'missing_required_ui_context'),
+    [],
+  );
+  assert.ok(result.matched.uiContexts.includes('systemDialog'));
+  assert.deepEqual(result.matched.evidenceProviders, ['system-dialog-provider']);
+});
+
+test('warns when an optional UI context has no owner', () => {
+  const scenario = readJson('examples/scenarios/mobile/app-startup.json');
+  const runner = readJson('examples/runners/xcodebuildmcp-ios.json');
+  scenario.steps.push({
+    id: 'dismiss-share-sheet',
+    kind: 'gesture',
+    driverAction: 'tap',
+    required: false,
+    selector: {
+      kind: 'text',
+      value: 'Cancel',
+    },
+    uiContext: 'shareSheet',
+  });
+
+  const result = evaluateRunnerCompatibility({ scenario, runner, platform: 'ios' });
+
+  assert.equal(result.compatible, true);
+  assert.deepEqual(
+    result.warnings
+      .filter((warning: PlannerIssue) => warning.code === 'missing_optional_ui_context')
+      .map((warning: PlannerIssue) => warning.uiContext),
+    ['shareSheet'],
+  );
 });
 
 test('fails when Android adb tap metadata is missing coordinates', () => {
@@ -822,6 +942,7 @@ test('maps compatible planner output to passed health', () => {
   );
   assert.ok(health.matched.capabilities.includes('launch'));
   assert.ok(health.matched.driverActions.includes('screenshot'));
+  assert.ok(health.matched.uiContexts.includes('app'));
   assert.deepEqual(health.downgradePolicy, {
     allowedSubstitutions: [],
     mode: 'no-silent-downgrade',

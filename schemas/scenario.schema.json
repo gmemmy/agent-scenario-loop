@@ -331,6 +331,9 @@
         "selector": {
           "$ref": "#/$defs/selector"
         },
+        "uiContext": {
+          "$ref": "#/$defs/uiContext"
+        },
         "timeoutMs": {
           "type": "integer",
           "minimum": 1
@@ -359,6 +362,19 @@
         "record",
         "readLogs",
         "collectPerfSignals"
+      ]
+    },
+    "uiContext": {
+      "type": "string",
+      "enum": [
+        "app",
+        "systemDialog",
+        "notificationShade",
+        "externalBrowser",
+        "webView",
+        "shareSheet",
+        "picker",
+        "otherApp"
       ]
     },
     "selector": {

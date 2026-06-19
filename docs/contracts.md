@@ -70,13 +70,14 @@ Portable scenario manifests describe the durable app behavior before choosing a 
 - `budgets`: product thresholds evaluated only after scenario health passes
 - `steps`: runner-facing launch, command, wait, gesture, and capture actions
 - `selector`: optional app target on a step, such as a test id, accessibility id, label, text, resource id, or xpath
+- `uiContext`: optional UI ownership requirement on a step; UI driver actions default to `app`
 - `artifacts`: required and optional evidence outputs
 
 The scenario contract is intentionally runner-neutral. Runners can map steps to adb, XcodeBuildMCP, agent-device, accessibility tools, profilers, or custom scripts while preserving the same journey, milestones, budgets, and expected events.
 
-Runner capabilities describe ownership, such as launch, session control, command execution, log capture, artifact writing, or profiler support. Driver actions describe the concrete operations an adapter can perform inside a run. A runner may be able to own a scenario lifecycle without supporting every driver action; the planner fails only when a required step declares a `driverAction` that the selected runner or an active provider does not declare in `driverActions`.
+Runner capabilities describe ownership, such as launch, session control, command execution, log capture, artifact writing, or profiler support. Driver actions describe the concrete operations an adapter can perform inside a run. UI contexts describe which surface the runner or provider can own: `app`, `systemDialog`, `notificationShade`, `externalBrowser`, `webView`, `shareSheet`, `picker`, or `otherApp`. UI and capture driver actions default to `app` when a step omits `uiContext`; a scenario must opt into system or external contexts explicitly. A runner may be able to own a scenario lifecycle without supporting every driver action or UI context; the planner fails when a required step declares a `driverAction` or `uiContext` that the selected runner or an active provider does not declare.
 
-Planner compatibility artifacts and planner-derived `health.json` include a `downgradePolicy` block with `mode: "no-silent-downgrade"`. Required capability, driver-action, or artifact gaps are recorded as `unsupported`; optional gaps are recorded as warnings. `allowedSubstitutions` and `substitutions` are explicit arrays, so future semantic downgrades must be visible in artifacts instead of being inferred from a passed plan.
+Planner compatibility artifacts and planner-derived `health.json` include a `downgradePolicy` block with `mode: "no-silent-downgrade"`. Required capability, driver-action, UI-context, or artifact gaps are recorded as `unsupported`; optional gaps are recorded as warnings. `allowedSubstitutions` and `substitutions` are explicit arrays, so future semantic downgrades must be visible in artifacts instead of being inferred from a passed plan.
 
 `buildScenarioExecutionPlan()` turns the same scenario steps into a deterministic adapter-facing work list. Each normalized step records the scenario step id, original kind, required flag, optional driver action, and the runner port method that owns it: `launch`, `executeStep`, `waitForTruthEvent`, or `captureEvidence`.
 

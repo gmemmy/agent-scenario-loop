@@ -58,6 +58,12 @@
             "type": "string"
           }
         },
+        "uiContexts": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
         "artifacts": {
           "type": "array",
           "items": {
@@ -116,7 +122,7 @@
       "properties": {
         "kind": {
           "type": "string",
-          "enum": ["capability", "driverAction", "artifact"]
+          "enum": ["capability", "driverAction", "artifact", "uiContext"]
         },
         "name": {
           "type": "string",

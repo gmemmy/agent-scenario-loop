@@ -6,6 +6,7 @@
   "capabilities": ["launch", "sessionControl", "command", "logCapture", "artifactWrite"],
   "driverActions": ["tap", "readLogs"],
   "artifactOutputs": ["logs", "signals"],
+  "uiContexts": ["app"],
   "lifecycle": [
     "prepare",
     "launch",

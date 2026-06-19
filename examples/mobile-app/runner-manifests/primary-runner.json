@@ -6,6 +6,7 @@
   "capabilities": ["launch", "sessionControl", "command", "logCapture", "artifactWrite"],
   "driverActions": ["tap", "scroll", "assertVisible", "inspectTree", "screenshot", "record", "readLogs"],
   "artifactOutputs": ["logs", "signals", "screenshot", "video", "uiTree"],
+  "uiContexts": ["app"],
   "lifecycle": [
     "prepare",
     "launch",

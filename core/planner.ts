@@ -21,6 +21,7 @@ type CompatibilityResult = {
     platforms: string[];
     capabilities: string[];
     driverActions: string[];
+    uiContexts: string[];
     artifacts: string[];
     evidenceProviders: string[];
   };
@@ -32,6 +33,7 @@ type ScenarioStep = ManifestRecord & {
   id?: unknown;
   required?: unknown;
   selector?: unknown;
+  uiContext?: unknown;
 };
 
 type ScenarioManifest = ManifestRecord & {
@@ -56,8 +58,17 @@ type RunnerManifest = ManifestRecord & {
   platforms?: unknown[];
   capabilities?: unknown[];
   driverActions?: unknown[];
+  uiContexts?: unknown[];
   artifactOutputs?: unknown[];
 };
+const UI_DRIVER_ACTIONS = new Set([
+  'tap',
+  'scroll',
+  'assertVisible',
+  'inspectTree',
+  'screenshot',
+  'record',
+]);
 
 /**
  * Returns `value` when it is already an array; otherwise returns an empty array.
@@ -141,6 +152,15 @@ function issueToCapabilityPolicyEntry(issue: PlannerIssue, status: 'unsupported'
     return {
       kind: 'driverAction',
       name: issue.driverAction,
+      status,
+      code: issue.code,
+    };
+  }
+
+  if (typeof issue.uiContext === 'string') {
+    return {
+      kind: 'uiContext',
+      name: issue.uiContext,
       status,
       code: issue.code,
     };
@@ -425,6 +445,69 @@ function collectProvidedDriverActions({
     ...asArray(runner?.driverActions),
     ...activeProviders.flatMap((provider) => asArray(provider?.driverActions)),
   ]);
+}
+
+/**
+ * Collects UI/system contexts owned by the primary runner and active providers.
+ *
+ * @param {{runner: Record<string, unknown>, evidenceProviders: Record<string, unknown>[], effectivePlatforms: string[]}} options
+ * @returns {string[]}
+ */
+function collectProvidedUiContexts({
+  runner,
+  evidenceProviders,
+  effectivePlatforms,
+}: {
+  runner: RunnerManifest;
+  evidenceProviders: RunnerManifest[];
+  effectivePlatforms: string[];
+}): string[] {
+  const activeProviders = evidenceProviders.filter((provider) =>
+    isProviderActiveForPlatforms(provider, effectivePlatforms),
+  );
+
+  return uniqueSorted([
+    ...asArray(runner?.uiContexts),
+    ...activeProviders.flatMap((provider) => asArray(provider?.uiContexts)),
+  ]);
+}
+
+/**
+ * Collects UI/system contexts required by scenario steps.
+ *
+ * @param {Record<string, unknown>} scenario
+ * @returns {{required: string[], optional: string[]}}
+ */
+function collectScenarioUiContexts(scenario: ScenarioManifest): { required: string[]; optional: string[] } {
+  const steps = Array.isArray(scenario.steps) ? scenario.steps : [];
+  const required: unknown[] = [];
+  const optional: unknown[] = [];
+
+  for (const step of steps) {
+    if (!step || typeof step !== 'object') {
+      continue;
+    }
+
+    const uiContext = typeof step.uiContext === 'string'
+      ? step.uiContext
+      : typeof step.driverAction === 'string' && UI_DRIVER_ACTIONS.has(step.driverAction)
+        ? 'app'
+        : null;
+    if (!uiContext) {
+      continue;
+    }
+
+    if (step.required === false) {
+      optional.push(uiContext);
+    } else {
+      required.push(uiContext);
+    }
+  }
+
+  return {
+    required: uniqueSorted(required),
+    optional: uniqueSorted(optional),
+  };
 }
 
 /**
@@ -971,6 +1054,7 @@ function evaluateRunnerCompatibility({
         platforms: [],
         capabilities: [],
         driverActions: [],
+        uiContexts: [],
         artifacts: [],
         evidenceProviders: [],
       },
@@ -1052,6 +1136,40 @@ function evaluateRunnerCompatibility({
     );
   }
 
+  const providedUiContexts = collectProvidedUiContexts({
+    runner: primaryRunner,
+    evidenceProviders,
+    effectivePlatforms,
+  });
+  const scenarioUiContexts = collectScenarioUiContexts(scenario);
+  for (const uiContext of includesAll(providedUiContexts, scenarioUiContexts.required)) {
+    errors.push(
+      createIssue(
+        'missing_required_ui_context',
+        `No active runner or provider declares required UI context \`${uiContext}\`.`,
+        {
+          runnerId: getRunnerId(primaryRunner),
+          scenarioId: getScenarioId(scenario),
+          uiContext,
+        },
+      ),
+    );
+  }
+
+  for (const uiContext of includesAll(providedUiContexts, scenarioUiContexts.optional)) {
+    warnings.push(
+      createIssue(
+        'missing_optional_ui_context',
+        `No active runner or provider declares optional UI context \`${uiContext}\`.`,
+        {
+          runnerId: getRunnerId(primaryRunner),
+          scenarioId: getScenarioId(scenario),
+          uiContext,
+        },
+      ),
+    );
+  }
+
   const { activeProviders, artifacts } = collectProvidedArtifacts({
     runner: primaryRunner,
     evidenceProviders,
@@ -1087,6 +1205,7 @@ function evaluateRunnerCompatibility({
       platforms: effectivePlatforms,
       capabilities: providedCapabilities,
       driverActions: providedDriverActions,
+      uiContexts: providedUiContexts,
       artifacts,
       evidenceProviders: activeProviders.map((provider) => getRunnerId(provider)),
     },
@@ -1140,6 +1259,7 @@ function buildCompatibilityHealth({
       platforms: uniqueSorted(asArray(compatibility?.matched?.platforms)),
       capabilities: uniqueSorted(asArray(compatibility?.matched?.capabilities)),
       driverActions: uniqueSorted(asArray(compatibility?.matched?.driverActions)),
+      uiContexts: uniqueSorted(asArray(compatibility?.matched?.uiContexts)),
       artifacts: uniqueSorted(asArray(compatibility?.matched?.artifacts)),
       evidenceProviders: uniqueSorted(asArray(compatibility?.matched?.evidenceProviders)),
     },
@@ -1193,7 +1313,9 @@ export {
   buildCompatibilityHealth,
   buildUnevaluatedVerdict,
   collectProvidedDriverActions,
+  collectProvidedUiContexts,
   collectScenarioDriverActions,
+  collectScenarioUiContexts,
   evaluateRunnerCompatibility,
   intersection,
   uniqueSorted,
