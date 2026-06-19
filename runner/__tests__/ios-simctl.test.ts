@@ -16,6 +16,12 @@ const {
   seedProfileSessionStorage,
   selectSimulator,
 } = require('../ios-simctl');
+const {
+  assertAdapterArtifactConformance,
+  assertFailedHealthHasActionableMetadata,
+  assertMetadataCapturePathsExist,
+  assertReportedCaptureArtifactsExist,
+} = require('./adapter-conformance');
 
 type CommandResult = {
   command: string;
@@ -214,6 +220,12 @@ test('captures bounded iOS simulator log evidence', async (t: TestContext) => {
   });
 
   assert.equal(result.health.healthStatus, 'passed', JSON.stringify(result.health.checks, null, 2));
+  assertAdapterArtifactConformance(result, {
+    expectedHealthStatus: 'passed',
+    rawArtifacts: ['raw/ios-metadata.json', 'raw/ios-screenshot.txt'],
+  });
+  assertReportedCaptureArtifactsExist(result);
+  assertMetadataCapturePathsExist(outputDir, 'raw/ios-metadata.json');
   assert.deepEqual(waits, [250]);
   assert.equal(result.captures.screenshot, 'captures/ios-screenshot.jpeg');
   assert.deepEqual((result.metadata.deepLinkResults as Array<Record<string, unknown>>)[0], {
@@ -511,6 +523,11 @@ test('fails iOS capture when launched target app is not foreground after capture
   const appInfo = result.metadata.appInfo as { applicationState: string; rawPath: string };
 
   assert.equal(result.health.healthStatus, 'failed');
+  const { health } = assertAdapterArtifactConformance(result, {
+    expectedHealthStatus: 'failed',
+    rawArtifacts: ['raw/ios-app-info.txt', 'raw/ios-metadata.json'],
+  });
+  assertFailedHealthHasActionableMetadata(health, { checkCode: 'ios_target_app_backgrounded' });
   assert.deepEqual(appInfo, {
     applicationState: 'BackgroundRunning',
     args: [

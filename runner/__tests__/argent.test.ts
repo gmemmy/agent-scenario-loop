@@ -16,6 +16,12 @@ const {
   validateArgentDriverSteps,
   writeArgentAvailabilityArtifacts,
 } = require('../argent');
+const {
+  assertAdapterArtifactConformance,
+  assertFailedHealthHasActionableMetadata,
+  assertMetadataCapturePathsExist,
+  assertReportedCaptureArtifactsExist,
+} = require('./adapter-conformance');
 
 type CommandResult = {
   args: string[];
@@ -181,6 +187,10 @@ test('Argent availability check writes ASL artifacts when requested', async (t: 
   assert.equal(health.healthStatus, 'passed');
   assert.equal(verdict.summary, 'Argent command surface is available; no product budget has been evaluated.');
   assert.equal(raw.status, 'passed');
+  assertAdapterArtifactConformance(artifacts, {
+    expectedHealthStatus: 'passed',
+    rawArtifacts: ['raw/argent-availability.json'],
+  });
   assert.equal(fs.existsSync(path.join(tempDir, 'agent-summary.md')), true);
 });
 
@@ -318,6 +328,12 @@ test('Argent capture executes scenario driver actions and writes artifacts', asy
   assert.equal(fs.existsSync(path.join(tempDir, 'raw', 'argent-launch-1.txt')), true);
   assert.equal(fs.existsSync(path.join(tempDir, 'raw', 'final-screenshot.txt')), true);
   assert.equal(fs.existsSync(path.join(tempDir, 'captures', 'final.png')), true);
+  assertAdapterArtifactConformance(result, {
+    expectedHealthStatus: 'passed',
+    rawArtifacts: ['raw/argent-metadata.json', 'raw/final-screenshot.txt'],
+  });
+  assertReportedCaptureArtifactsExist(result);
+  assertMetadataCapturePathsExist(tempDir, 'raw/argent-metadata.json');
 });
 
 test('Argent capture resolves iOS booted shorthand before running driver actions', async (t: TestContext) => {
@@ -392,6 +408,11 @@ test('Argent capture marks required action failures unhealthy', async (t: TestCo
   });
 
   const health = readJson(path.join(tempDir, 'health.json'));
+  const conformance = assertAdapterArtifactConformance(result, {
+    expectedHealthStatus: 'failed',
+    rawArtifacts: ['raw/argent-assertVisible-1.txt', 'raw/argent-metadata.json'],
+  });
+  assertFailedHealthHasActionableMetadata(conformance.health, { checkName: 'argent_assert_visible' });
   assert.equal(result.health.healthStatus, 'failed');
   assert.equal(health.healthStatus, 'failed');
   assert.match(fs.readFileSync(path.join(tempDir, 'agent-summary.md'), 'utf8'), /Do not optimize from this run/u);

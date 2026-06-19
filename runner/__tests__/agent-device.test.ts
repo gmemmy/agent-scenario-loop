@@ -14,6 +14,12 @@ const {
   validateAgentDeviceDriverSteps,
   writeAgentDeviceAvailabilityArtifacts,
 } = require('../agent-device');
+const {
+  assertAdapterArtifactConformance,
+  assertFailedHealthHasActionableMetadata,
+  assertMetadataCapturePathsExist,
+  assertReportedCaptureArtifactsExist,
+} = require('./adapter-conformance');
 
 type CommandResult = {
   args: string[];
@@ -261,6 +267,10 @@ test('agent-device availability check writes ASL artifacts when requested', asyn
   assert.equal(raw.sessions.length, 1);
   assert.match(fs.readFileSync(path.join(tempDir, 'agent-summary.md'), 'utf8'), /Active sessions: 1/u);
   assert.match(fs.readFileSync(path.join(tempDir, 'agent-summary.md'), 'utf8'), /android-example:android:mobile/u);
+  assertAdapterArtifactConformance(artifacts, {
+    expectedHealthStatus: 'passed',
+    rawArtifacts: ['raw/agent-device-availability.json'],
+  });
   assert.equal(fs.existsSync(path.join(tempDir, 'agent-summary.md')), true);
 });
 
@@ -338,6 +348,12 @@ test('agent-device capture executes scenario driver actions and writes artifacts
   assert.equal(fs.existsSync(path.join(tempDir, 'raw', 'agent-device-open.txt')), true);
   assert.equal(fs.existsSync(path.join(tempDir, 'raw', 'final-screenshot.txt')), true);
   assert.equal(fs.existsSync(path.join(tempDir, 'captures', 'final.png')), true);
+  assertAdapterArtifactConformance(result, {
+    expectedHealthStatus: 'passed',
+    rawArtifacts: ['raw/agent-device-metadata.json', 'raw/final-screenshot.txt'],
+  });
+  assertReportedCaptureArtifactsExist(result);
+  assertMetadataCapturePathsExist(tempDir, 'raw/agent-device-metadata.json');
 });
 
 test('agent-device capture marks required action failures unhealthy', async (t: TestContext) => {
@@ -370,6 +386,11 @@ test('agent-device capture marks required action failures unhealthy', async (t: 
   });
 
   const health = readJson(path.join(tempDir, 'health.json'));
+  const conformance = assertAdapterArtifactConformance(result, {
+    expectedHealthStatus: 'failed',
+    rawArtifacts: ['raw/assert-visible.txt', 'raw/agent-device-metadata.json'],
+  });
+  assertFailedHealthHasActionableMetadata(conformance.health, { checkName: 'agent_device_assert_visible' });
   assert.equal(result.health.healthStatus, 'failed');
   assert.equal(health.healthStatus, 'failed');
   assert.match(fs.readFileSync(path.join(tempDir, 'agent-summary.md'), 'utf8'), /Do not optimize from this run/u);

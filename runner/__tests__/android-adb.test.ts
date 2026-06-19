@@ -15,6 +15,11 @@ const {
   runAndroidAdbPreflight,
   selectDevice,
 } = require('../android-adb');
+const {
+  assertAdapterArtifactConformance,
+  assertFailedHealthHasActionableMetadata,
+  assertMetadataCapturePathsExist,
+} = require('./adapter-conformance');
 
 type CommandResult = {
   command: string;
@@ -120,6 +125,10 @@ test('writes passed health for an online adb device and installed package', asyn
   assert.equal(result.verdict.verdictStatus, 'not_evaluated');
   assert.equal(result.device?.serial, 'emulator-5554');
   assert.equal(result.metadata.packageName, 'com.example.app');
+  assertAdapterArtifactConformance(result, {
+    expectedHealthStatus: 'passed',
+    rawArtifacts: ['raw/adb-devices.txt', 'raw/android-metadata.json'],
+  });
   assert.ok(fs.existsSync(path.join(outputDir, 'raw', 'adb-devices.txt')));
   assert.ok(fs.existsSync(path.join(outputDir, 'raw', 'android-metadata.json')));
   assert.match(fs.readFileSync(path.join(outputDir, 'agent-summary.md'), 'utf8'), /Scenario health passed/u);
@@ -321,8 +330,10 @@ test('runs portable adb driver actions and writes raw evidence', async (t: TestC
       stdout: '06-16 12:00:00.000 I ReactNativeJS: [profile-event] {"event":"done"}\n',
     },
   });
+  const calls: string[] = [];
   const executor = async (command: string, args: string[]): Promise<CommandResult> => {
     const key = args.join(' ');
+    calls.push(key);
     const videoPath = path.join(outputDir, 'captures', 'adb-record-6.mp4');
     if (key === `-s emulator-5554 pull /sdcard/asl-record.mp4 ${videoPath}`) {
       await fsp.writeFile(videoPath, 'MP4', 'utf8');
@@ -369,6 +380,12 @@ test('runs portable adb driver actions and writes raw evidence', async (t: TestC
   assert.ok(fs.existsSync(path.join(outputDir, 'raw', 'adb-record-6.txt')));
   assert.ok(fs.existsSync(path.join(outputDir, 'raw', 'adb-logcat.txt')));
   assert.ok(fs.existsSync(path.join(outputDir, 'captures', 'adb-record-6.mp4')));
+  assert.ok(calls.includes('-s emulator-5554 shell rm -f /sdcard/asl-record.mp4'));
+  assertAdapterArtifactConformance(result, {
+    expectedHealthStatus: 'passed',
+    rawArtifacts: ['raw/android-metadata.json', 'raw/adb-record-6.txt'],
+  });
+  assertMetadataCapturePathsExist(outputDir, 'raw/android-metadata.json');
   assert.deepEqual(
     (metadata.driverActions as Array<{ driverAction: string }>).map((item) => item.driverAction),
     ['tap', 'scroll', 'inspectTree', 'assertVisible', 'screenshot', 'record', 'readLogs'],
@@ -424,6 +441,11 @@ test('classifies Android UIAutomator contention as runner environment health', a
 
   const check = (result.health.checks as Array<{metadata?: Record<string, unknown>; name: string}>)
     .find((item) => item.name === 'android_assert_visible');
+  const { health } = assertAdapterArtifactConformance(result, {
+    expectedHealthStatus: 'failed',
+    rawArtifacts: ['raw/adb-assert-visible.xml'],
+  });
+  assertFailedHealthHasActionableMetadata(health, { checkName: 'android_assert_visible' });
   assert.equal(result.health.healthStatus, 'failed');
   assert.equal(check?.metadata?.nextActionCode, 'reset_android_uiautomator');
   assert.match(String(check?.metadata?.nextAction), /another automation session owns the service/u);
