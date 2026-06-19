@@ -42,5 +42,6 @@ Use taps, swipes, and full UI interaction for realism checks and last-mile valid
 ## Read next
 
 - [Contracts](contracts.md) for the current artifact and package surface
+- [Architecture](architecture.md) for the TypeScript-first, language-neutral contract boundary
 - [Runner docs](../runner/README.md) for the host execution boundary
 - [README](../README.md) for the project entrypoint

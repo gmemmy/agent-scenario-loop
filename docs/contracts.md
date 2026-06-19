@@ -4,6 +4,8 @@ This package ships the scenario, runner, and artifact contracts that make Agent 
 
 The package is intentionally contract-first: adopt the scenario and artifact shape once, then add or swap runner loops without rewriting your scenarios.
 
+See [Architecture](architecture.md) for the TypeScript-first implementation and language-neutral contract boundary.
+
 ## What ships today
 
 - [app/profile-session.ts](../app/profile-session.ts): thin React Native integration for session control, truth events, and signal attachments
