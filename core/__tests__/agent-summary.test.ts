@@ -17,6 +17,26 @@ test('builds a passed-health agent summary with comparison context', () => {
       verdictStatus: 'not_evaluated',
       budgetChecks: [],
     },
+    manifest: {
+      attempt: {
+        attemptId: 'attempt-2',
+        attemptNumber: 2,
+        maxAttempts: 3,
+        retryOfAttemptId: 'attempt-1',
+        retryReason: 'Previous attempt timed out.',
+        terminalState: 'passed',
+        classification: {
+          category: 'none',
+        },
+        cleanup: {
+          status: 'passed',
+        },
+        partialArtifacts: {
+          valid: false,
+          reason: 'complete successful run artifacts are present',
+        },
+      },
+    },
     comparison: {
       comparisonStatus: 'unchanged',
       comparisonBasis: {
@@ -48,6 +68,10 @@ test('builds a passed-health agent summary with comparison context', () => {
   assert.match(summary, /Strategy: `latest_trusted_prior`/u);
   assert.match(summary, /Baseline: `baseline-run` at `artifacts\/asl\/android\/app-startup\/baseline-run`/u);
   assert.match(summary, /Selection: inspected 3, trusted 2, trusted prior 1, skipped current true/u);
+  assert.match(summary, /## attempt/u);
+  assert.match(summary, /Attempt: `attempt-2` \(2\/3\)/u);
+  assert.match(summary, /Terminal state: `passed`/u);
+  assert.match(summary, /Retry lineage: previous=`attempt-1` reason=Previous attempt timed out\./u);
   assert.match(summary, /Optimization claims still require verdict or comparison evidence/u);
 });
 

@@ -6,11 +6,14 @@ const { ARTIFACT_FILENAMES, PROFILE_ARTIFACT_FILENAMES } = require('./artifact-l
 type RunIndexEntry = {
   runDir: string;
   scenarioId: string;
+  attemptId?: string;
+  attemptNumber?: number;
   scenarioHash?: string;
   cohortHash?: string;
   runId: string;
   healthStatus: string;
   trusted: boolean;
+  trustReason: string;
   durationMs?: number;
   endedAt?: string;
   flowId?: string;
@@ -45,6 +48,59 @@ function readJson(filePath: string): Record<string, unknown> {
  */
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+/**
+ * Returns a stable reason explaining whether this run can seed latest-trusted comparisons.
+ *
+ * @param {{healthStatus: string, verdictStatus?: string, manifest: Record<string, unknown>}} options
+ * @returns {string}
+ */
+function resolveTrustReason({
+  healthStatus,
+  manifest,
+  verdictStatus,
+}: {
+  healthStatus: string;
+  manifest: Record<string, unknown>;
+  verdictStatus: string | undefined;
+}): string {
+  if (healthStatus !== 'passed') {
+    return 'health_not_passed';
+  }
+
+  if (verdictStatus !== 'passed') {
+    return 'verdict_not_passed';
+  }
+
+  const attempt = isRecord(manifest.attempt) ? manifest.attempt : null;
+  if (!attempt) {
+    return 'trusted_legacy_without_attempt';
+  }
+
+  if (attempt.status !== 'passed' || attempt.terminalState !== 'passed') {
+    return 'attempt_not_passed';
+  }
+
+  if (typeof attempt.attemptNumber === 'number' && attempt.attemptNumber !== 1) {
+    return 'retry_attempt_not_baseline_trusted';
+  }
+
+  if (typeof attempt.retryOfAttemptId === 'string' || typeof attempt.retryReason === 'string') {
+    return 'retry_lineage_not_baseline_trusted';
+  }
+
+  const cleanup = isRecord(attempt.cleanup) ? attempt.cleanup : null;
+  if (cleanup?.status === 'failed' || cleanup?.status === 'partial') {
+    return 'cleanup_not_complete';
+  }
+
+  const partialArtifacts = isRecord(attempt.partialArtifacts) ? attempt.partialArtifacts : null;
+  if (partialArtifacts?.valid === true) {
+    return 'partial_artifacts_not_baseline_trusted';
+  }
+
+  return 'trusted';
 }
 
 /**
@@ -118,17 +174,22 @@ function readRunIndexEntry(runDir: string): RunIndexEntry {
   const healthStatus = typeof health.healthStatus === 'string' ? health.healthStatus : 'unknown';
   const verdictStatus = typeof verdict.verdictStatus === 'string' ? verdict.verdictStatus : undefined;
   const provenance = isRecord(manifest.provenance) ? manifest.provenance : {};
+  const attempt = isRecord(manifest.attempt) ? manifest.attempt : null;
+  const trustReason = resolveTrustReason({ healthStatus, manifest, verdictStatus });
 
   return {
     runDir,
     scenarioId,
     runId,
+    ...(typeof attempt?.attemptId === 'string' ? { attemptId: attempt.attemptId } : {}),
+    ...(typeof attempt?.attemptNumber === 'number' ? { attemptNumber: attempt.attemptNumber } : {}),
     ...(typeof manifest.scenarioHash === 'string' ? { scenarioHash: manifest.scenarioHash } : {}),
     ...(typeof provenance.cohortHash === 'string'
       ? { cohortHash: provenance.cohortHash }
       : {}),
     healthStatus,
-    trusted: healthStatus === 'passed' && verdictStatus === 'passed',
+    trusted: trustReason === 'trusted' || trustReason === 'trusted_legacy_without_attempt',
+    trustReason,
     ...(typeof manifest.durationMs === 'number' ? { durationMs: manifest.durationMs } : {}),
     ...(typeof manifest.endedAt === 'string' ? { endedAt: manifest.endedAt } : {}),
     ...(typeof health.flowId === 'string' ? { flowId: health.flowId } : {}),
