@@ -1778,8 +1778,8 @@ function main(): void {
     });
     assert.match(exampleLiveProofOutput, /Comparison status: unchanged/u);
     assert.match(exampleLiveProofOutput, /Preflight: android-live-preflight-smoke health=passed verdict=not_evaluated/u);
-    assert.match(exampleLiveProofOutput, /Comparison counts: better=0 worse=0 unchanged=3 mixed=0 inconclusive=0 skipped=0/u);
-    assert.match(exampleLiveProofOutput, /startup \(app-startup\/android-live-startup-smoke\): unchanged \(metrics better=0 worse=0 unchanged=1 inconclusive=0\)/u);
+    assert.match(exampleLiveProofOutput, /Comparison counts: better=0 worse=0 unchanged=3 mixed=0 inconclusive=0 low_confidence=0 skipped=0/u);
+    assert.match(exampleLiveProofOutput, /startup \(app-startup\/android-live-startup-smoke\): unchanged \(metrics better=0 worse=0 unchanged=1 inconclusive=0 low_confidence=0\)/u);
     assert.match(exampleLiveProofOutput, /startup \(app-startup\/android-live-startup-smoke\): health=passed verdict=passed/u);
     assert.match(exampleLiveProofOutput, /startup-ui \(agent-device\/app-startup\/android-agent-device-startup-smoke\): health=passed verdict=not_evaluated/u);
     assert.match(exampleLiveProofOutput, /startup-ui-argent \(argent\/app-startup\/android-argent-startup-smoke\): health=passed verdict=not_evaluated/u);
@@ -2037,7 +2037,7 @@ function main(): void {
     });
     assert.match(exampleIosLiveProofOutput, /Comparison status: unchanged/u);
     assert.match(exampleIosLiveProofOutput, /Preflight: ios-live-preflight-smoke health=passed verdict=not_evaluated/u);
-    assert.match(exampleIosLiveProofOutput, /startup \(app-startup\/ios-live-startup-smoke\): unchanged \(metrics better=0 worse=0 unchanged=1 inconclusive=0\)/u);
+    assert.match(exampleIosLiveProofOutput, /startup \(app-startup\/ios-live-startup-smoke\): unchanged \(metrics better=0 worse=0 unchanged=1 inconclusive=0 low_confidence=0\)/u);
     assert.match(exampleIosLiveProofOutput, /startup-ui \(agent-device\/app-startup\/ios-agent-device-startup-smoke\): health=passed verdict=not_evaluated/u);
     assert.match(exampleIosLiveProofOutput, /startup-ui-argent \(argent\/app-startup\/ios-argent-startup-smoke\): health=passed verdict=not_evaluated/u);
     const exampleIosLiveProof = JSON.parse(

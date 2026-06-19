@@ -105,7 +105,7 @@
         },
         "comparisonStatus": {
           "type": "string",
-          "enum": ["baseline_missing", "improved", "inconclusive", "mixed", "not_compared", "regressed", "unchanged"]
+          "enum": ["baseline_missing", "improved", "inconclusive", "low_confidence", "mixed", "not_compared", "regressed", "unchanged"]
         },
         "summaryPath": {
           "type": "string"

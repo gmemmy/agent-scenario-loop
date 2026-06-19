@@ -134,6 +134,71 @@ test('keeps budget pass/fail boundary changes directional inside timing toleranc
   );
 });
 
+test('reports latest-trusted single-run timing movement as low confidence while budgets still pass', () => {
+  const comparison = buildComparisonArtifact({
+    baselineHealth: health({ runId: 'baseline-run' }),
+    baselineVerdict: verdict({ runId: 'baseline-run', actual: 960 }),
+    comparisonBasis: {
+      strategy: 'latest_trusted_prior',
+      baseline: {
+        runId: 'baseline-run',
+        healthStatus: 'passed',
+        verdictStatus: 'passed',
+      },
+      current: {
+        runId: 'current-run',
+        healthStatus: 'passed',
+        verdictStatus: 'passed',
+      },
+      selection: {
+        artifactRoot: 'artifacts/example-mobile-app/ios',
+        scenarioId: 'open-close-cycle',
+        selectedRunDir: 'artifacts/example-mobile-app/ios/open-close-cycle/baseline-run',
+        selectedRunId: 'baseline-run',
+        skippedCurrentRun: true,
+      },
+    },
+    currentHealth: health({ runId: 'current-run' }),
+    currentVerdict: verdict({ runId: 'current-run', actual: 1211 }),
+  });
+
+  assert.equal(comparison.comparisonStatus, 'low_confidence');
+  assert.equal(comparison.healthStatus, 'passed');
+  assert.equal(comparison.metricComparisons[0].status, 'low_confidence');
+  assert.equal(comparison.metricComparisons[0].delta, 251);
+  assert.match(comparison.metricComparisons[0].notes, /Single-run timing movement/u);
+  assert.equal(comparison.measurementPolicy.confidence.level, 'low_confidence');
+  assert.match(comparison.summary, /low-confidence timing movement/u);
+  assert.equal(validateJson(comparison, SCHEMAS.comparison, 'Comparison artifact').valid, true);
+});
+
+test('keeps latest-trusted budget-boundary failures as hard regressions', () => {
+  const comparison = buildComparisonArtifact({
+    baselineHealth: health({ runId: 'baseline-run' }),
+    baselineVerdict: verdict({ runId: 'baseline-run', actual: 960, pass: true }),
+    comparisonBasis: {
+      strategy: 'latest_trusted_prior',
+      baseline: {
+        runId: 'baseline-run',
+        healthStatus: 'passed',
+        verdictStatus: 'passed',
+      },
+      current: {
+        runId: 'current-run',
+        healthStatus: 'passed',
+        verdictStatus: 'failed',
+      },
+    },
+    currentHealth: health({ runId: 'current-run' }),
+    currentVerdict: verdict({ runId: 'current-run', actual: 1200, pass: false, verdictStatus: 'failed' }),
+  });
+
+  assert.equal(comparison.comparisonStatus, 'worse');
+  assert.equal(comparison.metricComparisons[0].status, 'worse');
+  assert.equal(comparison.measurementPolicy.confidence.level, 'single_run');
+  assert.equal(validateJson(comparison, SCHEMAS.comparison, 'Comparison artifact').valid, true);
+});
+
 test('builds a better comparison only after both runs passed health', () => {
   const comparison = buildComparisonArtifact({
     baselineHealth: health({ runId: 'baseline-run' }),

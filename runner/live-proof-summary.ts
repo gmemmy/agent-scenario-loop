@@ -67,11 +67,11 @@ type LiveProofComparisonPointer = {
   reason: string | null;
   runId: string;
   scenarioId: string;
-  status: 'better' | 'worse' | 'unchanged' | 'mixed' | 'inconclusive' | 'skipped';
+  status: 'better' | 'worse' | 'unchanged' | 'mixed' | 'inconclusive' | 'low_confidence' | 'skipped';
   summaryPath: string | null;
 };
 
-type LiveProofComparisonMetricStatus = 'better' | 'worse' | 'unchanged' | 'inconclusive';
+type LiveProofComparisonMetricStatus = 'better' | 'worse' | 'unchanged' | 'inconclusive' | 'low_confidence';
 
 type LiveProofComparisonMetricSummary = {
   counts: Record<LiveProofComparisonMetricStatus, number>;
@@ -112,6 +112,7 @@ type LiveProofComparisonStatus = (
   'baseline_missing' |
   'improved' |
   'inconclusive' |
+  'low_confidence' |
   'mixed' |
   'not_compared' |
   'regressed' |
@@ -121,6 +122,7 @@ type LiveProofComparisonStatus = (
 type LiveProofComparisonCounts = {
   better: number;
   inconclusive: number;
+  low_confidence: number;
   mixed: number;
   skipped: number;
   unchanged: number;
@@ -128,7 +130,7 @@ type LiveProofComparisonCounts = {
 };
 
 type LiveProofNextAction = {
-  code: 'establish_baseline' | 'inspect_failed_run' | 'inspect_inconclusive' | 'inspect_mixed' | 'inspect_regressions' | 'inspect_summary';
+  code: 'establish_baseline' | 'inspect_failed_run' | 'inspect_inconclusive' | 'inspect_low_confidence' | 'inspect_mixed' | 'inspect_regressions' | 'inspect_summary';
   summary: string;
 };
 
@@ -340,6 +342,10 @@ function buildLiveProofComparisonStatus(
     return 'inconclusive';
   }
 
+  if (statuses.includes('low_confidence')) {
+    return 'low_confidence';
+  }
+
   if (statuses.every((status) => status === 'skipped')) {
     return 'baseline_missing';
   }
@@ -371,6 +377,7 @@ function buildLiveProofComparisonCounts(
   const counts: LiveProofComparisonCounts = {
     better: 0,
     inconclusive: 0,
+    low_confidence: 0,
     mixed: 0,
     skipped: 0,
     unchanged: 0,
@@ -417,6 +424,13 @@ function buildLiveProofNextAction(
     return {
       code: 'inspect_inconclusive',
       summary: 'Some comparisons are inconclusive or incomplete; inspect scenario health and missing baseline details.',
+    };
+  }
+
+  if (comparisonStatus === 'low_confidence') {
+    return {
+      code: 'inspect_low_confidence',
+      summary: 'Some comparisons show low-confidence timing movement; repeat or multi-sample proof is required before treating it as a regression.',
     };
   }
 
@@ -500,7 +514,7 @@ function formatComparisonMetricSummary(comparison: LiveProofComparisonPointer): 
     return '';
   }
 
-  const counts = `metrics better=${summary.counts.better} worse=${summary.counts.worse} unchanged=${summary.counts.unchanged} inconclusive=${summary.counts.inconclusive}`;
+  const counts = `metrics better=${summary.counts.better} worse=${summary.counts.worse} unchanged=${summary.counts.unchanged} inconclusive=${summary.counts.inconclusive} low_confidence=${summary.counts.low_confidence}`;
   const highlights = summary.notableMetrics.length > 0
     ? `; notable: ${summary.notableMetrics.map(formatComparisonMetricHighlight).join(', ')}`
     : '';
@@ -558,7 +572,7 @@ function buildLiveProofMarkdown(artifact: LiveProofArtifact): string {
     `Status: ${artifact.status}`,
     `Run: ${artifact.runId}`,
     `Comparison status: ${artifact.comparisonStatus}`,
-    `Comparison counts: better=${artifact.comparisonCounts.better} worse=${artifact.comparisonCounts.worse} unchanged=${artifact.comparisonCounts.unchanged} mixed=${artifact.comparisonCounts.mixed} inconclusive=${artifact.comparisonCounts.inconclusive} skipped=${artifact.comparisonCounts.skipped}`,
+    `Comparison counts: better=${artifact.comparisonCounts.better} worse=${artifact.comparisonCounts.worse} unchanged=${artifact.comparisonCounts.unchanged} mixed=${artifact.comparisonCounts.mixed} inconclusive=${artifact.comparisonCounts.inconclusive} low_confidence=${artifact.comparisonCounts.low_confidence} skipped=${artifact.comparisonCounts.skipped}`,
     `Next action: ${artifact.nextAction.code} - ${artifact.nextAction.summary}`,
     `Summary: ${artifact.summary}`,
     '',

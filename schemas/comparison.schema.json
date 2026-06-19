@@ -33,7 +33,7 @@
     },
     "comparisonStatus": {
       "type": "string",
-      "enum": ["better", "worse", "unchanged", "mixed", "inconclusive"]
+      "enum": ["better", "worse", "unchanged", "mixed", "inconclusive", "low_confidence"]
     },
     "healthStatus": {
       "type": "string",
@@ -196,7 +196,7 @@
         },
         "status": {
           "type": "string",
-          "enum": ["better", "worse", "unchanged", "inconclusive"]
+          "enum": ["better", "worse", "unchanged", "inconclusive", "low_confidence"]
         },
         "notes": {
           "type": "string"
@@ -288,11 +288,14 @@
           "properties": {
             "level": {
               "type": "string",
-              "enum": ["single_run", "multi_sample", "insufficient"]
+              "enum": ["single_run", "multi_sample", "insufficient", "low_confidence"]
             },
             "minValidSamples": {
               "type": "integer",
               "minimum": 1
+            },
+            "reason": {
+              "type": "string"
             }
           }
         }

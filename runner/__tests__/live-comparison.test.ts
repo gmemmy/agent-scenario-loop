@@ -32,6 +32,14 @@ test('builds compact metric summaries from comparison artifacts', () => {
         delta: 0,
         status: 'unchanged',
       },
+      {
+        name: 'startup p95',
+        unit: 'ms',
+        baseline: 960,
+        current: 1211,
+        delta: 251,
+        status: 'low_confidence',
+      },
     ],
   });
 
@@ -41,6 +49,7 @@ test('builds compact metric summaries from comparison artifacts', () => {
       worse: 1,
       unchanged: 1,
       inconclusive: 0,
+      low_confidence: 1,
     },
     notableMetrics: [
       {
@@ -57,6 +66,14 @@ test('builds compact metric summaries from comparison artifacts', () => {
         delta: 6,
         name: 'close p50',
         status: 'worse',
+        unit: 'ms',
+      },
+      {
+        baseline: 960,
+        current: 1211,
+        delta: 251,
+        name: 'startup p95',
+        status: 'low_confidence',
         unit: 'ms',
       },
     ],

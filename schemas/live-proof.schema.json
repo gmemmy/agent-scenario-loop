@@ -69,7 +69,7 @@
     },
     "comparisonStatus": {
       "type": "string",
-      "enum": ["baseline_missing", "improved", "inconclusive", "mixed", "not_compared", "regressed", "unchanged"]
+      "enum": ["baseline_missing", "improved", "inconclusive", "low_confidence", "mixed", "not_compared", "regressed", "unchanged"]
     },
     "nextAction": {
       "$ref": "#/$defs/nextAction"
@@ -283,7 +283,7 @@
         },
         "status": {
           "type": "string",
-          "enum": ["better", "worse", "unchanged", "mixed", "inconclusive", "skipped"]
+          "enum": ["better", "worse", "unchanged", "mixed", "inconclusive", "low_confidence", "skipped"]
         },
         "baselineDir": {
           "type": ["string", "null"]
@@ -310,7 +310,7 @@
         "counts": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["better", "worse", "unchanged", "inconclusive"],
+          "required": ["better", "worse", "unchanged", "inconclusive", "low_confidence"],
           "properties": {
             "better": {
               "type": "integer",
@@ -325,6 +325,10 @@
               "minimum": 0
             },
             "inconclusive": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "low_confidence": {
               "type": "integer",
               "minimum": 0
             }
@@ -348,7 +352,7 @@
         },
         "status": {
           "type": "string",
-          "enum": ["better", "worse", "inconclusive"]
+          "enum": ["better", "worse", "inconclusive", "low_confidence"]
         },
         "unit": {
           "type": "string"
@@ -367,7 +371,7 @@
     "comparisonCounts": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["better", "worse", "unchanged", "mixed", "inconclusive", "skipped"],
+      "required": ["better", "worse", "unchanged", "mixed", "inconclusive", "low_confidence", "skipped"],
       "properties": {
         "better": {
           "type": "integer",
@@ -389,6 +393,10 @@
           "type": "integer",
           "minimum": 0
         },
+        "low_confidence": {
+          "type": "integer",
+          "minimum": 0
+        },
         "skipped": {
           "type": "integer",
           "minimum": 0
@@ -402,7 +410,7 @@
       "properties": {
         "code": {
           "type": "string",
-          "enum": ["establish_baseline", "inspect_failed_run", "inspect_inconclusive", "inspect_mixed", "inspect_regressions", "inspect_summary"]
+          "enum": ["establish_baseline", "inspect_failed_run", "inspect_inconclusive", "inspect_low_confidence", "inspect_mixed", "inspect_regressions", "inspect_summary"]
         },
         "summary": {
           "type": "string"

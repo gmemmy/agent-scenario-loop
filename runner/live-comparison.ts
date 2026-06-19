@@ -14,7 +14,7 @@ type LiveProfileForComparison = {
   scenarioId: string;
 };
 
-type ComparisonMetricStatus = 'better' | 'worse' | 'unchanged' | 'inconclusive';
+type ComparisonMetricStatus = 'better' | 'worse' | 'unchanged' | 'inconclusive' | 'low_confidence';
 
 type ComparisonMetricHighlight = {
   baseline: number | boolean | null;
@@ -38,7 +38,7 @@ type LiveComparisonResult = {
   reason: string | null;
   runId: string;
   scenarioId: string;
-  status: 'better' | 'worse' | 'unchanged' | 'mixed' | 'inconclusive' | 'skipped';
+  status: 'better' | 'worse' | 'unchanged' | 'mixed' | 'inconclusive' | 'low_confidence' | 'skipped';
   summaryPath: string | null;
 };
 
@@ -83,6 +83,7 @@ function buildComparisonMetricSummary(comparison: Record<string, unknown>): Comp
     worse: 0,
     unchanged: 0,
     inconclusive: 0,
+    low_confidence: 0,
   };
   const notableMetrics: ComparisonMetricHighlight[] = [];
 
@@ -93,7 +94,7 @@ function buildComparisonMetricSummary(comparison: Record<string, unknown>): Comp
 
     const record = metric as Record<string, unknown>;
     const status = record.status;
-    if (status !== 'better' && status !== 'worse' && status !== 'unchanged' && status !== 'inconclusive') {
+    if (status !== 'better' && status !== 'worse' && status !== 'unchanged' && status !== 'inconclusive' && status !== 'low_confidence') {
       continue;
     }
 

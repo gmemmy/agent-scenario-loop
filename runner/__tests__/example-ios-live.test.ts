@@ -72,7 +72,7 @@ test('iOS example live proof regression gate reports the aggregate summary', () 
     platformLabel: 'iOS',
     result: {
       ...result,
-      comparisons: [{ label: 'startup', status: 'unchanged' }],
+      comparisons: [{ label: 'startup', status: 'low_confidence' }],
     },
   }));
 });
@@ -388,6 +388,7 @@ test('runs the packaged iOS example live proof with a fake simctl executor', asy
   assert.deepEqual(aggregate.comparisonCounts, {
     better: 0,
     inconclusive: 0,
+    low_confidence: 0,
     mixed: 0,
     skipped: 0,
     unchanged: 3,
@@ -403,6 +404,7 @@ test('runs the packaged iOS example live proof with a fake simctl executor', asy
           worse: 0,
           unchanged: 1,
           inconclusive: 0,
+          low_confidence: 0,
         },
         notableMetrics: [],
       },
@@ -412,6 +414,7 @@ test('runs the packaged iOS example live proof with a fake simctl executor', asy
           worse: 0,
           unchanged: 3,
           inconclusive: 0,
+          low_confidence: 0,
         },
         notableMetrics: [],
       },
@@ -421,6 +424,7 @@ test('runs the packaged iOS example live proof with a fake simctl executor', asy
           worse: 0,
           unchanged: 3,
           inconclusive: 0,
+          low_confidence: 0,
         },
         notableMetrics: [],
       },

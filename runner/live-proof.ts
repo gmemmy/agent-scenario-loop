@@ -27,6 +27,7 @@ type LiveProofArtifact = {
     skipped: number;
     unchanged: number;
     worse: number;
+    low_confidence: number;
   };
   comparisonStatus: string;
   comparisons: LiveProofComparisonPointer[];
@@ -93,7 +94,7 @@ type LiveProofArtifact = {
 };
 type LiveProofComparisonCounts = LiveProofArtifact['comparisonCounts'];
 type LiveProofComparisonStatus = keyof LiveProofComparisonCounts;
-type LiveProofMetricStatus = 'better' | 'worse' | 'unchanged' | 'inconclusive';
+type LiveProofMetricStatus = 'better' | 'worse' | 'unchanged' | 'inconclusive' | 'low_confidence';
 type LiveProofPlatform = LiveProofArtifact['platform'];
 type LiveProofComparisonPointer = {
   baselineDir?: string | null;
@@ -117,6 +118,7 @@ type LiveProofAggregateStatus = (
   'baseline_missing' |
   'improved' |
   'inconclusive' |
+  'low_confidence' |
   'mixed' |
   'not_compared' |
   'regressed' |
@@ -307,6 +309,7 @@ function countLiveProofComparisons(comparisons: Array<{status?: string}>): LiveP
   const counts: LiveProofComparisonCounts = {
     better: 0,
     inconclusive: 0,
+    low_confidence: 0,
     mixed: 0,
     skipped: 0,
     unchanged: 0,
@@ -338,6 +341,9 @@ function deriveLiveProofComparisonStatus(comparisons: Array<{status?: string}>):
   }
   if (statuses.includes('inconclusive')) {
     return 'inconclusive';
+  }
+  if (statuses.includes('low_confidence')) {
+    return 'low_confidence';
   }
   if (statuses.every((status) => status === 'skipped')) {
     return 'baseline_missing';
@@ -377,6 +383,9 @@ function expectedLiveProofNextActionCode(
   }
   if (comparisonStatus === 'inconclusive') {
     return 'inspect_inconclusive';
+  }
+  if (comparisonStatus === 'low_confidence') {
+    return 'inspect_low_confidence';
   }
   if (comparisonStatus === 'mixed') {
     return 'inspect_mixed';
@@ -643,7 +652,7 @@ function formatComparisonPointerMetrics(comparison: LiveProofComparisonPointer):
     ? `; notable: ${highlights.map(formatMetricHighlight).join(', ')}`
     : '';
 
-  return ` (metrics better=${counts.better} worse=${counts.worse} unchanged=${counts.unchanged} inconclusive=${counts.inconclusive}${highlightText})`;
+  return ` (metrics better=${counts.better} worse=${counts.worse} unchanged=${counts.unchanged} inconclusive=${counts.inconclusive} low_confidence=${counts.low_confidence}${highlightText})`;
 }
 
 /**
@@ -1122,7 +1131,7 @@ function formatLiveProof(proof: LiveProofArtifact): string {
       `- ${proofPointer.label} (${proofPointer.runnerId}/${proofPointer.scenarioId}/${proofPointer.runId}): ${proofPointer.reason} next=${proofPointer.nextAction.code}`
     )),
     `Comparisons: ${proof.comparisons.length}`,
-    `Comparison counts: better=${proof.comparisonCounts.better} worse=${proof.comparisonCounts.worse} unchanged=${proof.comparisonCounts.unchanged} mixed=${proof.comparisonCounts.mixed} inconclusive=${proof.comparisonCounts.inconclusive} skipped=${proof.comparisonCounts.skipped}`,
+    `Comparison counts: better=${proof.comparisonCounts.better} worse=${proof.comparisonCounts.worse} unchanged=${proof.comparisonCounts.unchanged} mixed=${proof.comparisonCounts.mixed} inconclusive=${proof.comparisonCounts.inconclusive} low_confidence=${proof.comparisonCounts.low_confidence} skipped=${proof.comparisonCounts.skipped}`,
     ...proof.comparisons.map((comparison) => (
       `- ${comparison.label ?? 'comparison'} (${comparison.scenarioId ?? 'unknown-scenario'}/${comparison.runId ?? 'unknown-run'}): ${comparison.status ?? 'unknown'}${formatComparisonPointerMetrics(comparison)}`
     )),
