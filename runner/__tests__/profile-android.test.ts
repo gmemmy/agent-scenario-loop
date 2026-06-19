@@ -163,7 +163,7 @@ test('profile-android writes artifacts from fixture event logs', async (t: TestC
   ]);
 
   const runDir = stdout.trim();
-  const manifest = readJson(path.join(runDir, 'manifest.json'));
+  const manifest = readJson(path.join(runDir, 'manifest.json')) as Record<string, any>;
   const causalRun = readJson(path.join(runDir, 'causal-run.json'));
   const health = readJson(path.join(runDir, 'health.json'));
   const verdict = readJson(path.join(runDir, 'verdict.json'));
@@ -175,12 +175,23 @@ test('profile-android writes artifacts from fixture event logs', async (t: TestC
   assert.match(manifest.scenarioHash, /^[a-f0-9]{64}$/u);
   assert.equal(manifest.bundleId, 'dev.agentscenarioloop.example');
   assert.deepEqual(manifest.provenance, {
+    cohort: {
+      appId: 'dev.agentscenarioloop.example',
+      commandTransport: 'fixture-log-ingest',
+      platform: 'android',
+      providers: [],
+      runnerName: 'fixture-log-ingest',
+      runnerVersion: manifest.provenance.cohort.runnerVersion,
+    },
+    cohortHash: manifest.provenance.cohortHash,
     gitSha: 'unknown',
     scenarioHash: manifest.scenarioHash,
     toolVersions: {
       node: process.version,
     },
   });
+  assert.match(manifest.provenance.cohortHash, /^[a-f0-9]{64}$/u);
+  assert.match(manifest.provenance.cohort.runnerVersion, /^\d+\.\d+\.\d+/u);
   assert.deepEqual(manifest.attempt, {
     attemptId: 'android-example-startup',
     classification: {

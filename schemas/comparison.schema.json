@@ -135,6 +135,10 @@
           "type": "string",
           "pattern": "^[a-f0-9]{64}$"
         },
+        "cohortHash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
         "selectedRunDir": {
           "type": "string"
         },
@@ -157,6 +161,10 @@
           "minimum": 0
         },
         "trustedScenarioContractCandidates": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "trustedCohortCandidates": {
           "type": "integer",
           "minimum": 0
         }

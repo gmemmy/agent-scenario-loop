@@ -7,6 +7,7 @@ type RunIndexEntry = {
   runDir: string;
   scenarioId: string;
   scenarioHash?: string;
+  cohortHash?: string;
   runId: string;
   healthStatus: string;
   trusted: boolean;
@@ -34,6 +35,16 @@ type RunIndex = {
  */
 function readJson(filePath: string): Record<string, unknown> {
   return JSON.parse(fs.readFileSync(filePath, 'utf8'));
+}
+
+/**
+ * Returns whether a value is a plain object record.
+ *
+ * @param {unknown} value
+ * @returns {value is Record<string, unknown>}
+ */
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
 /**
@@ -106,12 +117,16 @@ function readRunIndexEntry(runDir: string): RunIndexEntry {
       : path.basename(runDir);
   const healthStatus = typeof health.healthStatus === 'string' ? health.healthStatus : 'unknown';
   const verdictStatus = typeof verdict.verdictStatus === 'string' ? verdict.verdictStatus : undefined;
+  const provenance = isRecord(manifest.provenance) ? manifest.provenance : {};
 
   return {
     runDir,
     scenarioId,
     runId,
     ...(typeof manifest.scenarioHash === 'string' ? { scenarioHash: manifest.scenarioHash } : {}),
+    ...(typeof provenance.cohortHash === 'string'
+      ? { cohortHash: provenance.cohortHash }
+      : {}),
     healthStatus,
     trusted: healthStatus === 'passed' && verdictStatus === 'passed',
     ...(typeof manifest.durationMs === 'number' ? { durationMs: manifest.durationMs } : {}),

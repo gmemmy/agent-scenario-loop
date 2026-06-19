@@ -67,6 +67,13 @@
           "type": "string",
           "pattern": "^[a-f0-9]{64}$"
         },
+        "cohort": {
+          "$ref": "#/$defs/provenanceCohort"
+        },
+        "cohortHash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
         "gitSha": {
           "type": "string"
         },
@@ -491,6 +498,66 @@
     }
   },
   "$defs": {
+    "provenanceCohort": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "appVersion": {
+          "type": "string"
+        },
+        "appId": {
+          "type": "string"
+        },
+        "buildId": {
+          "type": "string"
+        },
+        "buildMode": {
+          "type": "string"
+        },
+        "commandTransport": {
+          "type": "string"
+        },
+        "deviceClass": {
+          "type": "string"
+        },
+        "featureFlags": {
+          "type": "object",
+          "additionalProperties": {
+            "type": ["boolean", "string", "number", "null"]
+          }
+        },
+        "osVersion": {
+          "type": "string"
+        },
+        "platform": {
+          "type": "string"
+        },
+        "providers": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "version": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "runnerName": {
+          "type": "string"
+        },
+        "runnerVersion": {
+          "type": "string"
+        },
+        "seedIdentity": {
+          "type": "string"
+        }
+      }
+    },
     "terminalState": {
       "type": "string",
       "enum": ["passed", "failed", "timeout", "cancelled", "aborted", "inconclusive", "unsupported", "skipped", "unhealthy"]

@@ -1,3 +1,5 @@
+const crypto = require('node:crypto');
+
 const PROFILE_EVENT_PREFIX = '[profile-event]';
 
 type ArtifactRecord = Record<string, any>;
@@ -592,6 +594,58 @@ function sortValue(value: any): any {
 }
 
 /**
+ * Returns a deterministic SHA-256 hash for a JSON-compatible value.
+ *
+ * @param {unknown} value
+ * @returns {string}
+ */
+function hashStableValue(value: unknown): string {
+  return crypto.createHash('sha256').update(JSON.stringify(sortValue(value))).digest('hex');
+}
+
+/**
+ * Normalizes optional run cohort provenance into schema-safe scalar fields.
+ *
+ * @param {Record<string, unknown> | null | undefined} cohort
+ * @returns {Record<string, unknown> | null}
+ */
+function normalizeProvenanceCohort(cohort: ArtifactRecord | null | undefined): ArtifactRecord | null {
+  if (!cohort || typeof cohort !== 'object') {
+    return null;
+  }
+
+  const normalized = {
+    ...(typeof cohort.appId === 'string' ? { appId: cohort.appId } : {}),
+    ...(typeof cohort.appVersion === 'string' ? { appVersion: cohort.appVersion } : {}),
+    ...(typeof cohort.buildId === 'string' ? { buildId: cohort.buildId } : {}),
+    ...(typeof cohort.buildMode === 'string' ? { buildMode: cohort.buildMode } : {}),
+    ...(typeof cohort.commandTransport === 'string' ? { commandTransport: cohort.commandTransport } : {}),
+    ...(typeof cohort.deviceClass === 'string' ? { deviceClass: cohort.deviceClass } : {}),
+    ...(typeof cohort.osVersion === 'string' ? { osVersion: cohort.osVersion } : {}),
+    ...(typeof cohort.platform === 'string' ? { platform: cohort.platform } : {}),
+    ...(typeof cohort.runnerName === 'string' ? { runnerName: cohort.runnerName } : {}),
+    ...(typeof cohort.runnerVersion === 'string' ? { runnerVersion: cohort.runnerVersion } : {}),
+    ...(typeof cohort.seedIdentity === 'string' ? { seedIdentity: cohort.seedIdentity } : {}),
+    ...(cohort.featureFlags && typeof cohort.featureFlags === 'object' && !Array.isArray(cohort.featureFlags)
+      ? { featureFlags: sortValue(cohort.featureFlags) }
+      : {}),
+    ...(Array.isArray(cohort.providers)
+      ? {
+          providers: cohort.providers
+            .filter((provider) => provider && typeof provider === 'object')
+            .map((provider) => sortValue({
+              ...(typeof provider.name === 'string' ? { name: provider.name } : {}),
+              ...(typeof provider.version === 'string' ? { version: provider.version } : {}),
+            }))
+            .filter((provider) => typeof provider.name === 'string' || typeof provider.version === 'string'),
+        }
+      : {}),
+  };
+
+  return Object.keys(normalized).length > 0 ? sortValue(normalized) : null;
+}
+
+/**
  * Normalizes event timestamps to milliseconds since run start.
  *
  * @param {{event: Record<string, unknown>, startedAt?: string}} options
@@ -1097,12 +1151,15 @@ function buildManifest({
   bundleId,
   gitSha,
   toolVersions,
+  cohort,
   artifacts,
   failureReason = null,
 }: ArtifactRecord): ArtifactRecord {
   const durationMs = roundMs(Math.max(0, Date.parse(endedAt) - Date.parse(startedAt)));
   const sortedToolVersions = sortValue(toolVersions);
   const sortedSimulator = sortValue(simulator);
+  const normalizedCohort = normalizeProvenanceCohort(cohort);
+  const cohortHash = normalizedCohort ? hashStableValue(normalizedCohort) : null;
   const resolvedTerminalState = typeof terminalState === 'string' && terminalState.length > 0 ? terminalState : status;
   const resolvedClassification = classification
     ? sortValue(classification)
@@ -1161,6 +1218,7 @@ function buildManifest({
     ...(typeof comparisonLane === 'string' && comparisonLane.length > 0 ? { comparisonLane } : {}),
     provenance: {
       ...(typeof scenarioHash === 'string' && scenarioHash.length > 0 ? { scenarioHash } : {}),
+      ...(normalizedCohort ? { cohort: normalizedCohort, cohortHash } : {}),
       gitSha,
       toolVersions: sortedToolVersions,
     },

@@ -91,17 +91,51 @@ test('builds schema-valid manifest provenance attempt and environment artifacts'
     toolVersions: {
       node: 'v24.0.0',
     },
+    cohort: {
+      appVersion: '1.2.3',
+      buildId: 'build-123',
+      buildMode: 'dev-debug',
+      commandTransport: 'profile-session-storage',
+      deviceClass: 'simulator',
+      featureFlags: {
+        betaFlow: true,
+      },
+      osVersion: 'Android 15',
+      platform: 'android',
+      providers: [{ name: 'accessibility-provider', version: '0.1.0' }],
+      runnerName: 'adb-logcat',
+      runnerVersion: '0.1.2',
+      seedIdentity: 'fixture-seed-v1',
+    },
     artifacts: sampleManifestArtifacts(),
   });
 
   assert.equal(validateJson(manifest, SCHEMAS.manifest, 'Manifest artifact').valid, true);
   assert.deepEqual(manifest.provenance, {
+    cohort: {
+      appVersion: '1.2.3',
+      buildId: 'build-123',
+      buildMode: 'dev-debug',
+      commandTransport: 'profile-session-storage',
+      deviceClass: 'simulator',
+      featureFlags: {
+        betaFlow: true,
+      },
+      osVersion: 'Android 15',
+      platform: 'android',
+      providers: [{ name: 'accessibility-provider', version: '0.1.0' }],
+      runnerName: 'adb-logcat',
+      runnerVersion: '0.1.2',
+      seedIdentity: 'fixture-seed-v1',
+    },
+    cohortHash: manifest.provenance.cohortHash,
     gitSha: 'abc123',
     scenarioHash: 'a'.repeat(64),
     toolVersions: {
       node: 'v24.0.0',
     },
   });
+  assert.match(manifest.provenance.cohortHash, /^[a-f0-9]{64}$/u);
   assert.deepEqual(manifest.attempt, {
     attemptId: 'public-journey-1',
     classification: {

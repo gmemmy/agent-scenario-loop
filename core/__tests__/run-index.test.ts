@@ -28,10 +28,11 @@ async function writeJson(filePath: string, value: Record<string, unknown>): Prom
 /**
  * Writes the minimum run artifacts needed for the index.
  *
- * @param {{root: string, scenarioId: string, runId: string, verdictStatus: string, comparisonLane?: string, endedAt?: string, healthStatus?: string, scenarioHash?: string}} options
+ * @param {{root: string, scenarioId: string, runId: string, verdictStatus: string, cohortHash?: string, comparisonLane?: string, endedAt?: string, healthStatus?: string, scenarioHash?: string}} options
  * @returns {Promise<string>}
  */
 async function writeRun({
+  cohortHash,
   comparisonLane,
   endedAt,
   healthStatus = 'passed',
@@ -41,6 +42,7 @@ async function writeRun({
   scenarioId,
   verdictStatus,
 }: {
+  cohortHash?: string;
   endedAt?: string;
   healthStatus?: string;
   comparisonLane?: string;
@@ -77,6 +79,13 @@ async function writeRun({
     endedAt,
     durationMs: 1200,
     ...(comparisonLane ? { comparisonLane } : {}),
+    ...(cohortHash
+      ? {
+          provenance: {
+            cohortHash,
+          },
+        }
+      : {}),
     interactionDriver: 'adb-logcat',
   });
   return runDir;
@@ -156,6 +165,7 @@ test('filters a run index by scenario id', async (t: TestContext) => {
     runId: 'startup-run',
     verdictStatus: 'passed',
     comparisonLane: 'example-android-live',
+    cohortHash: 'c'.repeat(64),
     scenarioHash: 'a'.repeat(64),
   });
   await writeRun({
@@ -171,6 +181,7 @@ test('filters a run index by scenario id', async (t: TestContext) => {
   assert.deepEqual(index.entries.map((item: { runId: string }) => item.runId), ['startup-run']);
   assert.equal(entry.platform, 'android');
   assert.equal(entry.comparisonLane, 'example-android-live');
+  assert.equal(entry.cohortHash, 'c'.repeat(64));
   assert.equal(entry.scenarioHash, 'a'.repeat(64));
   assert.equal(entry.interactionDriver, 'adb-logcat');
   assert.equal(entry.trusted, true);

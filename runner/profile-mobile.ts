@@ -42,10 +42,12 @@ type ProfileRunResult = {
 };
 type ProfilePlatform = 'android' | 'ios';
 type ProfileMobileOptions = {
+  commandTransport?: string;
   comparisonLane?: string;
   defaultDriver: string;
   interactionDriver?: string;
   platform: ProfilePlatform;
+  provenanceCohort?: Record<string, unknown>;
 };
 type CaptureEvidenceKind = 'screenshot' | 'uiTree' | 'video';
 type ProviderEvidenceKind = 'accessibility' | 'logs' | 'profiler';
@@ -106,6 +108,7 @@ type ProviderManifest = {
   platforms?: string[];
   providerCommands?: ProviderCommand[];
   runnerId?: string;
+  version?: string;
 };
 type ProviderCommandContext = {
   capturesDir: string;
@@ -138,6 +141,7 @@ type ProviderCommandFailure = {
 type ProviderCommandExecution = {
   failures: ProviderCommandFailure[];
   inputs: EvidenceAttachmentInput[];
+  providers: Array<{ name: string; version?: string }>;
 };
 type ExecFileError = Error & {
   code?: number;
@@ -500,9 +504,10 @@ async function executeProviderCommands({
 }): Promise<ProviderCommandExecution> {
   const failures: ProviderCommandFailure[] = [];
   const inputs: EvidenceAttachmentInput[] = [];
+  const providers: Array<{ name: string; version?: string }> = [];
   const providerManifestPaths = readRepeatableArgValues(args, 'provider');
   if (providerManifestPaths.length === 0) {
-    return { failures, inputs };
+    return { failures, inputs, providers };
   }
 
   const commandRecordDir = path.join(layout.raw, 'provider-commands');
@@ -521,6 +526,10 @@ async function executeProviderCommands({
     }
 
     const providerId = safeProviderSegment(String(provider.runnerId ?? path.basename(absoluteManifestPath, '.json')));
+    providers.push({
+      name: providerId,
+      ...(typeof provider.version === 'string' ? { version: provider.version } : {}),
+    });
     if (Array.isArray(provider.platforms) && !provider.platforms.includes(platform)) {
       failures.push({
         commandId: 'platform-compatibility',
@@ -609,7 +618,7 @@ async function executeProviderCommands({
     }
   }
 
-  return { failures, inputs };
+  return { failures, inputs, providers };
 }
 
 /**
@@ -1553,6 +1562,90 @@ function resolveProfileBudgets(scenario: Record<string, unknown>): Record<string
 }
 
 /**
+ * Reads the installed package version for run provenance.
+ *
+ * @returns {string}
+ */
+function readAslPackageVersion(): string {
+  try {
+    const packageJsonPath = path.resolve(__dirname, '..', '..', 'package.json');
+    const packageJson = readJson(packageJsonPath);
+    return typeof packageJson.version === 'string' ? packageJson.version : 'unknown';
+  } catch {
+    return 'unknown';
+  }
+}
+
+/**
+ * Infers the command transport used for profile-session or fixture evidence.
+ *
+ * @param {{args: CliArgs, interactionDriver: string, options: ProfileMobileOptions}} options
+ * @returns {string}
+ */
+function resolveCommandTransport({
+  args,
+  interactionDriver,
+  options,
+}: {
+  args: CliArgs;
+  interactionDriver: string;
+  options: ProfileMobileOptions;
+}): string {
+  if (typeof options.commandTransport === 'string' && options.commandTransport.length > 0) {
+    return options.commandTransport;
+  }
+  if (typeof args.events === 'string') {
+    return 'fixture-log-ingest';
+  }
+  if (typeof args['ios-profile-session-transport'] === 'string') {
+    return `profile-session-${args['ios-profile-session-transport']}`;
+  }
+  if (args['android-profile-session-storage'] || args['ios-profile-session-storage']) {
+    return 'profile-session-storage';
+  }
+  if (args['profile-session']) {
+    return 'profile-session-deeplink';
+  }
+  if (typeof args['adb-artifacts'] === 'string') {
+    return 'adb-artifacts';
+  }
+  if (typeof args['simctl-artifacts'] === 'string') {
+    return 'simctl-artifacts';
+  }
+  return interactionDriver;
+}
+
+/**
+ * Builds product-neutral provenance cohort metadata for the run manifest.
+ *
+ * @param {{args: CliArgs, appId: string, interactionDriver: string, options: ProfileMobileOptions, providerExecution: ProviderCommandExecution}} options
+ * @returns {Record<string, unknown>}
+ */
+function buildProfileProvenanceCohort({
+  appId,
+  args,
+  interactionDriver,
+  options,
+  providerExecution,
+}: {
+  appId: string;
+  args: CliArgs;
+  interactionDriver: string;
+  options: ProfileMobileOptions;
+  providerExecution: ProviderCommandExecution;
+}): Record<string, unknown> {
+  return {
+    appId,
+    commandTransport: resolveCommandTransport({ args, interactionDriver, options }),
+    platform: options.platform,
+    providers: providerExecution.providers,
+    runnerName: interactionDriver,
+    runnerVersion: readAslPackageVersion(),
+    ...options.provenanceCohort,
+  };
+}
+
+/**
  * Runs the mobile log-ingest profile artifact pipeline.
  *
  * @param {CliArgs} args
@@ -1674,6 +1767,14 @@ async function runProfileMobile(args: CliArgs, options: ProfileMobileOptions): P
     },
     evidenceAttachments: buildEvidenceAttachmentManifest(attachedEvidence.attachments),
   };
+  const appId = resolveAppId({ config, platform: options.platform });
+  const provenanceCohort = buildProfileProvenanceCohort({
+    appId,
+    args,
+    interactionDriver,
+    options,
+    providerExecution,
+  });
 
   const manifest = buildManifest({
     scenario: scenarioName,
@@ -1692,11 +1793,12 @@ async function runProfileMobile(args: CliArgs, options: ProfileMobileOptions): P
     partialArtifacts: buildAttemptPartialArtifacts({ artifacts: manifestArtifacts, metrics }),
     startedAt,
     simulator: runtimeTarget,
-    bundleId: resolveAppId({ config, platform: options.platform }),
+    bundleId: appId,
     gitSha: 'unknown',
     toolVersions: {
       node: process.version,
     },
+    cohort: provenanceCohort,
     artifacts: manifestArtifacts,
   });
 

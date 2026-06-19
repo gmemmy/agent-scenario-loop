@@ -475,6 +475,7 @@ async function runProfileIos(
 ): Promise<import('./profile-mobile').ProfileRunResult> {
   if (!isEnabled(args['simctl-capture']) && !isEnabled(args['agent-device-capture'])) {
     return runProfileMobile(args, {
+      commandTransport: typeof args.events === 'string' ? 'fixture-log-ingest' : 'simctl-artifacts',
       ...(options.comparisonLane ? { comparisonLane: options.comparisonLane } : {}),
       defaultDriver: 'ios-simctl',
       ...(typeof args['simctl-artifacts'] === 'string' ? { interactionDriver: 'ios-simctl' } : {}),
@@ -667,6 +668,13 @@ async function runProfileIos(
     : baseProfileArgs;
 
   return runProfileMobile(profileArgs, {
+    commandTransport: agentDeviceCapture
+      ? 'agent-device'
+      : profileSessionEnabled && !profileSessionStorageEnabled
+        ? 'profile-session-deeplink'
+        : profileSessionEnabled
+          ? 'profile-session-storage'
+          : 'simctl-capture',
     ...(options.comparisonLane ? { comparisonLane: options.comparisonLane } : {}),
     defaultDriver: 'ios-simctl',
     interactionDriver: agentDeviceCapture ? 'agent-device' : 'ios-simctl',

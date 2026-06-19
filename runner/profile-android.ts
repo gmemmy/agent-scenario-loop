@@ -657,6 +657,7 @@ async function runProfileAndroid(
 ): Promise<import('./profile-mobile').ProfileRunResult> {
   if (!isEnabled(args['adb-capture']) && !isEnabled(args['agent-device-capture'])) {
     return runProfileMobile(args, {
+      commandTransport: typeof args.events === 'string' ? 'fixture-log-ingest' : 'adb-artifacts',
       ...(options.comparisonLane ? { comparisonLane: options.comparisonLane } : {}),
       defaultDriver: 'adb-logcat',
       ...(typeof args['adb-artifacts'] === 'string' ? { interactionDriver: 'adb-logcat' } : {}),
@@ -858,6 +859,13 @@ async function runProfileAndroid(
     : baseProfileArgs;
 
   return runProfileMobile(profileArgs, {
+    commandTransport: profileSessionStorageEnabled
+      ? 'profile-session-storage'
+      : profileSessionEnabled
+        ? 'profile-session-deeplink'
+        : agentDeviceCapture
+          ? 'agent-device'
+          : 'adb-capture',
     ...(options.comparisonLane ? { comparisonLane: options.comparisonLane } : {}),
     defaultDriver: 'adb-logcat',
     interactionDriver: agentDeviceCapture ? 'agent-device' : 'adb-logcat',
