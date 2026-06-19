@@ -68,6 +68,23 @@ const DEFAULT_ENVIRONMENT_POSTCONDITIONS = Object.freeze({
   artifactState: UNKNOWN_LIFECYCLE_ASSERTION,
 });
 
+const FAILURE_TERMINAL_STATES = new Set([
+  'failed',
+  'timeout',
+  'cancelled',
+  'aborted',
+  'inconclusive',
+  'unsupported',
+  'unhealthy',
+]);
+
+const TERMINAL_CLASSIFICATION_CATEGORIES = Object.freeze({
+  timeout: 'timeout',
+  cancelled: 'cancelled',
+  aborted: 'cancelled',
+  unsupported: 'runner',
+});
+
 /**
  * Converts finite numeric strings to numbers while preserving invalid input as `null`.
  *
@@ -146,6 +163,42 @@ function parseKeyValueProfileEvent(payload: string): ProfileEvent | null {
  */
 function roundMs(value: number): number {
   return Math.round(value * 1000) / 1000;
+}
+
+/**
+ * Asserts cross-field attempt semantics that JSON Schema alone does not express.
+ *
+ * @param {Record<string, any>} attempt
+ * @returns {void}
+ */
+function assertAttemptInvariants(attempt: ArtifactRecord): void {
+  const { status, terminalState, classification, cleanup, partialArtifacts } = attempt;
+
+  if (status === 'passed' && terminalState !== 'passed') {
+    throw new Error(`Passed attempts must use terminalState "passed", received "${terminalState}".`);
+  }
+
+  if (status === 'failed' && !FAILURE_TERMINAL_STATES.has(String(terminalState))) {
+    throw new Error(`Failed attempts must use a failure terminalState, received "${terminalState}".`);
+  }
+
+  const expectedCategory = TERMINAL_CLASSIFICATION_CATEGORIES[String(terminalState) as keyof typeof TERMINAL_CLASSIFICATION_CATEGORIES];
+  if (expectedCategory && classification?.category !== expectedCategory) {
+    throw new Error(`terminalState "${terminalState}" requires classification.category "${expectedCategory}".`);
+  }
+
+  if (terminalState === 'cancelled' || terminalState === 'aborted' || terminalState === 'timeout') {
+    if (partialArtifacts?.valid !== true) {
+      throw new Error(`terminalState "${terminalState}" must preserve valid partialArtifacts for diagnosis.`);
+    }
+    if (!Array.isArray(partialArtifacts.paths) || partialArtifacts.paths.length === 0) {
+      throw new Error(`terminalState "${terminalState}" must record partialArtifacts.paths.`);
+    }
+  }
+
+  if (cleanup?.status && cleanup.status !== 'not-required' && cleanup.status !== 'unknown' && typeof cleanup.message !== 'string') {
+    throw new Error(`cleanup.status "${cleanup.status}" must include a cleanup message.`);
+  }
 }
 
 /**
@@ -1012,6 +1065,20 @@ function buildManifest({
             ? 'complete successful run artifacts are present'
             : 'failed run artifacts are preserved for diagnosis and must not be treated as product proof unless health passes',
       };
+  const resolvedAttempt = {
+    attemptId: typeof attemptId === 'string' && attemptId.length > 0 ? attemptId : runId,
+    runId,
+    status,
+    terminalState: resolvedTerminalState,
+    startedAt,
+    endedAt,
+    durationMs,
+    interactionDriver,
+    ...(typeof comparisonLane === 'string' && comparisonLane.length > 0 ? { comparisonLane } : {}),
+    classification: resolvedClassification,
+    cleanup: resolvedCleanup,
+    partialArtifacts: resolvedPartialArtifacts,
+  };
   const resolvedPreconditions = sortValue({
     ...DEFAULT_ENVIRONMENT_PRECONDITIONS,
     ...(preconditions && typeof preconditions === 'object' ? preconditions : {}),
@@ -1020,6 +1087,8 @@ function buildManifest({
     ...DEFAULT_ENVIRONMENT_POSTCONDITIONS,
     ...(postconditions && typeof postconditions === 'object' ? postconditions : {}),
   });
+
+  assertAttemptInvariants(resolvedAttempt);
 
   return {
     scenario,
@@ -1037,20 +1106,7 @@ function buildManifest({
       gitSha,
       toolVersions: sortedToolVersions,
     },
-    attempt: {
-      attemptId: typeof attemptId === 'string' && attemptId.length > 0 ? attemptId : runId,
-      runId,
-      status,
-      terminalState: resolvedTerminalState,
-      startedAt,
-      endedAt,
-      durationMs,
-      interactionDriver,
-      ...(typeof comparisonLane === 'string' && comparisonLane.length > 0 ? { comparisonLane } : {}),
-      classification: resolvedClassification,
-      cleanup: resolvedCleanup,
-      partialArtifacts: resolvedPartialArtifacts,
-    },
+    attempt: resolvedAttempt,
     environment: {
       platform,
       bundleId,

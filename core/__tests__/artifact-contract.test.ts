@@ -258,6 +258,119 @@ test('builds schema-valid failed attempt semantics for preserved partial artifac
   });
 });
 
+test('builds schema-valid cancelled attempt semantics with preserved partial artifacts', () => {
+  const manifest = buildManifest({
+    scenario: 'public-journey',
+    runId: 'public-journey-cancelled',
+    attemptId: 'attempt-cancelled',
+    platform: 'ios',
+    status: 'failed',
+    terminalState: 'cancelled',
+    startedAt: '2026-01-01T00:00:00.000Z',
+    endedAt: '2026-01-01T00:00:03.000Z',
+    interactionDriver: 'ios-simctl',
+    classification: {
+      category: 'cancelled',
+      code: 'operator_cancelled',
+      message: 'Operator cancelled the run before completion.',
+      retryable: true,
+    },
+    cleanup: {
+      status: 'passed',
+      message: 'Runner stopped capture and left preserved artifacts in place.',
+      artifacts: ['raw/cleanup.txt'],
+    },
+    partialArtifacts: {
+      valid: true,
+      reason: 'cancelled run preserved raw evidence for diagnosis',
+      paths: ['manifest.json', 'health.json', 'raw/device.log'],
+    },
+    simulator: {
+      name: 'iPhone 16',
+      udid: 'SIM-UDID',
+    },
+    bundleId: 'dev.agent.example',
+    gitSha: 'abc123',
+    toolVersions: {
+      node: 'v24.0.0',
+    },
+    artifacts: sampleManifestArtifacts(),
+    failureReason: 'Operator cancelled the run before completion.',
+  });
+
+  assert.equal(validateJson(manifest, SCHEMAS.manifest, 'Manifest artifact').valid, true);
+  assert.equal(manifest.attempt.terminalState, 'cancelled');
+  assert.equal(manifest.attempt.classification.category, 'cancelled');
+  assert.equal(manifest.attempt.cleanup.status, 'passed');
+  assert.deepEqual(manifest.attempt.partialArtifacts.paths, ['health.json', 'manifest.json', 'raw/device.log']);
+});
+
+test('rejects mismatched cancellation and cleanup attempt semantics', () => {
+  const baseOptions = {
+    scenario: 'public-journey',
+    runId: 'public-journey-cancelled',
+    platform: 'ios',
+    status: 'failed',
+    terminalState: 'cancelled',
+    startedAt: '2026-01-01T00:00:00.000Z',
+    endedAt: '2026-01-01T00:00:03.000Z',
+    interactionDriver: 'ios-simctl',
+    classification: {
+      category: 'cancelled',
+      code: 'operator_cancelled',
+      message: 'Operator cancelled the run before completion.',
+    },
+    cleanup: {
+      status: 'passed',
+      message: 'Runner stopped capture and left preserved artifacts in place.',
+    },
+    partialArtifacts: {
+      valid: true,
+      reason: 'cancelled run preserved raw evidence for diagnosis',
+      paths: ['manifest.json'],
+    },
+    simulator: {
+      name: 'iPhone 16',
+      udid: 'SIM-UDID',
+    },
+    bundleId: 'dev.agent.example',
+    gitSha: 'abc123',
+    toolVersions: {
+      node: 'v24.0.0',
+    },
+    artifacts: sampleManifestArtifacts(),
+  };
+
+  assert.throws(
+    () => buildManifest({
+      ...baseOptions,
+      classification: {
+        category: 'timeout',
+      },
+    }),
+    /terminalState "cancelled" requires classification\.category "cancelled"/u,
+  );
+  assert.throws(
+    () => buildManifest({
+      ...baseOptions,
+      partialArtifacts: {
+        valid: true,
+        reason: 'cancelled run preserved raw evidence for diagnosis',
+      },
+    }),
+    /terminalState "cancelled" must record partialArtifacts\.paths/u,
+  );
+  assert.throws(
+    () => buildManifest({
+      ...baseOptions,
+      cleanup: {
+        status: 'partial',
+      },
+    }),
+    /cleanup\.status "partial" must include a cleanup message/u,
+  );
+});
+
 test('builds schema-valid causal-run provenance reference to manifest', () => {
   const artifacts = sampleManifestArtifacts();
   const manifest = buildManifest({
