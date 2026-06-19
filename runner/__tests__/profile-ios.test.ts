@@ -507,6 +507,23 @@ test('profile-ios can capture simctl logs and profile them in one run', async (t
     name: 'iPhone 17 Pro Max',
     udid: 'A692ED28-893E-453F-8866-C69331AE757F',
   });
+  assert.deepEqual((manifest.environment as Record<string, any>).preconditions.foregroundState, {
+    evidence: 'asserted',
+    source: 'simctl',
+    value: 'controlled-by-runner',
+  });
+  assert.deepEqual((manifest.environment as Record<string, any>).preconditions.lifecyclePhase, {
+    artifact: 'raw/ios-simctl-log.txt',
+    evidence: 'asserted',
+    source: 'simctl',
+    value: 'cold-launch',
+  });
+  assert.deepEqual((manifest.environment as Record<string, any>).postconditions.artifactState, {
+    artifact: 'manifest.json',
+    evidence: 'asserted',
+    source: 'asl-profile-runner',
+    value: 'complete',
+  });
   assert.equal((manifest.artifacts as { raw: { interactionLog: string } }).raw.interactionLog, 'raw/ios-simctl-log.txt');
   assert.deepEqual((manifest.artifacts as { captures: { screenshots: string[] } }).captures.screenshots, [
     'captures/ios-screenshot.png',

@@ -868,6 +868,19 @@ async function runProfileAndroid(
           : 'adb-capture',
     ...(options.comparisonLane ? { comparisonLane: options.comparisonLane } : {}),
     defaultDriver: 'adb-logcat',
+    environmentPreconditions: {
+      foregroundState: {
+        value: 'controlled-by-runner',
+        evidence: 'asserted',
+        source: agentDeviceCapture ? 'agent-device' : 'adb',
+      },
+      lifecyclePhase: {
+        value: 'cold-launch',
+        evidence: 'asserted',
+        source: agentDeviceCapture ? 'agent-device' : 'adb',
+        artifact: adbCapture ? 'raw/adb-logcat.txt' : 'raw/interaction.log',
+      },
+    },
     interactionDriver: agentDeviceCapture ? 'agent-device' : 'adb-logcat',
     platform: 'android',
   });

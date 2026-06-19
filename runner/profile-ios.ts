@@ -677,6 +677,19 @@ async function runProfileIos(
           : 'simctl-capture',
     ...(options.comparisonLane ? { comparisonLane: options.comparisonLane } : {}),
     defaultDriver: 'ios-simctl',
+    environmentPreconditions: {
+      foregroundState: {
+        value: 'controlled-by-runner',
+        evidence: 'asserted',
+        source: agentDeviceCapture ? 'agent-device' : 'simctl',
+      },
+      lifecyclePhase: {
+        value: 'cold-launch',
+        evidence: 'asserted',
+        source: agentDeviceCapture ? 'agent-device' : 'simctl',
+        artifact: simctlCapture ? 'raw/ios-simctl-log.txt' : 'raw/interaction.log',
+      },
+    },
     interactionDriver: agentDeviceCapture ? 'agent-device' : 'ios-simctl',
     platform: 'ios',
   });

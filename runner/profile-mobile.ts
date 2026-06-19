@@ -45,6 +45,8 @@ type ProfileMobileOptions = {
   commandTransport?: string;
   comparisonLane?: string;
   defaultDriver: string;
+  environmentPostconditions?: Record<string, unknown>;
+  environmentPreconditions?: Record<string, unknown>;
   interactionDriver?: string;
   platform: ProfilePlatform;
   provenanceCohort?: Record<string, unknown>;
@@ -1646,6 +1648,61 @@ function buildProfileProvenanceCohort({
 }
 
 /**
+ * Builds an environment assertion for manifest pre/postconditions.
+ *
+ * @param {{artifact?: string, evidence?: string, source: string, value: unknown}} options
+ * @returns {Record<string, unknown>}
+ */
+function environmentAssertion({
+  artifact,
+  evidence = 'asserted',
+  source,
+  value,
+}: {
+  artifact?: string;
+  evidence?: string;
+  source: string;
+  value: unknown;
+}): Record<string, unknown> {
+  return {
+    value,
+    evidence,
+    source,
+    ...(artifact ? { artifact } : {}),
+  };
+}
+
+/**
+ * Builds postconditions that ASL can truthfully assert after writing profile artifacts.
+ *
+ * @param {{metrics: Record<string, unknown>, options: ProfileMobileOptions}} options
+ * @returns {Record<string, unknown>}
+ */
+function buildProfileEnvironmentPostconditions({
+  metrics,
+  options,
+}: {
+  metrics: Record<string, unknown>;
+  options: ProfileMobileOptions;
+}): Record<string, unknown> {
+  const runPassed = metrics.status === 'passed';
+  return {
+    artifactState: environmentAssertion({
+      value: runPassed ? 'complete' : 'partial',
+      evidence: 'asserted',
+      source: 'asl-profile-runner',
+      artifact: 'manifest.json',
+    }),
+    cleanupState: environmentAssertion({
+      value: 'not-required',
+      evidence: 'asserted',
+      source: 'asl-profile-runner',
+    }),
+    ...options.environmentPostconditions,
+  };
+}
+
+/**
  * Runs the mobile log-ingest profile artifact pipeline.
  *
  * @param {CliArgs} args
@@ -1791,6 +1848,8 @@ async function runProfileMobile(args: CliArgs, options: ProfileMobileOptions): P
       status: 'not-required',
     },
     partialArtifacts: buildAttemptPartialArtifacts({ artifacts: manifestArtifacts, metrics }),
+    preconditions: options.environmentPreconditions,
+    postconditions: buildProfileEnvironmentPostconditions({ metrics, options }),
     startedAt,
     simulator: runtimeTarget,
     bundleId: appId,

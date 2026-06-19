@@ -217,6 +217,20 @@ test('profile-android writes artifacts from fixture event logs', async (t: TestC
     nodeVersion: process.version,
     platform: 'android',
     ...sampleEnvironmentLifecycle(),
+    postconditions: {
+      ...sampleEnvironmentLifecycle().postconditions,
+      artifactState: {
+        artifact: 'manifest.json',
+        evidence: 'asserted',
+        source: 'asl-profile-runner',
+        value: 'complete',
+      },
+      cleanupState: {
+        evidence: 'asserted',
+        source: 'asl-profile-runner',
+        value: 'not-required',
+      },
+    },
     runtimeTarget: manifest.simulator,
   });
   assert.deepEqual(causalRun.provenanceRef, {
@@ -1048,6 +1062,14 @@ test('profile-android reads logcat from adb artifact folders', async (t: TestCon
 
   assert.equal(artifacts.raw.interactionLog, 'raw/adb-logcat.txt');
   assert.equal(manifest.interactionDriver, 'adb-logcat');
+  assert.deepEqual((manifest.environment as Record<string, any>).preconditions.foregroundState, unknownLifecycleAssertion());
+  assert.deepEqual((manifest.environment as Record<string, any>).preconditions.lifecyclePhase, unknownLifecycleAssertion());
+  assert.deepEqual((manifest.environment as Record<string, any>).postconditions.artifactState, {
+    artifact: 'manifest.json',
+    evidence: 'asserted',
+    source: 'asl-profile-runner',
+    value: 'complete',
+  });
   assert.deepEqual(manifest.simulator, {
     name: 'unknown android device',
     udid: 'unknown',
@@ -1124,6 +1146,17 @@ test('profile-android can capture adb logs and profile them in one run', async (
   assert.deepEqual(manifest.simulator, {
     name: 'Pixel 6 Android 15 API 35',
     udid: 'emulator-5554',
+  });
+  assert.deepEqual((manifest.environment as Record<string, any>).preconditions.foregroundState, {
+    evidence: 'asserted',
+    source: 'adb',
+    value: 'controlled-by-runner',
+  });
+  assert.deepEqual((manifest.environment as Record<string, any>).preconditions.lifecyclePhase, {
+    artifact: 'raw/adb-logcat.txt',
+    evidence: 'asserted',
+    source: 'adb',
+    value: 'cold-launch',
   });
   assert.equal((manifest.artifacts as { raw: { interactionLog: string } }).raw.interactionLog, 'raw/adb-logcat.txt');
   assert.equal(manifest.interactionDriver, 'adb-logcat');
