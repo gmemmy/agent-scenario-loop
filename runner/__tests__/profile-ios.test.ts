@@ -480,6 +480,7 @@ test('profile-ios can capture simctl logs and profile them in one run', async (t
     config: fixturePath('examples/mobile-app/asl.config.json'),
     device: 'A692ED28-893E-453F-8866-C69331AE757F',
     launch: true,
+    'lifecycle-phase': 'resume',
     out: profileRoot,
     'profile-session': true,
     'run-id': 'ios-live-startup',
@@ -516,7 +517,19 @@ test('profile-ios can capture simctl logs and profile them in one run', async (t
     artifact: 'raw/ios-simctl-log.txt',
     evidence: 'asserted',
     source: 'simctl',
-    value: 'cold-launch',
+    value: 'resume',
+  });
+  assert.deepEqual((manifest.environment as Record<string, any>).postconditions.appState, {
+    artifact: 'raw/ios-simctl-log.txt',
+    evidence: 'asserted',
+    source: 'simctl',
+    value: 'foreground',
+  });
+  assert.deepEqual((manifest.environment as Record<string, any>).postconditions.lifecyclePhase, {
+    artifact: 'raw/ios-simctl-log.txt',
+    evidence: 'asserted',
+    source: 'simctl',
+    value: 'foreground',
   });
   assert.deepEqual((manifest.environment as Record<string, any>).postconditions.artifactState, {
     artifact: 'manifest.json',

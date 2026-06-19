@@ -585,6 +585,7 @@
         "cold-launch",
         "warm-launch",
         "hot-launch",
+        "resume",
         "foreground",
         "background",
         "force-stop",

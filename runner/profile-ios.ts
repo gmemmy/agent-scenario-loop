@@ -46,6 +46,21 @@ const DEFAULT_IOS_PROFILE_COMMAND_STORAGE_KEY = 'agent-scenario-loop.profile-com
 const DEFAULT_IOS_PROFILE_EVENT_STORAGE_KEY = 'agent-scenario-loop.profile-events.1';
 const DEFAULT_IOS_PROFILE_SIGNAL_STORAGE_KEY = 'agent-scenario-loop.profile-signals.1';
 const DEFAULT_IOS_PROFILE_SESSION_ENTRIES_STORAGE_KEY = 'agent-scenario-loop.profile-session-entries.1';
+const MANIFEST_LIFECYCLE_PHASES = new Set([
+  'cold-launch',
+  'warm-launch',
+  'hot-launch',
+  'resume',
+  'foreground',
+  'background',
+  'force-stop',
+  'process-death',
+  'scene-recreation',
+  'activity-recreation',
+  'os-reclaim',
+  'reboot',
+  'relaunch',
+]);
 
 /**
  * Reads and parses a JSON object from disk.
@@ -77,6 +92,25 @@ function isEnabled(value: string | boolean | Array<string | boolean> | undefined
 function readPositiveInteger(value: unknown, fallback: number): number {
   const parsed = typeof value === 'string' ? Number(value) : value;
   return typeof parsed === 'number' && Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+/**
+ * Resolves the lifecycle phase this runner is prepared to assert.
+ *
+ * @param {import('./profile-mobile').CliArgs} args
+ * @returns {string}
+ */
+function resolveManifestLifecyclePhase(args: import('./profile-mobile').CliArgs): string {
+  const lifecyclePhase = readScalarArg(args['lifecycle-phase']);
+  if (lifecyclePhase === undefined) {
+    return 'cold-launch';
+  }
+  if (typeof lifecyclePhase !== 'string' || !MANIFEST_LIFECYCLE_PHASES.has(lifecyclePhase)) {
+    throw new Error(
+      `Unsupported --lifecycle-phase "${String(lifecyclePhase)}". Expected one of ${Array.from(MANIFEST_LIFECYCLE_PHASES).join(', ')}.`,
+    );
+  }
+  return lifecyclePhase;
 }
 
 /**
@@ -666,6 +700,9 @@ async function runProfileIos(
   const profileArgs = agentDeviceCapture
     ? appendAgentDeviceCaptureArgs({ args: baseProfileArgs, capture: agentDeviceCapture })
     : baseProfileArgs;
+  const lifecyclePhase = resolveManifestLifecyclePhase(args);
+  const environmentSource = agentDeviceCapture ? 'agent-device' : 'simctl';
+  const lifecycleArtifact = simctlCapture ? 'raw/ios-simctl-log.txt' : 'raw/interaction.log';
 
   return runProfileMobile(profileArgs, {
     commandTransport: agentDeviceCapture
@@ -677,17 +714,31 @@ async function runProfileIos(
           : 'simctl-capture',
     ...(options.comparisonLane ? { comparisonLane: options.comparisonLane } : {}),
     defaultDriver: 'ios-simctl',
+    environmentPostconditions: {
+      appState: {
+        value: 'foreground',
+        evidence: 'asserted',
+        source: environmentSource,
+        artifact: lifecycleArtifact,
+      },
+      lifecyclePhase: {
+        value: 'foreground',
+        evidence: 'asserted',
+        source: environmentSource,
+        artifact: lifecycleArtifact,
+      },
+    },
     environmentPreconditions: {
       foregroundState: {
         value: 'controlled-by-runner',
         evidence: 'asserted',
-        source: agentDeviceCapture ? 'agent-device' : 'simctl',
+        source: environmentSource,
       },
       lifecyclePhase: {
-        value: 'cold-launch',
+        value: lifecyclePhase,
         evidence: 'asserted',
-        source: agentDeviceCapture ? 'agent-device' : 'simctl',
-        artifact: simctlCapture ? 'raw/ios-simctl-log.txt' : 'raw/interaction.log',
+        source: environmentSource,
+        artifact: lifecycleArtifact,
       },
     },
     interactionDriver: agentDeviceCapture ? 'agent-device' : 'ios-simctl',

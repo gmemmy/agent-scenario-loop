@@ -16,7 +16,7 @@ Only one lane should be active at a time. Each lane should have:
 
 ### Attempt, Retry, Cancellation, And Partial Evidence Semantics
 
-Status: active.
+Status: completed in `aa355d2`.
 
 Objective: make attempts first-class evidence so failed, retried, timed-out, cancelled, or partially cleaned-up runs cannot be hidden by a later green run.
 
@@ -55,6 +55,8 @@ Suggested ownership:
 
 ### Lifecycle Breadth
 
+Status: active.
+
 Objective: model and prove lifecycle modes beyond cold launch.
 
 Surfaces:
@@ -74,6 +76,13 @@ Acceptance evidence:
 - explicit lifecycle preconditions/postconditions in manifests;
 - Android and iOS runner tests for at least one non-cold lifecycle path;
 - no product-specific lifecycle names.
+
+Current implementation direction:
+
+- manifest lifecycle vocabulary includes `resume` in addition to launch, foreground, background, interruption, and relaunch states;
+- Android and iOS profile runners accept an explicit `--lifecycle-phase` assertion for non-cold preconditions;
+- live adb/simctl profile manifests assert foreground app and lifecycle postconditions when the runner owns the capture path;
+- focused runner tests prove Android `warm-launch` and iOS `resume` artifacts.
 
 ### Adapter Conformance Expansion
 

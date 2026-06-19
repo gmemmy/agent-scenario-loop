@@ -45,6 +45,21 @@ const PROFILE_SESSION_CAPTURE_BOOTSTRAP_MS = 1000;
 const PROFILE_SESSION_CAPTURE_MAX_MS = 120000;
 const DEFAULT_ANDROID_PROFILE_SESSION_STORAGE_KEY = 'agent-scenario-loop.profile-session.1';
 const DEFAULT_ANDROID_PROFILE_COMMAND_STORAGE_KEY = 'agent-scenario-loop.profile-commands.1';
+const MANIFEST_LIFECYCLE_PHASES = new Set([
+  'cold-launch',
+  'warm-launch',
+  'hot-launch',
+  'resume',
+  'foreground',
+  'background',
+  'force-stop',
+  'process-death',
+  'scene-recreation',
+  'activity-recreation',
+  'os-reclaim',
+  'reboot',
+  'relaunch',
+]);
 
 /**
  * Reads and parses a JSON object from disk.
@@ -75,6 +90,25 @@ function isEnabled(value: string | boolean | Array<string | boolean> | undefined
  */
 function readPositiveInteger(value: unknown, fallback: number): number {
   return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : fallback;
+}
+
+/**
+ * Resolves the lifecycle phase this runner is prepared to assert.
+ *
+ * @param {import('./profile-mobile').CliArgs} args
+ * @returns {string}
+ */
+function resolveManifestLifecyclePhase(args: import('./profile-mobile').CliArgs): string {
+  const lifecyclePhase = readScalarArg(args['lifecycle-phase']);
+  if (lifecyclePhase === undefined) {
+    return 'cold-launch';
+  }
+  if (typeof lifecyclePhase !== 'string' || !MANIFEST_LIFECYCLE_PHASES.has(lifecyclePhase)) {
+    throw new Error(
+      `Unsupported --lifecycle-phase "${String(lifecyclePhase)}". Expected one of ${Array.from(MANIFEST_LIFECYCLE_PHASES).join(', ')}.`,
+    );
+  }
+  return lifecyclePhase;
 }
 
 /**
@@ -857,6 +891,9 @@ async function runProfileAndroid(
   const profileArgs = agentDeviceCapture
     ? appendAgentDeviceCaptureArgs({ args: baseProfileArgs, capture: agentDeviceCapture })
     : baseProfileArgs;
+  const lifecyclePhase = resolveManifestLifecyclePhase(args);
+  const environmentSource = agentDeviceCapture ? 'agent-device' : 'adb';
+  const lifecycleArtifact = adbCapture ? 'raw/adb-logcat.txt' : 'raw/interaction.log';
 
   return runProfileMobile(profileArgs, {
     commandTransport: profileSessionStorageEnabled
@@ -868,17 +905,31 @@ async function runProfileAndroid(
           : 'adb-capture',
     ...(options.comparisonLane ? { comparisonLane: options.comparisonLane } : {}),
     defaultDriver: 'adb-logcat',
+    environmentPostconditions: {
+      appState: {
+        value: 'foreground',
+        evidence: 'asserted',
+        source: environmentSource,
+        artifact: lifecycleArtifact,
+      },
+      lifecyclePhase: {
+        value: 'foreground',
+        evidence: 'asserted',
+        source: environmentSource,
+        artifact: lifecycleArtifact,
+      },
+    },
     environmentPreconditions: {
       foregroundState: {
         value: 'controlled-by-runner',
         evidence: 'asserted',
-        source: agentDeviceCapture ? 'agent-device' : 'adb',
+        source: environmentSource,
       },
       lifecyclePhase: {
-        value: 'cold-launch',
+        value: lifecyclePhase,
         evidence: 'asserted',
-        source: agentDeviceCapture ? 'agent-device' : 'adb',
-        artifact: adbCapture ? 'raw/adb-logcat.txt' : 'raw/interaction.log',
+        source: environmentSource,
+        artifact: lifecycleArtifact,
       },
     },
     interactionDriver: agentDeviceCapture ? 'agent-device' : 'adb-logcat',

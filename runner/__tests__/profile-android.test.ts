@@ -1129,6 +1129,7 @@ test('profile-android can capture adb logs and profile them in one run', async (
     config: fixturePath('examples/mobile-app/asl.config.json'),
     events: fixturePath('examples/mobile-app/event-logs/android-open-close-cycle.log'),
     launch: true,
+    'lifecycle-phase': 'warm-launch',
     out: profileRoot,
     'run-id': 'android-captured-startup',
     scenario: fixturePath('examples/mobile-app/scenarios/android/app-startup.json'),
@@ -1162,7 +1163,19 @@ test('profile-android can capture adb logs and profile them in one run', async (
     artifact: 'raw/adb-logcat.txt',
     evidence: 'asserted',
     source: 'adb',
-    value: 'cold-launch',
+    value: 'warm-launch',
+  });
+  assert.deepEqual((manifest.environment as Record<string, any>).postconditions.appState, {
+    artifact: 'raw/adb-logcat.txt',
+    evidence: 'asserted',
+    source: 'adb',
+    value: 'foreground',
+  });
+  assert.deepEqual((manifest.environment as Record<string, any>).postconditions.lifecyclePhase, {
+    artifact: 'raw/adb-logcat.txt',
+    evidence: 'asserted',
+    source: 'adb',
+    value: 'foreground',
   });
   assert.equal((manifest.artifacts as { raw: { interactionLog: string } }).raw.interactionLog, 'raw/adb-logcat.txt');
   assert.equal(manifest.interactionDriver, 'adb-logcat');

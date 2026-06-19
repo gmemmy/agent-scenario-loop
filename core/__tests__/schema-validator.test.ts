@@ -801,7 +801,7 @@ test('accepts manifest lifecycle phase and expanded terminal vocabulary', () => 
       preconditions: {
         ...sampleEnvironment().preconditions,
         lifecyclePhase: {
-          value: 'cold-launch',
+          value: 'resume',
           evidence: 'asserted',
           source: 'scenario precondition',
         },

@@ -190,6 +190,7 @@ function usage({
   }
   lines.push('Use --agent-device-capture to execute scenario-declared portable driver actions through agent-device and attach its captures.');
   lines.push('Use --agent-device-session-mode bind when a named agent-device session should still receive the configured Android serial or iOS UDID.');
+  lines.push('Use --lifecycle-phase <phase> when the runner can explicitly assert a non-cold lifecycle precondition such as warm-launch or resume.');
 
   writeUsage(lines, output);
 }
