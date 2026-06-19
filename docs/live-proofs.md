@@ -134,6 +134,12 @@ pnpm example:android:live -- --run-suffix before-change
 pnpm example:android:live -- --run-suffix after-change
 ```
 
+After dependency, native-build, or scenario-contract changes, use `--seed-baseline` to capture a trusted same-cohort baseline immediately before the measured run. The seeded profiles use `*-baseline` run ids, must pass health and verdict, and stay in the same comparison lane:
+
+```bash
+pnpm example:android:live -- --run-suffix release-check --seed-baseline
+```
+
 Read [Example Mobile App: Android Capture](../examples/mobile-app/README.md#android-capture) for Metro routing, adb permissions, individual scenario commands, selector behavior, and optional video capture.
 
 Expo dev-client Android shells may need an explicit Metro deep link after the native app launches. Put that local URL in ignored env state, for example `ASL_EXAMPLE_ANDROID_DEV_CLIENT_URL=asl-example://expo-development-client/?url=http%3A%2F%2F10.0.2.2%3A8097`, so Android profile capture opens the correct app session before profile-session deep links. When bundle load time is variable, also set `ASL_EXAMPLE_ANDROID_DEV_CLIENT_READY_PATTERN='Running "main"'` so the runner waits for bounded logcat readiness evidence before sending scenario links.
@@ -161,6 +167,12 @@ The root example live scripts pass `--compare-latest --fail-on-regression` by de
 
 ```bash
 pnpm example:ios:live -- --run-suffix after-change
+```
+
+Use `--seed-baseline` for fresh release checks where no compatible trusted iOS baseline exists yet:
+
+```bash
+pnpm example:ios:live -- --run-suffix release-check --seed-baseline
 ```
 
 Expo dev-client iOS shells may need an explicit Metro deep link after the native app launches. Put that local URL in ignored env state, for example `ASL_EXAMPLE_IOS_DEV_CLIENT_URL=asl-example://expo-development-client/?url=http%3A%2F%2Flocalhost%3A8097`, so iOS profile capture opens the correct app session before collecting evidence.

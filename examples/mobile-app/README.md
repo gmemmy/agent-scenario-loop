@@ -233,6 +233,12 @@ pnpm example:android:live -- --run-suffix before-change
 pnpm example:android:live -- --run-suffix after-change
 ```
 
+When a release, native build, or scenario edit changes the compatible cohort, seed a fresh trusted baseline in the same command:
+
+```bash
+pnpm example:android:live -- --run-suffix release-check --seed-baseline
+```
+
 The individual live commands remain useful while debugging one scenario:
 
 ```bash
@@ -287,6 +293,12 @@ The root example live scripts pass `--compare-latest --fail-on-regression` by de
 
 ```bash
 pnpm example:ios:live -- --run-suffix after-change
+```
+
+When there is no compatible trusted iOS baseline for the current release cohort, seed one before the measured run:
+
+```bash
+pnpm example:ios:live -- --run-suffix release-check --seed-baseline
 ```
 
 If global `xcode-select` points at a beta Xcode whose simulator services are not ready, set `ASL_EXAMPLE_XCODE_DEVELOPER_DIR` before the Node runner starts:
