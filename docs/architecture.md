@@ -84,3 +84,7 @@ conformance fixtures?
 If yes, TypeScript remains a productive reference implementation. If no, the
 implementation-specific assumption should be identified and removed from the
 contract surface.
+
+## Read next
+
+- [External Adapter Protocol](external-adapter-protocol.md) for the out-of-process adapter envelope, operations, failures, and conformance fixture

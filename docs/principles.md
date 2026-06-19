@@ -1,28 +1,24 @@
 # Principles
 
-`agent-scenario-loop` is a scenario orchestration and evidence collection layer for agent-driven software development.
+`agent-scenario-loop` has one durable claim: scenarios, contracts, and evidence must outlive the current runner.
 
-Read this after [Concepts](concepts.md) if you want the project doctrine in a compact form.
-
-The durable value is not any one runner. The durable value is a stable scenario and evidence contract that survives runner changes.
-
-It is not another agent runner. It is the layer that coordinates runners, preserves evidence, and keeps scenarios useful as tooling changes.
-
-Scenarios are long-lived project assets. They describe important application behaviors, not the temporary mechanics of the current runner.
+Read this after [Concepts](concepts.md). Concepts explains the model; this page is the compressed doctrine.
 
 ## Four planes
 
+ASL separates mobile proof into four planes. Mixing them is the usual source of flaky claims.
+
 1. Control plane
-Use semantic app commands, deep links, and deterministic hooks before falling back to raw UI replay.
+Use semantic app commands, deep links, and deterministic hooks to start and steer the scenario. Raw UI replay is a realism check, not the preferred control architecture.
 
 2. Truth plane
-Use explicit profile events, stored signals, route state, and committed artifacts as the source of truth.
+Use app-owned truth events, stored signals, route state, and committed artifacts as the source of what happened.
 
 3. Evidence plane
-Preserve logs, screenshots, videos, profiler exports, memory captures, network captures, UI trees, metrics, and verdicts in one stable artifact layout.
+Preserve logs, screenshots, videos, profiler exports, memory captures, network captures, UI trees, metrics, verdicts, comparisons, and summaries in one stable artifact layout.
 
 4. Realism plane
-Use taps, swipes, and full UI interaction for realism checks and last-mile validation, not as the primary control architecture.
+Use taps, swipes, alerts, full UI interaction, and external device tools to prove the app still behaves under real interaction pressure.
 
 ## Invariants
 
@@ -41,7 +37,4 @@ Use taps, swipes, and full UI interaction for realism checks and last-mile valid
 
 ## Read next
 
-- [Contracts](contracts.md) for the current artifact and package surface
 - [Architecture](architecture.md) for the TypeScript-first, language-neutral contract boundary
-- [Runner docs](../runner/README.md) for the host execution boundary
-- [README](../README.md) for the project entrypoint

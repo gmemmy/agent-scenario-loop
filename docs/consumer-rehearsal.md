@@ -113,3 +113,7 @@ Before expanding beyond the first journey, confirm:
 - at least one platform has a passed live proof
 
 Only then add more scenarios, providers, or runner adapters.
+
+## Read next
+
+- [Live Proofs](live-proofs.md) for fixture, Android, iOS, comparison, and release-proof commands

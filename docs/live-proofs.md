@@ -14,6 +14,27 @@ pnpm demo:loop -- --out artifacts/demo-loop
 
 The command runs preflight, profiles baseline/current event logs, writes run artifacts, compares the current run against the latest trusted prior run, and refreshes the current run's `agent-summary.md`.
 
+It writes:
+
+- `preflight/app-startup/health.json`
+- `preflight/app-startup/verdict.json`
+- `preflight/app-startup/agent-summary.md`
+- `profile-runs/app-startup/demo-baseline/*`
+- `profile-runs/app-startup/demo-current/*`
+- `profile-runs/app-startup/demo-current/comparison.json`
+
+This is not a replacement for live device proof. It is a stable contract check that keeps the evidence loop reproducible through trusted prior-run selection while iOS or Android runtime setup is unavailable.
+
+## Plan Check
+
+Use `check-plan` to validate a scenario, runner manifest, and optional evidence-provider manifests before execution:
+
+```bash
+pnpm check-plan -- --scenario examples/scenarios/mobile/app-startup.json --runner examples/runners/xcodebuildmcp-ios.json --platform ios --out artifacts/plan/app-startup
+```
+
+This validates the input manifests, writes schema-checked `health.json` and `verdict.json`, writes `agent-summary.md`, and includes the raw planner match in `planner-compatibility.json`.
+
 ## Host/Device Access
 
 Keep deterministic validation and live device proof as separate execution lanes.
@@ -68,6 +89,46 @@ ASL_ARGENT_BIN=pnpm \
 ```
 
 The doctor composes the existing adb, simctl, agent-device, and Argent checks into one ASL artifact set. A failed doctor is environment evidence, not product evidence: fix the host access or command shape before starting scenario execution.
+
+## Platform Preflight and Profile Capture
+
+Use `android:preflight` to verify adb and connected-device readiness before adding live Android scenario execution:
+
+```bash
+pnpm android:preflight -- --package com.example.app --out artifacts/android-adb-preflight
+```
+
+The command writes `health.json`, `verdict.json`, `agent-summary.md`, `raw/adb-version.txt`, `raw/adb-devices.txt`, and `raw/android-metadata.json`. If adb, a connected online device, or an optional package check fails, health fails and the verdict remains `inconclusive`.
+
+Add `--capture-logcat --logcat-lines <count>` to write `raw/adb-logcat.txt` in the same artifact folder. Add `--react-native-debug-host <host:port>` with `--package <name>` for React Native development builds that need adb reverse plus the app `debug_http_host` preference before launch; the runner writes `raw/adb-react-native-reverse.txt` and `raw/adb-react-native-debug-host.txt`. Add `--clear-logcat --launch --wait-ms <ms>` with `--package <name>` to clear logs, launch the package, wait for a bounded capture window, and then collect logcat evidence. If requested capture-window setup or logcat capture fails, scenario health fails because timing and event evidence would be incomplete.
+
+Use captured logcat evidence directly with Android profiling:
+
+```bash
+pnpm profile:android -- --config core/config-template.json --scenario examples/mobile-app/scenarios/android/app-startup.json --adb-artifacts artifacts/android-adb-preflight --run-id android-run-1
+```
+
+Or let Android profiling own the adb capture window before it writes profile artifacts:
+
+```bash
+pnpm profile:android -- --config core/config-template.json --scenario examples/mobile-app/scenarios/android/app-startup.json --adb-capture --react-native-debug-host localhost:8097 --clear-logcat --launch --run-id android-run-1
+```
+
+Use `profile:ios --simctl-capture` when the example app or a consuming app is already installed on a booted simulator:
+
+```bash
+pnpm profile:ios -- --config core/config-template.json --scenario examples/mobile-app/scenarios/ios/app-startup.json --simctl-capture --profile-session --profile-session-storage --launch --run-id ios-run-1
+```
+
+The command writes a separate simctl capture folder under the selected output root, seeds the app-owned profile session into native AsyncStorage before launch, then collects stored app profile events after the capture window. Command scenarios seed the scenario command queue through the same storage contract before launch. Command envelopes preserve `commandId`, `sequence`, `queueId`, and, for normalized execution-plan commands followed by a milestone wait, `waitForMilestone` plus `waitTimeoutMs`. Deep-link command transport uses the same envelope in query parameters. When `raw/ios-profile-events.log` exists, the iOS profile runner ingests that stored truth-event log; otherwise it falls back to `raw/ios-simctl-log.txt`.
+
+When a scenario requests a screenshot, pass supported simulator screenshot options through the iOS capture command with `--screenshot-type`, `--screenshot-display`, or `--screenshot-mask`; ASL records the chosen options in capture metadata and the resulting path in `manifest.artifacts.captures.screenshots`.
+
+For profile-session capture on Android or iOS, omitting `--wait-ms` lets ASL derive the final evidence window from scenario execution waits and cycle count. Explicit `--wait-ms` remains authoritative when a consuming app has a known startup or logging delay that the scenario cannot express.
+
+Scenario command targets live in `adapterOptions.iosSimctl.commands`, while the app handles them through `registerProfileCommandTargetHandler`. The iOS proof does not depend on unified logs carrying JavaScript console output; it depends on app-owned stored profile events.
+
+Attach independently produced provider evidence with `--signal <js|memory|network>:<path>` or `--capture <screenshot|video|uiTree>:<path>` so profile commands copy those files into stable run folders and inventory them in `manifest.artifacts.evidenceAttachments`.
 
 ## Generic Mobile Proof
 
@@ -263,6 +324,10 @@ pnpm compare:latest \
 
 Scenario health must pass before timing or budget evidence can support an improvement or regression claim.
 
+The comparison gate is intentionally strict. If either run failed scenario health, or if the scenario ids do not match, the comparison is `inconclusive`. Numeric budget checks are compared only after that health gate passes. `comparison.json` includes `comparisonBasis` with the baseline/current run ids and run directories, giving agents artifact-local provenance instead of forcing them to infer it from folder names. It also includes `measurementPolicy`, which records the baseline selection mode, poisoning protections, valid sample counts, timing tolerance, and confidence level used for the comparison.
+
+The latest-trusted command excludes the exact current run directory from baseline selection. Baseline trust requires passed health and passed verdict. For attempt-aware artifacts, baseline trust also requires a clean first passed attempt, no retry lineage, no failed or partial cleanup, and no valid partial-artifact diagnostic fragments. Current runs must pass scenario health before the command will compare timing or budget evidence. If the current manifest declares `comparisonLane`, baseline selection is scoped to trusted prior runs with the same lane; if the current manifest has no lane, selection stays within unlabeled trusted prior runs. Profile manifests also include `scenarioHash`, a stable fingerprint of the normalized scenario contract. When the current run has that hash, latest-trusted selection only compares against trusted prior runs with the same hash; legacy runs without the hash remain comparable only to legacy current runs. This keeps proof modes such as plain live proof and live proof plus agent-device sidecar from comparing against each other, and it keeps migrated scenario definitions from poisoning before/after verdicts. Latest-trusted artifacts set `comparisonBasis.strategy` to `latest_trusted_prior`, record selection counts for inspected, trusted, trusted-prior, lane-comparable, and scenario-contract-comparable candidates, and mirror the active lane, scenario hash, and cohort hash inside `measurementPolicy.baselineSelection.poisoningProtection` when those filters are active.
+
 ## Release Gate
 
 Before publishing, run:
@@ -279,8 +344,8 @@ Package smoke and consumer rehearsal keep child commands bounded so package-mana
 ASL_PACKAGE_GATE_TIMEOUT_MS=300000 pnpm release:check
 ```
 
-Read next:
+## Side References
 
-- [Contracts](contracts.md) for artifact layout and supported runner surface
 - [Consumer App Rehearsal](consumer-rehearsal.md) for adoption inside an existing app
 - [examples/mobile-app](../examples/mobile-app/README.md) for detailed dogfood app commands
+- [Public API](api.md) for package imports and programmable runner composition

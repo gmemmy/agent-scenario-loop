@@ -14,12 +14,14 @@ Execution tools can change. The scenario and evidence contract should not.
 | --- | --- |
 | Understand the idea in plain language | [Concepts](docs/concepts.md) |
 | Understand the project doctrine | [Principles](docs/principles.md) |
-| Write your first scenario | [Scenario Authoring](docs/authoring.md) |
-| Rehearse adoption in an existing app | [Consumer App Rehearsal](docs/consumer-rehearsal.md) |
+| Understand why ASL is a protocol, not a TypeScript-only library | [Architecture](docs/architecture.md) |
+| Implement or evaluate an out-of-process adapter in any language | [External Adapter Protocol](docs/external-adapter-protocol.md) |
 | Inspect artifacts, schemas, and supported surfaces | [Contracts](docs/contracts.md) |
-| Use the package from code | [Public API](docs/api.md) |
+| Write your first scenario | [Scenario Authoring](docs/authoring.md) |
 | Add a runner or evidence provider | [Adapter Onboarding](docs/adapters.md) |
+| Rehearse adoption in an existing app | [Consumer App Rehearsal](docs/consumer-rehearsal.md) |
 | Run fixture, Android, or iOS proofs | [Live Proofs](docs/live-proofs.md) |
+| Use the package from code | [Public API](docs/api.md) |
 | Inspect runner behavior and limits | [Runner docs](runner/README.md) |
 | Explore the neutral dogfood app | [examples/mobile-app](examples/mobile-app/README.md) |
 | See runner and provider fixtures | [examples/runners](examples/runners/README.md) |
@@ -73,12 +75,6 @@ No simulator or device available yet? Run the fixture loop:
 pnpm demo:loop -- --out artifacts/demo-loop
 ```
 
-Read next:
-
-- [Scenario Authoring](docs/authoring.md) for scenario shape and truth events
-- [Consumer App Rehearsal](docs/consumer-rehearsal.md) for adoption in an existing app
-- [Live Proofs](docs/live-proofs.md) for Android, iOS, comparison, and release-proof paths
-
 ## Package Surface
 
 The root package exports stable core contracts:
@@ -123,3 +119,7 @@ pnpm release:check
 ```
 
 The package should remain product-neutral. Product-specific selectors, routes, auth assumptions, accounts, and scenario data belong in the consuming app, not in this repository.
+
+## Read next
+
+- [Concepts](docs/concepts.md) for the plain-language model

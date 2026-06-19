@@ -85,11 +85,11 @@ Android adb capture routes normalized steps with `driverAction: "tap"`, `"scroll
 
 When Android adb `tap` or `scroll` steps provide a portable selector instead of coordinates, the runner captures `uiautomator dump` output, resolves supported selector kinds against node bounds, and derives adb input coordinates before executing the action. Built-in Android selector resolution supports `testId`, `resourceId`, `accessibilityId`, `accessibilityLabel`, and `text`; `xpath` stays available for external runners with native selector engines.
 
-I/O from iOS simctl capture routes through the simctl driver adapter. `readLogs` preserves bounded simulator logs under `raw/ios-simctl-log.txt`. A scenario step with `driverAction: "screenshot"` or `artifact: "screenshot"` requests a screenshot capture, defaulting to `captures/ios-screenshot.png`; when `--screenshot-type`, `--screenshot-display`, or `--screenshot-mask` are supplied to `asl-ios-simctl`, the command passes those supported `simctl io screenshot` options and records them in capture metadata. The profile manifest records the resulting capture path in `artifacts.captures.screenshots`.
+I/O from iOS simctl capture routes through the simctl driver adapter. `readLogs` preserves bounded simulator logs under `raw/ios-simctl-log.txt`. A scenario step with `driverAction: "screenshot"` or `artifact: "screenshot"` requests a screenshot capture, defaulting to `captures/ios-screenshot.png`. The profile manifest records the resulting capture path in `artifacts.captures.screenshots`, and capture metadata records any supported simulator screenshot options the runner used.
 
 Planner compatibility also validates the adapter metadata that built-in runners require. Android adb `tap` steps need either `adapterOptions.androidAdb.x/y` or a portable selector; Android adb `scroll` steps need either `startX/startY/endX/endY` or a portable selector; iOS simctl command metadata needs non-empty command strings and positive integer waits/repeat counts. Argent `tap` steps need `adapterOptions.argent.x/y`, Argent `scroll` steps need `adapterOptions.argent.startX/startY/endX/endY`, and Argent `assertVisible` steps need a portable selector. These failures become `invalid_adapter_options` health checks before runtime execution starts.
 
-Adapter-target fixtures such as `agent-device-android`, `agent-device-ios`, `argent-ios`, `argent-android`, `argent-react-profiler-provider`, and `axe-accessibility-provider` describe where external tools can plug into the same contract. They are schema-checked and planner-tested capability manifests. The bundled `agent-device` capture runner implements the portable interaction subset for iOS and Android; broader agent-device surfaces such as React DevTools, traces, network, and performance still need explicit adapters or provider attachments before they become part of the stable artifact contract. The bundled Argent runner implements launch, coordinate-backed gestures, screenshot requests, and description-backed visibility proof for portable selector match modes while keeping React profiler output in a separate Android evidence-provider lane. Argent command-surface checks prove the configured tools exist; runtime health still owns whether the selected device backend produced screenshot evidence. Required screenshot failures fail health, and optional screenshot failures are preserved as warnings. Active evidence providers can satisfy required evidence artifacts and provider-owned driver actions such as `collectPerfSignals`; providers outside the selected platform do not contribute to the match. When those tools write files independently, profile CLIs can attach the files with `--signal <js|memory|network>:<path>` or `--capture <screenshot|video|uiTree>:<path>` so provider evidence lands in the stable manifest and artifact layout. The `script-accessibility-provider`, `script-profiler-provider`, `script-memory-provider`, and `script-network-provider` examples show provider-command wrappers for project-local tools without making those tools package dependencies.
+Adapter-target fixtures such as `agent-device-android`, `agent-device-ios`, `argent-ios`, `argent-android`, `argent-react-profiler-provider`, and `axe-accessibility-provider` describe where external tools can plug into the same contract. They are schema-checked and planner-tested capability manifests. The bundled `agent-device` capture runner implements the portable interaction subset for iOS and Android; broader agent-device surfaces such as React DevTools, traces, network, and performance still need explicit adapters or provider attachments before they become part of the stable artifact contract. The bundled Argent runner implements launch, coordinate-backed gestures, screenshot requests, and description-backed visibility proof for portable selector match modes while keeping React profiler output in a separate Android evidence-provider lane. Argent command-surface checks prove the configured tools exist; runtime health still owns whether the selected device backend produced screenshot evidence. Required screenshot failures fail health, and optional screenshot failures are preserved as warnings. Active evidence providers can satisfy required evidence artifacts and provider-owned driver actions such as `collectPerfSignals`; providers outside the selected platform do not contribute to the match. When those tools write files independently, attached provider evidence lands in the stable manifest and artifact layout. The `script-accessibility-provider`, `script-profiler-provider`, `script-memory-provider`, and `script-network-provider` examples show provider-command wrappers for project-local tools without making those tools package dependencies.
 
 ## Public artifact layout
 
@@ -132,7 +132,7 @@ Aggregate live proof commands write `live-proof.json` and `agent-summary.md` und
 
 Platform-set proof commands write `live-proof-set.json` and `agent-summary.md` under the caller-provided proof-set output directory. The proof-set artifact records required platforms, present platforms, missing platforms, each linked `live-proof.json`, failed proof reasons, regression-gate reasons, and a next action. This gives agents one stable Android-plus-iOS gate after the per-platform live proofs have written their own aggregate evidence.
 
-Provider or custom-script evidence attached with `--signal` or `--capture` is copied into stable run folders and inventoried in `manifest.artifacts.evidenceAttachments`. Each inventory entry records the evidence channel, kind, run-relative path, source filename, byte size, sha256 hash, completeness status, corruption status, redaction status, and transformations; it does not preserve local absolute source paths.
+Provider or custom-script evidence attachments are copied into stable run folders and inventoried in `manifest.artifacts.evidenceAttachments`. Each inventory entry records the evidence channel, kind, run-relative path, source filename, byte size, sha256 hash, completeness status, corruption status, redaction status, and transformations; it does not preserve local absolute source paths.
 
 Evidence folders:
 
@@ -181,104 +181,17 @@ Not yet shipped as supported public features:
 - Computer Use flows
 - product-specific scenarios
 
-## Preflight planning
+## Command guidance
 
-Use `check-plan` to validate a scenario, runner manifest, and optional evidence-provider manifests before execution:
+Contracts defines the schemas, artifact fields, runner surfaces, and trust policy. Runnable walkthroughs live in [Live Proofs](live-proofs.md):
 
-```bash
-pnpm check-plan -- --scenario examples/scenarios/mobile/app-startup.json --runner examples/runners/xcodebuildmcp-ios.json --platform ios --out artifacts/plan/app-startup
-```
-
-This validates the input manifests, writes schema-checked `health.json` and `verdict.json`, writes `agent-summary.md`, and includes the raw planner match in `planner-compatibility.json`.
-
-## Android adb readiness
-
-Use `android:preflight` to verify adb and connected-device readiness before adding live Android scenario execution:
-
-```bash
-pnpm android:preflight -- --package com.example.app --out artifacts/android-adb-preflight
-```
-
-The command writes:
-
-- `health.json`
-- `verdict.json`
-- `agent-summary.md`
-- `raw/adb-version.txt`
-- `raw/adb-devices.txt`
-- `raw/android-metadata.json`
-
-If adb, a connected online device, or an optional package check fails, health fails and the verdict remains `inconclusive`.
-
-Add `--capture-logcat --logcat-lines <count>` to write `raw/adb-logcat.txt` in the same artifact folder. Add `--react-native-debug-host <host:port>` with `--package <name>` for React Native development builds that need adb reverse plus the app `debug_http_host` preference before launch; the runner writes `raw/adb-react-native-reverse.txt` and `raw/adb-react-native-debug-host.txt`. Add `--clear-logcat --launch --wait-ms <ms>` with `--package <name>` to clear logs, launch the package, wait for a bounded capture window, and then collect logcat evidence. If requested capture-window setup or logcat capture fails, scenario health fails because timing and event evidence would be incomplete.
-
-Use that captured logcat evidence directly with Android profiling:
-
-```bash
-pnpm profile:android -- --config core/config-template.json --scenario examples/mobile-app/scenarios/android/app-startup.json --adb-artifacts artifacts/android-adb-preflight --run-id android-run-1
-```
-
-Or let Android profiling own the adb capture window before it writes profile artifacts:
-
-```bash
-pnpm profile:android -- --config core/config-template.json --scenario examples/mobile-app/scenarios/android/app-startup.json --adb-capture --react-native-debug-host localhost:8097 --clear-logcat --launch --run-id android-run-1
-```
-
-## iOS simulator capture
-
-Use `profile:ios --simctl-capture` when the example app or a consuming app is already installed on a booted simulator:
-
-```bash
-pnpm profile:ios -- --config core/config-template.json --scenario examples/mobile-app/scenarios/ios/app-startup.json --simctl-capture --profile-session --profile-session-storage --launch --run-id ios-run-1
-```
-
-The command writes a separate simctl capture folder under the selected output root, seeds the app-owned profile session into native AsyncStorage before launch, then collects stored app profile events after the capture window. Command scenarios seed the scenario command queue through the same storage contract before launch. Command envelopes preserve `commandId`, `sequence`, `queueId`, and, for normalized execution-plan commands followed by a milestone wait, `waitForMilestone` plus `waitTimeoutMs`. Deep-link command transport uses the same envelope in query parameters. When `raw/ios-profile-events.log` exists, the iOS profile runner ingests that stored truth-event log; otherwise it falls back to `raw/ios-simctl-log.txt`.
-
-For profile-session capture on Android or iOS, omitting `--wait-ms` lets ASL derive the final evidence window from scenario execution waits and cycle count. Explicit `--wait-ms` remains authoritative when a consuming app has a known startup or logging delay that the scenario cannot express.
-
-Scenario command targets live in `adapterOptions.iosSimctl.commands`, while the app handles them through `registerProfileCommandTargetHandler`. The iOS proof does not depend on unified logs carrying JavaScript console output; it depends on app-owned stored profile events.
-
-## Historical comparison
-
-Use `compare` to build `comparison.json` from two completed run folders:
-
-```bash
-pnpm compare -- --baseline artifacts/runs/app-startup/baseline --current artifacts/runs/app-startup/current --out artifacts/runs/app-startup/current --fail-on-regression
-```
-
-The comparison gate is intentionally strict. If either run failed scenario health, or if the scenario ids do not match, the comparison is `inconclusive`. Numeric budget checks are compared only after that health gate passes. `comparison.json` includes `comparisonBasis` with the baseline/current run ids and run directories, giving agents artifact-local provenance instead of forcing them to infer it from folder names. It also includes `measurementPolicy`, which records the baseline selection mode, poisoning protections, valid sample counts, timing tolerance, and confidence level used for the comparison.
-
-Use `compare:latest` when an artifact root contains run history and the agent should compare the current run against the newest trusted prior run for the same scenario:
-
-```bash
-pnpm compare:latest -- --root artifacts/runs --scenario app-startup --current artifacts/runs/app-startup/current --out artifacts/runs/app-startup/current --fail-on-regression
-```
-
-The latest-trusted command excludes the exact current run directory from baseline selection. Baseline trust requires passed health and passed verdict. For attempt-aware artifacts, baseline trust also requires a clean first passed attempt, no retry lineage, no failed or partial cleanup, and no valid partial-artifact diagnostic fragments. Current runs must pass scenario health before the command will compare timing or budget evidence. If the current manifest declares `comparisonLane`, baseline selection is scoped to trusted prior runs with the same lane; if the current manifest has no lane, selection stays within unlabeled trusted prior runs. Profile manifests also include `scenarioHash`, a stable fingerprint of the normalized scenario contract. When the current run has that hash, latest-trusted selection only compares against trusted prior runs with the same hash; legacy runs without the hash remain comparable only to legacy current runs. This keeps proof modes such as plain live proof and live proof plus agent-device sidecar from comparing against each other, and it keeps migrated scenario definitions from poisoning before/after verdicts. Latest-trusted artifacts set `comparisonBasis.strategy` to `latest_trusted_prior`, record selection counts for inspected, trusted, trusted-prior, lane-comparable, and scenario-contract-comparable candidates, and mirror the active lane, scenario hash, and cohort hash inside `measurementPolicy.baselineSelection.poisoningProtection` when those filters are active.
-
-## Fixture loop
-
-Use `demo:loop` to run the current contract without a simulator:
-
-```bash
-pnpm demo:loop -- --out artifacts/demo-loop
-```
-
-The fixture loop writes:
-
-- `preflight/app-startup/health.json`
-- `preflight/app-startup/verdict.json`
-- `preflight/app-startup/agent-summary.md`
-- `profile-runs/app-startup/demo-baseline/*`
-- `profile-runs/app-startup/demo-current/*`
-- `profile-runs/app-startup/demo-current/comparison.json`
-
-This is not a replacement for live device proof. It is a stable contract check that keeps the evidence loop reproducible through trusted prior-run selection while iOS or Android runtime setup is unavailable.
+- [plan checks](live-proofs.md#plan-check)
+- [Android adb preflight and profile capture](live-proofs.md#platform-preflight-and-profile-capture)
+- [iOS simctl profile capture](live-proofs.md#platform-preflight-and-profile-capture)
+- [fixture loop](live-proofs.md#fixture-loop)
+- [explicit and latest-trusted comparison](live-proofs.md#comparison)
+- [generic Android and iOS live proof](live-proofs.md#generic-mobile-proof)
 
 ## Read next
 
-- [README](../README.md) for the shortest path through the project
-- [Concepts](concepts.md) for the broader product framing
-- [Adapter Onboarding](adapters.md) for adding runners and evidence providers
-- [Consumer App Rehearsal](consumer-rehearsal.md) for adopting the package in an existing app
-- [Runner docs](../runner/README.md) for current runner behavior and limits
+- [Scenario Authoring](authoring.md) for writing portable scenarios against these contracts
