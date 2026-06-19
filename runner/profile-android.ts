@@ -213,6 +213,21 @@ function buildProfileSessionStorageWrites({
   scenario: string;
   sessionStorageKey: string;
 }): AndroidAsyncStorageWrite[] {
+  const timestampBase = Date.now();
+  const storedCommands = commands.map((profileCommand, index) => {
+    const timestamp = timestampBase + index + 1;
+    return {
+      id: `${timestamp}-${scenario}-${profileCommand.command}`,
+      scenario,
+      runId,
+      command: profileCommand.command,
+      timestamp,
+    };
+  });
+  const commandWaitMsTotal = commands.reduce((total, profileCommand) => (
+    total + (typeof profileCommand.waitMs === 'number' && profileCommand.waitMs > 0 ? profileCommand.waitMs : 0)
+  ), 0);
+
   return [
     {
       clearKeys: [commandStorageKey],
@@ -226,21 +241,14 @@ function buildProfileSessionStorageWrites({
       }).replace(`"${ANDROID_DEVICE_EPOCH_MS_PLACEHOLDER}"`, ANDROID_DEVICE_EPOCH_MS_PLACEHOLDER),
       waitMs: commandWaitMs,
     },
-    ...commands.map((profileCommand, index) => {
-      const timestamp = Date.now() + index + 1;
-      return {
-        key: commandStorageKey,
-        label: profileCommand.label ?? `profile-command-${index + 1}`,
-        value: JSON.stringify([{
-          id: `${timestamp}-${scenario}-${profileCommand.command}`,
-          scenario,
-          runId,
-          command: profileCommand.command,
-          timestamp,
-        }]),
-        ...(typeof profileCommand.waitMs === 'number' ? { waitMs: profileCommand.waitMs } : {}),
-      };
-    }),
+    ...(storedCommands.length > 0
+      ? [{
+          key: commandStorageKey,
+          label: 'profile-command-queue',
+          value: JSON.stringify(storedCommands),
+          ...(commandWaitMsTotal > 0 ? { waitMs: commandWaitMsTotal } : {}),
+        }]
+      : []),
   ];
 }
 

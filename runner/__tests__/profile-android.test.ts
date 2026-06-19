@@ -203,6 +203,46 @@ test('profile-android profiles public scenario ids and milestone budgets', async
   });
 });
 
+test('profile-android preserves app timeline vocabulary without breaking causal-run schema', async (t: TestContext) => {
+  const tempRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-android-causal-vocab-'));
+  t.after(async () => {
+    await fsp.rm(tempRoot, { recursive: true, force: true });
+  });
+  const artifactRoot = path.join(tempRoot, 'artifacts');
+  const eventLogPath = path.join(tempRoot, 'invalid-vocabulary-android.log');
+  await fsp.writeFile(
+    eventLogPath,
+    [
+      '2026-01-01T00:10:00.000Z public-android [profile-event] {"event":"first_journey_started","scenario":"first-journey","runId":"invalid-vocabulary-android","iteration":1,"atMs":0,"phase":"capture","status":"passed"}',
+      '2026-01-01T00:10:00.820Z public-android [profile-event] {"event":"first_journey_completed","scenario":"first-journey","runId":"invalid-vocabulary-android","iteration":1,"atMs":820}',
+      '',
+    ].join('\n'),
+    'utf8',
+  );
+
+  const { stdout } = await execFileAsync(process.execPath, [
+    PROFILE_ANDROID,
+    '--config',
+    fixturePath('examples/mobile-app/asl.config.json'),
+    '--scenario',
+    fixturePath('templates/mobile-scenario.json'),
+    '--events',
+    eventLogPath,
+    '--out',
+    artifactRoot,
+    '--run-id',
+    'invalid-vocabulary-android',
+  ]);
+
+  const runDir = stdout.trim();
+  const causalRun = readJson(path.join(runDir, 'causal-run.json')) as Record<string, any>;
+
+  assert.equal(causalRun.timeline[0].phase, 'domain');
+  assert.equal(causalRun.timeline[0].status, 'observed');
+  assert.equal(causalRun.timeline[0].metadata.appPhase, 'capture');
+  assert.equal(causalRun.timeline[0].metadata.appStatus, 'passed');
+});
+
 test('profile-android maps schema-era open and close milestone budgets', async (t: TestContext) => {
   const tempRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-android-open-close-budget-'));
   t.after(async () => {
@@ -1262,6 +1302,97 @@ test('profile-android starts profile sessions and executes scenario commands dur
   );
   assert.ok(fs.existsSync(path.join(adbCaptureRoot, 'raw', 'adb-startup-deep-link-1.txt')));
   assert.ok(fs.existsSync(path.join(result.runDir, 'raw', 'adb-logcat.txt')));
+});
+
+test('profile-android seeds Android scenario commands as one ordered storage queue', async (t: TestContext) => {
+  const tempRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-android-storage-commands-'));
+  t.after(async () => {
+    await fsp.rm(tempRoot, { recursive: true, force: true });
+  });
+  const adbCaptureRoot = path.join(tempRoot, 'adb-capture');
+  const profileRoot = path.join(tempRoot, 'profile');
+  const storageWrites: string[] = [];
+  const executor = async (command: string, args: string[]): Promise<CommandResult> => {
+    const key = args.join(' ');
+    if (key.includes('run-as') && key.includes('sqlite3') && key.includes('databases/RKStorage')) {
+      storageWrites.push(key);
+      return { command, args, exitCode: 0, stderr: '', stdout: '' };
+    }
+
+    const responses: Record<string, Partial<CommandResult>> = {
+      version: { stdout: 'Android Debug Bridge version 1.0.41\n' },
+      'devices -l': {
+        stdout: [
+          'List of devices attached',
+          'emulator-5554 device product:sdk_gphone model:Pixel_6 device:emu64',
+        ].join('\n'),
+      },
+      '-s emulator-5554 shell getprop ro.product.model': { stdout: 'Pixel 6\n' },
+      '-s emulator-5554 shell getprop ro.build.version.release': { stdout: '15\n' },
+      '-s emulator-5554 shell getprop ro.build.version.sdk': { stdout: '35\n' },
+      '-s emulator-5554 shell pm path dev.agentscenarioloop.example': {
+        stdout: 'package:/data/app/dev.agentscenarioloop.example/base.apk\n',
+      },
+      '-s emulator-5554 shell date +%s': { stdout: '1800000000\n' },
+      '-s emulator-5554 shell monkey -p dev.agentscenarioloop.example -c android.intent.category.LAUNCHER 1': {
+        stdout: 'Events injected: 1\n',
+      },
+      '-s emulator-5554 shell pidof dev.agentscenarioloop.example': {
+        stdout: '1234\n',
+      },
+      '-s emulator-5554 logcat -d -v time -t 1000': {
+        stdout: fs
+          .readFileSync(fixturePath('examples/mobile-app/event-logs/android-open-close-cycle.log'), 'utf8')
+          .replace(/android-example-open-close/gu, 'android-storage-open-close'),
+      },
+    };
+    const response = responses[key] ?? { exitCode: 1, stderr: `unexpected command: ${key}` };
+    return {
+      command,
+      args,
+      exitCode: response.exitCode ?? 0,
+      stderr: response.stderr ?? '',
+      stdout: response.stdout ?? '',
+    };
+  };
+  const waits: number[] = [];
+
+  const result = await runProfileAndroid({
+    'adb-capture': true,
+    'adb-out': adbCaptureRoot,
+    config: fixturePath('examples/mobile-app/asl.config.json'),
+    launch: true,
+    'launch-wait-ms': '500',
+    out: profileRoot,
+    'profile-session': true,
+    'android-profile-session-storage': true,
+    'run-id': 'android-storage-open-close',
+    scenario: fixturePath('examples/mobile-app/scenarios/android/open-close-cycle.json'),
+    'wait-ms': '25',
+  }, {
+    delay: async (ms: number) => {
+      waits.push(ms);
+    },
+    executor,
+  });
+
+  const health = readJson(path.join(result.runDir, 'health.json'));
+  const adbHealth = readJson(path.join(adbCaptureRoot, 'health.json'));
+  const commandQueueWrite = storageWrites.find((write) => (
+    write.includes('INSERT OR REPLACE INTO catalystLocalStorage')
+    && write.includes('agent-scenario-loop.profile-commands.1')
+    && write.includes('activate-target:example-card-1')
+  ));
+
+  assert.equal(health.healthStatus, 'passed');
+  assert.equal(adbHealth.healthStatus, 'passed');
+  assert.equal(storageWrites.length, 2);
+  assert.ok(commandQueueWrite);
+  assert.match(commandQueueWrite, /activate-target:example-card-1/u);
+  assert.match(commandQueueWrite, /activate-target:close-card/u);
+  assert.doesNotMatch(commandQueueWrite, /DELETE FROM catalystLocalStorage WHERE key='agent-scenario-loop\.profile-commands\.1'.*DELETE FROM catalystLocalStorage WHERE key='agent-scenario-loop\.profile-commands\.1'/u);
+  assert.deepEqual(waits, [500, 250, 1800, 25]);
+  assert.ok(fs.existsSync(path.join(adbCaptureRoot, 'raw', 'adb-async-storage-write-2.txt')));
 });
 
 test('profile-android derives adb capture waits from scenario execution windows', () => {

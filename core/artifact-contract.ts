@@ -10,6 +10,25 @@ type ProfileEvent = ArtifactRecord & {
   timestamp?: number | string;
 };
 
+const CAUSAL_TIMELINE_PHASES = new Set([
+  'intent',
+  'navigation',
+  'domain',
+  'query',
+  'network',
+  'render',
+  'native',
+  'visual',
+  'completion',
+]);
+const CAUSAL_TIMELINE_STATUSES = new Set([
+  'started',
+  'completed',
+  'failed',
+  'skipped',
+  'observed',
+]);
+
 type BudgetCheck = {
   name: string;
   actual: unknown;
@@ -631,6 +650,50 @@ function inferTimelineStatus(eventName: unknown): string {
 }
 
 /**
+ * Keeps causal-run timeline values within the public artifact schema.
+ *
+ * App-owned events may carry richer phase/status vocabulary than ASL's stable
+ * artifact contract. Preserve that vocabulary in metadata, but emit only schema
+ * values at the timeline top level.
+ *
+ * @param {{phase: string, status: string, metadata: Record<string, unknown>}} options
+ * @returns {{phase: string, status: string, metadata: Record<string, unknown>}}
+ */
+function normalizeTimelineContractValues({
+  metadata,
+  phase,
+  status,
+}: {
+  metadata: ArtifactRecord;
+  phase: string;
+  status: string;
+}): {
+  metadata: ArtifactRecord;
+  phase: string;
+  status: string;
+} {
+  const normalizedMetadata = { ...metadata };
+  let normalizedPhase = phase;
+  let normalizedStatus = status;
+
+  if (!CAUSAL_TIMELINE_PHASES.has(normalizedPhase)) {
+    normalizedMetadata.appPhase = normalizedPhase;
+    normalizedPhase = 'domain';
+  }
+
+  if (!CAUSAL_TIMELINE_STATUSES.has(normalizedStatus)) {
+    normalizedMetadata.appStatus = normalizedStatus;
+    normalizedStatus = 'observed';
+  }
+
+  return {
+    metadata: normalizedMetadata,
+    phase: normalizedPhase,
+    status: normalizedStatus,
+  };
+}
+
+/**
  * Builds a causal timeline from app-owned profile events.
  *
  * @param {{events: Record<string, unknown>[], startedAt?: string, phaseMap?: Record<string, string> | null, owner?: string | null}} options
@@ -677,17 +740,21 @@ function buildCausalTimeline({
         ...(typeof event.route === 'string' ? { route: event.route } : {}),
         ...(typeof event.iteration === 'number' ? { iteration: event.iteration } : {}),
       };
+      const timelineValues = normalizeTimelineContractValues({
+        metadata,
+        phase: explicitPhase ?? inferTimelinePhase(event.event),
+        status: typeof event.status === 'string' ? event.status : inferTimelineStatus(event.event),
+      });
 
       return sortValue({
-        phase: explicitPhase ?? inferTimelinePhase(event.event),
+        phase: timelineValues.phase,
         name: event.event,
         atMs,
-        status:
-          typeof event.status === 'string' ? event.status : inferTimelineStatus(event.event),
+        status: timelineValues.status,
         ...((typeof event.owner === 'string' && event.owner.length > 0) || owner
           ? { owner: event.owner || owner }
           : {}),
-        ...(Object.keys(metadata).length > 0 ? { metadata } : {}),
+        ...(Object.keys(timelineValues.metadata).length > 0 ? { metadata: timelineValues.metadata } : {}),
       });
     })
     .filter(Boolean)
