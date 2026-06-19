@@ -1297,6 +1297,76 @@ test('accepts null schema types', () => {
   assert.equal(result.valid, true, result.message);
 });
 
+test('accepts health artifacts with downgrade policy', () => {
+  const health = {
+    schemaVersion: '1.0.0',
+    scenarioId: 'app-startup',
+    runId: 'run-1',
+    healthStatus: 'passed',
+    checks: [
+      {
+        name: 'planner_compatibility',
+        status: 'passed',
+        source: 'planner',
+      },
+    ],
+    downgradePolicy: {
+      mode: 'no-silent-downgrade',
+      allowedSubstitutions: [],
+      substitutions: [],
+      unsupported: [],
+      warnings: [
+        {
+          kind: 'artifact',
+          name: 'video',
+          status: 'warning',
+          code: 'missing_optional_artifact',
+        },
+      ],
+    },
+  };
+
+  const result = validateJson(health, SCHEMAS.health, 'Health artifact');
+
+  assert.equal(result.valid, true, result.message);
+});
+
+test('rejects malformed health downgrade policy entries', () => {
+  const health = {
+    schemaVersion: '1.0.0',
+    scenarioId: 'app-startup',
+    runId: 'run-1',
+    healthStatus: 'passed',
+    checks: [
+      {
+        name: 'planner_compatibility',
+        status: 'passed',
+        source: 'planner',
+      },
+    ],
+    downgradePolicy: {
+      mode: 'silent-downgrade-ok',
+      allowedSubstitutions: [],
+      substitutions: [],
+      unsupported: [
+        {
+          kind: 'capability',
+          name: '',
+          status: 'unsupported',
+          code: 'missing_required_capability',
+        },
+      ],
+      warnings: [],
+    },
+  };
+
+  const result = validateJson(health, SCHEMAS.health, 'Health artifact');
+
+  assert.equal(result.valid, false);
+  assert.ok(result.errors.some((error: ValidationIssue) => error.path === '$.downgradePolicy.mode'), result.message);
+  assert.ok(result.errors.some((error: ValidationIssue) => error.path === '$.downgradePolicy.unsupported[0].name'), result.message);
+});
+
 test('rejects comparison artifacts with unknown comparison status', () => {
   const comparison = {
     schemaVersion: '1.0.0',

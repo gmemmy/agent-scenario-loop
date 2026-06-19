@@ -10,6 +10,13 @@ type CompatibilityResult = {
   compatible: boolean;
   errors: PlannerIssue[];
   warnings: PlannerIssue[];
+  downgradePolicy: {
+    mode: string;
+    allowedSubstitutions: Array<Record<string, unknown>>;
+    substitutions: Array<Record<string, unknown>>;
+    unsupported: Array<Record<string, unknown>>;
+    warnings: Array<Record<string, unknown>>;
+  };
   matched: {
     platforms: string[];
     capabilities: string[];
@@ -110,6 +117,70 @@ function createIssue(code: string, message: string, metadata: ManifestRecord = {
     code,
     message,
     ...metadata,
+  };
+}
+
+/**
+ * Converts a planner issue into a capability policy entry when it affects proof strength.
+ *
+ * @param {Record<string, unknown>} issue
+ * @param {'unsupported' | 'warning'} status
+ * @returns {Record<string, unknown> | null}
+ */
+function issueToCapabilityPolicyEntry(issue: PlannerIssue, status: 'unsupported' | 'warning'): ManifestRecord | null {
+  if (typeof issue.capability === 'string') {
+    return {
+      kind: 'capability',
+      name: issue.capability,
+      status,
+      code: issue.code,
+    };
+  }
+
+  if (typeof issue.driverAction === 'string') {
+    return {
+      kind: 'driverAction',
+      name: issue.driverAction,
+      status,
+      code: issue.code,
+    };
+  }
+
+  if (typeof issue.artifact === 'string') {
+    return {
+      kind: 'artifact',
+      name: issue.artifact,
+      status,
+      code: issue.code,
+    };
+  }
+
+  return null;
+}
+
+/**
+ * Builds the no-silent-downgrade policy artifact from planner results.
+ *
+ * @param {{errors: Record<string, unknown>[], warnings: Record<string, unknown>[]}} options
+ * @returns {Record<string, unknown>}
+ */
+function buildDowngradePolicy({
+  errors,
+  warnings,
+}: {
+  errors: PlannerIssue[];
+  warnings: PlannerIssue[];
+}): CompatibilityResult['downgradePolicy'] {
+  return {
+    mode: 'no-silent-downgrade',
+    allowedSubstitutions: [],
+    substitutions: [],
+    unsupported: errors
+      .map((issue) => issueToCapabilityPolicyEntry(issue, 'unsupported'))
+      .filter((entry): entry is ManifestRecord => entry !== null),
+    warnings: warnings
+      .map((issue) => issueToCapabilityPolicyEntry(issue, 'warning'))
+      .filter((entry): entry is ManifestRecord => entry !== null),
   };
 }
 
@@ -895,6 +966,7 @@ function evaluateRunnerCompatibility({
       compatible: false,
       errors,
       warnings,
+      downgradePolicy: buildDowngradePolicy({ errors, warnings }),
       matched: {
         platforms: [],
         capabilities: [],
@@ -1010,6 +1082,7 @@ function evaluateRunnerCompatibility({
     compatible: errors.length === 0,
     errors,
     warnings,
+    downgradePolicy: buildDowngradePolicy({ errors, warnings }),
     matched: {
       platforms: effectivePlatforms,
       capabilities: providedCapabilities,
@@ -1062,6 +1135,7 @@ function buildCompatibilityHealth({
     healthStatus: failedChecks.length > 0 ? 'failed' : 'passed',
     checks,
     ...(warningChecks.length > 0 ? { warnings: warningChecks } : {}),
+    downgradePolicy: compatibility.downgradePolicy ?? buildDowngradePolicy({ errors, warnings }),
     matched: {
       platforms: uniqueSorted(asArray(compatibility?.matched?.platforms)),
       capabilities: uniqueSorted(asArray(compatibility?.matched?.capabilities)),

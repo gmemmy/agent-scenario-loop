@@ -71,9 +71,75 @@
           }
         }
       }
+    },
+    "downgradePolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "allowedSubstitutions", "substitutions", "unsupported", "warnings"],
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": ["no-silent-downgrade"]
+        },
+        "allowedSubstitutions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/downgradePolicyEntry"
+          }
+        },
+        "substitutions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/downgradePolicyEntry"
+          }
+        },
+        "unsupported": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/downgradePolicyEntry"
+          }
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/downgradePolicyEntry"
+          }
+        }
+      }
     }
   },
   "$defs": {
+    "downgradePolicyEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "name", "status", "code"],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": ["capability", "driverAction", "artifact"]
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "status": {
+          "type": "string",
+          "enum": ["unsupported", "warning", "substituted"]
+        },
+        "code": {
+          "type": "string",
+          "minLength": 1
+        },
+        "requested": {
+          "type": "string",
+          "minLength": 1
+        },
+        "provided": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
     "healthCheck": {
       "type": "object",
       "additionalProperties": false,

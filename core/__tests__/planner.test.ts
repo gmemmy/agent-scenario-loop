@@ -562,6 +562,15 @@ test('treats optional step driver actions as warnings', () => {
       .map((warning: PlannerIssue) => warning.driverAction),
     ['collectPerfSignals'],
   );
+  assert.ok(
+    result.downgradePolicy.warnings.some(
+      (entry: JsonRecord) =>
+        entry.code === 'missing_optional_driver_action' &&
+        entry.kind === 'driverAction' &&
+        entry.name === 'collectPerfSignals' &&
+        entry.status === 'warning',
+    ),
+  );
 });
 
 test('collects required and optional scenario driver actions deterministically', () => {
@@ -627,6 +636,17 @@ test('fails when required evidence cannot be produced by the runner or providers
     ['missing_required_artifact'],
   );
   assert.equal(result.errors[0].artifact, 'profiler');
+  assert.equal(result.downgradePolicy.mode, 'no-silent-downgrade');
+  assert.deepEqual(result.downgradePolicy.allowedSubstitutions, []);
+  assert.deepEqual(result.downgradePolicy.substitutions, []);
+  assert.deepEqual(result.downgradePolicy.unsupported, [
+    {
+      code: 'missing_required_artifact',
+      kind: 'artifact',
+      name: 'profiler',
+      status: 'unsupported',
+    },
+  ]);
 });
 
 test('allows an evidence provider to satisfy required evidence', () => {
@@ -802,6 +822,13 @@ test('maps compatible planner output to passed health', () => {
   );
   assert.ok(health.matched.capabilities.includes('launch'));
   assert.ok(health.matched.driverActions.includes('screenshot'));
+  assert.deepEqual(health.downgradePolicy, {
+    allowedSubstitutions: [],
+    mode: 'no-silent-downgrade',
+    substitutions: [],
+    unsupported: [],
+    warnings: [],
+  });
 });
 
 test('maps planner warnings into health warnings without failing health', () => {
@@ -822,6 +849,20 @@ test('maps planner warnings into health warnings without failing health', () => 
     health.warnings.map((warning: PlannerIssue) => warning.code),
     ['missing_optional_capability', 'missing_optional_artifact'],
   );
+  assert.deepEqual(health.downgradePolicy.warnings, [
+    {
+      code: 'missing_optional_capability',
+      kind: 'capability',
+      name: 'video',
+      status: 'warning',
+    },
+    {
+      code: 'missing_optional_artifact',
+      kind: 'artifact',
+      name: 'video',
+      status: 'warning',
+    },
+  ]);
 });
 
 test('maps incompatible planner output to failed health checks', () => {
@@ -839,6 +880,11 @@ test('maps incompatible planner output to failed health checks', () => {
   assert.ok(health.checks.length >= 1);
   assert.ok(health.checks.every((check: HealthCheck) => check.status === 'failed'));
   assert.ok(health.checks.some((check: HealthCheck) => check.code === 'missing_required_capability'));
+  assert.ok(
+    health.downgradePolicy.unsupported.some(
+      (entry: JsonRecord) => entry.kind === 'capability' && entry.name === 'launch',
+    ),
+  );
 });
 
 test('creates a not-evaluated verdict when health passes before budget evaluation', () => {
