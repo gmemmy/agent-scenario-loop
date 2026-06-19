@@ -529,11 +529,15 @@ test('profile-android attaches provider signal and capture artifacts', async (t:
     captures: { uiTree: string };
     evidenceAttachments: Array<{
       channel: string;
+      completenessStatus: string;
+      corruptionStatus: string;
       kind: string;
       path: string;
+      redactionStatus: string;
       sha256: string;
       sizeBytes: number;
       sourceFileName: string;
+      transformations: string[];
     }>;
     signals: { js: string[]; network: string[] };
   };
@@ -546,27 +550,39 @@ test('profile-android attaches provider signal and capture artifacts', async (t:
   assert.deepEqual(artifacts.evidenceAttachments, [
     {
       channel: 'signal',
+      completenessStatus: 'complete',
+      corruptionStatus: 'valid',
       kind: 'js',
       path: 'signals/js/js-profile.json',
+      redactionStatus: 'not-redacted',
       sha256: sha256File(jsSignalPath),
       sizeBytes: fs.statSync(jsSignalPath).size,
       sourceFileName: 'js-profile.json',
+      transformations: ['copied'],
     },
     {
       channel: 'signal',
+      completenessStatus: 'complete',
+      corruptionStatus: 'valid',
       kind: 'network',
       path: 'signals/network/network-capture.har',
+      redactionStatus: 'not-redacted',
       sha256: sha256File(networkSignalPath),
       sizeBytes: fs.statSync(networkSignalPath).size,
       sourceFileName: 'network-capture.har',
+      transformations: ['copied'],
     },
     {
       channel: 'capture',
+      completenessStatus: 'complete',
+      corruptionStatus: 'valid',
       kind: 'uiTree',
       path: 'captures/ui-tree-provider.json',
+      redactionStatus: 'not-redacted',
       sha256: sha256File(uiTreePath),
       sizeBytes: fs.statSync(uiTreePath).size,
       sourceFileName: 'ui-tree-provider.json',
+      transformations: ['copied'],
     },
   ]);
   assert.ok(fs.existsSync(path.join(runDir, 'signals', 'js', 'js-profile.json')));
@@ -649,10 +665,15 @@ test('profile-android executes declared evidence provider commands', async (t: T
   const artifacts = manifest.artifacts as {
     evidenceAttachments: Array<{
       channel: string;
+      completenessStatus: string;
+      corruptionStatus: string;
       kind: string;
       path: string;
+      redactionStatus: string;
       sha256: string;
+      sizeBytes: number;
       sourceFileName: string;
+      transformations: string[];
     }>;
   };
   const summary = fs.readFileSync(path.join(runDir, 'summary.md'), 'utf8');
@@ -662,11 +683,15 @@ test('profile-android executes declared evidence provider commands', async (t: T
   assert.deepEqual(artifacts.evidenceAttachments, [
     {
       channel: 'provider',
+      completenessStatus: 'complete',
+      corruptionStatus: 'valid',
       kind: 'accessibility',
       path: 'raw/providers/local-accessibility-provider/accessibility.json',
+      redactionStatus: 'not-redacted',
       sha256: sha256File(providerOutputPath),
       sizeBytes: fs.statSync(providerOutputPath).size,
       sourceFileName: 'accessibility.json',
+      transformations: ['copied'],
     },
   ]);
   assert.match(summary, /provider\/accessibility/u);

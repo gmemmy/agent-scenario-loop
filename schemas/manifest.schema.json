@@ -423,11 +423,30 @@
           "items": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["channel", "kind", "path", "sha256", "sizeBytes", "sourceFileName"],
+            "required": [
+              "channel",
+              "completenessStatus",
+              "corruptionStatus",
+              "kind",
+              "path",
+              "redactionStatus",
+              "sha256",
+              "sizeBytes",
+              "sourceFileName",
+              "transformations"
+            ],
             "properties": {
               "channel": {
                 "type": "string",
                 "enum": ["capture", "provider", "signal"]
+              },
+              "completenessStatus": {
+                "type": "string",
+                "enum": ["complete", "truncated", "unknown"]
+              },
+              "corruptionStatus": {
+                "type": "string",
+                "enum": ["valid", "corrupt", "unknown"]
               },
               "kind": {
                 "type": "string",
@@ -436,6 +455,10 @@
               "path": {
                 "type": "string",
                 "minLength": 1
+              },
+              "redactionStatus": {
+                "type": "string",
+                "enum": ["not-redacted", "redacted", "unknown"]
               },
               "sha256": {
                 "type": "string",
@@ -448,6 +471,15 @@
               "sourceFileName": {
                 "type": "string",
                 "minLength": 1
+              },
+              "transformations": {
+                "type": "array",
+                "minItems": 1,
+                "uniqueItems": true,
+                "items": {
+                  "type": "string",
+                  "enum": ["copied", "normalized", "redacted", "truncated", "compressed", "transcoded", "unknown"]
+                }
               }
             }
           }

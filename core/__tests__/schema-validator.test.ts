@@ -932,11 +932,15 @@ test('rejects unknown manifest lifecycle phase values', () => {
 test('rejects unstable evidence attachment inventory entries', () => {
   const attachment = {
     channel: 'provider',
+    completenessStatus: 'complete',
+    corruptionStatus: 'valid',
     kind: 'accessibility',
     path: 'raw/providers/axe/accessibility.json',
+    redactionStatus: 'not-redacted',
     sha256: 'a'.repeat(64),
     sizeBytes: 42,
     sourceFileName: 'accessibility.json',
+    transformations: ['copied'],
   };
   const manifest = {
     scenario: 'app-startup',
@@ -1003,7 +1007,11 @@ test('rejects unstable evidence attachment inventory entries', () => {
         memory: [],
         network: [],
       },
-      evidenceAttachments: [attachment, { ...attachment }, { ...attachment, path: '', sourceFileName: '' }],
+      evidenceAttachments: [
+        attachment,
+        { ...attachment },
+        { ...attachment, path: '', sourceFileName: '', completenessStatus: 'partial', transformations: [] },
+      ],
     },
     failureReason: null,
   };
@@ -1014,16 +1022,22 @@ test('rejects unstable evidence attachment inventory entries', () => {
   assert.ok(result.errors.some((error: ValidationIssue) => error.code === 'duplicate_item' && error.path === '$.artifacts.evidenceAttachments'));
   assert.ok(result.errors.some((error: ValidationIssue) => error.code === 'too_short' && error.path === '$.artifacts.evidenceAttachments[2].path'));
   assert.ok(result.errors.some((error: ValidationIssue) => error.code === 'too_short' && error.path === '$.artifacts.evidenceAttachments[2].sourceFileName'));
+  assert.ok(result.errors.some((error: ValidationIssue) => error.code === 'invalid_enum' && error.path === '$.artifacts.evidenceAttachments[2].completenessStatus'));
+  assert.ok(result.errors.some((error: ValidationIssue) => error.code === 'too_few_items' && error.path === '$.artifacts.evidenceAttachments[2].transformations'));
 });
 
 test('rejects unstable causal-run evidence attachment inventory entries', () => {
   const attachment = {
     channel: 'signal',
+    completenessStatus: 'complete',
+    corruptionStatus: 'valid',
     kind: 'js',
     path: 'signals/js/profile.json',
+    redactionStatus: 'not-redacted',
     sha256: 'b'.repeat(64),
     sizeBytes: 42,
     sourceFileName: 'profile.json',
+    transformations: ['copied'],
   };
   const causalRun = {
     schemaVersion: '1.0.0',
@@ -1054,7 +1068,11 @@ test('rejects unstable causal-run evidence attachment inventory entries', () => 
         memory: [],
         network: [],
       },
-      evidenceAttachments: [attachment, { ...attachment }, { ...attachment, path: '', sourceFileName: '' }],
+      evidenceAttachments: [
+        attachment,
+        { ...attachment },
+        { ...attachment, path: '', sourceFileName: '', redactionStatus: 'scrubbed', transformations: ['copied', 'copied'] },
+      ],
     },
   };
 
@@ -1064,6 +1082,8 @@ test('rejects unstable causal-run evidence attachment inventory entries', () => 
   assert.ok(result.errors.some((error: ValidationIssue) => error.code === 'duplicate_item' && error.path === '$.artifacts.evidenceAttachments'));
   assert.ok(result.errors.some((error: ValidationIssue) => error.code === 'too_short' && error.path === '$.artifacts.evidenceAttachments[2].path'));
   assert.ok(result.errors.some((error: ValidationIssue) => error.code === 'too_short' && error.path === '$.artifacts.evidenceAttachments[2].sourceFileName'));
+  assert.ok(result.errors.some((error: ValidationIssue) => error.code === 'invalid_enum' && error.path === '$.artifacts.evidenceAttachments[2].redactionStatus'));
+  assert.ok(result.errors.some((error: ValidationIssue) => error.code === 'duplicate_item' && error.path === '$.artifacts.evidenceAttachments[2].transformations'));
 });
 
 test('accepts aggregate live proof artifacts', () => {

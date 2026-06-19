@@ -1199,27 +1199,39 @@ function main(): void {
     assert.deepEqual(providerManifest.artifacts.evidenceAttachments, [
       {
         channel: 'signal',
+        completenessStatus: 'complete',
+        corruptionStatus: 'valid',
         kind: 'js',
         path: 'signals/js/js-profile.json',
+        redactionStatus: 'not-redacted',
         sha256: sha256File(providerJsSignal),
         sizeBytes: fs.statSync(providerJsSignal).size,
         sourceFileName: 'js-profile.json',
+        transformations: ['copied'],
       },
       {
         channel: 'signal',
+        completenessStatus: 'complete',
+        corruptionStatus: 'valid',
         kind: 'network',
         path: 'signals/network/network-capture.har',
+        redactionStatus: 'not-redacted',
         sha256: sha256File(providerNetworkSignal),
         sizeBytes: fs.statSync(providerNetworkSignal).size,
         sourceFileName: 'network-capture.har',
+        transformations: ['copied'],
       },
       {
         channel: 'capture',
+        completenessStatus: 'complete',
+        corruptionStatus: 'valid',
         kind: 'uiTree',
         path: 'captures/ui-tree.json',
+        redactionStatus: 'not-redacted',
         sha256: sha256File(providerUiTree),
         sizeBytes: fs.statSync(providerUiTree).size,
         sourceFileName: 'ui-tree.json',
+        transformations: ['copied'],
       },
     ]);
     assert.equal(fs.existsSync(path.join(providerProfileRunDir, 'signals', 'js', 'js-profile.json')), true);
@@ -1287,11 +1299,15 @@ function main(): void {
     assert.deepEqual(providerCommandManifest.artifacts.evidenceAttachments, [
       {
         channel: 'provider',
+        completenessStatus: 'complete',
+        corruptionStatus: 'valid',
         kind: 'accessibility',
         path: 'raw/providers/smoke-accessibility-provider/accessibility.json',
+        redactionStatus: 'not-redacted',
         sha256: sha256File(providerCommandOutput),
         sizeBytes: fs.statSync(providerCommandOutput).size,
         sourceFileName: 'accessibility.json',
+        transformations: ['copied'],
       },
     ]);
 

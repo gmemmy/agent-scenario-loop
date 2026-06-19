@@ -54,13 +54,17 @@ type EvidenceChannel = 'capture' | 'provider' | 'signal';
 type EvidenceKind = CaptureEvidenceKind | ProviderEvidenceKind | SignalEvidenceKind;
 type EvidenceAttachment = {
   channel: EvidenceChannel;
+  completenessStatus: 'complete';
+  corruptionStatus: 'valid';
   destinationPath: string;
   kind: EvidenceKind;
   manifestPath: string;
+  redactionStatus: 'not-redacted';
   sha256: string;
   sourcePath: string;
   sourceFileName: string;
   sizeBytes: number;
+  transformations: readonly ['copied'];
 };
 type EvidenceAttachmentInput = {
   channel: EvidenceChannel;
@@ -617,11 +621,15 @@ async function executeProviderCommands({
 function buildEvidenceAttachmentManifest(attachments: EvidenceAttachment[]): Record<string, unknown>[] {
   return attachments.map((attachment) => ({
     channel: attachment.channel,
+    completenessStatus: attachment.completenessStatus,
+    corruptionStatus: attachment.corruptionStatus,
     kind: attachment.kind,
     path: attachment.manifestPath,
+    redactionStatus: attachment.redactionStatus,
     sha256: attachment.sha256,
     sizeBytes: attachment.sizeBytes,
     sourceFileName: attachment.sourceFileName,
+    transformations: attachment.transformations,
   }));
 }
 
@@ -675,13 +683,17 @@ async function resolveAttachedEvidence({
     destinationPaths.add(destinationPath);
     const attachment = {
       channel,
+      completenessStatus: 'complete' as const,
+      corruptionStatus: 'valid' as const,
       destinationPath,
       kind,
       manifestPath,
+      redactionStatus: 'not-redacted' as const,
       sha256: await hashFileSha256(sourcePath),
       sourceFileName: path.basename(sourcePath),
       sourcePath,
       sizeBytes: stat.size,
+      transformations: ['copied'] as const,
     };
     attached.attachments.push(attachment);
     attached.copies.push(attachment);

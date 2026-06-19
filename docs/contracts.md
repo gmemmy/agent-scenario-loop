@@ -123,7 +123,7 @@ Aggregate live proof commands write `live-proof.json` and `agent-summary.md` und
 
 Platform-set proof commands write `live-proof-set.json` and `agent-summary.md` under the caller-provided proof-set output directory. The proof-set artifact records required platforms, present platforms, missing platforms, each linked `live-proof.json`, failed proof reasons, regression-gate reasons, and a next action. This gives agents one stable Android-plus-iOS gate after the per-platform live proofs have written their own aggregate evidence.
 
-Provider or custom-script evidence attached with `--signal` or `--capture` is copied into stable run folders and inventoried in `manifest.artifacts.evidenceAttachments`. Each inventory entry records the evidence channel, kind, run-relative path, source filename, byte size, and sha256 hash; it does not preserve local absolute source paths.
+Provider or custom-script evidence attached with `--signal` or `--capture` is copied into stable run folders and inventoried in `manifest.artifacts.evidenceAttachments`. Each inventory entry records the evidence channel, kind, run-relative path, source filename, byte size, sha256 hash, completeness status, corruption status, redaction status, and transformations; it does not preserve local absolute source paths.
 
 Evidence folders:
 
