@@ -1609,9 +1609,14 @@ test('profile-android seeds Android scenario commands as one ordered storage que
         stdout: '1234\n',
       },
       '-s emulator-5554 logcat -d -v time -t 1000': {
-        stdout: fs
-          .readFileSync(fixturePath('examples/mobile-app/event-logs/android-open-close-cycle.log'), 'utf8')
-          .replace(/android-example-open-close/gu, 'android-storage-open-close'),
+        stdout: [
+          fs
+            .readFileSync(fixturePath('examples/mobile-app/event-logs/android-open-close-cycle.log'), 'utf8')
+            .replace(/android-example-open-close/gu, 'android-storage-open-close'),
+          '2026-01-01T00:00:00.050Z public-android [profile-session] kind=command scenario=open-close-cycle runId=android-storage-open-close command=activate-target:example-card-1 commandId=open-card queueId=open-close-cycle sequence=1 source=storage status=received atMs=50 waitForMilestone=card_opened waitTimeoutMs=1500',
+          '2026-01-01T00:00:00.070Z public-android [profile-session] kind=command scenario=open-close-cycle runId=android-storage-open-close command=activate-target:example-card-1 commandId=open-card queueId=open-close-cycle sequence=1 source=storage status=completed result=target-dispatched atMs=70 waitForMilestone=card_opened waitTimeoutMs=1500',
+          '2026-01-01T00:00:02.050Z public-android [profile-session] kind=command scenario=open-close-cycle runId=android-storage-open-close command=activate-target:close-card commandId=close-card queueId=open-close-cycle sequence=6 source=storage status=completed result=target-dispatched atMs=2050',
+        ].join('\n'),
       },
     };
     const response = responses[key] ?? { exitCode: 1, stderr: `unexpected command: ${key}` };
@@ -1646,6 +1651,7 @@ test('profile-android seeds Android scenario commands as one ordered storage que
 
   const health = readJson(path.join(result.runDir, 'health.json'));
   const adbHealth = readJson(path.join(adbCaptureRoot, 'health.json'));
+  const causalRun = readJson(path.join(result.runDir, 'causal-run.json')) as Record<string, any>;
   const commandQueueWrite = storageWrites.find((write) => (
     write.includes('INSERT OR REPLACE INTO catalystLocalStorage')
     && write.includes('agent-scenario-loop.profile-commands.1')
@@ -1664,6 +1670,42 @@ test('profile-android seeds Android scenario commands as one ordered storage que
   assert.match(commandQueueWrite, /"sequence":6/u);
   assert.match(commandQueueWrite, /"queueId":"open-close-cycle"/u);
   assert.doesNotMatch(commandQueueWrite, /DELETE FROM catalystLocalStorage WHERE key='agent-scenario-loop\.profile-commands\.1'.*DELETE FROM catalystLocalStorage WHERE key='agent-scenario-loop\.profile-commands\.1'/u);
+  const commandTimeline = causalRun.timeline.filter((event: Record<string, any>) => (
+    event.owner === 'asl-command-transport'
+  ));
+  assert.deepEqual(commandTimeline.map((event: Record<string, any>) => ({
+    name: event.name,
+    status: event.status,
+    commandId: event.metadata.commandId,
+    sequence: event.metadata.sequence,
+    waitForMilestone: event.metadata.waitForMilestone,
+    waitTimeoutMs: event.metadata.waitTimeoutMs,
+  })), [
+    {
+      commandId: 'open-card',
+      name: 'profile_command_received',
+      sequence: 1,
+      status: 'started',
+      waitForMilestone: 'card_opened',
+      waitTimeoutMs: 1500,
+    },
+    {
+      commandId: 'open-card',
+      name: 'profile_command_completed',
+      sequence: 1,
+      status: 'completed',
+      waitForMilestone: 'card_opened',
+      waitTimeoutMs: 1500,
+    },
+    {
+      commandId: 'close-card',
+      name: 'profile_command_completed',
+      sequence: 6,
+      status: 'completed',
+      waitForMilestone: undefined,
+      waitTimeoutMs: undefined,
+    },
+  ]);
   assert.deepEqual(waits, [500, 250, 1800, 25]);
   assert.ok(fs.existsSync(path.join(adbCaptureRoot, 'raw', 'adb-async-storage-write-2.txt')));
 });

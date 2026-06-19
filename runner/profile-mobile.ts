@@ -16,6 +16,7 @@ const {
   buildMetricsFromProfileEvents,
   buildSummaryMarkdown,
   extractProfileEvents,
+  extractProfileSessionEntries,
 } = require('../core/artifact-contract');
 const { SCHEMAS, assertValidJson } = require('../core/schema-validator');
 const { writeUsage } = require('./cli');
@@ -1201,6 +1202,21 @@ function resolveEventLogPath({ args, platform }: { args: CliArgs; platform: Prof
 }
 
 /**
+ * Resolves the optional profile-session entry artifact path for command acknowledgement evidence.
+ *
+ * @param {{args: CliArgs, platform: ProfilePlatform}} options
+ * @returns {string | null}
+ */
+function resolveProfileSessionEntriesPath({ args, platform }: { args: CliArgs; platform: ProfilePlatform }): string | null {
+  if (platform === 'ios' && typeof args['simctl-artifacts'] === 'string') {
+    const storedEntriesPath = path.resolve(args['simctl-artifacts'], 'raw', 'ios-profile-session-entries.json');
+    return fs.existsSync(storedEntriesPath) ? storedEntriesPath : null;
+  }
+
+  return null;
+}
+
+/**
  * Reads a JSON artifact if it exists and contains an object.
  *
  * @param {string} filePath
@@ -1733,6 +1749,7 @@ async function runProfileMobile(args: CliArgs, options: ProfileMobileOptions): P
   const capturesDir = layout.captures;
   const startedAt = new Date().toISOString();
   const eventLogPath = resolveEventLogPath({ args, platform: options.platform });
+  const profileSessionEntriesPath = resolveProfileSessionEntriesPath({ args, platform: options.platform });
   const interactionDriver = resolveInteractionDriver({ config, options, scenario });
   const comparisonLane = resolveComparisonLane({ args, options, scenario });
 
@@ -1788,6 +1805,28 @@ async function runProfileMobile(args: CliArgs, options: ProfileMobileOptions): P
     scenario: scenarioName,
     runId,
   });
+  const logSessionEntries = extractProfileSessionEntries(eventLogText, {
+    scenario: scenarioName,
+    runId,
+  });
+  const storedSessionEntries = profileSessionEntriesPath
+    ? JSON.parse(await fsp.readFile(profileSessionEntriesPath, 'utf8'))
+    : [];
+  const sessionEntries = [
+    ...logSessionEntries,
+    ...(Array.isArray(storedSessionEntries)
+      ? storedSessionEntries.filter((entry: unknown): entry is Record<string, unknown> => {
+          if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+            return false;
+          }
+          const record = entry as Record<string, unknown>;
+          return (
+            (!('scenario' in record) || record.scenario === scenarioName) &&
+            (!('runId' in record) || record.runId === runId)
+          );
+        })
+      : []),
+  ];
   const runtimeTarget = resolveRuntimeTarget({ args, platform: options.platform });
 
   const metrics = buildMetricsFromProfileEvents({
@@ -1864,6 +1903,7 @@ async function runProfileMobile(args: CliArgs, options: ProfileMobileOptions): P
 
   const timeline = buildCausalTimeline({
     events,
+    sessionEntries,
     startedAt,
     phaseMap: scenario.timelinePhases ?? null,
     owner: scenario.flowId ?? scenarioName,
@@ -1943,6 +1983,9 @@ async function runProfileMobile(args: CliArgs, options: ProfileMobileOptions): P
   });
   if (eventLogPath) {
     await fsp.copyFile(eventLogPath, path.join(rawDir, path.basename(eventLogPath)));
+  }
+  if (profileSessionEntriesPath) {
+    await fsp.copyFile(profileSessionEntriesPath, path.join(rawDir, path.basename(profileSessionEntriesPath)));
   }
   await copyAttachedEvidence(attachedEvidence.copies);
 

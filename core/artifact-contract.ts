@@ -1,6 +1,7 @@
 const crypto = require('node:crypto');
 
 const PROFILE_EVENT_PREFIX = '[profile-event]';
+const PROFILE_SESSION_PREFIX = '[profile-session]';
 
 type ArtifactRecord = Record<string, any>;
 type ProfileEvent = ArtifactRecord & {
@@ -9,6 +10,12 @@ type ProfileEvent = ArtifactRecord & {
   runId?: string;
   iteration?: number;
   atMs?: number;
+  timestamp?: number | string;
+};
+type ProfileSessionEntry = ArtifactRecord & {
+  kind?: string;
+  scenario?: string;
+  runId?: string;
   timestamp?: number | string;
 };
 
@@ -155,6 +162,65 @@ function parseKeyValueProfileEvent(payload: string): ProfileEvent | null {
   }
 
   return event;
+}
+
+/**
+ * Parses key/value `[profile-session]` payloads into structured session entries.
+ *
+ * @param {string} payload
+ * @returns {Record<string, unknown> | null}
+ */
+function parseKeyValueProfileSessionEntry(payload: string): ProfileSessionEntry | null {
+  const matches = payload.match(/(?:[^\s=]+)=(?:"[^"]*"|'[^']*'|[^\s]+)/gu) ?? [];
+  if (matches.length === 0) {
+    return null;
+  }
+
+  const entry: ProfileSessionEntry = {};
+  for (const match of matches) {
+    const separatorIndex = match.indexOf('=');
+    if (separatorIndex <= 0) {
+      continue;
+    }
+
+    const key = match.slice(0, separatorIndex);
+    let value = match.slice(separatorIndex + 1);
+    if (
+      (value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'"))
+    ) {
+      value = value.slice(1, -1);
+    }
+
+    entry[key] = value;
+  }
+
+  if (
+    typeof entry.kind !== 'string' ||
+    typeof entry.scenario !== 'string' ||
+    typeof entry.runId !== 'string'
+  ) {
+    return null;
+  }
+
+  const timestamp = coerceNumber(entry.timestamp);
+  const atMs = coerceNumber(entry.atMs);
+  const sequence = coerceNumber(entry.sequence);
+  const waitTimeoutMs = coerceNumber(entry.waitTimeoutMs);
+  if (atMs !== null) {
+    entry.atMs = atMs;
+  }
+  if (timestamp !== null) {
+    entry.timestamp = timestamp;
+  }
+  if (sequence !== null) {
+    entry.sequence = sequence;
+  }
+  if (waitTimeoutMs !== null) {
+    entry.waitTimeoutMs = waitTimeoutMs;
+  }
+
+  return entry;
 }
 
 /**
@@ -316,6 +382,63 @@ function extractProfileEvents(logText: string, filters: { runId?: string; scenar
         }
 
         return [event];
+      }
+    });
+}
+
+/**
+ * Extracts structured profile-session entries from device logs.
+ *
+ * @param {string} logText
+ * @param {{runId?: string, scenario?: string}} [filters]
+ * @returns {Record<string, unknown>[]}
+ */
+function extractProfileSessionEntries(logText: string, filters: { runId?: string; scenario?: string } = {}): ProfileSessionEntry[] {
+  const { runId, scenario } = filters;
+
+  return String(logText)
+    .split(/\r?\n/u)
+    .flatMap((line) => {
+      const prefixIndex = line.indexOf(PROFILE_SESSION_PREFIX);
+      if (prefixIndex === -1) {
+        return [];
+      }
+
+      const payload = line.slice(prefixIndex + PROFILE_SESSION_PREFIX.length).trim();
+      if (!payload) {
+        return [];
+      }
+
+      try {
+        const entry = JSON.parse(payload);
+        if (!entry || typeof entry !== 'object') {
+          return [];
+        }
+
+        if (runId && entry.runId !== runId) {
+          return [];
+        }
+
+        if (scenario && entry.scenario !== scenario) {
+          return [];
+        }
+
+        return [entry];
+      } catch {
+        const entry = parseKeyValueProfileSessionEntry(payload);
+        if (!entry) {
+          return [];
+        }
+
+        if (runId && entry.runId !== runId) {
+          return [];
+        }
+
+        if (scenario && entry.scenario !== scenario) {
+          return [];
+        }
+
+        return [entry];
       }
     });
 }
@@ -871,6 +994,74 @@ function normalizeTimelineContractValues({
 }
 
 /**
+ * Converts profile-session command control entries into causal timeline events.
+ *
+ * These are ASL control-plane acknowledgements, not product truth events. They
+ * let agents verify command ordering and delivery while keeping product verdicts
+ * based on app-owned profile events.
+ *
+ * @param {{entries: Record<string, unknown>[], startedAt?: string}} options
+ * @returns {Record<string, unknown>[]}
+ */
+function buildCommandAcknowledgementTimeline({
+  entries,
+  startedAt,
+}: {
+  entries: ProfileSessionEntry[];
+  startedAt?: string;
+}): ArtifactRecord[] {
+  return [...(Array.isArray(entries) ? entries : [])]
+    .map((entry) => {
+      if (!entry || typeof entry !== 'object' || entry.kind !== 'command') {
+        return null;
+      }
+
+      const atMs = normalizeEventTimestamp({
+        event: entry,
+        ...(typeof startedAt === 'string' ? { startedAt } : {}),
+      });
+      if (atMs === null) {
+        return null;
+      }
+
+      const commandStatus = typeof entry.status === 'string' ? entry.status : 'observed';
+      const status = commandStatus === 'completed' || commandStatus === 'delivered'
+        ? 'completed'
+        : commandStatus === 'skipped'
+          ? 'skipped'
+          : commandStatus === 'failed'
+            ? 'failed'
+            : commandStatus === 'received' || commandStatus === 'queued'
+              ? 'started'
+              : 'observed';
+      const metadata = {
+        ...(typeof entry.command === 'string' ? { command: entry.command } : {}),
+        ...(typeof entry.commandId === 'string' ? { commandId: entry.commandId } : {}),
+        ...(typeof entry.id === 'string' ? { entryId: entry.id } : {}),
+        ...(typeof entry.queueId === 'string' ? { queueId: entry.queueId } : {}),
+        ...(typeof entry.sequence === 'number' ? { sequence: entry.sequence } : {}),
+        ...(typeof entry.source === 'string' ? { source: entry.source } : {}),
+        commandStatus,
+        ...(typeof entry.result === 'string' ? { result: entry.result } : {}),
+        ...(typeof entry.reason === 'string' ? { reason: entry.reason } : {}),
+        ...(typeof entry.waitForMilestone === 'string' ? { waitForMilestone: entry.waitForMilestone } : {}),
+        ...(typeof entry.waitTimeoutMs === 'number' ? { waitTimeoutMs: entry.waitTimeoutMs } : {}),
+      };
+
+      return sortValue({
+        phase: 'intent',
+        name: `profile_command_${commandStatus}`,
+        atMs,
+        status,
+        owner: 'asl-command-transport',
+        metadata,
+      });
+    })
+    .filter(Boolean)
+    .sort((left, right) => left.atMs - right.atMs);
+}
+
+/**
  * Builds a causal timeline from app-owned profile events.
  *
  * @param {{events: Record<string, unknown>[], startedAt?: string, phaseMap?: Record<string, string> | null, owner?: string | null}} options
@@ -878,16 +1069,18 @@ function normalizeTimelineContractValues({
  */
 function buildCausalTimeline({
   events,
+  sessionEntries = [],
   startedAt,
   phaseMap = null,
   owner = null,
 }: {
   events: ProfileEvent[];
+  sessionEntries?: ProfileSessionEntry[];
   startedAt?: string;
   phaseMap?: ArtifactRecord | null;
   owner?: string | null;
 }): ArtifactRecord[] {
-  return [...(Array.isArray(events) ? events : [])]
+  const eventTimeline = [...(Array.isArray(events) ? events : [])]
     .map((event) => {
       if (!event || typeof event !== 'object' || typeof event.event !== 'string') {
         return null;
@@ -940,8 +1133,13 @@ function buildCausalTimeline({
         ...(Object.keys(timelineValues.metadata).length > 0 ? { metadata: timelineValues.metadata } : {}),
       });
     })
-    .filter(Boolean)
-    .sort((left, right) => left.atMs - right.atMs);
+    .filter(Boolean);
+  const commandTimeline = buildCommandAcknowledgementTimeline({
+    entries: sessionEntries,
+    ...(typeof startedAt === 'string' ? { startedAt } : {}),
+  });
+
+  return [...eventTimeline, ...commandTimeline].sort((left, right) => left.atMs - right.atMs);
 }
 
 /**
@@ -1557,6 +1755,7 @@ export {
   evaluateProfileBudgets,
   extractCandidateIdentifiers,
   extractProfileEvents,
+  extractProfileSessionEntries,
   findMatchingIdentifier,
   percentile,
   sortValue,
@@ -1566,4 +1765,5 @@ export type {
   ArtifactRecord,
   BudgetCheck,
   ProfileEvent,
+  ProfileSessionEntry,
 };

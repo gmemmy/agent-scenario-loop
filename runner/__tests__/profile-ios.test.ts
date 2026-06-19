@@ -726,6 +726,50 @@ test('profile-ios seeds iOS scenario commands through app storage', async (t: Te
       assert.equal(commands[0].queueId, 'open-close-cycle');
       assert.equal(commands[0].commandId, 'open first example card');
       assert.equal(commands[1].commandId, 'close example card');
+      manifest['agent-scenario-loop.profile-session-entries.1'] = JSON.stringify([
+        {
+          atMs: 40,
+          command: 'activate-target:example-card-1',
+          commandId: 'open-card',
+          kind: 'command',
+          queueId: 'open-close-cycle',
+          runId: 'ios-live-open-close',
+          scenario: 'open-close-cycle',
+          sequence: 1,
+          source: 'storage',
+          status: 'received',
+          waitForMilestone: 'card_opened',
+          waitTimeoutMs: 1500,
+        },
+        {
+          atMs: 75,
+          command: 'activate-target:example-card-1',
+          commandId: 'open-card',
+          kind: 'command',
+          queueId: 'open-close-cycle',
+          result: 'target-dispatched',
+          runId: 'ios-live-open-close',
+          scenario: 'open-close-cycle',
+          sequence: 1,
+          source: 'storage',
+          status: 'completed',
+          waitForMilestone: 'card_opened',
+          waitTimeoutMs: 1500,
+        },
+        {
+          atMs: 2050,
+          command: 'activate-target:close-card',
+          commandId: 'close-card',
+          kind: 'command',
+          queueId: 'open-close-cycle',
+          result: 'target-dispatched',
+          runId: 'ios-live-open-close',
+          scenario: 'open-close-cycle',
+          sequence: 6,
+          source: 'storage',
+          status: 'completed',
+        },
+      ]);
       manifest['agent-scenario-loop.profile-events.1'] = fs
         .readFileSync(fixturePath('examples/mobile-app/event-logs/open-close-cycle.log'), 'utf8')
         .split(/\r?\n/u)
@@ -742,10 +786,46 @@ test('profile-ios seeds iOS scenario commands through app storage', async (t: Te
   });
 
   const health = readJson(path.join(result.runDir, 'health.json'));
+  const causalRun = readJson(path.join(result.runDir, 'causal-run.json')) as Record<string, any>;
   const seed = readJson(path.join(simctlCaptureRoot, 'raw', 'ios-profile-session-seed.json'));
 
   assert.equal(health.healthStatus, 'passed');
   assert.equal((seed.commands as unknown[]).length, 6);
+  assert.deepEqual(causalRun.timeline
+    .filter((event: Record<string, any>) => event.owner === 'asl-command-transport')
+    .map((event: Record<string, any>) => ({
+      commandId: event.metadata.commandId,
+      name: event.name,
+      sequence: event.metadata.sequence,
+      status: event.status,
+      waitForMilestone: event.metadata.waitForMilestone,
+      waitTimeoutMs: event.metadata.waitTimeoutMs,
+    })), [
+    {
+      commandId: 'open-card',
+      name: 'profile_command_received',
+      sequence: 1,
+      status: 'started',
+      waitForMilestone: 'card_opened',
+      waitTimeoutMs: 1500,
+    },
+    {
+      commandId: 'open-card',
+      name: 'profile_command_completed',
+      sequence: 1,
+      status: 'completed',
+      waitForMilestone: 'card_opened',
+      waitTimeoutMs: 1500,
+    },
+    {
+      commandId: 'close-card',
+      name: 'profile_command_completed',
+      sequence: 6,
+      status: 'completed',
+      waitForMilestone: undefined,
+      waitTimeoutMs: undefined,
+    },
+  ]);
   assert.equal(calls.some((call) => call.startsWith('simctl openurl ')), false);
 });
 

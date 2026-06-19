@@ -771,6 +771,96 @@ test('preserves timeline command correlation metadata in schema-valid form', () 
   ]);
 });
 
+test('adds profile-session command acknowledgements to causal timelines', () => {
+  const timeline = buildCausalTimeline({
+    events: [
+      {
+        event: 'card_opened',
+        runId: 'command-run',
+        scenario: 'open-close-cycle',
+        atMs: 180,
+      },
+    ],
+    sessionEntries: [
+      {
+        kind: 'command',
+        scenario: 'open-close-cycle',
+        runId: 'command-run',
+        command: 'activate-target:example-card-1',
+        commandId: 'open-card',
+        queueId: 'open-close-cycle',
+        sequence: 1,
+        source: 'storage',
+        status: 'received',
+        atMs: 100,
+        waitForMilestone: 'card_opened',
+        waitTimeoutMs: 1500,
+      },
+      {
+        kind: 'command',
+        scenario: 'open-close-cycle',
+        runId: 'command-run',
+        command: 'activate-target:example-card-1',
+        commandId: 'open-card',
+        queueId: 'open-close-cycle',
+        result: 'target-dispatched',
+        sequence: 1,
+        source: 'storage',
+        status: 'completed',
+        atMs: 120,
+        waitForMilestone: 'card_opened',
+        waitTimeoutMs: 1500,
+      },
+    ],
+    owner: 'open-close-cycle',
+  });
+
+  assert.deepEqual(timeline, [
+    {
+      atMs: 100,
+      metadata: {
+        command: 'activate-target:example-card-1',
+        commandId: 'open-card',
+        commandStatus: 'received',
+        queueId: 'open-close-cycle',
+        sequence: 1,
+        source: 'storage',
+        waitForMilestone: 'card_opened',
+        waitTimeoutMs: 1500,
+      },
+      name: 'profile_command_received',
+      owner: 'asl-command-transport',
+      phase: 'intent',
+      status: 'started',
+    },
+    {
+      atMs: 120,
+      metadata: {
+        command: 'activate-target:example-card-1',
+        commandId: 'open-card',
+        commandStatus: 'completed',
+        queueId: 'open-close-cycle',
+        result: 'target-dispatched',
+        sequence: 1,
+        source: 'storage',
+        waitForMilestone: 'card_opened',
+        waitTimeoutMs: 1500,
+      },
+      name: 'profile_command_completed',
+      owner: 'asl-command-transport',
+      phase: 'intent',
+      status: 'completed',
+    },
+    {
+      atMs: 180,
+      name: 'card_opened',
+      owner: 'open-close-cycle',
+      phase: 'navigation',
+      status: 'completed',
+    },
+  ]);
+});
+
 test('builds baseline regression metadata without stale implementation disclaimers', () => {
   const verdict = buildBudgetVerdict({
     flowId: 'open-close-cycle',
