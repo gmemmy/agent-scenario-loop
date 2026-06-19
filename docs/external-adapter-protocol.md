@@ -213,3 +213,7 @@ Events must not replace the response for an operation. The host should still rec
 ## Conformance Fixture
 
 The fixture under `runner/__tests__/fixtures/external-adapter/` is intentionally small and non-JavaScript. It proves that a conforming adapter can be an external process with no ASL TypeScript imports. Golden transcripts in the same directory define expected request/response behavior for the success path, unsupported action failure, expired deadline failure, cleanup/finalization failure, sequence monotonicity, and artifact references without embedded evidence bytes.
+
+## Read next
+
+- [Contracts](contracts.md) for the scenario, runner, artifact, health, verdict, comparison, and provenance shapes

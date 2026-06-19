@@ -104,33 +104,12 @@ The tooling may change. The runners may change. The agents may change. The scena
 
 That is a different philosophy from frameworks that primarily evaluate agents. Agent Scenario Loop is built to evaluate the evolution of software.
 
-## How it differs from testing frameworks
+## Boundary
 
-Agent Scenario Loop does not make existing testing frameworks obsolete.
+Agent Scenario Loop is not a replacement for testing frameworks, automation tools, mobile drivers, profilers, or agent evaluation systems. Those tools can still execute or observe work.
 
-Traditional frameworks usually optimize for:
-
-> Did the application behave correctly?
-
-Agent Scenario Loop optimizes for:
-
-> What did we learn from running this scenario?
-
-Both questions matter. Agent Scenario Loop focuses on the second question by preserving health, verdicts, metrics, logs, traces, comparisons, and other run evidence in a stable artifact shape.
-
-## How it differs from agent evaluation
-
-Agent Scenario Loop is not primarily evaluating agents.
-
-An agent may execute part of a run. A runner may drive a device. A profiler may collect signals. None of those is the center of the model.
-
-The scenario is.
-
-The feed, livestream, upload flow, checkout flow, or conversation thread is the thing being studied over time.
+The canonical boundary list lives in [What It Is Not](../README.md#what-it-is-not).
 
 ## Read next
 
 - [Principles](principles.md) for the project doctrine
-- [Contracts](contracts.md) for the current artifact and package surface
-- [Live Proofs](live-proofs.md) for fixture, Android, iOS, and comparison runs
-- [Runner docs](../runner/README.md) for the host execution boundary

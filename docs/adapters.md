@@ -143,3 +143,7 @@ If the provider should run during profiling, declare `providerCommands` in its m
 - Passed runs write the standard artifact set.
 - Attached evidence is inventoried with stable run-relative paths.
 - Package docs describe whether the adapter is bundled, a fixture target, or a project-local integration.
+
+## Read next
+
+- [Consumer App Rehearsal](consumer-rehearsal.md) for adopting the package inside an existing app

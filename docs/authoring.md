@@ -196,3 +196,7 @@ Run the release gate before publishing package changes:
 ```bash
 pnpm release:check
 ```
+
+## Read next
+
+- [Adapter Onboarding](adapters.md) for runner and provider integration
