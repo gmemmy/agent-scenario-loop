@@ -1,6 +1,6 @@
 {
   "name": "agent-scenario-loop",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": false,
   "description": "Scenario orchestration and evidence collection for agent-driven software development. Bring your own runner. Keep your scenarios. Keep your evidence.",
   "license": "MIT",

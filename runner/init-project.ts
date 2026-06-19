@@ -8,6 +8,7 @@ const { hasHelpFlag, writeUsage } = require('./cli');
 
 type CliArgs = {
   'dry-run'?: string | boolean;
+  'with-agent-skill'?: string | boolean;
   force?: string | boolean;
   out?: string | boolean;
   scenario?: string | boolean;
@@ -27,6 +28,7 @@ type InitProjectOptions = {
   outDir?: string;
   packageRoot?: string;
   scenarioId?: string;
+  withAgentSkill?: boolean;
 };
 
 type InitProjectResult = {
@@ -36,6 +38,9 @@ type InitProjectResult = {
 };
 
 const TEMPLATE_FILES = {
+  agentSkillAdoptionChecklist: path.join('skills', 'agent-scenario-loop', 'references', 'adoption-checklist.md'),
+  agentSkillArtifactInterpretation: path.join('skills', 'agent-scenario-loop', 'references', 'artifact-interpretation.md'),
+  agentSkillReadme: path.join('skills', 'agent-scenario-loop', 'SKILL.md'),
   config: 'project.config.json',
   evidenceProvider: 'evidence-provider.json',
   gitignoreSnippet: 'gitignore-snippet',
@@ -55,7 +60,7 @@ const TEMPLATE_FILES = {
  */
 function usage(output: { write: (message: string) => unknown } = process.stderr): void {
   writeUsage([
-    'Usage: asl-init [--out <dir>] [--scenario <id>] [--force] [--dry-run]',
+    'Usage: asl-init [--out <dir>] [--scenario <id>] [--with-agent-skill] [--force] [--dry-run]',
     '',
     'Copies public Agent Scenario Loop templates into a consuming app layout.',
     'Refuses to overwrite existing files unless --force is provided.',
@@ -137,13 +142,15 @@ function buildScaffoldFiles({
   packageRoot,
   scenarioId,
   targetDir,
+  withAgentSkill = false,
 }: {
   packageRoot: string;
   scenarioId: string;
   targetDir: string;
+  withAgentSkill?: boolean;
 }): ScaffoldFile[] {
   const templatesRoot = path.join(packageRoot, 'templates');
-  return [
+  const files: ScaffoldFile[] = [
     {
       source: path.join(templatesRoot, TEMPLATE_FILES.config),
       destination: path.join(targetDir, 'asl.config.json'),
@@ -191,6 +198,25 @@ function buildScaffoldFiles({
       destination: path.join(targetDir, 'src', 'devtools', 'profile-session.ts'),
     },
   ];
+
+  if (withAgentSkill) {
+    files.push(
+      {
+        source: path.join(templatesRoot, TEMPLATE_FILES.agentSkillReadme),
+        destination: path.join(targetDir, '.agents', 'skills', 'agent-scenario-loop', 'SKILL.md'),
+      },
+      {
+        source: path.join(templatesRoot, TEMPLATE_FILES.agentSkillArtifactInterpretation),
+        destination: path.join(targetDir, '.agents', 'skills', 'agent-scenario-loop', 'references', 'artifact-interpretation.md'),
+      },
+      {
+        source: path.join(templatesRoot, TEMPLATE_FILES.agentSkillAdoptionChecklist),
+        destination: path.join(targetDir, '.agents', 'skills', 'agent-scenario-loop', 'references', 'adoption-checklist.md'),
+      },
+    );
+  }
+
+  return files;
 }
 
 /**
@@ -242,7 +268,12 @@ async function initProject(options: InitProjectOptions = {}): Promise<InitProjec
   const packageRoot = options.packageRoot ?? defaultPackageRoot();
   const targetDir = path.resolve(options.outDir ?? process.cwd());
   const scenarioId = normalizeScenarioId(options.scenarioId);
-  const files = buildScaffoldFiles({ packageRoot, scenarioId, targetDir });
+  const files = buildScaffoldFiles({
+    packageRoot,
+    scenarioId,
+    targetDir,
+    withAgentSkill: Boolean(options.withAgentSkill),
+  });
   const created: string[] = [];
   const skipped: string[] = [];
 
@@ -305,6 +336,7 @@ async function main(): Promise<void> {
     force: isEnabled(args.force),
     ...(typeof args.out === 'string' ? { outDir: args.out } : {}),
     ...(typeof args.scenario === 'string' ? { scenarioId: args.scenario } : {}),
+    withAgentSkill: isEnabled(args['with-agent-skill']),
   });
   process.stdout.write(`${formatResult(result)}\n`);
 }

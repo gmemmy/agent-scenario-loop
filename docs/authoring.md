@@ -51,6 +51,8 @@ You can also copy these files manually and rename them as needed:
 | `templates/scripts/asl-capture-profiler-provider.mjs` | Runnable starter provider command for deterministic profiler, memory, and network evidence |
 | `templates/integration-readme.md` | Consumer-app wiring guide generated into `asl/README.md` |
 | `templates/package-scripts.json` | Package-script snippets generated into `asl/package-scripts.json`; project validation also checks that required scripts exist in app `package.json` and direct installed-bin scripts have not drifted |
+| `templates/skills/agent-scenario-loop/SKILL.md` | Optional repository-scoped Codex skill generated into `.agents/skills/agent-scenario-loop/SKILL.md` by `asl-init --with-agent-skill` |
+| `templates/skills/agent-scenario-loop/references/*.md` | Optional skill references for artifact interpretation and adoption checks |
 
 The JSON templates are schema-checked, and every shipped template is checked by package smoke. They intentionally use neutral placeholder names.
 

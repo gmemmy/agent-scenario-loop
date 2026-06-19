@@ -33,10 +33,11 @@ test('normalizes scenario ids for scaffold filenames', () => {
 });
 
 test('parses init arguments', () => {
-  assert.deepEqual(parseArgs(['--', '--out', 'app', '--scenario', 'Checkout Submit', '--force']), {
+  assert.deepEqual(parseArgs(['--', '--out', 'app', '--scenario', 'Checkout Submit', '--with-agent-skill', '--force']), {
     force: true,
     out: 'app',
     scenario: 'Checkout Submit',
+    'with-agent-skill': true,
   });
 });
 
@@ -147,6 +148,32 @@ test('init-project scaffolds templates into a consuming app layout', async (t: T
   assert.match(providerScript, /network-out/u);
   assert.match(fs.readFileSync(path.join(targetDir, 'src', 'devtools', 'profile-session.ts'), 'utf8'), /useProfileSessionBootstrap/u);
   assert.match(formatResult(result), /created:/u);
+});
+
+test('init-project can scaffold the repository agent skill', async (t: TestContext) => {
+  const targetDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-init-project-skill-'));
+  t.after(async () => {
+    await fsp.rm(targetDir, { recursive: true, force: true });
+  });
+
+  const result = await initProject({
+    outDir: targetDir,
+    packageRoot: ROOT,
+    scenarioId: 'Checkout Submit',
+    withAgentSkill: true,
+  });
+
+  assert.equal(result.created.includes('.agents/skills/agent-scenario-loop/SKILL.md'), true);
+  assert.equal(result.created.includes('.agents/skills/agent-scenario-loop/references/artifact-interpretation.md'), true);
+  assert.equal(result.created.includes('.agents/skills/agent-scenario-loop/references/adoption-checklist.md'), true);
+  const skill = fs.readFileSync(path.join(targetDir, '.agents', 'skills', 'agent-scenario-loop', 'SKILL.md'), 'utf8');
+  assert.match(skill, /name: agent-scenario-loop/u);
+  assert.match(skill, /Treat passed health plus failed verdict as trustworthy evidence of failure/u);
+  assert.match(skill, /Preserve the artifact directory and cite exact artifact paths/u);
+  const artifactReference = fs.readFileSync(path.join(targetDir, '.agents', 'skills', 'agent-scenario-loop', 'references', 'artifact-interpretation.md'), 'utf8');
+  assert.match(artifactReference, /ASL separates evidence health, product verdict, and comparison status/u);
+  const adoptionChecklist = fs.readFileSync(path.join(targetDir, '.agents', 'skills', 'agent-scenario-loop', 'references', 'adoption-checklist.md'), 'utf8');
+  assert.match(adoptionChecklist, /Confirm `agent-scenario-loop` is installed from the registry/u);
 });
 
 test('init-project skips existing files unless force is enabled', async (t: TestContext) => {

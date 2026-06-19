@@ -43,6 +43,12 @@ Install or use the package, then scaffold a first scenario inside an app:
 asl-init --out . --scenario first-journey
 ```
 
+Add the optional repository-scoped agent skill when you want Codex to load ASL operating guidance from the consuming app:
+
+```bash
+asl-init --out . --scenario first-journey --with-agent-skill
+```
+
 Wire the generated app helper, emit truth events around one real journey, merge the generated `asl:*` scripts intentionally, then validate the project:
 
 ```bash

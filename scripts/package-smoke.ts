@@ -114,6 +114,8 @@ const PACKED_FILE_ALLOWLIST = [
   /^examples\/.+/u,
   /^schemas\/[a-z-]+\.schema\.json$/u,
   /^templates\/[a-z0-9.-]+(?:\.(?:json|md))?$/u,
+  /^templates\/skills\/agent-scenario-loop\/SKILL\.md$/u,
+  /^templates\/skills\/agent-scenario-loop\/references\/[a-z-]+\.md$/u,
   /^templates\/scripts\/[a-z0-9.-]+\.mjs$/u,
 ];
 
@@ -855,7 +857,27 @@ function main(): void {
     assert.equal(fs.existsSync(path.join(initOutputDir, 'asl', 'README.md')), true);
     assert.equal(fs.existsSync(path.join(initOutputDir, 'asl', 'gitignore-snippet')), true);
     assert.equal(fs.existsSync(path.join(initOutputDir, 'asl', 'package-scripts.json')), true);
+    assert.equal(fs.existsSync(path.join(initOutputDir, '.agents', 'skills', 'agent-scenario-loop', 'SKILL.md')), false);
     assert.equal(fs.existsSync(path.join(initOutputDir, 'src', 'devtools', 'profile-session.ts')), true);
+    const initWithSkillOutputDir = path.join(tempRoot, 'initialized-app-with-skill');
+    const initWithSkillOutput = run(packageBinPath(installDir, 'asl-init'), [
+      '--out',
+      initWithSkillOutputDir,
+      '--scenario',
+      'Checkout Submit',
+      '--with-agent-skill',
+    ], {
+      cwd: installDir,
+      env,
+    });
+    assert.match(initWithSkillOutput, /Agent Scenario Loop files initialized/u);
+    assert.equal(fs.existsSync(path.join(initWithSkillOutputDir, '.agents', 'skills', 'agent-scenario-loop', 'SKILL.md')), true);
+    assert.equal(fs.existsSync(path.join(initWithSkillOutputDir, '.agents', 'skills', 'agent-scenario-loop', 'references', 'artifact-interpretation.md')), true);
+    assert.equal(fs.existsSync(path.join(initWithSkillOutputDir, '.agents', 'skills', 'agent-scenario-loop', 'references', 'adoption-checklist.md')), true);
+    assert.match(
+      fs.readFileSync(path.join(initWithSkillOutputDir, '.agents', 'skills', 'agent-scenario-loop', 'SKILL.md'), 'utf8'),
+      /Treat passed health plus failed verdict as trustworthy evidence of failure/u,
+    );
     assert.equal(
       JSON.parse(fs.readFileSync(path.join(initOutputDir, 'asl.config.json'), 'utf8')).projectName,
       'replace-me',
@@ -2268,6 +2290,9 @@ function main(): void {
       "require.resolve('agent-scenario-loop/templates/gitignore-snippet');",
       "require.resolve('agent-scenario-loop/templates/integration-readme.md');",
       "require.resolve('agent-scenario-loop/templates/package-scripts.json');",
+      "require.resolve('agent-scenario-loop/templates/skills/agent-scenario-loop/SKILL.md');",
+      "require.resolve('agent-scenario-loop/templates/skills/agent-scenario-loop/references/artifact-interpretation.md');",
+      "require.resolve('agent-scenario-loop/templates/skills/agent-scenario-loop/references/adoption-checklist.md');",
       "require.resolve('agent-scenario-loop/templates/scripts/asl-capture-accessibility-provider.mjs');",
       "require.resolve('agent-scenario-loop/templates/scripts/asl-capture-profiler-provider.mjs');",
       "for (const scenarioFixture of listJsonFiles('examples/scenarios/mobile')) {",

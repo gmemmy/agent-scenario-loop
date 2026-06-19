@@ -74,7 +74,7 @@ The package intentionally ships schemas and examples:
 - `agent-scenario-loop/examples/*`
 - `agent-scenario-loop/templates/*`
 
-These are public fixtures and contract references. Templates are safe starting points to copy into a consuming app and adapt.
+These are public fixtures and contract references. Templates are safe starting points to copy into a consuming app and adapt. The optional `templates/skills/agent-scenario-loop/` folder teaches Codex when and how to operate ASL from a repository-scoped skill without making the skill part of ASL runtime truth.
 
 For concrete runner and evidence-provider integration steps, see [Adapter Onboarding](adapters.md).
 
