@@ -118,7 +118,6 @@
     "budgets": {
       "type": "object",
       "description": "Named budget thresholds the run should be evaluated against.",
-      "minProperties": 1,
       "additionalProperties": {
         "$ref": "#/$defs/budgetThreshold"
       }
@@ -127,6 +126,41 @@
       "type": "array",
       "items": {
         "$ref": "#/$defs/timelineEvent"
+      }
+    },
+    "iterationSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["expected", "completed", "failed", "timeouts", "incomplete", "status"],
+      "properties": {
+        "expected": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "completed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "failed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "timeouts": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "incomplete": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "status": {
+          "type": "string",
+          "enum": ["complete", "partial", "failed", "timeout"]
+        }
       }
     },
     "artifacts": {

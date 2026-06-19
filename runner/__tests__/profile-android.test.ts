@@ -319,6 +319,97 @@ test('profile-android preserves app timeline vocabulary without breaking causal-
   assert.equal(causalRun.timeline[0].metadata.appStatus, 'passed');
 });
 
+test('profile-android writes partial iteration accounting for incomplete repeated cycles', async (t: TestContext) => {
+  const tempRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-android-partial-iterations-'));
+  t.after(async () => {
+    await fsp.rm(tempRoot, { recursive: true, force: true });
+  });
+  const artifactRoot = path.join(tempRoot, 'artifacts');
+  const scenarioPath = path.join(tempRoot, 'portable-open-close-partial.json');
+  const eventLogPath = path.join(tempRoot, 'portable-open-close-partial-android.log');
+  const scenario = {
+    schemaVersion: '1.0.0',
+    id: 'portable-open-close-partial',
+    flowId: 'portable-open-close-partial',
+    journey: {
+      name: 'Portable open close partial',
+      intent: 'Open and close a surface repeatedly.',
+      actor: 'app user',
+      startState: 'home',
+      endState: 'home',
+    },
+    milestones: [
+      { name: 'surface_open_requested', event: 'surface_open_requested', phase: 'intent', timeoutMs: 1000 },
+      { name: 'surface_opened', event: 'surface_opened', phase: 'visual', timeoutMs: 1000 },
+      { name: 'surface_close_requested', event: 'surface_close_requested', phase: 'intent', timeoutMs: 1000 },
+      { name: 'surface_dismissed', event: 'surface_dismissed', phase: 'completion', timeoutMs: 1000 },
+    ],
+    cycles: {
+      iterations: 3,
+      stopOnFailure: false,
+    },
+    budgets: {
+      pass: {
+        failures: 0,
+      },
+    },
+  };
+  await fsp.writeFile(scenarioPath, JSON.stringify(scenario, null, 2), 'utf8');
+  await fsp.writeFile(
+    eventLogPath,
+    [
+      '2026-01-01T00:10:00.000Z public-android [profile-event] {"event":"surface_open_requested","scenario":"portable-open-close-partial","runId":"partial-iterations-android","iteration":1,"atMs":0,"sequence":1,"queueId":"portable-open-close-partial"}',
+      '2026-01-01T00:10:00.120Z public-android [profile-event] {"event":"surface_opened","scenario":"portable-open-close-partial","runId":"partial-iterations-android","iteration":1,"atMs":120,"sequence":1,"queueId":"portable-open-close-partial"}',
+      '2026-01-01T00:10:00.220Z public-android [profile-event] {"event":"surface_close_requested","scenario":"portable-open-close-partial","runId":"partial-iterations-android","iteration":1,"atMs":220,"sequence":2,"queueId":"portable-open-close-partial"}',
+      '2026-01-01T00:10:00.340Z public-android [profile-event] {"event":"surface_dismissed","scenario":"portable-open-close-partial","runId":"partial-iterations-android","iteration":1,"atMs":340,"sequence":2,"queueId":"portable-open-close-partial"}',
+      '2026-01-01T00:10:01.000Z public-android [profile-event] {"event":"surface_open_requested","scenario":"portable-open-close-partial","runId":"partial-iterations-android","iteration":2,"atMs":1000,"sequence":3,"queueId":"portable-open-close-partial"}',
+      '2026-01-01T00:10:01.140Z public-android [profile-event] {"event":"surface_opened","scenario":"portable-open-close-partial","runId":"partial-iterations-android","iteration":2,"atMs":1140,"sequence":3,"queueId":"portable-open-close-partial"}',
+      '2026-01-01T00:10:02.000Z public-android [profile-event] {"event":"surface_open_requested","scenario":"portable-open-close-partial","runId":"partial-iterations-android","iteration":3,"atMs":2000,"sequence":5,"queueId":"portable-open-close-partial"}',
+      '2026-01-01T00:10:02.130Z public-android [profile-event] {"event":"surface_opened","scenario":"portable-open-close-partial","runId":"partial-iterations-android","iteration":3,"atMs":2130,"sequence":5,"queueId":"portable-open-close-partial"}',
+      '2026-01-01T00:10:02.260Z public-android [profile-event] {"event":"surface_close_requested","scenario":"portable-open-close-partial","runId":"partial-iterations-android","iteration":3,"atMs":2260,"sequence":6,"queueId":"portable-open-close-partial"}',
+      '2026-01-01T00:10:02.390Z public-android [profile-event] {"event":"surface_dismissed","scenario":"portable-open-close-partial","runId":"partial-iterations-android","iteration":3,"atMs":2390,"sequence":6,"queueId":"portable-open-close-partial"}',
+      '',
+    ].join('\n'),
+    'utf8',
+  );
+
+  const { stdout } = await execFileAsync(process.execPath, [
+    PROFILE_ANDROID,
+    '--config',
+    fixturePath('examples/mobile-app/asl.config.json'),
+    '--scenario',
+    scenarioPath,
+    '--events',
+    eventLogPath,
+    '--out',
+    artifactRoot,
+    '--run-id',
+    'partial-iterations-android',
+  ]);
+
+  const runDir = stdout.trim();
+  const health = readJson(path.join(runDir, 'health.json')) as Record<string, any>;
+  const verdict = readJson(path.join(runDir, 'verdict.json')) as Record<string, any>;
+  const causalRun = readJson(path.join(runDir, 'causal-run.json')) as Record<string, any>;
+
+  assert.equal(health.healthStatus, 'failed');
+  assert.equal(verdict.verdictStatus, 'inconclusive');
+  assert.equal(causalRun.scenario.iterations, 3);
+  assert.deepEqual(causalRun.iterationSummary, {
+    completed: 2,
+    expected: 3,
+    failed: 1,
+    incomplete: [2],
+    status: 'partial',
+    timeouts: 0,
+  });
+  assert.deepEqual(causalRun.timeline[0].metadata, {
+    iteration: 1,
+    queueId: 'portable-open-close-partial',
+    sequence: 1,
+  });
+});
+
 test('profile-android maps schema-era open and close milestone budgets', async (t: TestContext) => {
   const tempRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-android-open-close-budget-'));
   t.after(async () => {

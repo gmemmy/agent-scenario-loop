@@ -823,6 +823,12 @@ function buildCausalTimeline({
         ...(typeof event.flowId === 'string' ? { flowId: event.flowId } : {}),
         ...(typeof event.route === 'string' ? { route: event.route } : {}),
         ...(typeof event.iteration === 'number' ? { iteration: event.iteration } : {}),
+        ...(typeof event.sequence === 'number' ? { sequence: event.sequence } : {}),
+        ...(typeof event.queueId === 'string' ? { queueId: event.queueId } : {}),
+        ...(typeof event.commandId === 'string' ? { commandId: event.commandId } : {}),
+        ...(typeof event.operationId === 'string' ? { operationId: event.operationId } : {}),
+        ...(typeof event.attemptId === 'string' ? { attemptId: event.attemptId } : {}),
+        ...(typeof event.clockDomain === 'string' ? { clockDomain: event.clockDomain } : {}),
       };
       const timelineValues = normalizeTimelineContractValues({
         metadata,
@@ -843,6 +849,55 @@ function buildCausalTimeline({
     })
     .filter(Boolean)
     .sort((left, right) => left.atMs - right.atMs);
+}
+
+/**
+ * Summarizes repeated scenario accounting for causal artifacts.
+ *
+ * Metrics already decide product health; this summary makes the iteration
+ * evidence explicit for agents reading `causal-run.json`.
+ *
+ * @param {Record<string, unknown>} metrics
+ * @returns {Record<string, unknown> | null}
+ */
+function buildIterationSummary(metrics: ArtifactRecord): ArtifactRecord | null {
+  if (typeof metrics.iterations !== 'number' || metrics.iterations < 1) {
+    return null;
+  }
+
+  const expected = Math.trunc(metrics.iterations);
+  const failed = typeof metrics.failures === 'number' && metrics.failures > 0
+    ? Math.trunc(metrics.failures)
+    : 0;
+  const timeouts = typeof metrics.timeouts === 'number' && metrics.timeouts > 0
+    ? Math.trunc(metrics.timeouts)
+    : 0;
+  const incomplete: number[] = Array.isArray(metrics.incompleteIterations)
+    ? [...new Set(metrics.incompleteIterations.filter((iteration): iteration is number => (
+        typeof iteration === 'number' &&
+        Number.isInteger(iteration) &&
+        iteration >= 1 &&
+        iteration <= expected
+      )))].sort((left, right) => left - right)
+    : [];
+  const completed = Math.max(0, expected - incomplete.length);
+  const status =
+    timeouts > 0
+      ? 'timeout'
+      : failed === 0 && incomplete.length === 0
+        ? 'complete'
+        : completed > 0
+          ? 'partial'
+          : 'failed';
+
+  return {
+    completed,
+    expected,
+    failed,
+    incomplete,
+    status,
+    timeouts,
+  };
 }
 
 /**
@@ -967,6 +1022,8 @@ function buildCausalRun({
   manifest,
   metrics,
 }: ArtifactRecord): ArtifactRecord {
+  const iterationSummary = buildIterationSummary(metrics);
+
   return sortValue({
     schemaVersion: '1.0.0',
     flowId,
@@ -994,6 +1051,7 @@ function buildCausalRun({
     },
     budgets: normalizeBudgetsForCausalRun(budgets),
     timeline,
+    ...(iterationSummary ? { iterationSummary } : {}),
     artifacts: {
       summary: artifacts.summary,
       metrics: artifacts.metrics,

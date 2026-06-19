@@ -4,6 +4,7 @@ const test = require('node:test');
 const {
   buildBudgetVerdict,
   buildCausalRun,
+  buildCausalTimeline,
   buildManifest,
   buildMetricsFromProfileEvents,
 } = require('../artifact-contract');
@@ -421,6 +422,155 @@ test('builds schema-valid causal-run provenance reference to manifest', () => {
     runId: 'public-journey-1',
     scenarioHash: 'b'.repeat(64),
   });
+});
+
+test('builds schema-valid causal-run partial iteration accounting', () => {
+  const artifacts = sampleManifestArtifacts();
+  const manifest = buildManifest({
+    scenario: 'public-journey',
+    scenarioHash: 'c'.repeat(64),
+    runId: 'public-journey-partial',
+    platform: 'android',
+    status: 'failed',
+    terminalState: 'failed',
+    startedAt: '2026-01-01T00:00:00.000Z',
+    endedAt: '2026-01-01T00:00:03.000Z',
+    interactionDriver: 'adb-logcat',
+    simulator: {
+      name: 'Pixel_8',
+      udid: 'emulator-5554',
+    },
+    bundleId: 'dev.agent.example',
+    gitSha: 'ghi789',
+    toolVersions: {
+      node: 'v24.0.0',
+    },
+    artifacts,
+    failureReason: 'One expected iteration did not emit completion evidence.',
+  });
+  const causalRun = buildCausalRun({
+    scenario: {
+      name: 'public-journey',
+      description: 'Public journey',
+    },
+    flowId: 'public-journey',
+    runId: 'public-journey-partial',
+    platform: 'android',
+    buildFlavor: 'unknown',
+    interactionDriver: 'adb-logcat',
+    budgets: {
+      failures: 0,
+    },
+    timeline: [],
+    artifacts,
+    manifest,
+    metrics: {
+      status: 'failed',
+      iterations: 3,
+      failures: 1,
+      timeouts: 0,
+      incompleteIterations: [3],
+    },
+  });
+
+  assert.equal(validateJson(causalRun, SCHEMAS.causalRun, 'Causal run artifact').valid, true);
+  assert.deepEqual(causalRun.iterationSummary, {
+    completed: 2,
+    expected: 3,
+    failed: 1,
+    incomplete: [3],
+    status: 'partial',
+    timeouts: 0,
+  });
+});
+
+test('builds schema-valid causal-run without budget thresholds', () => {
+  const artifacts = sampleManifestArtifacts();
+  const manifest = buildManifest({
+    scenario: 'public-journey',
+    scenarioHash: 'd'.repeat(64),
+    runId: 'public-journey-no-budgets',
+    platform: 'ios',
+    status: 'passed',
+    startedAt: '2026-01-01T00:00:00.000Z',
+    endedAt: '2026-01-01T00:00:01.000Z',
+    interactionDriver: 'ios-simctl',
+    simulator: {
+      name: 'iPhone 16',
+      udid: 'ios-sim-1',
+    },
+    bundleId: 'dev.agent.example',
+    gitSha: 'jkl012',
+    toolVersions: {
+      node: 'v24.0.0',
+    },
+    artifacts,
+  });
+  const causalRun = buildCausalRun({
+    scenario: {
+      name: 'public-journey',
+      description: 'Public journey',
+    },
+    flowId: 'public-journey',
+    runId: 'public-journey-no-budgets',
+    platform: 'ios',
+    buildFlavor: 'unknown',
+    interactionDriver: 'ios-simctl',
+    budgets: null,
+    timeline: [],
+    artifacts,
+    manifest,
+    metrics: {
+      status: 'passed',
+      iterations: 1,
+      failures: 0,
+      timeouts: 0,
+      incompleteIterations: [],
+    },
+  });
+
+  assert.equal(validateJson(causalRun, SCHEMAS.causalRun, 'Causal run artifact').valid, true);
+  assert.deepEqual(causalRun.budgets, {});
+});
+
+test('preserves timeline command correlation metadata in schema-valid form', () => {
+  const timeline = buildCausalTimeline({
+    events: [
+      {
+        event: 'card_open_requested',
+        runId: 'correlated-run',
+        scenario: 'open-close-cycle',
+        iteration: 2,
+        atMs: 120,
+        sequence: 4,
+        queueId: 'open-close-cycle',
+        commandId: 'open-card',
+        operationId: 'op-004',
+        attemptId: 'attempt-001',
+        clockDomain: 'monotonic',
+      },
+    ],
+    owner: 'open-close-cycle',
+  });
+
+  assert.deepEqual(timeline, [
+    {
+      atMs: 120,
+      metadata: {
+        attemptId: 'attempt-001',
+        clockDomain: 'monotonic',
+        commandId: 'open-card',
+        iteration: 2,
+        operationId: 'op-004',
+        queueId: 'open-close-cycle',
+        sequence: 4,
+      },
+      name: 'card_open_requested',
+      owner: 'open-close-cycle',
+      phase: 'intent',
+      status: 'started',
+    },
+  ]);
 });
 
 test('builds baseline regression metadata without stale implementation disclaimers', () => {
