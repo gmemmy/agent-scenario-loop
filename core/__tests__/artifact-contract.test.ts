@@ -138,6 +138,7 @@ test('builds schema-valid manifest provenance attempt and environment artifacts'
   assert.match(manifest.provenance.cohortHash, /^[a-f0-9]{64}$/u);
   assert.deepEqual(manifest.attempt, {
     attemptId: 'public-journey-1',
+    attemptNumber: 1,
     classification: {
       category: 'none',
     },
@@ -148,6 +149,7 @@ test('builds schema-valid manifest provenance attempt and environment artifacts'
     durationMs: 1250,
     endedAt: '2026-01-01T00:00:01.250Z',
     interactionDriver: 'adb-logcat',
+    maxAttempts: 1,
     partialArtifacts: {
       reason: 'complete successful run artifacts are present',
       valid: false,
@@ -267,6 +269,7 @@ test('builds schema-valid failed attempt semantics for preserved partial artifac
   assert.equal(validateJson(manifest, SCHEMAS.manifest, 'Manifest artifact').valid, true);
   assert.deepEqual(manifest.attempt, {
     attemptId: 'attempt-2',
+    attemptNumber: 1,
     classification: {
       category: 'timeout',
       code: 'milestone_timeout',
@@ -281,6 +284,7 @@ test('builds schema-valid failed attempt semantics for preserved partial artifac
     durationMs: 10000,
     endedAt: '2026-01-01T00:00:10.000Z',
     interactionDriver: 'adb-logcat',
+    maxAttempts: 1,
     partialArtifacts: {
       paths: ['health.json', 'manifest.json', 'raw/interaction.log'],
       reason: 'timeout run preserved raw evidence for diagnosis',
@@ -335,9 +339,138 @@ test('builds schema-valid cancelled attempt semantics with preserved partial art
 
   assert.equal(validateJson(manifest, SCHEMAS.manifest, 'Manifest artifact').valid, true);
   assert.equal(manifest.attempt.terminalState, 'cancelled');
+  assert.equal(manifest.attempt.attemptNumber, 1);
+  assert.equal(manifest.attempt.maxAttempts, 1);
   assert.equal(manifest.attempt.classification.category, 'cancelled');
   assert.equal(manifest.attempt.cleanup.status, 'passed');
   assert.deepEqual(manifest.attempt.partialArtifacts.paths, ['health.json', 'manifest.json', 'raw/device.log']);
+});
+
+test('builds schema-valid retry attempt lineage', () => {
+  const manifest = buildManifest({
+    scenario: 'public-journey',
+    runId: 'public-journey-retry',
+    attemptId: 'attempt-2',
+    attemptNumber: 2,
+    maxAttempts: 3,
+    retryOfAttemptId: 'attempt-1',
+    retryReason: 'Previous attempt timed out while waiting for a milestone.',
+    platform: 'android',
+    status: 'passed',
+    terminalState: 'passed',
+    startedAt: '2026-01-01T00:01:00.000Z',
+    endedAt: '2026-01-01T00:01:02.000Z',
+    interactionDriver: 'adb-logcat',
+    simulator: {
+      name: 'Pixel_8',
+      udid: 'emulator-5554',
+    },
+    bundleId: 'dev.agent.example',
+    gitSha: 'abc123',
+    toolVersions: {
+      node: 'v24.0.0',
+    },
+    artifacts: sampleManifestArtifacts(),
+  });
+
+  assert.equal(validateJson(manifest, SCHEMAS.manifest, 'Manifest artifact').valid, true);
+  assert.deepEqual({
+    attemptId: manifest.attempt.attemptId,
+    attemptNumber: manifest.attempt.attemptNumber,
+    maxAttempts: manifest.attempt.maxAttempts,
+    retryOfAttemptId: manifest.attempt.retryOfAttemptId,
+    retryReason: manifest.attempt.retryReason,
+    terminalState: manifest.attempt.terminalState,
+  }, {
+    attemptId: 'attempt-2',
+    attemptNumber: 2,
+    maxAttempts: 3,
+    retryOfAttemptId: 'attempt-1',
+    retryReason: 'Previous attempt timed out while waiting for a milestone.',
+    terminalState: 'passed',
+  });
+});
+
+test('builds schema-valid non-success terminal attempt states', () => {
+  const cases = [
+    {
+      terminalState: 'aborted',
+      classification: {
+        category: 'cancelled',
+        code: 'operator_aborted',
+        message: 'Operator aborted the run before completion.',
+        retryable: true,
+      },
+      partialArtifacts: {
+        valid: true,
+        reason: 'aborted run preserved raw evidence for diagnosis',
+        paths: ['manifest.json', 'health.json', 'raw/device.log'],
+      },
+    },
+    {
+      terminalState: 'unsupported',
+      classification: {
+        category: 'runner',
+        code: 'platform_unsupported',
+        message: 'Selected runner does not support this platform.',
+        retryable: false,
+      },
+      partialArtifacts: {
+        valid: true,
+        reason: 'unsupported run preserved compatibility evidence',
+        paths: ['manifest.json', 'health.json'],
+      },
+    },
+    {
+      terminalState: 'inconclusive',
+      classification: {
+        category: 'evidence',
+        code: 'partial_evidence',
+        message: 'Run produced partial evidence that cannot support a product verdict.',
+        retryable: true,
+      },
+      partialArtifacts: {
+        valid: true,
+        reason: 'inconclusive run preserved partial evidence for diagnosis',
+        paths: ['manifest.json', 'health.json', 'raw/device.log'],
+      },
+    },
+  ];
+
+  for (const terminalCase of cases) {
+    const manifest = buildManifest({
+      scenario: 'public-journey',
+      runId: `public-journey-${terminalCase.terminalState}`,
+      platform: 'android',
+      status: 'failed',
+      terminalState: terminalCase.terminalState,
+      startedAt: '2026-01-01T00:00:00.000Z',
+      endedAt: '2026-01-01T00:00:04.000Z',
+      interactionDriver: 'adb-logcat',
+      classification: terminalCase.classification,
+      cleanup: {
+        status: 'passed',
+        message: 'Runner finalized and preserved available artifacts.',
+        artifacts: ['raw/cleanup.txt'],
+      },
+      partialArtifacts: terminalCase.partialArtifacts,
+      simulator: {
+        name: 'Pixel_8',
+        udid: 'emulator-5554',
+      },
+      bundleId: 'dev.agent.example',
+      gitSha: 'abc123',
+      toolVersions: {
+        node: 'v24.0.0',
+      },
+      artifacts: sampleManifestArtifacts(),
+      failureReason: terminalCase.classification.message,
+    });
+
+    assert.equal(validateJson(manifest, SCHEMAS.manifest, 'Manifest artifact').valid, true);
+    assert.equal(manifest.attempt.terminalState, terminalCase.terminalState);
+    assert.equal(manifest.attempt.partialArtifacts.valid, true);
+  }
 });
 
 test('rejects mismatched cancellation and cleanup attempt semantics', () => {
@@ -403,6 +536,37 @@ test('rejects mismatched cancellation and cleanup attempt semantics', () => {
       },
     }),
     /cleanup\.status "partial" must include a cleanup message/u,
+  );
+  assert.throws(
+    () => buildManifest({
+      ...baseOptions,
+      attemptId: 'attempt-2',
+      attemptNumber: 2,
+      maxAttempts: 3,
+    }),
+    /retry attempts must record retryOfAttemptId/u,
+  );
+  assert.throws(
+    () => buildManifest({
+      ...baseOptions,
+      attemptId: 'attempt-2',
+      attemptNumber: 2,
+      maxAttempts: 1,
+      retryOfAttemptId: 'attempt-1',
+      retryReason: 'Previous attempt timed out.',
+    }),
+    /attemptNumber 2 cannot exceed maxAttempts 1/u,
+  );
+  assert.throws(
+    () => buildManifest({
+      ...baseOptions,
+      attemptId: 'attempt-1',
+      attemptNumber: 1,
+      maxAttempts: 2,
+      retryOfAttemptId: 'attempt-0',
+      retryReason: 'Not a retry.',
+    }),
+    /first attempts must not record retry lineage/u,
   );
 });
 

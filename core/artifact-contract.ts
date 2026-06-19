@@ -174,7 +174,18 @@ function roundMs(value: number): number {
  * @returns {void}
  */
 function assertAttemptInvariants(attempt: ArtifactRecord): void {
-  const { status, terminalState, classification, cleanup, partialArtifacts } = attempt;
+  const {
+    attemptId,
+    attemptNumber,
+    classification,
+    cleanup,
+    maxAttempts,
+    partialArtifacts,
+    retryOfAttemptId,
+    retryReason,
+    status,
+    terminalState,
+  } = attempt;
 
   if (status === 'passed' && terminalState !== 'passed') {
     throw new Error(`Passed attempts must use terminalState "passed", received "${terminalState}".`);
@@ -200,6 +211,34 @@ function assertAttemptInvariants(attempt: ArtifactRecord): void {
 
   if (cleanup?.status && cleanup.status !== 'not-required' && cleanup.status !== 'unknown' && typeof cleanup.message !== 'string') {
     throw new Error(`cleanup.status "${cleanup.status}" must include a cleanup message.`);
+  }
+
+  if (!Number.isInteger(attemptNumber) || attemptNumber < 1) {
+    throw new Error(`attemptNumber must be an integer greater than or equal to 1.`);
+  }
+
+  if (!Number.isInteger(maxAttempts) || maxAttempts < 1) {
+    throw new Error(`maxAttempts must be an integer greater than or equal to 1.`);
+  }
+
+  if (attemptNumber > maxAttempts) {
+    throw new Error(`attemptNumber ${attemptNumber} cannot exceed maxAttempts ${maxAttempts}.`);
+  }
+
+  if (attemptNumber > 1) {
+    if (typeof retryOfAttemptId !== 'string' || retryOfAttemptId.length === 0) {
+      throw new Error(`retry attempts must record retryOfAttemptId.`);
+    }
+    if (retryOfAttemptId === attemptId) {
+      throw new Error(`retryOfAttemptId must not equal attemptId.`);
+    }
+    if (typeof retryReason !== 'string' || retryReason.length === 0) {
+      throw new Error(`retry attempts must record retryReason.`);
+    }
+  }
+
+  if (attemptNumber === 1 && (typeof retryOfAttemptId === 'string' || typeof retryReason === 'string')) {
+    throw new Error(`first attempts must not record retry lineage.`);
   }
 }
 
@@ -1135,6 +1174,10 @@ function buildManifest({
   scenarioHash,
   runId,
   attemptId,
+  attemptNumber,
+  maxAttempts,
+  retryOfAttemptId,
+  retryReason,
   platform = 'ios',
   status,
   terminalState,
@@ -1161,6 +1204,9 @@ function buildManifest({
   const normalizedCohort = normalizeProvenanceCohort(cohort);
   const cohortHash = normalizedCohort ? hashStableValue(normalizedCohort) : null;
   const resolvedTerminalState = typeof terminalState === 'string' && terminalState.length > 0 ? terminalState : status;
+  const resolvedAttemptNumber = Number.isInteger(attemptNumber) ? attemptNumber : 1;
+  const resolvedMaxAttempts = Number.isInteger(maxAttempts) ? maxAttempts : Math.max(1, resolvedAttemptNumber);
+  const resolvedAttemptId = typeof attemptId === 'string' && attemptId.length > 0 ? attemptId : runId;
   const resolvedClassification = classification
     ? sortValue(classification)
     : {
@@ -1181,7 +1227,11 @@ function buildManifest({
             : 'failed run artifacts are preserved for diagnosis and must not be treated as product proof unless health passes',
       };
   const resolvedAttempt = {
-    attemptId: typeof attemptId === 'string' && attemptId.length > 0 ? attemptId : runId,
+    attemptId: resolvedAttemptId,
+    attemptNumber: resolvedAttemptNumber,
+    maxAttempts: resolvedMaxAttempts,
+    ...(typeof retryOfAttemptId === 'string' && retryOfAttemptId.length > 0 ? { retryOfAttemptId } : {}),
+    ...(typeof retryReason === 'string' && retryReason.length > 0 ? { retryReason } : {}),
     runId,
     status,
     terminalState: resolvedTerminalState,
@@ -1276,6 +1326,20 @@ function buildSummaryMarkdown({ manifest, metrics }: { manifest: ArtifactRecord;
         `- ${attachment.channel}/${attachment.kind}: \`${attachment.path}\` (${attachment.sizeBytes} bytes, sha256 ${attachment.sha256})`,
       )
     : ['- none'];
+  const attempt = manifest.attempt && typeof manifest.attempt === 'object' ? manifest.attempt : {};
+  const attemptLines = [
+    `- Attempt ID: \`${attempt.attemptId ?? manifest.runId}\``,
+    `- Attempt number: ${attempt.attemptNumber ?? 1}/${attempt.maxAttempts ?? 1}`,
+    `- Terminal state: ${attempt.terminalState ?? manifest.status}`,
+    ...(typeof attempt.retryOfAttemptId === 'string'
+      ? [`- Retry of: \`${attempt.retryOfAttemptId}\``]
+      : []),
+    ...(typeof attempt.retryReason === 'string'
+      ? [`- Retry reason: ${attempt.retryReason}`]
+      : []),
+    `- Cleanup: ${attempt.cleanup?.status ?? 'unknown'}`,
+    `- Partial artifacts valid: ${attempt.partialArtifacts?.valid === true ? 'yes' : 'no'}`,
+  ];
   const lines = [
     `# ${String(manifest.platform || 'ios').toUpperCase()} profile run: ${manifest.scenario}`,
     '',
@@ -1293,6 +1357,10 @@ function buildSummaryMarkdown({ manifest, metrics }: { manifest: ArtifactRecord;
     `- Timeouts: ${metrics.timeouts}`,
     `- p50 cycle: ${metrics.p50Ms === null ? 'n/a' : `${metrics.p50Ms}ms`}`,
     `- p95 cycle: ${metrics.p95Ms === null ? 'n/a' : `${metrics.p95Ms}ms`}`,
+    '',
+    '## Attempt',
+    '',
+    ...attemptLines,
     '',
     '## Artifact paths',
     '',

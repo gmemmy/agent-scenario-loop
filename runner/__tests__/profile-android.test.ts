@@ -167,7 +167,8 @@ test('profile-android writes artifacts from fixture event logs', async (t: TestC
   const causalRun = readJson(path.join(runDir, 'causal-run.json'));
   const health = readJson(path.join(runDir, 'health.json'));
   const verdict = readJson(path.join(runDir, 'verdict.json'));
-  const summary = fs.readFileSync(path.join(runDir, 'agent-summary.md'), 'utf8');
+  const agentSummary = fs.readFileSync(path.join(runDir, 'agent-summary.md'), 'utf8');
+  const profileSummary = fs.readFileSync(path.join(runDir, 'summary.md'), 'utf8');
 
   assert.equal(runDir, path.join(artifactRoot, 'app-startup', 'android-example-startup'));
   assert.equal(manifest.platform, 'android');
@@ -194,6 +195,7 @@ test('profile-android writes artifacts from fixture event logs', async (t: TestC
   assert.match(manifest.provenance.cohort.runnerVersion, /^\d+\.\d+\.\d+/u);
   assert.deepEqual(manifest.attempt, {
     attemptId: 'android-example-startup',
+    attemptNumber: 1,
     classification: {
       category: 'none',
     },
@@ -203,6 +205,7 @@ test('profile-android writes artifacts from fixture event logs', async (t: TestC
     durationMs: manifest.durationMs,
     endedAt: manifest.endedAt,
     interactionDriver: manifest.interactionDriver,
+    maxAttempts: 1,
     partialArtifacts: {
       reason: 'complete successful run artifacts are present',
       valid: false,
@@ -240,7 +243,10 @@ test('profile-android writes artifacts from fixture event logs', async (t: TestC
   });
   assert.equal(health.healthStatus, 'passed');
   assert.equal(verdict.verdictStatus, 'passed');
-  assert.match(summary, /Scenario health passed/u);
+  assert.match(profileSummary, /## Attempt/u);
+  assert.match(profileSummary, /Attempt number: 1\/1/u);
+  assert.match(profileSummary, /Terminal state: passed/u);
+  assert.match(agentSummary, /Scenario health passed/u);
 });
 
 test('profile-android profiles public scenario ids and milestone budgets', async (t: TestContext) => {
