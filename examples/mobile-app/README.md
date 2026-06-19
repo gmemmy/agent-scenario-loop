@@ -206,6 +206,8 @@ pnpm example:android:live:argent
 ASL_EXAMPLE_ANDROID_AGENT_DEVICE_SESSION=<name> pnpm example:android:live:runners
 ```
 
+The sidecar scripts use stable run suffixes so they do not overwrite the direct Android proof. They write `_live-proof/android-live-proof-agent-device`, `_live-proof/android-live-proof-argent`, or `_live-proof/android-live-proof-runners`; point `ASL_EXAMPLE_ANDROID_LIVE_PROOF` at one of those files when you want `pnpm asl:live-proof:android` or `pnpm asl:live-proof:both` to inspect a sidecar proof instead of the direct proof.
+
 Named agent-device sessions default to `reuse`, where the session owns target selection. If your direct Android serial is correct but the default agent-device session is bound elsewhere, set `ASL_EXAMPLE_ANDROID_AGENT_DEVICE_SESSION_MODE=bind` with `ASL_EXAMPLE_ANDROID_AGENT_DEVICE_SESSION=<name>` so the sidecar session still receives the configured serial.
 
 For Argent without a global binary, set `ASL_ARGENT_BIN=/path/to/argent` to the installed executable. The `npx --yes @swmansion/argent run` wrapper shape is supported through `ASL_ARGENT_BIN=npx` and `ASL_ARGENT_BASE_ARGS="--yes @swmansion/argent run"`, but verify it with `pnpm asl:argent:check` before relying on it.
@@ -266,6 +268,8 @@ ASL_EXAMPLE_IOS_AGENT_DEVICE_SESSION=<name> pnpm example:ios:live:agent-device
 pnpm example:ios:live:argent
 ASL_EXAMPLE_IOS_AGENT_DEVICE_SESSION=<name> pnpm example:ios:live:runners
 ```
+
+The sidecar scripts use stable run suffixes so they do not overwrite the direct iOS proof. They write `_live-proof/ios-live-proof-agent-device`, `_live-proof/ios-live-proof-argent`, or `_live-proof/ios-live-proof-runners`; point `ASL_EXAMPLE_IOS_LIVE_PROOF` at one of those files when you want `pnpm asl:live-proof:ios` or `pnpm asl:live-proof:both` to inspect a sidecar proof instead of the direct proof.
 
 Named agent-device sessions default to `reuse`, where the session owns target selection. If your direct simulator UDID is correct but the default agent-device session is bound elsewhere, set `ASL_EXAMPLE_IOS_AGENT_DEVICE_SESSION_MODE=bind` with `ASL_EXAMPLE_IOS_AGENT_DEVICE_SESSION=<name>` so the sidecar session still receives the configured UDID.
 
