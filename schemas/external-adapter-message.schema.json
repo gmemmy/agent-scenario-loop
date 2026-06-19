@@ -679,6 +679,10 @@
         "retryable": {
           "type": "boolean"
         },
+        "category": {
+          "type": "string",
+          "enum": ["adapter", "cancelled", "cleanup", "deadline", "environment", "protocol", "runner", "unsupported"]
+        },
         "details": {
           "type": "object",
           "additionalProperties": true

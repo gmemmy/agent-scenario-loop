@@ -11,7 +11,9 @@ This document defines the minimal protocol surface for conformance fixtures and 
 - stdout is reserved for protocol messages. Diagnostics must go to stderr.
 - Requests and responses are correlated by `operationId`.
 - `seq` is a monotonically increasing integer within each sender's stream.
+- Hosts and adapters maintain independent `seq` streams. A receiver must treat missing, repeated, or non-monotonic `seq` values as protocol health failures.
 - Timestamps use RFC 3339 strings. Timing-sensitive waits must declare their `clockDomain`.
+- Adapters must classify work received after its request `deadline` as a structured deadline failure instead of silently attempting stale work.
 - Paths in artifact references are run-relative unless `uri` is explicitly used.
 - Artifact and raw file references should include `sha256` and `sizeBytes` when the adapter can compute them.
 - Evidence bytes must not be embedded in protocol messages as raw data or base64.
@@ -102,6 +104,7 @@ or:
 {
   "ok": false,
   "failure": {
+    "category": "unsupported",
     "code": "unsupported_action",
     "message": "driverAction `pinch` is not supported",
     "retryable": false,
@@ -111,6 +114,19 @@ or:
   }
 }
 ```
+
+`failure.category` is optional for older adapters but recommended for conformance. Use these product-neutral categories:
+
+| Category | Use |
+| --- | --- |
+| `adapter` | Adapter implementation failure that is not more specific. |
+| `cancelled` | Operation was cancelled before completion. |
+| `cleanup` | Stop/finalize/cleanup invariant failed. |
+| `deadline` | Request deadline expired before or during adapter work. |
+| `environment` | Host, device, simulator, permission, or tool environment prevented execution. |
+| `protocol` | Malformed message, invalid sequence, unsupported protocol, or decode failure. |
+| `runner` | Runner orchestration failed outside app product behavior. |
+| `unsupported` | Operation, platform, driver action, or evidence kind is unsupported. |
 
 ### prepare
 
@@ -161,9 +177,13 @@ Requests cancellation of an in-flight `operationId`. The body must include `targ
 
 Stops the active app/session/target while preserving evidence produced so far. This is distinct from `finalize`; the adapter may still accept evidence capture or finalization work after stop.
 
+If there is no active launched target, `stop` must return a structured cleanup failure instead of pretending cleanup ran. Include `details.cleanupStatus` when the adapter can distinguish `not-required`, `partial`, `failed`, or `passed`.
+
 ### finalize
 
 Flushes pending protocol output, closes adapter-owned resources, and reports final artifact inventory. After a successful `finalize` response the adapter should exit with code `0`.
+
+`finalize` is terminal for one adapter attempt. Repeated finalization must return a structured cleanup or protocol failure and must not rewrite the prior artifact inventory.
 
 ## Events
 
@@ -192,4 +212,4 @@ Events must not replace the response for an operation. The host should still rec
 
 ## Conformance Fixture
 
-The fixture under `runner/__tests__/fixtures/external-adapter/` is intentionally small and non-JavaScript. It proves that a conforming adapter can be an external process with no ASL TypeScript imports. Golden transcripts in the same directory define the expected request/response behavior for the success path and a structured failure path.
+The fixture under `runner/__tests__/fixtures/external-adapter/` is intentionally small and non-JavaScript. It proves that a conforming adapter can be an external process with no ASL TypeScript imports. Golden transcripts in the same directory define expected request/response behavior for the success path, unsupported action failure, expired deadline failure, cleanup/finalization failure, sequence monotonicity, and artifact references without embedded evidence bytes.

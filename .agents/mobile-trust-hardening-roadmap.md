@@ -55,7 +55,7 @@ Suggested ownership:
 
 ### Lifecycle Breadth
 
-Status: active.
+Status: completed in `679257d`.
 
 Objective: model and prove lifecycle modes beyond cold launch.
 
@@ -86,6 +86,8 @@ Current implementation direction:
 
 ### Adapter Conformance Expansion
 
+Status: active.
+
 Objective: make adapter behavior testable independently of implementation language.
 
 Surfaces:
@@ -102,6 +104,13 @@ Acceptance evidence:
 - conformance transcripts or fixtures for happy path and failure path;
 - out-of-process adapter fixture remains non-TypeScript;
 - external adapter docs match schema behavior.
+
+Current implementation direction:
+
+- golden transcripts cover success, unsupported action, expired deadline, cleanup/finalization failure, and sequence handling;
+- the non-TypeScript fixture classifies deadline, cleanup, protocol, unsupported, and adapter failures product-neutrally;
+- conformance tests reject embedded evidence bytes and non-monotonic sender sequences;
+- external adapter protocol docs define failure categories, deadline behavior, cleanup invariants, and terminal finalization.
 
 ### Runtime Command Ordering Proof
 

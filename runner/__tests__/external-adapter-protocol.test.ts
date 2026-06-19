@@ -64,10 +64,28 @@ function assertValidTranscript(transcript: TranscriptEntry[], label: string): vo
   });
 }
 
+function assertMonotonicSenderSequences(transcript: TranscriptEntry[], label: string): void {
+  const lastSeqByDirection = new Map<TranscriptEntry['direction'], number>();
+  for (const [index, entry] of transcript.entries()) {
+    const seq = entry.message.seq;
+    assert.equal(typeof seq, 'number', `${label} line ${index + 1} is missing numeric seq`);
+    const numericSeq = seq as number;
+    const previousSeq = lastSeqByDirection.get(entry.direction) ?? 0;
+    assert.equal(numericSeq, previousSeq + 1, `${label} line ${index + 1} has non-monotonic ${entry.direction} seq`);
+    lastSeqByDirection.set(entry.direction, numericSeq);
+  }
+}
+
 function assertValidMessages(messages: Record<string, unknown>[], label: string): void {
   messages.forEach((message, index) => {
     assertValidProtocolMessage(message, `${label} message ${index + 1}`);
   });
+}
+
+function assertNoEmbeddedEvidenceBytes(message: Record<string, any>): void {
+  const serialized = JSON.stringify(message);
+  assert.doesNotMatch(serialized, /"data"\s*:/u, 'protocol messages must not embed raw evidence bytes');
+  assert.doesNotMatch(serialized, /"base64"\s*:/u, 'protocol messages must not embed base64 evidence');
 }
 
 function getResultArtifacts(message: Record<string, any>): Record<string, unknown>[] {
@@ -88,6 +106,7 @@ function assertArtifactReference(artifact: Record<string, any>): void {
 test('external adapter fixture matches the golden success protocol transcript', async () => {
   const transcript = await readTranscript('golden-success.jsonl');
   assertValidTranscript(transcript, 'golden-success.jsonl');
+  assertMonotonicSenderSequences(transcript, 'golden-success.jsonl');
 
   const actual = await runFixture(messagesByDirection(transcript, 'host'));
   assertValidMessages(actual, 'fixture success stdout');
@@ -106,11 +125,13 @@ test('external adapter fixture reports artifact references with integrity metada
 
   assert.ok(artifactRefs.length >= 1);
   [...artifactRefs, ...rawRefs].forEach(assertArtifactReference);
+  actual.forEach(assertNoEmbeddedEvidenceBytes);
 });
 
 test('external adapter fixture returns structured failures for unsupported actions', async () => {
   const transcript = await readTranscript('golden-failure.jsonl');
   assertValidTranscript(transcript, 'golden-failure.jsonl');
+  assertMonotonicSenderSequences(transcript, 'golden-failure.jsonl');
 
   const actual = await runFixture(messagesByDirection(transcript, 'host'));
   assertValidMessages(actual, 'fixture failure stdout');
@@ -119,6 +140,7 @@ test('external adapter fixture returns structured failures for unsupported actio
   assert.deepEqual(actual[1]?.body, {
     ok: false,
     failure: {
+      category: 'unsupported',
       code: 'unsupported_action',
       message: 'driverAction `pinch` is not supported',
       retryable: false,
@@ -132,6 +154,68 @@ test('external adapter fixture returns structured failures for unsupported actio
   assert.equal(actual[1]?.attemptId, 'attempt-001');
   assert.equal((actual[1] as Record<string, any>).body?.ok, false);
   assert.equal('result' in ((actual[1] as Record<string, any>).body ?? {}), false);
+});
+
+test('external adapter fixture classifies expired deadlines as retryable failures', async () => {
+  const transcript = await readTranscript('golden-deadline.jsonl');
+  assertValidTranscript(transcript, 'golden-deadline.jsonl');
+  assertMonotonicSenderSequences(transcript, 'golden-deadline.jsonl');
+
+  const actual = await runFixture(messagesByDirection(transcript, 'host'));
+  assertValidMessages(actual, 'fixture deadline stdout');
+
+  assert.deepEqual(actual, messagesByDirection(transcript, 'adapter'));
+  assert.deepEqual(actual[1]?.body, {
+    ok: false,
+    failure: {
+      category: 'deadline',
+      code: 'deadline_expired',
+      message: 'operation deadline expired before adapter work started',
+      retryable: true,
+      details: {
+        clockDomain: 'host-monotonic',
+        deadline: '2026-06-19T11:59:59.000Z',
+      },
+    },
+  });
+});
+
+test('external adapter fixture classifies cleanup and finalization invariants', async () => {
+  const transcript = await readTranscript('golden-cleanup.jsonl');
+  assertValidTranscript(transcript, 'golden-cleanup.jsonl');
+  assertMonotonicSenderSequences(transcript, 'golden-cleanup.jsonl');
+
+  const actual = await runFixture(messagesByDirection(transcript, 'host'));
+  assertValidMessages(actual, 'fixture cleanup stdout');
+
+  assert.deepEqual(actual, messagesByDirection(transcript, 'adapter'));
+  assert.deepEqual(actual[1]?.body, {
+    ok: false,
+    failure: {
+      category: 'cleanup',
+      code: 'not_launched',
+      message: 'stop requires an active launched target',
+      retryable: false,
+      details: {
+        cleanupStatus: 'not-required',
+        operation: 'stop',
+      },
+    },
+  });
+  assert.equal((actual[2] as Record<string, any>)?.body?.result?.status, 'finalized');
+  assert.deepEqual(actual[3]?.body, {
+    ok: false,
+    failure: {
+      category: 'cleanup',
+      code: 'already_finalized',
+      message: 'adapter has already finalized this attempt',
+      retryable: false,
+      details: {
+        cleanupStatus: 'passed',
+        operation: 'finalize',
+      },
+    },
+  });
 });
 
 test('external adapter fixture keeps cancellation and finalization explicit', async () => {
@@ -211,6 +295,37 @@ test('external adapter schema rejects malformed failure bodies', () => {
 
   assert.equal(result.valid, false);
   assert.ok(result.errors.some((error: { path: string }) => error.path === '$.body.failure.retryable'), result.message);
+});
+
+test('external adapter schema accepts structured failure categories', () => {
+  const result = validateJson(
+    {
+      protocolVersion: '1.0',
+      seq: 2,
+      operationId: 'op-expired-prepare',
+      kind: 'response',
+      type: 'prepare',
+      runId: 'run-001',
+      attemptId: 'attempt-001',
+      body: {
+        ok: false,
+        failure: {
+          category: 'deadline',
+          code: 'deadline_expired',
+          message: 'operation deadline expired before adapter work started',
+          retryable: true,
+          details: {
+            clockDomain: 'host-monotonic',
+            deadline: '2026-06-19T11:59:59.000Z',
+          },
+        },
+      },
+    },
+    SCHEMAS.externalAdapterMessage,
+    'Structured deadline failure response',
+  );
+
+  assert.equal(result.valid, true, result.message);
 });
 
 test('external adapter schema rejects malformed artifact integrity', () => {

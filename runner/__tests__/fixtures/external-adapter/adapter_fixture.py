@@ -9,6 +9,7 @@ ADAPTER = {
 }
 
 EMPTY_SHA256 = "0" * 64
+FIXTURE_NOW = "2026-06-19T12:00:00.000Z"
 
 CAPABILITIES = [
     "prepare",
@@ -25,6 +26,7 @@ seq = 1
 state = {
     "prepared": False,
     "launched": False,
+    "finalized": False,
 }
 
 
@@ -58,9 +60,22 @@ def ok(request, result):
     write_message(response)
 
 
+def failure_category(code):
+    if code == "deadline_expired":
+        return "deadline"
+    if code in ["unsupported_action", "unsupported_operation"]:
+        return "unsupported"
+    if code in ["not_launched", "already_finalized"]:
+        return "cleanup"
+    if code == "invalid_json":
+        return "protocol"
+    return "adapter"
+
+
 def fail(request, code, message, retryable=False, details=None):
     response = base_response(request)
     failure = {
+        "category": failure_category(code),
         "code": code,
         "message": message,
         "retryable": retryable,
@@ -72,6 +87,27 @@ def fail(request, code, message, retryable=False, details=None):
         "failure": failure,
     }
     write_message(response)
+
+
+def is_expired(request):
+    deadline = request.get("deadline")
+    return isinstance(deadline, str) and deadline <= FIXTURE_NOW
+
+
+def fail_if_expired(request):
+    if not is_expired(request):
+        return False
+    fail(
+        request,
+        "deadline_expired",
+        "operation deadline expired before adapter work started",
+        True,
+        {
+            "deadline": request.get("deadline"),
+            "clockDomain": "host-monotonic",
+        },
+    )
+    return True
 
 
 def handle_hello(request):
@@ -87,6 +123,8 @@ def handle_hello(request):
 
 
 def handle_prepare(request):
+    if fail_if_expired(request):
+        return
     body = request.get("body", {})
     state["prepared"] = True
     ok(request, {
@@ -98,6 +136,8 @@ def handle_prepare(request):
 
 
 def handle_launch(request):
+    if fail_if_expired(request):
+        return
     if not state["prepared"]:
         fail(request, "not_prepared", "prepare must complete before launch")
         return
@@ -118,6 +158,8 @@ def handle_launch(request):
 
 
 def handle_execute_action(request):
+    if fail_if_expired(request):
+        return
     body = request.get("body", {})
     action = body.get("driverAction")
     if action not in ["tap", "assertVisible"]:
@@ -142,6 +184,8 @@ def handle_execute_action(request):
 
 
 def handle_wait_condition(request):
+    if fail_if_expired(request):
+        return
     body = request.get("body", {})
     ok(request, {
         "condition": body.get("condition"),
@@ -167,6 +211,8 @@ def handle_wait_condition(request):
 
 
 def handle_capture_evidence(request):
+    if fail_if_expired(request):
+        return
     ok(request, {
         "artifacts": [
             {
@@ -189,6 +235,8 @@ def handle_capture_evidence(request):
 
 
 def handle_cancel(request):
+    if fail_if_expired(request):
+        return
     body = request.get("body", {})
     ok(request, {
         "targetOperationId": body.get("targetOperationId"),
@@ -198,6 +246,20 @@ def handle_cancel(request):
 
 
 def handle_stop(request):
+    if fail_if_expired(request):
+        return
+    if not state["launched"]:
+        fail(
+            request,
+            "not_launched",
+            "stop requires an active launched target",
+            False,
+            {
+                "cleanupStatus": "not-required",
+                "operation": "stop",
+            },
+        )
+        return
     state["launched"] = False
     ok(request, {
         "status": "stopped",
@@ -214,6 +276,19 @@ def handle_stop(request):
 
 
 def handle_finalize(request):
+    if state["finalized"]:
+        fail(
+            request,
+            "already_finalized",
+            "adapter has already finalized this attempt",
+            False,
+            {
+                "cleanupStatus": "passed",
+                "operation": "finalize",
+            },
+        )
+        return
+    state["finalized"] = True
     ok(request, {
         "status": "finalized",
         "adapter": ADAPTER,
@@ -262,5 +337,3 @@ for line in sys.stdin:
         fail(request, "unsupported_operation", "operation `{}` is not supported".format(request.get("type")))
         continue
     handler(request)
-    if request.get("type") == "finalize":
-        break
