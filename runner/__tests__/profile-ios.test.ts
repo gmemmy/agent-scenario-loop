@@ -618,6 +618,7 @@ test('profile-ios can seed and profile stored iOS app truth events', async (t: T
   assert.equal(simctlHealth.healthStatus, 'passed');
   assert.equal((manifest.artifacts as { raw: { interactionLog: string } }).raw.interactionLog, 'raw/ios-profile-events.log');
   assert.ok(calls.includes('simctl terminate A692ED28-893E-453F-8866-C69331AE757F dev.agent-scenario-loop.example'));
+  assert.equal(calls.includes('simctl launch A692ED28-893E-453F-8866-C69331AE757F dev.agent-scenario-loop.example'), false);
   assert.ok(calls.some((call) => call.startsWith('simctl openurl A692ED28-893E-453F-8866-C69331AE757F asl-example://expo-development-client/')));
   assert.ok(fs.existsSync(path.join(result.runDir, 'raw', 'ios-profile-events.log')));
 });

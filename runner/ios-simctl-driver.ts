@@ -42,6 +42,7 @@ type IosSimctlScreenshotOptions = {
 };
 
 type IosSimctlDriver = {
+  appInfo: (bundleId: string) => Promise<IosSimctlCommandResult>;
   launchBundle: (bundleId: string) => Promise<IosSimctlCommandResult>;
   openDeepLink: (options: IosSimctlDeepLinkOptions) => Promise<IosSimctlCommandResult>;
   readLogs: (options?: IosSimctlReadLogsOptions) => Promise<IosSimctlCommandResult>;
@@ -103,6 +104,12 @@ function createIosSimctlDriver({
   xcrunPath,
 }: IosSimctlDriverOptions): IosSimctlDriver {
   return {
+    async appInfo(bundleId: string): Promise<IosSimctlCommandResult> {
+      const rawFileName = 'ios-app-info.txt';
+      const result = await executor(xcrunPath, ['simctl', 'appinfo', deviceUdid, bundleId]);
+      return buildDriverResult({ action: 'appInfo', rawFileName, result });
+    },
+
     async launchBundle(bundleId: string): Promise<IosSimctlCommandResult> {
       const rawFileName = 'ios-launch.txt';
       const result = await executor(xcrunPath, ['simctl', 'launch', deviceUdid, bundleId]);

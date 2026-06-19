@@ -24,8 +24,13 @@ type CliArgs = {
   'diagnostic-reports-dir'?: string | boolean;
   launch?: string | boolean;
   'log-last'?: string | boolean;
+  'profile-command-storage-key'?: string | boolean;
+  'profile-event-storage-key'?: string | boolean;
   out?: string | boolean;
+  'profile-session-entries-storage-key'?: string | boolean;
   'profile-session-storage'?: string | boolean;
+  'profile-session-storage-key'?: string | boolean;
+  'profile-signal-storage-key'?: string | boolean;
   'run-id'?: string | boolean;
   screenshot?: string | boolean;
   'screenshot-display'?: string | boolean;
@@ -69,6 +74,13 @@ type IosProfileSessionStorageSeed = {
   runId: string;
   startedAt?: number;
 };
+type ProfileStorageKeys = {
+  command: string;
+  event: string;
+  session: string;
+  sessionEntries: string;
+  signal: string;
+};
 type IosSimctlCaptureOptions = {
   bundleId?: string | null;
   collectProfileStorage?: boolean;
@@ -82,6 +94,7 @@ type IosSimctlCaptureOptions = {
   logLast?: string;
   outputDir?: string;
   profileSessionStorage?: IosProfileSessionStorageSeed | null;
+  profileStorageKeys?: Partial<ProfileStorageKeys>;
   runId?: string;
   screenshot?: boolean;
   screenshotDisplay?: string;
@@ -131,6 +144,13 @@ const PROFILE_STORAGE_RESET_KEYS = [
   PROFILE_COMMAND_STORAGE_KEY,
   PROFILE_SESSION_ENTRIES_STORAGE_KEY,
 ];
+const DEFAULT_PROFILE_STORAGE_KEYS: ProfileStorageKeys = {
+  command: PROFILE_COMMAND_STORAGE_KEY,
+  event: PROFILE_EVENT_STORAGE_KEY,
+  session: PROFILE_SESSION_STORAGE_KEY,
+  sessionEntries: PROFILE_SESSION_ENTRIES_STORAGE_KEY,
+  signal: PROFILE_SIGNAL_STORAGE_KEY,
+};
 const SCREENSHOT_EXTENSIONS = new Set(['bmp', 'gif', 'jpeg', 'png', 'tiff']);
 const SIMULATOR_LAUNCH_ENV_KEYS = [
   'DYLD_INSERT_LIBRARIES',
@@ -147,6 +167,22 @@ const HOST_DIAGNOSTIC_REPORT_SEARCH_LIMIT = 25;
  */
 function rawBundleIdSuffix(bundleId: string): string {
   return bundleId.replace(/[^A-Za-z0-9._-]+/gu, '-').slice(0, 80) || 'bundle';
+}
+
+/**
+ * Resolves app-owned AsyncStorage keys for profile-session control and evidence.
+ *
+ * @param {Partial<ProfileStorageKeys> | undefined} overrides
+ * @returns {ProfileStorageKeys}
+ */
+function resolveProfileStorageKeys(overrides?: Partial<ProfileStorageKeys>): ProfileStorageKeys {
+  return {
+    command: overrides?.command || DEFAULT_PROFILE_STORAGE_KEYS.command,
+    event: overrides?.event || DEFAULT_PROFILE_STORAGE_KEYS.event,
+    session: overrides?.session || DEFAULT_PROFILE_STORAGE_KEYS.session,
+    sessionEntries: overrides?.sessionEntries || DEFAULT_PROFILE_STORAGE_KEYS.sessionEntries,
+    signal: overrides?.signal || DEFAULT_PROFILE_STORAGE_KEYS.signal,
+  };
 }
 
 /**
@@ -275,6 +311,7 @@ function usage(output: { write: (message: string) => unknown } = process.stderr)
     'Use --screenshot to save a simulator screenshot into captures/ios-screenshot.png.',
     'Use --screenshot-type, --screenshot-display, or --screenshot-mask to pass supported simctl screenshot options.',
     'Use --profile-session-storage <scenario> with --bundle <id> to seed the app profile session before launch.',
+    'Use --profile-session-storage-key, --profile-command-storage-key, --profile-event-storage-key, --profile-signal-storage-key, and --profile-session-entries-storage-key to target app-owned AsyncStorage keys.',
     'Use --collect-profile-storage with --bundle <id> to collect stored profile events after the capture window.',
     'Use --diagnostic-reports-dir <path> when host crash reports live outside ~/Library/Logs/DiagnosticReports.',
   ], output);
@@ -382,10 +419,57 @@ function buildIosAppLifecycleLogPredicate({
  * Detects native app exits that invalidate simulator capture evidence.
  *
  * @param {string} output
+ * @returns {'crash' | 'exit' | null}
+ */
+function classifyIosAppLifecycleInstability(output: string): 'crash' | 'exit' | null {
+  for (const line of String(output).split(/\r?\n/u)) {
+    if (/xpcservice<com\.apple\.WebKit|Browser Engine helper|WebContent|WebKit\.Networking|WebKit\.GPU/iu.test(line)) {
+      continue;
+    }
+    if (/\bSIG[A-Z0-9_]+\b|[Ss]egmentation fault|EXC_[A-Z_]+|scene-creation-failed/u.test(line)) {
+      return 'crash';
+    }
+    if (/Process exited|exited with context|termination reported by launchd/iu.test(line)) {
+      return 'exit';
+    }
+  }
+  return null;
+}
+
+/**
+ * Reads the current target application state from `simctl appinfo` output.
+ *
+ * @param {string} output
+ * @returns {string | null}
+ */
+function parseIosAppInfoApplicationState(output: string): string | null {
+  const trimmed = output.trim();
+  if (trimmed.length === 0) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(trimmed);
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      const state = (parsed as Record<string, unknown>).ApplicationState;
+      return typeof state === 'string' && state.trim().length > 0 ? state.trim() : null;
+    }
+  } catch {
+    // simctl appinfo has emitted plist-like text on some Xcode versions.
+  }
+
+  const match = /ApplicationState\s*["'=:\s]+\s*"?([A-Za-z]+)"?/u.exec(trimmed);
+  return match?.[1] ?? null;
+}
+
+/**
+ * Reports whether a parsed iOS application state still owns the foreground surface.
+ *
+ * @param {string | null} state
  * @returns {boolean}
  */
-function iosAppLifecycleLogHasCrash(output: string): boolean {
-  return /Process exited|exited with context|SIG[A-Z]+|Segmentation fault|EXC_BAD_ACCESS|scene-creation-failed/iu.test(output);
+function isIosAppInfoForegroundState(state: string | null): boolean {
+  return state === 'ForegroundRunning' || state === 'ForegroundSuspended';
 }
 
 /**
@@ -537,6 +621,7 @@ async function seedProfileSessionStorage({
   bundleId,
   commands = [],
   dataContainer,
+  profileStorageKeys = DEFAULT_PROFILE_STORAGE_KEYS,
   runId,
   scenario,
   startedAt = Date.now(),
@@ -544,13 +629,20 @@ async function seedProfileSessionStorage({
   bundleId: string;
   commands?: IosProfileSessionStorageCommand[];
   dataContainer: string;
+  profileStorageKeys?: ProfileStorageKeys;
   runId: string;
   scenario: string;
   startedAt?: number;
 }): Promise<{commands: Record<string, unknown>[]; manifestPath: string; storageDir: string; session: Record<string, unknown>}> {
   const storageDir = resolveAsyncStorageDirectory({ bundleId, dataContainer });
   const manifest = readAsyncStorageManifestSync(storageDir);
-  for (const key of PROFILE_STORAGE_RESET_KEYS) {
+  const resetKeys = [
+    profileStorageKeys.event,
+    profileStorageKeys.signal,
+    profileStorageKeys.command,
+    profileStorageKeys.sessionEntries,
+  ];
+  for (const key of resetKeys) {
     delete manifest[key];
   }
 
@@ -567,12 +659,12 @@ async function seedProfileSessionStorage({
     command: profileCommand.command,
     timestamp: typeof profileCommand.timestamp === 'number' ? profileCommand.timestamp : startedAt + index + 1,
   }));
-  manifest[PROFILE_SESSION_STORAGE_KEY] = JSON.stringify(session);
+  manifest[profileStorageKeys.session] = JSON.stringify(session);
   if (queuedCommands.length > 0) {
-    manifest[PROFILE_COMMAND_STORAGE_KEY] = JSON.stringify(queuedCommands);
+    manifest[profileStorageKeys.command] = JSON.stringify(queuedCommands);
   }
   await removeAsyncStorageSpillFiles({
-    keys: [PROFILE_SESSION_STORAGE_KEY, ...PROFILE_STORAGE_RESET_KEYS],
+    keys: [profileStorageKeys.session, ...resetKeys],
     storageDir,
   });
   await writeAsyncStorageManifest({ manifest, storageDir });
@@ -852,6 +944,7 @@ async function runIosSimctlCapture({
   logLast = '2m',
   outputDir = path.resolve('artifacts/ios-simctl-capture'),
   profileSessionStorage = null,
+  profileStorageKeys: profileStorageKeyOverrides,
   runId = createRunId(),
   screenshot = false,
   screenshotDisplay,
@@ -865,6 +958,7 @@ async function runIosSimctlCapture({
   const layout = createArtifactLayout({ outputDir: runDir });
   const rawDir = layout.raw;
   await fsp.mkdir(rawDir, { recursive: true });
+  const profileStorageKeys = resolveProfileStorageKeys(profileStorageKeyOverrides);
 
   const raw: Record<string, string> = {};
   const captures: { screenshot: string | null } = {
@@ -924,6 +1018,7 @@ async function runIosSimctlCapture({
     diagnosticReportsDir: diagnosticReportsDir || defaultDiagnosticReportsDir(),
     launch,
     logLast,
+    profileStorageKeys,
     profileSessionStorage: profileSessionStorage
       ? {
           commandCount: Array.isArray(profileSessionStorage.commands) ? profileSessionStorage.commands.length : 0,
@@ -1174,6 +1269,7 @@ async function runIosSimctlCapture({
             ? { commands: profileSessionStorage.commands }
             : {}),
           dataContainer: dataContainerPath,
+          profileStorageKeys,
           runId: profileSessionStorage.runId,
           scenario: profileSessionStorage.scenario,
           ...(typeof profileSessionStorage.startedAt === 'number'
@@ -1313,27 +1409,35 @@ async function runIosSimctlCapture({
       const appLifecycleRawFileName = 'ios-app-lifecycle-log.txt';
       const appLifecycleOutput = [appLifecycleLog.stdout, appLifecycleLog.stderr].filter(Boolean).join('\n');
       const appLifecycleCaptured = appLifecycleLog.exitCode === 0;
-      const appLifecycleCrashed = appLifecycleCaptured && iosAppLifecycleLogHasCrash(appLifecycleOutput);
+      const appLifecycleInstability = appLifecycleCaptured
+        ? classifyIosAppLifecycleInstability(appLifecycleOutput)
+        : null;
       raw[appLifecycleRawFileName] = appLifecycleOutput;
-      const hostDiagnosticReport = appLifecycleCrashed
+      const hostDiagnosticReport = appLifecycleInstability
         ? await inspectHostDiagnosticReport({ bundleId, diagnosticReportsDir })
         : null;
+      const appLifecycleCrashed = appLifecycleInstability === 'crash' || Boolean(hostDiagnosticReport?.metadata?.matched);
+      const appLifecycleAmbiguousExit = appLifecycleInstability === 'exit' && !hostDiagnosticReport?.metadata?.matched;
       if (hostDiagnosticReport) {
         Object.assign(raw, hostDiagnosticReport.raw);
       }
       checks.push({
         name: 'ios_app_lifecycle_stable',
-        status: !appLifecycleCaptured ? 'warning' : appLifecycleCrashed ? 'failed' : 'passed',
+        status: !appLifecycleCaptured ? 'warning' : appLifecycleCrashed ? 'failed' : appLifecycleAmbiguousExit ? 'warning' : 'passed',
         source: 'runner',
         code: !appLifecycleCaptured
           ? 'ios_app_lifecycle_log_unavailable'
           : appLifecycleCrashed
             ? 'ios_app_exited_during_capture'
+            : appLifecycleAmbiguousExit
+              ? 'ios_app_lifecycle_exit_unconfirmed'
             : 'ios_app_lifecycle_stable',
         message: !appLifecycleCaptured
           ? 'Could not inspect the launched iOS app lifecycle log.'
           : appLifecycleCrashed
             ? `App ${bundleId} exited during the simulator capture window.`
+            : appLifecycleAmbiguousExit
+              ? `Simulator logs mentioned an app exit for ${bundleId}, but no matching host crash report was found.`
             : `No native app exit was found for ${bundleId} during the simulator capture window.`,
         ...(!appLifecycleCaptured
           ? {
@@ -1342,13 +1446,13 @@ async function runIosSimctlCapture({
                 `Inspect raw/${appLifecycleRawFileName}, confirm xcrun simctl log access works for the selected simulator, then rerun the capture.`,
               ),
             }
-          : appLifecycleCrashed
+          : appLifecycleCrashed || appLifecycleAmbiguousExit
             ? {
                 metadata: nextActionHint(
-                  'inspect_ios_app_crash',
-                  hostDiagnosticReport?.metadata?.matched
+                  appLifecycleCrashed ? 'inspect_ios_app_crash' : 'confirm_ios_app_lifecycle',
+                  appLifecycleCrashed && hostDiagnosticReport?.metadata?.matched
                     ? `Inspect raw/${appLifecycleRawFileName} and ${hostDiagnosticReport.metadata.rawPath}; do not trust timing or profile evidence until the app remains foregrounded.`
-                    : `Inspect raw/${appLifecycleRawFileName}, raw/ios-host-diagnostic-report-search.txt, and the latest host DiagnosticReports crash file for ${bundleId}; do not trust timing or profile evidence until the app remains foregrounded.`,
+                    : `Inspect raw/${appLifecycleRawFileName}, raw/ios-host-diagnostic-report-search.txt, and simulator UI/process evidence before treating this as an app crash.`,
                 ),
               }
             : {}),
@@ -1360,7 +1464,7 @@ async function runIosSimctlCapture({
         rawPath: `raw/${appLifecycleRawFileName}`,
         ...(hostDiagnosticReport ? { hostDiagnosticReport: hostDiagnosticReport.metadata } : {}),
       };
-      if (appLifecycleCrashed) {
+      if (appLifecycleInstability) {
         checks.push({
           name: 'ios_host_diagnostic_report_attached',
           status: hostDiagnosticReport?.metadata?.matched ? 'passed' : 'warning',
@@ -1378,9 +1482,58 @@ async function runIosSimctlCapture({
                   'Inspect raw/ios-host-diagnostic-report-search.txt and the host DiagnosticReports directory; Simulator may write the crash report after this capture window.',
                 ),
               }
-            : {}),
+          : {}),
         });
       }
+
+      const appInfoResult = await driver.appInfo(bundleId);
+      const appInfoOutput = formatIosSimctlRawOutput(appInfoResult);
+      const applicationState = parseIosAppInfoApplicationState(appInfoOutput);
+      const appInfoCaptured = appInfoResult.exitCode === 0;
+      const targetForeground = appInfoCaptured && isIosAppInfoForegroundState(applicationState);
+      raw[appInfoResult.rawFileName] = appInfoOutput;
+      checks.push({
+        name: 'ios_target_app_foreground',
+        status: !appInfoCaptured || !applicationState ? 'warning' : targetForeground ? 'passed' : 'failed',
+        source: 'runner',
+        code: !appInfoCaptured
+          ? 'ios_target_app_info_unavailable'
+          : targetForeground
+            ? 'ios_target_app_foreground'
+            : applicationState
+              ? 'ios_target_app_backgrounded'
+              : 'ios_target_app_state_unknown',
+        message: !appInfoCaptured
+          ? `Could not inspect foreground state for ${bundleId}.`
+          : targetForeground
+            ? `Target app ${bundleId} remained foreground-owned after capture.`
+            : applicationState
+              ? `Target app ${bundleId} was ${applicationState} after capture.`
+              : `Target app ${bundleId} foreground state was not reported by simctl appinfo.`,
+        ...(!appInfoCaptured
+          ? {
+              metadata: nextActionHint(
+                'inspect_ios_app_info',
+                `Inspect raw/${appInfoResult.rawFileName}; if simctl appinfo is unavailable on this Xcode, use a host runner that can prove target foreground ownership before trusting screenshot evidence.`,
+              ),
+            }
+          : !targetForeground
+            ? {
+                metadata: nextActionHint(
+                  applicationState ? 'restore_ios_target_foreground' : 'confirm_ios_target_foreground',
+                  applicationState
+                    ? `The target app reported ${applicationState}. Inspect raw/${appInfoResult.rawFileName}, confirm the selected bundle and dev-client URL, and rerun on a simulator where ${bundleId} owns the foreground surface.`
+                    : `Inspect raw/${appInfoResult.rawFileName} and simulator UI evidence; this Xcode/simulator did not report ApplicationState.`,
+                ),
+              }
+            : {}),
+      });
+      metadata.appInfo = {
+        applicationState,
+        args: appInfoResult.args,
+        exitCode: appInfoResult.exitCode,
+        rawPath: `raw/${appInfoResult.rawFileName}`,
+      };
     }
 
     if (screenshot) {
@@ -1469,13 +1622,13 @@ async function runIosSimctlCapture({
             bundleId,
             dataContainer: dataContainerPath,
             fallback: [],
-            key: PROFILE_EVENT_STORAGE_KEY,
+            key: profileStorageKeys.event,
           });
           const storedEntries = readProfileStorageJson({
             bundleId,
             dataContainer: dataContainerPath,
             fallback: [],
-            key: PROFILE_SESSION_ENTRIES_STORAGE_KEY,
+            key: profileStorageKeys.sessionEntries,
           });
           const events = Array.isArray(storedEvents)
             ? storedEvents.filter((event): event is Record<string, unknown> => Boolean(event) && typeof event === 'object' && !Array.isArray(event))
@@ -1580,6 +1733,13 @@ async function main(): Promise<void> {
   const args = parseArgs(argv);
   const runId = typeof args['run-id'] === 'string' ? args['run-id'] : createRunId();
   const profileSessionStorageEnabled = typeof args['profile-session-storage'] === 'string';
+  const profileStorageKeys = resolveProfileStorageKeys({
+    ...(typeof args['profile-command-storage-key'] === 'string' ? { command: args['profile-command-storage-key'] } : {}),
+    ...(typeof args['profile-event-storage-key'] === 'string' ? { event: args['profile-event-storage-key'] } : {}),
+    ...(typeof args['profile-session-storage-key'] === 'string' ? { session: args['profile-session-storage-key'] } : {}),
+    ...(typeof args['profile-session-entries-storage-key'] === 'string' ? { sessionEntries: args['profile-session-entries-storage-key'] } : {}),
+    ...(typeof args['profile-signal-storage-key'] === 'string' ? { signal: args['profile-signal-storage-key'] } : {}),
+  });
   const result = await runIosSimctlCapture({
     ...(typeof args.bundle === 'string' ? { bundleId: args.bundle } : {}),
     collectProfileStorage: profileSessionStorageEnabled ||
@@ -1592,6 +1752,7 @@ async function main(): Promise<void> {
     launch: args.launch === true || args.launch === 'true',
     ...(typeof args['log-last'] === 'string' ? { logLast: args['log-last'] } : {}),
     ...(typeof args.out === 'string' ? { outputDir: args.out } : {}),
+    profileStorageKeys,
     ...(profileSessionStorageEnabled && typeof args['profile-session-storage'] === 'string'
       ? {
           profileSessionStorage: {

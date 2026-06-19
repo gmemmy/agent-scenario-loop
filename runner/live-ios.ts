@@ -338,6 +338,26 @@ async function runIosLiveProof(
     'ASL_EXAMPLE_IOS_DEV_CLIENT_WAIT_MS',
   ]);
   const iosProfileSessionTransport = resolveIosProfileSessionTransport(args);
+  const iosProfileSessionStorageKey = readStringArgOrEnv(args['ios-profile-session-storage-key'], [
+    'ASL_IOS_PROFILE_SESSION_STORAGE_KEY',
+    'ASL_EXAMPLE_IOS_PROFILE_SESSION_STORAGE_KEY',
+  ]);
+  const iosProfileCommandStorageKey = readStringArgOrEnv(args['ios-profile-command-storage-key'], [
+    'ASL_IOS_PROFILE_COMMAND_STORAGE_KEY',
+    'ASL_EXAMPLE_IOS_PROFILE_COMMAND_STORAGE_KEY',
+  ]);
+  const iosProfileEventStorageKey = readStringArgOrEnv(args['ios-profile-event-storage-key'], [
+    'ASL_IOS_PROFILE_EVENT_STORAGE_KEY',
+    'ASL_EXAMPLE_IOS_PROFILE_EVENT_STORAGE_KEY',
+  ]);
+  const iosProfileSignalStorageKey = readStringArgOrEnv(args['ios-profile-signal-storage-key'], [
+    'ASL_IOS_PROFILE_SIGNAL_STORAGE_KEY',
+    'ASL_EXAMPLE_IOS_PROFILE_SIGNAL_STORAGE_KEY',
+  ]);
+  const iosProfileSessionEntriesStorageKey = readStringArgOrEnv(args['ios-profile-session-entries-storage-key'], [
+    'ASL_IOS_PROFILE_SESSION_ENTRIES_STORAGE_KEY',
+    'ASL_EXAMPLE_IOS_PROFILE_SESSION_ENTRIES_STORAGE_KEY',
+  ]);
   const outputDir = typeof args.out === 'string' ? path.resolve(args.out) : path.resolve('artifacts/asl/ios-live');
   const runSuffix = normalizeRunSuffix(args['run-suffix']);
   const aggregateRunId = buildRunId(typeof args['run-id'] === 'string' ? args['run-id'] : 'ios-live-proof', runSuffix);
@@ -387,6 +407,11 @@ async function runIosLiveProof(
     ...(iosDevClientWaitMs ? { 'ios-dev-client-wait-ms': iosDevClientWaitMs } : {}),
     'profile-session': true,
     ...(iosProfileSessionTransport === 'storage' ? { 'profile-session-storage': true } : {}),
+    ...(iosProfileSessionStorageKey ? { 'ios-profile-session-storage-key': iosProfileSessionStorageKey } : {}),
+    ...(iosProfileCommandStorageKey ? { 'ios-profile-command-storage-key': iosProfileCommandStorageKey } : {}),
+    ...(iosProfileEventStorageKey ? { 'ios-profile-event-storage-key': iosProfileEventStorageKey } : {}),
+    ...(iosProfileSignalStorageKey ? { 'ios-profile-signal-storage-key': iosProfileSignalStorageKey } : {}),
+    ...(iosProfileSessionEntriesStorageKey ? { 'ios-profile-session-entries-storage-key': iosProfileSessionEntriesStorageKey } : {}),
     'run-id': profileRunId,
     scenario: scenarioPath,
     'simctl-capture': true,

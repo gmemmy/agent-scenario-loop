@@ -358,6 +358,182 @@ test('fails iOS capture when launched app exits during the capture window', asyn
   });
 });
 
+test('warns instead of failing when iOS lifecycle exit is not confirmed by crash evidence', async (t: TestContext) => {
+  const outputDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-ios-simctl-ambiguous-exit-'));
+  const diagnosticReportsDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-ios-empty-diagnostic-reports-'));
+  t.after(async () => {
+    await fsp.rm(outputDir, { recursive: true, force: true });
+    await fsp.rm(diagnosticReportsDir, { recursive: true, force: true });
+  });
+  const executor = createExecutor({
+    'simctl list devices': {
+      stdout: [
+        '== Devices ==',
+        '-- iOS 26.3 --',
+        '    iPhone 17 Pro Max (A692ED28-893E-453F-8866-C69331AE757F) (Booted)',
+      ].join('\n'),
+    },
+    'simctl get_app_container A692ED28-893E-453F-8866-C69331AE757F dev.agent-scenario-loop.example app': {
+      stdout: '/tmp/ASLExampleMobile.app\n',
+    },
+    'simctl launch A692ED28-893E-453F-8866-C69331AE757F dev.agent-scenario-loop.example': {
+      stdout: 'dev.agent-scenario-loop.example: 74759\n',
+    },
+    'simctl spawn A692ED28-893E-453F-8866-C69331AE757F log show --style compact --last 1m --predicate eventMessage CONTAINS "dev.agent-scenario-loop.example" AND eventMessage CONTAINS "74759"': {
+      stdout: 'runningboardd app<dev.agent-scenario-loop.example>:74759 exited with context unknown',
+    },
+    'simctl appinfo A692ED28-893E-453F-8866-C69331AE757F dev.agent-scenario-loop.example': {
+      stdout: '{"Bundle":"dev.agent-scenario-loop.example"}\n',
+    },
+    'simctl spawn A692ED28-893E-453F-8866-C69331AE757F log show --style compact --last 1m --predicate eventMessage CONTAINS "[profile-event]" OR eventMessage CONTAINS "[profile-session]"': {
+      stdout: 'Timestamp Ty Process[PID:TID]\n',
+    },
+  });
+
+  const result = await runIosSimctlCapture({
+    bundleId: 'dev.agent-scenario-loop.example',
+    diagnosticReportsDir,
+    executor,
+    launch: true,
+    logLast: '1m',
+    outputDir,
+    runId: 'ios-ambiguous-exit',
+  });
+
+  assert.equal(result.health.healthStatus, 'passed', JSON.stringify(result.health.checks, null, 2));
+  assert.ok(
+    (result.health.checks as Array<{ code: string; status: string; metadata?: { nextActionCode?: string } }>).some(
+      (check) => check.code === 'ios_app_lifecycle_exit_unconfirmed'
+        && check.status === 'warning'
+        && check.metadata?.nextActionCode === 'confirm_ios_app_lifecycle',
+    ),
+  );
+  assert.ok(
+    (result.health.checks as Array<{ code: string; status: string; metadata?: { nextActionCode?: string } }>).some(
+      (check) => check.code === 'ios_target_app_state_unknown'
+        && check.status === 'warning'
+        && check.metadata?.nextActionCode === 'confirm_ios_target_foreground',
+    ),
+  );
+});
+
+test('ignores WebKit helper lifecycle noise when app remains foreground', async (t: TestContext) => {
+  const outputDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-ios-simctl-webkit-noise-'));
+  t.after(async () => {
+    await fsp.rm(outputDir, { recursive: true, force: true });
+  });
+  const executor = createExecutor({
+    'simctl list devices': {
+      stdout: [
+        '== Devices ==',
+        '-- iOS 26.3 --',
+        '    iPhone 17 Pro Max (A692ED28-893E-453F-8866-C69331AE757F) (Booted)',
+      ].join('\n'),
+    },
+    'simctl get_app_container A692ED28-893E-453F-8866-C69331AE757F dev.agent-scenario-loop.example app': {
+      stdout: '/tmp/ASLExampleMobile.app\n',
+    },
+    'simctl launch A692ED28-893E-453F-8866-C69331AE757F dev.agent-scenario-loop.example': {
+      stdout: 'dev.agent-scenario-loop.example: 89365\n',
+    },
+    'simctl spawn A692ED28-893E-453F-8866-C69331AE757F log show --style compact --last 1m --predicate eventMessage CONTAINS "dev.agent-scenario-loop.example" AND eventMessage CONTAINS "89365"': {
+      stdout: [
+        'SpringBoard RX dev.agent-scenario-loop.example(89365) signalKeyboardChanged',
+        'runningboardd [xpcservice<com.apple.WebKit.WebContent([app<dev.agent-scenario-loop.example((null))>:89365])>:89543] reported to RB as running',
+        'runningboardd Invalidating assertion 39338-89365-15099 (target:[xpcservice<com.apple.WebKit.WebContent([app<dev.agent-scenario-loop.example((null))>:89365])>:89543])',
+        'SpringBoard Asked to bootstrap a new process for handle: [xpcservice<com.apple.WebKit.Networking([app<dev.agent-scenario-loop.example((null))>:89365])>:89542]',
+      ].join('\n'),
+    },
+    'simctl appinfo A692ED28-893E-453F-8866-C69331AE757F dev.agent-scenario-loop.example': {
+      stdout: '{"ApplicationState":"ForegroundRunning","Bundle":"dev.agent-scenario-loop.example"}\n',
+    },
+    'simctl spawn A692ED28-893E-453F-8866-C69331AE757F log show --style compact --last 1m --predicate eventMessage CONTAINS "[profile-event]" OR eventMessage CONTAINS "[profile-session]"': {
+      stdout: 'Timestamp Ty Process[PID:TID]\n',
+    },
+  });
+
+  const result = await runIosSimctlCapture({
+    bundleId: 'dev.agent-scenario-loop.example',
+    executor,
+    launch: true,
+    logLast: '1m',
+    outputDir,
+    runId: 'ios-webkit-noise',
+  });
+
+  assert.equal(result.health.healthStatus, 'passed', JSON.stringify(result.health.checks, null, 2));
+  assert.ok(
+    (result.health.checks as Array<{ code: string; status: string }>).some(
+      (check) => check.code === 'ios_app_lifecycle_stable' && check.status === 'passed',
+    ),
+  );
+});
+
+test('fails iOS capture when launched target app is not foreground after capture', async (t: TestContext) => {
+  const outputDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-ios-simctl-backgrounded-'));
+  t.after(async () => {
+    await fsp.rm(outputDir, { recursive: true, force: true });
+  });
+  const executor = createExecutor({
+    'simctl list devices': {
+      stdout: [
+        '== Devices ==',
+        '-- iOS 26.3 --',
+        '    iPhone 17 Pro Max (A692ED28-893E-453F-8866-C69331AE757F) (Booted)',
+      ].join('\n'),
+    },
+    'simctl get_app_container A692ED28-893E-453F-8866-C69331AE757F dev.agent-scenario-loop.example app': {
+      stdout: '/tmp/ASLExampleMobile.app\n',
+    },
+    'simctl launch A692ED28-893E-453F-8866-C69331AE757F dev.agent-scenario-loop.example': {
+      stdout: 'dev.agent-scenario-loop.example: 1234\n',
+    },
+    'simctl spawn A692ED28-893E-453F-8866-C69331AE757F log show --style compact --last 1m --predicate eventMessage CONTAINS "dev.agent-scenario-loop.example" AND eventMessage CONTAINS "1234"': {
+      stdout: 'Timestamp Ty Process[PID:TID]\n',
+    },
+    'simctl appinfo A692ED28-893E-453F-8866-C69331AE757F dev.agent-scenario-loop.example': {
+      stdout: '{"ApplicationState":"BackgroundRunning","Bundle":"dev.agent-scenario-loop.example"}\n',
+    },
+    'simctl spawn A692ED28-893E-453F-8866-C69331AE757F log show --style compact --last 1m --predicate eventMessage CONTAINS "[profile-event]" OR eventMessage CONTAINS "[profile-session]"': {
+      stdout: 'Timestamp Ty Process[PID:TID]\n',
+    },
+  });
+
+  const result = await runIosSimctlCapture({
+    bundleId: 'dev.agent-scenario-loop.example',
+    executor,
+    launch: true,
+    logLast: '1m',
+    outputDir,
+    runId: 'ios-backgrounded',
+  });
+
+  const appInfo = result.metadata.appInfo as { applicationState: string; rawPath: string };
+
+  assert.equal(result.health.healthStatus, 'failed');
+  assert.deepEqual(appInfo, {
+    applicationState: 'BackgroundRunning',
+    args: [
+      'simctl',
+      'appinfo',
+      'A692ED28-893E-453F-8866-C69331AE757F',
+      'dev.agent-scenario-loop.example',
+    ],
+    exitCode: 0,
+    rawPath: 'raw/ios-app-info.txt',
+  });
+  assert.ok(
+    (result.health.checks as Array<{ code: string; metadata?: { nextActionCode?: string } }>).some(
+      (check) => check.code === 'ios_target_app_backgrounded'
+        && check.metadata?.nextActionCode === 'restore_ios_target_foreground',
+    ),
+  );
+  assert.match(
+    fs.readFileSync(path.join(outputDir, 'raw', 'ios-app-info.txt'), 'utf8'),
+    /BackgroundRunning/u,
+  );
+});
+
 test('blocks lifecycle mutation when simulator launch environment is contaminated', async (t: TestContext) => {
   const outputDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-ios-simctl-launch-env-'));
   t.after(async () => {
@@ -564,6 +740,52 @@ test('seeds profile-session AsyncStorage while preserving unrelated app keys', a
   ]);
 });
 
+test('seeds profile-session AsyncStorage with app-owned storage keys', async (t: TestContext) => {
+  const dataContainer = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-ios-storage-custom-'));
+  t.after(async () => {
+    await fsp.rm(dataContainer, { recursive: true, force: true });
+  });
+  const storageDir = resolveAsyncStorageDirectory({
+    bundleId: 'com.helpbnk.ios.dev',
+    dataContainer,
+  });
+  await fsp.mkdir(storageDir, { recursive: true });
+  await fsp.writeFile(path.join(storageDir, 'manifest.json'), JSON.stringify({
+    'helpbnk.profile-events.v1': null,
+    'unrelated.key': 'keep-me',
+  }), 'utf8');
+  await fsp.writeFile(path.join(storageDir, asyncStorageFileNameForKey('helpbnk.profile-events.v1')), '[]', 'utf8');
+
+  await seedProfileSessionStorage({
+    bundleId: 'com.helpbnk.ios.dev',
+    dataContainer,
+    profileStorageKeys: {
+      command: 'helpbnk.profile-commands.v1',
+      event: 'helpbnk.profile-events.v1',
+      session: 'helpbnk.profile-session.v1',
+      sessionEntries: 'helpbnk.profile-session-entries.v1',
+      signal: 'helpbnk.profile-signals.v1',
+    },
+    runId: 'helpbnk-ios-live-startup',
+    scenario: 'app-startup',
+    startedAt: 456,
+  });
+
+  const manifest = JSON.parse(fs.readFileSync(path.join(storageDir, 'manifest.json'), 'utf8'));
+  const session = JSON.parse(manifest['helpbnk.profile-session.v1']);
+
+  assert.equal(manifest['unrelated.key'], 'keep-me');
+  assert.equal(manifest['helpbnk.profile-events.v1'], undefined);
+  assert.equal(manifest['agent-scenario-loop.profile-session.1'], undefined);
+  assert.equal(fs.existsSync(path.join(storageDir, asyncStorageFileNameForKey('helpbnk.profile-events.v1'))), false);
+  assert.deepEqual(session, {
+    active: true,
+    scenario: 'app-startup',
+    runId: 'helpbnk-ios-live-startup',
+    startedAt: 456,
+  });
+});
+
 test('reads inline and spilled AsyncStorage profile event values', async (t: TestContext) => {
   const dataContainer = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-ios-storage-read-'));
   t.after(async () => {
@@ -680,5 +902,109 @@ test('captures stored iOS profile events from app data container', async (t: Tes
   const seedText = fs.readFileSync(path.join(outputDir, 'raw', 'ios-profile-session-seed.json'), 'utf8');
   assert.match(seedText, /ios-live-startup/u);
   assert.equal(metadataText.includes(dataContainer), false);
+  assert.equal(seedText.includes(dataContainer), false);
+});
+
+test('captures stored iOS profile events from app-owned storage keys', async (t: TestContext) => {
+  const outputDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-ios-simctl-storage-custom-'));
+  const dataContainer = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-ios-data-container-custom-'));
+  t.after(async () => {
+    await fsp.rm(outputDir, { recursive: true, force: true });
+    await fsp.rm(dataContainer, { recursive: true, force: true });
+  });
+  const executor = async (command: string, args: string[]): Promise<CommandResult> => {
+    const key = args.join(' ');
+    const responses: Record<string, Partial<CommandResult>> = {
+      'simctl list devices': {
+        stdout: [
+          '== Devices ==',
+          '-- iOS 26.3 --',
+          '    iPhone 17 Pro Max (A692ED28-893E-453F-8866-C69331AE757F) (Booted)',
+        ].join('\n'),
+      },
+      'simctl spawn A692ED28-893E-453F-8866-C69331AE757F launchctl getenv DYLD_INSERT_LIBRARIES': {
+        stdout: '',
+      },
+      'simctl spawn A692ED28-893E-453F-8866-C69331AE757F launchctl getenv NATIVE_DEVTOOLS_IOS_CDP_SOCKET': {
+        stdout: '',
+      },
+      'simctl get_app_container A692ED28-893E-453F-8866-C69331AE757F com.helpbnk.ios.dev app': {
+        stdout: '/tmp/HelpBnk.app\n',
+      },
+      'simctl get_app_container A692ED28-893E-453F-8866-C69331AE757F com.helpbnk.ios.dev data': {
+        stdout: `${dataContainer}\n`,
+      },
+      'simctl launch A692ED28-893E-453F-8866-C69331AE757F com.helpbnk.ios.dev': {
+        stdout: 'com.helpbnk.ios.dev: 1234\n',
+      },
+      'simctl spawn A692ED28-893E-453F-8866-C69331AE757F log show --style compact --last 1m --predicate eventMessage CONTAINS "com.helpbnk.ios.dev" AND eventMessage CONTAINS "1234"': {
+        stdout: 'Timestamp Ty Process[PID:TID]\n',
+      },
+      'simctl appinfo A692ED28-893E-453F-8866-C69331AE757F com.helpbnk.ios.dev': {
+        stdout: '{"ApplicationState":"ForegroundRunning","Bundle":"com.helpbnk.ios.dev"}\n',
+      },
+      'simctl spawn A692ED28-893E-453F-8866-C69331AE757F log show --style compact --last 1m --predicate eventMessage CONTAINS "[profile-event]" OR eventMessage CONTAINS "[profile-session]"': {
+        stdout: 'Timestamp Ty Process[PID:TID]\n',
+      },
+    };
+    const response = responses[key] ?? { exitCode: 1, stderr: `unexpected command: ${key}` };
+    return {
+      command,
+      args,
+      exitCode: response.exitCode ?? 0,
+      stderr: response.stderr ?? '',
+      stdout: response.stdout ?? '',
+    };
+  };
+  const profileStorageKeys = {
+    command: 'helpbnk.profile-commands.v1',
+    event: 'helpbnk.profile-events.v1',
+    session: 'helpbnk.profile-session.v1',
+    sessionEntries: 'helpbnk.profile-session-entries.v1',
+    signal: 'helpbnk.profile-signals.v1',
+  };
+  const wait = async () => {
+    const storageDir = resolveAsyncStorageDirectory({
+      bundleId: 'com.helpbnk.ios.dev',
+      dataContainer,
+    });
+    const manifest = JSON.parse(fs.readFileSync(path.join(storageDir, 'manifest.json'), 'utf8'));
+    manifest['helpbnk.profile-events.v1'] = JSON.stringify([
+      {
+        event: 'app_first_usable_screen',
+        scenario: 'app-startup',
+        runId: 'helpbnk-ios-live-startup',
+        timestamp: 789,
+      },
+    ]);
+    fs.writeFileSync(path.join(storageDir, 'manifest.json'), JSON.stringify(manifest), 'utf8');
+  };
+
+  const result = await runIosSimctlCapture({
+    bundleId: 'com.helpbnk.ios.dev',
+    collectProfileStorage: true,
+    delay: wait,
+    executor,
+    launch: true,
+    logLast: '1m',
+    outputDir,
+    profileSessionStorage: {
+      runId: 'helpbnk-ios-live-startup',
+      scenario: 'app-startup',
+      startedAt: 456,
+    },
+    profileStorageKeys,
+    runId: 'helpbnk-ios-live-startup',
+    waitMs: 25,
+  });
+
+  assert.equal(result.health.healthStatus, 'passed', JSON.stringify(result.health.checks, null, 2));
+  assert.ok(
+    fs
+      .readFileSync(path.join(outputDir, 'raw', 'ios-profile-events.log'), 'utf8')
+      .includes('[profile-event] {"event":"app_first_usable_screen"'),
+  );
+  const seedText = fs.readFileSync(path.join(outputDir, 'raw', 'ios-profile-session-seed.json'), 'utf8');
+  assert.match(seedText, /helpbnk-ios-live-startup/u);
   assert.equal(seedText.includes(dataContainer), false);
 });

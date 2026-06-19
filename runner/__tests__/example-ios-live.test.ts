@@ -124,6 +124,9 @@ function writeCurrentSessionEvents(dataContainer: string): void {
     dataContainer,
   });
   const manifestPath = path.join(storageDir, 'manifest.json');
+  if (!fs.existsSync(manifestPath)) {
+    return;
+  }
   const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
   const session = JSON.parse(manifest['agent-scenario-loop.profile-session.1']);
   manifest['agent-scenario-loop.profile-events.1'] = JSON.stringify(
@@ -193,10 +196,10 @@ test('runs the packaged iOS example live proof with a fake simctl executor', asy
       return { command, args, exitCode: 0, stderr: '', stdout: '' };
     }
     if (key === `simctl launch ${DEVICE_ID} ${BUNDLE_ID}`) {
-      writeCurrentSessionEvents(dataContainer);
       return { command, args, exitCode: 0, stderr: '', stdout: `${BUNDLE_ID}: 1234\n` };
     }
     if (key.startsWith(`simctl openurl ${DEVICE_ID} asl-example://expo-development-client/`)) {
+      writeCurrentSessionEvents(dataContainer);
       return { command, args, exitCode: 0, stderr: '', stdout: '' };
     }
     if (key.startsWith(`simctl io ${DEVICE_ID} screenshot `)) {
@@ -206,6 +209,7 @@ test('runs the packaged iOS example live proof with a fake simctl executor', asy
       return { command, args, exitCode: 0, stderr: '', stdout: `Wrote screenshot to ${screenshotPath}\n` };
     }
     if (key === `simctl spawn ${DEVICE_ID} log show --style compact --last 2m --predicate eventMessage CONTAINS "[profile-event]" OR eventMessage CONTAINS "[profile-session]"`) {
+      writeCurrentSessionEvents(dataContainer);
       return { command, args, exitCode: 0, stderr: '', stdout: 'Timestamp Ty Process[PID:TID]\n' };
     }
 
@@ -296,7 +300,7 @@ test('runs the packaged iOS example live proof with a fake simctl executor', asy
   assert.match(formatResult(result), /iOS example live proof passed/u);
   assert.match(formatResult(result), /Live proof:/u);
   assert.match(formatResult(result), /Comparisons:/u);
-  assert.ok(calls.some((call) => call === `simctl launch ${DEVICE_ID} ${BUNDLE_ID}`));
+  assert.equal(calls.some((call) => call === `simctl launch ${DEVICE_ID} ${BUNDLE_ID}`), false);
   assert.equal(
     calls.filter((call) => call.startsWith(`simctl openurl ${DEVICE_ID} asl-example://expo-development-client/`)).length,
     6,
@@ -307,14 +311,16 @@ test('runs the packaged iOS example live proof with a fake simctl executor', asy
   assert.ok(argentCalls.some((call) => call.includes(`launch-app --udid ${DEVICE_ID} --bundleId ${BUNDLE_ID}`)));
   assert.ok(argentCalls.some((call) => call.includes(`describe --udid ${DEVICE_ID} --bundleId ${BUNDLE_ID}`)));
   assert.ok(argentCalls.some((call) => call.includes(`screenshot --udid ${DEVICE_ID}`)));
-  const firstProfileLaunch = orderedCalls.findIndex((call) => call === `simctl:simctl launch ${DEVICE_ID} ${BUNDLE_ID}`);
-  assert.ok(firstProfileLaunch > -1, 'expected iOS profile launch command');
+  const firstProfileOpenUrl = orderedCalls.findIndex((call) => (
+    call.startsWith(`simctl:simctl openurl ${DEVICE_ID} asl-example://expo-development-client/`)
+  ));
+  assert.ok(firstProfileOpenUrl > -1, 'expected iOS profile dev-client open URL command');
   assert.ok(
-    orderedCalls.findIndex((call) => call.includes(`agent-device:open ${BUNDLE_ID}`)) > firstProfileLaunch,
+    orderedCalls.findIndex((call) => call.includes(`agent-device:open ${BUNDLE_ID}`)) > firstProfileOpenUrl,
     'agent-device startup proof should run after profile evidence capture',
   );
   assert.ok(
-    orderedCalls.findIndex((call) => call.includes(`argent:run launch-app --udid ${DEVICE_ID} --bundleId ${BUNDLE_ID}`)) > firstProfileLaunch,
+    orderedCalls.findIndex((call) => call.includes(`argent:run launch-app --udid ${DEVICE_ID} --bundleId ${BUNDLE_ID}`)) > firstProfileOpenUrl,
     'Argent startup proof should run after profile evidence capture',
   );
   assert.deepEqual(

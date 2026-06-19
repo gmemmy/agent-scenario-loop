@@ -48,6 +48,9 @@ function writeCurrentSessionEvents(dataContainer: string): void {
     dataContainer,
   });
   const manifestPath = path.join(storageDir, 'manifest.json');
+  if (!fs.existsSync(manifestPath)) {
+    return;
+  }
   const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
   const session = JSON.parse(manifest['agent-scenario-loop.profile-session.1']);
   manifest['agent-scenario-loop.profile-events.1'] = JSON.stringify(readStartupEvents(session.runId));
@@ -87,10 +90,10 @@ test('generic iOS live proof captures profile evidence before sidecar proofs', a
       return { command, args, exitCode: 0, stderr: '', stdout: '' };
     }
     if (key === `simctl launch ${DEVICE_ID} ${BUNDLE_ID}`) {
-      writeCurrentSessionEvents(dataContainer);
       return { command, args, exitCode: 0, stderr: '', stdout: `${BUNDLE_ID}: 1234\n` };
     }
     if (key.startsWith(`simctl openurl ${DEVICE_ID} asl-example://expo-development-client/`)) {
+      writeCurrentSessionEvents(dataContainer);
       return { command, args, exitCode: 0, stderr: '', stdout: '' };
     }
     if (key.startsWith(`simctl io ${DEVICE_ID} screenshot `)) {
@@ -100,6 +103,7 @@ test('generic iOS live proof captures profile evidence before sidecar proofs', a
       return { command, args, exitCode: 0, stderr: '', stdout: `Wrote screenshot to ${screenshotPath}\n` };
     }
     if (key === `simctl spawn ${DEVICE_ID} log show --style compact --last 2m --predicate eventMessage CONTAINS "[profile-event]" OR eventMessage CONTAINS "[profile-session]"`) {
+      writeCurrentSessionEvents(dataContainer);
       return { command, args, exitCode: 0, stderr: '', stdout: 'Timestamp Ty Process[PID:TID]\n' };
     }
 
@@ -138,6 +142,7 @@ test('generic iOS live proof captures profile evidence before sidecar proofs', a
     device: DEVICE_ID,
     'ios-dev-client-url': 'asl-example://expo-development-client/?url=http%3A%2F%2Flocalhost%3A8097',
     'ios-dev-client-wait-ms': '15',
+    'ios-profile-session-transport': 'storage',
     out: outputDir,
     scenario: path.join(ROOT, 'examples', 'mobile-app', 'scenarios', 'mobile', 'app-startup.json'),
   }, {
@@ -173,6 +178,11 @@ test('generic iOS live proof captures profile evidence before sidecar proofs', a
   assert.ok(
     orderedCalls.some((call) => call.startsWith(`simctl:simctl openurl ${DEVICE_ID} asl-example://expo-development-client/`)),
     'expected generic iOS live proof to open the dev-client URL before evidence capture',
+  );
+  assert.equal(
+    orderedCalls.some((call) => call === `simctl:simctl launch ${DEVICE_ID} ${BUNDLE_ID}`),
+    false,
+    'storage-backed iOS dev-client proof should use openurl as the launch mechanism',
   );
 
   const failedAgentDeviceExecutor = async (command: string, args: string[]): Promise<AgentDeviceCommandResult> => {

@@ -37,6 +37,11 @@ type ScenarioExecutionStep = import('../core/execution-plan').ScenarioExecutionS
 
 const PROFILE_SESSION_CAPTURE_BOOTSTRAP_MS = 1000;
 const PROFILE_SESSION_CAPTURE_MAX_MS = 30000;
+const DEFAULT_IOS_PROFILE_SESSION_STORAGE_KEY = 'agent-scenario-loop.profile-session.1';
+const DEFAULT_IOS_PROFILE_COMMAND_STORAGE_KEY = 'agent-scenario-loop.profile-commands.1';
+const DEFAULT_IOS_PROFILE_EVENT_STORAGE_KEY = 'agent-scenario-loop.profile-events.1';
+const DEFAULT_IOS_PROFILE_SIGNAL_STORAGE_KEY = 'agent-scenario-loop.profile-signals.1';
+const DEFAULT_IOS_PROFILE_SESSION_ENTRIES_STORAGE_KEY = 'agent-scenario-loop.profile-session-entries.1';
 
 /**
  * Reads and parses a JSON object from disk.
@@ -442,6 +447,26 @@ async function runProfileIos(
   const runId = typeof args['run-id'] === 'string' ? args['run-id'] : createRunId();
   const profileSessionEnabled = isEnabled(args['profile-session']);
   const profileSessionStorageEnabled = isEnabled(args['profile-session-storage']);
+  const profileSessionStorageKey = readStringArgOrEnv(args['ios-profile-session-storage-key'], [
+    'ASL_IOS_PROFILE_SESSION_STORAGE_KEY',
+    'ASL_EXAMPLE_IOS_PROFILE_SESSION_STORAGE_KEY',
+  ]) ?? DEFAULT_IOS_PROFILE_SESSION_STORAGE_KEY;
+  const profileCommandStorageKey = readStringArgOrEnv(args['ios-profile-command-storage-key'], [
+    'ASL_IOS_PROFILE_COMMAND_STORAGE_KEY',
+    'ASL_EXAMPLE_IOS_PROFILE_COMMAND_STORAGE_KEY',
+  ]) ?? DEFAULT_IOS_PROFILE_COMMAND_STORAGE_KEY;
+  const profileEventStorageKey = readStringArgOrEnv(args['ios-profile-event-storage-key'], [
+    'ASL_IOS_PROFILE_EVENT_STORAGE_KEY',
+    'ASL_EXAMPLE_IOS_PROFILE_EVENT_STORAGE_KEY',
+  ]) ?? DEFAULT_IOS_PROFILE_EVENT_STORAGE_KEY;
+  const profileSignalStorageKey = readStringArgOrEnv(args['ios-profile-signal-storage-key'], [
+    'ASL_IOS_PROFILE_SIGNAL_STORAGE_KEY',
+    'ASL_EXAMPLE_IOS_PROFILE_SIGNAL_STORAGE_KEY',
+  ]) ?? DEFAULT_IOS_PROFILE_SIGNAL_STORAGE_KEY;
+  const profileSessionEntriesStorageKey = readStringArgOrEnv(args['ios-profile-session-entries-storage-key'], [
+    'ASL_IOS_PROFILE_SESSION_ENTRIES_STORAGE_KEY',
+    'ASL_EXAMPLE_IOS_PROFILE_SESSION_ENTRIES_STORAGE_KEY',
+  ]) ?? DEFAULT_IOS_PROFILE_SESSION_ENTRIES_STORAGE_KEY;
   const iosDevClientUrl = readStringArgOrEnv(args['ios-dev-client-url'], [
     'ASL_IOS_DEV_CLIENT_URL',
     'ASL_EXAMPLE_IOS_DEV_CLIENT_URL',
@@ -490,6 +515,7 @@ async function runProfileIos(
       ]
     : [];
   const deepLinks = [...iosDevClientDeepLinks, ...profileSessionDeepLinks];
+  const shouldLaunchWithSimctl = isEnabled(args.launch) && !(profileSessionStorageEnabled && iosDevClientUrl);
   const simctlCapture = isEnabled(args['simctl-capture'])
     ? await runIosSimctlCapture({
         bundleId: resolveIosBundleId({ args, config }),
@@ -499,11 +525,18 @@ async function runProfileIos(
         ...(options.delay ? { delay: options.delay } : {}),
         ...(typeof args.device === 'string' ? { device: args.device } : {}),
         ...(options.executor ? { executor: options.executor } : {}),
-        launch: isEnabled(args.launch),
+        launch: shouldLaunchWithSimctl,
         ...(typeof args['log-last'] === 'string' ? { logLast: args['log-last'] } : {}),
         outputDir: resolveSimctlCaptureOutputDir({ args, runId }),
         ...(profileSessionStorageEnabled
           ? {
+              profileStorageKeys: {
+                command: profileCommandStorageKey,
+                event: profileEventStorageKey,
+                session: profileSessionStorageKey,
+                sessionEntries: profileSessionEntriesStorageKey,
+                signal: profileSignalStorageKey,
+              },
               profileSessionStorage: {
                 commands: profileSessionCommands.map((profileCommand, index) => ({
                   command: profileCommand.command,
