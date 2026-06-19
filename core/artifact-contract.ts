@@ -37,6 +37,35 @@ type BudgetCheck = {
   unit: string;
 };
 
+const UNKNOWN_LIFECYCLE_ASSERTION = Object.freeze({
+  value: 'unknown',
+  evidence: 'not-asserted',
+});
+
+const DEFAULT_ENVIRONMENT_PRECONDITIONS = Object.freeze({
+  installedState: UNKNOWN_LIFECYCLE_ASSERTION,
+  appDataState: UNKNOWN_LIFECYCLE_ASSERTION,
+  authState: UNKNOWN_LIFECYCLE_ASSERTION,
+  initialRoute: UNKNOWN_LIFECYCLE_ASSERTION,
+  foregroundState: UNKNOWN_LIFECYCLE_ASSERTION,
+  deviceLockState: UNKNOWN_LIFECYCLE_ASSERTION,
+  permissions: UNKNOWN_LIFECYCLE_ASSERTION,
+  locale: UNKNOWN_LIFECYCLE_ASSERTION,
+  timezone: UNKNOWN_LIFECYCLE_ASSERTION,
+  theme: UNKNOWN_LIFECYCLE_ASSERTION,
+  fontScale: UNKNOWN_LIFECYCLE_ASSERTION,
+  orientation: UNKNOWN_LIFECYCLE_ASSERTION,
+  networkState: UNKNOWN_LIFECYCLE_ASSERTION,
+  animations: UNKNOWN_LIFECYCLE_ASSERTION,
+});
+
+const DEFAULT_ENVIRONMENT_POSTCONDITIONS = Object.freeze({
+  appState: UNKNOWN_LIFECYCLE_ASSERTION,
+  cleanupState: UNKNOWN_LIFECYCLE_ASSERTION,
+  dataState: UNKNOWN_LIFECYCLE_ASSERTION,
+  artifactState: UNKNOWN_LIFECYCLE_ASSERTION,
+});
+
 /**
  * Converts finite numeric strings to numbers while preserving invalid input as `null`.
  *
@@ -949,6 +978,8 @@ function buildManifest({
   classification,
   cleanup,
   partialArtifacts,
+  preconditions,
+  postconditions,
   simulator,
   bundleId,
   gitSha,
@@ -979,6 +1010,14 @@ function buildManifest({
             ? 'complete successful run artifacts are present'
             : 'failed run artifacts are preserved for diagnosis and must not be treated as product proof unless health passes',
       };
+  const resolvedPreconditions = sortValue({
+    ...DEFAULT_ENVIRONMENT_PRECONDITIONS,
+    ...(preconditions && typeof preconditions === 'object' ? preconditions : {}),
+  });
+  const resolvedPostconditions = sortValue({
+    ...DEFAULT_ENVIRONMENT_POSTCONDITIONS,
+    ...(postconditions && typeof postconditions === 'object' ? postconditions : {}),
+  });
 
   return {
     scenario,
@@ -1015,6 +1054,8 @@ function buildManifest({
       bundleId,
       runtimeTarget: sortedSimulator,
       ...(typeof sortedToolVersions.node === 'string' ? { nodeVersion: sortedToolVersions.node } : {}),
+      preconditions: resolvedPreconditions,
+      postconditions: resolvedPostconditions,
     },
     simulator: sortedSimulator,
     bundleId,

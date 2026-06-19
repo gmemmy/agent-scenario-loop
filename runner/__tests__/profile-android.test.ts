@@ -33,6 +33,40 @@ type CommandResult = {
 type ExecFailure = Error & ExecOutput;
 type TestContext = import('node:test').TestContext;
 
+function unknownLifecycleAssertion() {
+  return {
+    evidence: 'not-asserted',
+    value: 'unknown',
+  };
+}
+
+function sampleEnvironmentLifecycle() {
+  return {
+    postconditions: {
+      appState: unknownLifecycleAssertion(),
+      artifactState: unknownLifecycleAssertion(),
+      cleanupState: unknownLifecycleAssertion(),
+      dataState: unknownLifecycleAssertion(),
+    },
+    preconditions: {
+      animations: unknownLifecycleAssertion(),
+      appDataState: unknownLifecycleAssertion(),
+      authState: unknownLifecycleAssertion(),
+      deviceLockState: unknownLifecycleAssertion(),
+      fontScale: unknownLifecycleAssertion(),
+      foregroundState: unknownLifecycleAssertion(),
+      initialRoute: unknownLifecycleAssertion(),
+      installedState: unknownLifecycleAssertion(),
+      locale: unknownLifecycleAssertion(),
+      networkState: unknownLifecycleAssertion(),
+      orientation: unknownLifecycleAssertion(),
+      permissions: unknownLifecycleAssertion(),
+      theme: unknownLifecycleAssertion(),
+      timezone: unknownLifecycleAssertion(),
+    },
+  };
+}
+
 /**
  * Runs a child process and returns captured output.
  *
@@ -169,6 +203,7 @@ test('profile-android writes artifacts from fixture event logs', async (t: TestC
     bundleId: 'dev.agentscenarioloop.example',
     nodeVersion: process.version,
     platform: 'android',
+    ...sampleEnvironmentLifecycle(),
     runtimeTarget: manifest.simulator,
   });
   assert.deepEqual(causalRun.provenanceRef, {

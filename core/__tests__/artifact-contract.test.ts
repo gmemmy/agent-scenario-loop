@@ -34,6 +34,40 @@ function sampleManifestArtifacts() {
   };
 }
 
+function unknownLifecycleAssertion() {
+  return {
+    evidence: 'not-asserted',
+    value: 'unknown',
+  };
+}
+
+function sampleEnvironmentLifecycle() {
+  return {
+    postconditions: {
+      appState: unknownLifecycleAssertion(),
+      artifactState: unknownLifecycleAssertion(),
+      cleanupState: unknownLifecycleAssertion(),
+      dataState: unknownLifecycleAssertion(),
+    },
+    preconditions: {
+      animations: unknownLifecycleAssertion(),
+      appDataState: unknownLifecycleAssertion(),
+      authState: unknownLifecycleAssertion(),
+      deviceLockState: unknownLifecycleAssertion(),
+      fontScale: unknownLifecycleAssertion(),
+      foregroundState: unknownLifecycleAssertion(),
+      initialRoute: unknownLifecycleAssertion(),
+      installedState: unknownLifecycleAssertion(),
+      locale: unknownLifecycleAssertion(),
+      networkState: unknownLifecycleAssertion(),
+      orientation: unknownLifecycleAssertion(),
+      permissions: unknownLifecycleAssertion(),
+      theme: unknownLifecycleAssertion(),
+      timezone: unknownLifecycleAssertion(),
+    },
+  };
+}
+
 test('builds schema-valid manifest provenance attempt and environment artifacts', () => {
   const manifest = buildManifest({
     scenario: 'public-journey',
@@ -90,6 +124,7 @@ test('builds schema-valid manifest provenance attempt and environment artifacts'
     bundleId: 'dev.agent.example',
     nodeVersion: 'v24.0.0',
     platform: 'android',
+    ...sampleEnvironmentLifecycle(),
     runtimeTarget: {
       name: 'Pixel_8',
       udid: 'emulator-5554',

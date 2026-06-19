@@ -196,7 +196,7 @@
     "environment": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["platform", "bundleId", "runtimeTarget"],
+      "required": ["platform", "bundleId", "runtimeTarget", "preconditions", "postconditions"],
       "properties": {
         "platform": {
           "type": "string",
@@ -220,6 +220,89 @@
         },
         "nodeVersion": {
           "type": "string"
+        },
+        "preconditions": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "installedState",
+            "appDataState",
+            "authState",
+            "initialRoute",
+            "foregroundState",
+            "deviceLockState",
+            "permissions",
+            "locale",
+            "timezone",
+            "theme",
+            "fontScale",
+            "orientation",
+            "networkState",
+            "animations"
+          ],
+          "properties": {
+            "installedState": {
+              "$ref": "#/$defs/lifecycleAssertion"
+            },
+            "appDataState": {
+              "$ref": "#/$defs/lifecycleAssertion"
+            },
+            "authState": {
+              "$ref": "#/$defs/lifecycleAssertion"
+            },
+            "initialRoute": {
+              "$ref": "#/$defs/lifecycleAssertion"
+            },
+            "foregroundState": {
+              "$ref": "#/$defs/lifecycleAssertion"
+            },
+            "deviceLockState": {
+              "$ref": "#/$defs/lifecycleAssertion"
+            },
+            "permissions": {
+              "$ref": "#/$defs/lifecycleAssertion"
+            },
+            "locale": {
+              "$ref": "#/$defs/lifecycleAssertion"
+            },
+            "timezone": {
+              "$ref": "#/$defs/lifecycleAssertion"
+            },
+            "theme": {
+              "$ref": "#/$defs/lifecycleAssertion"
+            },
+            "fontScale": {
+              "$ref": "#/$defs/lifecycleAssertion"
+            },
+            "orientation": {
+              "$ref": "#/$defs/lifecycleAssertion"
+            },
+            "networkState": {
+              "$ref": "#/$defs/lifecycleAssertion"
+            },
+            "animations": {
+              "$ref": "#/$defs/lifecycleAssertion"
+            }
+          }
+        },
+        "postconditions": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["appState", "cleanupState", "dataState", "artifactState"],
+          "properties": {
+            "appState": {
+              "$ref": "#/$defs/lifecycleAssertion"
+            },
+            "cleanupState": {
+              "$ref": "#/$defs/lifecycleAssertion"
+            },
+            "dataState": {
+              "$ref": "#/$defs/lifecycleAssertion"
+            },
+            "artifactState": {
+              "$ref": "#/$defs/lifecycleAssertion"
+            }
+          }
         }
       }
     },
@@ -367,6 +450,30 @@
     },
     "failureReason": {
       "type": ["string", "null"]
+    }
+  },
+  "$defs": {
+    "lifecycleAssertion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["value", "evidence"],
+      "properties": {
+        "value": {
+          "type": ["string", "number", "boolean", "null"]
+        },
+        "evidence": {
+          "type": "string",
+          "enum": ["not-asserted", "unknown", "asserted", "observed", "inferred"]
+        },
+        "source": {
+          "type": "string",
+          "minLength": 1
+        },
+        "artifact": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
     }
   }
 }

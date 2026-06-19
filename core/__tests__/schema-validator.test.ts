@@ -38,6 +38,53 @@ function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value));
 }
 
+function unknownLifecycleAssertion() {
+  return {
+    evidence: 'not-asserted',
+    value: 'unknown',
+  };
+}
+
+function sampleEnvironmentLifecycle() {
+  return {
+    postconditions: {
+      appState: unknownLifecycleAssertion(),
+      artifactState: unknownLifecycleAssertion(),
+      cleanupState: unknownLifecycleAssertion(),
+      dataState: unknownLifecycleAssertion(),
+    },
+    preconditions: {
+      animations: unknownLifecycleAssertion(),
+      appDataState: unknownLifecycleAssertion(),
+      authState: unknownLifecycleAssertion(),
+      deviceLockState: unknownLifecycleAssertion(),
+      fontScale: unknownLifecycleAssertion(),
+      foregroundState: unknownLifecycleAssertion(),
+      initialRoute: unknownLifecycleAssertion(),
+      installedState: unknownLifecycleAssertion(),
+      locale: unknownLifecycleAssertion(),
+      networkState: unknownLifecycleAssertion(),
+      orientation: unknownLifecycleAssertion(),
+      permissions: unknownLifecycleAssertion(),
+      theme: unknownLifecycleAssertion(),
+      timezone: unknownLifecycleAssertion(),
+    },
+  };
+}
+
+function sampleEnvironment(): JsonRecord {
+  return {
+    platform: 'android',
+    bundleId: 'com.example.app',
+    runtimeTarget: {
+      name: 'Pixel',
+      udid: 'emulator-5554',
+    },
+    nodeVersion: 'v25.0.0',
+    ...sampleEnvironmentLifecycle(),
+  };
+}
+
 /**
  * Lists JSON fixture paths under a repo-local directory.
  *
@@ -436,7 +483,7 @@ test('accepts comparison artifacts with metric and evidence details', () => {
 });
 
 test('accepts manifest and metrics profile artifacts', () => {
-  const manifest = {
+  const manifest: JsonRecord = {
     scenario: 'app-startup',
     runId: 'run-1',
     platform: 'android',
@@ -480,15 +527,7 @@ test('accepts manifest and metrics profile artifacts', () => {
         reason: 'complete successful run artifacts are present',
       },
     },
-    environment: {
-      platform: 'android',
-      bundleId: 'com.example.app',
-      runtimeTarget: {
-        name: 'Pixel',
-        udid: 'emulator-5554',
-      },
-      nodeVersion: 'v25.0.0',
-    },
+    environment: sampleEnvironment(),
     artifacts: {
       causalRun: 'causal-run.json',
       budgetVerdict: 'budget-verdict.json',
@@ -590,15 +629,7 @@ test('rejects malformed manifest attempt semantics', () => {
         valid: true,
       },
     },
-    environment: {
-      platform: 'android',
-      bundleId: 'com.example.app',
-      runtimeTarget: {
-        name: 'Pixel',
-        udid: 'emulator-5554',
-      },
-      nodeVersion: 'v25.0.0',
-    },
+    environment: sampleEnvironment(),
     artifacts: {
       causalRun: 'causal-run.json',
       budgetVerdict: 'budget-verdict.json',
@@ -628,6 +659,94 @@ test('rejects malformed manifest attempt semantics', () => {
   assert.equal(result.valid, false);
   assert.ok(result.errors.some((error: ValidationIssue) => error.path === '$.attempt.terminalState'), result.message);
   assert.ok(result.errors.some((error: ValidationIssue) => error.path === '$.attempt.partialArtifacts.reason'), result.message);
+});
+
+test('rejects malformed manifest environment preconditions', () => {
+  const manifest: JsonRecord = {
+    scenario: 'app-startup',
+    runId: 'run-1',
+    platform: 'android',
+    status: 'passed',
+    startedAt: '2026-01-01T00:00:00.000Z',
+    endedAt: '2026-01-01T00:00:01.000Z',
+    durationMs: 1000,
+    interactionDriver: 'adb-logcat',
+    simulator: {
+      name: 'Pixel',
+      udid: 'emulator-5554',
+    },
+    bundleId: 'com.example.app',
+    gitSha: 'unknown',
+    toolVersions: {
+      node: 'v25.0.0',
+    },
+    provenance: {
+      gitSha: 'unknown',
+      toolVersions: {
+        node: 'v25.0.0',
+      },
+    },
+    attempt: {
+      attemptId: 'attempt-1',
+      runId: 'run-1',
+      status: 'passed',
+      terminalState: 'passed',
+      startedAt: '2026-01-01T00:00:00.000Z',
+      endedAt: '2026-01-01T00:00:01.000Z',
+      durationMs: 1000,
+      interactionDriver: 'adb-logcat',
+      classification: {
+        category: 'none',
+      },
+      cleanup: {
+        status: 'not-required',
+      },
+      partialArtifacts: {
+        valid: false,
+        reason: 'complete successful run artifacts are present',
+      },
+    },
+    environment: {
+      ...sampleEnvironment(),
+      preconditions: {
+        ...sampleEnvironment().preconditions,
+        networkState: {
+          evidence: 'wifi-ish',
+          value: 'online',
+        },
+      },
+    },
+    artifacts: {
+      causalRun: 'causal-run.json',
+      budgetVerdict: 'budget-verdict.json',
+      manifest: 'manifest.json',
+      metrics: 'metrics.json',
+      summary: 'summary.md',
+      scenario: 'scenarios/android/app-startup.json',
+      raw: {
+        interactionLog: 'raw/adb-logcat.txt',
+        deviceLog: 'raw/device.log',
+      },
+      captures: {
+        video: 'captures/run.mp4',
+        uiTree: 'captures/ui-tree.json',
+      },
+      signals: {
+        js: [],
+        memory: [],
+        network: [],
+      },
+    },
+    failureReason: null,
+  };
+  const malformedEnvironment = manifest.environment as JsonRecord;
+  delete (malformedEnvironment.postconditions as JsonRecord).artifactState;
+
+  const result = validateJson(manifest, SCHEMAS.manifest, 'Manifest artifact');
+
+  assert.equal(result.valid, false);
+  assert.ok(result.errors.some((error: ValidationIssue) => error.path === '$.environment.preconditions.networkState.evidence'), result.message);
+  assert.ok(result.errors.some((error: ValidationIssue) => error.path === '$.environment.postconditions.artifactState'), result.message);
 });
 
 test('rejects unstable evidence attachment inventory entries', () => {
@@ -683,15 +802,7 @@ test('rejects unstable evidence attachment inventory entries', () => {
         reason: 'complete successful run artifacts are present',
       },
     },
-    environment: {
-      platform: 'android',
-      bundleId: 'com.example.app',
-      runtimeTarget: {
-        name: 'Pixel',
-        udid: 'emulator-5554',
-      },
-      nodeVersion: 'v25.0.0',
-    },
+    environment: sampleEnvironment(),
     artifacts: {
       causalRun: 'causal-run.json',
       budgetVerdict: 'budget-verdict.json',
@@ -934,6 +1045,8 @@ test('accepts project validation artifacts', () => {
 });
 
 test('accepts null schema types', () => {
+  const environmentWithoutNode = sampleEnvironment();
+  delete environmentWithoutNode.nodeVersion;
   const manifest = {
     scenario: 'app-startup',
     runId: 'run-1',
@@ -974,14 +1087,7 @@ test('accepts null schema types', () => {
         reason: 'complete successful run artifacts are present',
       },
     },
-    environment: {
-      platform: 'android',
-      bundleId: 'com.example.app',
-      runtimeTarget: {
-        name: 'Pixel',
-        udid: 'emulator-5554',
-      },
-    },
+    environment: environmentWithoutNode,
     artifacts: {
       causalRun: 'causal-run.json',
       budgetVerdict: 'budget-verdict.json',
