@@ -82,6 +82,7 @@ const SCHEMAS = {
   budgetVerdict: loadSchema('budget-verdict.schema.json'),
   causalRun: loadSchema('causal-run.schema.json'),
   comparison: loadSchema('comparison.schema.json'),
+  externalAdapterMessage: loadSchema('external-adapter-message.schema.json'),
   health: loadSchema('health.schema.json'),
   liveProof: loadSchema('live-proof.schema.json'),
   liveProofSet: loadSchema('live-proof-set.schema.json'),

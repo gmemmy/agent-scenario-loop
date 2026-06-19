@@ -2267,6 +2267,7 @@ function main(): void {
       "require.resolve('agent-scenario-loop/schemas/budget-verdict.schema.json');",
       "require.resolve('agent-scenario-loop/schemas/causal-run.schema.json');",
       "require.resolve('agent-scenario-loop/schemas/comparison.schema.json');",
+      "require.resolve('agent-scenario-loop/schemas/external-adapter-message.schema.json');",
       "require.resolve('agent-scenario-loop/schemas/health.schema.json');",
       "require.resolve('agent-scenario-loop/schemas/live-proof.schema.json');",
       "require.resolve('agent-scenario-loop/schemas/live-proof-set.schema.json');",

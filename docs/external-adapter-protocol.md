@@ -2,7 +2,7 @@
 
 ASL core is TypeScript, but the adapter contract is language-neutral. An external adapter is an out-of-process executable that exchanges newline-delimited JSON messages over stdin and stdout. The executable can be written in any language and must not depend on ASL TypeScript internals.
 
-This document defines the minimal protocol surface for conformance fixtures and future adapter hosts. JSON Schema and this normative protocol document are the source of truth for portable behavior; built-in TypeScript runners remain implementations of the same contract, not the contract itself.
+This document defines the minimal protocol surface for conformance fixtures and future adapter hosts. JSON Schema and this normative protocol document are the source of truth for portable behavior; built-in TypeScript runners remain implementations of the same contract, not the contract itself. The protocol message schema is published in `schemas/external-adapter-message.schema.json`.
 
 ## Transport
 
