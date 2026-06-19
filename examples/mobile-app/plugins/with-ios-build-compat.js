@@ -1,11 +1,5 @@
 const fs = require('node:fs');
 const path = require('node:path');
-const {
-  IOSConfig,
-  withAppDelegate,
-  withDangerousMod,
-  withInfoPlist,
-} = require('expo/config-plugins');
 
 const sceneDelegateContents = `import UIKit
 
@@ -74,7 +68,7 @@ const recursivePrepareReactNativeFactoryFunction = `  func prepareReactNativeFac
 function withIosBuildCompat(config) {
   config = withPodsDeploymentTarget(config);
   config = withSceneInfoPlist(config);
-  config = IOSConfig.XcodeProjectFile.withBuildSourceFile(config, {
+  config = loadExpoConfigPlugins().IOSConfig.XcodeProjectFile.withBuildSourceFile(config, {
     filePath: 'SceneDelegate.swift',
     contents: sceneDelegateContents,
     overwrite: true,
@@ -85,9 +79,17 @@ function withIosBuildCompat(config) {
 }
 
 /**
+ * Loads Expo config plugins only when Expo executes the app-local plugin.
+ */
+function loadExpoConfigPlugins() {
+  return require('expo/config-plugins');
+}
+
+/**
  * Pins all generated Pods deployment targets to the app target to avoid Xcode beta drift.
  */
 function withPodsDeploymentTarget(config) {
+  const { withDangerousMod } = loadExpoConfigPlugins();
   return withDangerousMod(config, [
     'ios',
     async (modConfig) => {
@@ -121,6 +123,7 @@ end`;
  * Declares a scene delegate so UIKit owns the window lifecycle on modern iOS.
  */
 function withSceneInfoPlist(config) {
+  const { withInfoPlist } = loadExpoConfigPlugins();
   return withInfoPlist(config, (modConfig) => {
     modConfig.modResults.UIApplicationSceneManifest = {
       UIApplicationSupportsMultipleScenes: false,
@@ -142,6 +145,7 @@ function withSceneInfoPlist(config) {
  * Rewrites the generated Swift AppDelegate to defer React Native startup to SceneDelegate.
  */
 function withSceneAppDelegate(config) {
+  const { withAppDelegate } = loadExpoConfigPlugins();
   return withAppDelegate(config, (modConfig) => {
     if (modConfig.modResults.language !== 'swift') {
       throw new Error('Expected a Swift AppDelegate for the ASL example iOS app.');
