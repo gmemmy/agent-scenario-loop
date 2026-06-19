@@ -7,6 +7,7 @@ const test = require('node:test');
 
 const {
   assertNoRegressedComparisons,
+  buildBaselineRunId,
   buildLiveRunId,
   formatResult,
   normalizeRunSuffix,
@@ -31,6 +32,8 @@ test('normalizes iOS example live run suffixes', () => {
   assert.equal(normalizeRunSuffix('---'), null);
   assert.equal(buildLiveRunId('ios-live-startup', 'pr-123'), 'ios-live-startup-pr-123');
   assert.equal(buildLiveRunId('ios-live-startup', null), 'ios-live-startup');
+  assert.equal(buildBaselineRunId('ios-live-startup', 'pr-123'), 'ios-live-startup-pr-123-baseline');
+  assert.equal(buildBaselineRunId('ios-live-startup', null), 'ios-live-startup-baseline');
 });
 
 test('resolves the iOS example device from args, env, then booted fallback', () => {
@@ -284,6 +287,7 @@ test('runs the packaged iOS example live proof with a fake simctl executor', asy
     'compare-latest': true,
     out: outputDir,
     'run-suffix': 'PR 123',
+    'seed-baseline': true,
   }, {
     agentDeviceExecutor,
     argentExecutor,
@@ -293,6 +297,7 @@ test('runs the packaged iOS example live proof with a fake simctl executor', asy
   });
 
   assert.equal(result.profiles.length, 3);
+  assert.equal(result.seededBaselines.length, 3);
   assert.equal(result.interactionProofs.length, 2);
   assert.equal(result.comparisons.length, 3);
   assert.equal(fs.existsSync(result.aggregateSummary.liveProofPath), true);
@@ -303,7 +308,7 @@ test('runs the packaged iOS example live proof with a fake simctl executor', asy
   assert.equal(calls.some((call) => call === `simctl launch ${DEVICE_ID} ${BUNDLE_ID}`), false);
   assert.equal(
     calls.filter((call) => call.startsWith(`simctl openurl ${DEVICE_ID} asl-example://expo-development-client/`)).length,
-    6,
+    9,
   );
   assert.ok(agentDeviceCalls.some((call) => call.includes(`open ${BUNDLE_ID}`)));
   assert.ok(agentDeviceCalls.some((call) => call.includes('is visible id="asl-example-title"')));
@@ -326,6 +331,14 @@ test('runs the packaged iOS example live proof with a fake simctl executor', asy
   assert.deepEqual(
     result.profiles.map((profile: { runId: string }) => profile.runId),
     ['ios-live-startup-pr-123', 'ios-live-open-close-pr-123', 'ios-live-scroll-pr-123'],
+  );
+  assert.deepEqual(
+    result.seededBaselines.map((profile: { runId: string }) => profile.runId),
+    [
+      'ios-live-startup-pr-123-baseline',
+      'ios-live-open-close-pr-123-baseline',
+      'ios-live-scroll-pr-123-baseline',
+    ],
   );
 
   for (const profile of result.profiles) {

@@ -7,6 +7,7 @@ const test = require('node:test');
 
 const {
   assertNoRegressedComparisons,
+  buildBaselineRunId,
   buildLiveRunId,
   formatResult,
   normalizeRunSuffix,
@@ -27,6 +28,8 @@ test('normalizes Android example live run suffixes', () => {
   assert.equal(normalizeRunSuffix('---'), null);
   assert.equal(buildLiveRunId('android-live-startup', 'pr-123'), 'android-live-startup-pr-123');
   assert.equal(buildLiveRunId('android-live-startup', null), 'android-live-startup');
+  assert.equal(buildBaselineRunId('android-live-startup', 'pr-123'), 'android-live-startup-pr-123-baseline');
+  assert.equal(buildBaselineRunId('android-live-startup', null), 'android-live-startup-baseline');
 });
 
 test('resolves the Android example serial from args, env, then emulator fallback', () => {
@@ -284,6 +287,7 @@ test('runs the packaged Android example live proof with a fake adb executor', as
     'compare-latest': true,
     out: outputDir,
     'run-suffix': 'PR 123',
+    'seed-baseline': true,
   }, {
     agentDeviceExecutor,
     argentExecutor,
@@ -293,6 +297,7 @@ test('runs the packaged Android example live proof with a fake adb executor', as
   });
 
   assert.equal(result.profiles.length, 3);
+  assert.equal(result.seededBaselines.length, 3);
   assert.equal(result.interactionProofs.length, 2);
   assert.equal(result.comparisons.length, 3);
   assert.equal(fs.existsSync(result.aggregateSummary.liveProofPath), true);
@@ -322,6 +327,14 @@ test('runs the packaged Android example live proof with a fake adb executor', as
   assert.deepEqual(
     result.profiles.map((profile: { runId: string }) => profile.runId),
     ['android-live-startup-pr-123', 'android-live-open-close-pr-123', 'android-live-scroll-pr-123'],
+  );
+  assert.deepEqual(
+    result.seededBaselines.map((profile: { runId: string }) => profile.runId),
+    [
+      'android-live-startup-pr-123-baseline',
+      'android-live-open-close-pr-123-baseline',
+      'android-live-scroll-pr-123-baseline',
+    ],
   );
 
   for (const profile of result.profiles) {

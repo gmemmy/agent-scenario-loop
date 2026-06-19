@@ -53,6 +53,7 @@ type IosLiveProofResult = {
   outputDir: string;
   preflightDir: string;
   profiles: IosLiveProfile[];
+  seededBaselines: IosLiveProfile[];
   skippedInteractionProofs: IosSkippedInteractionProof[];
 };
 type RegressionGateOptions = {
@@ -93,6 +94,7 @@ function usage(output: { write: (message: string) => unknown } = process.stderr)
     'Runs the packaged example iOS live proof: simctl preflight, startup, open-close, and scroll-settle.',
     'The example app must already be installed on a booted iOS simulator and connected to Metro. Set ASL_EXAMPLE_IOS_DEV_CLIENT_URL for Expo dev-client builds that need an explicit Metro URL.',
     'Use --run-suffix to preserve multiple live proof artifact sets without changing deterministic default run ids.',
+    'Use --seed-baseline with --compare-latest to capture a trusted compatible baseline before the measured run.',
     'Use --compare-latest to compare each passed scenario against the latest trusted prior run under the artifact root.',
     'Use --fail-on-regression with --compare-latest to exit nonzero after writing evidence when any comparison regressed.',
     'Use --agent-device-proof to attach the shared startup UI assertion through agent-device; pass --agent-device-session-mode bind when a named session should still receive the configured UDID.',
@@ -219,6 +221,17 @@ function buildInteractionComparisonLane(runnerIds: string[]): string {
   return runnerIds.length > 0
     ? `example-ios-live+${runnerIds.join('+')}`
     : 'example-ios-live';
+}
+
+/**
+ * Builds a deterministic run id for a seeded baseline profile.
+ *
+ * @param {string} baseRunId
+ * @param {string | null} suffix
+ * @returns {string}
+ */
+function buildBaselineRunId(baseRunId: string, suffix: string | null): string {
+  return buildLiveRunId(baseRunId, suffix ? `${suffix}-baseline` : 'baseline');
 }
 
 /**
@@ -382,8 +395,53 @@ async function runExampleIosLiveProof(
   }
 
   const interactionProofs: IosInteractionProof[] = [];
+  const seededBaselines: IosLiveProfile[] = [];
   const profiles: IosLiveProfile[] = [];
   const failedProfiles: IosLiveProfile[] = [];
+  if (isEnabledFlag(args['seed-baseline'])) {
+    for (const profile of EXAMPLE_PROFILES) {
+      const baselineRunId = buildBaselineRunId(profile.runId, runSuffix);
+      const result = await runProfileIos({
+        config: configPath,
+        device: deviceId,
+        ...(typeof args['log-last'] === 'string' ? { 'log-last': args['log-last'] } : {}),
+        launch: true,
+        out: outputDir,
+        ...(iosDevClientUrl ? { 'ios-dev-client-url': iosDevClientUrl } : {}),
+        ...(iosDevClientWaitMs ? { 'ios-dev-client-wait-ms': iosDevClientWaitMs } : {}),
+        'profile-session': true,
+        'profile-session-storage': true,
+        'run-id': baselineRunId,
+        scenario: path.join(exampleRoot, 'scenarios', 'mobile', profile.scenario),
+        'simctl-capture': true,
+        'simctl-out': path.join(outputDir, '_ios-simctl-captures', baselineRunId),
+        ...(typeof args['wait-ms'] === 'string' ? { 'wait-ms': args['wait-ms'] } : {}),
+        ...(bundleId ? { bundle: bundleId } : {}),
+        ...(typeof args.xcrun === 'string' ? { xcrun: args.xcrun } : {}),
+      }, {
+        comparisonLane,
+        ...(options.delay ? { delay: options.delay } : {}),
+        ...(options.executor ? { executor: options.executor } : {}),
+      });
+
+      const baselinePointer = {
+        healthStatus: typeof result.health.healthStatus === 'string' ? result.health.healthStatus : 'unknown',
+        label: `${profile.label}-baseline`,
+        runDir: result.runDir,
+        runId: baselineRunId,
+        scenario: profile.scenario,
+        scenarioId: profile.scenarioId,
+        verdictStatus: typeof result.verdict.verdictStatus === 'string' ? result.verdict.verdictStatus : 'unknown',
+      };
+      seededBaselines.push(baselinePointer);
+      if (!isTrustedProfileRun({ health: result.health, verdict: result.verdict })) {
+        throw new Error(
+          `iOS seeded baseline failed for ${profile.label}. Inspect ${result.runDir}/agent-summary.md.`,
+        );
+      }
+    }
+  }
+
   for (const profile of EXAMPLE_PROFILES) {
     const profileRunId = buildLiveRunId(profile.runId, runSuffix);
     const result = await runProfileIos({
@@ -504,6 +562,7 @@ async function runExampleIosLiveProof(
     outputDir,
     preflightDir: preflight.runDir,
     profiles,
+    seededBaselines,
     skippedInteractionProofs,
   };
   if (isEnabledFlag(args['fail-on-regression'])) {
@@ -532,6 +591,9 @@ function formatResult(result: IosLiveProofResult): string {
     )),
     ...result.interactionProofs.map((proof) => (
       `${proof.label}: ${proof.runDir}/agent-summary.md`
+    )),
+    ...result.seededBaselines.map((profile) => (
+      `${profile.label}: ${profile.runDir}/agent-summary.md`
     )),
     ...(
       result.comparisons.length > 0
@@ -579,6 +641,7 @@ export {
   buildLiveRunId,
   formatResult,
   assertNoRegressedComparisons,
+  buildBaselineRunId,
   buildSkippedInteractionProofs,
   buildInteractionComparisonLane,
   isTrustedProfileRun,

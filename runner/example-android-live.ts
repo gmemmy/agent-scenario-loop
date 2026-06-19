@@ -53,6 +53,7 @@ type AndroidLiveProofResult = {
   outputDir: string;
   preflightDir: string;
   profiles: AndroidLiveProfile[];
+  seededBaselines: AndroidLiveProfile[];
   skippedInteractionProofs: AndroidSkippedInteractionProof[];
 };
 type RegressionGateOptions = {
@@ -95,6 +96,7 @@ function usage(output: { write: (message: string) => unknown } = process.stderr)
     'The example app must already be installed and reachable on an online Android emulator or device.',
     `By default, the runner sets the app React Native debug host to ${DEFAULT_REACT_NATIVE_DEBUG_HOST} for the isolated Metro server.`,
     'Use --run-suffix to preserve multiple live proof artifact sets without changing deterministic default run ids.',
+    'Use --seed-baseline with --compare-latest to capture a trusted compatible baseline before the measured run.',
     'Use --compare-latest to compare each passed scenario against the latest trusted prior run under the artifact root.',
     'Use --fail-on-regression with --compare-latest to exit nonzero after writing evidence when any comparison regressed.',
     'Use --agent-device-proof to attach the shared startup UI assertion through agent-device; pass --agent-device-session-mode bind when a named session should still receive the configured serial.',
@@ -207,6 +209,17 @@ function buildInteractionComparisonLane(runnerIds: string[]): string {
   return runnerIds.length > 0
     ? `example-android-live+${runnerIds.join('+')}`
     : 'example-android-live';
+}
+
+/**
+ * Builds a deterministic run id for a seeded baseline profile.
+ *
+ * @param {string} baseRunId
+ * @param {string | null} suffix
+ * @returns {string}
+ */
+function buildBaselineRunId(baseRunId: string, suffix: string | null): string {
+  return buildLiveRunId(baseRunId, suffix ? `${suffix}-baseline` : 'baseline');
 }
 
 /**
@@ -366,8 +379,53 @@ async function runExampleAndroidLiveProof(
   }
 
   const interactionProofs: AndroidInteractionProof[] = [];
+  const seededBaselines: AndroidLiveProfile[] = [];
   const profiles: AndroidLiveProfile[] = [];
   const failedProfiles: AndroidLiveProfile[] = [];
+  if (isEnabledFlag(args['seed-baseline'])) {
+    for (const profile of EXAMPLE_PROFILES) {
+      const baselineRunId = buildBaselineRunId(profile.runId, runSuffix);
+      const result = await runProfileAndroid({
+        ...(typeof args.adb === 'string' ? { adb: args.adb } : {}),
+        'adb-capture': true,
+        'clear-logcat': true,
+        config: configPath,
+        'command-wait-ms': typeof args['command-wait-ms'] === 'string' ? args['command-wait-ms'] : '250',
+        launch: true,
+        'launch-wait-ms': typeof args['launch-wait-ms'] === 'string' ? args['launch-wait-ms'] : '1500',
+        'logcat-lines': typeof args['logcat-lines'] === 'string' ? args['logcat-lines'] : '1000',
+        out: outputDir,
+        ...(packageName ? { package: packageName } : {}),
+        'profile-session': true,
+        'react-native-debug-host': reactNativeDebugHost,
+        'run-id': baselineRunId,
+        scenario: path.join(exampleRoot, 'scenarios', 'mobile', profile.scenario),
+        serial,
+        'wait-ms': typeof args['wait-ms'] === 'string' ? args['wait-ms'] : '1000',
+      }, {
+        comparisonLane,
+        ...(options.delay ? { delay: options.delay } : {}),
+        ...(options.executor ? { executor: options.executor } : {}),
+      });
+
+      const baselinePointer = {
+        healthStatus: typeof result.health.healthStatus === 'string' ? result.health.healthStatus : 'unknown',
+        label: `${profile.label}-baseline`,
+        runDir: result.runDir,
+        runId: baselineRunId,
+        scenario: profile.scenario,
+        scenarioId: profile.scenarioId,
+        verdictStatus: typeof result.verdict.verdictStatus === 'string' ? result.verdict.verdictStatus : 'unknown',
+      };
+      seededBaselines.push(baselinePointer);
+      if (!isTrustedProfileRun({ health: result.health, verdict: result.verdict })) {
+        throw new Error(
+          `Android seeded baseline failed for ${profile.label}. Inspect ${result.runDir}/agent-summary.md.`,
+        );
+      }
+    }
+  }
+
   for (const profile of EXAMPLE_PROFILES) {
     const profileRunId = buildLiveRunId(profile.runId, runSuffix);
     const result = await runProfileAndroid({
@@ -486,6 +544,7 @@ async function runExampleAndroidLiveProof(
     outputDir,
     preflightDir: preflight.runDir,
     profiles,
+    seededBaselines,
     skippedInteractionProofs,
   };
   if (isEnabledFlag(args['fail-on-regression'])) {
@@ -514,6 +573,9 @@ function formatResult(result: AndroidLiveProofResult): string {
     )),
     ...result.interactionProofs.map((proof) => (
       `${proof.label}: ${proof.runDir}/agent-summary.md`
+    )),
+    ...result.seededBaselines.map((profile) => (
+      `${profile.label}: ${profile.runDir}/agent-summary.md`
     )),
     ...(
       result.comparisons.length > 0
@@ -561,6 +623,7 @@ export {
   formatResult,
   assertNoRegressedComparisons,
   buildLiveRunId,
+  buildBaselineRunId,
   buildSkippedInteractionProofs,
   buildInteractionComparisonLane,
   isTrustedProfileRun,
