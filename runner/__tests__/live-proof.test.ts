@@ -32,13 +32,13 @@ type TestContext = import('node:test').TestContext;
 /**
  * Builds a minimal valid live-proof artifact for CLI tests.
  *
- * @param {'mixed' | 'regressed' | 'unchanged'} comparisonStatus
+ * @param {'low_confidence' | 'mixed' | 'regressed' | 'unchanged'} comparisonStatus
  * @param {'failed' | 'passed'} [status]
  * @param {'android' | 'ios'} [platform]
  * @returns {Record<string, unknown>}
  */
 function buildProof(
-  comparisonStatus: 'mixed' | 'regressed' | 'unchanged',
+  comparisonStatus: 'low_confidence' | 'mixed' | 'regressed' | 'unchanged',
   status: 'failed' | 'passed' = 'passed',
   platform: 'android' | 'ios' = 'android',
 ): Record<string, unknown> {
@@ -46,6 +46,8 @@ function buildProof(
     ? 'worse'
     : comparisonStatus === 'mixed'
       ? 'mixed'
+      : comparisonStatus === 'low_confidence'
+        ? 'low_confidence'
       : 'unchanged';
   return {
     schemaVersion: '1.0.0',
@@ -116,6 +118,7 @@ function buildProof(
             worse: comparisonStatus === 'regressed' || comparisonStatus === 'mixed' ? 1 : 0,
             unchanged: comparisonStatus === 'unchanged' ? 1 : 0,
             inconclusive: 0,
+            low_confidence: comparisonStatus === 'low_confidence' ? 1 : 0,
           },
           notableMetrics: comparisonStatus === 'mixed'
             ? [
@@ -147,6 +150,17 @@ function buildProof(
                     unit: 'ms',
                   },
                 ]
+              : comparisonStatus === 'low_confidence'
+                ? [
+                    {
+                      baseline: 960,
+                      current: 1211,
+                      delta: 251,
+                      name: 'cycle p95',
+                      status: 'low_confidence',
+                      unit: 'ms',
+                    },
+                  ]
               : [],
         },
       },
@@ -155,6 +169,7 @@ function buildProof(
       ? {
           better: 0,
           inconclusive: 0,
+          low_confidence: 0,
           mixed: 0,
           skipped: 0,
           unchanged: 0,
@@ -164,14 +179,26 @@ function buildProof(
         ? {
             better: 0,
             inconclusive: 0,
+            low_confidence: 0,
             mixed: 1,
             skipped: 0,
             unchanged: 0,
             worse: 0,
           }
-        : {
+        : comparisonStatus === 'low_confidence'
+          ? {
+              better: 0,
+              inconclusive: 0,
+              low_confidence: 1,
+              mixed: 0,
+              skipped: 0,
+              unchanged: 0,
+              worse: 0,
+            }
+          : {
             better: 0,
             inconclusive: 0,
+            low_confidence: 0,
             mixed: 0,
             skipped: 0,
             unchanged: 1,
@@ -185,6 +212,8 @@ function buildProof(
         ? 'inspect_regressions'
         : comparisonStatus === 'mixed'
           ? 'inspect_mixed'
+          : comparisonStatus === 'low_confidence'
+            ? 'inspect_low_confidence'
           : 'inspect_summary',
       summary: 'Inspect linked evidence.',
     },
@@ -301,6 +330,7 @@ test('counts live-proof comparison statuses from pointers', () => {
     {
       better: 1,
       inconclusive: 1,
+      low_confidence: 0,
       mixed: 1,
       skipped: 1,
       unchanged: 2,
@@ -314,6 +344,7 @@ test('derives aggregate status and next action from comparisons', () => {
   assert.equal(deriveLiveProofComparisonStatus([{ status: 'skipped' }]), 'baseline_missing');
   assert.equal(deriveLiveProofComparisonStatus([{ status: 'better' }, { status: 'skipped' }]), 'inconclusive');
   assert.equal(deriveLiveProofComparisonStatus([{ status: 'inconclusive' }]), 'inconclusive');
+  assert.equal(deriveLiveProofComparisonStatus([{ status: 'low_confidence' }]), 'low_confidence');
   assert.equal(deriveLiveProofComparisonStatus([{ status: 'mixed' }]), 'mixed');
   assert.equal(deriveLiveProofComparisonStatus([{ status: 'better' }, { status: 'unchanged' }]), 'improved');
   assert.equal(deriveLiveProofComparisonStatus([{ status: 'unchanged' }]), 'unchanged');
@@ -323,6 +354,7 @@ test('derives aggregate status and next action from comparisons', () => {
   assert.equal(expectedLiveProofNextActionCode('regressed', 'failed'), 'inspect_failed_run');
   assert.equal(expectedLiveProofNextActionCode('baseline_missing'), 'establish_baseline');
   assert.equal(expectedLiveProofNextActionCode('inconclusive'), 'inspect_inconclusive');
+  assert.equal(expectedLiveProofNextActionCode('low_confidence'), 'inspect_low_confidence');
   assert.equal(expectedLiveProofNextActionCode('mixed'), 'inspect_mixed');
   assert.equal(expectedLiveProofNextActionCode('improved'), 'inspect_summary');
   assert.equal(expectedLiveProofNextActionCode('unchanged'), 'inspect_summary');
@@ -442,6 +474,7 @@ test('does not require skipped comparison artifact pointers', async (t: TestCont
   proof.comparisonCounts = {
     better: 0,
     inconclusive: 0,
+    low_confidence: 0,
     mixed: 0,
     skipped: 1,
     unchanged: 0,
@@ -647,8 +680,8 @@ test('reads, validates, and formats live-proof artifacts', async (t: TestContext
   assert.match(output, /startup-ui \(agent-device\/app-startup\/agent-device-startup\): health=passed verdict=not_evaluated screenshots=1 warnings=1/u);
   assert.match(output, /warning argent_screenshot: argent_screenshot_failed - Argent driver action screenshot failed\./u);
   assert.match(output, /next=inspect_argent_driver_action - Inspect raw screenshot output\./u);
-  assert.match(output, /Comparison counts: better=0 worse=0 unchanged=1 mixed=0 inconclusive=0 skipped=0/u);
-  assert.match(output, /startup \(app-startup\/android-live-startup\): unchanged \(metrics better=0 worse=0 unchanged=1 inconclusive=0\)/u);
+  assert.match(output, /Comparison counts: better=0 worse=0 unchanged=1 mixed=0 inconclusive=0 low_confidence=0 skipped=0/u);
+  assert.match(output, /startup \(app-startup\/android-live-startup\): unchanged \(metrics better=0 worse=0 unchanged=1 inconclusive=0 low_confidence=0\)/u);
   assert.match(output, /Next action: inspect_summary/u);
   assert.equal(shouldFailOnRegression({ failOnRegression: true, proof }), false);
 });
@@ -658,6 +691,15 @@ test('does not treat mixed comparison movement as a fail-on-regression failure',
   const output = formatLiveProof(proof);
 
   assert.match(output, /notable: cycle p50 better \(-22ms\), close p50 worse \(6ms\)/u);
+  assert.equal(shouldFailOnRegression({ failOnRegression: true, proof }), false);
+});
+
+test('does not treat low-confidence timing movement as a fail-on-regression failure', () => {
+  const proof = buildProof('low_confidence') as ReturnType<typeof readLiveProof>;
+  const output = formatLiveProof(proof);
+
+  assert.match(output, /Comparison status: low_confidence/u);
+  assert.match(output, /cycle p95 low_confidence \(251ms\)/u);
   assert.equal(shouldFailOnRegression({ failOnRegression: true, proof }), false);
 });
 

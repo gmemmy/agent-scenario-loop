@@ -1114,6 +1114,7 @@ test('accepts aggregate live proof artifacts', () => {
     comparisonCounts: {
       better: 1,
       inconclusive: 0,
+      low_confidence: 0,
       mixed: 0,
       skipped: 1,
       unchanged: 0,
@@ -1140,6 +1141,7 @@ test('accepts aggregate live proof artifacts', () => {
             worse: 0,
             unchanged: 3,
             inconclusive: 0,
+            low_confidence: 0,
           },
           notableMetrics: [
             {

@@ -467,8 +467,9 @@ test('writes comparison and agent summary to output directory', async (t: TestCo
   const comparison = JSON.parse(fs.readFileSync(path.join(comparisonDir, 'comparison.json'), 'utf8'));
   const summary = fs.readFileSync(path.join(comparisonDir, 'agent-summary.md'), 'utf8');
   assert.equal(stdout.trim(), comparisonDir);
-  assert.equal(comparison.comparisonStatus, 'worse');
-  assert.match(summary, /Comparison: worse/u);
+  assert.equal(comparison.comparisonStatus, 'low_confidence');
+  assert.match(summary, /Comparison: low_confidence/u);
+  assert.match(summary, /low-confidence timing movement/u);
 });
 
 test('fail-on-regression exits nonzero after writing latest comparison artifacts', async (t: TestContext) => {
@@ -485,7 +486,7 @@ test('fail-on-regression exits nonzero after writing latest comparison artifacts
   const currentDir = await writeRun({
     root: rootDir,
     runId: 'current-run',
-    actual: 950,
+    actual: 1200,
     endedAt: '2026-06-16T10:05:00.000Z',
   });
   const comparisonDir = path.join(rootDir, 'comparison-output');

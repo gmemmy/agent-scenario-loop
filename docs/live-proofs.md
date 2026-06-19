@@ -140,6 +140,8 @@ After dependency, native-build, or scenario-contract changes, use `--seed-baseli
 pnpm example:android:live -- --run-suffix release-check --seed-baseline
 ```
 
+When latest-trusted comparison sees slower single-run timing but both baseline and current remain inside their budgets, ASL reports `low_confidence` instead of `regressed`. Treat that as a repeat-or-sample signal, not proof of product regression.
+
 Read [Example Mobile App: Android Capture](../examples/mobile-app/README.md#android-capture) for Metro routing, adb permissions, individual scenario commands, selector behavior, and optional video capture.
 
 Expo dev-client Android shells may need an explicit Metro deep link after the native app launches. Put that local URL in ignored env state, for example `ASL_EXAMPLE_ANDROID_DEV_CLIENT_URL=asl-example://expo-development-client/?url=http%3A%2F%2F10.0.2.2%3A8097`, so Android profile capture opens the correct app session before profile-session deep links. When bundle load time is variable, also set `ASL_EXAMPLE_ANDROID_DEV_CLIENT_READY_PATTERN='Running "main"'` so the runner waits for bounded logcat readiness evidence before sending scenario links.
@@ -174,6 +176,8 @@ Use `--seed-baseline` for fresh release checks where no compatible trusted iOS b
 ```bash
 pnpm example:ios:live -- --run-suffix release-check --seed-baseline
 ```
+
+The same `low_confidence` comparison policy applies to iOS seeded baselines, where simulator and dev-client startup timing can vary between adjacent runs while still satisfying product budgets.
 
 Expo dev-client iOS shells may need an explicit Metro deep link after the native app launches. Put that local URL in ignored env state, for example `ASL_EXAMPLE_IOS_DEV_CLIENT_URL=asl-example://expo-development-client/?url=http%3A%2F%2Flocalhost%3A8097`, so iOS profile capture opens the correct app session before collecting evidence.
 

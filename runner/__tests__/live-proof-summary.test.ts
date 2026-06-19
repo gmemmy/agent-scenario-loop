@@ -19,10 +19,10 @@ type TestContext = import('node:test').TestContext;
 /**
  * Builds a minimal comparison pointer for status aggregation tests.
  *
- * @param {'better' | 'worse' | 'unchanged' | 'mixed' | 'inconclusive' | 'skipped'} status
+ * @param {'better' | 'worse' | 'unchanged' | 'mixed' | 'inconclusive' | 'low_confidence' | 'skipped'} status
  * @returns {Record<string, unknown>}
  */
-function comparison(status: 'better' | 'worse' | 'unchanged' | 'mixed' | 'inconclusive' | 'skipped'): Record<string, unknown> {
+function comparison(status: 'better' | 'worse' | 'unchanged' | 'mixed' | 'inconclusive' | 'low_confidence' | 'skipped'): Record<string, unknown> {
   return {
     baselineDir: status === 'skipped' ? null : 'baseline',
     comparisonDir: status === 'skipped' ? null : 'comparison',
@@ -40,6 +40,7 @@ test('collapses live proof comparisons into aggregate statuses', () => {
   assert.equal(buildLiveProofComparisonStatus([comparison('skipped')]), 'baseline_missing');
   assert.equal(buildLiveProofComparisonStatus([comparison('better'), comparison('skipped')]), 'inconclusive');
   assert.equal(buildLiveProofComparisonStatus([comparison('inconclusive')]), 'inconclusive');
+  assert.equal(buildLiveProofComparisonStatus([comparison('low_confidence')]), 'low_confidence');
   assert.equal(buildLiveProofComparisonStatus([comparison('mixed')]), 'mixed');
   assert.equal(buildLiveProofComparisonStatus([comparison('better'), comparison('unchanged')]), 'improved');
   assert.equal(buildLiveProofComparisonStatus([comparison('unchanged')]), 'unchanged');
@@ -55,11 +56,13 @@ test('counts live proof comparison outcomes', () => {
       comparison('unchanged'),
       comparison('unchanged'),
       comparison('inconclusive'),
+      comparison('low_confidence'),
       comparison('skipped'),
     ]),
     {
       better: 1,
       inconclusive: 1,
+      low_confidence: 1,
       mixed: 1,
       skipped: 1,
       unchanged: 2,
@@ -73,6 +76,7 @@ test('maps aggregate live proof statuses to next actions', () => {
   assert.equal(buildLiveProofNextAction('regressed').code, 'inspect_regressions');
   assert.equal(buildLiveProofNextAction('baseline_missing').code, 'establish_baseline');
   assert.equal(buildLiveProofNextAction('inconclusive').code, 'inspect_inconclusive');
+  assert.equal(buildLiveProofNextAction('low_confidence').code, 'inspect_low_confidence');
   assert.equal(buildLiveProofNextAction('mixed').code, 'inspect_mixed');
   assert.equal(buildLiveProofNextAction('improved').code, 'inspect_summary');
   assert.equal(buildLiveProofNextAction('unchanged').code, 'inspect_summary');
@@ -109,6 +113,7 @@ test('formats comparison metric summaries for aggregate markdown', () => {
           worse: 1,
           unchanged: 6,
           inconclusive: 0,
+          low_confidence: 0,
         },
         notableMetrics: [
           {
@@ -130,7 +135,7 @@ test('formats comparison metric summaries for aggregate markdown', () => {
         ],
       },
     }),
-    ' (metrics better=1 worse=1 unchanged=6 inconclusive=0; notable: cycle p50 better (-22ms), close p50 worse (6ms))',
+    ' (metrics better=1 worse=1 unchanged=6 inconclusive=0 low_confidence=0; notable: cycle p50 better (-22ms), close p50 worse (6ms))',
   );
 });
 

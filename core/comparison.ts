@@ -18,7 +18,7 @@ type MetricComparison = {
   baseline: number | boolean | null;
   current: number | boolean | null;
   delta: number | null;
-  status: 'better' | 'worse' | 'unchanged' | 'inconclusive';
+  status: 'better' | 'worse' | 'unchanged' | 'inconclusive' | 'low_confidence';
   notes?: string;
 };
 
@@ -87,8 +87,9 @@ type MeasurementPolicy = {
     };
   };
   confidence: {
-    level: 'single_run' | 'multi_sample' | 'insufficient';
+    level: 'single_run' | 'multi_sample' | 'insufficient' | 'low_confidence';
     minValidSamples: number;
+    reason?: string;
   };
 };
 
@@ -222,6 +223,28 @@ function compareBudgetCheck(baseline: ComparisonBudgetCheck, current: Comparison
 }
 
 /**
+ * Returns whether a directional timing delta should be reported as low confidence.
+ *
+ * @param {MetricComparison} metric
+ * @param {ComparisonBudgetCheck} baseline
+ * @param {ComparisonBudgetCheck} current
+ * @returns {boolean}
+ */
+function isLowConfidenceTimingMovement(
+  metric: MetricComparison,
+  baseline: ComparisonBudgetCheck,
+  current: ComparisonBudgetCheck,
+): boolean {
+  return (
+    metric.status === 'worse' &&
+    baseline.unit === 'ms' &&
+    current.unit === 'ms' &&
+    baseline.pass === true &&
+    current.pass === true
+  );
+}
+
+/**
  * Collapses metric-level comparison statuses into the run-level comparison status.
  *
  * @param {MetricComparison[]} metricComparisons
@@ -240,6 +263,7 @@ function resolveComparisonStatus(
 ): ComparisonStatus {
   const hasBetterMetric = metricComparisons.some((metric) => metric.status === 'better');
   const hasWorseMetric = metricComparisons.some((metric) => metric.status === 'worse');
+  const hasLowConfidenceMetric = metricComparisons.some((metric) => metric.status === 'low_confidence');
 
   if (hasBetterMetric && hasWorseMetric) {
     return 'mixed';
@@ -251,6 +275,10 @@ function resolveComparisonStatus(
 
   if (hasBetterMetric) {
     return 'better';
+  }
+
+  if (hasLowConfidenceMetric) {
+    return 'low_confidence';
   }
 
   if (metricComparisons.length > 0 && metricComparisons.every((metric) => metric.status === 'unchanged')) {
@@ -354,7 +382,11 @@ function buildMeasurementPolicy({
 }): MeasurementPolicy {
   const selection = comparisonBasis?.selection;
   const validSamples = metricComparisons.length;
+  const hasLowConfidenceMovement = metricComparisons.some((metric) => metric.status === 'low_confidence');
   const confidenceLevel =
+    hasLowConfidenceMovement
+      ? 'low_confidence'
+      :
     validSamples === 0
       ? 'insufficient'
       : validSamples === 1
@@ -395,6 +427,9 @@ function buildMeasurementPolicy({
     confidence: {
       level: confidenceLevel,
       minValidSamples: 1,
+      ...(hasLowConfidenceMovement
+        ? { reason: 'Single-run timing movement stayed within passing budgets; repeat or multi-sample proof is required before treating it as a regression.' }
+        : {}),
     },
   };
 }
@@ -443,7 +478,19 @@ function buildComparisonArtifact({
         warnings.push(`No baseline budget check matched ${currentCheck.name}.`);
         continue;
       }
-      metricComparisons.push(compareBudgetCheck(baselineCheck, currentCheck));
+      const metricComparison = compareBudgetCheck(baselineCheck, currentCheck);
+      if (
+        comparisonBasis?.strategy === 'latest_trusted_prior' &&
+        isLowConfidenceTimingMovement(metricComparison, baselineCheck, currentCheck)
+      ) {
+        metricComparisons.push({
+          ...metricComparison,
+          status: 'low_confidence',
+          notes: 'Single-run timing movement stayed within passing budgets; repeat or multi-sample proof is required before treating it as a regression.',
+        });
+        continue;
+      }
+      metricComparisons.push(metricComparison);
     }
 
     if (metricComparisons.length === 0) {
@@ -558,6 +605,10 @@ function summarizeComparison({
 
   if (comparisonStatus === 'mixed') {
     return 'Current run has mixed metric movement against the explicit baseline.';
+  }
+
+  if (comparisonStatus === 'low_confidence') {
+    return 'Current run has low-confidence timing movement against the baseline; repeat or multi-sample proof is required before treating it as a regression.';
   }
 
   if (comparisonStatus === 'unchanged') {
