@@ -855,6 +855,91 @@ function buildProfileHealth({
 }
 
 /**
+ * Derives the terminal state for one profile artifact attempt.
+ *
+ * @param {Record<string, unknown>} metrics
+ * @returns {string}
+ */
+function buildAttemptTerminalState(metrics: Record<string, any>): string {
+  if (metrics.status === 'passed') {
+    return 'passed';
+  }
+
+  if (typeof metrics.timeouts === 'number' && metrics.timeouts > 0) {
+    return 'timeout';
+  }
+
+  return 'failed';
+}
+
+/**
+ * Classifies one profile artifact attempt without product-specific vocabulary.
+ *
+ * @param {Record<string, unknown>} metrics
+ * @returns {Record<string, unknown>}
+ */
+function buildAttemptClassification(metrics: Record<string, any>): Record<string, unknown> {
+  if (metrics.status === 'passed') {
+    return {
+      category: 'none',
+    };
+  }
+
+  if (typeof metrics.timeouts === 'number' && metrics.timeouts > 0) {
+    return {
+      category: 'timeout',
+      code: 'profile_truth_event_timeout',
+      message: `Profile run recorded ${metrics.timeouts} timeout(s) before all expected truth events completed.`,
+      retryable: true,
+    };
+  }
+
+  return {
+    category: 'evidence',
+    code: 'profile_truth_events_incomplete',
+    message: 'Profile run did not capture every expected truth event.',
+    retryable: true,
+  };
+}
+
+/**
+ * Records whether the written artifact set is valid for diagnosis when a run fails.
+ *
+ * @param {{artifacts: Record<string, unknown>, metrics: Record<string, unknown>}} options
+ * @returns {Record<string, unknown>}
+ */
+function buildAttemptPartialArtifacts({
+  artifacts,
+  metrics,
+}: {
+  artifacts: Record<string, any>;
+  metrics: Record<string, any>;
+}): Record<string, unknown> {
+  if (metrics.status === 'passed') {
+    return {
+      valid: false,
+      reason: 'complete successful run artifacts are present',
+    };
+  }
+
+  const paths = [
+    artifacts.manifest,
+    'health.json',
+    artifacts.metrics,
+    artifacts.causalRun,
+    artifacts.summary,
+    artifacts.raw?.interactionLog,
+    artifacts.raw?.deviceLog,
+  ].filter((item): item is string => typeof item === 'string' && item.length > 0);
+
+  return {
+    valid: true,
+    reason: 'failed profile run artifacts are preserved for diagnosis and are not a product proof until scenario health passes',
+    paths,
+  };
+}
+
+/**
  * Builds failed scenario health from evidence-provider command failures.
  *
  * @param {{failures: ProviderCommandFailure[], runId: string, scenario: Record<string, unknown>}} options
@@ -1554,6 +1639,29 @@ async function runProfileMobile(args: CliArgs, options: ProfileMobileOptions): P
       signals: attachedEvidence.signals,
     },
   });
+  const manifestArtifacts = {
+    causalRun: 'causal-run.json',
+    budgetVerdict: 'budget-verdict.json',
+    manifest: 'manifest.json',
+    metrics: 'metrics.json',
+    summary: 'summary.md',
+    scenario: toPortablePathReference(scenarioPath),
+    raw: {
+      interactionLog: eventLogPath ? `raw/${path.basename(eventLogPath)}` : 'raw/interaction.log',
+      deviceLog: 'raw/device.log',
+    },
+    captures: {
+      screenshots: attachedEvidence.captures.screenshots,
+      video: attachedEvidence.captures.video ?? 'captures/run.mp4',
+      uiTree: attachedEvidence.captures.uiTree ?? 'captures/ui-tree.json',
+    },
+    signals: {
+      js: attachedEvidence.signals.js,
+      memory: attachedEvidence.signals.memory,
+      network: attachedEvidence.signals.network,
+    },
+    evidenceAttachments: buildEvidenceAttachmentManifest(attachedEvidence.attachments),
+  };
 
   const manifest = buildManifest({
     scenario: scenarioName,
@@ -1561,9 +1669,15 @@ async function runProfileMobile(args: CliArgs, options: ProfileMobileOptions): P
     runId,
     platform: options.platform,
     status: metrics.status,
+    terminalState: buildAttemptTerminalState(metrics),
     endedAt: new Date().toISOString(),
     interactionDriver,
     comparisonLane,
+    classification: buildAttemptClassification(metrics),
+    cleanup: {
+      status: 'not-required',
+    },
+    partialArtifacts: buildAttemptPartialArtifacts({ artifacts: manifestArtifacts, metrics }),
     startedAt,
     simulator: runtimeTarget,
     bundleId: resolveAppId({ config, platform: options.platform }),
@@ -1571,29 +1685,7 @@ async function runProfileMobile(args: CliArgs, options: ProfileMobileOptions): P
     toolVersions: {
       node: process.version,
     },
-    artifacts: {
-      causalRun: 'causal-run.json',
-      budgetVerdict: 'budget-verdict.json',
-      manifest: 'manifest.json',
-      metrics: 'metrics.json',
-      summary: 'summary.md',
-      scenario: toPortablePathReference(scenarioPath),
-      raw: {
-        interactionLog: eventLogPath ? `raw/${path.basename(eventLogPath)}` : 'raw/interaction.log',
-        deviceLog: 'raw/device.log',
-      },
-      captures: {
-        screenshots: attachedEvidence.captures.screenshots,
-        video: attachedEvidence.captures.video ?? 'captures/run.mp4',
-        uiTree: attachedEvidence.captures.uiTree ?? 'captures/ui-tree.json',
-      },
-      signals: {
-        js: attachedEvidence.signals.js,
-        memory: attachedEvidence.signals.memory,
-        network: attachedEvidence.signals.network,
-      },
-      evidenceAttachments: buildEvidenceAttachmentManifest(attachedEvidence.attachments),
-    },
+    artifacts: manifestArtifacts,
   });
 
   const timeline = buildCausalTimeline({

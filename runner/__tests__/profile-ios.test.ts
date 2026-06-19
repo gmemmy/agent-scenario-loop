@@ -852,10 +852,35 @@ test('profile-ios writes failed health instead of crashing when simctl capture h
   const health = readJson(path.join(result.runDir, 'health.json'));
   const verdict = readJson(path.join(result.runDir, 'verdict.json'));
   const causalRun = readJson(path.join(result.runDir, 'causal-run.json'));
+  const manifest = readJson(path.join(result.runDir, 'manifest.json'));
 
   assert.equal(health.healthStatus, 'failed');
   assert.equal(verdict.verdictStatus, 'inconclusive');
   assert.deepEqual(causalRun.timeline, []);
+  assert.equal(manifest.attempt.status, 'failed');
+  assert.equal(manifest.attempt.terminalState, 'failed');
+  assert.deepEqual(manifest.attempt.classification, {
+    category: 'evidence',
+    code: 'profile_truth_events_incomplete',
+    message: 'Profile run did not capture every expected truth event.',
+    retryable: true,
+  });
+  assert.deepEqual(manifest.attempt.cleanup, {
+    status: 'not-required',
+  });
+  assert.equal(manifest.attempt.partialArtifacts.valid, true);
+  assert.equal(
+    manifest.attempt.partialArtifacts.reason,
+    'failed profile run artifacts are preserved for diagnosis and are not a product proof until scenario health passes',
+  );
+  assert.ok(manifest.attempt.partialArtifacts.paths.includes('manifest.json'));
+  assert.ok(manifest.attempt.partialArtifacts.paths.includes('health.json'));
+  assert.ok(manifest.attempt.partialArtifacts.paths.includes('metrics.json'));
+  assert.ok(manifest.attempt.partialArtifacts.paths.includes('causal-run.json'));
+  assert.ok(manifest.attempt.partialArtifacts.paths.includes('summary.md'));
+  assert.ok(
+    manifest.attempt.partialArtifacts.paths.some((artifactPath: string) => artifactPath.startsWith('raw/')),
+  );
 });
 
 test('profile-ios derives storage capture waits from scenario execution windows', () => {

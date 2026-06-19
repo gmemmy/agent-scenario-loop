@@ -938,12 +938,17 @@ function buildManifest({
   scenario,
   scenarioHash,
   runId,
+  attemptId,
   platform = 'ios',
   status,
+  terminalState,
   startedAt,
   endedAt,
   interactionDriver,
   comparisonLane,
+  classification,
+  cleanup,
+  partialArtifacts,
   simulator,
   bundleId,
   gitSha,
@@ -954,6 +959,26 @@ function buildManifest({
   const durationMs = roundMs(Math.max(0, Date.parse(endedAt) - Date.parse(startedAt)));
   const sortedToolVersions = sortValue(toolVersions);
   const sortedSimulator = sortValue(simulator);
+  const resolvedTerminalState = typeof terminalState === 'string' && terminalState.length > 0 ? terminalState : status;
+  const resolvedClassification = classification
+    ? sortValue(classification)
+    : {
+        category: status === 'passed' ? 'none' : 'unknown',
+      };
+  const resolvedCleanup = cleanup
+    ? sortValue(cleanup)
+    : {
+        status: 'not-required',
+      };
+  const resolvedPartialArtifacts = partialArtifacts
+    ? sortValue(partialArtifacts)
+    : {
+        valid: status !== 'passed',
+        reason:
+          status === 'passed'
+            ? 'complete successful run artifacts are present'
+            : 'failed run artifacts are preserved for diagnosis and must not be treated as product proof unless health passes',
+      };
 
   return {
     scenario,
@@ -972,13 +997,18 @@ function buildManifest({
       toolVersions: sortedToolVersions,
     },
     attempt: {
+      attemptId: typeof attemptId === 'string' && attemptId.length > 0 ? attemptId : runId,
       runId,
       status,
+      terminalState: resolvedTerminalState,
       startedAt,
       endedAt,
       durationMs,
       interactionDriver,
       ...(typeof comparisonLane === 'string' && comparisonLane.length > 0 ? { comparisonLane } : {}),
+      classification: resolvedClassification,
+      cleanup: resolvedCleanup,
+      partialArtifacts: resolvedPartialArtifacts,
     },
     environment: {
       platform,

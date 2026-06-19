@@ -146,12 +146,24 @@ test('profile-android writes artifacts from fixture event logs', async (t: TestC
     },
   });
   assert.deepEqual(manifest.attempt, {
+    attemptId: 'android-example-startup',
+    classification: {
+      category: 'none',
+    },
+    cleanup: {
+      status: 'not-required',
+    },
     durationMs: manifest.durationMs,
     endedAt: manifest.endedAt,
     interactionDriver: manifest.interactionDriver,
+    partialArtifacts: {
+      reason: 'complete successful run artifacts are present',
+      valid: false,
+    },
     runId: 'android-example-startup',
     startedAt: manifest.startedAt,
     status: 'passed',
+    terminalState: 'passed',
   });
   assert.deepEqual(manifest.environment, {
     bundleId: 'dev.agentscenarioloop.example',

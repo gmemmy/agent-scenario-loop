@@ -13,6 +13,9 @@
     "endedAt",
     "durationMs",
     "interactionDriver",
+    "provenance",
+    "attempt",
+    "environment",
     "simulator",
     "bundleId",
     "gitSha",
@@ -78,14 +81,34 @@
     "attempt": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["runId", "status", "startedAt", "endedAt", "durationMs", "interactionDriver"],
+      "required": [
+        "attemptId",
+        "runId",
+        "status",
+        "terminalState",
+        "startedAt",
+        "endedAt",
+        "durationMs",
+        "interactionDriver",
+        "classification",
+        "cleanup",
+        "partialArtifacts"
+      ],
       "properties": {
+        "attemptId": {
+          "type": "string",
+          "minLength": 1
+        },
         "runId": {
           "type": "string"
         },
         "status": {
           "type": "string",
           "enum": ["passed", "failed"]
+        },
+        "terminalState": {
+          "type": "string",
+          "enum": ["passed", "failed", "timeout", "cancelled", "aborted", "inconclusive"]
         },
         "startedAt": {
           "type": "string"
@@ -102,6 +125,71 @@
         },
         "comparisonLane": {
           "type": "string"
+        },
+        "classification": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["category"],
+          "properties": {
+            "category": {
+              "type": "string",
+              "enum": ["none", "product", "runner", "environment", "timeout", "cancelled", "instrumentation", "evidence", "unknown"]
+            },
+            "code": {
+              "type": "string",
+              "minLength": 1
+            },
+            "message": {
+              "type": "string",
+              "minLength": 1
+            },
+            "retryable": {
+              "type": "boolean"
+            }
+          }
+        },
+        "cleanup": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status"],
+          "properties": {
+            "status": {
+              "type": "string",
+              "enum": ["not-required", "passed", "failed", "partial", "unknown"]
+            },
+            "message": {
+              "type": "string",
+              "minLength": 1
+            },
+            "artifacts": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        },
+        "partialArtifacts": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["valid", "reason"],
+          "properties": {
+            "valid": {
+              "type": "boolean"
+            },
+            "reason": {
+              "type": "string",
+              "minLength": 1
+            },
+            "paths": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
         }
       }
     },

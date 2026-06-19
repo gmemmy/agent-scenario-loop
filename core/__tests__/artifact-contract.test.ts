@@ -66,13 +66,25 @@ test('builds schema-valid manifest provenance attempt and environment artifacts'
     },
   });
   assert.deepEqual(manifest.attempt, {
+    attemptId: 'public-journey-1',
+    classification: {
+      category: 'none',
+    },
+    cleanup: {
+      status: 'not-required',
+    },
     comparisonLane: 'android-adb',
     durationMs: 1250,
     endedAt: '2026-01-01T00:00:01.250Z',
     interactionDriver: 'adb-logcat',
+    partialArtifacts: {
+      reason: 'complete successful run artifacts are present',
+      valid: false,
+    },
     runId: 'public-journey-1',
     startedAt: '2026-01-01T00:00:00.000Z',
     status: 'passed',
+    terminalState: 'passed',
   });
   assert.deepEqual(manifest.environment, {
     bundleId: 'dev.agent.example',
@@ -82,6 +94,75 @@ test('builds schema-valid manifest provenance attempt and environment artifacts'
       name: 'Pixel_8',
       udid: 'emulator-5554',
     },
+  });
+});
+
+test('builds schema-valid failed attempt semantics for preserved partial artifacts', () => {
+  const manifest = buildManifest({
+    scenario: 'public-journey',
+    runId: 'public-journey-timeout',
+    attemptId: 'attempt-2',
+    platform: 'android',
+    status: 'failed',
+    terminalState: 'timeout',
+    startedAt: '2026-01-01T00:00:00.000Z',
+    endedAt: '2026-01-01T00:00:10.000Z',
+    interactionDriver: 'adb-logcat',
+    classification: {
+      category: 'timeout',
+      code: 'milestone_timeout',
+      message: 'Milestone did not settle before the scenario deadline.',
+      retryable: true,
+    },
+    cleanup: {
+      status: 'partial',
+      message: 'Log capture stopped but device state cleanup did not complete.',
+      artifacts: ['raw/cleanup.txt'],
+    },
+    partialArtifacts: {
+      valid: true,
+      reason: 'timeout run preserved raw evidence for diagnosis',
+      paths: ['manifest.json', 'health.json', 'raw/interaction.log'],
+    },
+    simulator: {
+      name: 'Pixel_8',
+      udid: 'emulator-5554',
+    },
+    bundleId: 'dev.agent.example',
+    gitSha: 'abc123',
+    toolVersions: {
+      node: 'v24.0.0',
+    },
+    artifacts: sampleManifestArtifacts(),
+    failureReason: 'Milestone did not settle before the scenario deadline.',
+  });
+
+  assert.equal(validateJson(manifest, SCHEMAS.manifest, 'Manifest artifact').valid, true);
+  assert.deepEqual(manifest.attempt, {
+    attemptId: 'attempt-2',
+    classification: {
+      category: 'timeout',
+      code: 'milestone_timeout',
+      message: 'Milestone did not settle before the scenario deadline.',
+      retryable: true,
+    },
+    cleanup: {
+      artifacts: ['raw/cleanup.txt'],
+      message: 'Log capture stopped but device state cleanup did not complete.',
+      status: 'partial',
+    },
+    durationMs: 10000,
+    endedAt: '2026-01-01T00:00:10.000Z',
+    interactionDriver: 'adb-logcat',
+    partialArtifacts: {
+      paths: ['health.json', 'manifest.json', 'raw/interaction.log'],
+      reason: 'timeout run preserved raw evidence for diagnosis',
+      valid: true,
+    },
+    runId: 'public-journey-timeout',
+    startedAt: '2026-01-01T00:00:00.000Z',
+    status: 'failed',
+    terminalState: 'timeout',
   });
 });
 

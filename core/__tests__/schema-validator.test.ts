@@ -454,6 +454,41 @@ test('accepts manifest and metrics profile artifacts', () => {
     toolVersions: {
       node: 'v25.0.0',
     },
+    provenance: {
+      gitSha: 'unknown',
+      toolVersions: {
+        node: 'v25.0.0',
+      },
+    },
+    attempt: {
+      attemptId: 'attempt-1',
+      runId: 'run-1',
+      status: 'passed',
+      terminalState: 'passed',
+      startedAt: '2026-01-01T00:00:00.000Z',
+      endedAt: '2026-01-01T00:00:01.000Z',
+      durationMs: 1000,
+      interactionDriver: 'adb-logcat',
+      classification: {
+        category: 'none',
+      },
+      cleanup: {
+        status: 'not-required',
+      },
+      partialArtifacts: {
+        valid: false,
+        reason: 'complete successful run artifacts are present',
+      },
+    },
+    environment: {
+      platform: 'android',
+      bundleId: 'com.example.app',
+      runtimeTarget: {
+        name: 'Pixel',
+        udid: 'emulator-5554',
+      },
+      nodeVersion: 'v25.0.0',
+    },
     artifacts: {
       causalRun: 'causal-run.json',
       budgetVerdict: 'budget-verdict.json',
@@ -511,6 +546,90 @@ test('accepts manifest and metrics profile artifacts', () => {
   assert.equal(validateJson(metrics, SCHEMAS.metrics, 'Metrics artifact').valid, true);
 });
 
+test('rejects malformed manifest attempt semantics', () => {
+  const manifest = {
+    scenario: 'app-startup',
+    runId: 'run-1',
+    platform: 'android',
+    status: 'failed',
+    startedAt: '2026-01-01T00:00:00.000Z',
+    endedAt: '2026-01-01T00:00:01.000Z',
+    durationMs: 1000,
+    interactionDriver: 'adb-logcat',
+    simulator: {
+      name: 'Pixel',
+      udid: 'emulator-5554',
+    },
+    bundleId: 'com.example.app',
+    gitSha: 'unknown',
+    toolVersions: {
+      node: 'v25.0.0',
+    },
+    provenance: {
+      gitSha: 'unknown',
+      toolVersions: {
+        node: 'v25.0.0',
+      },
+    },
+    attempt: {
+      attemptId: 'attempt-1',
+      runId: 'run-1',
+      status: 'failed',
+      terminalState: 'hung',
+      startedAt: '2026-01-01T00:00:00.000Z',
+      endedAt: '2026-01-01T00:00:01.000Z',
+      durationMs: 1000,
+      interactionDriver: 'adb-logcat',
+      classification: {
+        category: 'timeout',
+      },
+      cleanup: {
+        status: 'partial',
+      },
+      partialArtifacts: {
+        valid: true,
+      },
+    },
+    environment: {
+      platform: 'android',
+      bundleId: 'com.example.app',
+      runtimeTarget: {
+        name: 'Pixel',
+        udid: 'emulator-5554',
+      },
+      nodeVersion: 'v25.0.0',
+    },
+    artifacts: {
+      causalRun: 'causal-run.json',
+      budgetVerdict: 'budget-verdict.json',
+      manifest: 'manifest.json',
+      metrics: 'metrics.json',
+      summary: 'summary.md',
+      scenario: 'scenarios/android/app-startup.json',
+      raw: {
+        interactionLog: 'raw/adb-logcat.txt',
+        deviceLog: 'raw/device.log',
+      },
+      captures: {
+        video: 'captures/run.mp4',
+        uiTree: 'captures/ui-tree.json',
+      },
+      signals: {
+        js: [],
+        memory: [],
+        network: [],
+      },
+    },
+    failureReason: 'Timed out waiting for milestone.',
+  };
+
+  const result = validateJson(manifest, SCHEMAS.manifest, 'Manifest artifact');
+
+  assert.equal(result.valid, false);
+  assert.ok(result.errors.some((error: ValidationIssue) => error.path === '$.attempt.terminalState'), result.message);
+  assert.ok(result.errors.some((error: ValidationIssue) => error.path === '$.attempt.partialArtifacts.reason'), result.message);
+});
+
 test('rejects unstable evidence attachment inventory entries', () => {
   const attachment = {
     channel: 'provider',
@@ -537,6 +656,41 @@ test('rejects unstable evidence attachment inventory entries', () => {
     gitSha: 'unknown',
     toolVersions: {
       node: 'v25.0.0',
+    },
+    provenance: {
+      gitSha: 'unknown',
+      toolVersions: {
+        node: 'v25.0.0',
+      },
+    },
+    attempt: {
+      attemptId: 'attempt-1',
+      runId: 'run-1',
+      status: 'passed',
+      terminalState: 'passed',
+      startedAt: '2026-01-01T00:00:00.000Z',
+      endedAt: '2026-01-01T00:00:01.000Z',
+      durationMs: 1000,
+      interactionDriver: 'adb-logcat',
+      classification: {
+        category: 'none',
+      },
+      cleanup: {
+        status: 'not-required',
+      },
+      partialArtifacts: {
+        valid: false,
+        reason: 'complete successful run artifacts are present',
+      },
+    },
+    environment: {
+      platform: 'android',
+      bundleId: 'com.example.app',
+      runtimeTarget: {
+        name: 'Pixel',
+        udid: 'emulator-5554',
+      },
+      nodeVersion: 'v25.0.0',
     },
     artifacts: {
       causalRun: 'causal-run.json',
@@ -796,6 +950,38 @@ test('accepts null schema types', () => {
     bundleId: 'com.example.app',
     gitSha: 'unknown',
     toolVersions: {},
+    provenance: {
+      gitSha: 'unknown',
+      toolVersions: {},
+    },
+    attempt: {
+      attemptId: 'attempt-1',
+      runId: 'run-1',
+      status: 'passed',
+      terminalState: 'passed',
+      startedAt: '2026-01-01T00:00:00.000Z',
+      endedAt: '2026-01-01T00:00:01.000Z',
+      durationMs: 1000,
+      interactionDriver: 'adb-logcat',
+      classification: {
+        category: 'none',
+      },
+      cleanup: {
+        status: 'not-required',
+      },
+      partialArtifacts: {
+        valid: false,
+        reason: 'complete successful run artifacts are present',
+      },
+    },
+    environment: {
+      platform: 'android',
+      bundleId: 'com.example.app',
+      runtimeTarget: {
+        name: 'Pixel',
+        udid: 'emulator-5554',
+      },
+    },
     artifacts: {
       causalRun: 'causal-run.json',
       budgetVerdict: 'budget-verdict.json',
