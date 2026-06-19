@@ -26,6 +26,15 @@ type DemoLoopResult = {
 };
 
 /**
+ * Resolves files shipped with the installed package.
+ *
+ * @returns {string}
+ */
+function resolvePackageRoot(): string {
+  return path.resolve(__dirname, '..', '..');
+}
+
+/**
  * Prints CLI usage.
  *
  * @param {{write: (message: string) => unknown}} [output]
@@ -73,16 +82,16 @@ function parseArgs(argv: string[]): CliArgs {
  * @returns {Promise<DemoLoopResult>}
  */
 async function runDemoLoop({ outputDir = path.resolve('artifacts/demo-loop') }: { outputDir?: string } = {}): Promise<DemoLoopResult> {
-  const root = process.cwd();
+  const packageRoot = resolvePackageRoot();
   const resolvedOutputDir = path.resolve(outputDir);
   const preflightDir = path.join(resolvedOutputDir, 'preflight', 'app-startup');
   const profileRoot = path.join(resolvedOutputDir, 'profile-runs');
-  const configPath = path.join(root, 'core/config-template.json');
-  const profileScenarioPath = path.join(root, 'examples/scenarios/ios/app-startup.json');
-  const mobileScenarioPath = path.join(root, 'examples/scenarios/mobile/app-startup.json');
-  const runnerPath = path.join(root, 'examples/runners/xcodebuildmcp-ios.json');
-  const baselineLogPath = path.join(root, 'examples/event-logs/app-startup-baseline.log');
-  const currentLogPath = path.join(root, 'examples/event-logs/app-startup-current.log');
+  const configPath = path.join(packageRoot, 'core/config-template.json');
+  const profileScenarioPath = path.join(packageRoot, 'examples/scenarios/ios/app-startup.json');
+  const mobileScenarioPath = path.join(packageRoot, 'examples/scenarios/mobile/app-startup.json');
+  const runnerPath = path.join(packageRoot, 'examples/runners/xcodebuildmcp-ios.json');
+  const baselineLogPath = path.join(packageRoot, 'examples/event-logs/app-startup-baseline.log');
+  const currentLogPath = path.join(packageRoot, 'examples/event-logs/app-startup-current.log');
 
   const preflight = await buildPlanArtifacts({
     scenarioPath: mobileScenarioPath,
@@ -194,6 +203,7 @@ export {
   main,
   parseArgs,
   runDemoLoop,
+  resolvePackageRoot,
   usage,
 };
 

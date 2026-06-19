@@ -678,12 +678,71 @@ function main(): void {
     const tarballPath = path.join(packDir, tarballName);
     assert.equal(fs.existsSync(tarballPath), true, `missing packed tarball: ${tarballPath}`);
 
+    run('npm', ['init', '-y'], {
+      cwd: installDir,
+      env,
+    });
     run('npm', ['install', tarballPath, '--ignore-scripts'], {
       cwd: installDir,
       env,
     });
 
     const packageRoot = path.join(installDir, 'node_modules', 'agent-scenario-loop');
+    const commonJsSmokeScript = [
+      "const assert = require('node:assert/strict');",
+      "const asl = require('agent-scenario-loop');",
+      "assert.equal(typeof asl.buildRunIndex, 'function');",
+      "assert.equal(typeof asl.createArtifactLayout, 'function');",
+      "assert.equal(typeof asl.validateJson, 'function');",
+    ].join('\n');
+    run(process.execPath, ['-e', commonJsSmokeScript], {
+      cwd: installDir,
+      env,
+    });
+
+    const esmSmokeScriptPath = path.join(installDir, 'package-smoke-esm.mjs');
+    fs.writeFileSync(esmSmokeScriptPath, [
+      "import assert from 'node:assert/strict';",
+      "import * as asl from 'agent-scenario-loop';",
+      "import * as demoLoop from 'agent-scenario-loop/runner/demo-loop';",
+      "assert.equal(typeof asl.buildRunIndex, 'function');",
+      "assert.equal(typeof asl.createArtifactLayout, 'function');",
+      "assert.equal(typeof asl.validateJson, 'function');",
+      "assert.equal(typeof demoLoop.runDemoLoop, 'function');",
+    ].join('\n'), 'utf8');
+    run(process.execPath, [esmSmokeScriptPath], {
+      cwd: installDir,
+      env,
+    });
+
+    const realInstallDir = fs.realpathSync(installDir);
+    const demoOutputDir = path.join(realInstallDir, 'artifacts', 'asl', 'demo');
+    const demoOutput = run('npx', [
+      '--no-install',
+      'asl-demo-loop',
+      '--out',
+      path.join('artifacts', 'asl', 'demo'),
+    ], {
+      cwd: installDir,
+      env,
+    });
+    const demoResult = JSON.parse(demoOutput) as {
+      baselineRunDir: string;
+      currentRunDir: string;
+      outputDir: string;
+      preflightDir: string;
+    };
+    assert.equal(demoResult.outputDir, demoOutputDir);
+    assert.equal(fs.existsSync(path.join(demoOutputDir, 'preflight', 'app-startup', 'health.json')), true);
+    assert.equal(fs.existsSync(path.join(demoOutputDir, 'preflight', 'app-startup', 'agent-summary.md')), true);
+    assert.equal(fs.existsSync(path.join(demoOutputDir, 'profile-runs', 'app-startup', 'demo-baseline', 'health.json')), true);
+    assert.equal(fs.existsSync(path.join(demoOutputDir, 'profile-runs', 'app-startup', 'demo-current', 'health.json')), true);
+    assert.equal(fs.existsSync(path.join(demoOutputDir, 'profile-runs', 'app-startup', 'demo-current', 'comparison.json')), true);
+    assert.equal(fs.existsSync(path.join(demoOutputDir, 'profile-runs', 'app-startup', 'demo-current', 'agent-summary.md')), true);
+    assert.equal(demoResult.baselineRunDir, path.join(demoOutputDir, 'profile-runs', 'app-startup', 'demo-baseline'));
+    assert.equal(demoResult.currentRunDir, path.join(demoOutputDir, 'profile-runs', 'app-startup', 'demo-current'));
+    assert.equal(demoResult.preflightDir, path.join(demoOutputDir, 'preflight', 'app-startup'));
+
     const packedFiles = listFiles(packageRoot);
     assert.equal(
       packedFiles.includes('examples/mobile-app/scenarios/android/app-startup.json'),

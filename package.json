@@ -1,6 +1,6 @@
 {
   "name": "agent-scenario-loop",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": false,
   "description": "Scenario orchestration and evidence collection for agent-driven software development. Bring your own runner. Keep your scenarios. Keep your evidence.",
   "license": "MIT",
@@ -55,95 +55,141 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "require": "./dist/index.js"
+      "import": "./dist/index.js",
+      "require": "./dist/index.js",
+      "default": "./dist/index.js"
     },
     "./runner/android-adb": {
       "types": "./dist/runner/android-adb.d.ts",
-      "require": "./dist/runner/android-adb.js"
+      "import": "./dist/runner/android-adb.js",
+      "require": "./dist/runner/android-adb.js",
+      "default": "./dist/runner/android-adb.js"
     },
     "./runner/android-adb-driver": {
       "types": "./dist/runner/android-adb-driver.d.ts",
-      "require": "./dist/runner/android-adb-driver.js"
+      "import": "./dist/runner/android-adb-driver.js",
+      "require": "./dist/runner/android-adb-driver.js",
+      "default": "./dist/runner/android-adb-driver.js"
     },
     "./runner/agent-device-driver": {
       "types": "./dist/runner/agent-device-driver.d.ts",
-      "require": "./dist/runner/agent-device-driver.js"
+      "import": "./dist/runner/agent-device-driver.js",
+      "require": "./dist/runner/agent-device-driver.js",
+      "default": "./dist/runner/agent-device-driver.js"
     },
     "./runner/argent-driver": {
       "types": "./dist/runner/argent-driver.d.ts",
-      "require": "./dist/runner/argent-driver.js"
+      "import": "./dist/runner/argent-driver.js",
+      "require": "./dist/runner/argent-driver.js",
+      "default": "./dist/runner/argent-driver.js"
     },
     "./runner/agent-device": {
       "types": "./dist/runner/agent-device.d.ts",
-      "require": "./dist/runner/agent-device.js"
+      "import": "./dist/runner/agent-device.js",
+      "require": "./dist/runner/agent-device.js",
+      "default": "./dist/runner/agent-device.js"
     },
     "./runner/argent": {
       "types": "./dist/runner/argent.d.ts",
-      "require": "./dist/runner/argent.js"
+      "import": "./dist/runner/argent.js",
+      "require": "./dist/runner/argent.js",
+      "default": "./dist/runner/argent.js"
     },
     "./runner/check-plan": {
       "types": "./dist/runner/check-plan.d.ts",
-      "require": "./dist/runner/check-plan.js"
+      "import": "./dist/runner/check-plan.js",
+      "require": "./dist/runner/check-plan.js",
+      "default": "./dist/runner/check-plan.js"
     },
     "./runner/compare": {
       "types": "./dist/runner/compare.d.ts",
-      "require": "./dist/runner/compare.js"
+      "import": "./dist/runner/compare.js",
+      "require": "./dist/runner/compare.js",
+      "default": "./dist/runner/compare.js"
     },
     "./runner/compare-latest": {
       "types": "./dist/runner/compare-latest.d.ts",
-      "require": "./dist/runner/compare-latest.js"
+      "import": "./dist/runner/compare-latest.js",
+      "require": "./dist/runner/compare-latest.js",
+      "default": "./dist/runner/compare-latest.js"
     },
     "./runner/demo-loop": {
       "types": "./dist/runner/demo-loop.d.ts",
-      "require": "./dist/runner/demo-loop.js"
+      "import": "./dist/runner/demo-loop.js",
+      "require": "./dist/runner/demo-loop.js",
+      "default": "./dist/runner/demo-loop.js"
     },
     "./runner/example-android-live": {
       "types": "./dist/runner/example-android-live.d.ts",
-      "require": "./dist/runner/example-android-live.js"
+      "import": "./dist/runner/example-android-live.js",
+      "require": "./dist/runner/example-android-live.js",
+      "default": "./dist/runner/example-android-live.js"
     },
     "./runner/example-ios-live": {
       "types": "./dist/runner/example-ios-live.d.ts",
-      "require": "./dist/runner/example-ios-live.js"
+      "import": "./dist/runner/example-ios-live.js",
+      "require": "./dist/runner/example-ios-live.js",
+      "default": "./dist/runner/example-ios-live.js"
     },
     "./runner/host-doctor": {
       "types": "./dist/runner/host-doctor.d.ts",
-      "require": "./dist/runner/host-doctor.js"
+      "import": "./dist/runner/host-doctor.js",
+      "require": "./dist/runner/host-doctor.js",
+      "default": "./dist/runner/host-doctor.js"
     },
     "./runner/init-project": {
       "types": "./dist/runner/init-project.d.ts",
-      "require": "./dist/runner/init-project.js"
+      "import": "./dist/runner/init-project.js",
+      "require": "./dist/runner/init-project.js",
+      "default": "./dist/runner/init-project.js"
     },
     "./runner/ios-simctl": {
       "types": "./dist/runner/ios-simctl.d.ts",
-      "require": "./dist/runner/ios-simctl.js"
+      "import": "./dist/runner/ios-simctl.js",
+      "require": "./dist/runner/ios-simctl.js",
+      "default": "./dist/runner/ios-simctl.js"
     },
     "./runner/ios-simctl-driver": {
       "types": "./dist/runner/ios-simctl-driver.d.ts",
-      "require": "./dist/runner/ios-simctl-driver.js"
+      "import": "./dist/runner/ios-simctl-driver.js",
+      "require": "./dist/runner/ios-simctl-driver.js",
+      "default": "./dist/runner/ios-simctl-driver.js"
     },
     "./runner/live-android": {
       "types": "./dist/runner/live-android.d.ts",
-      "require": "./dist/runner/live-android.js"
+      "import": "./dist/runner/live-android.js",
+      "require": "./dist/runner/live-android.js",
+      "default": "./dist/runner/live-android.js"
     },
     "./runner/live-ios": {
       "types": "./dist/runner/live-ios.d.ts",
-      "require": "./dist/runner/live-ios.js"
+      "import": "./dist/runner/live-ios.js",
+      "require": "./dist/runner/live-ios.js",
+      "default": "./dist/runner/live-ios.js"
     },
     "./runner/live-proof": {
       "types": "./dist/runner/live-proof.d.ts",
-      "require": "./dist/runner/live-proof.js"
+      "import": "./dist/runner/live-proof.js",
+      "require": "./dist/runner/live-proof.js",
+      "default": "./dist/runner/live-proof.js"
     },
     "./runner/profile-ios": {
       "types": "./dist/runner/profile-ios.d.ts",
-      "require": "./dist/runner/profile-ios.js"
+      "import": "./dist/runner/profile-ios.js",
+      "require": "./dist/runner/profile-ios.js",
+      "default": "./dist/runner/profile-ios.js"
     },
     "./runner/profile-android": {
       "types": "./dist/runner/profile-android.d.ts",
-      "require": "./dist/runner/profile-android.js"
+      "import": "./dist/runner/profile-android.js",
+      "require": "./dist/runner/profile-android.js",
+      "default": "./dist/runner/profile-android.js"
     },
     "./runner/validate-project": {
       "types": "./dist/runner/validate-project.d.ts",
-      "require": "./dist/runner/validate-project.js"
+      "import": "./dist/runner/validate-project.js",
+      "require": "./dist/runner/validate-project.js",
+      "default": "./dist/runner/validate-project.js"
     },
     "./schemas/*": "./schemas/*",
     "./examples/*": "./examples/*",
