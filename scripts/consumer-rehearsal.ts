@@ -441,6 +441,7 @@ function writeConsumerLiveProofFixture({
             worse: 0,
             unchanged: 0,
             inconclusive: 0,
+            low_confidence: 0,
           },
           notableMetrics: [
             {
@@ -461,6 +462,7 @@ function writeConsumerLiveProofFixture({
       unchanged: 0,
       mixed: 0,
       inconclusive: 0,
+      low_confidence: 0,
       skipped: 0,
     },
     comparisonStatus: 'improved',
@@ -516,6 +518,8 @@ function assertGeneratedLiveProofGateRuns({
   assert.equal(proofSet.nextAction.code, 'inspect_summary');
   assert.match(summary, /Status: passed/u);
   assert.match(summary, /Present platforms: android, ios/u);
+  assert.match(summary, /android android-live-proof-rehearsal: status=passed comparison=improved/u);
+  assert.match(summary, /ios ios-live-proof-rehearsal: status=passed comparison=improved/u);
 }
 
 /**
