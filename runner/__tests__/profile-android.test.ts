@@ -1557,6 +1557,7 @@ test('profile-android starts profile sessions and executes scenario commands dur
     call.includes('profile-session/command') && call.includes('activate-target%3Aexample-card-1')
   ));
   assert.ok(firstCommandDeepLink);
+  assert.match(firstCommandDeepLink, /commandId=open\+first\+example\+card/u);
   assert.match(firstCommandDeepLink, /sequence=1/u);
   assert.match(firstCommandDeepLink, /queueId=open-close-cycle/u);
   assert.ok(
@@ -1657,6 +1658,8 @@ test('profile-android seeds Android scenario commands as one ordered storage que
   assert.ok(commandQueueWrite);
   assert.match(commandQueueWrite, /activate-target:example-card-1/u);
   assert.match(commandQueueWrite, /activate-target:close-card/u);
+  assert.match(commandQueueWrite, /"commandId":"open first example card"/u);
+  assert.match(commandQueueWrite, /"commandId":"close example card"/u);
   assert.match(commandQueueWrite, /"sequence":1/u);
   assert.match(commandQueueWrite, /"sequence":6/u);
   assert.match(commandQueueWrite, /"queueId":"open-close-cycle"/u);
@@ -1728,10 +1731,10 @@ test('profile-android derives commands from normalized execution-plan steps', ()
   ];
 
   assert.deepEqual(resolveAndroidAdbProfileCommands(scenario), [
-    { command: 'activate-target:example-card-1', label: 'open-card', queueId: 'open-close-cycle', sequence: 1, waitForMilestone: 'card_opened', waitMs: 125, waitTimeoutMs: 1500 },
-    { command: 'activate-target:close-card', label: 'close-card', queueId: 'open-close-cycle', sequence: 2, waitMs: 225 },
-    { command: 'activate-target:example-card-1', label: 'open-card', queueId: 'open-close-cycle', sequence: 3, waitForMilestone: 'card_opened', waitMs: 125, waitTimeoutMs: 1500 },
-    { command: 'activate-target:close-card', label: 'close-card', queueId: 'open-close-cycle', sequence: 4, waitMs: 225 },
+    { command: 'activate-target:example-card-1', commandId: 'open-card', label: 'open-card', queueId: 'open-close-cycle', sequence: 1, waitForMilestone: 'card_opened', waitMs: 125, waitTimeoutMs: 1500 },
+    { command: 'activate-target:close-card', commandId: 'close-card', label: 'close-card', queueId: 'open-close-cycle', sequence: 2, waitMs: 225 },
+    { command: 'activate-target:example-card-1', commandId: 'open-card', label: 'open-card', queueId: 'open-close-cycle', sequence: 3, waitForMilestone: 'card_opened', waitMs: 125, waitTimeoutMs: 1500 },
+    { command: 'activate-target:close-card', commandId: 'close-card', label: 'close-card', queueId: 'open-close-cycle', sequence: 4, waitMs: 225 },
   ]);
 });
 

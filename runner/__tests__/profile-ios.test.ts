@@ -724,6 +724,8 @@ test('profile-ios seeds iOS scenario commands through app storage', async (t: Te
       assert.equal(commands[0].sequence, 1);
       assert.equal(commands[5].sequence, 6);
       assert.equal(commands[0].queueId, 'open-close-cycle');
+      assert.equal(commands[0].commandId, 'open first example card');
+      assert.equal(commands[1].commandId, 'close example card');
       manifest['agent-scenario-loop.profile-events.1'] = fs
         .readFileSync(fixturePath('examples/mobile-app/event-logs/open-close-cycle.log'), 'utf8')
         .split(/\r?\n/u)
@@ -825,6 +827,7 @@ test('profile-ios executes iOS scenario commands through deep links when storage
   assert.equal(openUrlCalls.length, 7);
   const firstCommandOpenUrl = openUrlCalls[1] as string;
   assert.match(firstCommandOpenUrl, /command=activate-target%3Aexample-card-1/u);
+  assert.match(firstCommandOpenUrl, /commandId=open\+first\+example\+card/u);
   assert.match(firstCommandOpenUrl, /sequence=1/u);
   assert.match(firstCommandOpenUrl, /queueId=open-close-cycle/u);
   assert.match(openUrlCalls[2] as string, /command=activate-target%3Aclose-card/u);
@@ -834,7 +837,7 @@ test('profile-ios executes iOS scenario commands through deep links when storage
     exitCode: 0,
     label: 'open first example card',
     rawPath: 'raw/ios-deep-link-2.txt',
-    url: 'asl-example://profile-session/command?runId=ios-deep-link-open-close&scenario=open-close-cycle&command=activate-target%3Aexample-card-1&sequence=1&queueId=open-close-cycle',
+    url: 'asl-example://profile-session/command?runId=ios-deep-link-open-close&scenario=open-close-cycle&command=activate-target%3Aexample-card-1&commandId=open+first+example+card&sequence=1&queueId=open-close-cycle',
     waitMs: 300,
   });
   assert.ok(fs.existsSync(path.join(simctlCaptureRoot, 'raw', 'ios-deep-link-7.txt')));
@@ -942,12 +945,12 @@ test('profile-ios derives simctl commands from scenario adapter metadata', () =>
   const scenario = readJson(fixturePath('examples/mobile-app/scenarios/ios/open-close-cycle.json'));
 
   assert.deepEqual(resolveIosSimctlProfileCommands(scenario), [
-    { command: 'activate-target:example-card-1', label: 'open first example card', queueId: 'open-close-cycle', sequence: 1, waitMs: 300 },
-    { command: 'activate-target:close-card', label: 'close example card', queueId: 'open-close-cycle', sequence: 2, waitMs: 300 },
-    { command: 'activate-target:example-card-1', label: 'open first example card', queueId: 'open-close-cycle', sequence: 3, waitMs: 300 },
-    { command: 'activate-target:close-card', label: 'close example card', queueId: 'open-close-cycle', sequence: 4, waitMs: 300 },
-    { command: 'activate-target:example-card-1', label: 'open first example card', queueId: 'open-close-cycle', sequence: 5, waitMs: 300 },
-    { command: 'activate-target:close-card', label: 'close example card', queueId: 'open-close-cycle', sequence: 6, waitMs: 300 },
+    { command: 'activate-target:example-card-1', commandId: 'open first example card', label: 'open first example card', queueId: 'open-close-cycle', sequence: 1, waitMs: 300 },
+    { command: 'activate-target:close-card', commandId: 'close example card', label: 'close example card', queueId: 'open-close-cycle', sequence: 2, waitMs: 300 },
+    { command: 'activate-target:example-card-1', commandId: 'open first example card', label: 'open first example card', queueId: 'open-close-cycle', sequence: 3, waitMs: 300 },
+    { command: 'activate-target:close-card', commandId: 'close example card', label: 'close example card', queueId: 'open-close-cycle', sequence: 4, waitMs: 300 },
+    { command: 'activate-target:example-card-1', commandId: 'open first example card', label: 'open first example card', queueId: 'open-close-cycle', sequence: 5, waitMs: 300 },
+    { command: 'activate-target:close-card', commandId: 'close example card', label: 'close example card', queueId: 'open-close-cycle', sequence: 6, waitMs: 300 },
   ]);
 
   delete scenario.adapterOptions;
@@ -977,9 +980,9 @@ test('profile-ios derives simctl commands from scenario adapter metadata', () =>
     },
   ];
   assert.deepEqual(resolveIosSimctlProfileCommands(scenario), [
-    { command: 'activate-target:example-card-1', label: 'open-card', queueId: 'open-close-cycle', sequence: 1, waitForMilestone: 'card_opened', waitMs: 125, waitTimeoutMs: 1500 },
-    { command: 'activate-target:close-card', label: 'close-card', queueId: 'open-close-cycle', sequence: 2, waitMs: 225 },
-    { command: 'activate-target:example-card-1', label: 'open-card', queueId: 'open-close-cycle', sequence: 3, waitForMilestone: 'card_opened', waitMs: 125, waitTimeoutMs: 1500 },
-    { command: 'activate-target:close-card', label: 'close-card', queueId: 'open-close-cycle', sequence: 4, waitMs: 225 },
+    { command: 'activate-target:example-card-1', commandId: 'open-card', label: 'open-card', queueId: 'open-close-cycle', sequence: 1, waitForMilestone: 'card_opened', waitMs: 125, waitTimeoutMs: 1500 },
+    { command: 'activate-target:close-card', commandId: 'close-card', label: 'close-card', queueId: 'open-close-cycle', sequence: 2, waitMs: 225 },
+    { command: 'activate-target:example-card-1', commandId: 'open-card', label: 'open-card', queueId: 'open-close-cycle', sequence: 3, waitForMilestone: 'card_opened', waitMs: 125, waitTimeoutMs: 1500 },
+    { command: 'activate-target:close-card', commandId: 'close-card', label: 'close-card', queueId: 'open-close-cycle', sequence: 4, waitMs: 225 },
   ]);
 });

@@ -29,6 +29,7 @@ type AndroidProfileOptions = {
 
 type AndroidAdbProfileCommand = {
   command: string;
+  commandId?: string;
   label?: string;
   queueId?: string;
   sequence?: number;
@@ -207,6 +208,7 @@ function resolveAndroidPackageName({
 function buildProfileSessionUrl({
   action,
   command,
+  commandId,
   config,
   queueId,
   runId,
@@ -217,6 +219,7 @@ function buildProfileSessionUrl({
 }: {
   action: 'start' | 'command';
   command?: string;
+  commandId?: string;
   config: Record<string, any>;
   queueId?: string;
   runId: string;
@@ -233,6 +236,9 @@ function buildProfileSessionUrl({
   const params = new URLSearchParams({ runId, scenario });
   if (action === 'command' && command) {
     params.set('command', command);
+    if (commandId) {
+      params.set('commandId', commandId);
+    }
     if (typeof sequence === 'number') {
       params.set('sequence', String(sequence));
     }
@@ -279,6 +285,7 @@ function buildProfileSessionStorageWrites({
       scenario,
       runId,
       command: profileCommand.command,
+      ...(typeof profileCommand.commandId === 'string' ? { commandId: profileCommand.commandId } : {}),
       ...(typeof profileCommand.sequence === 'number' ? { sequence: profileCommand.sequence } : {}),
       ...(typeof profileCommand.queueId === 'string' ? { queueId: profileCommand.queueId } : {}),
       ...(typeof profileCommand.waitForMilestone === 'string' ? { waitForMilestone: profileCommand.waitForMilestone } : {}),
@@ -451,6 +458,7 @@ function resolveExecutionPlanProfileCommands(scenario: Record<string, any>): And
     const nextStep = executionPlan.steps[index + 1];
     commands.push({
       command: step.command as string,
+      commandId: step.id,
       label: step.id,
       queueId: scenario.id ?? scenario.name,
       waitMs: readStepWaitMs(step),
@@ -601,6 +609,13 @@ function resolveAndroidAdbProfileCommands(scenario: Record<string, any>): Androi
 
       commands.push({
         command: command.command,
+        commandId: typeof command.id === 'string'
+          ? command.id
+          : typeof command.commandId === 'string'
+            ? command.commandId
+            : typeof command.label === 'string'
+              ? command.label
+              : command.command,
         ...(typeof command.label === 'string' ? { label: command.label } : {}),
         queueId: scenario.id ?? scenario.name,
         sequence: commands.length + 1,
@@ -774,6 +789,7 @@ async function runProfileAndroid(
           url: buildProfileSessionUrl({
             action: 'command',
             command: profileCommand.command,
+            ...(typeof profileCommand.commandId === 'string' ? { commandId: profileCommand.commandId } : {}),
             config,
             runId,
             scenario: scenarioName,

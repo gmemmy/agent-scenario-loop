@@ -27,17 +27,25 @@ test('profile-session helper keeps storage-backed command control safeguards', (
     source,
     /if \(command\.source === 'storage'\) \{\s+return false;\s+\}/u,
   );
-  assert.match(
-    source,
-    /const targetDispatched = dispatchProfileCommandTarget\(command\);\s+if \(targetDispatched\) \{\s+return;\s+\}/u,
-  );
+  assert.match(source, /entry\.commandId = payload\.commandId;/u);
+  assert.match(source, /else if \(typeof payload\.id === 'string'\)/u);
+  assert.match(source, /entry\.queueId = payload\.queueId;/u);
+  assert.match(source, /entry\.sequence = payload\.sequence;/u);
+  assert.match(source, /entry\.waitForMilestone = payload\.waitForMilestone;/u);
+  assert.match(source, /entry\.waitTimeoutMs = payload\.waitTimeoutMs;/u);
+  assert.match(source, /status: 'received'/u);
+  assert.match(source, /status: 'queued'/u);
+  assert.match(source, /status: 'delivered'/u);
+  assert.match(source, /status: 'completed'/u);
+  assert.match(source, /result: 'target-dispatched'/u);
+  assert.match(source, /result: 'listener-notified'/u);
   assert.match(
     source,
     /source: 'deeplink' as const/u,
   );
   assert.match(
     source,
-    /const storageCommand = \{\s+\.\.\.command,\s+source: 'storage' as const,\s+\};\s+if \(hasProcessedProfileCommandId\(storageCommand\)\) \{\s+continue;\s+\}\s+markProfileCommandIdProcessed\(storageCommand\);\s+logProfileSession\('command', storageCommand\);\s+notifyProfileCommandListeners\(storageCommand\);/u,
+    /const storageCommand = \{\s+\.\.\.command,\s+source: 'storage' as const,\s+\};\s+if \(hasProcessedProfileCommandId\(storageCommand\)\) \{\s+continue;\s+\}\s+markProfileCommandIdProcessed\(storageCommand\);\s+logProfileSession\('command', \{\s+\.\.\.storageCommand,\s+status: 'received',\s+\}\);\s+notifyProfileCommandListeners\(storageCommand\);/u,
   );
 });
 

@@ -12,6 +12,7 @@ export type ProfileSessionState = {
 
 export type ProfileSessionCommand = {
   id: string;
+  commandId?: string;
   scenario?: string;
   runId?: string;
   command: string;
@@ -69,7 +70,16 @@ type StoredProfileSessionEntry = {
   startedAt?: number;
   stoppedAt?: number;
   command?: string;
+  commandId?: string;
   id?: string;
+  queueId?: string;
+  reason?: string;
+  result?: string;
+  sequence?: number;
+  source?: 'deeplink' | 'storage';
+  status?: 'received' | 'queued' | 'delivered' | 'completed' | 'skipped';
+  waitForMilestone?: string;
+  waitTimeoutMs?: number;
 };
 
 type StoredProfileSignals = Record<ProfileSignalKind, Record<string, unknown>>;
@@ -320,6 +330,41 @@ function logProfileSession(kind: 'start' | 'stop' | 'command', payload: Record<s
     if (typeof payload.id === 'string') {
       entry.id = payload.id;
     }
+    if (typeof payload.commandId === 'string') {
+      entry.commandId = payload.commandId;
+    } else if (typeof payload.id === 'string') {
+      entry.commandId = payload.id;
+    }
+    if (typeof payload.queueId === 'string') {
+      entry.queueId = payload.queueId;
+    }
+    if (typeof payload.sequence === 'number') {
+      entry.sequence = payload.sequence;
+    }
+    if (payload.source === 'deeplink' || payload.source === 'storage') {
+      entry.source = payload.source;
+    }
+    if (
+      payload.status === 'received' ||
+      payload.status === 'queued' ||
+      payload.status === 'delivered' ||
+      payload.status === 'completed' ||
+      payload.status === 'skipped'
+    ) {
+      entry.status = payload.status;
+    }
+    if (typeof payload.reason === 'string') {
+      entry.reason = payload.reason;
+    }
+    if (typeof payload.result === 'string') {
+      entry.result = payload.result;
+    }
+    if (typeof payload.waitForMilestone === 'string') {
+      entry.waitForMilestone = payload.waitForMilestone;
+    }
+    if (typeof payload.waitTimeoutMs === 'number') {
+      entry.waitTimeoutMs = payload.waitTimeoutMs;
+    }
   }
 
   appendStoredProfileSessionEntry(entry);
@@ -330,6 +375,7 @@ function getProfileSessionRoute(url: string): {
   scenario?: string;
   runId?: string;
   command?: string;
+  commandId?: string;
   queueId?: string;
   sequence?: number;
   waitForMilestone?: string;
@@ -355,6 +401,8 @@ function getProfileSessionRoute(url: string): {
     typeof parsed.queryParams?.runId === 'string' ? parsed.queryParams.runId : undefined;
   const command =
     typeof parsed.queryParams?.command === 'string' ? parsed.queryParams.command : undefined;
+  const commandId =
+    typeof parsed.queryParams?.commandId === 'string' ? parsed.queryParams.commandId : undefined;
   const sequence =
     typeof parsed.queryParams?.sequence === 'string' && Number.isInteger(Number(parsed.queryParams.sequence))
       ? Number(parsed.queryParams.sequence)
@@ -368,7 +416,7 @@ function getProfileSessionRoute(url: string): {
       ? Number(parsed.queryParams.waitTimeoutMs)
       : undefined;
 
-  return { action, scenario, runId, command, queueId, sequence, waitForMilestone, waitTimeoutMs };
+  return { action, scenario, runId, command, commandId, queueId, sequence, waitForMilestone, waitTimeoutMs };
 }
 
 function queuePendingProfileCommand(command: ProfileSessionCommand) {
@@ -476,17 +524,32 @@ function notifyProfileCommandListeners(command: ProfileSessionCommand) {
 
   const targetDispatched = dispatchProfileCommandTarget(command);
   if (targetDispatched) {
+    logProfileSession('command', {
+      ...command,
+      status: 'completed',
+      result: 'target-dispatched',
+    });
     return;
   }
 
   if (profileCommandListeners.size === 0) {
     queuePendingProfileCommand(command);
+    logProfileSession('command', {
+      ...command,
+      status: 'queued',
+      reason: 'no-command-listener',
+    });
     return;
   }
 
   for (const listener of profileCommandListeners) {
     listener(command);
   }
+  logProfileSession('command', {
+    ...command,
+    status: 'delivered',
+    result: 'listener-notified',
+  });
 }
 
 function flushPendingProfileCommands(listener: (command: ProfileSessionCommand) => void) {
@@ -580,6 +643,7 @@ export function applyProfileSessionUrl(url: string | null | undefined): boolean 
       scenario: route.scenario,
       runId: route.runId,
       command: route.command,
+      ...(route.commandId ? { commandId: route.commandId } : {}),
       ...(route.queueId ? { queueId: route.queueId } : {}),
       ...(typeof route.sequence === 'number' ? { sequence: route.sequence } : {}),
       source: 'deeplink' as const,
@@ -587,7 +651,10 @@ export function applyProfileSessionUrl(url: string | null | undefined): boolean 
       ...(route.waitForMilestone ? { waitForMilestone: route.waitForMilestone } : {}),
       ...(typeof route.waitTimeoutMs === 'number' ? { waitTimeoutMs: route.waitTimeoutMs } : {}),
     };
-    logProfileSession('command', command);
+    logProfileSession('command', {
+      ...command,
+      status: 'received',
+    });
     notifyProfileCommandListeners(command);
     return true;
   }
@@ -800,7 +867,10 @@ export function useProfileSessionBootstrap(): void {
         }
 
         markProfileCommandIdProcessed(storageCommand);
-        logProfileSession('command', storageCommand);
+        logProfileSession('command', {
+          ...storageCommand,
+          status: 'received',
+        });
         notifyProfileCommandListeners(storageCommand);
       }
     };

@@ -64,6 +64,7 @@ type IosSimctlDeepLink = {
 };
 type IosProfileSessionStorageCommand = {
   command: string;
+  commandId?: string;
   id?: string;
   label?: string;
   queueId?: string;
@@ -661,6 +662,7 @@ async function seedProfileSessionStorage({
     scenario,
     runId,
     command: profileCommand.command,
+    ...(typeof profileCommand.commandId === 'string' ? { commandId: profileCommand.commandId } : {}),
     ...(typeof profileCommand.label === 'string' ? { label: profileCommand.label } : {}),
     ...(typeof profileCommand.queueId === 'string' ? { queueId: profileCommand.queueId } : {}),
     ...(typeof profileCommand.sequence === 'number' ? { sequence: profileCommand.sequence } : {}),
