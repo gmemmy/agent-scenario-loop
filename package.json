@@ -200,6 +200,7 @@
     "app/profile-session.ts",
     "core/config-template.json",
     "dist",
+    "!dist/**/__tests__",
     "!dist/scripts",
     "docs",
     "examples",

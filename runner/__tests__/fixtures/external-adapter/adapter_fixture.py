@@ -8,6 +8,8 @@ ADAPTER = {
     "version": "0.1.0",
 }
 
+EMPTY_SHA256 = "0" * 64
+
 CAPABILITIES = [
     "prepare",
     "launch",
@@ -108,6 +110,8 @@ def handle_launch(request):
                 "kind": "logs",
                 "path": "raw/launch.txt",
                 "contentType": "text/plain",
+                "sha256": EMPTY_SHA256,
+                "sizeBytes": 0,
             }
         ],
     })
@@ -131,6 +135,8 @@ def handle_execute_action(request):
         "raw": {
             "path": "raw/execute-{}.json".format(action),
             "contentType": "application/json",
+            "sha256": EMPTY_SHA256,
+            "sizeBytes": 0,
         },
     })
 
@@ -153,6 +159,8 @@ def handle_wait_condition(request):
                 "kind": "truth-events",
                 "path": "raw/truth-events.jsonl",
                 "contentType": "application/x-ndjson",
+                "sha256": EMPTY_SHA256,
+                "sizeBytes": 0,
             }
         ],
     })
@@ -166,11 +174,15 @@ def handle_capture_evidence(request):
                 "path": "captures/final-screen.png",
                 "contentType": "image/png",
                 "description": "Deterministic fixture screenshot reference",
+                "sha256": EMPTY_SHA256,
+                "sizeBytes": 0,
             },
             {
                 "kind": "logs",
                 "path": "raw/device.log",
                 "contentType": "text/plain",
+                "sha256": EMPTY_SHA256,
+                "sizeBytes": 0,
             },
         ]
     })
@@ -194,6 +206,8 @@ def handle_stop(request):
                 "kind": "logs",
                 "path": "raw/stop.txt",
                 "contentType": "text/plain",
+                "sha256": EMPTY_SHA256,
+                "sizeBytes": 0,
             }
         ],
     })
@@ -208,6 +222,8 @@ def handle_finalize(request):
                 "kind": "manifest",
                 "path": "manifest.json",
                 "contentType": "application/json",
+                "sha256": EMPTY_SHA256,
+                "sizeBytes": 0,
             }
         ],
     })

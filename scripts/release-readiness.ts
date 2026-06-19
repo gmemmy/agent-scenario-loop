@@ -185,6 +185,7 @@ const REQUIRED_PACKAGE_FILES = [
 ];
 
 const REQUIRED_PACKAGE_EXCLUSIONS = [
+  '!dist/**/__tests__',
   '!dist/scripts',
   '!examples/mobile-app/.expo',
   '!examples/mobile-app/.expo/**',

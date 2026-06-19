@@ -13,6 +13,8 @@ This document defines the minimal protocol surface for conformance fixtures and 
 - `seq` is a monotonically increasing integer within each sender's stream.
 - Timestamps use RFC 3339 strings. Timing-sensitive waits must declare their `clockDomain`.
 - Paths in artifact references are run-relative unless `uri` is explicitly used.
+- Artifact and raw file references should include `sha256` and `sizeBytes` when the adapter can compute them.
+- Evidence bytes must not be embedded in protocol messages as raw data or base64.
 
 ## Envelope
 
@@ -143,7 +145,9 @@ Captures logs, screenshots, UI trees, videos, profiler output, or provider signa
       "kind": "screenshot",
       "path": "captures/final-screen.png",
       "contentType": "image/png",
-      "description": "Final screen after launch"
+      "description": "Final screen after launch",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sizeBytes": 0
     }
   ]
 }

@@ -70,6 +70,21 @@ function assertValidMessages(messages: Record<string, unknown>[], label: string)
   });
 }
 
+function getResultArtifacts(message: Record<string, any>): Record<string, unknown>[] {
+  return Array.isArray(message.body?.result?.artifacts) ? message.body.result.artifacts : [];
+}
+
+function assertArtifactReference(artifact: Record<string, any>): void {
+  assert.equal(typeof artifact.path, 'string');
+  assert.notEqual(artifact.path, '');
+  assert.equal(typeof artifact.contentType, 'string');
+  assert.match(artifact.sha256, /^[a-f0-9]{64}$/u);
+  assert.equal(typeof artifact.sizeBytes, 'number');
+  assert.ok(artifact.sizeBytes >= 0);
+  assert.equal('data' in artifact, false, 'artifact references must not embed evidence bytes');
+  assert.equal('base64' in artifact, false, 'artifact references must not embed base64 evidence');
+}
+
 test('external adapter fixture matches the golden success protocol transcript', async () => {
   const transcript = await readTranscript('golden-success.jsonl');
   assertValidTranscript(transcript, 'golden-success.jsonl');
@@ -78,6 +93,19 @@ test('external adapter fixture matches the golden success protocol transcript', 
   assertValidMessages(actual, 'fixture success stdout');
 
   assert.deepEqual(actual, messagesByDirection(transcript, 'adapter'));
+});
+
+test('external adapter fixture reports artifact references with integrity metadata', async () => {
+  const transcript = await readTranscript('golden-success.jsonl');
+  const actual = await runFixture(messagesByDirection(transcript, 'host'));
+
+  const artifactRefs = actual.flatMap(getResultArtifacts);
+  const rawRefs = actual
+    .map((message: Record<string, any>) => message.body?.result?.raw)
+    .filter((raw: unknown): raw is Record<string, unknown> => raw !== null && typeof raw === 'object');
+
+  assert.ok(artifactRefs.length >= 1);
+  [...artifactRefs, ...rawRefs].forEach(assertArtifactReference);
 });
 
 test('external adapter fixture returns structured failures for unsupported actions', async () => {
@@ -99,6 +127,30 @@ test('external adapter fixture returns structured failures for unsupported actio
       },
     },
   });
+  assert.equal(actual[1]?.operationId, 'op-unsupported-action');
+  assert.equal(actual[1]?.runId, 'run-001');
+  assert.equal(actual[1]?.attemptId, 'attempt-001');
+  assert.equal((actual[1] as Record<string, any>).body?.ok, false);
+  assert.equal('result' in ((actual[1] as Record<string, any>).body ?? {}), false);
+});
+
+test('external adapter fixture keeps cancellation and finalization explicit', async () => {
+  const transcript = await readTranscript('golden-success.jsonl');
+  const actual = await runFixture(messagesByDirection(transcript, 'host'));
+
+  const cancel = actual.find((message) => message.type === 'cancel') as Record<string, any> | undefined;
+  const finalize = actual.find((message) => message.type === 'finalize') as Record<string, any> | undefined;
+
+  assert.equal(cancel?.body?.ok, true);
+  assert.deepEqual(cancel?.body?.result, {
+    reason: 'conformance cancellation check',
+    status: 'not-running',
+    targetOperationId: 'op-not-running',
+  });
+  assert.equal(finalize?.body?.ok, true);
+  assert.equal(finalize?.body?.result?.status, 'finalized');
+  assert.equal(finalize?.body?.result?.adapter?.name, 'asl-python-conformance-fixture');
+  assert.ok(Array.isArray(finalize?.body?.result?.artifacts));
 });
 
 test('external adapter conformance fixture is out-of-process and imports no ASL TypeScript', async () => {
@@ -159,4 +211,38 @@ test('external adapter schema rejects malformed failure bodies', () => {
 
   assert.equal(result.valid, false);
   assert.ok(result.errors.some((error: { path: string }) => error.path === '$.body.failure.retryable'), result.message);
+});
+
+test('external adapter schema rejects malformed artifact integrity', () => {
+  const result = validateJson(
+    {
+      protocolVersion: '1.0',
+      seq: 1,
+      operationId: 'op-capture',
+      kind: 'response',
+      type: 'captureEvidence',
+      runId: 'run-001',
+      attemptId: 'attempt-001',
+      body: {
+        ok: true,
+        result: {
+          artifacts: [
+            {
+              kind: 'screenshot',
+              path: 'captures/final-screen.png',
+              contentType: 'image/png',
+              sha256: 'not-a-sha',
+              sizeBytes: -1,
+            },
+          ],
+        },
+      },
+    },
+    SCHEMAS.externalAdapterMessage,
+    'Malformed artifact integrity',
+  );
+
+  assert.equal(result.valid, false);
+  assert.ok(result.errors.some((error: { path: string }) => error.path === '$.body.result.artifacts[0].sha256'), result.message);
+  assert.ok(result.errors.some((error: { path: string }) => error.path === '$.body.result.artifacts[0].sizeBytes'), result.message);
 });

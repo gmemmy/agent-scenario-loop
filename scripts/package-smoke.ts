@@ -764,6 +764,7 @@ function main(): void {
     const forbiddenPathPatterns = [
       /^\.github\//u,
       /^artifacts\//u,
+      /^dist\/.*__tests__\//u,
       /^dist\/scripts\//u,
       /^examples\/mobile-app\/(?:\.expo|android|artifacts|ios|node_modules)(?:\/|$)/u,
       /^node_modules\//u,
