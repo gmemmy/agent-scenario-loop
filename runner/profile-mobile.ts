@@ -1622,6 +1622,11 @@ function resolveProfileMetricEvents(scenario: Record<string, unknown>): Record<s
         milestone: toEvent,
       };
     }
+    if (fromEvent && toEvent && isOptionalMilestone(scenario, budget.fromMilestone)) {
+      return {
+        milestone: toEvent,
+      };
+    }
     if (fromEvent && toEvent) {
       return {
         closeRequested: toEvent,

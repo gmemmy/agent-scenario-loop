@@ -778,9 +778,6 @@ test('profile-android keeps intent interval anchors separate from completion hea
       { id: 'request', event: 'surface_request_completed', required: false, phase: 'intent' },
       { id: 'settled', event: 'surface_settled', required: true, phase: 'completion' },
     ],
-    metricEvents: {
-      milestone: 'surface_settled',
-    },
     expectedEvents: ['surface_settled'],
     cycles: { iterations: 2, warmupIterations: 0, stopOnFailure: true },
     budgets: [
