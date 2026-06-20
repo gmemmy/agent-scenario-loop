@@ -304,9 +304,12 @@ test('profile-android profiles public scenario ids and milestone budgets', async
   assert.equal(metrics.budgetEvaluation.pass, true);
   assert.equal(health.healthStatus, 'passed');
   assert.equal(verdict.verdictStatus, 'passed');
+  assert.deepEqual(
+    verdict.budgetChecks.map((check: Record<string, unknown>) => check.name),
+    ['failures', 'journey p95'],
+  );
   assert.equal(causalRun.scenario.id, 'public-journey');
   assert.deepEqual(causalRun.budgets, {
-    cycleP95Ms: { limit: 8000, metric: 'cycleP95Ms', unit: 'ms' },
     failures: { limit: 0, metric: 'failures', unit: 'count' },
   });
 });
@@ -656,7 +659,7 @@ test('profile-android writes partial iteration accounting for incomplete repeate
   });
 });
 
-test('profile-android maps schema-era open and close milestone budgets', async (t: TestContext) => {
+test('profile-android reports schema-era open and close interval budgets', async (t: TestContext) => {
   const tempRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-android-open-close-budget-'));
   t.after(async () => {
     await fsp.rm(tempRoot, { recursive: true, force: true });
@@ -747,9 +750,11 @@ test('profile-android maps schema-era open and close milestone budgets', async (
   assert.deepEqual(metrics.openDurationsMs, [120, 130]);
   assert.deepEqual(metrics.closeDurationsMs, [80, 90]);
   assert.equal(metrics.budgetEvaluation.pass, true);
+  assert.deepEqual(metrics.budgetEvaluation.checks, [
+    { actual: 130, limit: 200, name: 'open p95', pass: true, unit: 'ms' },
+    { actual: 90, limit: 120, name: 'close p95', pass: true, unit: 'ms' },
+  ]);
   assert.deepEqual(causalRun.budgets, {
-    closeP95Ms: { limit: 120, metric: 'closeP95Ms', unit: 'ms' },
-    openP95Ms: { limit: 200, metric: 'openP95Ms', unit: 'ms' },
   });
 });
 
@@ -849,6 +854,119 @@ test('profile-android keeps intent interval anchors separate from completion hea
     incomplete: [],
     status: 'complete',
     timeouts: 0,
+  });
+});
+
+test('profile-android reports required named interval budgets without collapsing to cycle p95', async (t: TestContext) => {
+  const tempRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-android-required-interval-'));
+  t.after(async () => {
+    await fsp.rm(tempRoot, { recursive: true, force: true });
+  });
+  const artifactRoot = path.join(tempRoot, 'artifacts');
+  const scenarioPath = path.join(tempRoot, 'required-interval-cycle.json');
+  const eventLogPath = path.join(tempRoot, 'required-interval-cycle-android.log');
+  const scenario = {
+    schemaVersion: '1.0.0',
+    id: 'required-interval-cycle',
+    flowId: 'required-interval-cycle',
+    journey: {
+      name: 'Required interval cycle',
+      intent: 'Measure a named target-to-open interval while completion truth owns health.',
+      actor: 'app user',
+      startState: 'home',
+      endState: 'home',
+    },
+    platforms: ['android'],
+    requiredCapabilities: ['launch', 'sessionControl', 'command', 'logCapture', 'artifactWrite'],
+    milestones: [
+      { id: 'mediaTargetReady', event: 'media_target_ready', required: true, phase: 'completion' },
+      { id: 'opened', event: 'media_viewer_opened', required: true, phase: 'completion' },
+      { id: 'dismissed', event: 'media_viewer_dismissed', required: true, phase: 'completion' },
+    ],
+    expectedEvents: ['media_target_ready', 'media_viewer_opened', 'media_viewer_dismissed'],
+    cycles: { iterations: 2, warmupIterations: 0, stopOnFailure: true },
+    budgets: [
+      {
+        name: 'media viewer open p95',
+        source: 'milestone',
+        metric: 'p95',
+        unit: 'ms',
+        limit: 300,
+        fromMilestone: 'mediaTargetReady',
+        toMilestone: 'opened',
+      },
+      {
+        name: 'media viewer close p95',
+        source: 'milestone',
+        metric: 'p95',
+        unit: 'ms',
+        limit: 200,
+        fromMilestone: 'opened',
+        toMilestone: 'dismissed',
+      },
+      {
+        name: 'failures',
+        source: 'milestone',
+        metric: 'failures',
+        unit: 'count',
+        limit: 0,
+      },
+    ],
+    steps: [{ id: 'launch', kind: 'launch' }],
+    artifacts: { required: ['logs'], optional: [] },
+  };
+  await fsp.writeFile(scenarioPath, `${JSON.stringify(scenario, null, 2)}\n`, 'utf8');
+  await fsp.writeFile(
+    eventLogPath,
+    [
+      '2026-01-01T00:10:10.000Z public-android [profile-event] {"event":"media_target_ready","scenario":"required-interval-cycle","runId":"required-interval-cycle-android","atMs":10000}',
+      '2026-01-01T00:10:10.180Z public-android [profile-event] {"event":"media_viewer_opened","scenario":"required-interval-cycle","runId":"required-interval-cycle-android","atMs":10180}',
+      '2026-01-01T00:10:10.300Z public-android [profile-event] {"event":"media_viewer_dismissed","scenario":"required-interval-cycle","runId":"required-interval-cycle-android","atMs":10300}',
+      '2026-01-01T00:10:20.000Z public-android [profile-event] {"event":"media_target_ready","scenario":"required-interval-cycle","runId":"required-interval-cycle-android","atMs":20000}',
+      '2026-01-01T00:10:20.240Z public-android [profile-event] {"event":"media_viewer_opened","scenario":"required-interval-cycle","runId":"required-interval-cycle-android","atMs":20240}',
+      '2026-01-01T00:10:20.390Z public-android [profile-event] {"event":"media_viewer_dismissed","scenario":"required-interval-cycle","runId":"required-interval-cycle-android","atMs":20390}',
+      '',
+    ].join('\n'),
+    'utf8',
+  );
+
+  const { stdout } = await execFileAsync(process.execPath, [
+    PROFILE_ANDROID,
+    '--config',
+    fixturePath('examples/mobile-app/asl.config.json'),
+    '--scenario',
+    scenarioPath,
+    '--events',
+    eventLogPath,
+    '--out',
+    artifactRoot,
+    '--run-id',
+    'required-interval-cycle-android',
+  ]);
+
+  const runDir = stdout.trim();
+  const health = readJson(path.join(runDir, 'health.json')) as Record<string, any>;
+  const verdict = readJson(path.join(runDir, 'verdict.json')) as Record<string, any>;
+  const metrics = readJson(path.join(runDir, 'metrics.json')) as Record<string, any>;
+  const causalRun = readJson(path.join(runDir, 'causal-run.json')) as Record<string, any>;
+
+  assert.equal(health.healthStatus, 'passed');
+  assert.equal(verdict.verdictStatus, 'passed');
+  assert.deepEqual(metrics.budgetEvaluation.checks, [
+    { actual: 0, limit: 0, name: 'failures', pass: true, unit: 'count' },
+    { actual: 240, limit: 300, name: 'media viewer open p95', pass: true, unit: 'ms' },
+    { actual: 150, limit: 200, name: 'media viewer close p95', pass: true, unit: 'ms' },
+  ]);
+  assert.deepEqual(
+    verdict.budgetChecks.map((check: Record<string, unknown>) => check.name),
+    ['failures', 'media viewer open p95', 'media viewer close p95'],
+  );
+  assert.equal(
+    verdict.budgetChecks.some((check: Record<string, unknown>) => check.name === 'cycle p95'),
+    false,
+  );
+  assert.deepEqual(causalRun.budgets, {
+    failures: { limit: 0, metric: 'failures', unit: 'count' },
   });
 });
 

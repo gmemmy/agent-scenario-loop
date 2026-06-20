@@ -1701,7 +1701,7 @@ function resolveMilestoneEventsPerIteration(
 }
 
 /**
- * Maps schema-era milestone budget fields to the legacy profile budget keys.
+ * Maps shorthand milestone budget fields to aggregate profile budget keys.
  *
  * @param {{budget: Record<string, unknown>, metric: string}} options
  * @returns {string | null}
@@ -1730,40 +1730,6 @@ function resolveProfileBudgetKey({
 }
 
 /**
- * Reports whether a paired milestone budget should use the legacy profile budget lanes.
- *
- * @param {{budget: Record<string, unknown>, scenario: Record<string, unknown>}} options
- * @returns {boolean}
- */
-function usesLegacyProfileBudgetLane({
-  budget,
-  scenario,
-}: {
-  budget: Record<string, unknown>;
-  scenario: Record<string, unknown>;
-}): boolean {
-  if (budget.fromMilestone === 'openRequested' && budget.toMilestone === 'opened') {
-    return true;
-  }
-  if (budget.fromMilestone === 'closeRequested' && budget.toMilestone === 'dismissed') {
-    return true;
-  }
-  if (budget.fromMilestone === 'openRequested' && budget.toMilestone === 'dismissed') {
-    return true;
-  }
-  if (isOptionalMilestone(scenario, budget.fromMilestone)) {
-    return false;
-  }
-
-  const fromEvent = findMilestoneEvent(scenario, budget.fromMilestone);
-  if (fromEvent && isReadinessMilestone(scenario, budget.fromMilestone, fromEvent)) {
-    return true;
-  }
-
-  return typeof budget.fromMilestone === 'string' && typeof budget.toMilestone === 'string';
-}
-
-/**
  * Normalizes schema-era budget arrays into the profile budget evaluator shape.
  *
  * @param {Record<string, unknown>} scenario
@@ -1788,12 +1754,7 @@ function resolveProfileBudgets(scenario: Record<string, unknown>): Record<string
     if (budget.metric === 'p95' || budget.metric === 'p50') {
       const fromEvent = findMilestoneEvent(scenario, budget.fromMilestone);
       const toEvent = findMilestoneEvent(scenario, budget.toMilestone);
-      const shouldUseNamedInterval = Boolean(
-        fromEvent &&
-        toEvent &&
-        !usesLegacyProfileBudgetLane({ budget, scenario }),
-      );
-      if (shouldUseNamedInterval) {
+      if (fromEvent && toEvent) {
         intervals.push({
           name: typeof budget.name === 'string' ? budget.name : `${String(budget.fromMilestone)} to ${String(budget.toMilestone)}`,
           metric: budget.metric,
