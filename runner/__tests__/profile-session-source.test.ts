@@ -65,7 +65,11 @@ test('profile-session helper keeps storage-backed command control safeguards', (
   assert.match(source, /function releaseProfileCommandMilestoneGate\(eventPayload: StoredProfileEvent\)/u);
   assert.match(source, /profileCommandMilestoneGate\.runId !== eventPayload\.runId/u);
   assert.match(source, /profileCommandMilestoneGate\.scenario !== eventPayload\.scenario/u);
+  assert.match(source, /let profileCommandProcessingScheduled = false;/u);
+  assert.match(source, /function scheduleProfileCommandProcessing\(\)/u);
+  assert.match(source, /queueMicrotask\(run\);/u);
   assert.match(source, /releaseProfileCommandMilestoneGate\(eventPayload\);/u);
+  assert.match(source, /scheduleProfileCommandProcessing\(\);/u);
   assert.match(source, /enqueueSequencedProfileCommands\(nextCommands\);/u);
   assert.match(source, /function startProfileCommandMilestoneTimeout/u);
   assert.match(source, /reason: 'wait-for-milestone-timeout'/u);
