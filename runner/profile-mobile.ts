@@ -921,6 +921,8 @@ function buildProfileHealth({
         },
       ]
     : [];
+  const commandChecksPassed = commandChecks.every((check) => check.status === 'passed');
+  const healthPassed = passed && commandChecksPassed;
 
   return assertValidJson(
     {
@@ -928,7 +930,7 @@ function buildProfileHealth({
       scenarioId: scenario.name,
       ...(typeof scenario.flowId === 'string' ? { flowId: scenario.flowId } : {}),
       runId,
-      healthStatus: passed ? 'passed' : 'failed',
+      healthStatus: healthPassed ? 'passed' : 'failed',
       checks: [
         {
           name: 'truth_events_complete',

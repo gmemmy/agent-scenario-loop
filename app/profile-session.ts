@@ -128,6 +128,7 @@ const processedProfileCommandIds = new Set<string>();
 let lastProfileCommandSignature: string | null = null;
 let lastProfileCommandTimestamp = 0;
 let profileCommandMilestoneGate: ProfileCommandMilestoneGate | null = null;
+let profileCommandProcessingScheduled = false;
 
 function writeProfileLog(line: string) {
   if (Platform.OS === 'ios') {
@@ -616,6 +617,25 @@ function startProfileCommandMilestoneTimeout(command: ProfileSessionCommand) {
   }, command.waitTimeoutMs);
 }
 
+function scheduleProfileCommandProcessing() {
+  if (profileCommandProcessingScheduled) {
+    return;
+  }
+
+  profileCommandProcessingScheduled = true;
+  const run = () => {
+    profileCommandProcessingScheduled = false;
+    processSequencedProfileCommands();
+  };
+
+  if (typeof queueMicrotask === 'function') {
+    queueMicrotask(run);
+    return;
+  }
+
+  Promise.resolve().then(run);
+}
+
 function notifyProfileCommandListeners(command: ProfileSessionCommand) {
   const commandTimestamp = Number.isFinite(command.timestamp) ? command.timestamp : Date.now();
   if (shouldSkipProfileCommandForDuplicateWindow(command, commandTimestamp)) {
@@ -718,7 +738,7 @@ function releaseProfileCommandMilestoneGate(eventPayload: StoredProfileEvent) {
   }
 
   clearProfileCommandMilestoneGate();
-  processSequencedProfileCommands();
+  scheduleProfileCommandProcessing();
 }
 
 function flushPendingProfileCommands(listener: (command: ProfileSessionCommand) => void) {
