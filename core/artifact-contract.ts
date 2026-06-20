@@ -206,6 +206,7 @@ function parseKeyValueProfileSessionEntry(payload: string): ProfileSessionEntry 
   const timestamp = coerceNumber(entry.timestamp);
   const atMs = coerceNumber(entry.atMs);
   const sequence = coerceNumber(entry.sequence);
+  const waitMs = coerceNumber(entry.waitMs);
   const waitTimeoutMs = coerceNumber(entry.waitTimeoutMs);
   if (atMs !== null) {
     entry.atMs = atMs;
@@ -215,6 +216,9 @@ function parseKeyValueProfileSessionEntry(payload: string): ProfileSessionEntry 
   }
   if (sequence !== null) {
     entry.sequence = sequence;
+  }
+  if (waitMs !== null) {
+    entry.waitMs = waitMs;
   }
   if (waitTimeoutMs !== null) {
     entry.waitTimeoutMs = waitTimeoutMs;
@@ -1192,6 +1196,7 @@ function buildCommandAcknowledgementTimeline({
         ...(typeof entry.result === 'string' ? { result: entry.result } : {}),
         ...(typeof entry.reason === 'string' ? { reason: entry.reason } : {}),
         ...(typeof entry.waitForMilestone === 'string' ? { waitForMilestone: entry.waitForMilestone } : {}),
+        ...(typeof entry.waitMs === 'number' ? { waitMs: entry.waitMs } : {}),
         ...(typeof entry.waitTimeoutMs === 'number' ? { waitTimeoutMs: entry.waitTimeoutMs } : {}),
       };
 

@@ -1849,14 +1849,14 @@ test('profile-android seeds Android scenario commands as one ordered storage que
           fs
             .readFileSync(fixturePath('examples/mobile-app/event-logs/android-open-close-cycle.log'), 'utf8')
             .replace(/android-example-open-close/gu, 'android-storage-open-close'),
-          '2026-01-01T00:00:00.050Z public-android [profile-session] kind=command scenario=open-close-cycle runId=android-storage-open-close command=activate-target:example-card-1 commandId=open-card queueId=open-close-cycle sequence=1 source=storage status=received atMs=50 waitForMilestone=card_opened waitTimeoutMs=1500',
-          '2026-01-01T00:00:00.070Z public-android [profile-session] kind=command scenario=open-close-cycle runId=android-storage-open-close command=activate-target:example-card-1 commandId=open-card queueId=open-close-cycle sequence=1 source=storage status=completed result=target-dispatched atMs=70 waitForMilestone=card_opened waitTimeoutMs=1500',
-          '2026-01-01T00:00:00.820Z public-android [profile-session] kind=command scenario=open-close-cycle runId=android-storage-open-close command=activate-target:close-card commandId=close-card queueId=open-close-cycle sequence=2 source=storage status=received atMs=820',
-          '2026-01-01T00:00:00.850Z public-android [profile-session] kind=command scenario=open-close-cycle runId=android-storage-open-close command=activate-target:close-card commandId=close-card queueId=open-close-cycle sequence=2 source=storage status=completed result=target-dispatched atMs=850',
-          '2026-01-01T00:00:02.020Z public-android [profile-session] kind=command scenario=open-close-cycle runId=android-storage-open-close command=activate-target:example-card-1 commandId=open-card queueId=open-close-cycle sequence=3 source=storage status=received atMs=2020 waitForMilestone=card_opened waitTimeoutMs=1500',
-          '2026-01-01T00:00:02.050Z public-android [profile-session] kind=command scenario=open-close-cycle runId=android-storage-open-close command=activate-target:example-card-1 commandId=open-card queueId=open-close-cycle sequence=3 source=storage status=completed result=target-dispatched atMs=2050 waitForMilestone=card_opened waitTimeoutMs=1500',
-          '2026-01-01T00:00:02.900Z public-android [profile-session] kind=command scenario=open-close-cycle runId=android-storage-open-close command=activate-target:close-card commandId=close-card queueId=open-close-cycle sequence=4 source=storage status=received atMs=2900',
-          '2026-01-01T00:00:02.930Z public-android [profile-session] kind=command scenario=open-close-cycle runId=android-storage-open-close command=activate-target:close-card commandId=close-card queueId=open-close-cycle sequence=4 source=storage status=completed result=target-dispatched atMs=2930',
+          '2026-01-01T00:00:00.050Z public-android [profile-session] kind=command scenario=open-close-cycle runId=android-storage-open-close command=activate-target:example-card-1 commandId=open-card queueId=open-close-cycle sequence=1 source=storage status=received atMs=50 waitForMilestone=card_opened waitMs=300 waitTimeoutMs=1500',
+          '2026-01-01T00:00:00.070Z public-android [profile-session] kind=command scenario=open-close-cycle runId=android-storage-open-close command=activate-target:example-card-1 commandId=open-card queueId=open-close-cycle sequence=1 source=storage status=completed result=target-dispatched atMs=70 waitForMilestone=card_opened waitMs=300 waitTimeoutMs=1500',
+          '2026-01-01T00:00:00.820Z public-android [profile-session] kind=command scenario=open-close-cycle runId=android-storage-open-close command=activate-target:close-card commandId=close-card queueId=open-close-cycle sequence=2 source=storage status=received atMs=820 waitMs=300',
+          '2026-01-01T00:00:00.850Z public-android [profile-session] kind=command scenario=open-close-cycle runId=android-storage-open-close command=activate-target:close-card commandId=close-card queueId=open-close-cycle sequence=2 source=storage status=completed result=target-dispatched atMs=850 waitMs=300',
+          '2026-01-01T00:00:02.020Z public-android [profile-session] kind=command scenario=open-close-cycle runId=android-storage-open-close command=activate-target:example-card-1 commandId=open-card queueId=open-close-cycle sequence=3 source=storage status=received atMs=2020 waitForMilestone=card_opened waitMs=300 waitTimeoutMs=1500',
+          '2026-01-01T00:00:02.050Z public-android [profile-session] kind=command scenario=open-close-cycle runId=android-storage-open-close command=activate-target:example-card-1 commandId=open-card queueId=open-close-cycle sequence=3 source=storage status=completed result=target-dispatched atMs=2050 waitForMilestone=card_opened waitMs=300 waitTimeoutMs=1500',
+          '2026-01-01T00:00:02.900Z public-android [profile-session] kind=command scenario=open-close-cycle runId=android-storage-open-close command=activate-target:close-card commandId=close-card queueId=open-close-cycle sequence=4 source=storage status=received atMs=2900 waitMs=300',
+          '2026-01-01T00:00:02.930Z public-android [profile-session] kind=command scenario=open-close-cycle runId=android-storage-open-close command=activate-target:close-card commandId=close-card queueId=open-close-cycle sequence=4 source=storage status=completed result=target-dispatched atMs=2930 waitMs=300',
         ].join('\n'),
       },
     };
@@ -1969,6 +1969,7 @@ test('profile-android seeds Android scenario commands as one ordered storage que
     commandId: event.metadata.commandId,
     sequence: event.metadata.sequence,
     waitForMilestone: event.metadata.waitForMilestone,
+    waitMs: event.metadata.waitMs,
     waitTimeoutMs: event.metadata.waitTimeoutMs,
   })), [
     {
@@ -1977,6 +1978,7 @@ test('profile-android seeds Android scenario commands as one ordered storage que
       sequence: 1,
       status: 'started',
       waitForMilestone: 'card_opened',
+      waitMs: 300,
       waitTimeoutMs: 1500,
     },
     {
@@ -1985,6 +1987,7 @@ test('profile-android seeds Android scenario commands as one ordered storage que
       sequence: 1,
       status: 'completed',
       waitForMilestone: 'card_opened',
+      waitMs: 300,
       waitTimeoutMs: 1500,
     },
     {
@@ -1993,6 +1996,7 @@ test('profile-android seeds Android scenario commands as one ordered storage que
       sequence: 2,
       status: 'started',
       waitForMilestone: undefined,
+      waitMs: 300,
       waitTimeoutMs: undefined,
     },
     {
@@ -2001,6 +2005,7 @@ test('profile-android seeds Android scenario commands as one ordered storage que
       sequence: 2,
       status: 'completed',
       waitForMilestone: undefined,
+      waitMs: 300,
       waitTimeoutMs: undefined,
     },
     {
@@ -2009,6 +2014,7 @@ test('profile-android seeds Android scenario commands as one ordered storage que
       sequence: 3,
       status: 'started',
       waitForMilestone: 'card_opened',
+      waitMs: 300,
       waitTimeoutMs: 1500,
     },
     {
@@ -2017,6 +2023,7 @@ test('profile-android seeds Android scenario commands as one ordered storage que
       sequence: 3,
       status: 'completed',
       waitForMilestone: 'card_opened',
+      waitMs: 300,
       waitTimeoutMs: 1500,
     },
     {
@@ -2025,6 +2032,7 @@ test('profile-android seeds Android scenario commands as one ordered storage que
       sequence: 4,
       status: 'started',
       waitForMilestone: undefined,
+      waitMs: 300,
       waitTimeoutMs: undefined,
     },
     {
@@ -2033,6 +2041,7 @@ test('profile-android seeds Android scenario commands as one ordered storage que
       sequence: 4,
       status: 'completed',
       waitForMilestone: undefined,
+      waitMs: 300,
       waitTimeoutMs: undefined,
     },
   ]);
