@@ -44,6 +44,9 @@ type ScenarioExecutionStep = import('../core/execution-plan').ScenarioExecutionS
 
 const PROFILE_SESSION_CAPTURE_BOOTSTRAP_MS = 1000;
 const PROFILE_SESSION_CAPTURE_MAX_MS = 120000;
+const PROFILE_SESSION_LOGCAT_MIN_LINES = 1000;
+const PROFILE_SESSION_LOGCAT_MAX_LINES = 20000;
+const PROFILE_SESSION_LOGCAT_LINES_PER_COMMAND = 300;
 const DEFAULT_ANDROID_PROFILE_SESSION_STORAGE_KEY = 'agent-scenario-loop.profile-session.1';
 const DEFAULT_ANDROID_PROFILE_COMMAND_STORAGE_KEY = 'agent-scenario-loop.profile-commands.1';
 const DEFAULT_ANDROID_DEV_CLIENT_READY_PATTERN = 'Running "main"';
@@ -389,6 +392,51 @@ function resolveProfileSessionCaptureWaitMs({
   }
 
   return profileSessionEnabled ? deriveProfileSessionCaptureWaitMs(scenario) : 0;
+}
+
+/**
+ * Derives a bounded logcat tail large enough to keep command-session evidence.
+ *
+ * @param {{commands: AndroidAdbProfileCommand[], profileSessionEnabled: boolean}} options
+ * @returns {number}
+ */
+function deriveProfileSessionLogcatLines({
+  commands,
+  profileSessionEnabled,
+}: {
+  commands: AndroidAdbProfileCommand[];
+  profileSessionEnabled: boolean;
+}): number {
+  if (!profileSessionEnabled || commands.length === 0) {
+    return PROFILE_SESSION_LOGCAT_MIN_LINES;
+  }
+
+  const derivedLines =
+    PROFILE_SESSION_LOGCAT_MIN_LINES + (commands.length * PROFILE_SESSION_LOGCAT_LINES_PER_COMMAND);
+  return Math.min(Math.max(derivedLines, PROFILE_SESSION_LOGCAT_MIN_LINES), PROFILE_SESSION_LOGCAT_MAX_LINES);
+}
+
+/**
+ * Resolves Android logcat capture lines, keeping explicit CLI input authoritative.
+ *
+ * @param {{args: import('./profile-mobile').CliArgs, commands: AndroidAdbProfileCommand[], profileSessionEnabled: boolean}} options
+ * @returns {number}
+ */
+function resolveProfileSessionLogcatLines({
+  args,
+  commands,
+  profileSessionEnabled,
+}: {
+  args: import('./profile-mobile').CliArgs;
+  commands: AndroidAdbProfileCommand[];
+  profileSessionEnabled: boolean;
+}): number {
+  const explicitLogcatLines = readScalarArg(args['logcat-lines']);
+  if (explicitLogcatLines !== undefined) {
+    return parsePositiveInteger(explicitLogcatLines, PROFILE_SESSION_LOGCAT_MIN_LINES);
+  }
+
+  return deriveProfileSessionLogcatLines({ commands, profileSessionEnabled });
 }
 
 /**
@@ -1056,7 +1104,11 @@ async function runProfileAndroid(
         driverSteps,
         launch: isEnabled(args.launch),
         launchWaitMs: parsePositiveInteger(readScalarArg(args['launch-wait-ms']), 0),
-        logcatLines: parsePositiveInteger(readScalarArg(args['logcat-lines']), 1000),
+        logcatLines: resolveProfileSessionLogcatLines({
+          args,
+          commands: profileSessionCommands,
+          profileSessionEnabled,
+        }),
         outputDir: resolveAdbCaptureOutputDir({ args, runId }),
         packageName: resolveAndroidPackageName({ args, config }),
         ...(typeof args['react-native-debug-host'] === 'string'
@@ -1207,6 +1259,7 @@ if (require.main === module) {
 
 export {
   deriveProfileSessionCaptureWaitMs,
+  deriveProfileSessionLogcatLines,
   main,
   parseArgs,
   resolveAndroidAdbProfileCommands,

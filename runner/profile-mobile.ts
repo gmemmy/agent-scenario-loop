@@ -1622,6 +1622,11 @@ function resolveProfileMetricEvents(scenario: Record<string, unknown>): Record<s
         milestone: toEvent,
       };
     }
+    if (fromEvent && toEvent && isOptionalMilestone(scenario, budget.fromMilestone)) {
+      return {
+        milestone: toEvent,
+      };
+    }
     if (fromEvent && toEvent) {
       return {
         closeRequested: toEvent,
@@ -1633,6 +1638,66 @@ function resolveProfileMetricEvents(scenario: Record<string, unknown>): Record<s
   }
 
   return null;
+}
+
+/**
+ * Resolves how many repeated completion milestone events prove one cycle body.
+ *
+ * @param {Record<string, unknown>} scenario
+ * @param {Record<string, string> | null} metricEvents
+ * @returns {number}
+ */
+function resolveMilestoneEventsPerIteration(
+  scenario: Record<string, unknown>,
+  metricEvents: Record<string, string> | null,
+): number {
+  if (!metricEvents || typeof metricEvents.milestone !== 'string' || !Array.isArray(scenario.steps)) {
+    return 1;
+  }
+
+  const milestoneEvents = buildMilestoneEventLookup(scenario);
+  const matchingWaitStepIds = new Set<string>();
+  for (const step of scenario.steps) {
+    if (!isRecord(step) || step.kind !== 'waitForMilestone' || typeof step.milestone !== 'string') {
+      continue;
+    }
+    const event = milestoneEvents[step.milestone] ?? step.milestone;
+    if (event === metricEvents.milestone && typeof step.id === 'string') {
+      matchingWaitStepIds.add(step.id);
+    }
+  }
+
+  if (matchingWaitStepIds.size === 0) {
+    return 1;
+  }
+
+  const bodyStepIds = isRecord(scenario.cycles) && Array.isArray(scenario.cycles.bodyStepIds)
+    ? new Set(scenario.cycles.bodyStepIds.filter((entry): entry is string => typeof entry === 'string'))
+    : null;
+  if (bodyStepIds && bodyStepIds.size > 0) {
+    let count = 0;
+    let bodyCommandPending = false;
+    for (const step of scenario.steps) {
+      if (!isRecord(step)) {
+        continue;
+      }
+      if (typeof step.id === 'string' && bodyStepIds.has(step.id) && step.kind === 'command') {
+        bodyCommandPending = true;
+        continue;
+      }
+      if (bodyCommandPending && typeof step.id === 'string' && matchingWaitStepIds.has(step.id)) {
+        count += 1;
+        bodyCommandPending = false;
+        continue;
+      }
+      if (bodyCommandPending && step.kind === 'command') {
+        bodyCommandPending = false;
+      }
+    }
+    return count > 1 ? count : 1;
+  }
+
+  return matchingWaitStepIds.size > 1 ? matchingWaitStepIds.size : 1;
 }
 
 /**
@@ -1919,6 +1984,7 @@ async function runProfileMobile(args: CliArgs, options: ProfileMobileOptions): P
   const scenarioHash = hashScenarioContract(profileScenario);
   const expectedIterations = resolveExpectedIterations(profileScenario);
   const profileMetricEvents = resolveProfileMetricEvents(profileScenario);
+  const milestoneEventsPerIteration = resolveMilestoneEventsPerIteration(profileScenario, profileMetricEvents);
   const profileBudgets = resolveProfileBudgets(profileScenario);
   const runId = typeof args['run-id'] === 'string' ? args['run-id'] : createRunId();
   const artifactRoot = resolveArtifactRoot({ args, config, configPath, platform: options.platform });
@@ -2015,6 +2081,7 @@ async function runProfileMobile(args: CliArgs, options: ProfileMobileOptions): P
     expectedIterations,
     budgets: profileBudgets,
     cycleEventNames: profileMetricEvents,
+    milestoneEventsPerIteration,
     artifacts: {
       captures: attachedEvidence.captures,
       signals: attachedEvidence.signals,
@@ -2029,7 +2096,7 @@ async function runProfileMobile(args: CliArgs, options: ProfileMobileOptions): P
     scenario: toPortablePathReference(scenarioPath),
     raw: {
       interactionLog: eventLogPath ? `raw/${path.basename(eventLogPath)}` : 'raw/interaction.log',
-      deviceLog: 'raw/device.log',
+      deviceLog: eventLogPath ? `raw/${path.basename(eventLogPath)}` : 'raw/device.log',
     },
     captures: {
       screenshots: attachedEvidence.captures.screenshots,

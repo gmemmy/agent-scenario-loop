@@ -12,6 +12,7 @@ const ROOT = path.join(DIST_ROOT, '..');
 const PROFILE_ANDROID = path.join(DIST_ROOT, 'runner', 'profile-android.js');
 const {
   deriveProfileSessionCaptureWaitMs,
+  deriveProfileSessionLogcatLines,
   resolveAndroidAdbDriverSteps,
   resolveAndroidAdbProfileCommands,
   resolveProfileSessionCaptureWaitMs,
@@ -409,6 +410,121 @@ test('profile-android treats readiness-to-completion budgets as repeated milesto
   });
 });
 
+test('profile-android accounts for multi-command repeated milestone cycle bodies', async (t: TestContext) => {
+  const tempRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-android-multi-command-cycle-'));
+  t.after(async () => {
+    await fsp.rm(tempRoot, { recursive: true, force: true });
+  });
+  const artifactRoot = path.join(tempRoot, 'artifacts');
+  const scenarioPath = path.join(tempRoot, 'scope-switch-cycle.json');
+  const eventLogPath = path.join(tempRoot, 'scope-switch-cycle-android.log');
+  const scenario = {
+    schemaVersion: '1.0.0',
+    id: 'scope-switch-cycle',
+    flowId: 'scope-switch-cycle',
+    journey: {
+      name: 'Scope switch cycle',
+      intent: 'Switch between three feed scopes repeatedly.',
+      actor: 'app user',
+      startState: 'home',
+      endState: 'home',
+    },
+    platforms: ['android'],
+    requiredCapabilities: ['launch', 'sessionControl', 'command', 'logCapture', 'artifactWrite'],
+    truthEvents: {
+      ready: { event: 'surface_ready', required: true, timeoutMs: 120000, phase: 'render' },
+      settled: { event: 'surface_settled', required: true, timeoutMs: 8000, phase: 'completion' },
+    },
+    milestones: [
+      { id: 'ready', event: 'surface_ready', required: true, phase: 'render' },
+      { id: 'settled', event: 'surface_settled', required: true, phase: 'completion' },
+    ],
+    expectedEvents: ['surface_ready', 'surface_settled'],
+    cycles: {
+      iterations: 2,
+      warmupIterations: 0,
+      stopOnFailure: true,
+      bodyStepIds: ['switch-a', 'switch-b', 'switch-c'],
+    },
+    budgets: [
+      {
+        name: 'cycle p95',
+        source: 'milestone',
+        metric: 'p95',
+        unit: 'ms',
+        limit: 30000,
+        fromMilestone: 'ready',
+        toMilestone: 'settled',
+      },
+      {
+        name: 'failures',
+        source: 'milestone',
+        metric: 'failures',
+        unit: 'count',
+        limit: 0,
+      },
+    ],
+    steps: [
+      { id: 'wait-ready', kind: 'waitForMilestone', milestone: 'ready', timeoutMs: 120000 },
+      { id: 'switch-a', kind: 'command', command: 'switch:a' },
+      { id: 'wait-a', kind: 'waitForMilestone', milestone: 'settled', timeoutMs: 8000 },
+      { id: 'switch-b', kind: 'command', command: 'switch:b' },
+      { id: 'wait-b', kind: 'waitForMilestone', milestone: 'settled', timeoutMs: 8000 },
+      { id: 'switch-c', kind: 'command', command: 'switch:c' },
+      { id: 'wait-c', kind: 'waitForMilestone', milestone: 'settled', timeoutMs: 8000 },
+    ],
+    artifacts: { required: ['logs'], optional: [] },
+  };
+  await fsp.writeFile(scenarioPath, `${JSON.stringify(scenario, null, 2)}\n`, 'utf8');
+  await fsp.writeFile(
+    eventLogPath,
+    [
+      '2026-01-01T00:10:00.000Z public-android [profile-event] {"event":"surface_ready","scenario":"scope-switch-cycle","runId":"scope-switch-cycle-android","atMs":1000}',
+      '2026-01-01T00:10:00.200Z public-android [profile-event] {"event":"surface_settled","scenario":"scope-switch-cycle","runId":"scope-switch-cycle-android","atMs":1200}',
+      '2026-01-01T00:10:00.900Z public-android [profile-event] {"event":"surface_settled","scenario":"scope-switch-cycle","runId":"scope-switch-cycle-android","atMs":1900}',
+      '2026-01-01T00:10:01.600Z public-android [profile-event] {"event":"surface_settled","scenario":"scope-switch-cycle","runId":"scope-switch-cycle-android","atMs":2600}',
+      '2026-01-01T00:10:02.300Z public-android [profile-event] {"event":"surface_settled","scenario":"scope-switch-cycle","runId":"scope-switch-cycle-android","atMs":3300}',
+      '2026-01-01T00:10:03.000Z public-android [profile-event] {"event":"surface_settled","scenario":"scope-switch-cycle","runId":"scope-switch-cycle-android","atMs":4000}',
+      '2026-01-01T00:10:03.700Z public-android [profile-event] {"event":"surface_settled","scenario":"scope-switch-cycle","runId":"scope-switch-cycle-android","atMs":4700}',
+      '',
+    ].join('\n'),
+    'utf8',
+  );
+
+  const { stdout } = await execFileAsync(process.execPath, [
+    PROFILE_ANDROID,
+    '--config',
+    fixturePath('examples/mobile-app/asl.config.json'),
+    '--scenario',
+    scenarioPath,
+    '--events',
+    eventLogPath,
+    '--out',
+    artifactRoot,
+    '--run-id',
+    'scope-switch-cycle-android',
+  ]);
+
+  const runDir = stdout.trim();
+  const metrics = readJson(path.join(runDir, 'metrics.json')) as Record<string, any>;
+  const health = readJson(path.join(runDir, 'health.json')) as Record<string, any>;
+  const causalRun = readJson(path.join(runDir, 'causal-run.json')) as Record<string, any>;
+
+  assert.equal(metrics.status, 'passed');
+  assert.deepEqual(metrics.durationsMs, [2600, 4700]);
+  assert.equal(metrics.failures, 0);
+  assert.deepEqual(metrics.incompleteIterations, []);
+  assert.equal(health.healthStatus, 'passed');
+  assert.deepEqual(causalRun.iterationSummary, {
+    completed: 2,
+    expected: 2,
+    failed: 0,
+    incomplete: [],
+    status: 'complete',
+    timeouts: 0,
+  });
+});
+
 test('profile-android preserves app timeline vocabulary without breaking causal-run schema', async (t: TestContext) => {
   const tempRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-android-causal-vocab-'));
   t.after(async () => {
@@ -662,9 +778,6 @@ test('profile-android keeps intent interval anchors separate from completion hea
       { id: 'request', event: 'surface_request_completed', required: false, phase: 'intent' },
       { id: 'settled', event: 'surface_settled', required: true, phase: 'completion' },
     ],
-    metricEvents: {
-      milestone: 'surface_settled',
-    },
     expectedEvents: ['surface_settled'],
     cycles: { iterations: 2, warmupIterations: 0, stopOnFailure: true },
     budgets: [
@@ -1741,7 +1854,7 @@ test('profile-android starts profile sessions and executes scenario commands dur
       "-s emulator-5554 shell am start -a 'android.intent.action.VIEW' -d 'asl-example://profile-session/command?runId=android-live-open-close&scenario=open-close-cycle&command=activate-target%3Aclose-card' -p 'dev.agentscenarioloop.example'": {
         stdout: 'Starting: Intent { act=android.intent.action.VIEW }\n',
       },
-      '-s emulator-5554 logcat -d -v time -t 1000': {
+      '-s emulator-5554 logcat -d -v time -t 2800': {
         stdout: fs
           .readFileSync(fixturePath('examples/mobile-app/event-logs/android-open-close-cycle.log'), 'utf8')
           .replace(/android-example-open-close/gu, 'android-live-open-close'),
@@ -1844,19 +1957,19 @@ test('profile-android seeds Android scenario commands as one ordered storage que
       '-s emulator-5554 shell pidof dev.agentscenarioloop.example': {
         stdout: '1234\n',
       },
-      '-s emulator-5554 logcat -d -v time -t 1000': {
+      '-s emulator-5554 logcat -d -v time -t 2800': {
         stdout: [
           fs
             .readFileSync(fixturePath('examples/mobile-app/event-logs/android-open-close-cycle.log'), 'utf8')
             .replace(/android-example-open-close/gu, 'android-storage-open-close'),
-          '2026-01-01T00:00:00.050Z public-android [profile-session] kind=command scenario=open-close-cycle runId=android-storage-open-close command=activate-target:example-card-1 commandId=open-card queueId=open-close-cycle sequence=1 source=storage status=received atMs=50 waitForMilestone=card_opened waitTimeoutMs=1500',
-          '2026-01-01T00:00:00.070Z public-android [profile-session] kind=command scenario=open-close-cycle runId=android-storage-open-close command=activate-target:example-card-1 commandId=open-card queueId=open-close-cycle sequence=1 source=storage status=completed result=target-dispatched atMs=70 waitForMilestone=card_opened waitTimeoutMs=1500',
-          '2026-01-01T00:00:00.820Z public-android [profile-session] kind=command scenario=open-close-cycle runId=android-storage-open-close command=activate-target:close-card commandId=close-card queueId=open-close-cycle sequence=2 source=storage status=received atMs=820',
-          '2026-01-01T00:00:00.850Z public-android [profile-session] kind=command scenario=open-close-cycle runId=android-storage-open-close command=activate-target:close-card commandId=close-card queueId=open-close-cycle sequence=2 source=storage status=completed result=target-dispatched atMs=850',
-          '2026-01-01T00:00:02.020Z public-android [profile-session] kind=command scenario=open-close-cycle runId=android-storage-open-close command=activate-target:example-card-1 commandId=open-card queueId=open-close-cycle sequence=3 source=storage status=received atMs=2020 waitForMilestone=card_opened waitTimeoutMs=1500',
-          '2026-01-01T00:00:02.050Z public-android [profile-session] kind=command scenario=open-close-cycle runId=android-storage-open-close command=activate-target:example-card-1 commandId=open-card queueId=open-close-cycle sequence=3 source=storage status=completed result=target-dispatched atMs=2050 waitForMilestone=card_opened waitTimeoutMs=1500',
-          '2026-01-01T00:00:02.900Z public-android [profile-session] kind=command scenario=open-close-cycle runId=android-storage-open-close command=activate-target:close-card commandId=close-card queueId=open-close-cycle sequence=4 source=storage status=received atMs=2900',
-          '2026-01-01T00:00:02.930Z public-android [profile-session] kind=command scenario=open-close-cycle runId=android-storage-open-close command=activate-target:close-card commandId=close-card queueId=open-close-cycle sequence=4 source=storage status=completed result=target-dispatched atMs=2930',
+          '2026-01-01T00:00:00.050Z public-android [profile-session] kind=command scenario=open-close-cycle runId=android-storage-open-close command=activate-target:example-card-1 commandId=open-card queueId=open-close-cycle sequence=1 source=storage status=received atMs=50 waitForMilestone=card_opened waitMs=300 waitTimeoutMs=1500',
+          '2026-01-01T00:00:00.070Z public-android [profile-session] kind=command scenario=open-close-cycle runId=android-storage-open-close command=activate-target:example-card-1 commandId=open-card queueId=open-close-cycle sequence=1 source=storage status=completed result=target-dispatched atMs=70 waitForMilestone=card_opened waitMs=300 waitTimeoutMs=1500',
+          '2026-01-01T00:00:00.820Z public-android [profile-session] kind=command scenario=open-close-cycle runId=android-storage-open-close command=activate-target:close-card commandId=close-card queueId=open-close-cycle sequence=2 source=storage status=received atMs=820 waitMs=300',
+          '2026-01-01T00:00:00.850Z public-android [profile-session] kind=command scenario=open-close-cycle runId=android-storage-open-close command=activate-target:close-card commandId=close-card queueId=open-close-cycle sequence=2 source=storage status=completed result=target-dispatched atMs=850 waitMs=300',
+          '2026-01-01T00:00:02.020Z public-android [profile-session] kind=command scenario=open-close-cycle runId=android-storage-open-close command=activate-target:example-card-1 commandId=open-card queueId=open-close-cycle sequence=3 source=storage status=received atMs=2020 waitForMilestone=card_opened waitMs=300 waitTimeoutMs=1500',
+          '2026-01-01T00:00:02.050Z public-android [profile-session] kind=command scenario=open-close-cycle runId=android-storage-open-close command=activate-target:example-card-1 commandId=open-card queueId=open-close-cycle sequence=3 source=storage status=completed result=target-dispatched atMs=2050 waitForMilestone=card_opened waitMs=300 waitTimeoutMs=1500',
+          '2026-01-01T00:00:02.900Z public-android [profile-session] kind=command scenario=open-close-cycle runId=android-storage-open-close command=activate-target:close-card commandId=close-card queueId=open-close-cycle sequence=4 source=storage status=received atMs=2900 waitMs=300',
+          '2026-01-01T00:00:02.930Z public-android [profile-session] kind=command scenario=open-close-cycle runId=android-storage-open-close command=activate-target:close-card commandId=close-card queueId=open-close-cycle sequence=4 source=storage status=completed result=target-dispatched atMs=2930 waitMs=300',
         ].join('\n'),
       },
     };
@@ -1969,6 +2082,7 @@ test('profile-android seeds Android scenario commands as one ordered storage que
     commandId: event.metadata.commandId,
     sequence: event.metadata.sequence,
     waitForMilestone: event.metadata.waitForMilestone,
+    waitMs: event.metadata.waitMs,
     waitTimeoutMs: event.metadata.waitTimeoutMs,
   })), [
     {
@@ -1977,6 +2091,7 @@ test('profile-android seeds Android scenario commands as one ordered storage que
       sequence: 1,
       status: 'started',
       waitForMilestone: 'card_opened',
+      waitMs: 300,
       waitTimeoutMs: 1500,
     },
     {
@@ -1985,6 +2100,7 @@ test('profile-android seeds Android scenario commands as one ordered storage que
       sequence: 1,
       status: 'completed',
       waitForMilestone: 'card_opened',
+      waitMs: 300,
       waitTimeoutMs: 1500,
     },
     {
@@ -1993,6 +2109,7 @@ test('profile-android seeds Android scenario commands as one ordered storage que
       sequence: 2,
       status: 'started',
       waitForMilestone: undefined,
+      waitMs: 300,
       waitTimeoutMs: undefined,
     },
     {
@@ -2001,6 +2118,7 @@ test('profile-android seeds Android scenario commands as one ordered storage que
       sequence: 2,
       status: 'completed',
       waitForMilestone: undefined,
+      waitMs: 300,
       waitTimeoutMs: undefined,
     },
     {
@@ -2009,6 +2127,7 @@ test('profile-android seeds Android scenario commands as one ordered storage que
       sequence: 3,
       status: 'started',
       waitForMilestone: 'card_opened',
+      waitMs: 300,
       waitTimeoutMs: 1500,
     },
     {
@@ -2017,6 +2136,7 @@ test('profile-android seeds Android scenario commands as one ordered storage que
       sequence: 3,
       status: 'completed',
       waitForMilestone: 'card_opened',
+      waitMs: 300,
       waitTimeoutMs: 1500,
     },
     {
@@ -2025,6 +2145,7 @@ test('profile-android seeds Android scenario commands as one ordered storage que
       sequence: 4,
       status: 'started',
       waitForMilestone: undefined,
+      waitMs: 300,
       waitTimeoutMs: undefined,
     },
     {
@@ -2033,6 +2154,7 @@ test('profile-android seeds Android scenario commands as one ordered storage que
       sequence: 4,
       status: 'completed',
       waitForMilestone: undefined,
+      waitMs: 300,
       waitTimeoutMs: undefined,
     },
   ]);
@@ -2074,6 +2196,34 @@ test('profile-android derives adb capture waits from scenario execution windows'
     profileSessionEnabled: false,
     scenario: startup,
   }), 0);
+});
+
+test('profile-android derives profile-session logcat lines from command count', () => {
+  assert.equal(deriveProfileSessionLogcatLines({
+    commands: [],
+    profileSessionEnabled: true,
+  }), 1000);
+  assert.equal(deriveProfileSessionLogcatLines({
+    commands: Array.from({ length: 6 }, (_, index) => ({
+      command: `command-${index + 1}`,
+      id: `command-${index + 1}`,
+    })),
+    profileSessionEnabled: true,
+  }), 2800);
+  assert.equal(deriveProfileSessionLogcatLines({
+    commands: Array.from({ length: 19 }, (_, index) => ({
+      command: `command-${index + 1}`,
+      id: `command-${index + 1}`,
+    })),
+    profileSessionEnabled: true,
+  }), 6700);
+  assert.equal(deriveProfileSessionLogcatLines({
+    commands: Array.from({ length: 100 }, (_, index) => ({
+      command: `command-${index + 1}`,
+      id: `command-${index + 1}`,
+    })),
+    profileSessionEnabled: true,
+  }), 20000);
 });
 
 test('profile-android derives commands from normalized execution-plan steps', () => {

@@ -133,6 +133,7 @@ let lastProfileCommandTimestamp = 0;
 let profileCommandMilestoneGate: ProfileCommandMilestoneGate | null = null;
 let profileCommandProcessingScheduled = false;
 let profileCommandProcessingTimeoutId: ReturnType<typeof setTimeout> | null = null;
+let profileCommandProcessingAvailableAt = 0;
 
 function writeProfileLog(line: string) {
   if (Platform.OS === 'ios') {
@@ -613,6 +614,7 @@ function clearProfileCommandProcessingSchedule() {
   }
   profileCommandProcessingTimeoutId = null;
   profileCommandProcessingScheduled = false;
+  profileCommandProcessingAvailableAt = 0;
 }
 
 function startProfileCommandMilestoneTimeout(command: ProfileSessionCommand) {
@@ -640,19 +642,33 @@ function startProfileCommandMilestoneTimeout(command: ProfileSessionCommand) {
 }
 
 function scheduleProfileCommandProcessing(waitMs = 0) {
-  if (profileCommandProcessingScheduled) {
-    return;
+  const availableAt = waitMs > 0 ? Date.now() + waitMs : 0;
+  if (availableAt > profileCommandProcessingAvailableAt) {
+    profileCommandProcessingAvailableAt = availableAt;
+  }
+
+  const delayMs = Math.max(0, profileCommandProcessingAvailableAt - Date.now());
+  if (profileCommandProcessingTimeoutId) {
+    clearTimeout(profileCommandProcessingTimeoutId);
+    profileCommandProcessingTimeoutId = null;
   }
 
   profileCommandProcessingScheduled = true;
   const run = () => {
     profileCommandProcessingTimeoutId = null;
+    const remainingMs = Math.max(0, profileCommandProcessingAvailableAt - Date.now());
+    if (remainingMs > 0) {
+      profileCommandProcessingScheduled = false;
+      scheduleProfileCommandProcessing(remainingMs);
+      return;
+    }
+    profileCommandProcessingAvailableAt = 0;
     profileCommandProcessingScheduled = false;
     processSequencedProfileCommands();
   };
 
-  if (waitMs > 0) {
-    profileCommandProcessingTimeoutId = setTimeout(run, waitMs);
+  if (delayMs > 0) {
+    profileCommandProcessingTimeoutId = setTimeout(run, delayMs);
     return;
   }
 
@@ -710,6 +726,11 @@ function notifyProfileCommandListeners(command: ProfileSessionCommand) {
 
 function processSequencedProfileCommands() {
   if (profileCommandProcessingScheduled) {
+    return;
+  }
+  const remainingMs = Math.max(0, profileCommandProcessingAvailableAt - Date.now());
+  if (remainingMs > 0) {
+    scheduleProfileCommandProcessing(remainingMs);
     return;
   }
   if (profileCommandMilestoneGate) {

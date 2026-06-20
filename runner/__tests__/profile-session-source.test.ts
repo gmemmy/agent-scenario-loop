@@ -52,6 +52,7 @@ test('profile-session helper keeps storage-backed command control safeguards', (
   assert.match(source, /const observedProfileEvents: StoredProfileEvent\[\] = \[\];/u);
   assert.match(source, /let profileCommandMilestoneGate: ProfileCommandMilestoneGate \| null = null;/u);
   assert.match(source, /let profileCommandProcessingTimeoutId: ReturnType<typeof setTimeout> \| null = null;/u);
+  assert.match(source, /let profileCommandProcessingAvailableAt = 0;/u);
   assert.match(source, /function compareProfileCommands/u);
   assert.match(source, /sequencedProfileCommands\.sort\(compareProfileCommands\);/u);
   assert.match(source, /function processSequencedProfileCommands/u);
@@ -69,7 +70,9 @@ test('profile-session helper keeps storage-backed command control safeguards', (
   assert.match(source, /profileCommandMilestoneGate\.scenario !== eventPayload\.scenario/u);
   assert.match(source, /let profileCommandProcessingScheduled = false;/u);
   assert.match(source, /function scheduleProfileCommandProcessing\(waitMs = 0\)/u);
-  assert.match(source, /profileCommandProcessingTimeoutId = setTimeout\(run, waitMs\);/u);
+  assert.match(source, /profileCommandProcessingAvailableAt = availableAt;/u);
+  assert.match(source, /profileCommandProcessingAvailableAt - Date\.now\(\)/u);
+  assert.match(source, /profileCommandProcessingTimeoutId = setTimeout\(run, delayMs\);/u);
   assert.match(source, /queueMicrotask\(run\);/u);
   assert.match(source, /releaseProfileCommandMilestoneGate\(eventPayload\);/u);
   assert.match(source, /scheduleProfileCommandProcessing\(command\.waitMs\);/u);

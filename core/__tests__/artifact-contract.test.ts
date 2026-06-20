@@ -794,6 +794,7 @@ test('adds profile-session command acknowledgements to causal timelines', () => 
         status: 'received',
         atMs: 100,
         waitForMilestone: 'card_opened',
+        waitMs: 300,
         waitTimeoutMs: 1500,
       },
       {
@@ -809,6 +810,7 @@ test('adds profile-session command acknowledgements to causal timelines', () => 
         status: 'completed',
         atMs: 120,
         waitForMilestone: 'card_opened',
+        waitMs: 300,
         waitTimeoutMs: 1500,
       },
     ],
@@ -826,6 +828,7 @@ test('adds profile-session command acknowledgements to causal timelines', () => 
         sequence: 1,
         source: 'storage',
         waitForMilestone: 'card_opened',
+        waitMs: 300,
         waitTimeoutMs: 1500,
       },
       name: 'profile_command_received',
@@ -844,6 +847,7 @@ test('adds profile-session command acknowledgements to causal timelines', () => 
         sequence: 1,
         source: 'storage',
         waitForMilestone: 'card_opened',
+        waitMs: 300,
         waitTimeoutMs: 1500,
       },
       name: 'profile_command_completed',
@@ -1008,4 +1012,39 @@ test('counts repeated milestone-only cycles without explicit iteration payloads'
   assert.deepEqual(metrics.incompleteIterations, []);
   assert.equal(metrics.failures, 0);
   assert.equal(metrics.budgetEvaluation.pass, false);
+});
+
+test('counts multi-command milestone-only cycles without explicit iteration payloads', () => {
+  const metrics = buildMetricsFromProfileEvents({
+    scenario: 'home-feed-scope-switch-stress',
+    runId: 'android-live-scope-switch',
+    expectedIterations: 3,
+    cycleEventNames: {
+      milestone: 'home_feed_pill_change_settled',
+    },
+    milestoneEventsPerIteration: 3,
+    budgets: {
+      metric: 'milestone budget',
+      pass: {
+        cycleP95Ms: 2500,
+        failures: 0,
+      },
+    },
+    events: [
+      { event: 'home_feed_pill_change_settled', atMs: 9232 },
+      { event: 'home_feed_pill_change_settled', atMs: 10725 },
+      { event: 'home_feed_pill_change_settled', atMs: 11480 },
+      { event: 'home_feed_pill_change_settled', atMs: 13258 },
+      { event: 'home_feed_pill_change_settled', atMs: 14020 },
+      { event: 'home_feed_pill_change_settled', atMs: 15557 },
+      { event: 'home_feed_pill_change_settled', atMs: 17100 },
+      { event: 'home_feed_pill_change_settled', atMs: 18750 },
+      { event: 'home_feed_pill_change_settled', atMs: 20216 },
+    ],
+  });
+
+  assert.equal(metrics.status, 'passed');
+  assert.deepEqual(metrics.durationsMs, [11480, 15557, 20216]);
+  assert.deepEqual(metrics.incompleteIterations, []);
+  assert.equal(metrics.failures, 0);
 });

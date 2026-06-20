@@ -646,7 +646,8 @@ test('profile-ios can seed and profile stored iOS app truth events', async (t: T
 
   assert.equal(health.healthStatus, 'passed');
   assert.equal(simctlHealth.healthStatus, 'passed');
-  assert.equal((manifest.artifacts as { raw: { interactionLog: string } }).raw.interactionLog, 'raw/ios-profile-events.log');
+  assert.equal((manifest.artifacts as { raw: { deviceLog: string; interactionLog: string } }).raw.interactionLog, 'raw/ios-profile-events.log');
+  assert.equal((manifest.artifacts as { raw: { deviceLog: string; interactionLog: string } }).raw.deviceLog, 'raw/ios-profile-events.log');
   assert.ok(calls.includes('simctl terminate A692ED28-893E-453F-8866-C69331AE757F dev.agent-scenario-loop.example'));
   assert.equal(calls.includes('simctl launch A692ED28-893E-453F-8866-C69331AE757F dev.agent-scenario-loop.example'), false);
   assert.ok(calls.some((call) => call.startsWith('simctl openurl A692ED28-893E-453F-8866-C69331AE757F asl-example://expo-development-client/')));
@@ -739,6 +740,7 @@ test('profile-ios seeds iOS scenario commands through app storage', async (t: Te
           source: 'storage',
           status: 'received',
           waitForMilestone: 'card_opened',
+          waitMs: 300,
           waitTimeoutMs: 1500,
         },
         {
@@ -754,6 +756,7 @@ test('profile-ios seeds iOS scenario commands through app storage', async (t: Te
           source: 'storage',
           status: 'completed',
           waitForMilestone: 'card_opened',
+          waitMs: 300,
           waitTimeoutMs: 1500,
         },
         {
@@ -768,6 +771,7 @@ test('profile-ios seeds iOS scenario commands through app storage', async (t: Te
           source: 'storage',
           status: 'received',
           waitForMilestone: 'card_opened',
+          waitMs: 300,
           waitTimeoutMs: 1500,
         },
         {
@@ -783,6 +787,7 @@ test('profile-ios seeds iOS scenario commands through app storage', async (t: Te
           source: 'storage',
           status: 'completed',
           waitForMilestone: 'card_opened',
+          waitMs: 300,
           waitTimeoutMs: 1500,
         },
         {
@@ -796,6 +801,7 @@ test('profile-ios seeds iOS scenario commands through app storage', async (t: Te
           sequence: 4,
           source: 'storage',
           status: 'received',
+          waitMs: 300,
         },
         {
           atMs: 2845,
@@ -809,6 +815,7 @@ test('profile-ios seeds iOS scenario commands through app storage', async (t: Te
           sequence: 4,
           source: 'storage',
           status: 'completed',
+          waitMs: 300,
         },
         {
           atMs: 760,
@@ -821,6 +828,7 @@ test('profile-ios seeds iOS scenario commands through app storage', async (t: Te
           sequence: 2,
           source: 'storage',
           status: 'received',
+          waitMs: 300,
         },
         {
           atMs: 795,
@@ -834,6 +842,7 @@ test('profile-ios seeds iOS scenario commands through app storage', async (t: Te
           sequence: 2,
           source: 'storage',
           status: 'completed',
+          waitMs: 300,
         },
       ]);
       manifest['agent-scenario-loop.profile-events.1'] = fs
@@ -915,6 +924,7 @@ test('profile-ios seeds iOS scenario commands through app storage', async (t: Te
       sequence: event.metadata.sequence,
       status: event.status,
       waitForMilestone: event.metadata.waitForMilestone,
+      waitMs: event.metadata.waitMs,
       waitTimeoutMs: event.metadata.waitTimeoutMs,
     })), [
     {
@@ -923,6 +933,7 @@ test('profile-ios seeds iOS scenario commands through app storage', async (t: Te
       sequence: 1,
       status: 'started',
       waitForMilestone: 'card_opened',
+      waitMs: 300,
       waitTimeoutMs: 1500,
     },
     {
@@ -931,6 +942,7 @@ test('profile-ios seeds iOS scenario commands through app storage', async (t: Te
       sequence: 1,
       status: 'completed',
       waitForMilestone: 'card_opened',
+      waitMs: 300,
       waitTimeoutMs: 1500,
     },
     {
@@ -939,6 +951,7 @@ test('profile-ios seeds iOS scenario commands through app storage', async (t: Te
       sequence: 2,
       status: 'started',
       waitForMilestone: undefined,
+      waitMs: 300,
       waitTimeoutMs: undefined,
     },
     {
@@ -947,6 +960,7 @@ test('profile-ios seeds iOS scenario commands through app storage', async (t: Te
       sequence: 2,
       status: 'completed',
       waitForMilestone: undefined,
+      waitMs: 300,
       waitTimeoutMs: undefined,
     },
     {
@@ -955,6 +969,7 @@ test('profile-ios seeds iOS scenario commands through app storage', async (t: Te
       sequence: 3,
       status: 'started',
       waitForMilestone: 'card_opened',
+      waitMs: 300,
       waitTimeoutMs: 1500,
     },
     {
@@ -963,6 +978,7 @@ test('profile-ios seeds iOS scenario commands through app storage', async (t: Te
       sequence: 3,
       status: 'completed',
       waitForMilestone: 'card_opened',
+      waitMs: 300,
       waitTimeoutMs: 1500,
     },
     {
@@ -971,6 +987,7 @@ test('profile-ios seeds iOS scenario commands through app storage', async (t: Te
       sequence: 4,
       status: 'started',
       waitForMilestone: undefined,
+      waitMs: 300,
       waitTimeoutMs: undefined,
     },
     {
@@ -979,6 +996,7 @@ test('profile-ios seeds iOS scenario commands through app storage', async (t: Te
       sequence: 4,
       status: 'completed',
       waitForMilestone: undefined,
+      waitMs: 300,
       waitTimeoutMs: undefined,
     },
   ]);
