@@ -1504,6 +1504,30 @@ function findMilestoneEvent(scenario: Record<string, unknown>, milestoneId: unkn
 }
 
 /**
+ * Returns true when a milestone is explicitly optional.
+ *
+ * @param {Record<string, unknown>} scenario
+ * @param {unknown} milestoneId
+ * @returns {boolean}
+ */
+function isOptionalMilestone(scenario: Record<string, unknown>, milestoneId: unknown): boolean {
+  if (typeof milestoneId !== 'string' || !Array.isArray(scenario.milestones)) {
+    return false;
+  }
+
+  for (const milestone of scenario.milestones) {
+    if (!isRecord(milestone)) {
+      continue;
+    }
+    if (milestone.id === milestoneId) {
+      return milestone.required === false;
+    }
+  }
+
+  return false;
+}
+
+/**
  * Returns true when a milestone represents one-time scenario readiness rather than a repeated cycle edge.
  *
  * @param {Record<string, unknown>} scenario
@@ -1639,6 +1663,40 @@ function resolveProfileBudgetKey({
 }
 
 /**
+ * Reports whether a paired milestone budget should use the legacy profile budget lanes.
+ *
+ * @param {{budget: Record<string, unknown>, scenario: Record<string, unknown>}} options
+ * @returns {boolean}
+ */
+function usesLegacyProfileBudgetLane({
+  budget,
+  scenario,
+}: {
+  budget: Record<string, unknown>;
+  scenario: Record<string, unknown>;
+}): boolean {
+  if (budget.fromMilestone === 'openRequested' && budget.toMilestone === 'opened') {
+    return true;
+  }
+  if (budget.fromMilestone === 'closeRequested' && budget.toMilestone === 'dismissed') {
+    return true;
+  }
+  if (budget.fromMilestone === 'openRequested' && budget.toMilestone === 'dismissed') {
+    return true;
+  }
+  if (isOptionalMilestone(scenario, budget.fromMilestone)) {
+    return false;
+  }
+
+  const fromEvent = findMilestoneEvent(scenario, budget.fromMilestone);
+  if (fromEvent && isReadinessMilestone(scenario, budget.fromMilestone, fromEvent)) {
+    return true;
+  }
+
+  return typeof budget.fromMilestone === 'string' && typeof budget.toMilestone === 'string';
+}
+
+/**
  * Normalizes schema-era budget arrays into the profile budget evaluator shape.
  *
  * @param {Record<string, unknown>} scenario
@@ -1654,12 +1712,31 @@ function resolveProfileBudgets(scenario: Record<string, unknown>): Record<string
   }
 
   const pass: Record<string, number> = {};
+  const intervals: Record<string, unknown>[] = [];
   for (const budget of scenario.budgets) {
     if (!isRecord(budget) || typeof budget.limit !== 'number') {
       continue;
     }
 
     if (budget.metric === 'p95' || budget.metric === 'p50') {
+      const fromEvent = findMilestoneEvent(scenario, budget.fromMilestone);
+      const toEvent = findMilestoneEvent(scenario, budget.toMilestone);
+      const shouldUseNamedInterval = Boolean(
+        fromEvent &&
+        toEvent &&
+        !usesLegacyProfileBudgetLane({ budget, scenario }),
+      );
+      if (shouldUseNamedInterval) {
+        intervals.push({
+          name: typeof budget.name === 'string' ? budget.name : `${String(budget.fromMilestone)} to ${String(budget.toMilestone)}`,
+          metric: budget.metric,
+          limit: budget.limit,
+          fromEvent,
+          toEvent,
+        });
+        continue;
+      }
+
       const budgetKey = resolveProfileBudgetKey({ budget, metric: budget.metric });
       if (budgetKey) {
         pass[budgetKey] = budget.limit;
@@ -1671,10 +1748,11 @@ function resolveProfileBudgets(scenario: Record<string, unknown>): Record<string
     }
   }
 
-  return Object.keys(pass).length > 0
+  return Object.keys(pass).length > 0 || intervals.length > 0
     ? {
         metric: 'milestone budget',
         pass,
+        ...(intervals.length > 0 ? { intervals } : {}),
       }
     : null;
 }

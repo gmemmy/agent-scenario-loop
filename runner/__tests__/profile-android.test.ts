@@ -637,6 +637,108 @@ test('profile-android maps schema-era open and close milestone budgets', async (
   });
 });
 
+test('profile-android keeps intent interval anchors separate from completion health', async (t: TestContext) => {
+  const tempRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-android-interval-anchor-'));
+  t.after(async () => {
+    await fsp.rm(tempRoot, { recursive: true, force: true });
+  });
+  const artifactRoot = path.join(tempRoot, 'artifacts');
+  const scenarioPath = path.join(tempRoot, 'intent-anchor-cycle.json');
+  const eventLogPath = path.join(tempRoot, 'intent-anchor-cycle-android.log');
+  const scenario = {
+    schemaVersion: '1.0.0',
+    id: 'intent-anchor-cycle',
+    flowId: 'intent-anchor-cycle',
+    journey: {
+      name: 'Intent anchor cycle',
+      intent: 'Measure request-to-settle duration while completion truth owns health.',
+      actor: 'app user',
+      startState: 'home',
+      endState: 'home',
+    },
+    platforms: ['android'],
+    requiredCapabilities: ['launch', 'sessionControl', 'command', 'logCapture', 'artifactWrite'],
+    milestones: [
+      { id: 'request', event: 'surface_request_completed', required: false, phase: 'intent' },
+      { id: 'settled', event: 'surface_settled', required: true, phase: 'completion' },
+    ],
+    metricEvents: {
+      milestone: 'surface_settled',
+    },
+    expectedEvents: ['surface_settled'],
+    cycles: { iterations: 2, warmupIterations: 0, stopOnFailure: true },
+    budgets: [
+      {
+        name: 'request to settled p95',
+        source: 'milestone',
+        metric: 'p95',
+        unit: 'ms',
+        limit: 300,
+        fromMilestone: 'request',
+        toMilestone: 'settled',
+      },
+      {
+        name: 'failures',
+        source: 'milestone',
+        metric: 'failures',
+        unit: 'count',
+        limit: 0,
+      },
+    ],
+    steps: [{ id: 'launch', kind: 'launch' }],
+    artifacts: { required: ['logs'], optional: [] },
+  };
+  await fsp.writeFile(scenarioPath, `${JSON.stringify(scenario, null, 2)}\n`, 'utf8');
+  await fsp.writeFile(
+    eventLogPath,
+    [
+      '2026-01-01T00:10:01.200Z public-android [profile-event] {"event":"surface_request_completed","scenario":"intent-anchor-cycle","runId":"intent-anchor-cycle-android","atMs":1200}',
+      '2026-01-01T00:10:01.440Z public-android [profile-event] {"event":"surface_settled","scenario":"intent-anchor-cycle","runId":"intent-anchor-cycle-android","atMs":1440}',
+      '2026-01-01T00:10:02.600Z public-android [profile-event] {"event":"surface_request_completed","scenario":"intent-anchor-cycle","runId":"intent-anchor-cycle-android","atMs":2600}',
+      '2026-01-01T00:10:02.870Z public-android [profile-event] {"event":"surface_settled","scenario":"intent-anchor-cycle","runId":"intent-anchor-cycle-android","atMs":2870}',
+      '',
+    ].join('\n'),
+    'utf8',
+  );
+
+  const { stdout } = await execFileAsync(process.execPath, [
+    PROFILE_ANDROID,
+    '--config',
+    fixturePath('examples/mobile-app/asl.config.json'),
+    '--scenario',
+    scenarioPath,
+    '--events',
+    eventLogPath,
+    '--out',
+    artifactRoot,
+    '--run-id',
+    'intent-anchor-cycle-android',
+  ]);
+
+  const runDir = stdout.trim();
+  const health = readJson(path.join(runDir, 'health.json')) as Record<string, any>;
+  const verdict = readJson(path.join(runDir, 'verdict.json')) as Record<string, any>;
+  const metrics = readJson(path.join(runDir, 'metrics.json')) as Record<string, any>;
+  const causalRun = readJson(path.join(runDir, 'causal-run.json')) as Record<string, any>;
+
+  assert.equal(health.healthStatus, 'passed');
+  assert.equal(verdict.verdictStatus, 'passed');
+  assert.deepEqual(metrics.durationsMs, [1440, 2870]);
+  assert.equal(metrics.budgetEvaluation.pass, true);
+  assert.deepEqual(metrics.budgetEvaluation.checks, [
+    { actual: 0, limit: 0, name: 'failures', pass: true, unit: 'count' },
+    { actual: 270, limit: 300, name: 'request to settled p95', pass: true, unit: 'ms' },
+  ]);
+  assert.deepEqual(causalRun.iterationSummary, {
+    completed: 2,
+    expected: 2,
+    failed: 0,
+    incomplete: [],
+    status: 'complete',
+    timeouts: 0,
+  });
+});
+
 test('profile-android attaches agent-device capture artifacts with explicit event logs', async (t: TestContext) => {
   const artifactRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-android-agent-device-'));
   t.after(async () => {
@@ -1282,27 +1384,23 @@ test('profile-android can capture adb logs and profile them in one run', async (
   assert.ok(fs.existsSync(path.join(result.runDir, 'raw', 'adb-logcat.txt')));
 });
 
-test('profile-android fails fast with adb artifacts when adb devices hangs', async (t: TestContext) => {
+test('profile-android fails fast with adb artifacts when adb devices times out', async (t: TestContext) => {
   const tempRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-android-adb-hung-'));
   t.after(async () => {
     await fsp.rm(tempRoot, { recursive: true, force: true });
   });
-  const fakeAdb = path.join(tempRoot, 'fake-adb.js');
   const adbCaptureRoot = path.join(tempRoot, 'adb-capture');
   const profileRoot = path.join(tempRoot, 'profile');
-  await fsp.writeFile(fakeAdb, [
-    '#!/bin/sh',
-    'if [ "$*" = "version" ]; then echo "Android Debug Bridge version 1.0.41"; exit 0; fi',
-    'if [ "$*" = "devices -l" ]; then sleep 60; exit 0; fi',
-    'echo "unexpected command: $*" >&2',
-    'exit 1',
-    '',
-  ].join('\n'), 'utf8');
-  await fsp.chmod(fakeAdb, 0o755);
+  const executor = createExecutor({
+    version: { stdout: 'Android Debug Bridge version 1.0.41\n' },
+    'devices -l': {
+      exitCode: 1,
+      stderr: 'adb command timed out after 50ms.',
+    },
+  });
 
   await assert.rejects(
     () => runProfileAndroid({
-      adb: fakeAdb,
       'adb-capture': true,
       'adb-command-timeout-ms': '50',
       'adb-out': adbCaptureRoot,
@@ -1310,7 +1408,7 @@ test('profile-android fails fast with adb artifacts when adb devices hangs', asy
       out: profileRoot,
       'run-id': 'android-hung-devices',
       scenario: fixturePath('examples/mobile-app/scenarios/android/app-startup.json'),
-    }),
+    }, { executor }),
     /Android adb capture failed; inspect/u,
   );
 
