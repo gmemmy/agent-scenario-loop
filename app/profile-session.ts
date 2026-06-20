@@ -67,6 +67,7 @@ type StoredProfileSessionEntry = {
   scenario: string;
   runId: string;
   timestamp: number;
+  atMs?: number;
   startedAt?: number;
   stoppedAt?: number;
   command?: string;
@@ -83,6 +84,16 @@ type StoredProfileSessionEntry = {
 };
 
 type StoredProfileSignals = Record<ProfileSignalKind, Record<string, unknown>>;
+type ProfileCommandMilestoneGate = {
+  commandId?: string;
+  id: string;
+  milestone: string;
+  queueId?: string;
+  runId?: string;
+  scenario?: string;
+  sequence?: number;
+  timeoutId?: ReturnType<typeof setTimeout>;
+};
 
 const INITIAL_STATE: ProfileSessionState = {
   active: false,
@@ -111,9 +122,12 @@ const listeners = new Set<() => void>();
 const profileCommandListeners = new Set<(command: ProfileSessionCommand) => void>();
 const profileCommandTargetHandlers = new Map<string, () => void>();
 const pendingProfileCommands: ProfileSessionCommand[] = [];
+const sequencedProfileCommands: ProfileSessionCommand[] = [];
+const observedProfileEvents: StoredProfileEvent[] = [];
 const processedProfileCommandIds = new Set<string>();
 let lastProfileCommandSignature: string | null = null;
 let lastProfileCommandTimestamp = 0;
+let profileCommandMilestoneGate: ProfileCommandMilestoneGate | null = null;
 
 function writeProfileLog(line: string) {
   if (Platform.OS === 'ios') {
@@ -205,6 +219,7 @@ function appendStoredProfileEvent(event: StoredProfileEvent) {
 }
 
 function resetStoredProfileArtifacts() {
+  observedProfileEvents.length = 0;
   queueProfileStorageMutation(async () => {
     await Promise.all([
       AsyncStorage.removeItem(PROFILE_EVENT_STORAGE_KEY),
@@ -216,6 +231,8 @@ function resetStoredProfileArtifacts() {
 
 function clearPendingProfileCommands() {
   pendingProfileCommands.length = 0;
+  sequencedProfileCommands.length = 0;
+  clearProfileCommandMilestoneGate();
   queueProfileStorageMutation(async () => {
     await AsyncStorage.removeItem(PROFILE_COMMAND_STORAGE_KEY);
   });
@@ -299,7 +316,21 @@ export function isProfileSessionFresh(
 }
 
 function logProfileSession(kind: 'start' | 'stop' | 'command', payload: Record<string, unknown>) {
-  writeProfileLog(buildLogLine('profile-session', { kind, ...payload }));
+  const timestamp = Date.now();
+  const sessionStartedAt = readProfileSessionStartedAt(profileSessionState);
+  const atMs =
+    typeof payload.atMs === 'number' && Number.isFinite(payload.atMs)
+      ? payload.atMs
+      : sessionStartedAt !== null
+        ? Math.max(0, timestamp - sessionStartedAt)
+        : undefined;
+  const logPayload = {
+    kind,
+    ...payload,
+    timestamp,
+    ...(atMs !== undefined ? { atMs } : {}),
+  };
+  writeProfileLog(buildLogLine('profile-session', logPayload));
 
   const scenario = typeof payload.scenario === 'string' ? payload.scenario : null;
   const runId = typeof payload.runId === 'string' ? payload.runId : null;
@@ -307,12 +338,12 @@ function logProfileSession(kind: 'start' | 'stop' | 'command', payload: Record<s
     return;
   }
 
-  const timestamp = Date.now();
   const entry: StoredProfileSessionEntry = {
     kind,
     scenario,
     runId,
     timestamp,
+    ...(atMs !== undefined ? { atMs } : {}),
   };
 
   if (kind === 'start' && typeof payload.startedAt === 'number') {
@@ -508,6 +539,83 @@ function markProfileCommandIdProcessed(command: ProfileSessionCommand) {
   }
 }
 
+function compareProfileCommands(left: ProfileSessionCommand, right: ProfileSessionCommand): number {
+  const leftSequence = typeof left.sequence === 'number' ? left.sequence : Number.POSITIVE_INFINITY;
+  const rightSequence = typeof right.sequence === 'number' ? right.sequence : Number.POSITIVE_INFINITY;
+  if (leftSequence !== rightSequence) {
+    return leftSequence - rightSequence;
+  }
+
+  return left.timestamp - right.timestamp;
+}
+
+function shouldQueueProfileCommand(command: ProfileSessionCommand): boolean {
+  return !hasProcessedProfileCommandId(command) &&
+    !sequencedProfileCommands.some((queuedCommand) => queuedCommand.id === command.id);
+}
+
+function buildProfileCommandMilestoneGate(command: ProfileSessionCommand): ProfileCommandMilestoneGate | null {
+  if (typeof command.waitForMilestone !== 'string' || command.waitForMilestone.length === 0) {
+    return null;
+  }
+
+  return {
+    id: command.id,
+    milestone: command.waitForMilestone,
+    ...(typeof command.commandId === 'string' ? { commandId: command.commandId } : {}),
+    ...(typeof command.queueId === 'string' ? { queueId: command.queueId } : {}),
+    ...(typeof command.runId === 'string' ? { runId: command.runId } : {}),
+    ...(typeof command.scenario === 'string' ? { scenario: command.scenario } : {}),
+    ...(typeof command.sequence === 'number' ? { sequence: command.sequence } : {}),
+  };
+}
+
+function hasObservedProfileCommandMilestone(command: ProfileSessionCommand): boolean {
+  if (typeof command.waitForMilestone !== 'string' || command.waitForMilestone.length === 0) {
+    return false;
+  }
+  if (typeof command.sequence === 'number' && command.sequence > 1) {
+    return false;
+  }
+
+  return observedProfileEvents.some((eventPayload) => (
+    eventPayload.event === command.waitForMilestone &&
+    (!command.runId || eventPayload.runId === command.runId) &&
+    (!command.scenario || eventPayload.scenario === command.scenario)
+  ));
+}
+
+function clearProfileCommandMilestoneGate() {
+  if (profileCommandMilestoneGate?.timeoutId) {
+    clearTimeout(profileCommandMilestoneGate.timeoutId);
+  }
+  profileCommandMilestoneGate = null;
+}
+
+function startProfileCommandMilestoneTimeout(command: ProfileSessionCommand) {
+  if (
+    !profileCommandMilestoneGate ||
+    typeof command.waitTimeoutMs !== 'number' ||
+    command.waitTimeoutMs <= 0
+  ) {
+    return;
+  }
+
+  profileCommandMilestoneGate.timeoutId = setTimeout(() => {
+    if (!profileCommandMilestoneGate || profileCommandMilestoneGate.id !== command.id) {
+      return;
+    }
+
+    logProfileSession('command', {
+      ...command,
+      status: 'skipped',
+      reason: 'wait-for-milestone-timeout',
+    });
+    clearProfileCommandMilestoneGate();
+    processSequencedProfileCommands();
+  }, command.waitTimeoutMs);
+}
+
 function notifyProfileCommandListeners(command: ProfileSessionCommand) {
   const commandTimestamp = Number.isFinite(command.timestamp) ? command.timestamp : Date.now();
   if (shouldSkipProfileCommandForDuplicateWindow(command, commandTimestamp)) {
@@ -550,6 +658,67 @@ function notifyProfileCommandListeners(command: ProfileSessionCommand) {
     status: 'delivered',
     result: 'listener-notified',
   });
+}
+
+function processSequencedProfileCommands() {
+  if (profileCommandMilestoneGate) {
+    return;
+  }
+
+  while (sequencedProfileCommands.length > 0) {
+    const command = sequencedProfileCommands.shift();
+    if (!command || hasProcessedProfileCommandId(command)) {
+      continue;
+    }
+
+    markProfileCommandIdProcessed(command);
+    const nextGate = hasObservedProfileCommandMilestone(command)
+      ? null
+      : buildProfileCommandMilestoneGate(command);
+    profileCommandMilestoneGate = nextGate;
+    logProfileSession('command', {
+      ...command,
+      status: 'received',
+    });
+    startProfileCommandMilestoneTimeout(command);
+    notifyProfileCommandListeners(command);
+
+    if (profileCommandMilestoneGate) {
+      return;
+    }
+  }
+}
+
+function enqueueSequencedProfileCommands(commands: ProfileSessionCommand[]) {
+  const nextCommands = commands.filter(shouldQueueProfileCommand);
+  if (nextCommands.length === 0) {
+    return;
+  }
+
+  sequencedProfileCommands.push(...nextCommands);
+  sequencedProfileCommands.sort(compareProfileCommands);
+  processSequencedProfileCommands();
+}
+
+function releaseProfileCommandMilestoneGate(eventPayload: StoredProfileEvent) {
+  if (!profileCommandMilestoneGate || profileCommandMilestoneGate.milestone !== eventPayload.event) {
+    return;
+  }
+  if (
+    profileCommandMilestoneGate.runId &&
+    profileCommandMilestoneGate.runId !== eventPayload.runId
+  ) {
+    return;
+  }
+  if (
+    profileCommandMilestoneGate.scenario &&
+    profileCommandMilestoneGate.scenario !== eventPayload.scenario
+  ) {
+    return;
+  }
+
+  clearProfileCommandMilestoneGate();
+  processSequencedProfileCommands();
 }
 
 function flushPendingProfileCommands(listener: (command: ProfileSessionCommand) => void) {
@@ -651,11 +820,7 @@ export function applyProfileSessionUrl(url: string | null | undefined): boolean 
       ...(route.waitForMilestone ? { waitForMilestone: route.waitForMilestone } : {}),
       ...(typeof route.waitTimeoutMs === 'number' ? { waitTimeoutMs: route.waitTimeoutMs } : {}),
     };
-    logProfileSession('command', {
-      ...command,
-      status: 'received',
-    });
-    notifyProfileCommandListeners(command);
+    enqueueSequencedProfileCommands([command]);
     return true;
   }
 
@@ -698,7 +863,12 @@ export function emitProfileEvent(event: string, metadata?: ProfileEventMetadata)
   };
 
   writeProfileLog(buildLogLine('profile-event', eventPayload));
+  observedProfileEvents.push(eventPayload);
+  while (observedProfileEvents.length > MAX_STORED_PROFILE_EVENTS) {
+    observedProfileEvents.shift();
+  }
   appendStoredProfileEvent(eventPayload);
+  releaseProfileCommandMilestoneGate(eventPayload);
 }
 
 /**
@@ -838,7 +1008,7 @@ export function useProfileSessionBootstrap(): void {
         return;
       }
 
-      clearPendingProfileCommands();
+      const nextCommands: ProfileSessionCommand[] = [];
       for (const command of storedCommands) {
         if (
           !command ||
@@ -851,8 +1021,7 @@ export function useProfileSessionBootstrap(): void {
 
         if (
           command.scenario !== activeSession.scenario ||
-          command.runId !== activeSession.runId ||
-          (typeof activeSession.startedAt === 'number' && command.timestamp < activeSession.startedAt)
+          command.runId !== activeSession.runId
         ) {
           continue;
         }
@@ -866,13 +1035,10 @@ export function useProfileSessionBootstrap(): void {
           continue;
         }
 
-        markProfileCommandIdProcessed(storageCommand);
-        logProfileSession('command', {
-          ...storageCommand,
-          status: 'received',
-        });
-        notifyProfileCommandListeners(storageCommand);
+        nextCommands.push(storageCommand);
       }
+
+      enqueueSequencedProfileCommands(nextCommands);
     };
 
     syncStoredProfileState()

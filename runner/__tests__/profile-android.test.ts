@@ -310,6 +310,105 @@ test('profile-android profiles public scenario ids and milestone budgets', async
   });
 });
 
+test('profile-android treats readiness-to-completion budgets as repeated milestone cycles', async (t: TestContext) => {
+  const tempRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-android-ready-milestone-'));
+  t.after(async () => {
+    await fsp.rm(tempRoot, { recursive: true, force: true });
+  });
+  const artifactRoot = path.join(tempRoot, 'artifacts');
+  const scenarioPath = path.join(tempRoot, 'ready-scroll-cycle.json');
+  const eventLogPath = path.join(tempRoot, 'ready-scroll-cycle-android.log');
+  const scenario = {
+    schemaVersion: '1.0.0',
+    id: 'ready-scroll-cycle',
+    flowId: 'ready-scroll-cycle',
+    journey: {
+      name: 'Ready scroll cycle',
+      intent: 'Scroll a ready feed repeatedly.',
+      actor: 'app user',
+      startState: 'home',
+      endState: 'home',
+    },
+    platforms: ['android'],
+    requiredCapabilities: ['launch', 'sessionControl', 'command', 'logCapture', 'artifactWrite'],
+    truthEvents: {
+      ready: { event: 'surface_ready', required: true, timeoutMs: 120000, phase: 'render' },
+      settled: { event: 'surface_settled', required: true, timeoutMs: 8000, phase: 'completion' },
+    },
+    milestones: [
+      { id: 'ready', event: 'surface_ready', required: true, phase: 'render' },
+      { id: 'settled', event: 'surface_settled', required: true, phase: 'completion' },
+    ],
+    expectedEvents: ['surface_ready', 'surface_settled'],
+    cycles: { iterations: 3, warmupIterations: 0, stopOnFailure: true },
+    budgets: [
+      {
+        name: 'cycle p95',
+        source: 'milestone',
+        metric: 'p95',
+        unit: 'ms',
+        limit: 10000,
+        fromMilestone: 'ready',
+        toMilestone: 'settled',
+      },
+      {
+        name: 'failures',
+        source: 'milestone',
+        metric: 'failures',
+        unit: 'count',
+        limit: 0,
+      },
+    ],
+    steps: [{ id: 'launch', kind: 'launch' }],
+    artifacts: { required: ['logs'], optional: [] },
+  };
+  await fsp.writeFile(scenarioPath, `${JSON.stringify(scenario, null, 2)}\n`, 'utf8');
+  await fsp.writeFile(
+    eventLogPath,
+    [
+      '2026-01-01T00:10:00.000Z public-android [profile-event] {"event":"surface_ready","scenario":"ready-scroll-cycle","runId":"ready-scroll-cycle-android","atMs":1000}',
+      '2026-01-01T00:10:00.200Z public-android [profile-event] {"event":"surface_settled","scenario":"ready-scroll-cycle","runId":"ready-scroll-cycle-android","atMs":1200}',
+      '2026-01-01T00:10:00.500Z public-android [profile-event] {"event":"surface_settled","scenario":"ready-scroll-cycle","runId":"ready-scroll-cycle-android","atMs":1500}',
+      '2026-01-01T00:10:00.900Z public-android [profile-event] {"event":"surface_settled","scenario":"ready-scroll-cycle","runId":"ready-scroll-cycle-android","atMs":1900}',
+      '',
+    ].join('\n'),
+    'utf8',
+  );
+
+  const { stdout } = await execFileAsync(process.execPath, [
+    PROFILE_ANDROID,
+    '--config',
+    fixturePath('examples/mobile-app/asl.config.json'),
+    '--scenario',
+    scenarioPath,
+    '--events',
+    eventLogPath,
+    '--out',
+    artifactRoot,
+    '--run-id',
+    'ready-scroll-cycle-android',
+  ]);
+
+  const runDir = stdout.trim();
+  const metrics = readJson(path.join(runDir, 'metrics.json')) as Record<string, any>;
+  const health = readJson(path.join(runDir, 'health.json')) as Record<string, any>;
+  const causalRun = readJson(path.join(runDir, 'causal-run.json')) as Record<string, any>;
+
+  assert.equal(metrics.status, 'passed');
+  assert.deepEqual(metrics.durationsMs, [1200, 1500, 1900]);
+  assert.equal(metrics.failures, 0);
+  assert.deepEqual(metrics.incompleteIterations, []);
+  assert.equal(health.healthStatus, 'passed');
+  assert.deepEqual(causalRun.iterationSummary, {
+    completed: 3,
+    expected: 3,
+    failed: 0,
+    incomplete: [],
+    status: 'complete',
+    timeouts: 0,
+  });
+});
+
 test('profile-android preserves app timeline vocabulary without breaking causal-run schema', async (t: TestContext) => {
   const tempRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-android-causal-vocab-'));
   t.after(async () => {
@@ -1615,7 +1714,12 @@ test('profile-android seeds Android scenario commands as one ordered storage que
             .replace(/android-example-open-close/gu, 'android-storage-open-close'),
           '2026-01-01T00:00:00.050Z public-android [profile-session] kind=command scenario=open-close-cycle runId=android-storage-open-close command=activate-target:example-card-1 commandId=open-card queueId=open-close-cycle sequence=1 source=storage status=received atMs=50 waitForMilestone=card_opened waitTimeoutMs=1500',
           '2026-01-01T00:00:00.070Z public-android [profile-session] kind=command scenario=open-close-cycle runId=android-storage-open-close command=activate-target:example-card-1 commandId=open-card queueId=open-close-cycle sequence=1 source=storage status=completed result=target-dispatched atMs=70 waitForMilestone=card_opened waitTimeoutMs=1500',
-          '2026-01-01T00:00:02.050Z public-android [profile-session] kind=command scenario=open-close-cycle runId=android-storage-open-close command=activate-target:close-card commandId=close-card queueId=open-close-cycle sequence=6 source=storage status=completed result=target-dispatched atMs=2050',
+          '2026-01-01T00:00:00.820Z public-android [profile-session] kind=command scenario=open-close-cycle runId=android-storage-open-close command=activate-target:close-card commandId=close-card queueId=open-close-cycle sequence=2 source=storage status=received atMs=820',
+          '2026-01-01T00:00:00.850Z public-android [profile-session] kind=command scenario=open-close-cycle runId=android-storage-open-close command=activate-target:close-card commandId=close-card queueId=open-close-cycle sequence=2 source=storage status=completed result=target-dispatched atMs=850',
+          '2026-01-01T00:00:02.020Z public-android [profile-session] kind=command scenario=open-close-cycle runId=android-storage-open-close command=activate-target:example-card-1 commandId=open-card queueId=open-close-cycle sequence=3 source=storage status=received atMs=2020 waitForMilestone=card_opened waitTimeoutMs=1500',
+          '2026-01-01T00:00:02.050Z public-android [profile-session] kind=command scenario=open-close-cycle runId=android-storage-open-close command=activate-target:example-card-1 commandId=open-card queueId=open-close-cycle sequence=3 source=storage status=completed result=target-dispatched atMs=2050 waitForMilestone=card_opened waitTimeoutMs=1500',
+          '2026-01-01T00:00:02.900Z public-android [profile-session] kind=command scenario=open-close-cycle runId=android-storage-open-close command=activate-target:close-card commandId=close-card queueId=open-close-cycle sequence=4 source=storage status=received atMs=2900',
+          '2026-01-01T00:00:02.930Z public-android [profile-session] kind=command scenario=open-close-cycle runId=android-storage-open-close command=activate-target:close-card commandId=close-card queueId=open-close-cycle sequence=4 source=storage status=completed result=target-dispatched atMs=2930',
         ].join('\n'),
       },
     };
@@ -1666,6 +1770,9 @@ test('profile-android seeds Android scenario commands as one ordered storage que
   assert.match(commandQueueWrite, /activate-target:close-card/u);
   assert.match(commandQueueWrite, /"commandId":"open first example card"/u);
   assert.match(commandQueueWrite, /"commandId":"close example card"/u);
+  assert.match(commandQueueWrite, /"timestamp":1800000000001/u);
+  assert.match(commandQueueWrite, /"timestamp":1800000000002/u);
+  assert.match(commandQueueWrite, /"timestamp":1800000000006/u);
   assert.match(commandQueueWrite, /"sequence":1/u);
   assert.match(commandQueueWrite, /"sequence":6/u);
   assert.match(commandQueueWrite, /"queueId":"open-close-cycle"/u);
@@ -1673,6 +1780,52 @@ test('profile-android seeds Android scenario commands as one ordered storage que
   const commandTimeline = causalRun.timeline.filter((event: Record<string, any>) => (
     event.owner === 'asl-command-transport'
   ));
+  const sequencingEvidence = causalRun.timeline
+    .filter((event: Record<string, any>) => (
+      (event.owner === 'asl-command-transport'
+        && ['open-card', 'close-card'].includes(event.metadata?.commandId)
+        && [1, 2, 3, 4].includes(event.metadata?.sequence))
+      || (event.name === 'card_opened' && [1, 2].includes(event.metadata?.iteration))
+    ))
+    .map((event: Record<string, any>) => ({
+      atMs: event.atMs,
+      commandId: event.metadata?.commandId,
+      name: event.name,
+      sequence: event.metadata?.sequence,
+    }));
+  assert.deepEqual(sequencingEvidence, [
+    { atMs: 50, commandId: 'open-card', name: 'profile_command_received', sequence: 1 },
+    { atMs: 70, commandId: 'open-card', name: 'profile_command_completed', sequence: 1 },
+    { atMs: 420, commandId: undefined, name: 'card_opened', sequence: undefined },
+    { atMs: 820, commandId: 'close-card', name: 'profile_command_received', sequence: 2 },
+    { atMs: 850, commandId: 'close-card', name: 'profile_command_completed', sequence: 2 },
+    { atMs: 2020, commandId: 'open-card', name: 'profile_command_received', sequence: 3 },
+    { atMs: 2050, commandId: 'open-card', name: 'profile_command_completed', sequence: 3 },
+    { atMs: 2450, commandId: undefined, name: 'card_opened', sequence: undefined },
+    { atMs: 2900, commandId: 'close-card', name: 'profile_command_received', sequence: 4 },
+    { atMs: 2930, commandId: 'close-card', name: 'profile_command_completed', sequence: 4 },
+  ]);
+  const firstCardOpened = causalRun.timeline.find((event: Record<string, any>) => (
+    event.name === 'card_opened' && event.metadata?.iteration === 1
+  ));
+  const secondCardOpened = causalRun.timeline.find((event: Record<string, any>) => (
+    event.name === 'card_opened' && event.metadata?.iteration === 2
+  ));
+  const frontLoadedCloseReceived = causalRun.timeline.find((event: Record<string, any>) => (
+    event.owner === 'asl-command-transport'
+    && event.name === 'profile_command_received'
+    && event.metadata?.commandId === 'close-card'
+    && event.atMs < firstCardOpened.atMs
+  ));
+  assert.equal(frontLoadedCloseReceived, undefined);
+  const frontLoadedSecondCloseReceived = causalRun.timeline.find((event: Record<string, any>) => (
+    event.owner === 'asl-command-transport'
+    && event.name === 'profile_command_received'
+    && event.metadata?.commandId === 'close-card'
+    && event.metadata?.sequence === 4
+    && event.atMs < secondCardOpened.atMs
+  ));
+  assert.equal(frontLoadedSecondCloseReceived, undefined);
   assert.deepEqual(commandTimeline.map((event: Record<string, any>) => ({
     name: event.name,
     status: event.status,
@@ -1699,8 +1852,48 @@ test('profile-android seeds Android scenario commands as one ordered storage que
     },
     {
       commandId: 'close-card',
+      name: 'profile_command_received',
+      sequence: 2,
+      status: 'started',
+      waitForMilestone: undefined,
+      waitTimeoutMs: undefined,
+    },
+    {
+      commandId: 'close-card',
       name: 'profile_command_completed',
-      sequence: 6,
+      sequence: 2,
+      status: 'completed',
+      waitForMilestone: undefined,
+      waitTimeoutMs: undefined,
+    },
+    {
+      commandId: 'open-card',
+      name: 'profile_command_received',
+      sequence: 3,
+      status: 'started',
+      waitForMilestone: 'card_opened',
+      waitTimeoutMs: 1500,
+    },
+    {
+      commandId: 'open-card',
+      name: 'profile_command_completed',
+      sequence: 3,
+      status: 'completed',
+      waitForMilestone: 'card_opened',
+      waitTimeoutMs: 1500,
+    },
+    {
+      commandId: 'close-card',
+      name: 'profile_command_received',
+      sequence: 4,
+      status: 'started',
+      waitForMilestone: undefined,
+      waitTimeoutMs: undefined,
+    },
+    {
+      commandId: 'close-card',
+      name: 'profile_command_completed',
+      sequence: 4,
       status: 'completed',
       waitForMilestone: undefined,
       waitTimeoutMs: undefined,
@@ -1777,6 +1970,86 @@ test('profile-android derives commands from normalized execution-plan steps', ()
     { command: 'activate-target:close-card', commandId: 'close-card', label: 'close-card', queueId: 'open-close-cycle', sequence: 2, waitMs: 225 },
     { command: 'activate-target:example-card-1', commandId: 'open-card', label: 'open-card', queueId: 'open-close-cycle', sequence: 3, waitForMilestone: 'card_opened', waitMs: 125, waitTimeoutMs: 1500 },
     { command: 'activate-target:close-card', commandId: 'close-card', label: 'close-card', queueId: 'open-close-cycle', sequence: 4, waitMs: 225 },
+  ]);
+});
+
+test('profile-android runs readiness setup commands once before repeated cycle commands', () => {
+  const scenario = {
+    id: 'ready-scroll-cycle',
+    defaultIterations: 3,
+    truthEvents: {
+      ready: { event: 'surface_ready' },
+    },
+    milestones: [
+      { id: 'ready', event: 'surface_ready', phase: 'render' },
+      { id: 'settled', event: 'surface_settled', phase: 'completion' },
+    ],
+    steps: [
+      { id: 'reset-surface', kind: 'command', command: 'reset-surface' },
+      { id: 'wait-ready', kind: 'waitForMilestone', milestone: 'ready', timeoutMs: 120000 },
+      { id: 'scroll-surface', kind: 'command', command: 'scroll-by:600' },
+      { id: 'wait-settled', kind: 'waitForMilestone', milestone: 'settled', timeoutMs: 8000 },
+    ],
+  };
+
+  assert.deepEqual(resolveAndroidAdbProfileCommands(scenario), [
+    { command: 'reset-surface', commandId: 'reset-surface', label: 'reset-surface', queueId: 'ready-scroll-cycle', sequence: 1, waitForMilestone: 'surface_ready', waitMs: 0, waitTimeoutMs: 120000 },
+    { command: 'scroll-by:600', commandId: 'scroll-surface', label: 'scroll-surface', queueId: 'ready-scroll-cycle', sequence: 2, waitForMilestone: 'surface_settled', waitMs: 0, waitTimeoutMs: 8000 },
+    { command: 'scroll-by:600', commandId: 'scroll-surface', label: 'scroll-surface', queueId: 'ready-scroll-cycle', sequence: 3, waitForMilestone: 'surface_settled', waitMs: 0, waitTimeoutMs: 8000 },
+    { command: 'scroll-by:600', commandId: 'scroll-surface', label: 'scroll-surface', queueId: 'ready-scroll-cycle', sequence: 4, waitForMilestone: 'surface_settled', waitMs: 0, waitTimeoutMs: 8000 },
+  ]);
+});
+
+test('profile-android applies execution-plan wait gates to adb adapter commands', () => {
+  const scenario = readJson(fixturePath('examples/mobile-app/scenarios/android/open-close-cycle.json')) as Record<string, any>;
+  scenario.defaultIterations = 2;
+  scenario.adapterOptions.androidAdb.repeat = 2;
+  scenario.adapterOptions.androidAdb.commands = [
+    {
+      command: 'activate-target:example-card-1',
+      label: 'open first example card',
+      waitMs: 300,
+    },
+    {
+      command: 'activate-target:close-card',
+      label: 'close example card',
+      waitMs: 300,
+    },
+  ];
+  scenario.milestones = [
+    { id: 'ready', event: 'card_opened' },
+    { id: 'dismissed', event: 'card_dismissed' },
+  ];
+  scenario.steps = [
+    {
+      id: 'open-card',
+      kind: 'command',
+      command: 'activate-target:example-card-1',
+    },
+    {
+      id: 'wait-opened',
+      kind: 'waitForMilestone',
+      milestone: 'ready',
+      timeoutMs: 1500,
+    },
+    {
+      id: 'close-card',
+      kind: 'command',
+      command: 'activate-target:close-card',
+    },
+    {
+      id: 'wait-dismissed',
+      kind: 'waitForMilestone',
+      milestone: 'dismissed',
+      timeoutMs: 1200,
+    },
+  ];
+
+  assert.deepEqual(resolveAndroidAdbProfileCommands(scenario), [
+    { command: 'activate-target:example-card-1', commandId: 'open first example card', label: 'open first example card', queueId: 'open-close-cycle', sequence: 1, waitForMilestone: 'card_opened', waitMs: 300, waitTimeoutMs: 1500 },
+    { command: 'activate-target:close-card', commandId: 'close example card', label: 'close example card', queueId: 'open-close-cycle', sequence: 2, waitForMilestone: 'card_dismissed', waitMs: 300, waitTimeoutMs: 1200 },
+    { command: 'activate-target:example-card-1', commandId: 'open first example card', label: 'open first example card', queueId: 'open-close-cycle', sequence: 3, waitForMilestone: 'card_opened', waitMs: 300, waitTimeoutMs: 1500 },
+    { command: 'activate-target:close-card', commandId: 'close example card', label: 'close example card', queueId: 'open-close-cycle', sequence: 4, waitForMilestone: 'card_dismissed', waitMs: 300, waitTimeoutMs: 1200 },
   ]);
 });
 

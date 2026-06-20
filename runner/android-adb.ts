@@ -148,6 +148,26 @@ type AndroidAppLifecycleScan = {
 };
 
 const ANDROID_DEVICE_EPOCH_MS_PLACEHOLDER = '__ASL_ANDROID_DEVICE_EPOCH_MS__';
+
+/**
+ * Replaces Android device-clock placeholders in JSON payload strings.
+ *
+ * @param {string} value
+ * @param {number} epochMs
+ * @returns {string}
+ */
+function resolveAndroidDeviceEpochPlaceholders(value: string, epochMs: number): string {
+  return value
+    .replace(
+      new RegExp(`"${ANDROID_DEVICE_EPOCH_MS_PLACEHOLDER.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')}\\+(\\d+)"`, 'gu'),
+      (_match: string, offset: string) => String(epochMs + Number(offset)),
+    )
+    .replace(
+      new RegExp(`"${ANDROID_DEVICE_EPOCH_MS_PLACEHOLDER.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')}"`, 'gu'),
+      String(epochMs),
+    )
+    .replaceAll(ANDROID_DEVICE_EPOCH_MS_PLACEHOLDER, String(epochMs));
+}
 const ANDROID_READY_LOG_POLL_MS = 1000;
 
 /**
@@ -1486,6 +1506,8 @@ async function runAndroidAdbPreflight({
       }
     }
 
+    let startupReady = true;
+
     for (const [index, deepLink] of startupDeepLinks.entries()) {
       const rawFileName = `adb-startup-deep-link-${index + 1}.txt`;
       const deepLinkResult = await driver.openDeepLink({
@@ -1494,6 +1516,9 @@ async function runAndroidAdbPreflight({
         url: deepLink.url,
       });
       const deepLinkOpened = deepLinkResult.exitCode === 0;
+      if (!deepLinkOpened) {
+        startupReady = false;
+      }
       raw[deepLinkResult.rawFileName] = formatAndroidAdbRawOutput(deepLinkResult);
       checks.push({
         name: 'android_startup_deep_link_opened',
@@ -1535,6 +1560,9 @@ async function runAndroidAdbPreflight({
           timeoutMs: deepLink.readyLogTimeoutMs ?? 60000,
           wait,
         });
+        if (!readyLog.ready) {
+          startupReady = false;
+        }
         raw[rawFileName] = formatAndroidAdbRawOutput(readyLog.result);
         checks.push({
           name: 'android_startup_deep_link_ready',
@@ -1558,8 +1586,37 @@ async function runAndroidAdbPreflight({
       }
     }
 
+    if (!startupReady && (storageWrites.length > 0 || deepLinks.length > 0)) {
+      checks.push({
+        name: 'android_startup_ready_for_control',
+        status: 'failed',
+        source: 'runner',
+        code: 'android_startup_not_ready_for_control',
+        message: 'Android startup readiness failed before profile-session control was delivered.',
+        metadata: nextActionHint(
+          'verify_android_startup_readiness',
+          'Inspect startup deep-link and ready-log artifacts, confirm the app loaded the expected bundle, then rerun before delivering profile-session storage or command deep links.',
+        ),
+      });
+    }
+
     for (const [index, write] of storageWrites.entries()) {
       const rawFileName = `adb-async-storage-write-${index + 1}.txt`;
+      if (!startupReady) {
+        checks.push({
+          name: 'android_async_storage_written',
+          status: 'failed',
+          source: 'runner',
+          code: 'android_async_storage_skipped_startup_not_ready',
+          message: `Skipped Android AsyncStorage value ${write.label ?? index + 1} because startup readiness failed.`,
+          metadata: nextActionHint(
+            'verify_android_startup_readiness',
+            'Rerun after Android startup readiness passes; ASL will not write profile-session storage into an app that has not proven bundle readiness.',
+          ),
+        });
+        continue;
+      }
+
       if (!packageName) {
         checks.push({
           name: 'android_async_storage_written',
@@ -1607,7 +1664,7 @@ async function runAndroidAdbPreflight({
 
         resolvedWrite = {
           ...write,
-          value: write.value.replaceAll(ANDROID_DEVICE_EPOCH_MS_PLACEHOLDER, String(deviceEpoch.epochMs)),
+          value: resolveAndroidDeviceEpochPlaceholders(write.value, deviceEpoch.epochMs),
         };
       }
 
@@ -1651,6 +1708,21 @@ async function runAndroidAdbPreflight({
 
     for (const [index, deepLink] of deepLinks.entries()) {
       const rawFileName = `adb-deep-link-${index + 1}.txt`;
+      if (!startupReady) {
+        checks.push({
+          name: 'android_deep_link_opened',
+          status: 'failed',
+          source: 'runner',
+          code: 'android_deep_link_skipped_startup_not_ready',
+          message: `Skipped Android deep link ${deepLink.label ?? index + 1} because startup readiness failed.`,
+          metadata: nextActionHint(
+            'verify_android_startup_readiness',
+            'Rerun after Android startup readiness passes; ASL will not deliver profile-session command deep links into an app that has not proven bundle readiness.',
+          ),
+        });
+        continue;
+      }
+
       const deepLinkResult = await driver.openDeepLink({
         packageName,
         rawFileName,

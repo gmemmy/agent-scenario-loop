@@ -46,6 +46,7 @@ const PROFILE_SESSION_CAPTURE_BOOTSTRAP_MS = 1000;
 const PROFILE_SESSION_CAPTURE_MAX_MS = 120000;
 const DEFAULT_ANDROID_PROFILE_SESSION_STORAGE_KEY = 'agent-scenario-loop.profile-session.1';
 const DEFAULT_ANDROID_PROFILE_COMMAND_STORAGE_KEY = 'agent-scenario-loop.profile-commands.1';
+const DEFAULT_ANDROID_DEV_CLIENT_READY_PATTERN = 'Running "main"';
 const MANIFEST_LIFECYCLE_PHASES = new Set([
   'cold-launch',
   'warm-launch',
@@ -277,11 +278,10 @@ function buildProfileSessionStorageWrites({
   scenario: string;
   sessionStorageKey: string;
 }): AndroidAsyncStorageWrite[] {
-  const timestampBase = Date.now();
   const storedCommands = commands.map((profileCommand, index) => {
-    const timestamp = timestampBase + index + 1;
+    const timestampPlaceholder = `${ANDROID_DEVICE_EPOCH_MS_PLACEHOLDER}+${index + 1}`;
     return {
-      id: `${timestamp}-${scenario}-${profileCommand.command}`,
+      id: `${scenario}-${index + 1}-${profileCommand.command}`,
       scenario,
       runId,
       command: profileCommand.command,
@@ -290,7 +290,7 @@ function buildProfileSessionStorageWrites({
       ...(typeof profileCommand.queueId === 'string' ? { queueId: profileCommand.queueId } : {}),
       ...(typeof profileCommand.waitForMilestone === 'string' ? { waitForMilestone: profileCommand.waitForMilestone } : {}),
       ...(typeof profileCommand.waitTimeoutMs === 'number' ? { waitTimeoutMs: profileCommand.waitTimeoutMs } : {}),
-      timestamp,
+      timestamp: timestampPlaceholder,
     };
   });
   const commandWaitMsTotal = commands.reduce((total, profileCommand) => (
@@ -464,19 +464,143 @@ function resolveExecutionPlanProfileCommands(scenario: Record<string, any>): And
       waitMs: readStepWaitMs(step),
       ...(nextStep?.portMethod === 'waitForTruthEvent' && typeof nextStep.milestone === 'string'
         ? {
-            waitForMilestone: nextStep.milestone,
+            waitForMilestone: resolveMilestoneEventName(scenario, nextStep.milestone),
             waitTimeoutMs: readPositiveInteger(nextStep.timeoutMs, 0),
           }
         : {}),
     });
   }
 
-  return Array.from({ length: repeat }).flatMap((_, iteration) =>
-    commands.map((command, commandIndex) => ({
+  return expandProfileCommandCycles(scenario, commands, repeat);
+}
+
+/**
+ * Returns true when a command is part of the setup prefix that establishes app readiness before repeated cycle work.
+ *
+ * @param {Record<string, unknown>} scenario
+ * @param {AndroidAdbProfileCommand} command
+ * @returns {boolean}
+ */
+function isReadinessSetupProfileCommand(
+  scenario: Record<string, any>,
+  command: AndroidAdbProfileCommand,
+): boolean {
+  if (typeof command.waitForMilestone !== 'string') {
+    return false;
+  }
+
+  const readyEvent = resolveScenarioReadinessEvent(scenario);
+  return typeof readyEvent === 'string' && command.waitForMilestone === readyEvent;
+}
+
+/**
+ * Expands commands so setup/readiness commands execute once while cycle-body commands repeat.
+ *
+ * @param {Record<string, unknown>} scenario
+ * @param {AndroidAdbProfileCommand[]} commands
+ * @param {number} repeat
+ * @returns {AndroidAdbProfileCommand[]}
+ */
+function expandProfileCommandCycles(
+  scenario: Record<string, any>,
+  commands: AndroidAdbProfileCommand[],
+  repeat: number,
+): AndroidAdbProfileCommand[] {
+  let setupCommandCount = 0;
+  for (const command of commands) {
+    if (!isReadinessSetupProfileCommand(scenario, command)) {
+      break;
+    }
+    setupCommandCount += 1;
+  }
+
+  const setupCommands = commands.slice(0, setupCommandCount);
+  const cycleCommands = commands.slice(setupCommandCount);
+  const expandedCommands = cycleCommands.length === 0
+    ? setupCommands
+    : [
+        ...setupCommands,
+        ...Array.from({ length: repeat }).flatMap(() => cycleCommands),
+      ];
+
+  return expandedCommands.map((command, index) => ({
+    ...command,
+    sequence: index + 1,
+  }));
+}
+
+/**
+ * Resolves a portable milestone id to the app truth event that releases command sequencing.
+ *
+ * @param {Record<string, unknown>} scenario
+ * @param {string} milestone
+ * @returns {string}
+ */
+function resolveMilestoneEventName(scenario: Record<string, any>, milestone: string): string {
+  const milestoneEntry = Array.isArray(scenario.milestones)
+    ? scenario.milestones.find((entry: Record<string, unknown>) => entry?.id === milestone)
+    : undefined;
+  if (typeof milestoneEntry?.event === 'string' && milestoneEntry.event.length > 0) {
+    return milestoneEntry.event;
+  }
+
+  const metricEvent = scenario.metricEvents?.[milestone];
+  return typeof metricEvent === 'string' && metricEvent.length > 0 ? metricEvent : milestone;
+}
+
+/**
+ * Resolves the scenario truth event that represents initial app readiness.
+ *
+ * @param {Record<string, unknown>} scenario
+ * @returns {string | null}
+ */
+function resolveScenarioReadinessEvent(scenario: Record<string, any>): string | null {
+  const explicitReadyEvent = scenario.truthEvents?.ready?.event;
+  if (typeof explicitReadyEvent === 'string' && explicitReadyEvent.length > 0) {
+    return explicitReadyEvent;
+  }
+
+  const milestoneEntry = Array.isArray(scenario.milestones)
+    ? scenario.milestones.find((entry: Record<string, unknown>) => (
+        String(entry?.event ?? '').includes('ready')
+      ))
+    : undefined;
+
+  return typeof milestoneEntry?.event === 'string' && milestoneEntry.event.length > 0
+    ? milestoneEntry.event
+    : null;
+}
+
+/**
+ * Applies wait gates from the normalized execution plan to platform-declared commands.
+ *
+ * @param {Record<string, unknown>} scenario
+ * @param {AndroidAdbProfileCommand[]} commands
+ * @returns {AndroidAdbProfileCommand[]}
+ */
+function applyExecutionPlanCommandGates(
+  scenario: Record<string, any>,
+  commands: AndroidAdbProfileCommand[],
+): AndroidAdbProfileCommand[] {
+  const planCommands = resolveExecutionPlanProfileCommands(scenario);
+  if (planCommands.length === 0) {
+    return commands;
+  }
+
+  return commands.map((command, index) => {
+    const planCommand = planCommands[index];
+    if (!planCommand || typeof planCommand.waitForMilestone !== 'string' || typeof command.waitForMilestone === 'string') {
+      return command;
+    }
+
+    return {
       ...command,
-      sequence: (iteration * commands.length) + commandIndex + 1,
-    })),
-  );
+      waitForMilestone: planCommand.waitForMilestone,
+      ...(typeof command.waitTimeoutMs === 'number'
+        ? {}
+        : { waitTimeoutMs: readPositiveInteger(planCommand.waitTimeoutMs, 0) }),
+    };
+  });
 }
 
 /**
@@ -624,7 +748,7 @@ function resolveAndroidAdbProfileCommands(scenario: Record<string, any>): Androi
     }
   }
 
-  return commands;
+  return applyExecutionPlanCommandGates(scenario, commands);
 }
 
 /**
@@ -744,10 +868,14 @@ async function runProfileAndroid(
     ]),
     1000,
   );
-  const androidDevClientReadyPattern = readStringArgOrEnv(args['android-dev-client-ready-pattern'], [
+  const configuredAndroidDevClientReadyPattern = readStringArgOrEnv(args['android-dev-client-ready-pattern'], [
     'ASL_ANDROID_DEV_CLIENT_READY_PATTERN',
     'ASL_EXAMPLE_ANDROID_DEV_CLIENT_READY_PATTERN',
   ]);
+  const androidDevClientReadyPattern = configuredAndroidDevClientReadyPattern
+    ?? (androidDevClientUrl && profileSessionEnabled && profileSessionStorageEnabled
+      ? DEFAULT_ANDROID_DEV_CLIENT_READY_PATTERN
+      : undefined);
   const androidDevClientReadyQuietMs = parsePositiveInteger(
     readStringArgOrEnv(args['android-dev-client-ready-quiet-ms'], [
       'ASL_ANDROID_DEV_CLIENT_READY_QUIET_MS',

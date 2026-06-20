@@ -699,6 +699,10 @@ function escapeRegExp(value: string): string {
  * @returns {boolean}
  */
 function hasNamedExport(source: string, exportName: string): boolean {
+  if (/^\s*export\s+\*\s+from\s+['"][^'"]*agent-scenario-loop\/app\/profile-session['"]\s*;?/mu.test(source)) {
+    return true;
+  }
+
   const escapedName = escapeRegExp(exportName);
   const directExport = new RegExp(
     `^\\s*export\\s+(?:async\\s+)?(?:function|const|let|var)\\s+${escapedName}\\b`,

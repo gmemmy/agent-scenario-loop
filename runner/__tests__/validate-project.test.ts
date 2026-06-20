@@ -625,6 +625,24 @@ test('validates app profile-session helper exports', async (t: TestContext) => {
   helper = validateAppHelper(targetDir);
   assert.equal(helper.status, 'present');
   assert.deepEqual(helper.missingExports, []);
+
+  await fsp.writeFile(
+    helperPath,
+    "export * from 'agent-scenario-loop/app/profile-session';\n",
+    'utf8',
+  );
+  helper = validateAppHelper(targetDir);
+  assert.equal(helper.status, 'present');
+  assert.deepEqual(helper.missingExports, []);
+
+  await fsp.writeFile(
+    helperPath,
+    "export * from '../../node_modules/agent-scenario-loop/app/profile-session';\n",
+    'utf8',
+  );
+  helper = validateAppHelper(targetDir);
+  assert.equal(helper.status, 'present');
+  assert.deepEqual(helper.missingExports, []);
 });
 
 test('validates generated package-script snippets', async (t: TestContext) => {

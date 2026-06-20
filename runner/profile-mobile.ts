@@ -838,19 +838,90 @@ function toPortablePathReference(targetPath: string): string {
 /**
  * Builds scenario health from profile metrics.
  *
- * @param {{scenario: Record<string, unknown>, runId: string, metrics: Record<string, unknown>}} options
+ * @param {{scenario: Record<string, unknown>, runId: string, metrics: Record<string, unknown>, profileEventCount?: number, profileSessionEntryCount?: number, commandTransport?: string, sessionEntries?: Record<string, unknown>[]}} options
  * @returns {Record<string, unknown>}
  */
 function buildProfileHealth({
   scenario,
   runId,
   metrics,
+  profileEventCount,
+  profileSessionEntryCount,
+  commandTransport,
+  sessionEntries = [],
 }: {
   scenario: Record<string, any>;
   runId: string;
   metrics: Record<string, any>;
+  profileEventCount?: number;
+  profileSessionEntryCount?: number;
+  commandTransport?: string;
+  sessionEntries?: Record<string, any>[];
 }): Record<string, unknown> {
   const passed = metrics.status === 'passed';
+  const metadata: Record<string, string | number | boolean | null> = {
+    failures: typeof metrics.failures === 'number' ? metrics.failures : null,
+    timeouts: typeof metrics.timeouts === 'number' ? metrics.timeouts : null,
+  };
+  if (typeof profileEventCount === 'number') {
+    metadata.profileEventCount = profileEventCount;
+  }
+  if (typeof profileSessionEntryCount === 'number') {
+    metadata.profileSessionEntryCount = profileSessionEntryCount;
+  }
+  if (typeof commandTransport === 'string' && commandTransport.length > 0) {
+    metadata.commandTransport = commandTransport;
+  }
+  if (
+    !passed &&
+    profileEventCount === 0 &&
+    profileSessionEntryCount === 0 &&
+    typeof commandTransport === 'string' &&
+    commandTransport.startsWith('profile-session')
+  ) {
+    metadata.nextActionCode = 'verify_profile_session_bootstrap';
+    metadata.nextAction =
+      'Verify the app loaded the expected bundle, mounted the profile-session bootstrap near the app root, and uses the configured storage keys or deep-link scheme before treating this as a product failure.';
+  }
+  const skippedCommands = sessionEntries.filter((entry) => (
+    entry?.kind === 'command' && entry.status === 'skipped'
+  ));
+  const firstSkippedCommand = skippedCommands[0] as Record<string, any> | undefined;
+  const firstSkippedReason = typeof firstSkippedCommand?.reason === 'string'
+    ? firstSkippedCommand.reason
+    : undefined;
+  const commandFailureCode = firstSkippedReason === 'wait-for-milestone-timeout'
+    ? 'profile_command_gate_timeout'
+    : 'profile_command_skipped';
+  const commandFailureMessage = firstSkippedReason === 'wait-for-milestone-timeout'
+    ? 'One or more profile-session commands waited for a milestone that was not observed before timeout.'
+    : 'One or more profile-session commands were skipped before the scenario completed.';
+  const commandChecks = skippedCommands.length > 0
+    ? [
+        {
+          name: 'profile_command_sequence',
+          status: 'failed',
+          source: 'runner',
+          code: commandFailureCode,
+          message: commandFailureMessage,
+          metadata: {
+            skippedCommandCount: skippedCommands.length,
+            ...(typeof firstSkippedCommand?.command === 'string' ? { command: firstSkippedCommand.command } : {}),
+            ...(typeof firstSkippedCommand?.commandId === 'string' ? { commandId: firstSkippedCommand.commandId } : {}),
+            ...(typeof firstSkippedCommand?.queueId === 'string' ? { queueId: firstSkippedCommand.queueId } : {}),
+            ...(typeof firstSkippedCommand?.reason === 'string' ? { reason: firstSkippedCommand.reason } : {}),
+            ...(typeof firstSkippedCommand?.sequence === 'number' ? { sequence: firstSkippedCommand.sequence } : {}),
+            ...(typeof firstSkippedCommand?.waitForMilestone === 'string'
+              ? { waitForMilestone: firstSkippedCommand.waitForMilestone }
+              : {}),
+            ...(typeof firstSkippedCommand?.waitTimeoutMs === 'number'
+              ? { waitTimeoutMs: firstSkippedCommand.waitTimeoutMs }
+              : {}),
+          },
+        },
+      ]
+    : [];
+
   return assertValidJson(
     {
       schemaVersion: '1.0.0',
@@ -867,11 +938,9 @@ function buildProfileHealth({
           message: passed
             ? 'Profile events completed every expected iteration.'
             : 'Profile events did not complete every expected iteration.',
-          metadata: {
-            failures: typeof metrics.failures === 'number' ? metrics.failures : null,
-            timeouts: typeof metrics.timeouts === 'number' ? metrics.timeouts : null,
-          },
+          metadata,
         },
+        ...commandChecks,
       ],
     },
     SCHEMAS.health,
@@ -1435,6 +1504,31 @@ function findMilestoneEvent(scenario: Record<string, unknown>, milestoneId: unkn
 }
 
 /**
+ * Returns true when a milestone represents one-time scenario readiness rather than a repeated cycle edge.
+ *
+ * @param {Record<string, unknown>} scenario
+ * @param {unknown} milestoneId
+ * @param {string | null} milestoneEvent
+ * @returns {boolean}
+ */
+function isReadinessMilestone(
+  scenario: Record<string, unknown>,
+  milestoneId: unknown,
+  milestoneEvent: string | null,
+): boolean {
+  const readyEvent = isRecord(scenario.truthEvents) && isRecord(scenario.truthEvents.ready)
+    ? scenario.truthEvents.ready.event
+    : undefined;
+  if (typeof readyEvent === 'string' && milestoneEvent === readyEvent) {
+    return true;
+  }
+
+  const id = typeof milestoneId === 'string' ? milestoneId.toLowerCase() : '';
+  const event = typeof milestoneEvent === 'string' ? milestoneEvent.toLowerCase() : '';
+  return id.includes('ready') || event.includes('ready');
+}
+
+/**
  * Builds a milestone-id to event-name lookup for schema-era scenarios.
  *
  * @param {Record<string, unknown>} scenario
@@ -1493,6 +1587,11 @@ function resolveProfileMetricEvents(scenario: Record<string, unknown>): Record<s
     const fromEvent = findMilestoneEvent(scenario, budget.fromMilestone);
     const toEvent = findMilestoneEvent(scenario, budget.toMilestone);
     if (!fromEvent && toEvent) {
+      return {
+        milestone: toEvent,
+      };
+    }
+    if (fromEvent && toEvent && isReadinessMilestone(scenario, budget.fromMilestone, fromEvent)) {
       return {
         milestone: toEvent,
       };
@@ -1865,6 +1964,7 @@ async function runProfileMobile(args: CliArgs, options: ProfileMobileOptions): P
     evidenceAttachments: buildEvidenceAttachmentManifest(attachedEvidence.attachments),
   };
   const appId = resolveAppId({ config, platform: options.platform });
+  const commandTransport = resolveCommandTransport({ args, interactionDriver, options });
   const provenanceCohort = buildProfileProvenanceCohort({
     appId,
     args,
@@ -1930,7 +2030,15 @@ async function runProfileMobile(args: CliArgs, options: ProfileMobileOptions): P
     budgetEvaluation: metrics.budgetEvaluation ?? null,
   });
 
-  const health = buildProfileHealth({ scenario: profileScenario, runId, metrics });
+  const health = buildProfileHealth({
+    scenario: profileScenario,
+    runId,
+    metrics,
+    profileEventCount: events.length,
+    profileSessionEntryCount: sessionEntries.length,
+    commandTransport,
+    sessionEntries,
+  });
   const verdict = buildProfileVerdict({ scenario: profileScenario, runId, health, metrics });
   const agentSummary = buildAgentSummaryMarkdown({ health, verdict, manifest });
   const summary = buildSummaryMarkdown({ manifest, metrics });

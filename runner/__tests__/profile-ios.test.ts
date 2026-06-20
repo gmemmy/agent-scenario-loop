@@ -757,7 +757,48 @@ test('profile-ios seeds iOS scenario commands through app storage', async (t: Te
           waitTimeoutMs: 1500,
         },
         {
-          atMs: 2050,
+          atMs: 2020,
+          command: 'activate-target:example-card-1',
+          commandId: 'open-card',
+          kind: 'command',
+          queueId: 'open-close-cycle',
+          runId: 'ios-live-open-close',
+          scenario: 'open-close-cycle',
+          sequence: 3,
+          source: 'storage',
+          status: 'received',
+          waitForMilestone: 'card_opened',
+          waitTimeoutMs: 1500,
+        },
+        {
+          atMs: 2055,
+          command: 'activate-target:example-card-1',
+          commandId: 'open-card',
+          kind: 'command',
+          queueId: 'open-close-cycle',
+          result: 'target-dispatched',
+          runId: 'ios-live-open-close',
+          scenario: 'open-close-cycle',
+          sequence: 3,
+          source: 'storage',
+          status: 'completed',
+          waitForMilestone: 'card_opened',
+          waitTimeoutMs: 1500,
+        },
+        {
+          atMs: 2810,
+          command: 'activate-target:close-card',
+          commandId: 'close-card',
+          kind: 'command',
+          queueId: 'open-close-cycle',
+          runId: 'ios-live-open-close',
+          scenario: 'open-close-cycle',
+          sequence: 4,
+          source: 'storage',
+          status: 'received',
+        },
+        {
+          atMs: 2845,
           command: 'activate-target:close-card',
           commandId: 'close-card',
           kind: 'command',
@@ -765,7 +806,32 @@ test('profile-ios seeds iOS scenario commands through app storage', async (t: Te
           result: 'target-dispatched',
           runId: 'ios-live-open-close',
           scenario: 'open-close-cycle',
-          sequence: 6,
+          sequence: 4,
+          source: 'storage',
+          status: 'completed',
+        },
+        {
+          atMs: 760,
+          command: 'activate-target:close-card',
+          commandId: 'close-card',
+          kind: 'command',
+          queueId: 'open-close-cycle',
+          runId: 'ios-live-open-close',
+          scenario: 'open-close-cycle',
+          sequence: 2,
+          source: 'storage',
+          status: 'received',
+        },
+        {
+          atMs: 795,
+          command: 'activate-target:close-card',
+          commandId: 'close-card',
+          kind: 'command',
+          queueId: 'open-close-cycle',
+          result: 'target-dispatched',
+          runId: 'ios-live-open-close',
+          scenario: 'open-close-cycle',
+          sequence: 2,
           source: 'storage',
           status: 'completed',
         },
@@ -791,6 +857,52 @@ test('profile-ios seeds iOS scenario commands through app storage', async (t: Te
 
   assert.equal(health.healthStatus, 'passed');
   assert.equal((seed.commands as unknown[]).length, 6);
+  const sequencingEvidence = causalRun.timeline
+    .filter((event: Record<string, any>) => (
+      (event.owner === 'asl-command-transport'
+        && ['open-card', 'close-card'].includes(event.metadata?.commandId)
+        && [1, 2, 3, 4].includes(event.metadata?.sequence))
+      || (event.name === 'card_opened' && [1, 2].includes(event.metadata?.iteration))
+    ))
+    .map((event: Record<string, any>) => ({
+      atMs: event.atMs,
+      commandId: event.metadata.commandId,
+      name: event.name,
+      sequence: event.metadata.sequence,
+    }));
+  assert.deepEqual(sequencingEvidence, [
+    { atMs: 40, commandId: 'open-card', name: 'profile_command_received', sequence: 1 },
+    { atMs: 75, commandId: 'open-card', name: 'profile_command_completed', sequence: 1 },
+    { atMs: 380, commandId: undefined, name: 'card_opened', sequence: undefined },
+    { atMs: 760, commandId: 'close-card', name: 'profile_command_received', sequence: 2 },
+    { atMs: 795, commandId: 'close-card', name: 'profile_command_completed', sequence: 2 },
+    { atMs: 2020, commandId: 'open-card', name: 'profile_command_received', sequence: 3 },
+    { atMs: 2055, commandId: 'open-card', name: 'profile_command_completed', sequence: 3 },
+    { atMs: 2410, commandId: undefined, name: 'card_opened', sequence: undefined },
+    { atMs: 2810, commandId: 'close-card', name: 'profile_command_received', sequence: 4 },
+    { atMs: 2845, commandId: 'close-card', name: 'profile_command_completed', sequence: 4 },
+  ]);
+  const firstCardOpened = causalRun.timeline.find((event: Record<string, any>) => (
+    event.name === 'card_opened' && event.metadata?.iteration === 1
+  ));
+  const secondCardOpened = causalRun.timeline.find((event: Record<string, any>) => (
+    event.name === 'card_opened' && event.metadata?.iteration === 2
+  ));
+  const frontLoadedCloseReceived = causalRun.timeline.find((event: Record<string, any>) => (
+    event.owner === 'asl-command-transport'
+    && event.name === 'profile_command_received'
+    && event.metadata?.commandId === 'close-card'
+    && event.atMs < firstCardOpened.atMs
+  ));
+  assert.equal(frontLoadedCloseReceived, undefined);
+  const frontLoadedSecondCloseReceived = causalRun.timeline.find((event: Record<string, any>) => (
+    event.owner === 'asl-command-transport'
+    && event.name === 'profile_command_received'
+    && event.metadata?.commandId === 'close-card'
+    && event.metadata?.sequence === 4
+    && event.atMs < secondCardOpened.atMs
+  ));
+  assert.equal(frontLoadedSecondCloseReceived, undefined);
   assert.deepEqual(causalRun.timeline
     .filter((event: Record<string, any>) => event.owner === 'asl-command-transport')
     .map((event: Record<string, any>) => ({
@@ -819,8 +931,48 @@ test('profile-ios seeds iOS scenario commands through app storage', async (t: Te
     },
     {
       commandId: 'close-card',
+      name: 'profile_command_received',
+      sequence: 2,
+      status: 'started',
+      waitForMilestone: undefined,
+      waitTimeoutMs: undefined,
+    },
+    {
+      commandId: 'close-card',
       name: 'profile_command_completed',
-      sequence: 6,
+      sequence: 2,
+      status: 'completed',
+      waitForMilestone: undefined,
+      waitTimeoutMs: undefined,
+    },
+    {
+      commandId: 'open-card',
+      name: 'profile_command_received',
+      sequence: 3,
+      status: 'started',
+      waitForMilestone: 'card_opened',
+      waitTimeoutMs: 1500,
+    },
+    {
+      commandId: 'open-card',
+      name: 'profile_command_completed',
+      sequence: 3,
+      status: 'completed',
+      waitForMilestone: 'card_opened',
+      waitTimeoutMs: 1500,
+    },
+    {
+      commandId: 'close-card',
+      name: 'profile_command_received',
+      sequence: 4,
+      status: 'started',
+      waitForMilestone: undefined,
+      waitTimeoutMs: undefined,
+    },
+    {
+      commandId: 'close-card',
+      name: 'profile_command_completed',
+      sequence: 4,
       status: 'completed',
       waitForMilestone: undefined,
       waitTimeoutMs: undefined,
@@ -973,6 +1125,14 @@ test('profile-ios writes failed health instead of crashing when simctl capture h
   const manifest = readJson(path.join(result.runDir, 'manifest.json'));
 
   assert.equal(health.healthStatus, 'failed');
+  assert.equal(health.checks[0].metadata.profileEventCount, 0);
+  assert.equal(health.checks[0].metadata.profileSessionEntryCount, 0);
+  assert.equal(health.checks[0].metadata.commandTransport, 'profile-session-deeplink');
+  assert.equal(health.checks[0].metadata.nextActionCode, 'verify_profile_session_bootstrap');
+  assert.match(
+    health.checks[0].metadata.nextAction,
+    /loaded the expected bundle/,
+  );
   assert.equal(verdict.verdictStatus, 'inconclusive');
   assert.deepEqual(causalRun.timeline, []);
   assert.equal(manifest.attempt.status, 'failed');
@@ -1064,5 +1224,85 @@ test('profile-ios derives simctl commands from scenario adapter metadata', () =>
     { command: 'activate-target:close-card', commandId: 'close-card', label: 'close-card', queueId: 'open-close-cycle', sequence: 2, waitMs: 225 },
     { command: 'activate-target:example-card-1', commandId: 'open-card', label: 'open-card', queueId: 'open-close-cycle', sequence: 3, waitForMilestone: 'card_opened', waitMs: 125, waitTimeoutMs: 1500 },
     { command: 'activate-target:close-card', commandId: 'close-card', label: 'close-card', queueId: 'open-close-cycle', sequence: 4, waitMs: 225 },
+  ]);
+});
+
+test('profile-ios runs readiness setup commands once before repeated cycle commands', () => {
+  const scenario = {
+    id: 'ready-scroll-cycle',
+    defaultIterations: 3,
+    truthEvents: {
+      ready: { event: 'surface_ready' },
+    },
+    milestones: [
+      { id: 'ready', event: 'surface_ready', phase: 'render' },
+      { id: 'settled', event: 'surface_settled', phase: 'completion' },
+    ],
+    steps: [
+      { id: 'reset-surface', kind: 'command', command: 'reset-surface' },
+      { id: 'wait-ready', kind: 'waitForMilestone', milestone: 'ready', timeoutMs: 120000 },
+      { id: 'scroll-surface', kind: 'command', command: 'scroll-by:600' },
+      { id: 'wait-settled', kind: 'waitForMilestone', milestone: 'settled', timeoutMs: 8000 },
+    ],
+  };
+
+  assert.deepEqual(resolveIosSimctlProfileCommands(scenario), [
+    { command: 'reset-surface', commandId: 'reset-surface', label: 'reset-surface', queueId: 'ready-scroll-cycle', sequence: 1, waitForMilestone: 'surface_ready', waitMs: 0, waitTimeoutMs: 120000 },
+    { command: 'scroll-by:600', commandId: 'scroll-surface', label: 'scroll-surface', queueId: 'ready-scroll-cycle', sequence: 2, waitForMilestone: 'surface_settled', waitMs: 0, waitTimeoutMs: 8000 },
+    { command: 'scroll-by:600', commandId: 'scroll-surface', label: 'scroll-surface', queueId: 'ready-scroll-cycle', sequence: 3, waitForMilestone: 'surface_settled', waitMs: 0, waitTimeoutMs: 8000 },
+    { command: 'scroll-by:600', commandId: 'scroll-surface', label: 'scroll-surface', queueId: 'ready-scroll-cycle', sequence: 4, waitForMilestone: 'surface_settled', waitMs: 0, waitTimeoutMs: 8000 },
+  ]);
+});
+
+test('profile-ios applies execution-plan wait gates to simctl adapter commands', () => {
+  const scenario = readJson(fixturePath('examples/mobile-app/scenarios/ios/open-close-cycle.json'));
+  scenario.defaultIterations = 2;
+  scenario.adapterOptions.iosSimctl.repeat = 2;
+  scenario.adapterOptions.iosSimctl.commands = [
+    {
+      command: 'activate-target:example-card-1',
+      label: 'open first example card',
+      waitMs: 300,
+    },
+    {
+      command: 'activate-target:close-card',
+      label: 'close example card',
+      waitMs: 300,
+    },
+  ];
+  scenario.milestones = [
+    { id: 'ready', event: 'card_opened' },
+    { id: 'dismissed', event: 'card_dismissed' },
+  ];
+  scenario.steps = [
+    {
+      id: 'open-card',
+      kind: 'command',
+      command: 'activate-target:example-card-1',
+    },
+    {
+      id: 'wait-opened',
+      kind: 'waitForMilestone',
+      milestone: 'ready',
+      timeoutMs: 1500,
+    },
+    {
+      id: 'close-card',
+      kind: 'command',
+      command: 'activate-target:close-card',
+    },
+    {
+      id: 'wait-dismissed',
+      kind: 'waitForMilestone',
+      milestone: 'dismissed',
+      timeoutMs: 1200,
+    },
+  ];
+
+  assert.deepEqual(resolveIosSimctlProfileCommands(scenario), [
+    { command: 'activate-target:example-card-1', commandId: 'open first example card', label: 'open first example card', queueId: 'open-close-cycle', sequence: 1, waitForMilestone: 'card_opened', waitMs: 300, waitTimeoutMs: 1500 },
+    { command: 'activate-target:close-card', commandId: 'close example card', label: 'close example card', queueId: 'open-close-cycle', sequence: 2, waitForMilestone: 'card_dismissed', waitMs: 300, waitTimeoutMs: 1200 },
+    { command: 'activate-target:example-card-1', commandId: 'open first example card', label: 'open first example card', queueId: 'open-close-cycle', sequence: 3, waitForMilestone: 'card_opened', waitMs: 300, waitTimeoutMs: 1500 },
+    { command: 'activate-target:close-card', commandId: 'close example card', label: 'close example card', queueId: 'open-close-cycle', sequence: 4, waitForMilestone: 'card_dismissed', waitMs: 300, waitTimeoutMs: 1200 },
   ]);
 });

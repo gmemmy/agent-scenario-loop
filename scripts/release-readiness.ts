@@ -34,6 +34,12 @@ const REQUIRED_EXPORTS: Record<string, string | Record<string, string>> = {
     import: './dist/index.js',
     default: './dist/index.js',
   },
+  './app/profile-session': {
+    require: './app/profile-session.ts',
+    types: './app/profile-session.ts',
+    import: './app/profile-session.ts',
+    default: './app/profile-session.ts',
+  },
   './examples/*': './examples/*',
   './package.json': './package.json',
   './runner/agent-device': {
@@ -186,7 +192,6 @@ const REQUIRED_PACKAGE_FILES = [
 
 const REQUIRED_PACKAGE_EXCLUSIONS = [
   '!dist/**/__tests__',
-  '!dist/scripts',
   '!examples/mobile-app/.expo',
   '!examples/mobile-app/.expo/**',
   '!examples/mobile-app/android',
@@ -385,6 +390,10 @@ function assertReleaseScripts(packageJson: Record<string, unknown>): void {
   );
   assert.equal(scripts['package:smoke'], 'pnpm build && node dist/scripts/package-smoke.js');
   assert.equal(scripts['consumer:rehearse'], 'pnpm build && node dist/scripts/consumer-rehearsal.js');
+  assert.equal(
+    scripts['downstream:local-package'],
+    'pnpm build && node dist/scripts/downstream-local-package-gate.js',
+  );
   for (const scriptName of REQUIRED_STRICT_EXAMPLE_LIVE_SCRIPTS) {
     assert.match(scripts[scriptName], /--compare-latest/u, `${scriptName} must write comparison evidence by default`);
     assert.match(scripts[scriptName], /--fail-on-regression/u, `${scriptName} must fail on regressions by default`);
