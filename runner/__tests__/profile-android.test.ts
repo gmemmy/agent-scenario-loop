@@ -410,6 +410,121 @@ test('profile-android treats readiness-to-completion budgets as repeated milesto
   });
 });
 
+test('profile-android accounts for multi-command repeated milestone cycle bodies', async (t: TestContext) => {
+  const tempRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-android-multi-command-cycle-'));
+  t.after(async () => {
+    await fsp.rm(tempRoot, { recursive: true, force: true });
+  });
+  const artifactRoot = path.join(tempRoot, 'artifacts');
+  const scenarioPath = path.join(tempRoot, 'scope-switch-cycle.json');
+  const eventLogPath = path.join(tempRoot, 'scope-switch-cycle-android.log');
+  const scenario = {
+    schemaVersion: '1.0.0',
+    id: 'scope-switch-cycle',
+    flowId: 'scope-switch-cycle',
+    journey: {
+      name: 'Scope switch cycle',
+      intent: 'Switch between three feed scopes repeatedly.',
+      actor: 'app user',
+      startState: 'home',
+      endState: 'home',
+    },
+    platforms: ['android'],
+    requiredCapabilities: ['launch', 'sessionControl', 'command', 'logCapture', 'artifactWrite'],
+    truthEvents: {
+      ready: { event: 'surface_ready', required: true, timeoutMs: 120000, phase: 'render' },
+      settled: { event: 'surface_settled', required: true, timeoutMs: 8000, phase: 'completion' },
+    },
+    milestones: [
+      { id: 'ready', event: 'surface_ready', required: true, phase: 'render' },
+      { id: 'settled', event: 'surface_settled', required: true, phase: 'completion' },
+    ],
+    expectedEvents: ['surface_ready', 'surface_settled'],
+    cycles: {
+      iterations: 2,
+      warmupIterations: 0,
+      stopOnFailure: true,
+      bodyStepIds: ['switch-a', 'switch-b', 'switch-c'],
+    },
+    budgets: [
+      {
+        name: 'cycle p95',
+        source: 'milestone',
+        metric: 'p95',
+        unit: 'ms',
+        limit: 30000,
+        fromMilestone: 'ready',
+        toMilestone: 'settled',
+      },
+      {
+        name: 'failures',
+        source: 'milestone',
+        metric: 'failures',
+        unit: 'count',
+        limit: 0,
+      },
+    ],
+    steps: [
+      { id: 'wait-ready', kind: 'waitForMilestone', milestone: 'ready', timeoutMs: 120000 },
+      { id: 'switch-a', kind: 'command', command: 'switch:a' },
+      { id: 'wait-a', kind: 'waitForMilestone', milestone: 'settled', timeoutMs: 8000 },
+      { id: 'switch-b', kind: 'command', command: 'switch:b' },
+      { id: 'wait-b', kind: 'waitForMilestone', milestone: 'settled', timeoutMs: 8000 },
+      { id: 'switch-c', kind: 'command', command: 'switch:c' },
+      { id: 'wait-c', kind: 'waitForMilestone', milestone: 'settled', timeoutMs: 8000 },
+    ],
+    artifacts: { required: ['logs'], optional: [] },
+  };
+  await fsp.writeFile(scenarioPath, `${JSON.stringify(scenario, null, 2)}\n`, 'utf8');
+  await fsp.writeFile(
+    eventLogPath,
+    [
+      '2026-01-01T00:10:00.000Z public-android [profile-event] {"event":"surface_ready","scenario":"scope-switch-cycle","runId":"scope-switch-cycle-android","atMs":1000}',
+      '2026-01-01T00:10:00.200Z public-android [profile-event] {"event":"surface_settled","scenario":"scope-switch-cycle","runId":"scope-switch-cycle-android","atMs":1200}',
+      '2026-01-01T00:10:00.900Z public-android [profile-event] {"event":"surface_settled","scenario":"scope-switch-cycle","runId":"scope-switch-cycle-android","atMs":1900}',
+      '2026-01-01T00:10:01.600Z public-android [profile-event] {"event":"surface_settled","scenario":"scope-switch-cycle","runId":"scope-switch-cycle-android","atMs":2600}',
+      '2026-01-01T00:10:02.300Z public-android [profile-event] {"event":"surface_settled","scenario":"scope-switch-cycle","runId":"scope-switch-cycle-android","atMs":3300}',
+      '2026-01-01T00:10:03.000Z public-android [profile-event] {"event":"surface_settled","scenario":"scope-switch-cycle","runId":"scope-switch-cycle-android","atMs":4000}',
+      '2026-01-01T00:10:03.700Z public-android [profile-event] {"event":"surface_settled","scenario":"scope-switch-cycle","runId":"scope-switch-cycle-android","atMs":4700}',
+      '',
+    ].join('\n'),
+    'utf8',
+  );
+
+  const { stdout } = await execFileAsync(process.execPath, [
+    PROFILE_ANDROID,
+    '--config',
+    fixturePath('examples/mobile-app/asl.config.json'),
+    '--scenario',
+    scenarioPath,
+    '--events',
+    eventLogPath,
+    '--out',
+    artifactRoot,
+    '--run-id',
+    'scope-switch-cycle-android',
+  ]);
+
+  const runDir = stdout.trim();
+  const metrics = readJson(path.join(runDir, 'metrics.json')) as Record<string, any>;
+  const health = readJson(path.join(runDir, 'health.json')) as Record<string, any>;
+  const causalRun = readJson(path.join(runDir, 'causal-run.json')) as Record<string, any>;
+
+  assert.equal(metrics.status, 'passed');
+  assert.deepEqual(metrics.durationsMs, [2600, 4700]);
+  assert.equal(metrics.failures, 0);
+  assert.deepEqual(metrics.incompleteIterations, []);
+  assert.equal(health.healthStatus, 'passed');
+  assert.deepEqual(causalRun.iterationSummary, {
+    completed: 2,
+    expected: 2,
+    failed: 0,
+    incomplete: [],
+    status: 'complete',
+    timeouts: 0,
+  });
+});
+
 test('profile-android preserves app timeline vocabulary without breaking causal-run schema', async (t: TestContext) => {
   const tempRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-android-causal-vocab-'));
   t.after(async () => {

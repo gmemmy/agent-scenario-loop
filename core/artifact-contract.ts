@@ -450,7 +450,7 @@ function extractProfileSessionEntries(logText: string, filters: { runId?: string
 /**
  * Builds timing metrics from app-emitted profile events.
  *
- * @param {{scenario: string, runId: string, events: Record<string, unknown>[], expectedIterations: number, timeoutCount?: number, artifacts?: Record<string, unknown>, cycleEventNames?: Record<string, string> | null, budgets?: Record<string, unknown> | null}} options
+ * @param {{scenario: string, runId: string, events: Record<string, unknown>[], expectedIterations: number, timeoutCount?: number, artifacts?: Record<string, unknown>, cycleEventNames?: Record<string, string> | null, milestoneEventsPerIteration?: number, budgets?: Record<string, unknown> | null}} options
  * @returns {Record<string, unknown>}
  */
 function buildMetricsFromProfileEvents({
@@ -461,6 +461,7 @@ function buildMetricsFromProfileEvents({
   timeoutCount = 0,
   artifacts = {},
   cycleEventNames = null,
+  milestoneEventsPerIteration = 1,
   budgets = null,
 }: {
   scenario: string;
@@ -470,6 +471,7 @@ function buildMetricsFromProfileEvents({
   timeoutCount?: number;
   artifacts?: ArtifactRecord;
   cycleEventNames?: ArtifactRecord | null;
+  milestoneEventsPerIteration?: number;
   budgets?: ArtifactRecord | null;
 }): ArtifactRecord {
   const resolvedCycleEventNames = {
@@ -480,8 +482,15 @@ function buildMetricsFromProfileEvents({
     milestone: cycleEventNames?.milestone,
   };
   const usesMilestoneOnlyCycle = typeof resolvedCycleEventNames.milestone === 'string';
+  const requiredMilestoneEventsPerIteration =
+    usesMilestoneOnlyCycle &&
+    Number.isInteger(milestoneEventsPerIteration) &&
+    milestoneEventsPerIteration > 1
+      ? milestoneEventsPerIteration
+      : 1;
   const iterations = new Map();
   let nextImplicitMilestoneIteration = 1;
+  let nextImplicitMilestoneCount = 0;
 
   for (const event of [...events].sort((left, right) => {
     const leftAt = typeof left.atMs === 'number' ? left.atMs : Number.POSITIVE_INFINITY;
@@ -500,7 +509,11 @@ function buildMetricsFromProfileEvents({
       nextImplicitMilestoneIteration <= expectedIterations
     ) {
       eventIteration = nextImplicitMilestoneIteration;
-      nextImplicitMilestoneIteration += 1;
+      nextImplicitMilestoneCount += 1;
+      if (nextImplicitMilestoneCount >= requiredMilestoneEventsPerIteration) {
+        nextImplicitMilestoneIteration += 1;
+        nextImplicitMilestoneCount = 0;
+      }
     }
     if (eventIteration === null) {
       continue;
@@ -541,9 +554,11 @@ function buildMetricsFromProfileEvents({
       current.dismissedAt = event.atMs;
     }
     if (
-      event.event === resolvedCycleEventNames.milestone &&
-      typeof current.milestoneAt !== 'number'
+      event.event === resolvedCycleEventNames.milestone
     ) {
+      current.milestoneCount = typeof current.milestoneCount === 'number'
+        ? current.milestoneCount + 1
+        : 1;
       current.milestoneAt = event.atMs;
     }
 
@@ -579,6 +594,13 @@ function buildMetricsFromProfileEvents({
     const hasMilestoneDuration =
       usesMilestoneOnlyCycle &&
       typeof record.milestoneAt === 'number' &&
+      (
+        requiredMilestoneEventsPerIteration <= 1 ||
+        (
+          typeof record.milestoneCount === 'number' &&
+          record.milestoneCount >= requiredMilestoneEventsPerIteration
+        )
+      ) &&
       record.milestoneAt >= 0;
 
     if (hasMilestoneDuration) {
