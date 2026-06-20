@@ -301,10 +301,12 @@
           "type": ["number", "integer", "boolean"]
         },
         "fromMilestone": {
-          "type": "string"
+          "type": "string",
+          "description": "Optional start milestone for interval timing. When paired with toMilestone on a milestone timing budget, ASL measures toMilestone - fromMilestone for each iteration."
         },
         "toMilestone": {
-          "type": "string"
+          "type": "string",
+          "description": "Target milestone for milestone timing. Without fromMilestone, ASL measures elapsed time from the run or session clock origin to this milestone occurrence."
         },
         "artifact": {
           "$ref": "#/$defs/artifactKind"

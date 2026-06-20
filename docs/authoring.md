@@ -107,6 +107,30 @@ Weak truth events:
 
 Timing is not trusted unless scenario health passes. If a required truth event is missing, the run can still write artifacts, but verdicts and comparisons must remain inconclusive.
 
+### Resume Scenarios
+
+`--lifecycle-phase resume` and related runner controls assert runner-owned lifecycle setup in `manifest.environment`; they do not create product truth events. If a scenario waits for `app_resumed`, `feed_restored_after_resume`, or another resumed-state milestone, the app must emit that event from the code path that proves resumed product readiness.
+
+## Budget Intervals
+
+Milestone budgets measure the interval the scenario names. A budget with only `toMilestone` measures elapsed time from the run or session clock origin to each matching milestone occurrence. That is correct for startup and first-usable-screen budgets, but it is cumulative for repeated interactions.
+
+For transition or gesture budgets, provide both ends of the interval:
+
+```json
+{
+  "name": "surface transition p95",
+  "source": "milestone",
+  "metric": "p95",
+  "unit": "ms",
+  "limit": 300,
+  "fromMilestone": "surfaceTransitionRequested",
+  "toMilestone": "surfaceSettled"
+}
+```
+
+Use app-owned truth events for both milestones. Do not use a command-delivered event as the start point unless that command delivery is the product fact being measured.
+
 ## Steps
 
 Use steps to describe intent and required adapter actions:

@@ -945,6 +945,38 @@ test('treats milestone-only startup proof as a complete cycle', () => {
   assert.equal(metrics.budgetEvaluation.pass, true);
 });
 
+test('measures custom transition milestone pairs as interval durations', () => {
+  const metrics = buildMetricsFromProfileEvents({
+    scenario: 'custom-transition',
+    runId: 'android-live-transition',
+    expectedIterations: 2,
+    cycleEventNames: {
+      closeRequested: 'surface_settled',
+      dismissed: 'surface_settled',
+      opened: 'surface_transition_requested',
+      openRequested: 'surface_transition_requested',
+    },
+    budgets: {
+      metric: 'milestone budget',
+      pass: {
+        cycleP95Ms: 300,
+      },
+    },
+    events: [
+      { event: 'surface_transition_requested', iteration: 1, atMs: 1200 },
+      { event: 'surface_settled', iteration: 1, atMs: 1440 },
+      { event: 'surface_transition_requested', iteration: 2, atMs: 2600 },
+      { event: 'surface_settled', iteration: 2, atMs: 2870 },
+    ],
+  });
+
+  assert.equal(metrics.status, 'passed');
+  assert.deepEqual(metrics.durationsMs, [240, 270]);
+  assert.equal(metrics.p95Ms, 270);
+  assert.deepEqual(metrics.incompleteIterations, []);
+  assert.equal(metrics.budgetEvaluation.pass, true);
+});
+
 test('counts repeated milestone-only cycles without explicit iteration payloads', () => {
   const metrics = buildMetricsFromProfileEvents({
     scenario: 'home-feed-scroll-stress',
