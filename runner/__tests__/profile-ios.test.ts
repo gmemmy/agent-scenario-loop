@@ -184,9 +184,12 @@ test('profile-ios profiles public scenario ids and milestone budgets', async (t:
   assert.equal(metrics.budgetEvaluation.pass, true);
   assert.equal(health.healthStatus, 'passed');
   assert.equal(verdict.verdictStatus, 'passed');
+  assert.deepEqual(
+    verdict.budgetChecks.map((check: Record<string, unknown>) => check.name),
+    ['failures', 'journey p95'],
+  );
   assert.equal(causalRun.scenario.id, 'public-journey');
   assert.deepEqual(causalRun.budgets, {
-    cycleP95Ms: { limit: 8000, metric: 'cycleP95Ms', unit: 'ms' },
     failures: { limit: 0, metric: 'failures', unit: 'count' },
   });
 });
@@ -242,7 +245,7 @@ test('profile-ios falls back to bundled simctl driver metadata when no host driv
   assert.equal(manifest.interactionDriver, 'ios-simctl');
 });
 
-test('profile-ios maps schema-era open and close milestone budgets', async (t: TestContext) => {
+test('profile-ios reports schema-era open and close interval budgets', async (t: TestContext) => {
   const tempRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-ios-open-close-budget-'));
   t.after(async () => {
     await fsp.rm(tempRoot, { recursive: true, force: true });
@@ -333,9 +336,11 @@ test('profile-ios maps schema-era open and close milestone budgets', async (t: T
   assert.deepEqual(metrics.openDurationsMs, [110, 125]);
   assert.deepEqual(metrics.closeDurationsMs, [80, 90]);
   assert.equal(metrics.budgetEvaluation.pass, true);
+  assert.deepEqual(metrics.budgetEvaluation.checks, [
+    { actual: 125, limit: 200, name: 'open p95', pass: true, unit: 'ms' },
+    { actual: 90, limit: 120, name: 'close p95', pass: true, unit: 'ms' },
+  ]);
   assert.deepEqual(causalRun.budgets, {
-    closeP95Ms: { limit: 120, metric: 'closeP95Ms', unit: 'ms' },
-    openP95Ms: { limit: 200, metric: 'openP95Ms', unit: 'ms' },
   });
 });
 
