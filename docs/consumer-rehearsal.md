@@ -16,6 +16,32 @@ Package gates run child package-manager and CLI commands with a bounded timeout.
 ASL_PACKAGE_GATE_TIMEOUT_MS=300000 pnpm consumer:rehearse
 ```
 
+## Downstream Local-Package Gate
+
+Before publishing a release candidate, validate the packed local package inside at least one real downstream app when that app has already adopted durable ASL scenarios. This catches package, runner, schema, and helper regressions before npm distribution.
+
+From this repository, run the opt-in downstream gate with an explicit app root and explicit command arrays:
+
+```bash
+pnpm downstream:local-package -- \
+  --app-root /path/to/adopter-app \
+  --expected-branch chore/agent-scenario-loop-adoption \
+  --command-json '["pnpm","run","asl:validate"]'
+```
+
+The gate packs the current checkout, installs the tarball into the downstream app with `pnpm add`, verifies `node_modules/agent-scenario-loop/package.json` matches the local candidate version, runs the supplied commands, and restores `package.json` plus `pnpm-lock.yaml` unless `--keep-install` is passed. Generated downstream proof artifacts remain the consumer app's local ignored state.
+
+For live probes, pass direct package CLI commands as additional JSON arrays so the target scenario and artifact root are explicit:
+
+```bash
+pnpm downstream:local-package -- \
+  --app-root /path/to/adopter-app \
+  --command-json '["pnpm","run","asl:validate"]' \
+  --command-json '["node_modules/.bin/asl-profile-android","--config","asl.config.json","--scenario","scenarios/mobile/first-journey.json","--adb-capture","--profile-session","--android-profile-session-storage","--launch","--out","artifacts/asl/android","--run-id","first-journey-android-local-candidate"]'
+```
+
+Keep adopter-specific app ids, storage keys, dev-client URLs, simulator UDIDs, auth state, accounts, and scenarios in ignored local environment state or in the consuming app. ASL owns the package candidate and evidence contract; the downstream app owns product truth.
+
 ## 1. Initialize The Scaffold
 
 From the consuming app root:
@@ -81,7 +107,7 @@ asl-check-plan --scenario scenarios/mobile/first-journey.json --runner runner-ma
 asl-profile-ios --config asl.config.json --scenario scenarios/mobile/first-journey.json --simctl-capture --profile-session --profile-session-storage --launch --out artifacts/asl/ios --run-id first-journey-ios-live --comparison-lane first-journey-ios-live
 ```
 
-For Expo dev-client builds, set `ASL_ANDROID_DEV_CLIENT_URL` or `ASL_IOS_DEV_CLIENT_URL` to the app's dev-client URL in ignored local env state. Android opens it before profile-session deep links; iOS opens it before reading stored profile-session evidence. If Android bundle startup is slow, set `ASL_ANDROID_DEV_CLIENT_READY_PATTERN='Running "main"'` so profile-session links wait for app runtime readiness evidence.
+For Expo dev-client builds, set `ASL_ANDROID_DEV_CLIENT_URL` or `ASL_IOS_DEV_CLIENT_URL` to the app's dev-client URL in ignored local env state. Prefer the LAN URL advertised by Metro for physical-device validation. Use `127.0.0.1` only when the selected simulator/emulator resolves that address back to the host Metro process. Android opens the dev-client URL before profile-session control. When Android storage transport is enabled, ASL waits for `Running "main"` by default before writing profile-session storage; override `ASL_ANDROID_DEV_CLIENT_READY_PATTERN` only when the app has a better readiness marker. If startup readiness fails, ASL reports an unhealthy run and skips command delivery instead of writing into a stale native shell. iOS opens the dev-client URL before reading stored profile-session evidence.
 
 When Android deep-link delivery is unreliable in a dev-client shell, use `--android-profile-session-storage` so `asl-profile-android` seeds the app-owned AsyncStorage session through `run-as` before collecting evidence. The runner reads the selected device clock for the session start timestamp, which keeps app-emitted milestone durations meaningful. Keep custom storage key overrides local to the consuming app.
 

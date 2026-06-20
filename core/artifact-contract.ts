@@ -477,17 +477,27 @@ function buildMetricsFromProfileEvents({
   };
   const usesMilestoneOnlyCycle = typeof resolvedCycleEventNames.milestone === 'string';
   const iterations = new Map();
+  let nextImplicitMilestoneIteration = 1;
 
   for (const event of [...events].sort((left, right) => {
     const leftAt = typeof left.atMs === 'number' ? left.atMs : Number.POSITIVE_INFINITY;
     const rightAt = typeof right.atMs === 'number' ? right.atMs : Number.POSITIVE_INFINITY;
     return leftAt - rightAt;
   })) {
-    const eventIteration = typeof event.iteration === 'number'
+    let eventIteration = typeof event.iteration === 'number'
       ? event.iteration
       : expectedIterations === 1
         ? 1
         : null;
+    if (
+      eventIteration === null &&
+      usesMilestoneOnlyCycle &&
+      event.event === resolvedCycleEventNames.milestone &&
+      nextImplicitMilestoneIteration <= expectedIterations
+    ) {
+      eventIteration = nextImplicitMilestoneIteration;
+      nextImplicitMilestoneIteration += 1;
+    }
     if (eventIteration === null) {
       continue;
     }

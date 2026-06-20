@@ -159,6 +159,20 @@
         "stopOnFailure": {
           "type": "boolean",
           "default": true
+        },
+        "setupStepIds": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string"
+          }
+        },
+        "bodyStepIds": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string"
+          }
         }
       }
     },

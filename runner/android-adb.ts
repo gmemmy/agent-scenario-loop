@@ -22,6 +22,7 @@ type CliArgs = {
   adb?: string | boolean;
   'capture-logcat'?: string | boolean;
   'clear-logcat'?: string | boolean;
+  'command-timeout-ms'?: string | boolean;
   launch?: string | boolean;
   'android-dev-client-url'?: string | boolean;
   'android-dev-client-wait-ms'?: string | boolean;
@@ -53,6 +54,8 @@ type CommandResult = {
 type CommandExecutor = (command: string, args: string[]) => Promise<CommandResult>;
 type ExecFileError = Error & {
   code?: number;
+  killed?: boolean;
+  signal?: string | null;
 };
 
 type AndroidDevice = {
@@ -121,6 +124,7 @@ type AndroidPreflightOptions = {
   adbPath?: string;
   captureLogcat?: boolean;
   clearLogcat?: boolean;
+  commandTimeoutMs?: number;
   deepLinks?: AndroidDeepLinkCommand[];
   delay?: (ms: number) => Promise<void>;
   driverSteps?: AndroidAdbDriverStep[];
@@ -148,6 +152,27 @@ type AndroidAppLifecycleScan = {
 };
 
 const ANDROID_DEVICE_EPOCH_MS_PLACEHOLDER = '__ASL_ANDROID_DEVICE_EPOCH_MS__';
+const DEFAULT_ADB_COMMAND_TIMEOUT_MS = 30000;
+
+/**
+ * Replaces Android device-clock placeholders in JSON payload strings.
+ *
+ * @param {string} value
+ * @param {number} epochMs
+ * @returns {string}
+ */
+function resolveAndroidDeviceEpochPlaceholders(value: string, epochMs: number): string {
+  return value
+    .replace(
+      new RegExp(`"${ANDROID_DEVICE_EPOCH_MS_PLACEHOLDER.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')}\\+(\\d+)"`, 'gu'),
+      (_match: string, offset: string) => String(epochMs + Number(offset)),
+    )
+    .replace(
+      new RegExp(`"${ANDROID_DEVICE_EPOCH_MS_PLACEHOLDER.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')}"`, 'gu'),
+      String(epochMs),
+    )
+    .replaceAll(ANDROID_DEVICE_EPOCH_MS_PLACEHOLDER, String(epochMs));
+}
 const ANDROID_READY_LOG_POLL_MS = 1000;
 
 /**
@@ -160,6 +185,7 @@ function usage(output: { write: (message: string) => unknown } = process.stderr)
     'Usage: asl-android-adb [--adb <path>] [--serial <device>] [--package <name>] [--run-id <id>] [--out <dir>]',
     '',
     'Checks adb/device readiness and writes health.json, verdict.json, agent-summary.md, and raw adb evidence.',
+    'Use --command-timeout-ms <ms> to bound each adb invocation.',
     'Use --capture-logcat [--logcat-lines <count>] to attach a bounded adb logcat snapshot under raw/adb-logcat.txt.',
     'Use --clear-logcat --launch [--launch-wait-ms <ms>] --wait-ms <ms> with --package <name> to capture a bounded app launch window.',
     'Use --react-native-debug-host <host:port> with --package <name> to set the app debug server and adb reverse for React Native dev builds.',
@@ -230,13 +256,30 @@ function parsePositiveInteger(value: string | boolean | undefined, fallback: num
  * @returns {Promise<CommandResult>}
  */
 function execFileCommand(command: string, args: string[]): Promise<CommandResult> {
+  return execFileCommandWithTimeout(command, args);
+}
+
+/**
+ * Runs a command with a bounded timeout and captures stdout, stderr, and exit code without throwing.
+ *
+ * @param {string} command
+ * @param {string[]} args
+ * @param {number} timeoutMs
+ * @returns {Promise<CommandResult>}
+ */
+function execFileCommandWithTimeout(
+  command: string,
+  args: string[],
+  timeoutMs = DEFAULT_ADB_COMMAND_TIMEOUT_MS,
+): Promise<CommandResult> {
   return new Promise((resolve) => {
-    execFile(command, args, (error: ExecFileError | null, stdout: string, stderr: string) => {
+    execFile(command, args, { timeout: timeoutMs }, (error: ExecFileError | null, stdout: string, stderr: string) => {
+      const timedOut = Boolean(error?.killed || error?.signal === 'SIGTERM');
       resolve({
         command,
         args,
         exitCode: error && typeof error.code === 'number' ? error.code : error ? 1 : 0,
-        stderr,
+        stderr: [stderr, timedOut ? `adb command timed out after ${timeoutMs}ms.` : ''].filter(Boolean).join('\n'),
         stdout,
       });
     });
@@ -323,7 +366,8 @@ function isAdbDaemonUnavailable(result: CommandResult): boolean {
     output.includes('cannot connect to daemon') ||
     output.includes('failed to check server version') ||
     output.includes('could not install *smartsocket* listener') ||
-    output.includes('adb server didn')
+    output.includes('adb server didn') ||
+    output.includes('adb command timed out')
   );
 }
 
@@ -1103,10 +1147,11 @@ async function runAndroidAdbPreflight({
   adbPath = 'adb',
   captureLogcat = false,
   clearLogcat = false,
+  commandTimeoutMs = DEFAULT_ADB_COMMAND_TIMEOUT_MS,
   deepLinks = [],
   delay: wait = delay,
   driverSteps = [],
-  executor = execFileCommand,
+  executor = (command, args) => execFileCommandWithTimeout(command, args, commandTimeoutMs),
   launch = false,
   launchWaitMs = 0,
   logcatLines = 1000,
@@ -1180,6 +1225,7 @@ async function runAndroidAdbPreflight({
     adbPath,
     captureLogcat,
     clearLogcat,
+    commandTimeoutMs,
     deepLinks,
     devices,
     driverSteps,
@@ -1486,6 +1532,8 @@ async function runAndroidAdbPreflight({
       }
     }
 
+    let startupReady = true;
+
     for (const [index, deepLink] of startupDeepLinks.entries()) {
       const rawFileName = `adb-startup-deep-link-${index + 1}.txt`;
       const deepLinkResult = await driver.openDeepLink({
@@ -1494,6 +1542,9 @@ async function runAndroidAdbPreflight({
         url: deepLink.url,
       });
       const deepLinkOpened = deepLinkResult.exitCode === 0;
+      if (!deepLinkOpened) {
+        startupReady = false;
+      }
       raw[deepLinkResult.rawFileName] = formatAndroidAdbRawOutput(deepLinkResult);
       checks.push({
         name: 'android_startup_deep_link_opened',
@@ -1535,6 +1586,9 @@ async function runAndroidAdbPreflight({
           timeoutMs: deepLink.readyLogTimeoutMs ?? 60000,
           wait,
         });
+        if (!readyLog.ready) {
+          startupReady = false;
+        }
         raw[rawFileName] = formatAndroidAdbRawOutput(readyLog.result);
         checks.push({
           name: 'android_startup_deep_link_ready',
@@ -1558,8 +1612,37 @@ async function runAndroidAdbPreflight({
       }
     }
 
+    if (!startupReady && (storageWrites.length > 0 || deepLinks.length > 0)) {
+      checks.push({
+        name: 'android_startup_ready_for_control',
+        status: 'failed',
+        source: 'runner',
+        code: 'android_startup_not_ready_for_control',
+        message: 'Android startup readiness failed before profile-session control was delivered.',
+        metadata: nextActionHint(
+          'verify_android_startup_readiness',
+          'Inspect startup deep-link and ready-log artifacts, confirm the app loaded the expected bundle, then rerun before delivering profile-session storage or command deep links.',
+        ),
+      });
+    }
+
     for (const [index, write] of storageWrites.entries()) {
       const rawFileName = `adb-async-storage-write-${index + 1}.txt`;
+      if (!startupReady) {
+        checks.push({
+          name: 'android_async_storage_written',
+          status: 'failed',
+          source: 'runner',
+          code: 'android_async_storage_skipped_startup_not_ready',
+          message: `Skipped Android AsyncStorage value ${write.label ?? index + 1} because startup readiness failed.`,
+          metadata: nextActionHint(
+            'verify_android_startup_readiness',
+            'Rerun after Android startup readiness passes; ASL will not write profile-session storage into an app that has not proven bundle readiness.',
+          ),
+        });
+        continue;
+      }
+
       if (!packageName) {
         checks.push({
           name: 'android_async_storage_written',
@@ -1607,7 +1690,7 @@ async function runAndroidAdbPreflight({
 
         resolvedWrite = {
           ...write,
-          value: write.value.replaceAll(ANDROID_DEVICE_EPOCH_MS_PLACEHOLDER, String(deviceEpoch.epochMs)),
+          value: resolveAndroidDeviceEpochPlaceholders(write.value, deviceEpoch.epochMs),
         };
       }
 
@@ -1651,6 +1734,21 @@ async function runAndroidAdbPreflight({
 
     for (const [index, deepLink] of deepLinks.entries()) {
       const rawFileName = `adb-deep-link-${index + 1}.txt`;
+      if (!startupReady) {
+        checks.push({
+          name: 'android_deep_link_opened',
+          status: 'failed',
+          source: 'runner',
+          code: 'android_deep_link_skipped_startup_not_ready',
+          message: `Skipped Android deep link ${deepLink.label ?? index + 1} because startup readiness failed.`,
+          metadata: nextActionHint(
+            'verify_android_startup_readiness',
+            'Rerun after Android startup readiness passes; ASL will not deliver profile-session command deep links into an app that has not proven bundle readiness.',
+          ),
+        });
+        continue;
+      }
+
       const deepLinkResult = await driver.openDeepLink({
         packageName,
         rawFileName,
@@ -2027,6 +2125,7 @@ async function main(): Promise<void> {
     ...(typeof args.adb === 'string' ? { adbPath: args.adb } : {}),
     captureLogcat: args['capture-logcat'] === true || args['capture-logcat'] === 'true',
     clearLogcat: args['clear-logcat'] === true || args['clear-logcat'] === 'true',
+    commandTimeoutMs: parsePositiveInteger(args['command-timeout-ms'], DEFAULT_ADB_COMMAND_TIMEOUT_MS),
     launch: args.launch === true || args.launch === 'true',
     launchWaitMs: parsePositiveInteger(args['launch-wait-ms'], 0),
     logcatLines: parsePositiveInteger(args['logcat-lines'], 1000),
@@ -2073,6 +2172,7 @@ export {
   buildReactNativeDebugHostPreferenceCommand,
   escapeAndroidPreferenceXml,
   execFileCommand,
+  execFileCommandWithTimeout,
   main,
   parseAdbDevices,
   parseArgs,

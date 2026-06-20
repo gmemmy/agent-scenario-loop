@@ -59,6 +59,12 @@
       "require": "./dist/index.js",
       "default": "./dist/index.js"
     },
+    "./app/profile-session": {
+      "types": "./app/profile-session.ts",
+      "import": "./app/profile-session.ts",
+      "require": "./app/profile-session.ts",
+      "default": "./app/profile-session.ts"
+    },
     "./runner/android-adb": {
       "types": "./dist/runner/android-adb.d.ts",
       "import": "./dist/runner/android-adb.js",
@@ -201,7 +207,6 @@
     "core/config-template.json",
     "dist",
     "!dist/**/__tests__",
-    "!dist/scripts",
     "docs",
     "examples",
     "!examples/mobile-app/.expo",
@@ -224,6 +229,7 @@
     "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
     "prepack": "npm run clean && npm run build",
     "consumer:rehearse": "pnpm build && node dist/scripts/consumer-rehearsal.js",
+    "downstream:local-package": "pnpm build && node dist/scripts/downstream-local-package-gate.js",
     "package:smoke": "pnpm build && node dist/scripts/package-smoke.js",
     "prepublishOnly": "pnpm release:check",
     "release:check": "pnpm test && pnpm release:readiness && pnpm package:smoke && pnpm consumer:rehearse",

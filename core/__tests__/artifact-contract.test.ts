@@ -944,3 +944,36 @@ test('treats milestone-only startup proof as a complete cycle', () => {
   assert.deepEqual(metrics.incompleteIterations, []);
   assert.equal(metrics.budgetEvaluation.pass, true);
 });
+
+test('counts repeated milestone-only cycles without explicit iteration payloads', () => {
+  const metrics = buildMetricsFromProfileEvents({
+    scenario: 'home-feed-scroll-stress',
+    runId: 'android-live-scroll',
+    expectedIterations: 6,
+    cycleEventNames: {
+      milestone: 'home_feed_scroll_settled',
+    },
+    budgets: {
+      metric: 'milestone budget',
+      pass: {
+        cycleP95Ms: 1400,
+        failures: 0,
+      },
+    },
+    events: [
+      { event: 'home_feed_profile_ready', atMs: 7558 },
+      { event: 'home_feed_scroll_settled', atMs: 7939 },
+      { event: 'home_feed_scroll_settled', atMs: 8489 },
+      { event: 'home_feed_scroll_settled', atMs: 9155 },
+      { event: 'home_feed_scroll_settled', atMs: 9158 },
+      { event: 'home_feed_scroll_settled', atMs: 9458 },
+      { event: 'home_feed_scroll_settled', atMs: 9876 },
+    ],
+  });
+
+  assert.equal(metrics.status, 'passed');
+  assert.deepEqual(metrics.durationsMs, [7939, 8489, 9155, 9158, 9458, 9876]);
+  assert.deepEqual(metrics.incompleteIterations, []);
+  assert.equal(metrics.failures, 0);
+  assert.equal(metrics.budgetEvaluation.pass, false);
+});

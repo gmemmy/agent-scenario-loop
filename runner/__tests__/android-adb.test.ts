@@ -9,6 +9,7 @@ const {
   ANDROID_DEVICE_EPOCH_MS_PLACEHOLDER,
   buildReactNativeDebugHostPreferenceCommand,
   escapeAndroidPreferenceXml,
+  execFileCommandWithTimeout,
   parseAdbDevices,
   parseArgs,
   parseReactNativeDebugHostPort,
@@ -217,6 +218,7 @@ test('writes Android AsyncStorage values through package-scoped RKStorage', asyn
       key.includes('databases/RKStorage') &&
       key.includes('agent-scenario-loop.profile-session.1') &&
       key.includes('"startedAt":1800000000000') &&
+      key.includes('"timestamp":1800000000007') &&
       !key.includes(ANDROID_DEVICE_EPOCH_MS_PLACEHOLDER)
     ) {
       return { args, command, exitCode: 0, stderr: '', stdout: '' };
@@ -243,6 +245,7 @@ test('writes Android AsyncStorage values through package-scoped RKStorage', asyn
         scenario: 'app-startup',
         runId: 'android-storage',
         startedAt: ANDROID_DEVICE_EPOCH_MS_PLACEHOLDER,
+        timestamp: `${ANDROID_DEVICE_EPOCH_MS_PLACEHOLDER}+7`,
       }).replace(`"${ANDROID_DEVICE_EPOCH_MS_PLACEHOLDER}"`, ANDROID_DEVICE_EPOCH_MS_PLACEHOLDER),
       waitMs: 125,
     }],
@@ -290,6 +293,7 @@ test('captures bounded adb logcat evidence when requested', async (t: TestContex
   const result = await runAndroidAdbPreflight({
     captureLogcat: true,
     executor,
+    delay: async () => {},
     logcatLines: 25,
     outputDir,
     runId: 'android-run-logcat',
@@ -882,6 +886,92 @@ test('opens profile-session deep links before logcat capture', async (t: TestCon
   );
 });
 
+test('skips Android profile-session control when startup readiness does not pass', async (t: TestContext) => {
+  const outputDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-android-startup-not-ready-'));
+  t.after(async () => {
+    await fsp.rm(outputDir, { recursive: true, force: true });
+  });
+  const calls: string[] = [];
+  const executor = async (command: string, args: string[]): Promise<CommandResult> => {
+    const key = args.join(' ');
+    calls.push(key);
+    const responses: Record<string, Partial<CommandResult>> = {
+      version: { stdout: 'Android Debug Bridge version 1.0.41\n' },
+      'devices -l': {
+        stdout: [
+          'List of devices attached',
+          'emulator-5554 device product:sdk_gphone model:Pixel_6 device:emu64',
+        ].join('\n'),
+      },
+      '-s emulator-5554 shell getprop ro.product.model': { stdout: 'Pixel 6\n' },
+      '-s emulator-5554 shell getprop ro.build.version.release': { stdout: '15\n' },
+      '-s emulator-5554 shell getprop ro.build.version.sdk': { stdout: '35\n' },
+      '-s emulator-5554 shell pm path dev.agentscenarioloop.example': {
+        stdout: 'package:/data/app/dev.agentscenarioloop.example/base.apk\n',
+      },
+      "-s emulator-5554 shell am start -a 'android.intent.action.VIEW' -d 'asl-example://expo-development-client/?url=http%3A%2F%2F10.0.2.2%3A8097' -p 'dev.agentscenarioloop.example'": {
+        stdout: 'Starting: Intent { act=android.intent.action.VIEW }\n',
+      },
+      '-s emulator-5554 logcat -d -v time -t 25': {
+        stdout: '06-16 10:00:00.100 I/ActivityTaskManager(123): blank native shell\n',
+      },
+      '-s emulator-5554 shell pidof dev.agentscenarioloop.example': {
+        stdout: '1234\n',
+      },
+    };
+    const response = responses[key] ?? { exitCode: 1, stderr: `unexpected command: ${key}` };
+    return {
+      command,
+      args,
+      exitCode: response.exitCode ?? 0,
+      stderr: response.stderr ?? '',
+      stdout: response.stdout ?? '',
+    };
+  };
+
+  const result = await runAndroidAdbPreflight({
+    captureLogcat: true,
+    deepLinks: [
+      {
+        label: 'profile-session-command',
+        url: 'asl-example://profile-session/command?scenario=app-startup&runId=android-live&command=activate-target%3Aexample-card-1',
+        waitMs: 125,
+      },
+    ],
+    delay: async () => {},
+    executor,
+    logcatLines: 25,
+    outputDir,
+    packageName: 'dev.agentscenarioloop.example',
+    runId: 'android-live',
+    startupDeepLinks: [
+      {
+        label: 'android-dev-client-url',
+        readyLogPattern: 'Running "main"',
+        readyLogTimeoutMs: 1,
+        url: 'asl-example://expo-development-client/?url=http%3A%2F%2F10.0.2.2%3A8097',
+        waitMs: 80,
+      },
+    ],
+    storageWrites: [
+      {
+        key: 'agent-scenario-loop.profile-session.1',
+        label: 'profile-session-start',
+        value: '{"active":true}',
+      },
+    ],
+  });
+
+  const codes = (result.health.checks as Array<{ code: string }>).map((check) => check.code);
+  assert.equal(result.health.healthStatus, 'failed');
+  assert.ok(codes.includes('android_startup_deep_link_not_ready'));
+  assert.ok(codes.includes('android_startup_not_ready_for_control'));
+  assert.ok(codes.includes('android_async_storage_skipped_startup_not_ready'));
+  assert.ok(codes.includes('android_deep_link_skipped_startup_not_ready'));
+  assert.ok(!calls.some((call) => call.includes('run-as')));
+  assert.ok(!calls.some((call) => call.includes('profile-session/command')));
+});
+
 test('fails health when no online adb device is connected', async (t: TestContext) => {
   const outputDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-android-adb-missing-'));
   t.after(async () => {
@@ -915,6 +1005,16 @@ test('fails health when no online adb device is connected', async (t: TestContex
   assert.match(summary, /Next action `select_android_device`/u);
 });
 
+test('times out hung adb commands with diagnostic stderr', async () => {
+  const result = await execFileCommandWithTimeout(process.execPath, [
+    '-e',
+    'setTimeout(() => {}, 60_000);',
+  ], 50);
+
+  assert.notEqual(result.exitCode, 0);
+  assert.match(result.stderr, /adb command timed out after 50ms/u);
+});
+
 test('explains agent sandbox access when adb daemon cannot be reached', async (t: TestContext) => {
   const outputDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-android-adb-sandbox-'));
   t.after(async () => {
@@ -941,6 +1041,42 @@ test('explains agent sandbox access when adb daemon cannot be reached', async (t
       (check) => check.code === 'adb_daemon_unreachable'
         && check.metadata?.nextActionCode === 'rerun_with_adb_daemon_access'
         && /host adb daemon access/u.test(check.metadata.nextAction ?? ''),
+    ),
+  );
+  assert.match(summary, /Next action `rerun_with_adb_daemon_access`/u);
+});
+
+test('writes adb daemon timeout artifacts when devices command hangs', async (t: TestContext) => {
+  const outputDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-android-adb-hung-devices-'));
+  const fakeAdb = path.join(outputDir, 'fake-adb.js');
+  t.after(async () => {
+    await fsp.rm(outputDir, { recursive: true, force: true });
+  });
+  await fsp.writeFile(fakeAdb, [
+    '#!/bin/sh',
+    'if [ "$*" = "version" ]; then echo "Android Debug Bridge version 1.0.41"; exit 0; fi',
+    'if [ "$*" = "devices -l" ]; then sleep 60; exit 0; fi',
+    'echo "unexpected command: $*" >&2',
+    'exit 1',
+    '',
+  ].join('\n'), 'utf8');
+  await fsp.chmod(fakeAdb, 0o755);
+
+  const result = await runAndroidAdbPreflight({
+    adbPath: fakeAdb,
+    commandTimeoutMs: 50,
+    outputDir,
+    runId: 'android-adb-hung-devices',
+  });
+  const devicesRaw = fs.readFileSync(path.join(outputDir, 'raw', 'adb-devices.txt'), 'utf8');
+  const summary = fs.readFileSync(path.join(outputDir, 'agent-summary.md'), 'utf8');
+
+  assert.equal(result.health.healthStatus, 'failed');
+  assert.match(devicesRaw, /adb command timed out after 50ms/u);
+  assert.ok(
+    (result.health.checks as Array<{ code: string; metadata?: { nextActionCode?: string } }>).some(
+      (check) => check.code === 'adb_daemon_unreachable'
+        && check.metadata?.nextActionCode === 'rerun_with_adb_daemon_access',
     ),
   );
   assert.match(summary, /Next action `rerun_with_adb_daemon_access`/u);

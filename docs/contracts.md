@@ -66,7 +66,7 @@ Portable scenario manifests describe the durable app behavior before choosing a 
 - `truthEvents`: app-owned milestone events keyed by stable milestone id
 - `milestones`: inspectable milestone list with event names, phases, timeouts, and descriptions
 - `expectedEvents`: event names the runner or log ingest should expect to observe
-- `cycles`: repeat count, warmup count, and failure policy for repeated journeys
+- `cycles`: repeat count, warmup count, failure policy, and optional setup/body step ids for repeated journeys
 - `budgets`: product thresholds evaluated only after scenario health passes
 - `steps`: runner-facing launch, command, wait, gesture, and capture actions
 - `selector`: optional app target on a step, such as a test id, accessibility id, label, text, resource id, or xpath
@@ -74,6 +74,8 @@ Portable scenario manifests describe the durable app behavior before choosing a 
 - `artifacts`: required and optional evidence outputs
 
 The scenario contract is intentionally runner-neutral. Runners can map steps to adb, XcodeBuildMCP, agent-device, accessibility tools, profilers, or custom scripts while preserving the same journey, milestones, budgets, and expected events.
+
+For repeated mobile command scenarios, `cycles.setupStepIds` names leading setup commands that run once before measured cycle work, while `cycles.bodyStepIds` names the first repeated body commands when inference would be ambiguous. Built-in profile-session runners also infer a setup prefix conservatively: leading readiness commands or leading commands before the first measured milestone command run once, and the remaining command body repeats for `cycles.iterations`. Wait gates remain strict; ASL does not synthesize missing app-owned truth events.
 
 Runner capabilities describe ownership, such as launch, session control, command execution, log capture, artifact writing, or profiler support. Driver actions describe the concrete operations an adapter can perform inside a run. UI contexts describe which surface the runner or provider can own: `app`, `systemDialog`, `notificationShade`, `externalBrowser`, `webView`, `shareSheet`, `picker`, or `otherApp`. UI and capture driver actions default to `app` when a step omits `uiContext`; a scenario must opt into system or external contexts explicitly. A runner may be able to own a scenario lifecycle without supporting every driver action or UI context; the planner fails when a required step declares a `driverAction` or `uiContext` that the selected runner or an active provider does not declare.
 
