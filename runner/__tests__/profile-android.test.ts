@@ -12,6 +12,7 @@ const ROOT = path.join(DIST_ROOT, '..');
 const PROFILE_ANDROID = path.join(DIST_ROOT, 'runner', 'profile-android.js');
 const {
   deriveProfileSessionCaptureWaitMs,
+  deriveProfileSessionLogcatLines,
   resolveAndroidAdbDriverSteps,
   resolveAndroidAdbProfileCommands,
   resolveProfileSessionCaptureWaitMs,
@@ -1741,7 +1742,7 @@ test('profile-android starts profile sessions and executes scenario commands dur
       "-s emulator-5554 shell am start -a 'android.intent.action.VIEW' -d 'asl-example://profile-session/command?runId=android-live-open-close&scenario=open-close-cycle&command=activate-target%3Aclose-card' -p 'dev.agentscenarioloop.example'": {
         stdout: 'Starting: Intent { act=android.intent.action.VIEW }\n',
       },
-      '-s emulator-5554 logcat -d -v time -t 1000': {
+      '-s emulator-5554 logcat -d -v time -t 2800': {
         stdout: fs
           .readFileSync(fixturePath('examples/mobile-app/event-logs/android-open-close-cycle.log'), 'utf8')
           .replace(/android-example-open-close/gu, 'android-live-open-close'),
@@ -1844,7 +1845,7 @@ test('profile-android seeds Android scenario commands as one ordered storage que
       '-s emulator-5554 shell pidof dev.agentscenarioloop.example': {
         stdout: '1234\n',
       },
-      '-s emulator-5554 logcat -d -v time -t 1000': {
+      '-s emulator-5554 logcat -d -v time -t 2800': {
         stdout: [
           fs
             .readFileSync(fixturePath('examples/mobile-app/event-logs/android-open-close-cycle.log'), 'utf8')
@@ -2083,6 +2084,34 @@ test('profile-android derives adb capture waits from scenario execution windows'
     profileSessionEnabled: false,
     scenario: startup,
   }), 0);
+});
+
+test('profile-android derives profile-session logcat lines from command count', () => {
+  assert.equal(deriveProfileSessionLogcatLines({
+    commands: [],
+    profileSessionEnabled: true,
+  }), 1000);
+  assert.equal(deriveProfileSessionLogcatLines({
+    commands: Array.from({ length: 6 }, (_, index) => ({
+      command: `command-${index + 1}`,
+      id: `command-${index + 1}`,
+    })),
+    profileSessionEnabled: true,
+  }), 2800);
+  assert.equal(deriveProfileSessionLogcatLines({
+    commands: Array.from({ length: 19 }, (_, index) => ({
+      command: `command-${index + 1}`,
+      id: `command-${index + 1}`,
+    })),
+    profileSessionEnabled: true,
+  }), 6700);
+  assert.equal(deriveProfileSessionLogcatLines({
+    commands: Array.from({ length: 100 }, (_, index) => ({
+      command: `command-${index + 1}`,
+      id: `command-${index + 1}`,
+    })),
+    profileSessionEnabled: true,
+  }), 20000);
 });
 
 test('profile-android derives commands from normalized execution-plan steps', () => {
