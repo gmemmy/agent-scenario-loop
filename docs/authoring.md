@@ -131,6 +131,8 @@ For transition or gesture budgets, provide both ends of the interval:
 
 Use app-owned truth events for both milestones. Do not use a command-delivered event as the start point unless that command delivery is the product fact being measured.
 
+When the start event is useful only as a timing anchor, keep it optional and keep scenario health tied to the completion truth. For repeated flows, set `metricEvents.milestone` or the completion-oriented cycle events to the truth that proves the iteration completed, then use the optional intent milestone as `fromMilestone` in the budget.
+
 ## Steps
 
 Use steps to describe intent and required adapter actions:

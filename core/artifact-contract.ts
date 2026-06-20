@@ -615,7 +615,8 @@ function buildMetricsFromProfileEvents({
     artifacts: sortValue(artifacts),
   };
 
-  const budgetEvaluation = evaluateProfileBudgets({ metrics, budgets });
+  const intervalBudgetChecks = evaluateIntervalBudgetChecks({ events, expectedIterations, budgets });
+  const budgetEvaluation = evaluateProfileBudgets({ metrics, budgets, extraChecks: intervalBudgetChecks });
   if (budgetEvaluation) {
     metrics.budgetEvaluation = sortValue(budgetEvaluation);
   }
@@ -645,14 +646,150 @@ function evaluateBudgetCheck({ name, actual, limit }: { name: string; actual: un
 }
 
 /**
+ * Collects duration samples for one named interval budget.
+ *
+ * @param {{events: ProfileEvent[], fromEvent: string, toEvent: string, expectedIterations: number}} options
+ * @returns {number[]}
+ */
+function collectIntervalDurations({
+  events,
+  fromEvent,
+  toEvent,
+  expectedIterations,
+}: {
+  events: ProfileEvent[];
+  fromEvent: string;
+  toEvent: string;
+  expectedIterations: number;
+}): number[] {
+  const sortedEvents = [...events].sort((left, right) => {
+    const leftAt = typeof left.atMs === 'number' ? left.atMs : Number.POSITIVE_INFINITY;
+    const rightAt = typeof right.atMs === 'number' ? right.atMs : Number.POSITIVE_INFINITY;
+    return leftAt - rightAt;
+  });
+  const hasIterationPairs = sortedEvents.some((event) => (
+    typeof event.iteration === 'number' && (event.event === fromEvent || event.event === toEvent)
+  ));
+
+  if (hasIterationPairs) {
+    const durations: number[] = [];
+    for (let iteration = 1; iteration <= expectedIterations; iteration += 1) {
+      const from = sortedEvents.find((event) => (
+        event.event === fromEvent &&
+        event.iteration === iteration &&
+        typeof event.atMs === 'number'
+      ));
+      const to = sortedEvents.find((event) => (
+        event.event === toEvent &&
+        event.iteration === iteration &&
+        typeof event.atMs === 'number' &&
+        typeof from?.atMs === 'number' &&
+        event.atMs >= from.atMs
+      ));
+      if (typeof from?.atMs === 'number' && typeof to?.atMs === 'number') {
+        durations.push(roundMs(to.atMs - from.atMs));
+      }
+    }
+    return durations;
+  }
+
+  const durations: number[] = [];
+  let pendingFrom: number | null = null;
+  for (const event of sortedEvents) {
+    if (typeof event.atMs !== 'number') {
+      continue;
+    }
+    if (event.event === fromEvent && pendingFrom === null) {
+      pendingFrom = event.atMs;
+      continue;
+    }
+    if (event.event === toEvent && pendingFrom !== null && event.atMs >= pendingFrom) {
+      durations.push(roundMs(event.atMs - pendingFrom));
+      pendingFrom = null;
+      if (durations.length >= expectedIterations) {
+        break;
+      }
+    }
+  }
+
+  return durations;
+}
+
+/**
+ * Evaluates named interval budgets that should not define scenario health completeness.
+ *
+ * @param {{events: ProfileEvent[], expectedIterations: number, budgets?: Record<string, unknown> | null}} options
+ * @returns {BudgetCheck[]}
+ */
+function evaluateIntervalBudgetChecks({
+  events,
+  expectedIterations,
+  budgets,
+}: {
+  events: ProfileEvent[];
+  expectedIterations: number;
+  budgets?: ArtifactRecord | null;
+}): BudgetCheck[] {
+  if (!Array.isArray(budgets?.intervals)) {
+    return [];
+  }
+
+  return budgets.intervals
+    .map((budget: ArtifactRecord): BudgetCheck | null => {
+      if (
+        typeof budget.name !== 'string' ||
+        typeof budget.metric !== 'string' ||
+        typeof budget.limit !== 'number' ||
+        typeof budget.fromEvent !== 'string' ||
+        typeof budget.toEvent !== 'string'
+      ) {
+        return null;
+      }
+      const durations = collectIntervalDurations({
+        events,
+        fromEvent: budget.fromEvent,
+        toEvent: budget.toEvent,
+        expectedIterations,
+      });
+      const actual = budget.metric === 'p50'
+        ? percentile(durations, 50)
+        : budget.metric === 'p95'
+          ? percentile(durations, 95)
+          : null;
+      return evaluateBudgetCheck({
+        name: budget.name,
+        actual,
+        limit: budget.limit,
+      });
+    })
+    .filter((check): check is BudgetCheck => Boolean(check));
+}
+
+/**
  * Evaluates configured profile budgets against generated metrics.
  *
- * @param {{metrics: Record<string, unknown>, budgets?: Record<string, unknown> | null}} options
+ * @param {{metrics: Record<string, unknown>, budgets?: Record<string, unknown> | null, extraChecks?: BudgetCheck[]}} options
  * @returns {Record<string, unknown> | null}
  */
-function evaluateProfileBudgets({ metrics, budgets }: { metrics: ArtifactRecord; budgets?: ArtifactRecord | null }): ArtifactRecord | null {
+function evaluateProfileBudgets({
+  metrics,
+  budgets,
+  extraChecks = [],
+}: {
+  metrics: ArtifactRecord;
+  budgets?: ArtifactRecord | null;
+  extraChecks?: BudgetCheck[];
+}): ArtifactRecord | null {
   if (!budgets?.pass || typeof budgets.pass !== 'object') {
-    return null;
+    if (extraChecks.length === 0) {
+      return null;
+    }
+    return {
+      metric: budgets?.metric ?? metrics.measurement ?? 'profile budget',
+      pass: extraChecks.every((check) => check.pass),
+      checks: extraChecks,
+      failedChecks: extraChecks.filter((check) => !check.pass).map((check) => check.name),
+    };
   }
 
   const checks: BudgetCheck[] = [
@@ -729,7 +866,7 @@ function evaluateProfileBudgets({ metrics, budgets }: { metrics: ArtifactRecord;
       : null,
   ].filter((check): check is BudgetCheck => Boolean(check));
 
-  const allChecks: BudgetCheck[] = [...thresholdChecks, ...checks];
+  const allChecks: BudgetCheck[] = [...thresholdChecks, ...checks, ...extraChecks];
   if (allChecks.length === 0) {
     return null;
   }
