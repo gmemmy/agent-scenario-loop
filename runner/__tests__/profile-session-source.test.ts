@@ -32,6 +32,7 @@ test('profile-session helper keeps storage-backed command control safeguards', (
   assert.match(source, /entry\.queueId = payload\.queueId;/u);
   assert.match(source, /entry\.sequence = payload\.sequence;/u);
   assert.match(source, /entry\.waitForMilestone = payload\.waitForMilestone;/u);
+  assert.match(source, /entry\.waitMs = payload\.waitMs;/u);
   assert.match(source, /entry\.waitTimeoutMs = payload\.waitTimeoutMs;/u);
   assert.match(source, /const sessionStartedAt = readProfileSessionStartedAt\(profileSessionState\);/u);
   assert.match(source, /const atMs =\s+typeof payload\.atMs === 'number'/u);
@@ -50,6 +51,7 @@ test('profile-session helper keeps storage-backed command control safeguards', (
   assert.match(source, /const sequencedProfileCommands: ProfileSessionCommand\[\] = \[\];/u);
   assert.match(source, /const observedProfileEvents: StoredProfileEvent\[\] = \[\];/u);
   assert.match(source, /let profileCommandMilestoneGate: ProfileCommandMilestoneGate \| null = null;/u);
+  assert.match(source, /let profileCommandProcessingTimeoutId: ReturnType<typeof setTimeout> \| null = null;/u);
   assert.match(source, /function compareProfileCommands/u);
   assert.match(source, /sequencedProfileCommands\.sort\(compareProfileCommands\);/u);
   assert.match(source, /function processSequencedProfileCommands/u);
@@ -66,10 +68,12 @@ test('profile-session helper keeps storage-backed command control safeguards', (
   assert.match(source, /profileCommandMilestoneGate\.runId !== eventPayload\.runId/u);
   assert.match(source, /profileCommandMilestoneGate\.scenario !== eventPayload\.scenario/u);
   assert.match(source, /let profileCommandProcessingScheduled = false;/u);
-  assert.match(source, /function scheduleProfileCommandProcessing\(\)/u);
+  assert.match(source, /function scheduleProfileCommandProcessing\(waitMs = 0\)/u);
+  assert.match(source, /profileCommandProcessingTimeoutId = setTimeout\(run, waitMs\);/u);
   assert.match(source, /queueMicrotask\(run\);/u);
   assert.match(source, /releaseProfileCommandMilestoneGate\(eventPayload\);/u);
-  assert.match(source, /scheduleProfileCommandProcessing\(\);/u);
+  assert.match(source, /scheduleProfileCommandProcessing\(command\.waitMs\);/u);
+  assert.match(source, /scheduleProfileCommandProcessing\(waitMs\);/u);
   assert.match(source, /enqueueSequencedProfileCommands\(nextCommands\);/u);
   assert.match(source, /function startProfileCommandMilestoneTimeout/u);
   assert.match(source, /reason: 'wait-for-milestone-timeout'/u);

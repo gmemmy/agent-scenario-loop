@@ -216,6 +216,7 @@ function buildProfileSessionUrl({
   scenario,
   sequence,
   waitForMilestone,
+  waitMs,
   waitTimeoutMs,
 }: {
   action: 'start' | 'command';
@@ -227,6 +228,7 @@ function buildProfileSessionUrl({
   scenario: string;
   sequence?: number;
   waitForMilestone?: string;
+  waitMs?: number;
   waitTimeoutMs?: number;
 }): string {
   const scheme = typeof config.app?.profileSessionScheme === 'string'
@@ -248,6 +250,9 @@ function buildProfileSessionUrl({
     }
     if (waitForMilestone) {
       params.set('waitForMilestone', waitForMilestone);
+    }
+    if (typeof waitMs === 'number') {
+      params.set('waitMs', String(waitMs));
     }
     if (typeof waitTimeoutMs === 'number') {
       params.set('waitTimeoutMs', String(waitTimeoutMs));
@@ -289,6 +294,7 @@ function buildProfileSessionStorageWrites({
       ...(typeof profileCommand.sequence === 'number' ? { sequence: profileCommand.sequence } : {}),
       ...(typeof profileCommand.queueId === 'string' ? { queueId: profileCommand.queueId } : {}),
       ...(typeof profileCommand.waitForMilestone === 'string' ? { waitForMilestone: profileCommand.waitForMilestone } : {}),
+      ...(typeof profileCommand.waitMs === 'number' ? { waitMs: profileCommand.waitMs } : {}),
       ...(typeof profileCommand.waitTimeoutMs === 'number' ? { waitTimeoutMs: profileCommand.waitTimeoutMs } : {}),
       timestamp: timestampPlaceholder,
     };
@@ -1009,6 +1015,7 @@ async function runProfileAndroid(
             ...(typeof profileCommand.queueId === 'string' ? { queueId: profileCommand.queueId } : {}),
             ...(typeof profileCommand.sequence === 'number' ? { sequence: profileCommand.sequence } : {}),
             ...(typeof profileCommand.waitForMilestone === 'string' ? { waitForMilestone: profileCommand.waitForMilestone } : {}),
+            ...(typeof profileCommand.waitMs === 'number' ? { waitMs: profileCommand.waitMs } : {}),
             ...(typeof profileCommand.waitTimeoutMs === 'number' ? { waitTimeoutMs: profileCommand.waitTimeoutMs } : {}),
           }),
           waitMs: profileCommand.waitMs,

@@ -146,6 +146,8 @@ Use steps to describe intent and required adapter actions:
 
 Use `driverAction` only when the scenario truly requires a concrete operation such as `tap`, `scroll`, `assertVisible`, `screenshot`, `readLogs`, or `collectPerfSignals`. The planner fails early when no active runner or provider can satisfy a required driver action.
 
+For profile-session command transport, platform `waitMs` metadata is queue pacing. ASL preserves it in storage and deep-link command envelopes and waits before releasing the next queued command. App-owned milestones still provide the truth that a command produced the intended product state.
+
 Use `selector` to describe the intended app target without committing the scenario to one driver. Supported selector kinds are `testId`, `accessibilityId`, `accessibilityLabel`, `text`, `resourceId`, and `xpath`.
 
 ```json

@@ -21,6 +21,7 @@ export type ProfileSessionCommand = {
   source?: 'deeplink' | 'storage';
   timestamp: number;
   waitForMilestone?: string;
+  waitMs?: number;
   waitTimeoutMs?: number;
 };
 
@@ -80,6 +81,7 @@ type StoredProfileSessionEntry = {
   source?: 'deeplink' | 'storage';
   status?: 'received' | 'queued' | 'delivered' | 'completed' | 'skipped';
   waitForMilestone?: string;
+  waitMs?: number;
   waitTimeoutMs?: number;
 };
 
@@ -93,6 +95,7 @@ type ProfileCommandMilestoneGate = {
   scenario?: string;
   sequence?: number;
   timeoutId?: ReturnType<typeof setTimeout>;
+  waitMs?: number;
 };
 
 const INITIAL_STATE: ProfileSessionState = {
@@ -129,6 +132,7 @@ let lastProfileCommandSignature: string | null = null;
 let lastProfileCommandTimestamp = 0;
 let profileCommandMilestoneGate: ProfileCommandMilestoneGate | null = null;
 let profileCommandProcessingScheduled = false;
+let profileCommandProcessingTimeoutId: ReturnType<typeof setTimeout> | null = null;
 
 function writeProfileLog(line: string) {
   if (Platform.OS === 'ios') {
@@ -234,6 +238,7 @@ function clearPendingProfileCommands() {
   pendingProfileCommands.length = 0;
   sequencedProfileCommands.length = 0;
   clearProfileCommandMilestoneGate();
+  clearProfileCommandProcessingSchedule();
   queueProfileStorageMutation(async () => {
     await AsyncStorage.removeItem(PROFILE_COMMAND_STORAGE_KEY);
   });
@@ -394,6 +399,9 @@ function logProfileSession(kind: 'start' | 'stop' | 'command', payload: Record<s
     if (typeof payload.waitForMilestone === 'string') {
       entry.waitForMilestone = payload.waitForMilestone;
     }
+    if (typeof payload.waitMs === 'number') {
+      entry.waitMs = payload.waitMs;
+    }
     if (typeof payload.waitTimeoutMs === 'number') {
       entry.waitTimeoutMs = payload.waitTimeoutMs;
     }
@@ -411,6 +419,7 @@ function getProfileSessionRoute(url: string): {
   queueId?: string;
   sequence?: number;
   waitForMilestone?: string;
+  waitMs?: number;
   waitTimeoutMs?: number;
 } | null {
   const parsed = ExpoLinking.parse(url);
@@ -447,8 +456,12 @@ function getProfileSessionRoute(url: string): {
     typeof parsed.queryParams?.waitTimeoutMs === 'string' && Number.isInteger(Number(parsed.queryParams.waitTimeoutMs))
       ? Number(parsed.queryParams.waitTimeoutMs)
       : undefined;
+  const waitMs =
+    typeof parsed.queryParams?.waitMs === 'string' && Number.isInteger(Number(parsed.queryParams.waitMs))
+      ? Number(parsed.queryParams.waitMs)
+      : undefined;
 
-  return { action, scenario, runId, command, commandId, queueId, sequence, waitForMilestone, waitTimeoutMs };
+  return { action, scenario, runId, command, commandId, queueId, sequence, waitForMilestone, waitMs, waitTimeoutMs };
 }
 
 function queuePendingProfileCommand(command: ProfileSessionCommand) {
@@ -568,6 +581,7 @@ function buildProfileCommandMilestoneGate(command: ProfileSessionCommand): Profi
     ...(typeof command.runId === 'string' ? { runId: command.runId } : {}),
     ...(typeof command.scenario === 'string' ? { scenario: command.scenario } : {}),
     ...(typeof command.sequence === 'number' ? { sequence: command.sequence } : {}),
+    ...(typeof command.waitMs === 'number' && command.waitMs > 0 ? { waitMs: command.waitMs } : {}),
   };
 }
 
@@ -591,6 +605,14 @@ function clearProfileCommandMilestoneGate() {
     clearTimeout(profileCommandMilestoneGate.timeoutId);
   }
   profileCommandMilestoneGate = null;
+}
+
+function clearProfileCommandProcessingSchedule() {
+  if (profileCommandProcessingTimeoutId) {
+    clearTimeout(profileCommandProcessingTimeoutId);
+  }
+  profileCommandProcessingTimeoutId = null;
+  profileCommandProcessingScheduled = false;
 }
 
 function startProfileCommandMilestoneTimeout(command: ProfileSessionCommand) {
@@ -617,16 +639,22 @@ function startProfileCommandMilestoneTimeout(command: ProfileSessionCommand) {
   }, command.waitTimeoutMs);
 }
 
-function scheduleProfileCommandProcessing() {
+function scheduleProfileCommandProcessing(waitMs = 0) {
   if (profileCommandProcessingScheduled) {
     return;
   }
 
   profileCommandProcessingScheduled = true;
   const run = () => {
+    profileCommandProcessingTimeoutId = null;
     profileCommandProcessingScheduled = false;
     processSequencedProfileCommands();
   };
+
+  if (waitMs > 0) {
+    profileCommandProcessingTimeoutId = setTimeout(run, waitMs);
+    return;
+  }
 
   if (typeof queueMicrotask === 'function') {
     queueMicrotask(run);
@@ -681,6 +709,9 @@ function notifyProfileCommandListeners(command: ProfileSessionCommand) {
 }
 
 function processSequencedProfileCommands() {
+  if (profileCommandProcessingScheduled) {
+    return;
+  }
   if (profileCommandMilestoneGate) {
     return;
   }
@@ -704,6 +735,10 @@ function processSequencedProfileCommands() {
     notifyProfileCommandListeners(command);
 
     if (profileCommandMilestoneGate) {
+      return;
+    }
+    if (typeof command.waitMs === 'number' && command.waitMs > 0) {
+      scheduleProfileCommandProcessing(command.waitMs);
       return;
     }
   }
@@ -737,8 +772,11 @@ function releaseProfileCommandMilestoneGate(eventPayload: StoredProfileEvent) {
     return;
   }
 
+  const waitMs = typeof profileCommandMilestoneGate.waitMs === 'number'
+    ? profileCommandMilestoneGate.waitMs
+    : 0;
   clearProfileCommandMilestoneGate();
-  scheduleProfileCommandProcessing();
+  scheduleProfileCommandProcessing(waitMs);
 }
 
 function flushPendingProfileCommands(listener: (command: ProfileSessionCommand) => void) {
@@ -838,6 +876,7 @@ export function applyProfileSessionUrl(url: string | null | undefined): boolean 
       source: 'deeplink' as const,
       timestamp,
       ...(route.waitForMilestone ? { waitForMilestone: route.waitForMilestone } : {}),
+      ...(typeof route.waitMs === 'number' ? { waitMs: route.waitMs } : {}),
       ...(typeof route.waitTimeoutMs === 'number' ? { waitTimeoutMs: route.waitTimeoutMs } : {}),
     };
     enqueueSequencedProfileCommands([command]);
