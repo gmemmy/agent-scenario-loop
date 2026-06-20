@@ -1046,25 +1046,22 @@ test('explains agent sandbox access when adb daemon cannot be reached', async (t
   assert.match(summary, /Next action `rerun_with_adb_daemon_access`/u);
 });
 
-test('writes adb daemon timeout artifacts when devices command hangs', async (t: TestContext) => {
+test('writes adb daemon timeout artifacts when devices command times out', async (t: TestContext) => {
   const outputDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-android-adb-hung-devices-'));
-  const fakeAdb = path.join(outputDir, 'fake-adb.js');
   t.after(async () => {
     await fsp.rm(outputDir, { recursive: true, force: true });
   });
-  await fsp.writeFile(fakeAdb, [
-    '#!/bin/sh',
-    'if [ "$*" = "version" ]; then echo "Android Debug Bridge version 1.0.41"; exit 0; fi',
-    'if [ "$*" = "devices -l" ]; then sleep 60; exit 0; fi',
-    'echo "unexpected command: $*" >&2',
-    'exit 1',
-    '',
-  ].join('\n'), 'utf8');
-  await fsp.chmod(fakeAdb, 0o755);
+  const executor = createExecutor({
+    version: { stdout: 'Android Debug Bridge version 1.0.41\n' },
+    'devices -l': {
+      exitCode: 1,
+      stderr: 'adb command timed out after 50ms.',
+    },
+  });
 
   const result = await runAndroidAdbPreflight({
-    adbPath: fakeAdb,
     commandTimeoutMs: 50,
+    executor,
     outputDir,
     runId: 'android-adb-hung-devices',
   });
