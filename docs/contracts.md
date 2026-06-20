@@ -128,7 +128,7 @@ Profile runner artifacts:
 
 Profile `agent-summary.md` files include an `attempt` section when the run has a manifest attempt block, including terminal state, cleanup state, partial-artifact validity, and retry lineage. Latest-trusted baseline selection treats attempt-aware runs as baseline-trusted only when health and verdict passed, the attempt is a clean first attempt, cleanup did not fail or remain partial, and partial artifacts are not marked valid diagnostic fragments. Older artifacts without `manifest.attempt` remain legacy-trusted when health and verdict passed, but new attempt-aware runs cannot hide retry laundering behind a green final verdict.
 
-Profile runners assert only environment facts they own. Every completed profile manifest records ASL-controlled artifact completeness and cleanup postconditions. Live adb/simctl capture paths also assert runner-controlled foreground state, explicit lifecycle preconditions, and foreground postconditions. Use `--lifecycle-phase <phase>` when a runner can prove a non-cold precondition such as `warm-launch` or `resume`; log-ingest and preexisting artifact ingestion keep those fields `unknown/not-asserted`.
+Profile runners assert only environment facts they own. Every completed profile manifest records ASL-controlled artifact completeness and cleanup postconditions. Live adb/simctl capture paths also assert runner-controlled foreground state, explicit lifecycle preconditions, and foreground postconditions. Use `--lifecycle-phase <phase>` when a runner can prove a non-cold precondition such as `warm-launch` or `resume`; log-ingest and preexisting artifact ingestion keep those fields `unknown/not-asserted`. Lifecycle assertions are not product milestones: a runner proving `lifecyclePhase: "resume"` does not synthesize `app_resumed` or any other app truth event. Resume readiness must still be emitted by the consuming app when a scenario waits for it.
 
 Aggregate live proof commands write `live-proof.json` and `agent-summary.md` under `_live-proof/<run-id>`. The live-proof artifact points to preflight evidence, every scenario run, optional interaction proofs from tools such as agent-device or Argent, optional skipped interaction proof declarations, and optional latest-trusted comparison outputs, giving agents one stable entrypoint after a proof run. Preflight, profile, and interaction pointers include health and verdict status from the linked run artifacts, so agents can see what passed before opening deeper evidence. Interaction proof pointers also include sidecar screenshot capture inventory when the sidecar produced screenshots, plus `warnings` when optional sidecar checks failed without invalidating the required proof. If profile health or verdict fails, requested sidecars are not executed; they are recorded in `skippedInteractionProofs` with a reason and next action so agent feedback stays explicit without mixing runner evidence into an untrusted timing run. The aggregate artifact records `status`, `comparisonStatus`, `comparisonCounts`, optional per-comparison `metricSummary` counts/highlights, and a `nextAction` hint so agents can distinguish failed proof gates, regressions, mixed metric movement, missing baselines, inconclusive comparisons, partial sidecar evidence, and clean summaries without scraping prose.
 
@@ -151,6 +151,14 @@ Failed or warning health checks may include scalar `metadata.nextActionCode` and
 The current profile runner writes health, verdict, agent summary, metrics, causal-run, and budget-verdict artifacts.
 
 Budgets are supported but optional for adoption.
+
+Milestone budget interval semantics are explicit:
+
+- `toMilestone` without `fromMilestone` measures elapsed time from the run or session clock origin to the matching milestone occurrence.
+- `fromMilestone` plus `toMilestone` measures the interval between the two app-owned truth events for each iteration.
+- repeated transition, gesture, open, close, scroll, or handoff budgets should use both milestones when the intended number is transition duration rather than cumulative elapsed time.
+
+This distinction is visible in `metrics.json`: elapsed milestone-only runs populate `durationsMs` with milestone timestamps, while interval runs populate `durationsMs` with `to - from` values. Timing still remains untrusted unless `health.json` passes.
 
 `buildRunIndex()` can scan an artifact root after runs complete. It indexes folders that contain both `health.json` and `verdict.json`, marks a run trusted only when health and verdict both passed, and lets agents find the latest trusted prior run for a scenario without relying on terminal history.
 
