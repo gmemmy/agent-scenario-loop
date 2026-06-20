@@ -2096,7 +2096,7 @@ async function runProfileMobile(args: CliArgs, options: ProfileMobileOptions): P
     scenario: toPortablePathReference(scenarioPath),
     raw: {
       interactionLog: eventLogPath ? `raw/${path.basename(eventLogPath)}` : 'raw/interaction.log',
-      deviceLog: 'raw/device.log',
+      deviceLog: eventLogPath ? `raw/${path.basename(eventLogPath)}` : 'raw/device.log',
     },
     captures: {
       screenshots: attachedEvidence.captures.screenshots,
