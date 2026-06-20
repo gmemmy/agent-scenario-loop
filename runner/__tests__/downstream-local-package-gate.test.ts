@@ -9,6 +9,7 @@ const { execFileSync } = require('node:child_process');
 const DIST_ROOT = path.join(__dirname, '..', '..');
 const ROOT = path.join(DIST_ROOT, '..');
 const PACKAGE_VERSION = require(path.join(ROOT, 'package.json')).version;
+const ANSI_PATTERN = /\x1B\[[0-?]*[ -/]*[@-~]/gu;
 
 function writeJson(filePath: string, value: unknown): void {
   fs.writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
@@ -130,7 +131,7 @@ test('downstream local-package gate restores dependency files after command fail
     throw new Error('downstream gate should fail on the second validation command');
   }
   assert.equal(failure.status, 1);
-  assert.match(failure.stderr?.toString() ?? '', /status: 7/u);
+  assert.match((failure.stderr?.toString() ?? '').replace(ANSI_PATTERN, ''), /status: 7/u);
 
   assert.equal(await fsp.readFile(path.join(appRoot, 'package.json'), 'utf8'), originalPackage);
   assert.equal(await fsp.readFile(path.join(appRoot, 'pnpm-lock.yaml'), 'utf8'), originalLock);
