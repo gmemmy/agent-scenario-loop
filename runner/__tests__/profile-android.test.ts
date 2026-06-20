@@ -1282,6 +1282,45 @@ test('profile-android can capture adb logs and profile them in one run', async (
   assert.ok(fs.existsSync(path.join(result.runDir, 'raw', 'adb-logcat.txt')));
 });
 
+test('profile-android fails fast with adb artifacts when adb devices hangs', async (t: TestContext) => {
+  const tempRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-android-adb-hung-'));
+  t.after(async () => {
+    await fsp.rm(tempRoot, { recursive: true, force: true });
+  });
+  const fakeAdb = path.join(tempRoot, 'fake-adb.js');
+  const adbCaptureRoot = path.join(tempRoot, 'adb-capture');
+  const profileRoot = path.join(tempRoot, 'profile');
+  await fsp.writeFile(fakeAdb, [
+    '#!/bin/sh',
+    'if [ "$*" = "version" ]; then echo "Android Debug Bridge version 1.0.41"; exit 0; fi',
+    'if [ "$*" = "devices -l" ]; then sleep 60; exit 0; fi',
+    'echo "unexpected command: $*" >&2',
+    'exit 1',
+    '',
+  ].join('\n'), 'utf8');
+  await fsp.chmod(fakeAdb, 0o755);
+
+  await assert.rejects(
+    () => runProfileAndroid({
+      adb: fakeAdb,
+      'adb-capture': true,
+      'adb-command-timeout-ms': '50',
+      'adb-out': adbCaptureRoot,
+      config: fixturePath('examples/mobile-app/asl.config.json'),
+      out: profileRoot,
+      'run-id': 'android-hung-devices',
+      scenario: fixturePath('examples/mobile-app/scenarios/android/app-startup.json'),
+    }),
+    /Android adb capture failed; inspect/u,
+  );
+
+  const adbHealth = readJson(path.join(adbCaptureRoot, 'health.json'));
+  const devicesRaw = fs.readFileSync(path.join(adbCaptureRoot, 'raw', 'adb-devices.txt'), 'utf8');
+  assert.equal(adbHealth.healthStatus, 'failed');
+  assert.match(devicesRaw, /adb command timed out after 50ms/u);
+  assert.ok(!fs.existsSync(path.join(profileRoot, 'app-startup', 'android-hung-devices')));
+});
+
 test('profile-android routes normalized readLogs evidence steps through adb driver capture', async (t: TestContext) => {
   const tempRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-android-driver-steps-'));
   t.after(async () => {
@@ -1997,6 +2036,71 @@ test('profile-android runs readiness setup commands once before repeated cycle c
     { command: 'scroll-by:600', commandId: 'scroll-surface', label: 'scroll-surface', queueId: 'ready-scroll-cycle', sequence: 2, waitForMilestone: 'surface_settled', waitMs: 0, waitTimeoutMs: 8000 },
     { command: 'scroll-by:600', commandId: 'scroll-surface', label: 'scroll-surface', queueId: 'ready-scroll-cycle', sequence: 3, waitForMilestone: 'surface_settled', waitMs: 0, waitTimeoutMs: 8000 },
     { command: 'scroll-by:600', commandId: 'scroll-surface', label: 'scroll-surface', queueId: 'ready-scroll-cycle', sequence: 4, waitForMilestone: 'surface_settled', waitMs: 0, waitTimeoutMs: 8000 },
+  ]);
+});
+
+test('profile-android runs leading non-measured setup commands once before repeated cycle commands', () => {
+  const scenario = {
+    id: 'account-drawer-stress',
+    defaultIterations: 3,
+    truthEvents: {
+      opened: { event: 'account_drawer_open_settled' },
+      closed: { event: 'account_drawer_close_settled' },
+    },
+    milestones: [
+      { id: 'opened', event: 'account_drawer_open_settled', phase: 'visual' },
+      { id: 'closed', event: 'account_drawer_close_settled', phase: 'visual' },
+    ],
+    budgets: [
+      { name: 'open p95', source: 'milestone', metric: 'p95', unit: 'ms', limit: 900, toMilestone: 'opened' },
+      { name: 'close p95', source: 'milestone', metric: 'p95', unit: 'ms', limit: 900, toMilestone: 'closed' },
+    ],
+    steps: [
+      { id: 'reset-home-surface', kind: 'command', command: 'reset-home-surface' },
+      { id: 'open-account-drawer', kind: 'command', command: 'open-account-drawer' },
+      { id: 'wait-for-open-settle', kind: 'waitForMilestone', milestone: 'opened', timeoutMs: 10000 },
+      { id: 'close-account-drawer', kind: 'command', command: 'activate-target:account-drawer-close' },
+      { id: 'wait-for-close-settle', kind: 'waitForMilestone', milestone: 'closed', timeoutMs: 10000 },
+    ],
+  };
+
+  assert.deepEqual(resolveAndroidAdbProfileCommands(scenario), [
+    { command: 'reset-home-surface', commandId: 'reset-home-surface', label: 'reset-home-surface', queueId: 'account-drawer-stress', sequence: 1, waitMs: 0 },
+    { command: 'open-account-drawer', commandId: 'open-account-drawer', label: 'open-account-drawer', queueId: 'account-drawer-stress', sequence: 2, waitForMilestone: 'account_drawer_open_settled', waitMs: 0, waitTimeoutMs: 10000 },
+    { command: 'activate-target:account-drawer-close', commandId: 'close-account-drawer', label: 'close-account-drawer', queueId: 'account-drawer-stress', sequence: 3, waitForMilestone: 'account_drawer_close_settled', waitMs: 0, waitTimeoutMs: 10000 },
+    { command: 'open-account-drawer', commandId: 'open-account-drawer', label: 'open-account-drawer', queueId: 'account-drawer-stress', sequence: 4, waitForMilestone: 'account_drawer_open_settled', waitMs: 0, waitTimeoutMs: 10000 },
+    { command: 'activate-target:account-drawer-close', commandId: 'close-account-drawer', label: 'close-account-drawer', queueId: 'account-drawer-stress', sequence: 5, waitForMilestone: 'account_drawer_close_settled', waitMs: 0, waitTimeoutMs: 10000 },
+    { command: 'open-account-drawer', commandId: 'open-account-drawer', label: 'open-account-drawer', queueId: 'account-drawer-stress', sequence: 6, waitForMilestone: 'account_drawer_open_settled', waitMs: 0, waitTimeoutMs: 10000 },
+    { command: 'activate-target:account-drawer-close', commandId: 'close-account-drawer', label: 'close-account-drawer', queueId: 'account-drawer-stress', sequence: 7, waitForMilestone: 'account_drawer_close_settled', waitMs: 0, waitTimeoutMs: 10000 },
+  ]);
+});
+
+test('profile-android honors explicit cycle body step ids', () => {
+  const scenario = {
+    id: 'explicit-body-cycle',
+    defaultIterations: 2,
+    cycles: {
+      bodyStepIds: ['open-surface', 'close-surface'],
+    },
+    milestones: [
+      { id: 'opened', event: 'surface_opened' },
+      { id: 'closed', event: 'surface_closed' },
+    ],
+    steps: [
+      { id: 'reset-surface', kind: 'command', command: 'reset-surface' },
+      { id: 'open-surface', kind: 'command', command: 'open-surface' },
+      { id: 'wait-opened', kind: 'waitForMilestone', milestone: 'opened', timeoutMs: 1000 },
+      { id: 'close-surface', kind: 'command', command: 'close-surface' },
+      { id: 'wait-closed', kind: 'waitForMilestone', milestone: 'closed', timeoutMs: 1000 },
+    ],
+  };
+
+  assert.deepEqual(resolveAndroidAdbProfileCommands(scenario), [
+    { command: 'reset-surface', commandId: 'reset-surface', label: 'reset-surface', queueId: 'explicit-body-cycle', sequence: 1, waitMs: 0 },
+    { command: 'open-surface', commandId: 'open-surface', label: 'open-surface', queueId: 'explicit-body-cycle', sequence: 2, waitForMilestone: 'surface_opened', waitMs: 0, waitTimeoutMs: 1000 },
+    { command: 'close-surface', commandId: 'close-surface', label: 'close-surface', queueId: 'explicit-body-cycle', sequence: 3, waitForMilestone: 'surface_closed', waitMs: 0, waitTimeoutMs: 1000 },
+    { command: 'open-surface', commandId: 'open-surface', label: 'open-surface', queueId: 'explicit-body-cycle', sequence: 4, waitForMilestone: 'surface_opened', waitMs: 0, waitTimeoutMs: 1000 },
+    { command: 'close-surface', commandId: 'close-surface', label: 'close-surface', queueId: 'explicit-body-cycle', sequence: 5, waitForMilestone: 'surface_closed', waitMs: 0, waitTimeoutMs: 1000 },
   ]);
 });
 

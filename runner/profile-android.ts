@@ -494,6 +494,91 @@ function isReadinessSetupProfileCommand(
 }
 
 /**
+ * Reads a string id list from scenario cycles metadata.
+ *
+ * @param {unknown} value
+ * @returns {Set<string>}
+ */
+function readCycleStepIdSet(value: unknown): Set<string> {
+  return new Set(Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string') : []);
+}
+
+/**
+ * Resolves the milestone ids that represent measured cycle boundaries.
+ *
+ * @param {Record<string, unknown>} scenario
+ * @returns {Set<string>}
+ */
+function resolveMeasuredCycleMilestoneEvents(scenario: Record<string, any>): Set<string> {
+  const milestones = new Set<string>();
+  for (const budget of Array.isArray(scenario.budgets) ? scenario.budgets : []) {
+    if (!budget || typeof budget !== 'object' || budget.source !== 'milestone') {
+      continue;
+    }
+    if (typeof budget.fromMilestone === 'string') {
+      milestones.add(resolveMilestoneEventName(scenario, budget.fromMilestone));
+    }
+    if (typeof budget.toMilestone === 'string') {
+      milestones.add(resolveMilestoneEventName(scenario, budget.toMilestone));
+    }
+  }
+  return milestones;
+}
+
+/**
+ * Resolves how many leading commands are setup-only before repeated cycle work.
+ *
+ * @param {Record<string, unknown>} scenario
+ * @param {AndroidAdbProfileCommand[]} commands
+ * @returns {number}
+ */
+function resolveSetupCommandCount(
+  scenario: Record<string, any>,
+  commands: AndroidAdbProfileCommand[],
+): number {
+  const explicitSetupStepIds = readCycleStepIdSet(scenario.cycles?.setupStepIds);
+  if (explicitSetupStepIds.size > 0) {
+    let count = 0;
+    for (const command of commands) {
+      if (!command.commandId || !explicitSetupStepIds.has(command.commandId)) {
+        break;
+      }
+      count += 1;
+    }
+    return count;
+  }
+
+  const explicitBodyStepIds = readCycleStepIdSet(scenario.cycles?.bodyStepIds);
+  if (explicitBodyStepIds.size > 0) {
+    const firstBodyIndex = commands.findIndex((command) => (
+      typeof command.commandId === 'string' && explicitBodyStepIds.has(command.commandId)
+    ));
+    return firstBodyIndex > 0 ? firstBodyIndex : 0;
+  }
+
+  let readinessSetupCommandCount = 0;
+  for (const command of commands) {
+    if (!isReadinessSetupProfileCommand(scenario, command)) {
+      break;
+    }
+    readinessSetupCommandCount += 1;
+  }
+  if (readinessSetupCommandCount > 0) {
+    return readinessSetupCommandCount;
+  }
+
+  const measuredMilestones = resolveMeasuredCycleMilestoneEvents(scenario);
+  if (measuredMilestones.size === 0) {
+    return 0;
+  }
+
+  const firstMeasuredCommandIndex = commands.findIndex((command) => (
+    typeof command.waitForMilestone === 'string' && measuredMilestones.has(command.waitForMilestone)
+  ));
+  return firstMeasuredCommandIndex > 0 ? firstMeasuredCommandIndex : 0;
+}
+
+/**
  * Expands commands so setup/readiness commands execute once while cycle-body commands repeat.
  *
  * @param {Record<string, unknown>} scenario
@@ -506,14 +591,7 @@ function expandProfileCommandCycles(
   commands: AndroidAdbProfileCommand[],
   repeat: number,
 ): AndroidAdbProfileCommand[] {
-  let setupCommandCount = 0;
-  for (const command of commands) {
-    if (!isReadinessSetupProfileCommand(scenario, command)) {
-      break;
-    }
-    setupCommandCount += 1;
-  }
-
+  const setupCommandCount = resolveSetupCommandCount(scenario, commands);
   const setupCommands = commands.slice(0, setupCommandCount);
   const cycleCommands = commands.slice(setupCommandCount);
   const expandedCommands = cycleCommands.length === 0
@@ -890,6 +968,13 @@ async function runProfileAndroid(
     ]),
     60000,
   );
+  const adbCommandTimeoutMs = parsePositiveInteger(
+    readStringArgOrEnv(args['adb-command-timeout-ms'], [
+      'ASL_ANDROID_ADB_COMMAND_TIMEOUT_MS',
+      'ASL_EXAMPLE_ANDROID_ADB_COMMAND_TIMEOUT_MS',
+    ]),
+    30000,
+  );
   const scenarioName = typeof scenario.name === 'string' ? scenario.name : path.basename(args.scenario, '.json');
   const driverSteps = adbCaptureEnabled ? resolveAndroidAdbDriverSteps(scenario) : [];
   if (adbCaptureEnabled) {
@@ -957,6 +1042,7 @@ async function runProfileAndroid(
         ...(typeof args.adb === 'string' ? { adbPath: args.adb } : {}),
         captureLogcat: true,
         clearLogcat: isEnabled(args['clear-logcat']),
+        commandTimeoutMs: adbCommandTimeoutMs,
         deepLinks: profileSessionDeepLinks,
         ...(options.delay ? { delay: options.delay } : {}),
         ...(options.executor ? { executor: options.executor } : {}),

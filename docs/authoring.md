@@ -80,11 +80,13 @@ Preferred fields:
 - `journey`: human-readable intent, actor, start state, and end state
 - `comparisonLane`: default historical baseline lane for runs of this scenario
 - `milestones`: named event checkpoints with phases and timeouts
-- `cycles`: iteration count and stop policy
+- `cycles`: iteration count, stop policy, and optional setup/body step ids
 - `budgets`: thresholds to evaluate only after truth-event health passes
 - `artifacts`: required and optional evidence outputs
 
 Use `comparisonLane` when a scenario should always compare within one stable proof mode, such as `feed-open-android-live`. Profile CLIs can also receive `--comparison-lane`; the CLI flag wins when one-off runs need a different lane.
+
+For repeated scenarios, separate setup from the measured body. Commands that clear state, navigate home, dismiss modals, or establish readiness should not be measured every iteration unless that cleanup is the journey under test. Use `cycles.setupStepIds` for leading setup commands that run once, or `cycles.bodyStepIds` to name the repeated command body. If neither is provided, ASL profile-session runners infer a conservative setup prefix from readiness waits and measured milestone budgets, but explicit ids are clearer for complex flows.
 
 ## Truth Events
 

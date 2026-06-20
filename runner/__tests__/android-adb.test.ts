@@ -9,6 +9,7 @@ const {
   ANDROID_DEVICE_EPOCH_MS_PLACEHOLDER,
   buildReactNativeDebugHostPreferenceCommand,
   escapeAndroidPreferenceXml,
+  execFileCommandWithTimeout,
   parseAdbDevices,
   parseArgs,
   parseReactNativeDebugHostPort,
@@ -1004,6 +1005,16 @@ test('fails health when no online adb device is connected', async (t: TestContex
   assert.match(summary, /Next action `select_android_device`/u);
 });
 
+test('times out hung adb commands with diagnostic stderr', async () => {
+  const result = await execFileCommandWithTimeout(process.execPath, [
+    '-e',
+    'setTimeout(() => {}, 60_000);',
+  ], 50);
+
+  assert.notEqual(result.exitCode, 0);
+  assert.match(result.stderr, /adb command timed out after 50ms/u);
+});
+
 test('explains agent sandbox access when adb daemon cannot be reached', async (t: TestContext) => {
   const outputDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-android-adb-sandbox-'));
   t.after(async () => {
@@ -1030,6 +1041,42 @@ test('explains agent sandbox access when adb daemon cannot be reached', async (t
       (check) => check.code === 'adb_daemon_unreachable'
         && check.metadata?.nextActionCode === 'rerun_with_adb_daemon_access'
         && /host adb daemon access/u.test(check.metadata.nextAction ?? ''),
+    ),
+  );
+  assert.match(summary, /Next action `rerun_with_adb_daemon_access`/u);
+});
+
+test('writes adb daemon timeout artifacts when devices command hangs', async (t: TestContext) => {
+  const outputDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-android-adb-hung-devices-'));
+  const fakeAdb = path.join(outputDir, 'fake-adb.js');
+  t.after(async () => {
+    await fsp.rm(outputDir, { recursive: true, force: true });
+  });
+  await fsp.writeFile(fakeAdb, [
+    '#!/bin/sh',
+    'if [ "$*" = "version" ]; then echo "Android Debug Bridge version 1.0.41"; exit 0; fi',
+    'if [ "$*" = "devices -l" ]; then sleep 60; exit 0; fi',
+    'echo "unexpected command: $*" >&2',
+    'exit 1',
+    '',
+  ].join('\n'), 'utf8');
+  await fsp.chmod(fakeAdb, 0o755);
+
+  const result = await runAndroidAdbPreflight({
+    adbPath: fakeAdb,
+    commandTimeoutMs: 50,
+    outputDir,
+    runId: 'android-adb-hung-devices',
+  });
+  const devicesRaw = fs.readFileSync(path.join(outputDir, 'raw', 'adb-devices.txt'), 'utf8');
+  const summary = fs.readFileSync(path.join(outputDir, 'agent-summary.md'), 'utf8');
+
+  assert.equal(result.health.healthStatus, 'failed');
+  assert.match(devicesRaw, /adb command timed out after 50ms/u);
+  assert.ok(
+    (result.health.checks as Array<{ code: string; metadata?: { nextActionCode?: string } }>).some(
+      (check) => check.code === 'adb_daemon_unreachable'
+        && check.metadata?.nextActionCode === 'rerun_with_adb_daemon_access',
     ),
   );
   assert.match(summary, /Next action `rerun_with_adb_daemon_access`/u);
