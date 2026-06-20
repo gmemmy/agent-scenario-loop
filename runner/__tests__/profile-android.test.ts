@@ -2037,7 +2037,10 @@ test('profile-android seeds Android scenario commands as one ordered storage que
     },
   ]);
   assert.deepEqual(waits, [500, 250, 1800, 25]);
-  assert.ok(fs.existsSync(path.join(adbCaptureRoot, 'raw', 'adb-async-storage-write-2.txt')));
+  const commandQueueWritePath = path.join(adbCaptureRoot, 'raw', 'adb-async-storage-write-2.txt');
+  assert.ok(fs.existsSync(commandQueueWritePath));
+  const commandQueueWriteArtifact = fs.readFileSync(commandQueueWritePath, 'utf8');
+  assert.match(commandQueueWriteArtifact, /"waitMs":300/u);
 });
 
 test('profile-android derives adb capture waits from scenario execution windows', () => {

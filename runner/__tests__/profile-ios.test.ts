@@ -857,6 +857,10 @@ test('profile-ios seeds iOS scenario commands through app storage', async (t: Te
 
   assert.equal(health.healthStatus, 'passed');
   assert.equal((seed.commands as unknown[]).length, 6);
+  assert.deepEqual(
+    (seed.commands as Array<Record<string, unknown>>).slice(0, 2).map((command) => command.waitMs),
+    [300, 300],
+  );
   const sequencingEvidence = causalRun.timeline
     .filter((event: Record<string, any>) => (
       (event.owner === 'asl-command-transport'
@@ -1069,7 +1073,7 @@ test('profile-ios executes iOS scenario commands through deep links when storage
     exitCode: 0,
     label: 'open first example card',
     rawPath: 'raw/ios-deep-link-2.txt',
-    url: 'asl-example://profile-session/command?runId=ios-deep-link-open-close&scenario=open-close-cycle&command=activate-target%3Aexample-card-1&commandId=open+first+example+card&sequence=1&queueId=open-close-cycle',
+    url: 'asl-example://profile-session/command?runId=ios-deep-link-open-close&scenario=open-close-cycle&command=activate-target%3Aexample-card-1&commandId=open+first+example+card&sequence=1&queueId=open-close-cycle&waitMs=300',
     waitMs: 300,
   });
   assert.ok(fs.existsSync(path.join(simctlCaptureRoot, 'raw', 'ios-deep-link-7.txt')));
