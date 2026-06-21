@@ -19,7 +19,6 @@ Execution tools can change. The scenario and evidence contract should not.
 | Inspect artifacts, schemas, and supported surfaces | [Contracts](docs/contracts.md) |
 | Write your first scenario | [Scenario Authoring](docs/authoring.md) |
 | Add a runner or evidence provider | [Adapter Onboarding](docs/adapters.md) |
-| Track active hardening lanes and future work | [Roadmap Ledger](docs/roadmap.md) |
 | Rehearse adoption in an existing app | [Consumer App Rehearsal](docs/consumer-rehearsal.md) |
 | Run fixture, Android, or iOS proofs | [Live Proofs](docs/live-proofs.md) |
 | Use the package from code | [Public API](docs/api.md) |
