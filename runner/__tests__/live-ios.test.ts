@@ -173,7 +173,7 @@ test('generic iOS live proof captures profile evidence before sidecar proofs', a
     orderedCalls.findIndex((call) => call.includes(`argent:run launch-app --udid ${DEVICE_ID} --bundleId ${BUNDLE_ID}`)) > profileCapture,
     'Argent proof should run after iOS profile evidence capture',
   );
-  assert.ok(waits.includes(9000), 'expected generic iOS live proof to derive the startup capture window from scenario timeouts');
+  assert.ok(waits.includes(11000), 'expected generic iOS live proof to derive the startup capture window from scenario timeouts');
   assert.ok(waits.includes(15), 'expected generic iOS live proof to wait after opening the dev-client URL');
   assert.ok(
     orderedCalls.some((call) => call.startsWith(`simctl:simctl openurl ${DEVICE_ID} asl-example://expo-development-client/`)),
@@ -318,7 +318,7 @@ test('generic iOS live proof can use deep-link profile transport without termina
     orderedCalls.some((call) => call.startsWith(`simctl:simctl openurl ${DEVICE_ID} asl-example://profile-session/start`)),
     'expected deep-link profile session start',
   );
-  assert.ok(waits.includes(9000), 'expected warm proof to still use the scenario capture window');
+  assert.ok(waits.includes(11000), 'expected warm proof to still use the scenario capture window');
 });
 
 test('generic iOS live proof writes failed aggregate before skipping sidecars on failed profile gate', async (t: TestContext) => {

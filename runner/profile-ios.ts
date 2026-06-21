@@ -41,7 +41,10 @@ type IosSimctlProfileCommand = {
 type ScenarioExecutionStep = import('../core/execution-plan').ScenarioExecutionStep;
 
 const PROFILE_SESSION_CAPTURE_BOOTSTRAP_MS = 1000;
-const PROFILE_SESSION_CAPTURE_MAX_MS = 30000;
+const PROFILE_SESSION_CAPTURE_COMMAND_OVERHEAD_MS = 250;
+const PROFILE_SESSION_CAPTURE_BUFFER_MIN_MS = 2000;
+const PROFILE_SESSION_CAPTURE_BUFFER_RATIO = 0.2;
+const PROFILE_SESSION_CAPTURE_MAX_MS = 10 * 60 * 1000;
 const DEFAULT_IOS_PROFILE_SESSION_STORAGE_KEY = 'agent-scenario-loop.profile-session.1';
 const DEFAULT_IOS_PROFILE_COMMAND_STORAGE_KEY = 'agent-scenario-loop.profile-commands.1';
 const DEFAULT_IOS_PROFILE_EVENT_STORAGE_KEY = 'agent-scenario-loop.profile-events.1';
@@ -295,24 +298,60 @@ function readStepWaitMs(step: ScenarioExecutionStep): number {
 }
 
 /**
- * Derives a storage-backed profile capture window from scenario waits and cycles.
+ * Reads wait time from a profile-session command.
+ *
+ * @param {IosSimctlProfileCommand} command
+ * @returns {number}
+ */
+function readProfileCommandWindowMs(command: IosSimctlProfileCommand): number {
+  return readPositiveInteger(command.waitMs, 0) +
+    readPositiveInteger(command.waitTimeoutMs, 0) +
+    PROFILE_SESSION_CAPTURE_COMMAND_OVERHEAD_MS;
+}
+
+/**
+ * Reads execution-plan waits that are not already attached to a profile-session command.
+ *
+ * @param {Record<string, unknown>} scenario
+ * @returns {number}
+ */
+function readUnattachedExecutionWaitMs(scenario: Record<string, any>): number {
+  const executionPlan = buildScenarioExecutionPlan(scenario);
+  const iterations = readScenarioIterationCount(scenario);
+  const perIterationWaitMs = executionPlan.steps.reduce((total: number, step: ScenarioExecutionStep, index: number) => {
+    if (step.portMethod !== 'waitForTruthEvent') {
+      return total;
+    }
+
+    const previousStep = executionPlan.steps[index - 1];
+    if (previousStep?.portMethod === 'executeStep') {
+      return total;
+    }
+
+    return total + readPositiveInteger(step.timeoutMs, 0);
+  }, 0);
+
+  return perIterationWaitMs * iterations;
+}
+
+/**
+ * Derives a storage-backed profile capture window from scenario waits, command gates, and cycles.
  *
  * @param {Record<string, unknown>} scenario
  * @returns {number}
  */
 function deriveProfileSessionCaptureWaitMs(scenario: Record<string, any>): number {
-  const executionPlan = buildScenarioExecutionPlan(scenario);
-  const iterations = readScenarioIterationCount(scenario);
-  const perIterationWaitMs = executionPlan.steps.reduce((total: number, step: ScenarioExecutionStep) => {
-    if (step.kind === 'command') {
-      return total + readStepWaitMs(step);
-    }
-    if (step.portMethod === 'waitForTruthEvent') {
-      return total + readPositiveInteger(step.timeoutMs, 0);
-    }
-    return total;
-  }, 0);
-  const derivedWaitMs = PROFILE_SESSION_CAPTURE_BOOTSTRAP_MS + (perIterationWaitMs * iterations);
+  const commands = resolveIosSimctlProfileCommands(scenario);
+  const commandWindowMs = commands.reduce(
+    (total: number, command: IosSimctlProfileCommand) => total + readProfileCommandWindowMs(command),
+    0,
+  );
+  const executionWindowMs = commandWindowMs + readUnattachedExecutionWaitMs(scenario);
+  const bufferMs = Math.max(
+    PROFILE_SESSION_CAPTURE_BUFFER_MIN_MS,
+    Math.ceil(executionWindowMs * PROFILE_SESSION_CAPTURE_BUFFER_RATIO),
+  );
+  const derivedWaitMs = PROFILE_SESSION_CAPTURE_BOOTSTRAP_MS + executionWindowMs + bufferMs;
 
   return Math.min(Math.max(derivedWaitMs, PROFILE_SESSION_CAPTURE_BOOTSTRAP_MS), PROFILE_SESSION_CAPTURE_MAX_MS);
 }

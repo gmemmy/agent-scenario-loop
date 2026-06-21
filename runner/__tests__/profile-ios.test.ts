@@ -1192,19 +1192,70 @@ test('profile-ios derives storage capture waits from scenario execution windows'
   const startup = readJson(fixturePath('examples/mobile-app/scenarios/mobile/app-startup.json'));
   const openClose = readJson(fixturePath('examples/mobile-app/scenarios/mobile/open-close-cycle.json'));
   const scroll = readJson(fixturePath('examples/mobile-app/scenarios/mobile/scroll-settle.json'));
+  const commandHeavyCycle = {
+    id: 'command-heavy-cycle',
+    defaultIterations: 6,
+    cycles: {
+      setupStepIds: ['reset-surface'],
+      bodyStepIds: ['open-panel', 'close-panel'],
+    },
+    milestones: [
+      { id: 'ready', event: 'surface_ready' },
+      { id: 'opened', event: 'panel_opened' },
+      { id: 'closed', event: 'panel_closed' },
+    ],
+    steps: [
+      {
+        id: 'reset-surface',
+        kind: 'command',
+        command: 'reset-surface',
+        adapterOptions: {
+          iosSimctl: {
+            waitMs: 500,
+          },
+        },
+      },
+      { id: 'wait-ready', kind: 'waitForMilestone', milestone: 'ready', timeoutMs: 4000 },
+      {
+        id: 'open-panel',
+        kind: 'command',
+        command: 'open-panel',
+        adapterOptions: {
+          iosSimctl: {
+            waitMs: 300,
+          },
+        },
+      },
+      { id: 'wait-opened', kind: 'waitForMilestone', milestone: 'opened', timeoutMs: 7000 },
+      {
+        id: 'close-panel',
+        kind: 'command',
+        command: 'close-panel',
+        adapterOptions: {
+          iosSimctl: {
+            waitMs: 400,
+          },
+        },
+      },
+      { id: 'wait-closed', kind: 'waitForMilestone', milestone: 'closed', timeoutMs: 9000 },
+    ],
+  };
 
-  assert.equal(deriveProfileSessionCaptureWaitMs(startup), 9000);
-  assert.equal(deriveProfileSessionCaptureWaitMs(openClose), 17800);
-  assert.equal(deriveProfileSessionCaptureWaitMs(scroll), 9400);
+  assert.equal(deriveProfileSessionCaptureWaitMs(startup), 11000);
+  assert.equal(deriveProfileSessionCaptureWaitMs(openClose), 22960);
+  assert.equal(deriveProfileSessionCaptureWaitMs(scroll), 12150);
+  assert.equal(resolveIosSimctlProfileCommands(commandHeavyCycle).length, 13);
+  assert.equal(deriveProfileSessionCaptureWaitMs(commandHeavyCycle), 130540);
+  assert.ok(deriveProfileSessionCaptureWaitMs(commandHeavyCycle) > 30000);
   assert.equal(resolveProfileSessionCaptureWaitMs({
     args: { 'wait-ms': '25' },
     profileSessionEnabled: true,
-    scenario: startup,
+    scenario: commandHeavyCycle,
   }), 25);
   assert.equal(resolveProfileSessionCaptureWaitMs({
     args: {},
     profileSessionEnabled: false,
-    scenario: startup,
+    scenario: commandHeavyCycle,
   }), 0);
 });
 
