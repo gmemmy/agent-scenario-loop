@@ -57,6 +57,24 @@ type ProviderEvidenceKind = 'accessibility' | 'logs' | 'profiler';
 type SignalEvidenceKind = 'js' | 'memory' | 'network';
 type EvidenceChannel = 'capture' | 'provider' | 'signal';
 type EvidenceKind = CaptureEvidenceKind | ProviderEvidenceKind | SignalEvidenceKind;
+type DiagnosticStatus = 'captured' | 'not_requested' | 'not_supported' | 'unavailable' | 'failed' | 'skipped' | 'missing';
+type DiagnosticKind = EvidenceKind | 'logs';
+type DiagnosticInventoryEntry = {
+  kind: DiagnosticKind;
+  status: DiagnosticStatus;
+  required: boolean;
+  name?: string;
+  provider?: string;
+  runnerId?: string;
+  path?: string;
+  reason?: string;
+  nextAction?: string;
+  sidecarRoot?: string;
+  evidenceDependency?: {
+    kind: string;
+    path: string;
+  };
+};
 type EvidenceAttachment = {
   channel: EvidenceChannel;
   completenessStatus: 'complete';
@@ -836,15 +854,400 @@ function toPortablePathReference(targetPath: string): string {
 }
 
 /**
+ * Returns a path reference from one run folder to an external sidecar.
+ *
+ * @param {{runDir: string, targetPath: string}} options
+ * @returns {string}
+ */
+function toRunPathReference({ runDir, targetPath }: { runDir: string; targetPath: string }): string {
+  const relativePath = path.relative(runDir, targetPath);
+  return relativePath.length > 0 ? relativePath : path.basename(targetPath);
+}
+
+/**
+ * Reads scenario string-list declarations into a set.
+ *
+ * @param {Record<string, unknown>} scenario
+ * @param {string[]} pathSegments
+ * @returns {Set<string>}
+ */
+function readScenarioStringSet(
+  scenario: Record<string, any>,
+  pathSegments: string[],
+): Set<string> {
+  const values = pathSegments.reduce<unknown>((current, segment) => (
+    current && typeof current === 'object' && !Array.isArray(current)
+      ? (current as Record<string, unknown>)[segment]
+      : undefined
+  ), scenario);
+  return new Set(
+    Array.isArray(values)
+      ? values.filter((value: unknown): value is string => typeof value === 'string')
+      : [],
+  );
+}
+
+/**
+ * Returns true when a scenario artifact declaration matches a diagnostic kind.
+ *
+ * @param {Set<string>} artifacts
+ * @param {string[]} aliases
+ * @returns {boolean}
+ */
+function artifactSetHasAny(artifacts: Set<string>, aliases: string[]): boolean {
+  return aliases.some((alias) => artifacts.has(alias));
+}
+
+/**
+ * Resolves common aliases used by scenario artifact contracts.
+ *
+ * @param {DiagnosticKind} kind
+ * @returns {string[]}
+ */
+function diagnosticArtifactAliases(kind: DiagnosticKind): string[] {
+  const aliases: Record<DiagnosticKind, string[]> = {
+    accessibility: ['accessibility'],
+    js: ['js', 'profileEvents', 'profileSession'],
+    logs: ['logs', 'deviceLog', 'interactionLog'],
+    memory: ['memory'],
+    network: ['network'],
+    profiler: ['profiler', 'profile'],
+    screenshot: ['screenshot', 'screenshots'],
+    uiTree: ['uiTree', 'ui-tree', 'accessibilityTree'],
+    video: ['video', 'recording'],
+  };
+
+  return aliases[kind];
+}
+
+/**
+ * Resolves common aliases used by runner capability declarations.
+ *
+ * @param {DiagnosticKind} kind
+ * @returns {string[]}
+ */
+function diagnosticCapabilityAliases(kind: DiagnosticKind): string[] {
+  const aliases: Record<DiagnosticKind, string[]> = {
+    accessibility: ['accessibility', 'accessibilityCapture'],
+    js: ['js', 'profileSession', 'profileEvents'],
+    logs: ['logCapture', 'logs', 'deviceLog'],
+    memory: ['memory', 'memoryCapture'],
+    network: ['network', 'networkCapture'],
+    profiler: ['profiler', 'profile', 'profilerCapture'],
+    screenshot: ['screenshot', 'screenshots'],
+    uiTree: ['uiTree', 'ui-tree', 'accessibilityTree'],
+    video: ['video', 'recording'],
+  };
+
+  return aliases[kind];
+}
+
+/**
+ * Returns requirement/request metadata for one diagnostic kind.
+ *
+ * @param {{kind: DiagnosticKind, optionalArtifacts: Set<string>, optionalCapabilities: Set<string>, requiredArtifacts: Set<string>, requiredCapabilities: Set<string>}} options
+ * @returns {{required: boolean, requested: boolean}}
+ */
+function resolveDiagnosticRequest({
+  kind,
+  optionalArtifacts,
+  optionalCapabilities,
+  requiredArtifacts,
+  requiredCapabilities,
+}: {
+  kind: DiagnosticKind;
+  optionalArtifacts: Set<string>;
+  optionalCapabilities: Set<string>;
+  requiredArtifacts: Set<string>;
+  requiredCapabilities: Set<string>;
+}): { required: boolean; requested: boolean } {
+  const artifactAliases = diagnosticArtifactAliases(kind);
+  const capabilityAliases = diagnosticCapabilityAliases(kind);
+  const required = artifactSetHasAny(requiredArtifacts, artifactAliases) ||
+    artifactSetHasAny(requiredCapabilities, capabilityAliases);
+  return {
+    required,
+    requested: required ||
+      artifactSetHasAny(optionalArtifacts, artifactAliases) ||
+      artifactSetHasAny(optionalCapabilities, capabilityAliases),
+  };
+}
+
+/**
+ * Builds a status entry for one diagnostic surface.
+ *
+ * @param {DiagnosticInventoryEntry & {requested?: boolean}} entry
+ * @returns {DiagnosticInventoryEntry}
+ */
+function buildDiagnosticEntry(
+  entry: DiagnosticInventoryEntry & { requested?: boolean },
+): DiagnosticInventoryEntry {
+  const { requested = true, ...diagnostic } = entry;
+  if (diagnostic.status === 'captured' || requested || diagnostic.required) {
+    return diagnostic;
+  }
+
+  return {
+    ...diagnostic,
+    status: 'not_requested',
+    reason: diagnostic.reason ?? 'Scenario did not request this optional diagnostic surface.',
+  };
+}
+
+/**
+ * Builds the product-neutral diagnostic inventory for a profile run.
+ *
+ * @param {{args: CliArgs, attachedEvidence: AttachedEvidence, eventLogPath: string | null, platform: ProfilePlatform, profileSessionEntriesPath: string | null, runDir: string, scenario: Record<string, unknown>}} options
+ * @returns {DiagnosticInventoryEntry[]}
+ */
+function buildDiagnosticInventory({
+  args,
+  attachedEvidence,
+  eventLogPath,
+  platform,
+  profileSessionEntriesPath,
+  runDir,
+  scenario,
+}: {
+  args: CliArgs;
+  attachedEvidence: AttachedEvidence;
+  eventLogPath: string | null;
+  platform: ProfilePlatform;
+  profileSessionEntriesPath: string | null;
+  runDir: string;
+  scenario: Record<string, any>;
+}): DiagnosticInventoryEntry[] {
+  const requiredArtifacts = readScenarioStringSet(scenario, ['artifacts', 'required']);
+  const optionalArtifacts = readScenarioStringSet(scenario, ['artifacts', 'optional']);
+  const requiredCapabilities = readScenarioStringSet(scenario, ['requiredCapabilities']);
+  const optionalCapabilities = readScenarioStringSet(scenario, ['optionalCapabilities']);
+  const sidecarRoot = typeof args['adb-artifacts'] === 'string'
+    ? path.resolve(args['adb-artifacts'])
+    : typeof args['simctl-artifacts'] === 'string'
+      ? path.resolve(args['simctl-artifacts'])
+      : null;
+  const sidecarRootRef = sidecarRoot ? toRunPathReference({ runDir, targetPath: sidecarRoot }) : undefined;
+  const eventLogBaseName = eventLogPath ? path.basename(eventLogPath) : undefined;
+  const eventLogManifestPath = eventLogBaseName ? `raw/${eventLogBaseName}` : undefined;
+  const eventLogIsIosProfileEvents = platform === 'ios' && eventLogBaseName === 'ios-profile-events.log';
+  const simctlRuntimeLogPath = typeof args['simctl-artifacts'] === 'string'
+    ? path.resolve(args['simctl-artifacts'], 'raw', 'ios-simctl-log.txt')
+    : null;
+  const simctlRuntimeLogExists = Boolean(simctlRuntimeLogPath && fs.existsSync(simctlRuntimeLogPath));
+  const simctlRuntimeLogDependency = simctlRuntimeLogPath && simctlRuntimeLogExists
+    ? {
+        kind: 'sidecar',
+        path: toRunPathReference({ runDir, targetPath: simctlRuntimeLogPath }),
+      }
+    : undefined;
+  const copiedSimctlLogManifestPath = platform === 'ios' && eventLogPath && path.basename(eventLogPath) === 'ios-simctl-log.txt'
+    ? eventLogManifestPath
+    : undefined;
+  const explicitIosRuntimeLogManifestPath = platform === 'ios' &&
+    typeof args.events === 'string' &&
+    eventLogManifestPath &&
+    !eventLogIsIosProfileEvents
+    ? eventLogManifestPath
+    : undefined;
+  const eventLogDependency = eventLogPath && sidecarRoot
+    ? {
+        kind: 'sidecar',
+        path: toRunPathReference({ runDir, targetPath: eventLogPath }),
+      }
+    : undefined;
+  const jsProfilePath = attachedEvidence.signals.js[0] ?? eventLogManifestPath;
+  const profileSessionEntriesManifestPath = profileSessionEntriesPath
+    ? `raw/${path.basename(profileSessionEntriesPath)}`
+    : undefined;
+  const entries: DiagnosticInventoryEntry[] = [];
+  const pushDiagnostic = (
+    kind: DiagnosticKind,
+    entry: Omit<DiagnosticInventoryEntry, 'kind' | 'required'> & { required?: boolean; requested?: boolean },
+  ) => {
+    const request = resolveDiagnosticRequest({
+      kind,
+      optionalArtifacts,
+      optionalCapabilities,
+      requiredArtifacts,
+      requiredCapabilities,
+    });
+    entries.push(buildDiagnosticEntry({
+      kind,
+      ...entry,
+      required: entry.required ?? request.required,
+      requested: entry.requested ?? request.requested,
+    }));
+  };
+
+  const logCaptured = platform === 'ios'
+    ? Boolean(copiedSimctlLogManifestPath || simctlRuntimeLogDependency || explicitIosRuntimeLogManifestPath)
+    : Boolean(eventLogManifestPath);
+  pushDiagnostic('logs', {
+    name: platform === 'ios' ? 'simulator-runtime-log' : 'device-log',
+    ...(typeof args['adb-artifacts'] === 'string'
+      ? { provider: 'adb', runnerId: 'android-adb' }
+      : typeof args['simctl-artifacts'] === 'string'
+        ? { provider: 'simctl', runnerId: 'ios-simctl' }
+        : typeof args.events === 'string'
+          ? { provider: 'fixture-log-ingest' }
+          : {}),
+    status: logCaptured ? 'captured' : 'unavailable',
+    ...(platform === 'ios'
+      ? copiedSimctlLogManifestPath
+        ? { path: copiedSimctlLogManifestPath }
+        : simctlRuntimeLogDependency
+          ? { path: simctlRuntimeLogDependency.path }
+          : explicitIosRuntimeLogManifestPath
+            ? { path: explicitIosRuntimeLogManifestPath }
+            : {}
+      : eventLogManifestPath
+        ? { path: eventLogManifestPath }
+        : {}),
+    ...(sidecarRootRef ? { sidecarRoot: sidecarRootRef } : {}),
+    ...(platform === 'ios'
+      ? simctlRuntimeLogDependency
+        ? { evidenceDependency: simctlRuntimeLogDependency }
+        : {}
+      : eventLogDependency
+        ? { evidenceDependency: eventLogDependency }
+        : {}),
+    ...(logCaptured
+      ? {
+          reason: platform === 'ios'
+            ? 'iOS simulator runtime log evidence was available from the simctl capture sidecar.'
+            : 'Device or fixture log evidence was available to the profile runner.',
+        }
+      : {
+          reason: platform === 'ios'
+            ? 'No iOS simulator runtime log was available in the selected simctl capture sidecar.'
+            : 'No device log source was supplied to this profile run.',
+          nextAction: platform === 'ios'
+            ? 'Run with --simctl-capture or provide --simctl-artifacts containing raw/ios-simctl-log.txt.'
+            : 'Run with --events, --adb-artifacts, --adb-capture, or provide a runtime log artifact.',
+        }),
+  });
+  pushDiagnostic('js', {
+    name: 'profile-session-evidence',
+    status: eventLogManifestPath || attachedEvidence.signals.js.length > 0 ? 'captured' : 'unavailable',
+    ...(jsProfilePath ? { path: jsProfilePath } : {}),
+    ...(profileSessionEntriesManifestPath
+      ? {
+          evidenceDependency: {
+            kind: 'profile-session-entries',
+            path: profileSessionEntriesManifestPath,
+          },
+        }
+      : eventLogDependency
+        ? { evidenceDependency: eventLogDependency }
+        : {}),
+    ...(sidecarRootRef ? { sidecarRoot: sidecarRootRef } : {}),
+    ...(eventLogManifestPath || attachedEvidence.signals.js.length > 0
+      ? { reason: 'Profile or JS evidence was captured from runner input.' }
+      : {
+          reason: 'No profile-session event log or JS signal attachment was available.',
+          nextAction: 'Attach JS evidence with --signal js:<path> or run a profile-session capture that emits profile events.',
+        }),
+  });
+  pushDiagnostic('screenshot', {
+    status: attachedEvidence.captures.screenshots.length > 0 ? 'captured' : 'unavailable',
+    ...(attachedEvidence.captures.screenshots[0] ? { path: attachedEvidence.captures.screenshots[0] } : {}),
+    ...(attachedEvidence.captures.screenshots.length > 0
+      ? { reason: 'Screenshot capture was attached to the run.' }
+      : {
+          reason: 'No screenshot capture was produced by the selected runner/provider set.',
+          nextAction: 'Use --capture screenshot:<path> or a runner/provider that produces screenshots.',
+        }),
+  });
+  pushDiagnostic('uiTree', {
+    status: attachedEvidence.captures.uiTree ? 'captured' : 'unavailable',
+    ...(attachedEvidence.captures.uiTree ? { path: attachedEvidence.captures.uiTree } : {}),
+    ...(attachedEvidence.captures.uiTree
+      ? { reason: 'UI tree capture was attached to the run.' }
+      : {
+          reason: 'No UI tree capture was produced by the selected runner/provider set.',
+          nextAction: 'Use --capture uiTree:<path> or add an accessibility/UI-tree provider.',
+        }),
+  });
+  pushDiagnostic('video', {
+    status: attachedEvidence.captures.video ? 'captured' : 'unavailable',
+    ...(attachedEvidence.captures.video ? { path: attachedEvidence.captures.video } : {}),
+    ...(attachedEvidence.captures.video
+      ? { reason: 'Video capture was attached to the run.' }
+      : {
+          reason: 'No video capture was produced by the selected runner/provider set.',
+          nextAction: 'Use --capture video:<path> or run a capture provider that records video.',
+        }),
+  });
+  for (const kind of ['memory', 'network'] as const) {
+    pushDiagnostic(kind, {
+      status: attachedEvidence.signals[kind].length > 0 ? 'captured' : 'unavailable',
+      ...(attachedEvidence.signals[kind][0] ? { path: attachedEvidence.signals[kind][0] } : {}),
+      ...(attachedEvidence.signals[kind].length > 0
+        ? { reason: `${kind} signal evidence was attached to the run.` }
+        : {
+            reason: `No ${kind} signal evidence was produced by the selected provider set.`,
+            nextAction: `Attach ${kind} evidence with --signal ${kind}:<path> or add a provider command that emits it.`,
+          }),
+    });
+  }
+  for (const kind of ['accessibility', 'profiler'] as const) {
+    const attachment = attachedEvidence.attachments.find((item) => item.kind === kind);
+    pushDiagnostic(kind, {
+      ...(attachment?.channel === 'provider' ? { provider: 'evidence-provider' } : {}),
+      status: attachment ? 'captured' : 'unavailable',
+      ...(attachment ? { path: attachment.manifestPath } : {}),
+      ...(attachment
+        ? { reason: `${kind} provider evidence was attached to the run.` }
+        : {
+            reason: `No ${kind} provider attachment was produced by the selected provider set.`,
+            nextAction: `Declare a provider command or attach ${kind} evidence before expecting this diagnostic.`,
+          }),
+    });
+  }
+
+  return entries.map((entry) => {
+    const cleaned = Object.entries(entry).filter(([, value]) => value !== undefined);
+    return Object.fromEntries(cleaned) as DiagnosticInventoryEntry;
+  });
+}
+
+/**
+ * Converts uncaptured required diagnostics into health checks.
+ *
+ * @param {DiagnosticInventoryEntry[]} diagnostics
+ * @returns {Record<string, unknown>[]}
+ */
+function buildRequiredDiagnosticHealthChecks(diagnostics: DiagnosticInventoryEntry[] = []): Record<string, unknown>[] {
+  return diagnostics
+    .filter((diagnostic) => diagnostic.required && diagnostic.status !== 'captured')
+    .map((diagnostic) => ({
+      name: `required_${diagnostic.kind}_diagnostic`,
+      status: 'failed',
+      source: 'evidence',
+      code: 'required_diagnostic_not_captured',
+      message: diagnostic.reason ?? `Required ${diagnostic.kind} diagnostic was not captured.`,
+      metadata: {
+        kind: diagnostic.kind,
+        status: diagnostic.status,
+        ...(diagnostic.name ? { name: diagnostic.name } : {}),
+        ...(diagnostic.nextAction ? { nextAction: diagnostic.nextAction } : {}),
+        ...(diagnostic.provider ? { provider: diagnostic.provider } : {}),
+        ...(diagnostic.runnerId ? { runnerId: diagnostic.runnerId } : {}),
+      },
+    }));
+}
+
+/**
  * Builds scenario health from profile metrics.
  *
- * @param {{scenario: Record<string, unknown>, runId: string, metrics: Record<string, unknown>, profileEventCount?: number, profileSessionEntryCount?: number, commandTransport?: string, sessionEntries?: Record<string, unknown>[]}} options
+ * @param {{scenario: Record<string, unknown>, runId: string, metrics: Record<string, unknown>, diagnostics?: DiagnosticInventoryEntry[], profileEventCount?: number, profileSessionEntryCount?: number, commandTransport?: string, sessionEntries?: Record<string, unknown>[]}} options
  * @returns {Record<string, unknown>}
  */
 function buildProfileHealth({
   scenario,
   runId,
   metrics,
+  diagnostics = [],
   profileEventCount,
   profileSessionEntryCount,
   commandTransport,
@@ -853,6 +1256,7 @@ function buildProfileHealth({
   scenario: Record<string, any>;
   runId: string;
   metrics: Record<string, any>;
+  diagnostics?: DiagnosticInventoryEntry[];
   profileEventCount?: number;
   profileSessionEntryCount?: number;
   commandTransport?: string;
@@ -922,7 +1326,9 @@ function buildProfileHealth({
       ]
     : [];
   const commandChecksPassed = commandChecks.every((check) => check.status === 'passed');
-  const healthPassed = passed && commandChecksPassed;
+  const diagnosticChecks = buildRequiredDiagnosticHealthChecks(diagnostics);
+  const diagnosticChecksPassed = diagnosticChecks.every((check) => check.status === 'passed');
+  const healthPassed = passed && commandChecksPassed && diagnosticChecksPassed;
 
   return assertValidJson(
     {
@@ -943,6 +1349,7 @@ function buildProfileHealth({
           metadata,
         },
         ...commandChecks,
+        ...diagnosticChecks,
       ],
     },
     SCHEMAS.health,
@@ -2048,6 +2455,10 @@ async function runProfileMobile(args: CliArgs, options: ProfileMobileOptions): P
       signals: attachedEvidence.signals,
     },
   });
+  const eventLogRawPath = eventLogPath ? `raw/${path.basename(eventLogPath)}` : undefined;
+  const eventLogIsProfileSessionEvidenceOnly = options.platform === 'ios' &&
+    eventLogPath &&
+    path.basename(eventLogPath) === 'ios-profile-events.log';
   const manifestArtifacts = {
     causalRun: 'causal-run.json',
     budgetVerdict: 'budget-verdict.json',
@@ -2056,13 +2467,20 @@ async function runProfileMobile(args: CliArgs, options: ProfileMobileOptions): P
     summary: 'summary.md',
     scenario: toPortablePathReference(scenarioPath),
     raw: {
-      interactionLog: eventLogPath ? `raw/${path.basename(eventLogPath)}` : 'raw/interaction.log',
-      deviceLog: eventLogPath ? `raw/${path.basename(eventLogPath)}` : 'raw/device.log',
+      ...(eventLogRawPath && !eventLogIsProfileSessionEvidenceOnly
+        ? {
+            interactionLog: eventLogRawPath,
+            deviceLog: eventLogRawPath,
+          }
+        : {}),
+      ...(profileSessionEntriesPath
+        ? { profileSessionEntries: `raw/${path.basename(profileSessionEntriesPath)}` }
+        : {}),
     },
     captures: {
       screenshots: attachedEvidence.captures.screenshots,
-      video: attachedEvidence.captures.video ?? 'captures/run.mp4',
-      uiTree: attachedEvidence.captures.uiTree ?? 'captures/ui-tree.json',
+      ...(attachedEvidence.captures.video ? { video: attachedEvidence.captures.video } : {}),
+      ...(attachedEvidence.captures.uiTree ? { uiTree: attachedEvidence.captures.uiTree } : {}),
     },
     signals: {
       js: attachedEvidence.signals.js,
@@ -2070,6 +2488,15 @@ async function runProfileMobile(args: CliArgs, options: ProfileMobileOptions): P
       network: attachedEvidence.signals.network,
     },
     evidenceAttachments: buildEvidenceAttachmentManifest(attachedEvidence.attachments),
+    diagnostics: buildDiagnosticInventory({
+      args,
+      attachedEvidence,
+      eventLogPath,
+      platform: options.platform,
+      profileSessionEntriesPath,
+      runDir,
+      scenario: profileScenario,
+    }),
   };
   const appId = resolveAppId({ config, platform: options.platform });
   const commandTransport = resolveCommandTransport({ args, interactionDriver, options });
@@ -2142,6 +2569,7 @@ async function runProfileMobile(args: CliArgs, options: ProfileMobileOptions): P
     scenario: profileScenario,
     runId,
     metrics,
+    diagnostics: manifestArtifacts.diagnostics,
     profileEventCount: events.length,
     profileSessionEntryCount: sessionEntries.length,
     commandTransport,

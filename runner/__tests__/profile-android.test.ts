@@ -244,10 +244,66 @@ test('profile-android writes artifacts from fixture event logs', async (t: TestC
   });
   assert.equal(health.healthStatus, 'passed');
   assert.equal(verdict.verdictStatus, 'passed');
+  assert.equal(manifest.artifacts.raw.interactionLog, 'raw/android-app-startup.log');
+  assert.equal(manifest.artifacts.raw.deviceLog, 'raw/android-app-startup.log');
+  assert.equal('video' in manifest.artifacts.captures, false);
+  assert.equal('uiTree' in manifest.artifacts.captures, false);
+  assert.equal('video' in (causalRun as Record<string, any>).artifacts, false);
+  const diagnostics = manifest.artifacts.diagnostics as Array<Record<string, any>>;
+  assert.deepEqual(diagnostics.find((entry) => entry.kind === 'logs'), {
+    kind: 'logs',
+    name: 'device-log',
+    path: 'raw/android-app-startup.log',
+    provider: 'fixture-log-ingest',
+    reason: 'Device or fixture log evidence was available to the profile runner.',
+    required: false,
+    status: 'captured',
+  });
+  assert.equal(diagnostics.find((entry) => entry.kind === 'video')?.status, 'not_requested');
+  assert.equal(diagnostics.find((entry) => entry.kind === 'video')?.required, false);
+  assert.equal('path' in (diagnostics.find((entry) => entry.kind === 'video') ?? {}), false);
+  assert.equal(diagnostics.find((entry) => entry.kind === 'uiTree')?.status, 'not_requested');
+  assert.equal('path' in (diagnostics.find((entry) => entry.kind === 'uiTree') ?? {}), false);
   assert.match(profileSummary, /## Attempt/u);
+  assert.match(profileSummary, /## Diagnostic inventory/u);
   assert.match(profileSummary, /Attempt number: 1\/1/u);
   assert.match(profileSummary, /Terminal state: passed/u);
   assert.match(agentSummary, /Scenario health passed/u);
+});
+
+test('profile-android treats optional diagnostic capabilities as requested inventory', async (t: TestContext) => {
+  const tempRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-android-optional-capability-'));
+  t.after(async () => {
+    await fsp.rm(tempRoot, { recursive: true, force: true });
+  });
+  const artifactRoot = path.join(tempRoot, 'artifacts');
+  const scenarioPath = path.join(tempRoot, 'app-startup-video-capability.json');
+  const scenario = readJson(fixturePath('examples/mobile-app/scenarios/android/app-startup.json'));
+  scenario.optionalCapabilities = ['video'];
+  delete scenario.artifacts;
+  await fsp.writeFile(scenarioPath, `${JSON.stringify(scenario, null, 2)}\n`, 'utf8');
+
+  const { stdout } = await execFileAsync(process.execPath, [
+    PROFILE_ANDROID,
+    '--config',
+    fixturePath('examples/mobile-app/asl.config.json'),
+    '--scenario',
+    scenarioPath,
+    '--events',
+    fixturePath('examples/mobile-app/event-logs/android-app-startup.log'),
+    '--out',
+    artifactRoot,
+    '--run-id',
+    'android-example-startup',
+  ]);
+
+  const manifest = readJson(path.join(stdout.trim(), 'manifest.json')) as Record<string, any>;
+  const videoDiagnostic = manifest.artifacts.diagnostics.find((entry: Record<string, unknown>) => entry.kind === 'video');
+
+  assert.equal(videoDiagnostic.status, 'unavailable');
+  assert.equal(videoDiagnostic.required, false);
+  assert.equal('path' in videoDiagnostic, false);
+  assert.match(videoDiagnostic.nextAction, /capture provider/u);
 });
 
 test('profile-android profiles public scenario ids and milestone budgets', async (t: TestContext) => {
@@ -1513,6 +1569,13 @@ test('profile-android reads logcat from adb artifact folders', async (t: TestCon
     udid: 'unknown',
   });
   assert.equal((causalRun.scenario as { driver: string }).driver, 'adb-logcat');
+  const diagnostics = (manifest.artifacts as { diagnostics: Array<Record<string, any>> }).diagnostics;
+  const logDiagnostic = diagnostics.find((entry) => entry.kind === 'logs');
+  assert.equal(logDiagnostic?.status, 'captured');
+  assert.equal(logDiagnostic?.path, 'raw/adb-logcat.txt');
+  assert.equal(logDiagnostic?.runnerId, 'android-adb');
+  assert.ok(String(logDiagnostic?.sidecarRoot).endsWith('adb-capture'));
+  assert.ok(String(logDiagnostic?.evidenceDependency?.path).endsWith('adb-capture/raw/adb-logcat.txt'));
   assert.equal(health.healthStatus, 'passed');
   assert.equal(verdict.verdictStatus, 'passed');
   assert.ok(fs.existsSync(path.join(runDir, 'raw', 'adb-logcat.txt')));

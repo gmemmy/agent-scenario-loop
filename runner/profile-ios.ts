@@ -927,7 +927,11 @@ async function runProfileIos(
     : baseProfileArgs;
   const lifecyclePhase = resolveManifestLifecyclePhase(args);
   const environmentSource = agentDeviceCapture ? 'agent-device' : 'simctl';
-  const lifecycleArtifact = simctlCapture ? 'raw/ios-simctl-log.txt' : 'raw/interaction.log';
+  const copiedSimctlLogArtifact = simctlCapture &&
+    !fs.existsSync(path.join(simctlCapture.runDir, 'raw', 'ios-profile-events.log')) &&
+    fs.existsSync(path.join(simctlCapture.runDir, 'raw', 'ios-simctl-log.txt'))
+    ? 'raw/ios-simctl-log.txt'
+    : undefined;
 
   return runProfileMobile(profileArgs, {
     commandTransport: agentDeviceCapture
@@ -944,13 +948,13 @@ async function runProfileIos(
         value: 'foreground',
         evidence: 'asserted',
         source: environmentSource,
-        artifact: lifecycleArtifact,
+        ...(copiedSimctlLogArtifact ? { artifact: copiedSimctlLogArtifact } : {}),
       },
       lifecyclePhase: {
         value: 'foreground',
         evidence: 'asserted',
         source: environmentSource,
-        artifact: lifecycleArtifact,
+        ...(copiedSimctlLogArtifact ? { artifact: copiedSimctlLogArtifact } : {}),
       },
     },
     environmentPreconditions: {
@@ -963,7 +967,7 @@ async function runProfileIos(
         value: lifecyclePhase,
         evidence: 'asserted',
         source: environmentSource,
-        artifact: lifecycleArtifact,
+        ...(copiedSimctlLogArtifact ? { artifact: copiedSimctlLogArtifact } : {}),
       },
     },
     interactionDriver: agentDeviceCapture ? 'agent-device' : 'ios-simctl',

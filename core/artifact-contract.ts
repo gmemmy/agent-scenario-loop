@@ -1488,6 +1488,7 @@ function buildCausalRun({
   metrics,
 }: ArtifactRecord): ArtifactRecord {
   const iterationSummary = buildIterationSummary(metrics);
+  const videoPath = typeof artifacts.captures?.video === 'string' ? artifacts.captures.video : null;
 
   return sortValue({
     schemaVersion: '1.0.0',
@@ -1521,7 +1522,7 @@ function buildCausalRun({
       summary: artifacts.summary,
       metrics: artifacts.metrics,
       manifest: artifacts.manifest,
-      video: artifacts.captures?.video,
+      ...(videoPath ? { video: videoPath } : {}),
       screenshot: Array.isArray(artifacts.captures?.screenshots)
         ? artifacts.captures.screenshots[0] ?? null
         : null,
@@ -1693,10 +1694,21 @@ function buildSummaryMarkdown({ manifest, metrics }: { manifest: ArtifactRecord;
   const evidenceAttachments = Array.isArray(manifest.artifacts.evidenceAttachments)
     ? manifest.artifacts.evidenceAttachments
     : [];
+  const diagnostics = Array.isArray(manifest.artifacts.diagnostics)
+    ? manifest.artifacts.diagnostics
+    : [];
   const evidenceAttachmentLines = evidenceAttachments.length > 0
     ? evidenceAttachments.map((attachment: ArtifactRecord) =>
         `- ${attachment.channel}/${attachment.kind}: \`${attachment.path}\` (${attachment.sizeBytes} bytes, sha256 ${attachment.sha256})`,
       )
+    : ['- none'];
+  const diagnosticLines = diagnostics.length > 0
+    ? diagnostics.map((diagnostic: ArtifactRecord) => {
+        const label = diagnostic.name ? `${diagnostic.kind}/${diagnostic.name}` : diagnostic.kind;
+        const pathLabel = typeof diagnostic.path === 'string' ? ` \`${diagnostic.path}\`` : '';
+        const reasonLabel = typeof diagnostic.reason === 'string' ? ` - ${diagnostic.reason}` : '';
+        return `- ${label}: ${diagnostic.status}${diagnostic.required ? ' (required)' : ''}${pathLabel}${reasonLabel}`;
+      })
     : ['- none'];
   const attempt = manifest.attempt && typeof manifest.attempt === 'object' ? manifest.attempt : {};
   const attemptLines = [
@@ -1743,10 +1755,26 @@ function buildSummaryMarkdown({ manifest, metrics }: { manifest: ArtifactRecord;
     `- Manifest: \`${manifest.artifacts.manifest}\``,
     `- Scenario: \`${manifest.artifacts.scenario}\``,
     `- Metrics: \`${manifest.artifacts.metrics}\``,
-    `- Interaction log: \`${manifest.artifacts.raw.interactionLog}\``,
-    `- Device log: \`${manifest.artifacts.raw.deviceLog}\``,
-    `- Video: \`${manifest.artifacts.captures.video}\``,
-    `- UI tree: \`${manifest.artifacts.captures.uiTree}\``,
+    `- Interaction log: ${
+      typeof manifest.artifacts.raw.interactionLog === 'string'
+        ? `\`${manifest.artifacts.raw.interactionLog}\``
+        : 'none'
+    }`,
+    `- Device log: ${
+      typeof manifest.artifacts.raw.deviceLog === 'string'
+        ? `\`${manifest.artifacts.raw.deviceLog}\``
+        : 'none'
+    }`,
+    `- Video: ${
+      typeof manifest.artifacts.captures.video === 'string'
+        ? `\`${manifest.artifacts.captures.video}\``
+        : 'none'
+    }`,
+    `- UI tree: ${
+      typeof manifest.artifacts.captures.uiTree === 'string'
+        ? `\`${manifest.artifacts.captures.uiTree}\``
+        : 'none'
+    }`,
     `- Screenshots: ${
       screenshots.length > 0
         ? screenshots.map((item: string) => `\`${item}\``).join(', ')
@@ -1760,6 +1788,10 @@ function buildSummaryMarkdown({ manifest, metrics }: { manifest: ArtifactRecord;
     '## Evidence attachments',
     '',
     ...evidenceAttachmentLines,
+    '',
+    '## Diagnostic inventory',
+    '',
+    ...diagnosticLines,
   ];
 
   if (metrics.budgetEvaluation) {

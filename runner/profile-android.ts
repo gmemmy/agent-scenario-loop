@@ -1182,7 +1182,7 @@ async function runProfileAndroid(
     : baseProfileArgs;
   const lifecyclePhase = resolveManifestLifecyclePhase(args);
   const environmentSource = agentDeviceCapture ? 'agent-device' : 'adb';
-  const lifecycleArtifact = adbCapture ? 'raw/adb-logcat.txt' : 'raw/interaction.log';
+  const copiedAdbLogArtifact = adbCapture ? 'raw/adb-logcat.txt' : undefined;
 
   return runProfileMobile(profileArgs, {
     commandTransport: profileSessionStorageEnabled
@@ -1199,13 +1199,13 @@ async function runProfileAndroid(
         value: 'foreground',
         evidence: 'asserted',
         source: environmentSource,
-        artifact: lifecycleArtifact,
+        ...(copiedAdbLogArtifact ? { artifact: copiedAdbLogArtifact } : {}),
       },
       lifecyclePhase: {
         value: 'foreground',
         evidence: 'asserted',
         source: environmentSource,
-        artifact: lifecycleArtifact,
+        ...(copiedAdbLogArtifact ? { artifact: copiedAdbLogArtifact } : {}),
       },
     },
     environmentPreconditions: {
@@ -1218,7 +1218,7 @@ async function runProfileAndroid(
         value: lifecyclePhase,
         evidence: 'asserted',
         source: environmentSource,
-        artifact: lifecycleArtifact,
+        ...(copiedAdbLogArtifact ? { artifact: copiedAdbLogArtifact } : {}),
       },
     },
     interactionDriver: agentDeviceCapture ? 'agent-device' : 'adb-logcat',

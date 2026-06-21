@@ -87,6 +87,25 @@ function sampleEnvironment(): JsonRecord {
   };
 }
 
+function sampleDiagnostics(): JsonRecord[] {
+  return [
+    {
+      kind: 'logs',
+      name: 'device-log',
+      status: 'captured',
+      required: true,
+      path: 'raw/device.log',
+      reason: 'Device log evidence was captured.',
+    },
+    {
+      kind: 'video',
+      status: 'not_requested',
+      required: false,
+      reason: 'Scenario did not request this optional diagnostic surface.',
+    },
+  ];
+}
+
 /**
  * Lists JSON fixture paths under a repo-local directory.
  *
@@ -550,6 +569,7 @@ test('accepts manifest and metrics profile artifacts', () => {
         memory: [],
         network: [],
       },
+      diagnostics: sampleDiagnostics(),
     },
     failureReason: null,
   };
@@ -652,6 +672,7 @@ test('rejects malformed manifest attempt semantics', () => {
         memory: [],
         network: [],
       },
+      diagnostics: sampleDiagnostics(),
     },
     failureReason: 'Timed out waiting for milestone.',
   };
@@ -738,6 +759,7 @@ test('rejects malformed manifest environment preconditions', () => {
         memory: [],
         network: [],
       },
+      diagnostics: sampleDiagnostics(),
     },
     failureReason: null,
   };
@@ -835,6 +857,7 @@ test('accepts manifest lifecycle phase and expanded terminal vocabulary', () => 
         memory: [],
         network: [],
       },
+      diagnostics: sampleDiagnostics(),
     },
     failureReason: 'Lifecycle proof is unsupported on this runner.',
   };
@@ -919,6 +942,7 @@ test('rejects unknown manifest lifecycle phase values', () => {
         memory: [],
         network: [],
       },
+      diagnostics: sampleDiagnostics(),
     },
     failureReason: null,
   };
@@ -1007,6 +1031,7 @@ test('rejects unstable evidence attachment inventory entries', () => {
         memory: [],
         network: [],
       },
+      diagnostics: sampleDiagnostics(),
       evidenceAttachments: [
         attachment,
         { ...attachment },
@@ -1310,6 +1335,7 @@ test('accepts null schema types', () => {
         memory: [],
         network: [],
       },
+      diagnostics: sampleDiagnostics(),
     },
     failureReason: null,
   };

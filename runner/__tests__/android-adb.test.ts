@@ -8,6 +8,7 @@ const test = require('node:test');
 const {
   ANDROID_DEVICE_EPOCH_MS_PLACEHOLDER,
   buildReactNativeDebugHostPreferenceCommand,
+  deriveAndroidAdbCaptureWatchdogBudget,
   escapeAndroidPreferenceXml,
   execFileCommandWithTimeout,
   parseAdbDevices,
@@ -30,6 +31,36 @@ type CommandResult = {
   stdout: string;
 };
 type TestContext = import('node:test').TestContext;
+
+/**
+ * Creates a promise that can be resolved by the test.
+ *
+ * @returns {{promise: Promise<CommandResult>, resolve: (value: CommandResult) => void}}
+ */
+function createDeferredCommandResult() {
+  let resolve: (value: CommandResult) => void = () => {};
+  const promise = new Promise<CommandResult>((innerResolve) => {
+    resolve = innerResolve;
+  });
+  return { promise, resolve };
+}
+
+/**
+ * Waits until a condition is true or fails the test.
+ *
+ * @param {() => boolean} predicate
+ * @returns {Promise<void>}
+ */
+async function waitFor(predicate: () => boolean): Promise<void> {
+  const deadline = Date.now() + 1000;
+  while (Date.now() < deadline) {
+    if (predicate()) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  assert.fail('Timed out waiting for condition.');
+}
 
 /**
  * Creates a fake adb executor from argument-keyed responses.
@@ -1077,6 +1108,274 @@ test('writes adb daemon timeout artifacts when devices command times out', async
     ),
   );
   assert.match(summary, /Next action `rerun_with_adb_daemon_access`/u);
+});
+
+test('writes failed artifact set when adb executor rejects before normal finalization', async (t: TestContext) => {
+  const outputDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-android-adb-rejected-'));
+  t.after(async () => {
+    await fsp.rm(outputDir, { recursive: true, force: true });
+  });
+  const executor = async (command: string, args: string[]): Promise<CommandResult> => {
+    const key = args.join(' ');
+    if (key === 'version') {
+      return {
+        args,
+        command,
+        exitCode: 0,
+        stderr: '',
+        stdout: 'Android Debug Bridge version 1.0.41\n',
+      };
+    }
+    if (key === 'devices -l') {
+      return {
+        args,
+        command,
+        exitCode: 0,
+        stderr: '',
+        stdout: [
+          'List of devices attached',
+          'emulator-5554 device product:sdk_gphone model:Pixel_6 device:emu64',
+        ].join('\n'),
+      };
+    }
+    if (key === '-s emulator-5554 shell getprop ro.product.model') {
+      throw new Error('adb command timed out after 50ms while reading device properties.');
+    }
+
+    return {
+      args,
+      command,
+      exitCode: 1,
+      stderr: `unexpected command: ${key}`,
+      stdout: '',
+    };
+  };
+
+  const result = await runAndroidAdbPreflight({
+    commandTimeoutMs: 50,
+    executor,
+    outputDir,
+    runId: 'android-adb-rejected',
+  });
+  const health = JSON.parse(fs.readFileSync(path.join(outputDir, 'health.json'), 'utf8'));
+  const metadata = JSON.parse(fs.readFileSync(path.join(outputDir, 'raw', 'android-metadata.json'), 'utf8'));
+  const failureRaw = fs.readFileSync(path.join(outputDir, 'raw', 'adb-runner-failure.txt'), 'utf8');
+  const summary = fs.readFileSync(path.join(outputDir, 'agent-summary.md'), 'utf8');
+
+  assert.equal(result.health.healthStatus, 'failed');
+  assert.equal(health.healthStatus, 'failed');
+  assertAdapterArtifactConformance(result, {
+    expectedHealthStatus: 'failed',
+    rawArtifacts: [
+      'raw/adb-version.txt',
+      'raw/adb-devices.txt',
+      'raw/adb-runner-failure.txt',
+      'raw/android-metadata.json',
+    ],
+  });
+  assert.ok(
+    (health.checks as Array<{ code: string; metadata?: { nextActionCode?: string; rawPath?: string } }>).some(
+      (check) => check.code === 'android_adb_runner_liveness_failure'
+        && check.metadata?.nextActionCode === 'inspect_android_adb_runner_failure'
+        && check.metadata?.rawPath === 'raw/adb-runner-failure.txt',
+    ),
+  );
+  assert.match(failureRaw, /adb command timed out after 50ms/u);
+  assert.match(summary, /Next action `inspect_android_adb_runner_failure`/u);
+  assert.equal(metadata.runnerFailure.rawPath, 'raw/adb-runner-failure.txt');
+  assert.ok(metadata.runnerFailure.collectedRawArtifacts.includes('raw/adb-devices.txt'));
+  assert.equal(fs.readdirSync(path.join(outputDir, 'raw')).length > 1, true);
+});
+
+test('writes adb capture started checkpoint before executor resolves', async (t: TestContext) => {
+  const outputDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-android-adb-started-'));
+  t.after(async () => {
+    await fsp.rm(outputDir, { recursive: true, force: true });
+  });
+  const version = createDeferredCommandResult();
+  const executor = async (command: string, args: string[]): Promise<CommandResult> => {
+    const key = args.join(' ');
+    if (key === 'version') {
+      return version.promise;
+    }
+
+    return createExecutor({
+      'devices -l': {
+        stdout: [
+          'List of devices attached',
+          'emulator-5554 device product:sdk_gphone model:Pixel_6 device:emu64',
+        ].join('\n'),
+      },
+      '-s emulator-5554 shell getprop ro.product.model': { stdout: 'Pixel 6\n' },
+      '-s emulator-5554 shell getprop ro.build.version.release': { stdout: '15\n' },
+      '-s emulator-5554 shell getprop ro.build.version.sdk': { stdout: '35\n' },
+      '-s emulator-5554 shell pm path com.example.app': { stdout: 'package:/data/app/com.example.app/base.apk\n' },
+      '-s emulator-5554 reverse tcp:8081 tcp:8081': { stdout: '' },
+    })(command, args);
+  };
+  const debugHostExecutor = async (command: string, args: string[]): Promise<CommandResult> => {
+    const key = args.join(' ');
+    if (key.includes('shell run-as com.example.app sh -c') && key.includes('debug_http_host')) {
+      return { args, command, exitCode: 0, stderr: '', stdout: '' };
+    }
+    return executor(command, args);
+  };
+
+  const run = runAndroidAdbPreflight({
+    adbPath: 'fake-adb',
+    commandTimeoutMs: 30000,
+    executor: debugHostExecutor,
+    outputDir,
+    packageName: 'com.example.app',
+    reactNativeDebugHost: 'localhost:8081',
+    runId: 'android-adb-started',
+    serial: 'emulator-5554',
+  });
+  const checkpointPath = path.join(outputDir, 'raw', 'adb-capture-started.json');
+  await waitFor(() => fs.existsSync(checkpointPath));
+  const rawEntriesBeforeExecutorResolves = fs.readdirSync(path.join(outputDir, 'raw'));
+  const checkpoint = JSON.parse(fs.readFileSync(checkpointPath, 'utf8'));
+
+  assert.deepEqual(rawEntriesBeforeExecutorResolves, ['adb-capture-started.json']);
+  assert.equal(checkpoint.status, 'started');
+  assert.equal(checkpoint.runId, 'android-adb-started');
+  assert.equal(checkpoint.adbPath, 'fake-adb');
+  assert.equal(checkpoint.commandTimeoutMs, 30000);
+  assert.equal(checkpoint.watchdog.armed, true);
+  assert.equal(checkpoint.selectedInputs.packageName, 'com.example.app');
+  assert.equal(checkpoint.selectedInputs.reactNativeDebugHost, 'localhost:8081');
+  assert.equal(typeof checkpoint.watchdog.timeoutMs, 'number');
+  assert.equal(typeof checkpoint.watchdog.deadlineEpochMs, 'number');
+
+  version.resolve({
+    args: ['version'],
+    command: 'fake-adb',
+    exitCode: 0,
+    stderr: '',
+    stdout: 'Android Debug Bridge version 1.0.41\n',
+  });
+  const result = await run;
+  const finalMetadata = JSON.parse(fs.readFileSync(path.join(outputDir, 'raw', 'android-metadata.json'), 'utf8'));
+
+  assert.equal(result.health.healthStatus, 'passed');
+  assert.equal(finalMetadata.captureStarted.rawPath, 'raw/adb-capture-started.json');
+});
+
+test('derives bounded startup profile capture watchdog without command-count timeout multiplication', () => {
+  const watchdog = deriveAndroidAdbCaptureWatchdogBudget({
+    captureLogcat: true,
+    clearLogcat: true,
+    commandTimeoutMs: 30000,
+    launch: true,
+    packageName: 'com.example.app',
+    reactNativeDebugHost: 'localhost:8081',
+    startupDeepLinks: [{
+      label: 'android-dev-client-url',
+      url: 'example://expo-development-client/?url=http%3A%2F%2F10.0.2.2%3A8081',
+      waitMs: 1000,
+    }],
+    storageWrites: [{
+      key: 'agent-scenario-loop.profile-session.1',
+      label: 'profile-session-start',
+      value: '{"active":true}',
+    }],
+  });
+
+  assert.equal(watchdog.source, 'derived');
+  assert.equal(watchdog.declaredWaitMs, 1000);
+  assert.equal(watchdog.perCommandOverheadMs, 3000);
+  assert.equal(watchdog.commandBudgetMs <= 45000, true);
+  assert.equal(watchdog.timeoutMs < 120000, true);
+  assert.equal(watchdog.timeoutMs < 600000, true);
+
+  const explicitWaitWatchdog = deriveAndroidAdbCaptureWatchdogBudget({
+    commandTimeoutMs: 30000,
+    launchWaitMs: 600000,
+  });
+
+  assert.equal(explicitWaitWatchdog.timeoutMs >= 600000, true);
+  assert.equal(explicitWaitWatchdog.ceilingMs >= explicitWaitWatchdog.timeoutMs, true);
+});
+
+test('writes failed artifact set when adb executor never resolves after output setup', async (t: TestContext) => {
+  const outputDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-android-adb-watchdog-'));
+  t.after(async () => {
+    await fsp.rm(outputDir, { recursive: true, force: true });
+  });
+  const executor = async (command: string, args: string[]): Promise<CommandResult> => {
+    const key = args.join(' ');
+    if (key === 'version') {
+      return {
+        args,
+        command,
+        exitCode: 0,
+        stderr: '',
+        stdout: 'Android Debug Bridge version 1.0.41\n',
+      };
+    }
+    if (key === 'devices -l') {
+      return {
+        args,
+        command,
+        exitCode: 0,
+        stderr: '',
+        stdout: [
+          'List of devices attached',
+          'emulator-5554 device product:sdk_gphone model:Pixel_6 device:emu64',
+        ].join('\n'),
+      };
+    }
+    if (key === '-s emulator-5554 shell getprop ro.product.model') {
+      return new Promise<CommandResult>(() => {});
+    }
+
+    return {
+      args,
+      command,
+      exitCode: 0,
+      stderr: '',
+      stdout: 'ok\n',
+    };
+  };
+
+  const result = await runAndroidAdbPreflight({
+    captureWatchdogMs: 50,
+    commandTimeoutMs: 50,
+    executor,
+    outputDir,
+    runId: 'android-adb-watchdog',
+  });
+  const health = JSON.parse(fs.readFileSync(path.join(outputDir, 'health.json'), 'utf8'));
+  const verdict = JSON.parse(fs.readFileSync(path.join(outputDir, 'verdict.json'), 'utf8'));
+  const metadata = JSON.parse(fs.readFileSync(path.join(outputDir, 'raw', 'android-metadata.json'), 'utf8'));
+  const failureRaw = fs.readFileSync(path.join(outputDir, 'raw', 'adb-runner-watchdog-timeout.txt'), 'utf8');
+  const summary = fs.readFileSync(path.join(outputDir, 'agent-summary.md'), 'utf8');
+
+  assert.equal(result.health.healthStatus, 'failed');
+  assert.equal(health.healthStatus, 'failed');
+  assert.notEqual(verdict.verdictStatus, 'passed');
+  assertAdapterArtifactConformance(result, {
+    expectedHealthStatus: 'failed',
+    rawArtifacts: [
+      'raw/adb-version.txt',
+      'raw/adb-devices.txt',
+      'raw/adb-runner-watchdog-timeout.txt',
+      'raw/android-metadata.json',
+    ],
+  });
+  assert.ok(
+    (health.checks as Array<{ code: string; metadata?: { nextActionCode?: string; rawPath?: string } }>).some(
+      (check) => check.code === 'android_adb_runner_liveness_timeout'
+        && check.metadata?.nextActionCode === 'inspect_android_adb_runner_timeout'
+        && check.metadata?.rawPath === 'raw/adb-runner-watchdog-timeout.txt',
+    ),
+  );
+  assert.match(failureRaw, /Android adb capture did not complete within 50ms/u);
+  assert.match(failureRaw, /android_adb_runner_liveness_timeout/u);
+  assert.match(summary, /Next action `inspect_android_adb_runner_timeout`/u);
+  assert.equal(metadata.runnerFailure.rawPath, 'raw/adb-runner-watchdog-timeout.txt');
+  assert.equal(metadata.runnerFailure.watchdog.timeoutMs, 50);
+  assert.ok(metadata.runnerFailure.collectedRawArtifacts.includes('raw/adb-devices.txt'));
 });
 
 test('fails logcat capture when no online Android device is connected', async (t: TestContext) => {
