@@ -1437,6 +1437,7 @@ test('profile-android marks required provider command outputs as required diagno
       "}",
       "fs.writeFileSync(process.argv[2], JSON.stringify({ heapBytes: 1234 }) + '\\n');",
       "fs.writeFileSync(process.argv[3], JSON.stringify({ violations: [] }) + '\\n');",
+      "fs.writeFileSync(process.argv[4], JSON.stringify({ tool: 'gfxinfo', frames: { janky: 0 } }) + '\\n');",
     ].join('\n'),
     'utf8',
   );
@@ -1448,15 +1449,20 @@ test('profile-android marks required provider command outputs as required diagno
       runnerId: 'required-diagnostics-provider',
       kind: 'evidenceProvider',
       platforms: ['android'],
-      capabilities: ['memory', 'accessibility'],
-      artifactOutputs: ['memory', 'accessibility'],
+      capabilities: ['memory', 'accessibility', 'nativePerformance'],
+      artifactOutputs: ['memory', 'accessibility', 'nativePerformance'],
       lifecycle: ['capture'],
       providerCommands: [
         {
           id: 'capture-required-diagnostics',
           phase: 'capture',
           command: process.execPath,
-          args: [providerScript, '{providerDir}/memory.json', '{providerDir}/accessibility.json'],
+          args: [
+            providerScript,
+            '{providerDir}/memory.json',
+            '{providerDir}/accessibility.json',
+            '{providerDir}/native-performance.json',
+          ],
           outputs: [
             {
               channel: 'signal',
@@ -1468,6 +1474,12 @@ test('profile-android marks required provider command outputs as required diagno
               channel: 'provider',
               kind: 'accessibility',
               path: '{providerDir}/accessibility.json',
+              required: true,
+            },
+            {
+              channel: 'provider',
+              kind: 'nativePerformance',
+              path: '{providerDir}/native-performance.json',
               required: true,
             },
           ],
@@ -1498,6 +1510,7 @@ test('profile-android marks required provider command outputs as required diagno
   const diagnostics = (manifest.artifacts as { diagnostics: Array<Record<string, unknown>> }).diagnostics;
   const memoryDiagnostic = diagnostics.find((entry) => entry.kind === 'memory');
   const accessibilityDiagnostic = diagnostics.find((entry) => entry.kind === 'accessibility');
+  const nativePerformanceDiagnostic = diagnostics.find((entry) => entry.kind === 'nativePerformance');
 
   assert.equal(memoryDiagnostic?.status, 'captured');
   assert.equal(memoryDiagnostic?.required, true);
@@ -1505,6 +1518,9 @@ test('profile-android marks required provider command outputs as required diagno
   assert.equal(accessibilityDiagnostic?.status, 'captured');
   assert.equal(accessibilityDiagnostic?.required, true);
   assert.equal(accessibilityDiagnostic?.path, 'raw/providers/required-diagnostics-provider/accessibility.json');
+  assert.equal(nativePerformanceDiagnostic?.status, 'captured');
+  assert.equal(nativePerformanceDiagnostic?.required, true);
+  assert.equal(nativePerformanceDiagnostic?.path, 'raw/providers/required-diagnostics-provider/native-performance.json');
 });
 
 test('profile-android rejects duplicate evidence provider command ids', async (t: TestContext) => {

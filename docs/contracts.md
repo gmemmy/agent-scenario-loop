@@ -71,7 +71,7 @@ Portable scenario manifests describe the durable app behavior before choosing a 
 - `steps`: runner-facing launch, command, wait, gesture, and capture actions
 - `selector`: optional app target on a step, such as a test id, accessibility id, label, text, resource id, or xpath
 - `uiContext`: optional UI ownership requirement on a step; UI driver actions default to `app`
-- `artifacts`: required and optional evidence outputs
+- `artifacts`: required and optional evidence outputs, including provider-backed diagnostics such as accessibility, memory, network, profiler, and native performance evidence
 
 The scenario contract is intentionally runner-neutral. Runners can map steps to adb, XcodeBuildMCP, agent-device, accessibility tools, profilers, or custom scripts while preserving the same journey, milestones, budgets, and expected events.
 
@@ -140,6 +140,8 @@ Platform-set proof commands write `live-proof-set.json` and `agent-summary.md` u
 
 Provider or custom-script evidence attachments are copied into stable run folders and inventoried in `manifest.artifacts.evidenceAttachments`. Each inventory entry records the evidence channel, kind, run-relative path, source filename, byte size, sha256 hash, completeness status, corruption status, redaction status, and transformations; it does not preserve local absolute source paths.
 
+Native performance evidence uses the `nativePerformance` kind. This is separate from `profiler`: use it for platform-native frame, render, memory, and trace summaries such as Android Perfetto, trace-processor output, `gfxinfo`/framestats, `meminfo`, logcat-derived render signals, iOS Instruments, MetricKit, or simulator-derived native summaries. A provider can mark `nativePerformance` output as required, and the profile manifest will preserve it as a required diagnostic when captured. Raw traces should remain attached evidence while structured summaries carry the claim-ready facts, provenance, and comparability status.
+
 Evidence folders:
 
 - `raw/`
@@ -184,6 +186,7 @@ The package currently supports:
 - generic Android and iOS live proof runners for one portable scenario, including preflight, profile capture, optional agent-device and Argent sidecars, optional latest-trusted comparison, and aggregate `live-proof.json`
 - agent-device and Argent capture runners that write ASL health, verdict, raw transcripts, and capture artifacts without making those tools package dependencies
 - evidence-provider command execution through `--provider <manifest>`, with declared outputs inventoried as stable evidence attachments and nonzero exits written as failed health gates
+- provider-backed native performance evidence inventory through declared `nativePerformance` outputs
 - trusted baseline/current comparison after scenario health passes, with millisecond timing noise treated as unchanged inside a small mobile-safe tolerance and opposite metric directions surfaced as `mixed`
 - latest trusted prior-run comparison from an artifact root
 
@@ -192,6 +195,7 @@ Not yet shipped as supported public features:
 - generic consuming-app installation or build orchestration
 - broad semantic UI workflow driving beyond the shipped portable driver-action subset
 - memory, network, or accessibility evidence capture from built-in drivers
+- built-in Perfetto, gfxinfo, meminfo, Instruments, MetricKit, or trace-processor capture
 - Computer Use flows
 - product-specific scenarios
 

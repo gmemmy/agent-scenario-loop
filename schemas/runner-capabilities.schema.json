@@ -120,6 +120,7 @@
         "video",
         "uiTree",
         "memory",
+        "nativePerformance",
         "network",
         "profiler",
         "accessibility"
@@ -133,6 +134,7 @@
         "video",
         "uiTree",
         "memory",
+        "nativePerformance",
         "network",
         "profiler",
         "accessibility",
@@ -222,6 +224,7 @@
             "js",
             "logs",
             "memory",
+            "nativePerformance",
             "network",
             "profiler",
             "screenshot",
