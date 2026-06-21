@@ -1751,6 +1751,85 @@ test('profile-android rejects providers that do not support the selected platfor
   assert.match(summary, /Next action `select_supported_provider_platform`/u);
 });
 
+test('profile-android fails health for unsupported provider lifecycle phases', async (t: TestContext) => {
+  const artifactRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-android-provider-phase-'));
+  const providerRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-provider-phase-'));
+  t.after(async () => {
+    await fsp.rm(artifactRoot, { recursive: true, force: true });
+    await fsp.rm(providerRoot, { recursive: true, force: true });
+  });
+  const markerPath = path.join(providerRoot, 'provider-ran.txt');
+  const providerManifestPath = path.join(providerRoot, 'provider.json');
+  await fsp.writeFile(
+    providerManifestPath,
+    `${JSON.stringify({
+      schemaVersion: '1.0.0',
+      runnerId: 'window-provider',
+      kind: 'evidenceProvider',
+      platforms: ['android'],
+      capabilities: ['profiler'],
+      artifactOutputs: ['profiler'],
+      lifecycle: ['startWindow'],
+      providerCommands: [
+        {
+          id: 'start-profiler',
+          phase: 'startWindow',
+          command: process.execPath,
+          args: ['-e', `require('node:fs').writeFileSync(${JSON.stringify(markerPath)}, 'ran\\n')`],
+          outputs: [
+            {
+              channel: 'provider',
+              kind: 'profiler',
+              path: '{providerDir}/profiler.json',
+            },
+          ],
+        },
+      ],
+    }, null, 2)}\n`,
+    'utf8',
+  );
+
+  const { stdout } = await execFileAsync(process.execPath, [
+    PROFILE_ANDROID,
+    '--config',
+    fixturePath('examples/mobile-app/asl.config.json'),
+    '--scenario',
+    fixturePath('examples/mobile-app/scenarios/android/app-startup.json'),
+    '--events',
+    fixturePath('examples/mobile-app/event-logs/android-app-startup.log'),
+    '--provider',
+    providerManifestPath,
+    '--out',
+    artifactRoot,
+    '--run-id',
+    'android-provider-unsupported-phase',
+  ]);
+
+  const runDir = stdout.trim();
+  const health = readJson(path.join(runDir, 'health.json'));
+  const verdict = readJson(path.join(runDir, 'verdict.json'));
+  const summary = fs.readFileSync(path.join(runDir, 'agent-summary.md'), 'utf8');
+  const commandRecord = readJson(path.join(runDir, 'raw', 'provider-commands', 'window-provider-start-profiler.json'));
+
+  assert.equal(fs.existsSync(markerPath), false);
+  assert.equal(health.healthStatus, 'failed');
+  assert.equal(verdict.verdictStatus, 'inconclusive');
+  assert.equal(commandRecord.status, 'unsupported');
+  assert.equal(commandRecord.phase, 'startWindow');
+  assert.deepEqual(commandRecord.supportedPhases, ['capture', 'afterCapture', 'postRun']);
+  assert.ok(
+    (health.checks as Array<{ code: string; metadata?: { nextActionCode?: string; phase?: string; rawPath?: string } }>).some(
+      (check) =>
+        check.code === 'provider_lifecycle_phase_unsupported' &&
+        check.metadata?.nextActionCode === 'select_supported_provider_lifecycle_phase' &&
+        check.metadata?.phase === 'startWindow' &&
+        check.metadata?.rawPath === 'raw/provider-commands/window-provider-start-profiler.json',
+    ),
+  );
+  assert.match(summary, /evidence_provider_lifecycle_supported/u);
+  assert.match(summary, /Next action `select_supported_provider_lifecycle_phase`/u);
+});
+
 test('profile-android writes failed health when an evidence provider command fails', async (t: TestContext) => {
   const artifactRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-android-provider-failure-'));
   const providerRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-provider-failure-'));

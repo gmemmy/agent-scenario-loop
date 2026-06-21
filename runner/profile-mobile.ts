@@ -150,6 +150,7 @@ type ProviderCommand = {
   outputs: ProviderCommandOutput[];
   phase: 'prepare' | 'startWindow' | 'capture' | 'stopWindow' | 'afterCapture' | 'postRun' | 'finalize';
 };
+const SUPPORTED_PROVIDER_COMMAND_PHASES = new Set<ProviderCommand['phase']>(['capture', 'afterCapture', 'postRun']);
 type ProviderManifest = {
   kind?: string;
   platforms?: string[];
@@ -788,6 +789,39 @@ async function executeProviderCommands({
     };
 
     for (const providerCommand of provider.providerCommands ?? []) {
+      const commandRecordFileName = `${providerId}-${providerCommand.id}.json`;
+      const stdoutFileName = `${providerId}-${providerCommand.id}.stdout.txt`;
+      const stderrFileName = `${providerId}-${providerCommand.id}.stderr.txt`;
+      const commandRecordPath = path.join(commandRecordDir, commandRecordFileName);
+      const stdoutPath = path.join(commandRecordDir, stdoutFileName);
+      const stderrPath = path.join(commandRecordDir, stderrFileName);
+      if (!SUPPORTED_PROVIDER_COMMAND_PHASES.has(providerCommand.phase)) {
+        await fsp.writeFile(
+          commandRecordPath,
+          `${JSON.stringify({
+            command: providerCommand.command,
+            phase: providerCommand.phase,
+            providerId,
+            status: 'unsupported',
+            supportedPhases: Array.from(SUPPORTED_PROVIDER_COMMAND_PHASES),
+          }, null, 2)}\n`,
+          'utf8',
+        );
+        failures.push({
+          commandId: providerCommand.id,
+          code: 'provider_lifecycle_phase_unsupported',
+          exitCode: null,
+          message: `Evidence provider command ${providerId}/${providerCommand.id} declares phase "${providerCommand.phase}", but profile runners currently support only capture, afterCapture, and postRun provider commands.`,
+          name: 'evidence_provider_lifecycle_supported',
+          nextAction: `Use phase "afterCapture" for diagnostics collected after adb/simctl evidence, "postRun" for post-profile enrichment, or wait for a runner that supports ${providerCommand.phase} scheduling.`,
+          nextActionCode: 'select_supported_provider_lifecycle_phase',
+          phase: providerCommand.phase,
+          providerId,
+          rawPath: `raw/provider-commands/${commandRecordFileName}`,
+        });
+        continue;
+      }
+
       const resolvedCommand = applyProviderPlaceholders(providerCommand.command, context);
       const resolvedArgs = (providerCommand.args ?? []).map((arg) => applyProviderPlaceholders(arg, context));
       const resolvedCwd = providerCommand.cwd
@@ -796,12 +830,6 @@ async function executeProviderCommands({
       const resolvedEnv = Object.fromEntries(
         Object.entries(providerCommand.env ?? {}).map(([key, value]) => [key, applyProviderPlaceholders(value, context)]),
       );
-      const commandRecordFileName = `${providerId}-${providerCommand.id}.json`;
-      const stdoutFileName = `${providerId}-${providerCommand.id}.stdout.txt`;
-      const stderrFileName = `${providerId}-${providerCommand.id}.stderr.txt`;
-      const commandRecordPath = path.join(commandRecordDir, commandRecordFileName);
-      const stdoutPath = path.join(commandRecordDir, stdoutFileName);
-      const stderrPath = path.join(commandRecordDir, stderrFileName);
       const timeoutMs = resolveProviderCommandTimeoutMs();
       const startedAt = new Date().toISOString();
       await fsp.writeFile(stdoutPath, '', 'utf8');
