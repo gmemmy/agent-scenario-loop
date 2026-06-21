@@ -12,6 +12,9 @@ const {
   buildVerdictBudgetChecks,
   parseArgs,
   readScalarArg,
+  resolveArtifactRoot,
+  resolveProfileScenarioName,
+  runProfileCompatibilityPreflight,
   runProfileCli,
   runProfileMobile,
   usage,
@@ -65,6 +68,17 @@ const MANIFEST_LIFECYCLE_PHASES = new Set([
   'reboot',
   'relaunch',
 ]);
+const IOS_PROFILE_RUNNER_CAPABILITIES = {
+  schemaVersion: '1.0.0',
+  runnerId: 'ios-simctl-profile-runner',
+  kind: 'primary',
+  platforms: ['ios'],
+  capabilities: ['launch', 'sessionControl', 'command', 'logCapture', 'artifactWrite'],
+  driverActions: ['tap', 'scroll', 'assertVisible', 'inspectTree', 'screenshot', 'readLogs'],
+  artifactOutputs: ['logs', 'signals', 'screenshot', 'uiTree'],
+  uiContexts: ['app'],
+  lifecycle: ['prepare', 'launch', 'startSession', 'executeStep', 'waitForTruthEvent', 'captureEvidence', 'stopSession', 'finalize'],
+};
 
 /**
  * Reads and parses a JSON object from disk.
@@ -784,6 +798,23 @@ async function runProfileIos(
   const config = readJson(path.resolve(args.config));
   const scenario = readJson(path.resolve(args.scenario));
   const runId = typeof args['run-id'] === 'string' ? args['run-id'] : createRunId();
+  const scenarioName = resolveProfileScenarioName({ scenario, scenarioPath: path.resolve(args.scenario) });
+  const artifactRoot = resolveArtifactRoot({
+    args,
+    config,
+    configPath: path.resolve(args.config),
+    platform: 'ios',
+  });
+  await runProfileCompatibilityPreflight({
+    args,
+    artifactRoot,
+    platform: 'ios',
+    primaryRunner: IOS_PROFILE_RUNNER_CAPABILITIES,
+    runDir: path.join(artifactRoot, scenarioName, runId),
+    runId,
+    scenario,
+    scenarioName,
+  });
   const profileSessionEnabled = isEnabled(args['profile-session']);
   const profileSessionStorageEnabled = isEnabled(args['profile-session-storage']);
   const profileSessionStorageKey = readStringArgOrEnv(args['ios-profile-session-storage-key'], [
@@ -817,7 +848,6 @@ async function runProfileIos(
     ]),
     1000,
   );
-  const scenarioName = typeof scenario.name === 'string' ? scenario.name : path.basename(args.scenario, '.json');
   const profileSessionCommands = profileSessionEnabled ? resolveIosSimctlProfileCommands(scenario) : [];
   const iosDevClientDeepLinks = iosDevClientUrl
     ? [

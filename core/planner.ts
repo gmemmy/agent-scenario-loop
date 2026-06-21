@@ -978,16 +978,17 @@ function resolveEffectivePlatforms({
   platform?: string | null;
   errors: PlannerIssue[];
 }): string[] {
-  const scenarioPlatforms = asArray(scenario?.platforms);
+  const declaredScenarioPlatforms = asArray(scenario?.platforms);
   const runnerPlatforms = asArray(runner?.platforms);
+  const scenarioPlatforms = declaredScenarioPlatforms.length > 0 ? declaredScenarioPlatforms : runnerPlatforms;
 
   if (platform) {
-    if (!scenarioPlatforms.includes(platform)) {
+    if (declaredScenarioPlatforms.length > 0 && !declaredScenarioPlatforms.includes(platform)) {
       errors.push(
         createIssue('platform_not_supported_by_scenario', 'The scenario does not support the selected platform.', {
           scenarioId: getScenarioId(scenario),
           platform,
-          supportedPlatforms: uniqueSorted(scenarioPlatforms),
+          supportedPlatforms: uniqueSorted(declaredScenarioPlatforms),
         }),
       );
     }

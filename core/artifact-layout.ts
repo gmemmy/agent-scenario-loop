@@ -10,6 +10,7 @@ const ARTIFACT_FILENAMES = {
   liveProofSet: 'live-proof-set.json',
   plannerCompatibility: 'planner-compatibility.json',
   projectValidation: 'project-validation.json',
+  runPlan: 'run-plan.json',
   verdict: 'verdict.json',
 };
 
@@ -40,6 +41,7 @@ type ArtifactLayout = {
   liveProofSet: string;
   plannerCompatibility: string;
   projectValidation: string;
+  runPlan: string;
   raw: string;
   captures: string;
   signals: {
@@ -76,6 +78,7 @@ function createArtifactLayout({ outputDir }: { outputDir: string }): ArtifactLay
     liveProofSet: path.join(outputDir, ARTIFACT_FILENAMES.liveProofSet),
     plannerCompatibility: path.join(outputDir, ARTIFACT_FILENAMES.plannerCompatibility),
     projectValidation: path.join(outputDir, ARTIFACT_FILENAMES.projectValidation),
+    runPlan: path.join(outputDir, ARTIFACT_FILENAMES.runPlan),
     raw: path.join(outputDir, 'raw'),
     captures: path.join(outputDir, 'captures'),
     signals: {

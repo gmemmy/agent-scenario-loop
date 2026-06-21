@@ -22,6 +22,7 @@ test('builds the stable artifact layout for one run directory', () => {
   assert.equal(layout.liveProofSet, path.join(outputDir, ARTIFACT_FILENAMES.liveProofSet));
   assert.equal(layout.plannerCompatibility, path.join(outputDir, ARTIFACT_FILENAMES.plannerCompatibility));
   assert.equal(layout.projectValidation, path.join(outputDir, ARTIFACT_FILENAMES.projectValidation));
+  assert.equal(layout.runPlan, path.join(outputDir, ARTIFACT_FILENAMES.runPlan));
   assert.equal(layout.signals.memory, path.join(outputDir, 'signals', 'memory'));
   assert.equal(layout.profile.metrics, path.join(outputDir, PROFILE_ARTIFACT_FILENAMES.metrics));
   assert.equal(Object.prototype.hasOwnProperty.call(layout, 'transition'), false);

@@ -35,6 +35,8 @@ pnpm check-plan -- --scenario examples/scenarios/mobile/app-startup.json --runne
 
 This validates the input manifests, writes schema-checked `health.json` and `verdict.json`, writes `agent-summary.md`, and includes the raw planner match in `planner-compatibility.json`.
 
+Live profile wrappers also run this compatibility check before adb, simctl, agent-device, or provider capture starts. A compatible run writes `planner-compatibility.json` as the first profile artifact, then continues into the platform capture. An incompatible run writes failed `health.json`, inconclusive `verdict.json`, `agent-summary.md`, and the planner artifact in the profile run folder, then exits before touching the device runtime. This keeps missing required diagnostics, unsupported platforms, and impossible runner/provider plans out of the long capture loop.
+
 ## Host/Device Access
 
 Keep deterministic validation and live device proof as separate execution lanes.
@@ -345,6 +347,10 @@ Package smoke and consumer rehearsal keep child commands bounded so package-mana
 ```bash
 ASL_PACKAGE_GATE_TIMEOUT_MS=300000 pnpm release:check
 ```
+
+## Run Plan First
+
+Profile runs write `run-plan.json` before provider commands, evidence ingest, and final health classification. Inspect it first when a live loop stalls or fails early: it records the scenario id, scenario hash, input mode (`fixture-event-log`, `adb-sidecar`, `simctl-sidecar`, or live capture), expected iterations, command transport, provider manifests, requested diagnostics, and evidence source paths. The profile CLIs also print a compact run-plan heartbeat to stderr while keeping stdout reserved for the run directory.
 
 ## Side References
 
