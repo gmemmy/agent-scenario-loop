@@ -87,6 +87,7 @@ type EvidenceAttachment = {
   kind: EvidenceKind;
   manifestPath: string;
   redactionStatus: 'not-redacted';
+  required: boolean;
   sha256: string;
   sourcePath: string;
   sourceFileName: string;
@@ -98,6 +99,7 @@ type EvidenceAttachmentInput = {
   destinationPath: string;
   kind: EvidenceKind;
   manifestPath: string;
+  required?: boolean;
   sourcePath: string;
 };
 type AttachedEvidence = {
@@ -118,6 +120,7 @@ type ProviderCommandOutput = {
   channel: EvidenceChannel;
   kind: EvidenceKind;
   path: string;
+  required?: boolean;
 };
 type ProviderCommand = {
   args?: string[];
@@ -454,6 +457,7 @@ function buildProviderEvidenceInput({
       destinationPath: path.join(layout.signals[kind], fileName),
       kind,
       manifestPath: `signals/${kind}/${fileName}`,
+      ...(typeof output.required === 'boolean' ? { required: output.required } : {}),
       sourcePath,
     };
   }
@@ -468,6 +472,7 @@ function buildProviderEvidenceInput({
       destinationPath: path.join(layout.captures, fileName),
       kind: output.kind as CaptureEvidenceKind,
       manifestPath: `captures/${fileName}`,
+      ...(typeof output.required === 'boolean' ? { required: output.required } : {}),
       sourcePath,
     };
   }
@@ -481,6 +486,7 @@ function buildProviderEvidenceInput({
     destinationPath: path.join(layout.raw, 'providers', providerId, fileName),
     kind: output.kind,
     manifestPath: `raw/providers/${providerId}/${fileName}`,
+    ...(typeof output.required === 'boolean' ? { required: output.required } : {}),
     sourcePath,
   };
 }
@@ -704,6 +710,7 @@ async function resolveAttachedEvidence({
     destinationPath,
     kind,
     manifestPath,
+    required = false,
     sourcePath,
   }: EvidenceAttachmentInput): Promise<void> => {
     const stat = await fsp.stat(sourcePath).catch(() => null);
@@ -724,6 +731,7 @@ async function resolveAttachedEvidence({
       kind,
       manifestPath,
       redactionStatus: 'not-redacted' as const,
+      required,
       sha256: await hashFileSha256(sourcePath),
       sourceFileName: path.basename(sourcePath),
       sourcePath,
@@ -1025,6 +1033,11 @@ function buildDiagnosticInventory({
   const optionalArtifacts = readScenarioStringSet(scenario, ['artifacts', 'optional']);
   const requiredCapabilities = readScenarioStringSet(scenario, ['requiredCapabilities']);
   const optionalCapabilities = readScenarioStringSet(scenario, ['optionalCapabilities']);
+  const requiredProviderDiagnostics = new Set(
+    attachedEvidence.attachments
+      .filter((attachment) => attachment.required)
+      .map((attachment) => attachment.kind),
+  );
   const sidecarRoot = typeof args['adb-artifacts'] === 'string'
     ? path.resolve(args['adb-artifacts'])
     : typeof args['simctl-artifacts'] === 'string'
@@ -1081,8 +1094,8 @@ function buildDiagnosticInventory({
     entries.push(buildDiagnosticEntry({
       kind,
       ...entry,
-      required: entry.required ?? request.required,
-      requested: entry.requested ?? request.requested,
+      required: request.required || requiredProviderDiagnostics.has(kind) || Boolean(entry.required),
+      requested: request.requested || requiredProviderDiagnostics.has(kind) || Boolean(entry.requested),
     }));
   };
 
@@ -1715,7 +1728,11 @@ function resolveProfileSessionEntriesPath({ args, platform }: { args: CliArgs; p
 }
 
 /**
- * Returns the first successful adb screenshot file from sidecar metadata.
+ * Returns the first usable adb screenshot file from sidecar metadata.
+ *
+ * ADB can produce a valid PNG even when command metadata records a nonzero
+ * exit status from the host process. Treat the binary artifact as the capture
+ * authority, but only after validating the PNG signature and sidecar boundary.
  *
  * @param {{runDir: string, sidecarRoot: string | null}} options
  * @returns {{dependency: SidecarEvidenceDependency, path: string} | null}
@@ -1733,43 +1750,69 @@ function resolveAndroidAdbScreenshotDependency({
 
   const metadata = readOptionalJsonObject(path.resolve(sidecarRoot, 'raw', 'android-metadata.json'));
   const actions = Array.isArray(metadata?.driverActions) ? metadata.driverActions : [];
-  const screenshotAction = actions.find((action: unknown) => {
+  for (const action of actions) {
     if (!action || typeof action !== 'object' || Array.isArray(action)) {
-      return false;
+      continue;
     }
     const record = action as Record<string, unknown>;
-    return record.driverAction === 'screenshot' &&
-      record.exitCode === 0 &&
-      (typeof record.capturePath === 'string' || typeof record.rawPath === 'string');
-  }) as Record<string, unknown> | undefined;
-  const sidecarRelativePath = typeof screenshotAction?.capturePath === 'string'
-    ? screenshotAction.capturePath
-    : typeof screenshotAction?.rawPath === 'string'
-      ? screenshotAction.rawPath
+    if (record.driverAction !== 'screenshot') {
+      continue;
+    }
+    const sidecarRelativePath = typeof record.capturePath === 'string'
+      ? record.capturePath
+      : typeof record.rawPath === 'string'
+      ? record.rawPath
       : null;
-  if (!sidecarRelativePath || path.isAbsolute(sidecarRelativePath)) {
-    return null;
-  }
+    if (!sidecarRelativePath || path.isAbsolute(sidecarRelativePath)) {
+      continue;
+    }
 
-  const screenshotPath = path.resolve(sidecarRoot, sidecarRelativePath);
-  const relativeToSidecar = path.relative(sidecarRoot, screenshotPath);
-  if (
-    relativeToSidecar.length === 0 ||
-    relativeToSidecar.startsWith('..') ||
-    path.isAbsolute(relativeToSidecar) ||
-    !fs.existsSync(screenshotPath)
-  ) {
-    return null;
-  }
+    const screenshotPath = path.resolve(sidecarRoot, sidecarRelativePath);
+    const relativeToSidecar = path.relative(sidecarRoot, screenshotPath);
+    if (
+      relativeToSidecar.length === 0 ||
+      relativeToSidecar.startsWith('..') ||
+      path.isAbsolute(relativeToSidecar) ||
+      !isPngFile(screenshotPath)
+    ) {
+      continue;
+    }
 
-  const manifestPath = toRunPathReference({ runDir, targetPath: screenshotPath });
-  return {
-    dependency: {
-      kind: 'sidecar',
+    const manifestPath = toRunPathReference({ runDir, targetPath: screenshotPath });
+    return {
+      dependency: {
+        kind: 'sidecar',
+        path: manifestPath,
+      },
       path: manifestPath,
-    },
-    path: manifestPath,
-  };
+    };
+  }
+
+  return null;
+}
+
+/**
+ * Checks whether a file starts with the PNG signature.
+ *
+ * @param {string} filePath
+ * @returns {boolean}
+ */
+function isPngFile(filePath: string): boolean {
+  let signature: Uint8Array;
+  try {
+    signature = fs.readFileSync(filePath, { flag: 'r' }).subarray(0, 8);
+  } catch {
+    return false;
+  }
+  return signature.length === 8 &&
+    signature[0] === 0x89 &&
+    signature[1] === 0x50 &&
+    signature[2] === 0x4e &&
+    signature[3] === 0x47 &&
+    signature[4] === 0x0d &&
+    signature[5] === 0x0a &&
+    signature[6] === 0x1a &&
+    signature[7] === 0x0a;
 }
 
 /**

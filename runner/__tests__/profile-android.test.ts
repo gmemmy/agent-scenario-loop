@@ -242,7 +242,7 @@ test('profile-android writes artifacts from fixture event logs', async (t: TestC
     runId: 'android-example-startup',
     scenarioHash: manifest.scenarioHash,
   });
-  assert.equal(health.healthStatus, 'passed');
+  assert.equal(health.healthStatus, 'passed', JSON.stringify(health, null, 2));
   assert.equal(verdict.verdictStatus, 'passed');
   assert.equal(manifest.artifacts.raw.interactionLog, 'raw/android-app-startup.log');
   assert.equal(manifest.artifacts.raw.deviceLog, 'raw/android-app-startup.log');
@@ -1307,6 +1307,94 @@ test('profile-android executes declared evidence provider commands', async (t: T
   assert.match(summary, /provider\/accessibility/u);
 });
 
+test('profile-android marks required provider command outputs as required diagnostics', async (t: TestContext) => {
+  const artifactRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-android-provider-required-'));
+  const providerRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-provider-required-'));
+  t.after(async () => {
+    await fsp.rm(artifactRoot, { recursive: true, force: true });
+    await fsp.rm(providerRoot, { recursive: true, force: true });
+  });
+  const providerScript = path.join(providerRoot, 'write-required-evidence.js');
+  await fsp.writeFile(
+    providerScript,
+    [
+      "const fs = require('node:fs');",
+      "const path = require('node:path');",
+      "for (const outputPath of process.argv.slice(2)) {",
+      "  fs.mkdirSync(path.dirname(outputPath), { recursive: true });",
+      "}",
+      "fs.writeFileSync(process.argv[2], JSON.stringify({ heapBytes: 1234 }) + '\\n');",
+      "fs.writeFileSync(process.argv[3], JSON.stringify({ violations: [] }) + '\\n');",
+    ].join('\n'),
+    'utf8',
+  );
+  const providerManifestPath = path.join(providerRoot, 'provider.json');
+  await fsp.writeFile(
+    providerManifestPath,
+    `${JSON.stringify({
+      schemaVersion: '1.0.0',
+      runnerId: 'required-diagnostics-provider',
+      kind: 'evidenceProvider',
+      platforms: ['android'],
+      capabilities: ['memory', 'accessibility'],
+      artifactOutputs: ['memory', 'accessibility'],
+      lifecycle: ['capture'],
+      providerCommands: [
+        {
+          id: 'capture-required-diagnostics',
+          phase: 'capture',
+          command: process.execPath,
+          args: [providerScript, '{providerDir}/memory.json', '{providerDir}/accessibility.json'],
+          outputs: [
+            {
+              channel: 'signal',
+              kind: 'memory',
+              path: '{providerDir}/memory.json',
+              required: true,
+            },
+            {
+              channel: 'provider',
+              kind: 'accessibility',
+              path: '{providerDir}/accessibility.json',
+              required: true,
+            },
+          ],
+        },
+      ],
+    }, null, 2)}\n`,
+    'utf8',
+  );
+
+  const { stdout } = await execFileAsync(process.execPath, [
+    PROFILE_ANDROID,
+    '--config',
+    fixturePath('examples/mobile-app/asl.config.json'),
+    '--scenario',
+    fixturePath('examples/mobile-app/scenarios/android/app-startup.json'),
+    '--events',
+    fixturePath('examples/mobile-app/event-logs/android-app-startup.log'),
+    '--provider',
+    providerManifestPath,
+    '--out',
+    artifactRoot,
+    '--run-id',
+    'android-provider-required',
+  ]);
+
+  const runDir = stdout.trim();
+  const manifest = readJson(path.join(runDir, 'manifest.json'));
+  const diagnostics = (manifest.artifacts as { diagnostics: Array<Record<string, unknown>> }).diagnostics;
+  const memoryDiagnostic = diagnostics.find((entry) => entry.kind === 'memory');
+  const accessibilityDiagnostic = diagnostics.find((entry) => entry.kind === 'accessibility');
+
+  assert.equal(memoryDiagnostic?.status, 'captured');
+  assert.equal(memoryDiagnostic?.required, true);
+  assert.equal(memoryDiagnostic?.path, 'signals/memory/memory.json');
+  assert.equal(accessibilityDiagnostic?.status, 'captured');
+  assert.equal(accessibilityDiagnostic?.required, true);
+  assert.equal(accessibilityDiagnostic?.path, 'raw/providers/required-diagnostics-provider/accessibility.json');
+});
+
 test('profile-android rejects duplicate evidence provider command ids', async (t: TestContext) => {
   const artifactRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-android-provider-duplicate-'));
   const providerRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-provider-duplicate-'));
@@ -1593,14 +1681,17 @@ test('profile-android reports adb sidecar screenshots as captured diagnostics', 
     fixturePath('examples/mobile-app/event-logs/android-app-startup.log'),
     path.join(adbArtifactRoot, 'raw', 'adb-logcat.txt'),
   );
-  await fsp.writeFile(path.join(adbArtifactRoot, 'raw', 'adb-screenshot-2.png'), 'PNG', 'utf8');
+  await fsp.writeFile(
+    path.join(adbArtifactRoot, 'raw', 'adb-screenshot-2.png'),
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00]),
+  );
   await fsp.writeFile(
     path.join(adbArtifactRoot, 'raw', 'android-metadata.json'),
     `${JSON.stringify({
       driverActions: [
         {
           driverAction: 'screenshot',
-          exitCode: 0,
+          exitCode: 1,
           rawPath: 'raw/adb-screenshot-2.png',
           stepId: 'capture-final',
         },

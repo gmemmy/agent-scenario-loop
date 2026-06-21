@@ -230,6 +230,10 @@
         "path": {
           "type": "string",
           "minLength": 1
+        },
+        "required": {
+          "type": "boolean",
+          "description": "Marks this provider output as required evidence for diagnostic inventory and health evaluation when the output is not captured."
         }
       }
     }

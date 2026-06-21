@@ -369,6 +369,30 @@ test('rejects provider commands on primary runner manifests', () => {
   assert.match(result.message, /Primary runner manifests cannot declare providerCommands/u);
 });
 
+test('accepts required provider command outputs', () => {
+  const provider = readJson('templates/evidence-provider.json');
+  provider.providerCommands = [
+    {
+      id: 'capture-memory',
+      phase: 'capture',
+      command: 'capture-memory',
+      outputs: [
+        {
+          channel: 'signal',
+          kind: 'memory',
+          path: '{providerDir}/memory.json',
+          required: true,
+        },
+      ],
+    },
+  ];
+
+  const result = validateJson(provider, SCHEMAS.runnerCapabilities, 'Runner capability manifest');
+
+  assert.equal(result.valid, true, result.message);
+  assert.deepEqual(result.errors, []);
+});
+
 test('rejects invalid scenario cycle counts', () => {
   const scenario = readJson('examples/scenarios/mobile/open-close-cycle.json');
   scenario.cycles.iterations = 0;

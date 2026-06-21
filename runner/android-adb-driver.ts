@@ -10,7 +10,7 @@ type AndroidAdbCommandResult = {
   rawFileName: string;
   stderr: string;
   stdout: string;
-  stdoutBuffer?: Buffer;
+  stdoutBuffer?: Uint8Array;
 };
 
 type AndroidAdbDriver = {
@@ -49,7 +49,7 @@ type AndroidAdbCommandExecutor = (
   exitCode: number;
   stderr: string;
   stdout: string;
-  stdoutBuffer?: Buffer;
+  stdoutBuffer?: Uint8Array;
 }>;
 
 type AndroidAdbDeepLinkOptions = {
@@ -184,7 +184,7 @@ function buildDriverResult({
  * @param {{stdout: string, stderr: string}} result
  * @returns {string}
  */
-function formatAndroidAdbRawOutput(result: { stdout: string; stderr: string; stdoutBuffer?: Buffer }): string | Buffer {
+function formatAndroidAdbRawOutput(result: { stdout: string; stderr: string; stdoutBuffer?: Uint8Array }): string | Uint8Array {
   if (result.stdoutBuffer && !result.stderr) {
     return result.stdoutBuffer;
   }

@@ -49,7 +49,7 @@ type CommandResult = {
   exitCode: number;
   stderr: string;
   stdout: string;
-  stdoutBuffer?: Buffer;
+  stdoutBuffer?: Uint8Array;
 };
 type CommandExecutorOptions = {
   encoding?: 'buffer' | 'utf8';
@@ -73,7 +73,7 @@ type AndroidPreflightResult = {
   device: AndroidDevice | null;
   health: Record<string, unknown>;
   metadata: Record<string, unknown>;
-  raw: Record<string, string | Buffer>;
+  raw: Record<string, string | Uint8Array>;
   runDir: string;
   verdict: Record<string, unknown>;
 };
@@ -1072,7 +1072,7 @@ async function runAndroidAdbCaptureBodyWithWatchdog({
 /**
  * Writes the Android adb artifact set.
  *
- * @param {{agentSummary: string, health: Record<string, unknown>, layout: ReturnType<typeof createArtifactLayout>, metadata: Record<string, unknown>, raw: Record<string, string | Buffer>, rawDir: string, verdict: Record<string, unknown>}} options
+ * @param {{agentSummary: string, health: Record<string, unknown>, layout: ReturnType<typeof createArtifactLayout>, metadata: Record<string, unknown>, raw: Record<string, string | Uint8Array>, rawDir: string, verdict: Record<string, unknown>}} options
  * @returns {Promise<void>}
  */
 async function writeAndroidAdbArtifacts({
@@ -1088,13 +1088,13 @@ async function writeAndroidAdbArtifacts({
   health: Record<string, unknown>;
   layout: ReturnType<typeof createArtifactLayout>;
   metadata: Record<string, unknown>;
-  raw: Record<string, string | Buffer>;
+  raw: Record<string, string | Uint8Array>;
   rawDir: string;
   verdict: Record<string, unknown>;
 }): Promise<void> {
   await Promise.all(
     Object.entries(raw).map(([fileName, content]) => (
-      Buffer.isBuffer(content)
+      content instanceof Uint8Array
         ? fsp.writeFile(path.join(rawDir, fileName), content)
         : fsp.writeFile(path.join(rawDir, fileName), `${content.trimEnd()}\n`, 'utf8')
     )),
@@ -1523,7 +1523,7 @@ async function runAndroidAdbPreflight({
   const rawDir = layout.raw;
   await fsp.mkdir(rawDir, { recursive: true });
 
-  const raw: Record<string, string | Buffer> = {};
+  const raw: Record<string, string | Uint8Array> = {};
   const checks: Record<string, unknown>[] = [];
   let device: AndroidDevice | null = null;
   const captureWatchdog = deriveAndroidAdbCaptureWatchdogBudget({
