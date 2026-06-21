@@ -13,6 +13,9 @@ const {
 const {
   parseArgs,
   readScalarArg,
+  resolveArtifactRoot,
+  resolveProfileScenarioName,
+  runProfileCompatibilityPreflight,
   runProfileMobile,
   usage,
 } = require('./profile-mobile');
@@ -65,6 +68,17 @@ const MANIFEST_LIFECYCLE_PHASES = new Set([
   'reboot',
   'relaunch',
 ]);
+const ANDROID_PROFILE_RUNNER_CAPABILITIES = {
+  schemaVersion: '1.0.0',
+  runnerId: 'android-adb-profile-runner',
+  kind: 'primary',
+  platforms: ['android'],
+  capabilities: ['launch', 'sessionControl', 'command', 'logCapture', 'artifactWrite'],
+  driverActions: ['tap', 'scroll', 'assertVisible', 'inspectTree', 'screenshot', 'record', 'readLogs'],
+  artifactOutputs: ['logs', 'signals', 'screenshot', 'video', 'uiTree'],
+  uiContexts: ['app'],
+  lifecycle: ['prepare', 'launch', 'startSession', 'executeStep', 'waitForTruthEvent', 'captureEvidence', 'stopSession', 'finalize'],
+};
 
 /**
  * Reads and parses a JSON object from disk.
@@ -977,8 +991,32 @@ async function runProfileAndroid(
   const config = readJson(path.resolve(args.config));
   const scenario = readJson(path.resolve(args.scenario));
   const runId = typeof args['run-id'] === 'string' ? args['run-id'] : createRunId();
+  const scenarioName = resolveProfileScenarioName({ scenario, scenarioPath: path.resolve(args.scenario) });
+  const artifactRoot = resolveArtifactRoot({
+    args,
+    config,
+    configPath: path.resolve(args.config),
+    platform: 'android',
+  });
   const adbCaptureEnabled = isEnabled(args['adb-capture']);
   const agentDeviceCaptureEnabled = isEnabled(args['agent-device-capture']);
+  const driverSteps = adbCaptureEnabled ? resolveAndroidAdbDriverSteps(scenario) : [];
+  if (adbCaptureEnabled) {
+    const driverStepErrors = validateAndroidAdbDriverSteps(driverSteps);
+    if (driverStepErrors.length > 0) {
+      throw new Error(`Invalid Android adb driver step metadata: ${driverStepErrors.join(' ')}`);
+    }
+  }
+  await runProfileCompatibilityPreflight({
+    args,
+    artifactRoot,
+    platform: 'android',
+    primaryRunner: ANDROID_PROFILE_RUNNER_CAPABILITIES,
+    runDir: path.join(artifactRoot, scenarioName, runId),
+    runId,
+    scenario,
+    scenarioName,
+  });
   const profileSessionEnabled = isEnabled(args['profile-session']);
   const profileSessionStorageEnabled = isEnabled(args['android-profile-session-storage']);
   const profileSessionStorageKey = readStringArgOrEnv(args['android-profile-session-storage-key'], [
@@ -1029,14 +1067,6 @@ async function runProfileAndroid(
     ]),
     30000,
   );
-  const scenarioName = typeof scenario.name === 'string' ? scenario.name : path.basename(args.scenario, '.json');
-  const driverSteps = adbCaptureEnabled ? resolveAndroidAdbDriverSteps(scenario) : [];
-  if (adbCaptureEnabled) {
-    const driverStepErrors = validateAndroidAdbDriverSteps(driverSteps);
-    if (driverStepErrors.length > 0) {
-      throw new Error(`Invalid Android adb driver step metadata: ${driverStepErrors.join(' ')}`);
-    }
-  }
   const profileSessionCommands = profileSessionEnabled ? resolveAndroidAdbProfileCommands(scenario) : [];
   const commandWaitMs = parsePositiveInteger(readScalarArg(args['command-wait-ms']), 250);
   const profileSessionDeepLinks = profileSessionEnabled && !profileSessionStorageEnabled

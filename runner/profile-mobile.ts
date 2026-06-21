@@ -9,6 +9,11 @@ const { buildAgentSummaryMarkdown } = require('../core/agent-summary');
 const { createArtifactLayout } = require('../core/artifact-layout');
 const { writeJsonArtifact, writeTextArtifact } = require('../core/artifact-writer');
 const {
+  buildCompatibilityHealth,
+  buildUnevaluatedVerdict,
+  evaluateRunnerCompatibility,
+} = require('../core/planner');
+const {
   buildBudgetVerdict,
   buildCausalRun,
   buildCausalTimeline,
@@ -41,6 +46,16 @@ type ProfileRunResult = {
   runDir: string;
   health: Record<string, unknown>;
   verdict: Record<string, unknown>;
+};
+type CompatibilityPreflightOptions = {
+  args: CliArgs;
+  artifactRoot: string;
+  platform: ProfilePlatform;
+  primaryRunner: Record<string, unknown>;
+  runDir: string;
+  runId: string;
+  scenario: Record<string, unknown>;
+  scenarioName: string;
 };
 type ProfilePlatform = 'android' | 'ios';
 type ProfileMobileOptions = {
@@ -2282,6 +2297,87 @@ function resolveProfileScenarioName({
 }
 
 /**
+ * Reads evidence-provider manifests for profile compatibility preflight.
+ *
+ * @param {CliArgs} args
+ * @returns {Record<string, unknown>[]}
+ */
+function readEvidenceProviderManifests(args: CliArgs): Record<string, unknown>[] {
+  return readRepeatableArgValues(args, 'provider').map((providerPath, index) => (
+    assertValidJson(
+      readJson(path.resolve(providerPath)),
+      SCHEMAS.runnerCapabilities,
+      `Evidence provider manifest ${index + 1}`,
+    ) as Record<string, unknown>
+  ));
+}
+
+/**
+ * Runs planner compatibility before a live profile capture starts.
+ *
+ * Failed compatibility writes classified artifacts in the profile run folder so
+ * agents can stop before adb, simctl, or provider work consumes runtime time.
+ *
+ * @param {CompatibilityPreflightOptions} options
+ * @returns {Promise<void>}
+ */
+async function runProfileCompatibilityPreflight({
+  args,
+  artifactRoot,
+  platform,
+  primaryRunner,
+  runDir,
+  runId,
+  scenario,
+  scenarioName,
+}: CompatibilityPreflightOptions): Promise<void> {
+  const layout = createArtifactLayout({ outputDir: runDir });
+  const compatibility = evaluateRunnerCompatibility({
+    scenario,
+    runner: primaryRunner,
+    evidenceProviders: readEvidenceProviderManifests(args),
+    platform,
+  });
+  await writeJsonArtifact({
+    filePath: layout.plannerCompatibility,
+    value: compatibility,
+    schema: {
+      type: 'object',
+      additionalProperties: true,
+    },
+    label: 'Planner compatibility artifact',
+  });
+
+  if (compatibility.compatible) {
+    process.stderr.write(
+      `profile preflight passed: ${platform}/${scenarioName} artifactRoot=${artifactRoot} planner=${path.relative(process.cwd(), layout.plannerCompatibility)}\n`,
+    );
+    return;
+  }
+
+  const health = buildCompatibilityHealth({ scenario, runId, compatibility });
+  const verdict = buildUnevaluatedVerdict({ scenario, runId, health });
+  const agentSummary = buildAgentSummaryMarkdown({ health, verdict });
+  await writeJsonArtifact({
+    filePath: layout.health,
+    value: health,
+    schema: SCHEMAS.health,
+    label: 'Health artifact',
+  });
+  await writeJsonArtifact({
+    filePath: layout.verdict,
+    value: verdict,
+    schema: SCHEMAS.verdict,
+    label: 'Verdict artifact',
+  });
+  await writeTextArtifact({
+    filePath: layout.agentSummary,
+    content: agentSummary,
+  });
+  throw new Error(`Profile compatibility preflight failed; inspect ${runDir}/agent-summary.md.`);
+}
+
+/**
  * Serializes JSON with stable object key ordering for reproducible hashes.
  *
  * @param {unknown} value
@@ -3213,6 +3309,8 @@ export {
   resolveComparisonLane,
   resolveEventLogPath,
   resolveInteractionDriver,
+  resolveProfileScenarioName,
+  runProfileCompatibilityPreflight,
   runProfileCli,
   runProfileMobile,
   hashScenarioContract,

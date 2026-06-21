@@ -35,6 +35,8 @@ pnpm check-plan -- --scenario examples/scenarios/mobile/app-startup.json --runne
 
 This validates the input manifests, writes schema-checked `health.json` and `verdict.json`, writes `agent-summary.md`, and includes the raw planner match in `planner-compatibility.json`.
 
+Live profile wrappers also run this compatibility check before adb, simctl, agent-device, or provider capture starts. A compatible run writes `planner-compatibility.json` as the first profile artifact, then continues into the platform capture. An incompatible run writes failed `health.json`, inconclusive `verdict.json`, `agent-summary.md`, and the planner artifact in the profile run folder, then exits before touching the device runtime. This keeps missing required diagnostics, unsupported platforms, and impossible runner/provider plans out of the long capture loop.
+
 ## Host/Device Access
 
 Keep deterministic validation and live device proof as separate execution lanes.

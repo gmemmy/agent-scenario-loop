@@ -1945,6 +1945,49 @@ test('profile-android can capture adb logs and profile them in one run', async (
   assert.ok(fs.existsSync(path.join(result.runDir, 'raw', 'adb-logcat.txt')));
 });
 
+test('profile-android fails compatibility before live capture when required evidence is impossible', async (t: TestContext) => {
+  const tempRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-android-preflight-'));
+  t.after(async () => {
+    await fsp.rm(tempRoot, { recursive: true, force: true });
+  });
+  const profileRoot = path.join(tempRoot, 'profile');
+  const scenarioPath = path.join(tempRoot, 'requires-accessibility.json');
+  const scenario = readJson(fixturePath('examples/mobile-app/scenarios/android/app-startup.json'));
+  scenario.artifacts = {
+    required: ['accessibility'],
+  };
+  await fsp.writeFile(scenarioPath, `${JSON.stringify(scenario, null, 2)}\n`, 'utf8');
+
+  await assert.rejects(
+    runProfileAndroid({
+      'adb-capture': true,
+      config: fixturePath('examples/mobile-app/asl.config.json'),
+      out: profileRoot,
+      'run-id': 'android-preflight-missing-accessibility',
+      scenario: scenarioPath,
+    }, {
+      executor: async () => {
+        throw new Error('adb executor should not run after failed compatibility preflight');
+      },
+    }),
+    /Profile compatibility preflight failed/u,
+  );
+
+  const runDir = path.join(profileRoot, 'app-startup', 'android-preflight-missing-accessibility');
+  const health = readJson(path.join(runDir, 'health.json'));
+  const verdict = readJson(path.join(runDir, 'verdict.json'));
+  const compatibility = readJson(path.join(runDir, 'planner-compatibility.json'));
+  const summary = fs.readFileSync(path.join(runDir, 'agent-summary.md'), 'utf8');
+
+  assert.equal(health.healthStatus, 'failed');
+  assert.equal(verdict.verdictStatus, 'inconclusive');
+  assert.equal(compatibility.compatible, false);
+  assert.ok(
+    (health.checks as Array<{ code: string }>).some((check) => check.code === 'missing_required_artifact'),
+  );
+  assert.match(summary, /Do not optimize from this run/u);
+});
+
 test('profile-android fails fast with adb artifacts when adb devices times out', async (t: TestContext) => {
   const tempRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-android-adb-hung-'));
   t.after(async () => {
@@ -1977,7 +2020,10 @@ test('profile-android fails fast with adb artifacts when adb devices times out',
   const devicesRaw = fs.readFileSync(path.join(adbCaptureRoot, 'raw', 'adb-devices.txt'), 'utf8');
   assert.equal(adbHealth.healthStatus, 'failed');
   assert.match(devicesRaw, /adb command timed out after 50ms/u);
-  assert.ok(!fs.existsSync(path.join(profileRoot, 'app-startup', 'android-hung-devices')));
+  const profileRunDir = path.join(profileRoot, 'app-startup', 'android-hung-devices');
+  const compatibility = readJson(path.join(profileRunDir, 'planner-compatibility.json'));
+  assert.equal(compatibility.compatible, true);
+  assert.ok(!fs.existsSync(path.join(profileRunDir, 'health.json')));
 });
 
 test('profile-android routes normalized readLogs evidence steps through adb driver capture', async (t: TestContext) => {
