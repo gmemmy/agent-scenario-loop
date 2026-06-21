@@ -1724,6 +1724,99 @@ test('profile-android writes failed health when an evidence provider command fai
   assert.match(summary, /Next action `fix_provider_command`/u);
 });
 
+test('profile-android writes provider liveness artifacts when an evidence provider command hangs', async (t: TestContext) => {
+  const artifactRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-android-provider-hang-'));
+  const providerRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-provider-hang-'));
+  t.after(async () => {
+    await fsp.rm(artifactRoot, { recursive: true, force: true });
+    await fsp.rm(providerRoot, { recursive: true, force: true });
+  });
+  const providerScript = path.join(providerRoot, 'hang-provider.js');
+  await fsp.writeFile(
+    providerScript,
+    [
+      "process.stdout.write('provider started\\n');",
+      "process.stderr.write('waiting for external tool\\n');",
+      'setInterval(() => {}, 1000);',
+    ].join('\n'),
+    'utf8',
+  );
+  const providerManifestPath = path.join(providerRoot, 'provider.json');
+  await fsp.writeFile(
+    providerManifestPath,
+    `${JSON.stringify({
+      schemaVersion: '1.0.0',
+      runnerId: 'hanging-provider',
+      kind: 'evidenceProvider',
+      platforms: ['android'],
+      capabilities: ['accessibility'],
+      artifactOutputs: ['accessibility'],
+      lifecycle: ['capture'],
+      providerCommands: [
+        {
+          id: 'capture-accessibility',
+          phase: 'capture',
+          command: process.execPath,
+          args: [providerScript],
+          outputs: [
+            {
+              channel: 'provider',
+              kind: 'accessibility',
+              path: '{providerDir}/accessibility.json',
+            },
+          ],
+        },
+      ],
+    }, null, 2)}\n`,
+    'utf8',
+  );
+
+  const { stdout } = await execFileAsync(process.execPath, [
+    PROFILE_ANDROID,
+    '--config',
+    fixturePath('examples/mobile-app/asl.config.json'),
+    '--scenario',
+    fixturePath('examples/mobile-app/scenarios/android/app-startup.json'),
+    '--events',
+    fixturePath('examples/mobile-app/event-logs/android-app-startup.log'),
+    '--provider',
+    providerManifestPath,
+    '--out',
+    artifactRoot,
+    '--run-id',
+    'android-provider-hang',
+  ], {
+    env: {
+      ...process.env,
+      ASL_PROVIDER_COMMAND_TIMEOUT_MS: '300',
+    },
+  });
+
+  const runDir = stdout.trim();
+  const health = readJson(path.join(runDir, 'health.json'));
+  const verdict = readJson(path.join(runDir, 'verdict.json'));
+  const summary = fs.readFileSync(path.join(runDir, 'agent-summary.md'), 'utf8');
+  const commandRecordPath = path.join(runDir, 'raw', 'provider-commands', 'hanging-provider-capture-accessibility.json');
+  const stdoutPath = path.join(runDir, 'raw', 'provider-commands', 'hanging-provider-capture-accessibility.stdout.txt');
+  const stderrPath = path.join(runDir, 'raw', 'provider-commands', 'hanging-provider-capture-accessibility.stderr.txt');
+  const commandRecord = readJson(commandRecordPath);
+
+  assert.equal(health.healthStatus, 'failed');
+  assert.equal(verdict.verdictStatus, 'inconclusive');
+  assert.equal(commandRecord.status, 'timed_out');
+  assert.equal(commandRecord.timedOut, true);
+  assert.equal(commandRecord.timeoutMs, 300);
+  assert.equal(fs.readFileSync(stdoutPath, 'utf8'), 'provider started\n');
+  assert.equal(fs.readFileSync(stderrPath, 'utf8'), 'waiting for external tool\n');
+  assert.ok(
+    (health.checks as Array<{ code: string; metadata?: { nextActionCode?: string } }>).some(
+      (check) => check.code === 'provider_liveness_timeout' && check.metadata?.nextActionCode === 'fix_provider_liveness',
+    ),
+  );
+  assert.match(summary, /Do not optimize from this run/u);
+  assert.match(summary, /Next action `fix_provider_liveness`/u);
+});
+
 test('profile-android reads logcat from adb artifact folders', async (t: TestContext) => {
   const tempRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-android-adb-artifacts-'));
   t.after(async () => {

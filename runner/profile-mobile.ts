@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-const { execFile } = require('node:child_process');
+const { spawn } = require('node:child_process');
 const fs = require('node:fs');
 const fsp = require('node:fs/promises');
 const path = require('node:path');
@@ -170,8 +170,10 @@ type ProviderCommandResult = {
   args: string[];
   command: string;
   exitCode: number;
+  signal: string | null;
   stderr: string;
   stdout: string;
+  timedOut: boolean;
 };
 type ProviderCommandFailure = {
   commandId: string;
@@ -228,13 +230,10 @@ type ProfileRunPlan = {
     captures: number;
   };
 };
-type ExecFileError = Error & {
-  code?: number;
-};
-
 const CAPTURE_EVIDENCE_KINDS = new Set(['screenshot', 'uiTree', 'video']);
 const PROVIDER_EVIDENCE_KINDS = new Set(['accessibility', 'logs', 'profiler']);
 const SIGNAL_EVIDENCE_KINDS = new Set(['js', 'memory', 'network']);
+const DEFAULT_PROVIDER_COMMAND_TIMEOUT_MS = 180_000;
 
 /**
  * Prints CLI usage to stderr.
@@ -416,9 +415,18 @@ async function hashFileSha256(filePath: string): Promise<string> {
 }
 
 /**
- * Runs one provider command without a shell and captures its output.
+ * Resolves the timeout applied to provider commands.
  *
- * @param {{command: string, args: string[], cwd?: string, env?: Record<string, string>}} options
+ * @returns {number}
+ */
+function resolveProviderCommandTimeoutMs(): number {
+  return readPositiveInteger(process.env.ASL_PROVIDER_COMMAND_TIMEOUT_MS, DEFAULT_PROVIDER_COMMAND_TIMEOUT_MS);
+}
+
+/**
+ * Runs one provider command without a shell, streaming output to raw files.
+ *
+ * @param {{command: string, args: string[], cwd?: string, env?: Record<string, string>, stderrPath: string, stdoutPath: string, timeoutMs: number}} options
  * @returns {Promise<ProviderCommandResult>}
  */
 function execProviderCommand({
@@ -426,23 +434,82 @@ function execProviderCommand({
   command,
   cwd,
   env,
+  stderrPath,
+  stdoutPath,
+  timeoutMs,
 }: {
   args: string[];
   command: string;
   cwd?: string;
   env?: Record<string, string>;
+  stderrPath: string;
+  stdoutPath: string;
+  timeoutMs: number;
 }): Promise<ProviderCommandResult> {
   return new Promise((resolve) => {
-    execFile(command, args, {
+    const child = spawn(command, args, {
       ...(cwd ? { cwd } : {}),
       env: env ? { ...process.env, ...env } : process.env,
-    }, (error: ExecFileError | null, stdout: string, stderr: string) => {
+      shell: false,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    const stdoutChunks: Buffer[] = [];
+    const stderrChunks: Buffer[] = [];
+    let timedOut = false;
+    let settled = false;
+    const timeout = setTimeout(() => {
+      timedOut = true;
+      child.kill('SIGTERM');
+      setTimeout(() => {
+        if (!settled) {
+          child.kill('SIGKILL');
+        }
+      }, 1000).unref();
+    }, timeoutMs);
+    timeout.unref();
+
+    child.stdout.on('data', (chunk: Buffer) => {
+      stdoutChunks.push(chunk);
+      fs.appendFileSync(stdoutPath, chunk);
+    });
+    child.stderr.on('data', (chunk: Buffer) => {
+      stderrChunks.push(chunk);
+      fs.appendFileSync(stderrPath, chunk);
+    });
+    child.on('error', (error: NodeJS.ErrnoException) => {
+      if (settled) {
+        return;
+      }
+      clearTimeout(timeout);
+      settled = true;
+      const stderr = error.message;
+      fs.appendFileSync(stderrPath, `${stderr}\n`, 'utf8');
       resolve({
         args,
         command,
-        exitCode: error && typeof error.code === 'number' ? error.code : error ? 1 : 0,
+        exitCode: 1,
+        signal: null,
+        stderr,
+        stdout: Buffer.concat(stdoutChunks).toString('utf8'),
+        timedOut,
+      });
+    });
+    child.on('close', (exitCode: number | null, signal: string | null) => {
+      if (settled) {
+        return;
+      }
+      clearTimeout(timeout);
+      settled = true;
+      const stdout = Buffer.concat(stdoutChunks).toString('utf8');
+      const stderr = Buffer.concat(stderrChunks).toString('utf8');
+      resolve({
+        args,
+        command,
+        exitCode: typeof exitCode === 'number' ? exitCode : timedOut ? 124 : 1,
+        signal,
         stderr,
         stdout,
+        timedOut,
       });
     });
   });
@@ -701,36 +768,74 @@ async function executeProviderCommands({
       const resolvedEnv = Object.fromEntries(
         Object.entries(providerCommand.env ?? {}).map(([key, value]) => [key, applyProviderPlaceholders(value, context)]),
       );
+      const commandRecordFileName = `${providerId}-${providerCommand.id}.json`;
+      const stdoutFileName = `${providerId}-${providerCommand.id}.stdout.txt`;
+      const stderrFileName = `${providerId}-${providerCommand.id}.stderr.txt`;
+      const commandRecordPath = path.join(commandRecordDir, commandRecordFileName);
+      const stdoutPath = path.join(commandRecordDir, stdoutFileName);
+      const stderrPath = path.join(commandRecordDir, stderrFileName);
+      const timeoutMs = resolveProviderCommandTimeoutMs();
+      const startedAt = new Date().toISOString();
+      await fsp.writeFile(stdoutPath, '', 'utf8');
+      await fsp.writeFile(stderrPath, '', 'utf8');
+      await fsp.writeFile(
+        commandRecordPath,
+        `${JSON.stringify({
+          args: resolvedArgs,
+          command: resolvedCommand,
+          phase: providerCommand.phase,
+          providerId,
+          startedAt,
+          status: 'started',
+          stderrPath: `raw/provider-commands/${stderrFileName}`,
+          stdoutPath: `raw/provider-commands/${stdoutFileName}`,
+          timeoutMs,
+        }, null, 2)}\n`,
+        'utf8',
+      );
       const commandResult = await execProviderCommand({
         args: resolvedArgs,
         command: resolvedCommand,
         cwd: resolvedCwd,
         env: resolvedEnv,
+        stderrPath,
+        stdoutPath,
+        timeoutMs,
       });
-      const commandRecordFileName = `${providerId}-${providerCommand.id}.json`;
-      const commandRecordPath = path.join(commandRecordDir, commandRecordFileName);
       await fsp.writeFile(
         commandRecordPath,
         `${JSON.stringify({
           args: commandResult.args,
           command: commandResult.command,
+          endedAt: new Date().toISOString(),
           exitCode: commandResult.exitCode,
           phase: providerCommand.phase,
           providerId,
+          signal: commandResult.signal,
           stderr: commandResult.stderr,
+          stderrPath: `raw/provider-commands/${stderrFileName}`,
+          status: commandResult.timedOut ? 'timed_out' : commandResult.exitCode === 0 ? 'completed' : 'failed',
           stdout: commandResult.stdout,
+          stdoutPath: `raw/provider-commands/${stdoutFileName}`,
+          timedOut: commandResult.timedOut,
+          timeoutMs,
         }, null, 2)}\n`,
         'utf8',
       );
       if (commandResult.exitCode !== 0) {
+        const timedOut = commandResult.timedOut;
         failures.push({
           commandId: providerCommand.id,
-          code: 'provider_command_failed',
+          code: timedOut ? 'provider_liveness_timeout' : 'provider_command_failed',
           exitCode: commandResult.exitCode,
-          message: `Evidence provider command ${providerId}/${providerCommand.id} failed with exit code ${commandResult.exitCode}.`,
+          message: timedOut
+            ? `Evidence provider command ${providerId}/${providerCommand.id} did not finish before the ${timeoutMs}ms timeout.`
+            : `Evidence provider command ${providerId}/${providerCommand.id} failed with exit code ${commandResult.exitCode}.`,
           name: 'evidence_provider_command_completed',
-          nextAction: `Inspect raw/provider-commands/${commandRecordFileName}, fix the provider command or its environment, then rerun the profile.`,
-          nextActionCode: 'fix_provider_command',
+          nextAction: timedOut
+            ? `Inspect raw/provider-commands/${commandRecordFileName}, raw/provider-commands/${stdoutFileName}, and raw/provider-commands/${stderrFileName}; fix the provider liveness issue or increase ASL_PROVIDER_COMMAND_TIMEOUT_MS only if the provider is making progress.`
+            : `Inspect raw/provider-commands/${commandRecordFileName}, fix the provider command or its environment, then rerun the profile.`,
+          nextActionCode: timedOut ? 'fix_provider_liveness' : 'fix_provider_command',
           phase: providerCommand.phase,
           providerId,
           rawPath: `raw/provider-commands/${commandRecordFileName}`,
