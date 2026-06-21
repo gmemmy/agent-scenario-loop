@@ -374,7 +374,7 @@ test('accepts required provider command outputs', () => {
   provider.providerCommands = [
     {
       id: 'capture-memory',
-      phase: 'capture',
+      phase: 'postRun',
       command: 'capture-memory',
       outputs: [
         {

@@ -677,8 +677,9 @@ test('profile-ios can seed and profile stored iOS app truth events', async (t: T
   assert.equal(logDiagnostic?.provider, 'simctl');
   assert.equal(logDiagnostic?.runnerId, 'ios-simctl');
   assert.ok(String(logDiagnostic?.sidecarRoot).endsWith('simctl-capture'));
-  assert.ok(String(logDiagnostic?.path).endsWith('simctl-capture/raw/ios-simctl-log.txt'));
-  assert.ok(String(logDiagnostic?.evidenceDependency?.path).endsWith('simctl-capture/raw/ios-simctl-log.txt'));
+  assert.equal(logDiagnostic?.path, 'raw/ios-simctl-log.txt');
+  assert.equal(logDiagnostic?.evidenceDependency?.root, 'sidecar');
+  assert.equal(logDiagnostic?.evidenceDependency?.path, 'raw/ios-simctl-log.txt');
   assert.equal(fs.existsSync(path.join(simctlCaptureRoot, 'raw', 'ios-simctl-log.txt')), true);
   assert.equal(jsDiagnostic?.status, 'captured');
   assert.equal(jsDiagnostic?.path, 'raw/ios-profile-events.log');

@@ -72,11 +72,13 @@ type DiagnosticInventoryEntry = {
   sidecarRoot?: string;
   evidenceDependency?: {
     kind: string;
+    root?: 'run' | 'sidecar';
     path: string;
   };
 };
 type SidecarEvidenceDependency = {
   kind: 'sidecar';
+  root?: 'sidecar';
   path: string;
 };
 type EvidenceAttachment = {
@@ -129,7 +131,7 @@ type ProviderCommand = {
   env?: Record<string, string>;
   id: string;
   outputs: ProviderCommandOutput[];
-  phase: 'prepare' | 'startWindow' | 'capture' | 'stopWindow' | 'finalize';
+  phase: 'prepare' | 'startWindow' | 'capture' | 'stopWindow' | 'afterCapture' | 'postRun' | 'finalize';
 };
 type ProviderManifest = {
   kind?: string;
@@ -877,6 +879,40 @@ function toRunPathReference({ runDir, targetPath }: { runDir: string; targetPath
 }
 
 /**
+ * Returns a sidecar dependency path that stays readable in rehydrated artifacts.
+ *
+ * @param {{runDir: string, sidecarRoot: string, targetPath: string}} options
+ * @returns {SidecarEvidenceDependency}
+ */
+function toSidecarEvidenceDependency({
+  runDir,
+  sidecarRoot,
+  targetPath,
+}: {
+  runDir: string;
+  sidecarRoot: string;
+  targetPath: string;
+}): SidecarEvidenceDependency {
+  const sidecarRelativePath = path.relative(sidecarRoot, targetPath);
+  if (
+    sidecarRelativePath.length > 0 &&
+    !sidecarRelativePath.startsWith('..') &&
+    !path.isAbsolute(sidecarRelativePath)
+  ) {
+    return {
+      kind: 'sidecar',
+      root: 'sidecar',
+      path: sidecarRelativePath,
+    };
+  }
+
+  return {
+    kind: 'sidecar',
+    path: toRunPathReference({ runDir, targetPath }),
+  };
+}
+
+/**
  * Reads scenario string-list declarations into a set.
  *
  * @param {Record<string, unknown>} scenario
@@ -1055,10 +1091,7 @@ function buildDiagnosticInventory({
     : null;
   const simctlRuntimeLogExists = Boolean(simctlRuntimeLogPath && fs.existsSync(simctlRuntimeLogPath));
   const simctlRuntimeLogDependency = simctlRuntimeLogPath && simctlRuntimeLogExists
-    ? {
-        kind: 'sidecar',
-        path: toRunPathReference({ runDir, targetPath: simctlRuntimeLogPath }),
-      }
+    ? toSidecarEvidenceDependency({ runDir, sidecarRoot: path.resolve(args['simctl-artifacts'] as string), targetPath: simctlRuntimeLogPath })
     : undefined;
   const copiedSimctlLogManifestPath = platform === 'ios' && eventLogPath && path.basename(eventLogPath) === 'ios-simctl-log.txt'
     ? eventLogManifestPath
@@ -1070,10 +1103,7 @@ function buildDiagnosticInventory({
     ? eventLogManifestPath
     : undefined;
   const eventLogDependency = eventLogPath && sidecarRoot
-    ? {
-        kind: 'sidecar',
-        path: toRunPathReference({ runDir, targetPath: eventLogPath }),
-      }
+    ? toSidecarEvidenceDependency({ runDir, sidecarRoot, targetPath: eventLogPath })
     : undefined;
   const jsProfilePath = attachedEvidence.signals.js[0] ?? eventLogManifestPath;
   const profileSessionEntriesManifestPath = profileSessionEntriesPath
@@ -1778,13 +1808,10 @@ function resolveAndroidAdbScreenshotDependency({
       continue;
     }
 
-    const manifestPath = toRunPathReference({ runDir, targetPath: screenshotPath });
+    const sidecarDependency = toSidecarEvidenceDependency({ runDir, sidecarRoot, targetPath: screenshotPath });
     return {
-      dependency: {
-        kind: 'sidecar',
-        path: manifestPath,
-      },
-      path: manifestPath,
+      dependency: sidecarDependency,
+      path: sidecarDependency.path,
     };
   }
 

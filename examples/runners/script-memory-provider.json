@@ -5,11 +5,11 @@
   "platforms": ["ios", "android"],
   "capabilities": ["memory"],
   "artifactOutputs": ["memory", "signals"],
-  "lifecycle": ["prepare", "startWindow", "capture", "stopWindow", "finalize"],
+  "lifecycle": ["prepare", "startWindow", "capture", "stopWindow", "afterCapture", "finalize"],
   "providerCommands": [
     {
       "id": "capture-memory",
-      "phase": "capture",
+      "phase": "afterCapture",
       "command": "capture-memory",
       "args": ["--platform", "{platform}", "--run-id", "{runId}", "--out", "{providerDir}/memory.json"],
       "outputs": [

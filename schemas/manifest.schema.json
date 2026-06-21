@@ -472,6 +472,10 @@
                     "type": "string",
                     "minLength": 1
                   },
+                  "root": {
+                    "type": "string",
+                    "enum": ["run", "sidecar"]
+                  },
                   "path": {
                     "type": "string",
                     "minLength": 1

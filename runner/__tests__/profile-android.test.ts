@@ -1663,7 +1663,8 @@ test('profile-android reads logcat from adb artifact folders', async (t: TestCon
   assert.equal(logDiagnostic?.path, 'raw/adb-logcat.txt');
   assert.equal(logDiagnostic?.runnerId, 'android-adb');
   assert.ok(String(logDiagnostic?.sidecarRoot).endsWith('adb-capture'));
-  assert.ok(String(logDiagnostic?.evidenceDependency?.path).endsWith('adb-capture/raw/adb-logcat.txt'));
+  assert.equal(logDiagnostic?.evidenceDependency?.root, 'sidecar');
+  assert.equal(logDiagnostic?.evidenceDependency?.path, 'raw/adb-logcat.txt');
   assert.equal(health.healthStatus, 'passed');
   assert.equal(verdict.verdictStatus, 'passed');
   assert.ok(fs.existsSync(path.join(runDir, 'raw', 'adb-logcat.txt')));
@@ -1722,10 +1723,11 @@ test('profile-android reports adb sidecar screenshots as captured diagnostics', 
   assert.equal(screenshotDiagnostic?.status, 'captured');
   assert.equal(screenshotDiagnostic?.provider, 'adb');
   assert.equal(screenshotDiagnostic?.runnerId, 'android-adb');
-  assert.ok(String(screenshotDiagnostic?.path).endsWith('adb-capture/raw/adb-screenshot-2.png'));
+  assert.equal(screenshotDiagnostic?.path, 'raw/adb-screenshot-2.png');
   assert.ok(String(screenshotDiagnostic?.sidecarRoot).endsWith('adb-capture'));
   assert.equal(screenshotDiagnostic?.evidenceDependency?.kind, 'sidecar');
-  assert.ok(String(screenshotDiagnostic?.evidenceDependency?.path).endsWith('adb-capture/raw/adb-screenshot-2.png'));
+  assert.equal(screenshotDiagnostic?.evidenceDependency?.root, 'sidecar');
+  assert.equal(screenshotDiagnostic?.evidenceDependency?.path, 'raw/adb-screenshot-2.png');
   assert.deepEqual((manifest.artifacts as { captures: { screenshots: string[] } }).captures.screenshots, []);
   assert.equal(fs.existsSync(path.join(runDir, 'captures', 'adb-screenshot-2.png')), false);
 });
