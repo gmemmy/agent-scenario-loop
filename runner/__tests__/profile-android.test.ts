@@ -1735,8 +1735,9 @@ test('profile-android writes provider liveness artifacts when an evidence provid
   await fsp.writeFile(
     providerScript,
     [
-      "process.stdout.write('provider started\\n');",
-      "process.stderr.write('waiting for external tool\\n');",
+      "const fs = require('node:fs');",
+      "fs.writeSync(1, 'provider started\\n');",
+      "fs.writeSync(2, 'waiting for external tool\\n');",
       'setInterval(() => {}, 1000);',
     ].join('\n'),
     'utf8',
