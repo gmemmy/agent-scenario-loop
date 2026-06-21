@@ -61,9 +61,122 @@
       "type": "string",
       "minLength": 1
     },
+    "captureMode": {
+      "type": "string",
+      "enum": ["passive-report", "session", "inline", "afterCapture", "postRun", "rehydrated", "unknown"]
+    },
+    "profileKind": {
+      "type": "string",
+      "enum": ["raw-profile", "cpu-summary", "render-summary", "commit-log", "trace", "native-trace", "diagnostic-summary", "mixed", "unknown"]
+    },
+    "dataClasses": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": ["cpu-samples", "react-commits", "render-events", "js-thread-stalls", "native-trace", "network", "memory", "frames", "unknown"]
+      },
+      "uniqueItems": true
+    },
     "completenessStatus": {
       "type": "string",
       "enum": ["complete", "partial", "truncated", "failed", "unknown"]
+    },
+    "comparability": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["status"],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": ["comparable", "diagnostic-only", "captured-not-comparable", "low-confidence", "incomplete", "unknown"]
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        },
+        "policy": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "lifecycle": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "phase": {
+          "type": "string",
+          "enum": ["beforeRun", "activeLoop", "afterCapture", "postRun", "rehydrated", "unknown"]
+        },
+        "startedAt": {
+          "type": "string",
+          "minLength": 1
+        },
+        "endedAt": {
+          "type": "string",
+          "minLength": 1
+        },
+        "durationMs": {
+          "type": "number",
+          "minimum": 0
+        },
+        "perturbsTiming": {
+          "type": "boolean"
+        },
+        "events": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true,
+            "required": ["name"],
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "at": {
+                "type": "string",
+                "minLength": 1
+              },
+              "atMs": {
+                "type": "number",
+                "minimum": 0
+              },
+              "status": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        }
+      }
+    },
+    "targetBinding": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["status"],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": ["verified", "ambiguous", "unverified", "mismatch", "unknown"]
+        },
+        "deviceId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "appId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source": {
+          "type": "string",
+          "minLength": 1
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
     },
     "summary": {
       "type": "string",

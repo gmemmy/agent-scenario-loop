@@ -415,6 +415,91 @@ test('validates structured profiler evidence envelopes', () => {
   assert.equal(result.valid, true, result.message);
 });
 
+test('validates lifecycle-owned profiler evidence envelopes', () => {
+  const result = validateJson({
+    schemaVersion: '1.0.0',
+    providerId: 'react-profiler-provider',
+    platform: 'ios',
+    runId: 'profile-run',
+    scenarioId: 'startup',
+    captureMode: 'session',
+    profileKind: 'cpu-summary',
+    dataClasses: ['cpu-samples', 'react-commits'],
+    tool: {
+      name: 'react-native-profiler',
+      version: '1.0.0',
+    },
+    lifecycle: {
+      phase: 'activeLoop',
+      startedAt: '2026-06-21T12:50:33.000Z',
+      endedAt: '2026-06-21T12:50:53.000Z',
+      durationMs: 20000,
+      perturbsTiming: true,
+      events: [
+        {
+          name: 'profiler-start',
+          at: '2026-06-21T12:50:33.000Z',
+          status: 'completed',
+        },
+        {
+          name: 'profiler-stop',
+          at: '2026-06-21T12:50:53.000Z',
+          status: 'completed',
+        },
+      ],
+    },
+    targetBinding: {
+      status: 'verified',
+      deviceId: 'booted',
+      appId: 'dev.agent-scenario-loop.example',
+      source: 'debugger-status',
+    },
+    comparability: {
+      status: 'diagnostic-only',
+      reason: 'Profiler session ran inside the measured loop and may perturb timing budgets.',
+      policy: 'Use for diagnosis, not budget comparison.',
+    },
+    completenessStatus: 'complete',
+    metrics: {
+      sampleCount: 1457,
+      durationMs: 20380,
+    },
+    attachments: [
+      {
+        kind: 'raw-cpu-profile',
+        path: 'raw/providers/react-profiler/cpu.json',
+      },
+      {
+        kind: 'react-commits',
+        path: 'raw/providers/react-profiler/commits.json',
+      },
+      {
+        kind: 'report',
+        path: 'raw/providers/react-profiler/report.md',
+      },
+    ],
+    summary: 'Profiler session captured CPU samples and preserved raw attachments.',
+  }, SCHEMAS.profiler, 'Profiler evidence artifact');
+
+  assert.equal(result.valid, true, result.message);
+});
+
+test('rejects profiler evidence with invalid lifecycle vocabulary', () => {
+  const result = validateJson({
+    schemaVersion: '1.0.0',
+    providerId: 'react-profiler-provider',
+    platform: 'ios',
+    runId: 'profile-run',
+    scenarioId: 'startup',
+    captureMode: 'magic',
+    completenessStatus: 'complete',
+    summary: 'Invalid profiler capture mode.',
+  }, SCHEMAS.profiler, 'Profiler evidence artifact');
+
+  assert.equal(result.valid, false);
+  assert.ok(result.errors.some((error: ValidationIssue) => error.path === '$.captureMode'));
+});
+
 test('rejects profiler evidence without source and content envelope', () => {
   const result = validateJson({
     samples: [],

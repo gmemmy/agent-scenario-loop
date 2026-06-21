@@ -7,10 +7,11 @@ settings:
 importers:
 
   .:
-    devDependencies:
+    dependencies:
       '@types/node':
         specifier: ^25.9.3
         version: 25.9.3
+    devDependencies:
       typescript:
         specifier: ^6.0.3
         version: 6.0.3
