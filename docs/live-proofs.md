@@ -338,7 +338,7 @@ Before publishing, run:
 pnpm release:check
 ```
 
-That gate runs tests, readiness checks, package smoke, installed-binary checks, fake-device example proofs, schema/example/template/doc packaging checks, and the packed-package consumer rehearsal.
+That gate builds the release scripts, runs tests and readiness checks, packs the package once, then reuses that tarball for package smoke, installed-binary checks, fake-device example proofs, schema/example/template/doc packaging checks, and the packed-package consumer rehearsal. Reusing one tarball keeps the release path closer to npm publish behavior and avoids repeated clean/build/pack cycles.
 
 Package smoke and consumer rehearsal keep child commands bounded so package-manager stalls fail with the temporary rehearsal directory preserved. Set `ASL_PACKAGE_GATE_TIMEOUT_MS` to raise the per-command timeout when a local registry, proxy, or cold package cache is slow:
 

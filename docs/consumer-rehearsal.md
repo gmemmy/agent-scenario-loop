@@ -16,6 +16,12 @@ Package gates run child package-manager and CLI commands with a bounded timeout.
 ASL_PACKAGE_GATE_TIMEOUT_MS=300000 pnpm consumer:rehearse
 ```
 
+When a parent release gate has already packed the current package, pass that tarball through `ASL_PACKAGE_TARBALL` to reuse it instead of packing again:
+
+```bash
+ASL_PACKAGE_TARBALL=/path/to/agent-scenario-loop-0.1.4.tgz pnpm consumer:rehearse
+```
+
 ## Downstream Local-Package Gate
 
 Before publishing a release candidate, validate the packed local package inside at least one real downstream app when that app has already adopted durable ASL scenarios. This catches package, runner, schema, and helper regressions before npm distribution.
