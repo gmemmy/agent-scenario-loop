@@ -2034,6 +2034,8 @@ function buildVerdictBudgetChecks(budgetEvaluation: Record<string, any> | null |
     expected: check.limit,
     actual: check.actual ?? null,
     pass: Boolean(check.pass),
+    ...(typeof check.status === 'string' ? { status: check.status } : {}),
+    ...(typeof check.notes === 'string' ? { notes: check.notes } : {}),
   }));
 }
 
@@ -2057,12 +2059,21 @@ function buildProfileVerdict({
   const healthPassed = health.healthStatus === 'passed';
   const budgetEvaluation = metrics.budgetEvaluation;
   const budgetChecks = buildVerdictBudgetChecks(budgetEvaluation);
-  const verdictStatus = !healthPassed
-    ? 'inconclusive'
+  const budgetStatus = typeof budgetEvaluation?.status === 'string'
+    ? budgetEvaluation.status
     : budgetEvaluation
       ? budgetEvaluation.pass
         ? 'passed'
         : 'failed'
+      : 'not_evaluated';
+  const verdictStatus = !healthPassed
+    ? 'inconclusive'
+    : budgetEvaluation
+      ? budgetStatus === 'passed'
+        ? 'passed'
+        : budgetStatus === 'partial'
+          ? 'inconclusive'
+          : 'failed'
       : 'not_evaluated';
 
   return assertValidJson(
@@ -2077,7 +2088,9 @@ function buildProfileVerdict({
       summary: !healthPassed
         ? 'Scenario health did not pass; do not compare or optimize from this run.'
         : budgetEvaluation
-          ? `Profile budgets ${budgetEvaluation.pass ? 'passed' : 'failed'}.`
+          ? budgetStatus === 'partial'
+            ? 'Profile budgets were partially evaluated; unmeasurable checks are not product-performance failures.'
+            : `Profile budgets ${budgetStatus === 'passed' ? 'passed' : 'failed'}.`
           : 'Scenario health passed; no profile budgets were configured.',
     },
     SCHEMAS.verdict,

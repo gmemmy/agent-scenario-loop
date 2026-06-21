@@ -44,6 +44,9 @@ type BudgetCheck = {
   limit: number;
   pass: boolean;
   unit: string;
+  status?: 'passed' | 'failed' | 'unmeasurable';
+  code?: string;
+  notes?: string;
 };
 
 const UNKNOWN_LIFECYCLE_ASSERTION = Object.freeze({
@@ -662,11 +665,24 @@ function buildMetricsFromProfileEvents({
  * Evaluates one numeric budget threshold.
  *
  * @param {{name: string, actual: unknown, limit: unknown}} options
- * @returns {{name: string, actual: unknown, limit: number, pass: boolean, unit: string} | null}
+ * @returns {{name: string, actual: unknown, limit: number, pass: boolean, unit: string, status?: string, code?: string, notes?: string} | null}
  */
 function evaluateBudgetCheck({ name, actual, limit }: { name: string; actual: unknown; limit: unknown }): BudgetCheck | null {
   if (typeof limit !== 'number') {
     return null;
+  }
+
+  if (typeof actual !== 'number' || !Number.isFinite(actual)) {
+    return {
+      name,
+      actual: null,
+      limit,
+      pass: false,
+      unit: 'ms',
+      status: 'unmeasurable',
+      code: 'budget_sample_unmeasurable',
+      notes: 'No latency samples were available for this budget. Use explicit interval anchors when the claim is transition latency.',
+    };
   }
 
   const pass = typeof actual === 'number' && actual <= limit;
@@ -818,11 +834,14 @@ function evaluateProfileBudgets({
     if (extraChecks.length === 0) {
       return null;
     }
+    const summary = summarizeBudgetChecks(extraChecks);
     return {
       metric: budgets?.metric ?? metrics.measurement ?? 'profile budget',
-      pass: extraChecks.every((check) => check.pass),
+      status: summary.status,
+      pass: summary.status === 'passed',
       checks: extraChecks,
-      failedChecks: extraChecks.filter((check) => !check.pass).map((check) => check.name),
+      failedChecks: summary.failedChecks,
+      unmeasurableChecks: summary.unmeasurableChecks,
     };
   }
 
@@ -905,11 +924,43 @@ function evaluateProfileBudgets({
     return null;
   }
 
+  const summary = summarizeBudgetChecks(allChecks);
   return {
     metric: budgets.metric ?? metrics.measurement ?? 'profile budget',
-    pass: allChecks.every((check) => check.pass),
+    status: summary.status,
+    pass: summary.status === 'passed',
     checks: allChecks,
-    failedChecks: allChecks.filter((check) => !check.pass).map((check) => check.name),
+    failedChecks: summary.failedChecks,
+    unmeasurableChecks: summary.unmeasurableChecks,
+  };
+}
+
+/**
+ * Summarizes measured failures separately from unmeasurable latency claims.
+ *
+ * @param {BudgetCheck[]} checks
+ * @returns {{status: 'passed' | 'failed' | 'partial', failedChecks: string[], unmeasurableChecks: string[]}}
+ */
+function summarizeBudgetChecks(checks: BudgetCheck[]): {
+  status: 'passed' | 'failed' | 'partial';
+  failedChecks: string[];
+  unmeasurableChecks: string[];
+} {
+  const failedChecks = checks
+    .filter((check) => check.status !== 'unmeasurable' && !check.pass)
+    .map((check) => check.name);
+  const unmeasurableChecks = checks
+    .filter((check) => check.status === 'unmeasurable')
+    .map((check) => check.name);
+
+  return {
+    status: failedChecks.length > 0
+      ? 'failed'
+      : unmeasurableChecks.length > 0
+        ? 'partial'
+        : 'passed',
+    failedChecks,
+    unmeasurableChecks,
   };
 }
 
@@ -1407,9 +1458,11 @@ function buildBudgetVerdict({
     runId,
     status: hasManualVisualReview
       ? 'partial'
-      : budgetEvaluation.pass
-        ? 'passed'
-        : 'failed',
+      : budgetEvaluation.status === 'partial'
+        ? 'partial'
+        : budgetEvaluation.pass
+          ? 'passed'
+          : 'failed',
     checks: (budgetEvaluation.checks ?? []).map((check: BudgetCheck) => ({
       name: check.name,
       metric: budgetEvaluation.metric ?? 'profile budget',
@@ -1417,6 +1470,8 @@ function buildBudgetVerdict({
       expected: check.limit,
       actual: check.actual ?? null,
       pass: check.pass,
+      ...(check.status ? { status: check.status } : {}),
+      ...(check.notes ? { notes: check.notes } : {}),
     })),
     ...(visualOutcome ? { visualOutcome } : {}),
     ...(baselineRunId
@@ -1812,7 +1867,7 @@ function buildSummaryMarkdown({ manifest, metrics }: { manifest: ArtifactRecord;
       '## Budget',
       '',
       `- Metric: ${metrics.budgetEvaluation.metric}`,
-      `- Status: ${metrics.budgetEvaluation.pass ? 'pass' : 'fail'}`,
+      `- Status: ${metrics.budgetEvaluation.status ?? (metrics.budgetEvaluation.pass ? 'passed' : 'failed')}`,
     );
 
     for (const check of metrics.budgetEvaluation.checks) {
@@ -1823,7 +1878,9 @@ function buildSummaryMarkdown({ manifest, metrics }: { manifest: ArtifactRecord;
 
         return check.unit === 'ms' ? `${value}ms` : String(value);
       };
-      lines.push(`- ${check.name}: ${formatValue(check.actual)} / ${formatValue(check.limit)}`);
+      const status = check.status ? ` (${check.status})` : '';
+      const notes = check.notes ? ` - ${check.notes}` : '';
+      lines.push(`- ${check.name}: ${formatValue(check.actual)} / ${formatValue(check.limit)}${status}${notes}`);
     }
   }
 

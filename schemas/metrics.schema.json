@@ -91,6 +91,10 @@
         "metric": {
           "type": "string"
         },
+        "status": {
+          "type": "string",
+          "enum": ["passed", "failed", "partial"]
+        },
         "pass": {
           "type": "boolean"
         },
@@ -101,6 +105,12 @@
           }
         },
         "failedChecks": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "unmeasurableChecks": {
           "type": "array",
           "items": {
             "type": "string"
@@ -126,6 +136,16 @@
         },
         "pass": {
           "type": "boolean"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["passed", "failed", "unmeasurable"]
+        },
+        "code": {
+          "type": "string"
+        },
+        "notes": {
+          "type": "string"
         },
         "unit": {
           "type": "string",
