@@ -20,6 +20,7 @@ type CommandResult = {
   exitCode: number;
   stderr: string;
   stdout: string;
+  stdoutBuffer?: Buffer;
 };
 
 /**
@@ -41,6 +42,8 @@ function createExecutor(responses: Record<string, Partial<CommandResult>>) {
     };
   };
 }
+
+const PNG_BYTES = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x01]);
 
 test('quotes Android shell arguments that contain shell metacharacters', () => {
   assert.equal(
@@ -168,6 +171,45 @@ test('Android adb driver performs portable UI and capture actions', async () => 
   } finally {
     await fsp.rm(tempRoot, { recursive: true, force: true });
   }
+});
+
+test('Android adb driver captures screenshots as binary stdout', async () => {
+  const calls: Array<{ args: string[]; options?: { encoding?: string } }> = [];
+  const executor = async (
+    command: string,
+    args: string[],
+    options?: { encoding?: 'buffer' | 'utf8' },
+  ): Promise<CommandResult> => {
+    calls.push({
+      args,
+      ...(options ? { options } : {}),
+    });
+    return {
+      args,
+      command,
+      exitCode: 0,
+      stderr: '',
+      stdout: PNG_BYTES.toString('utf8'),
+      stdoutBuffer: Buffer.from(PNG_BYTES),
+    };
+  };
+  const driver = createAndroidAdbDriver({
+    adbPath: 'fake-adb',
+    deviceSerial: 'emulator-5554',
+    executor,
+  });
+
+  const screenshot = await driver.screenshot({ rawFileName: 'adb-screenshot-2.png' });
+  const rawOutput = formatAndroidAdbRawOutput(screenshot);
+
+  assert.deepEqual(calls, [{
+    args: ['-s', 'emulator-5554', 'exec-out', 'screencap', '-p'],
+    options: { encoding: 'buffer' },
+  }]);
+  assert.equal(screenshot.action, 'screenshot');
+  assert.equal(screenshot.rawFileName, 'adb-screenshot-2.png');
+  assert.ok(Buffer.isBuffer(rawOutput));
+  assert.deepEqual(rawOutput, PNG_BYTES);
 });
 
 test('Android adb driver resolves portable selectors from UIAutomator trees', () => {

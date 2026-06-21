@@ -75,6 +75,10 @@ type DiagnosticInventoryEntry = {
     path: string;
   };
 };
+type SidecarEvidenceDependency = {
+  kind: 'sidecar';
+  path: string;
+};
 type EvidenceAttachment = {
   channel: EvidenceChannel;
   completenessStatus: 'complete';
@@ -1027,6 +1031,9 @@ function buildDiagnosticInventory({
       ? path.resolve(args['simctl-artifacts'])
       : null;
   const sidecarRootRef = sidecarRoot ? toRunPathReference({ runDir, targetPath: sidecarRoot }) : undefined;
+  const adbScreenshotDependency = platform === 'android'
+    ? resolveAndroidAdbScreenshotDependency({ runDir, sidecarRoot })
+    : null;
   const eventLogBaseName = eventLogPath ? path.basename(eventLogPath) : undefined;
   const eventLogManifestPath = eventLogBaseName ? `raw/${eventLogBaseName}` : undefined;
   const eventLogIsIosProfileEvents = platform === 'ios' && eventLogBaseName === 'ios-profile-events.log';
@@ -1148,11 +1155,24 @@ function buildDiagnosticInventory({
           nextAction: 'Attach JS evidence with --signal js:<path> or run a profile-session capture that emits profile events.',
         }),
   });
+  const attachedScreenshotPath = attachedEvidence.captures.screenshots[0];
+  const sidecarScreenshotDependency = attachedScreenshotPath ? null : adbScreenshotDependency;
   pushDiagnostic('screenshot', {
-    status: attachedEvidence.captures.screenshots.length > 0 ? 'captured' : 'unavailable',
-    ...(attachedEvidence.captures.screenshots[0] ? { path: attachedEvidence.captures.screenshots[0] } : {}),
-    ...(attachedEvidence.captures.screenshots.length > 0
-      ? { reason: 'Screenshot capture was attached to the run.' }
+    ...(sidecarScreenshotDependency ? { provider: 'adb', runnerId: 'android-adb' } : {}),
+    status: attachedScreenshotPath || sidecarScreenshotDependency ? 'captured' : 'unavailable',
+    ...(attachedScreenshotPath
+      ? { path: attachedScreenshotPath }
+      : sidecarScreenshotDependency
+        ? { path: sidecarScreenshotDependency.path }
+        : {}),
+    ...(sidecarScreenshotDependency && sidecarRootRef ? { sidecarRoot: sidecarRootRef } : {}),
+    ...(sidecarScreenshotDependency ? { evidenceDependency: sidecarScreenshotDependency.dependency } : {}),
+    ...(attachedScreenshotPath || sidecarScreenshotDependency
+      ? {
+          reason: sidecarScreenshotDependency
+            ? 'Screenshot evidence was available from the adb capture sidecar.'
+            : 'Screenshot capture was attached to the run.',
+        }
       : {
           reason: 'No screenshot capture was produced by the selected runner/provider set.',
           nextAction: 'Use --capture screenshot:<path> or a runner/provider that produces screenshots.',
@@ -1692,6 +1712,64 @@ function resolveProfileSessionEntriesPath({ args, platform }: { args: CliArgs; p
   }
 
   return null;
+}
+
+/**
+ * Returns the first successful adb screenshot file from sidecar metadata.
+ *
+ * @param {{runDir: string, sidecarRoot: string | null}} options
+ * @returns {{dependency: SidecarEvidenceDependency, path: string} | null}
+ */
+function resolveAndroidAdbScreenshotDependency({
+  runDir,
+  sidecarRoot,
+}: {
+  runDir: string;
+  sidecarRoot: string | null;
+}): { dependency: SidecarEvidenceDependency; path: string } | null {
+  if (!sidecarRoot) {
+    return null;
+  }
+
+  const metadata = readOptionalJsonObject(path.resolve(sidecarRoot, 'raw', 'android-metadata.json'));
+  const actions = Array.isArray(metadata?.driverActions) ? metadata.driverActions : [];
+  const screenshotAction = actions.find((action: unknown) => {
+    if (!action || typeof action !== 'object' || Array.isArray(action)) {
+      return false;
+    }
+    const record = action as Record<string, unknown>;
+    return record.driverAction === 'screenshot' &&
+      record.exitCode === 0 &&
+      (typeof record.capturePath === 'string' || typeof record.rawPath === 'string');
+  }) as Record<string, unknown> | undefined;
+  const sidecarRelativePath = typeof screenshotAction?.capturePath === 'string'
+    ? screenshotAction.capturePath
+    : typeof screenshotAction?.rawPath === 'string'
+      ? screenshotAction.rawPath
+      : null;
+  if (!sidecarRelativePath || path.isAbsolute(sidecarRelativePath)) {
+    return null;
+  }
+
+  const screenshotPath = path.resolve(sidecarRoot, sidecarRelativePath);
+  const relativeToSidecar = path.relative(sidecarRoot, screenshotPath);
+  if (
+    relativeToSidecar.length === 0 ||
+    relativeToSidecar.startsWith('..') ||
+    path.isAbsolute(relativeToSidecar) ||
+    !fs.existsSync(screenshotPath)
+  ) {
+    return null;
+  }
+
+  const manifestPath = toRunPathReference({ runDir, targetPath: screenshotPath });
+  return {
+    dependency: {
+      kind: 'sidecar',
+      path: manifestPath,
+    },
+    path: manifestPath,
+  };
 }
 
 /**

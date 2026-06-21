@@ -1581,6 +1581,64 @@ test('profile-android reads logcat from adb artifact folders', async (t: TestCon
   assert.ok(fs.existsSync(path.join(runDir, 'raw', 'adb-logcat.txt')));
 });
 
+test('profile-android reports adb sidecar screenshots as captured diagnostics', async (t: TestContext) => {
+  const tempRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-android-adb-screenshot-'));
+  t.after(async () => {
+    await fsp.rm(tempRoot, { recursive: true, force: true });
+  });
+  const adbArtifactRoot = path.join(tempRoot, 'adb-capture');
+  const profileArtifactRoot = path.join(tempRoot, 'profile');
+  await fsp.mkdir(path.join(adbArtifactRoot, 'raw'), { recursive: true });
+  await fsp.copyFile(
+    fixturePath('examples/mobile-app/event-logs/android-app-startup.log'),
+    path.join(adbArtifactRoot, 'raw', 'adb-logcat.txt'),
+  );
+  await fsp.writeFile(path.join(adbArtifactRoot, 'raw', 'adb-screenshot-2.png'), 'PNG', 'utf8');
+  await fsp.writeFile(
+    path.join(adbArtifactRoot, 'raw', 'android-metadata.json'),
+    `${JSON.stringify({
+      driverActions: [
+        {
+          driverAction: 'screenshot',
+          exitCode: 0,
+          rawPath: 'raw/adb-screenshot-2.png',
+          stepId: 'capture-final',
+        },
+      ],
+    }, null, 2)}\n`,
+    'utf8',
+  );
+
+  const { stdout } = await execFileAsync(process.execPath, [
+    PROFILE_ANDROID,
+    '--config',
+    fixturePath('examples/mobile-app/asl.config.json'),
+    '--scenario',
+    fixturePath('examples/mobile-app/scenarios/android/app-startup.json'),
+    '--adb-artifacts',
+    adbArtifactRoot,
+    '--out',
+    profileArtifactRoot,
+    '--run-id',
+    'android-sidecar-screenshot',
+  ]);
+
+  const runDir = stdout.trim();
+  const manifest = readJson(path.join(runDir, 'manifest.json'));
+  const diagnostics = (manifest.artifacts as { diagnostics: Array<Record<string, any>> }).diagnostics;
+  const screenshotDiagnostic = diagnostics.find((entry) => entry.kind === 'screenshot');
+
+  assert.equal(screenshotDiagnostic?.status, 'captured');
+  assert.equal(screenshotDiagnostic?.provider, 'adb');
+  assert.equal(screenshotDiagnostic?.runnerId, 'android-adb');
+  assert.ok(String(screenshotDiagnostic?.path).endsWith('adb-capture/raw/adb-screenshot-2.png'));
+  assert.ok(String(screenshotDiagnostic?.sidecarRoot).endsWith('adb-capture'));
+  assert.equal(screenshotDiagnostic?.evidenceDependency?.kind, 'sidecar');
+  assert.ok(String(screenshotDiagnostic?.evidenceDependency?.path).endsWith('adb-capture/raw/adb-screenshot-2.png'));
+  assert.deepEqual((manifest.artifacts as { captures: { screenshots: string[] } }).captures.screenshots, []);
+  assert.equal(fs.existsSync(path.join(runDir, 'captures', 'adb-screenshot-2.png')), false);
+});
+
 test('profile-android can capture adb logs and profile them in one run', async (t: TestContext) => {
   const tempRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-android-adb-capture-'));
   t.after(async () => {

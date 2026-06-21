@@ -29,8 +29,14 @@ type CommandResult = {
   exitCode: number;
   stderr: string;
   stdout: string;
+  stdoutBuffer?: Buffer;
+};
+type CommandExecutorOptions = {
+  encoding?: 'buffer' | 'utf8';
 };
 type TestContext = import('node:test').TestContext;
+
+const PNG_BYTES = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0xde, 0xad, 0xbe, 0xef]);
 
 /**
  * Creates a promise that can be resolved by the test.
@@ -436,6 +442,77 @@ test('runs portable adb driver actions and writes raw evidence', async (t: TestC
   assert.ok(
     (result.health.checks as Array<{ code: string }>).some((check) => check.code === 'android_assert_visible_completed'),
   );
+});
+
+test('preserves adb screenshot bytes in raw sidecar evidence', async (t: TestContext) => {
+  const outputDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-android-adb-binary-screenshot-'));
+  t.after(async () => {
+    await fsp.rm(outputDir, { recursive: true, force: true });
+  });
+  const calls: Array<{ key: string; options?: CommandExecutorOptions }> = [];
+  const fallbackExecutor = createExecutor({
+    version: { stdout: 'Android Debug Bridge version 1.0.41\n' },
+    'devices -l': {
+      stdout: [
+        'List of devices attached',
+        'emulator-5554 device product:sdk_gphone model:Pixel_6 device:emu64',
+      ].join('\n'),
+    },
+    '-s emulator-5554 shell getprop ro.product.model': { stdout: 'Pixel 6\n' },
+    '-s emulator-5554 shell getprop ro.build.version.release': { stdout: '15\n' },
+    '-s emulator-5554 shell getprop ro.build.version.sdk': { stdout: '35\n' },
+  });
+  const executor = async (
+    command: string,
+    args: string[],
+    options?: CommandExecutorOptions,
+  ): Promise<CommandResult> => {
+    const key = args.join(' ');
+    calls.push({
+      key,
+      ...(options ? { options } : {}),
+    });
+    if (key === '-s emulator-5554 exec-out screencap -p') {
+      return {
+        args,
+        command,
+        exitCode: 0,
+        stderr: '',
+        stdout: PNG_BYTES.toString('utf8'),
+        stdoutBuffer: Buffer.from(PNG_BYTES),
+      };
+    }
+
+    return fallbackExecutor(command, args);
+  };
+
+  const result = await runAndroidAdbPreflight({
+    driverSteps: [{ driverAction: 'screenshot', stepId: 'capture-final' }],
+    executor,
+    outputDir,
+    runId: 'android-binary-screenshot',
+  });
+
+  const screenshotPath = path.join(outputDir, 'raw', 'adb-screenshot.png');
+  const screenshotBytes = fs.readFileSync(screenshotPath);
+  const metadata = JSON.parse(fs.readFileSync(path.join(outputDir, 'raw', 'android-metadata.json'), 'utf8'));
+
+  assert.equal(result.health.healthStatus, 'passed', JSON.stringify(result.health.checks, null, 2));
+  assert.deepEqual(screenshotBytes, PNG_BYTES);
+  assert.deepEqual([...screenshotBytes.subarray(0, 4)], [0x89, 0x50, 0x4e, 0x47]);
+  assert.ok(
+    calls.some((call) => (
+      call.key === '-s emulator-5554 exec-out screencap -p' &&
+      call.options?.encoding === 'buffer'
+    )),
+  );
+  assert.deepEqual((metadata.driverActions as Array<Record<string, unknown>>)[0], {
+    args: ['-s', 'emulator-5554', 'exec-out', 'screencap', '-p'],
+    driverAction: 'screenshot',
+    exitCode: 0,
+    rawPath: 'raw/adb-screenshot.png',
+    stepId: 'capture-final',
+  });
 });
 
 test('classifies Android UIAutomator contention as runner environment health', async (t: TestContext) => {
