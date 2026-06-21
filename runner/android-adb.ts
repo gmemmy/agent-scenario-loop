@@ -123,6 +123,7 @@ type AndroidSelectorResolutionMetadata = {
 type AndroidPreflightOptions = {
   adbPath?: string;
   captureLogcat?: boolean;
+  captureWatchdogMs?: number;
   clearLogcat?: boolean;
   commandTimeoutMs?: number;
   deepLinks?: AndroidDeepLinkCommand[];
@@ -153,6 +154,10 @@ type AndroidAppLifecycleScan = {
 
 const ANDROID_DEVICE_EPOCH_MS_PLACEHOLDER = '__ASL_ANDROID_DEVICE_EPOCH_MS__';
 const DEFAULT_ADB_COMMAND_TIMEOUT_MS = 30000;
+const ANDROID_ADB_CAPTURE_WATCHDOG_FLOOR_MS = 15000;
+const ANDROID_ADB_CAPTURE_WATCHDOG_CEILING_MS = 120000;
+const ANDROID_ADB_CAPTURE_COMMAND_OVERHEAD_MS = 3000;
+const ANDROID_ADB_CAPTURE_COMMAND_OVERHEAD_CEILING_MS = 45000;
 
 /**
  * Replaces Android device-clock placeholders in JSON payload strings.
@@ -766,6 +771,334 @@ function buildAndroidVerdict({ runId, health }: { runId: string; health: Record<
 }
 
 /**
+ * Converts an unexpected runner failure into artifact-safe metadata.
+ *
+ * @param {unknown} error
+ * @returns {Record<string, unknown>}
+ */
+function normalizeAndroidRunnerFailure(error: unknown): Record<string, unknown> {
+  if (error instanceof Error) {
+    return {
+      name: error.name,
+      message: error.message,
+      ...(typeof error.stack === 'string' ? { stack: error.stack } : {}),
+    };
+  }
+
+  if (error && typeof error === 'object') {
+    const record = error as Record<string, unknown>;
+    return Object.fromEntries(
+      Object.entries(record).filter(([, value]) => (
+        value === null ||
+        ['boolean', 'number', 'string'].includes(typeof value) ||
+        Array.isArray(value)
+      )),
+    );
+  }
+
+  return {
+    message: String(error),
+  };
+}
+
+/**
+ * Formats unexpected runner failure metadata as a raw transcript.
+ *
+ * @param {Record<string, unknown>} failure
+ * @returns {string}
+ */
+function formatAndroidRunnerFailureRaw(failure: Record<string, unknown>): string {
+  return Object.entries(failure)
+    .map(([key, value]) => {
+      const formatted = value && typeof value === 'object' && !Array.isArray(value)
+        ? JSON.stringify(value)
+        : Array.isArray(value)
+          ? value.join(' ')
+          : String(value);
+      return `${key}: ${formatted}`;
+    })
+    .join('\n');
+}
+
+type AndroidAdbCaptureWatchdogBudget = {
+  ceilingMs: number;
+  commandBudgetMs: number;
+  commandUnits: number;
+  declaredWaitMs: number;
+  floorMs: number;
+  perCommandOverheadMs: number;
+  source: 'derived' | 'override';
+  timeoutMs: number;
+};
+
+type AndroidAdbCaptureWatchdogError = Error & {
+  code: 'android_adb_runner_liveness_timeout';
+  watchdog: AndroidAdbCaptureWatchdogBudget;
+};
+
+/**
+ * Sums only positive integer-ish durations.
+ *
+ * @param {Array<number | undefined>} values
+ * @returns {number}
+ */
+function sumPositiveDurations(values: Array<number | undefined>): number {
+  let total = 0;
+  for (const value of values) {
+    if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
+      total += value;
+    }
+  }
+  return total;
+}
+
+/**
+ * Derives a whole-capture adb watchdog from declared runner waits and command bounds.
+ *
+ * @param {AndroidPreflightOptions & {commandTimeoutMs: number}} options
+ * @returns {AndroidAdbCaptureWatchdogBudget}
+ */
+function deriveAndroidAdbCaptureWatchdogBudget({
+  captureLogcat = false,
+  captureWatchdogMs,
+  clearLogcat = false,
+  commandTimeoutMs,
+  deepLinks = [],
+  driverSteps = [],
+  launch = false,
+  launchWaitMs = 0,
+  packageName = null,
+  reactNativeDebugHost = null,
+  startupDeepLinks = [],
+  storageWrites = [],
+  waitMs = 0,
+}: AndroidPreflightOptions & { commandTimeoutMs: number }): AndroidAdbCaptureWatchdogBudget {
+  if (typeof captureWatchdogMs === 'number' && Number.isFinite(captureWatchdogMs) && captureWatchdogMs > 0) {
+    return {
+      ceilingMs: ANDROID_ADB_CAPTURE_WATCHDOG_CEILING_MS,
+      commandBudgetMs: 0,
+      commandUnits: 0,
+      declaredWaitMs: captureWatchdogMs,
+      floorMs: ANDROID_ADB_CAPTURE_WATCHDOG_FLOOR_MS,
+      perCommandOverheadMs: 0,
+      source: 'override',
+      timeoutMs: Math.ceil(captureWatchdogMs),
+    };
+  }
+
+  const resolvedDriverSteps = resolveAndroidAdbDriverSteps({
+    captureLogcat,
+    driverSteps,
+    logcatLines: 1,
+    waitMs,
+  });
+  const declaredWaitMs = sumPositiveDurations([
+    launchWaitMs,
+    ...startupDeepLinks.map((deepLink) => deepLink.waitMs),
+    ...startupDeepLinks.map((deepLink) => deepLink.readyLogTimeoutMs),
+    ...storageWrites.map((write) => write.waitMs),
+    ...deepLinks.map((deepLink) => deepLink.waitMs),
+    ...resolvedDriverSteps.map((step) => step.waitMs),
+    ...resolvedDriverSteps.map((step) => step.durationMs),
+    ...resolvedDriverSteps.map((step) => (
+      typeof step.durationSeconds === 'number' ? step.durationSeconds * 1000 : undefined
+    )),
+  ]);
+  const startupReadyPolls = startupDeepLinks.filter((deepLink) => deepLink.readyLogPattern).length;
+  const storageClockReads = storageWrites.filter((write) => write.value.includes(ANDROID_DEVICE_EPOCH_MS_PLACEHOLDER)).length;
+  const selectorInspections = resolvedDriverSteps.filter((step) => needsAndroidSelectorResolution(step)).length;
+  const lifecycleChecks = packageName && (launch || deepLinks.length > 0) ? 2 : 0;
+  const commandUnits = 6 +
+    (packageName ? 1 : 0) +
+    (reactNativeDebugHost ? 2 : 0) +
+    (clearLogcat ? 1 : 0) +
+    (launch ? 2 : 0) +
+    startupDeepLinks.length +
+    startupReadyPolls +
+    storageWrites.length +
+    storageClockReads +
+    deepLinks.length +
+    (packageName ? deepLinks.length : 0) +
+    resolvedDriverSteps.length +
+    selectorInspections +
+    lifecycleChecks;
+  const perCommandOverheadMs = Math.min(commandTimeoutMs, ANDROID_ADB_CAPTURE_COMMAND_OVERHEAD_MS);
+  const commandBudgetMs = Math.min(
+    commandUnits * perCommandOverheadMs,
+    ANDROID_ADB_CAPTURE_COMMAND_OVERHEAD_CEILING_MS,
+  );
+  const bufferedBudgetMs = commandBudgetMs + declaredWaitMs + 5000;
+  const ceilingMs = Math.max(ANDROID_ADB_CAPTURE_WATCHDOG_CEILING_MS, bufferedBudgetMs);
+  return {
+    ceilingMs,
+    commandBudgetMs,
+    commandUnits,
+    declaredWaitMs,
+    floorMs: ANDROID_ADB_CAPTURE_WATCHDOG_FLOOR_MS,
+    perCommandOverheadMs,
+    source: 'derived',
+    timeoutMs: Math.min(
+      ceilingMs,
+      Math.max(ANDROID_ADB_CAPTURE_WATCHDOG_FLOOR_MS, bufferedBudgetMs),
+    ),
+  };
+}
+
+/**
+ * Builds the immediate raw checkpoint written before the first adb call.
+ *
+ * @param {{adbPath: string, captureWatchdog: AndroidAdbCaptureWatchdogBudget, commandTimeoutMs: number, deadlineEpochMs: number, metadata: Record<string, unknown>, runId: string, startedAt: string}} options
+ * @returns {Record<string, unknown>}
+ */
+function buildAndroidAdbCaptureStartedCheckpoint({
+  adbPath,
+  captureWatchdog,
+  commandTimeoutMs,
+  deadlineEpochMs,
+  metadata,
+  runId,
+  startedAt,
+}: {
+  adbPath: string;
+  captureWatchdog: AndroidAdbCaptureWatchdogBudget;
+  commandTimeoutMs: number;
+  deadlineEpochMs: number;
+  metadata: Record<string, unknown>;
+  runId: string;
+  startedAt: string;
+}): Record<string, unknown> {
+  return {
+    status: 'started',
+    message: 'Android adb capture started and the whole-capture watchdog deadline was derived.',
+    runId,
+    adbPath,
+    commandTimeoutMs,
+    startedAt,
+    watchdog: {
+      ...captureWatchdog,
+      armed: true,
+      deadlineEpochMs,
+      deadlineIso: new Date(deadlineEpochMs).toISOString(),
+    },
+    selectedInputs: {
+      captureLogcat: metadata.captureLogcat,
+      clearLogcat: metadata.clearLogcat,
+      deepLinks: metadata.deepLinks,
+      driverSteps: metadata.driverSteps,
+      launch: metadata.launch,
+      logcatLines: metadata.logcatLines,
+      packageName: metadata.packageName,
+      reactNativeDebugHost: metadata.reactNativeDebugHost,
+      startupDeepLinks: metadata.startupDeepLinks,
+      storageWrites: metadata.storageWrites,
+      waitMs: metadata.waitMs,
+    },
+  };
+}
+
+/**
+ * Creates the classified whole-capture watchdog error.
+ *
+ * @param {AndroidAdbCaptureWatchdogBudget} watchdog
+ * @returns {AndroidAdbCaptureWatchdogError}
+ */
+function createAndroidAdbCaptureWatchdogError(
+  watchdog: AndroidAdbCaptureWatchdogBudget,
+): AndroidAdbCaptureWatchdogError {
+  const error = new Error(`Android adb capture did not complete within ${watchdog.timeoutMs}ms.`);
+  return Object.assign(error, {
+    code: 'android_adb_runner_liveness_timeout' as const,
+    watchdog,
+  });
+}
+
+/**
+ * Checks whether an error came from the capture watchdog.
+ *
+ * @param {unknown} error
+ * @returns {error is AndroidAdbCaptureWatchdogError}
+ */
+function isAndroidAdbCaptureWatchdogError(error: unknown): error is AndroidAdbCaptureWatchdogError {
+  return error instanceof Error &&
+    (error as Partial<AndroidAdbCaptureWatchdogError>).code === 'android_adb_runner_liveness_timeout';
+}
+
+/**
+ * Runs the mutable capture body with a single whole-capture timeout.
+ *
+ * @param {{body: () => Promise<void>, watchdog: AndroidAdbCaptureWatchdogBudget}} options
+ * @returns {Promise<void>}
+ */
+async function runAndroidAdbCaptureBodyWithWatchdog({
+  body,
+  watchdog,
+}: {
+  body: () => Promise<void>;
+  watchdog: AndroidAdbCaptureWatchdogBudget;
+}): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  try {
+    await Promise.race([
+      body(),
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => reject(createAndroidAdbCaptureWatchdogError(watchdog)), watchdog.timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer) {
+      clearTimeout(timer);
+    }
+  }
+}
+
+/**
+ * Writes the Android adb artifact set.
+ *
+ * @param {{agentSummary: string, health: Record<string, unknown>, layout: ReturnType<typeof createArtifactLayout>, metadata: Record<string, unknown>, raw: Record<string, string>, rawDir: string, verdict: Record<string, unknown>}} options
+ * @returns {Promise<void>}
+ */
+async function writeAndroidAdbArtifacts({
+  agentSummary,
+  health,
+  layout,
+  metadata,
+  raw,
+  rawDir,
+  verdict,
+}: {
+  agentSummary: string;
+  health: Record<string, unknown>;
+  layout: ReturnType<typeof createArtifactLayout>;
+  metadata: Record<string, unknown>;
+  raw: Record<string, string>;
+  rawDir: string;
+  verdict: Record<string, unknown>;
+}): Promise<void> {
+  await Promise.all(
+    Object.entries(raw).map(([fileName, content]) =>
+      fsp.writeFile(path.join(rawDir, fileName), `${content.trimEnd()}\n`, 'utf8'),
+    ),
+  );
+  await fsp.writeFile(path.join(rawDir, 'android-metadata.json'), `${JSON.stringify(metadata, null, 2)}\n`, 'utf8');
+  await writeJsonArtifact({
+    filePath: layout.health,
+    value: health,
+    schema: SCHEMAS.health,
+    label: 'Health artifact',
+  });
+  await writeJsonArtifact({
+    filePath: layout.verdict,
+    value: verdict,
+    schema: SCHEMAS.verdict,
+    label: 'Verdict artifact',
+  });
+  await writeTextArtifact({
+    filePath: layout.agentSummary,
+    content: agentSummary,
+  });
+}
+
+/**
  * Builds the driver steps for this adb capture window.
  *
  * @param {{captureLogcat: boolean, driverSteps: AndroidAdbDriverStep[], logcatLines: number, waitMs: number}} options
@@ -1146,6 +1479,7 @@ async function runAndroidAdbDriverStep({
 async function runAndroidAdbPreflight({
   adbPath = 'adb',
   captureLogcat = false,
+  captureWatchdogMs: captureWatchdogMsOverride,
   clearLogcat = false,
   commandTimeoutMs = DEFAULT_ADB_COMMAND_TIMEOUT_MS,
   deepLinks = [],
@@ -1171,67 +1505,32 @@ async function runAndroidAdbPreflight({
 
   const raw: Record<string, string> = {};
   const checks: Record<string, unknown>[] = [];
-  const version = await executor(adbPath, ['version']);
-  const adbAvailable = version.exitCode === 0;
-  raw['adb-version.txt'] = [version.stdout, version.stderr].filter(Boolean).join('\n');
-  checks.push({
-    name: 'adb_available',
-    status: adbAvailable ? 'passed' : 'failed',
-    source: 'runner',
-    code: adbAvailable ? 'adb_available' : 'adb_unavailable',
-    message: adbAvailable ? 'adb command is available.' : 'adb command could not be executed.',
-    ...(!adbAvailable
-      ? {
-          metadata: nextActionHint(
-            'fix_adb_command',
-            'Install Android platform-tools or pass --adb with a working adb binary, then rerun the capture.',
-          ),
-        }
-      : {}),
-  });
-
-  const devicesOutput = adbAvailable
-    ? await executor(adbPath, ['devices', '-l'])
-    : {
-        command: adbPath,
-        args: ['devices', '-l'],
-        exitCode: 1,
-        stderr: 'adb unavailable',
-        stdout: '',
-      };
-  raw['adb-devices.txt'] = [devicesOutput.stdout, devicesOutput.stderr].filter(Boolean).join('\n');
-  const devices = parseAdbDevices(devicesOutput.stdout);
-  const device = selectDevice(devices, serial);
-  const deviceOnline = Boolean(device && device.state === 'device');
-  const deviceFailure = !deviceOnline
-    ? buildAndroidDeviceFailure({ devicesOutput, serial })
-    : null;
-  checks.push({
-    name: 'android_device_connected',
-    status: deviceOnline ? 'passed' : 'failed',
-    source: 'runner',
-    code: deviceOnline ? 'android_device_connected' : deviceFailure?.code,
-    message: deviceOnline && device
-      ? `Selected Android device ${device.serial}.`
-      : deviceFailure?.message,
-    ...(!deviceOnline
-      ? {
-          metadata: deviceFailure?.metadata,
-        }
-      : {}),
-  });
-
-  const metadata: Record<string, unknown> = {
-    adbPath,
+  let device: AndroidDevice | null = null;
+  const captureWatchdog = deriveAndroidAdbCaptureWatchdogBudget({
     captureLogcat,
+    ...(typeof captureWatchdogMsOverride === 'number' ? { captureWatchdogMs: captureWatchdogMsOverride } : {}),
     clearLogcat,
     commandTimeoutMs,
     deepLinks,
-    devices,
+    driverSteps,
+    launch,
+    launchWaitMs,
+    packageName,
+    reactNativeDebugHost,
+    startupDeepLinks,
+    storageWrites,
+    waitMs,
+  });
+  const metadata: Record<string, unknown> = {
+    adbPath,
+    captureLogcat,
+    captureWatchdog,
+    clearLogcat,
+    commandTimeoutMs,
+    deepLinks,
     driverSteps,
     launch,
     logcatLines,
-    selectedDevice: device,
     packageName,
     reactNativeDebugHost,
     startupDeepLinks,
@@ -1243,858 +1542,966 @@ async function runAndroidAdbPreflight({
     })),
     waitMs,
   };
-  const resolvedDriverSteps = resolveAndroidAdbDriverSteps({
-    captureLogcat,
-    driverSteps,
-    logcatLines,
-    waitMs,
+  const captureStartedAt = new Date();
+  const captureDeadlineEpochMs = captureStartedAt.getTime() + captureWatchdog.timeoutMs;
+  const captureStartedCheckpoint = buildAndroidAdbCaptureStartedCheckpoint({
+    adbPath,
+    captureWatchdog,
+    commandTimeoutMs,
+    deadlineEpochMs: captureDeadlineEpochMs,
+    metadata,
+    runId,
+    startedAt: captureStartedAt.toISOString(),
   });
+  const captureStartedRawFileName = 'adb-capture-started.json';
+  raw[captureStartedRawFileName] = JSON.stringify(captureStartedCheckpoint, null, 2);
+  metadata.captureStarted = {
+    rawPath: `raw/${captureStartedRawFileName}`,
+    startedAt: captureStartedCheckpoint.startedAt,
+    watchdog: captureStartedCheckpoint.watchdog,
+  };
+  await fsp.writeFile(
+    path.join(rawDir, captureStartedRawFileName),
+    `${JSON.stringify(captureStartedCheckpoint, null, 2)}\n`,
+    'utf8',
+  );
 
-  if (device && device.state === 'device') {
-    const shellPrefix = ['-s', device.serial, 'shell'];
-    const driver = createAndroidAdbDriver({
-      adbPath,
-      deviceSerial: device.serial,
-      executor,
+  const runCaptureBody = async (): Promise<void> => {
+    const version = await executor(adbPath, ['version']);
+    const adbAvailable = version.exitCode === 0;
+    raw['adb-version.txt'] = [version.stdout, version.stderr].filter(Boolean).join('\n');
+    checks.push({
+      name: 'adb_available',
+      status: adbAvailable ? 'passed' : 'failed',
+      source: 'runner',
+      code: adbAvailable ? 'adb_available' : 'adb_unavailable',
+      message: adbAvailable ? 'adb command is available.' : 'adb command could not be executed.',
+      ...(!adbAvailable
+        ? {
+            metadata: nextActionHint(
+              'fix_adb_command',
+              'Install Android platform-tools or pass --adb with a working adb binary, then rerun the capture.',
+            ),
+          }
+        : {}),
     });
-    const [model, release, sdk] = await Promise.all([
-      executor(adbPath, [...shellPrefix, 'getprop', 'ro.product.model']),
-      executor(adbPath, [...shellPrefix, 'getprop', 'ro.build.version.release']),
-      executor(adbPath, [...shellPrefix, 'getprop', 'ro.build.version.sdk']),
-    ]);
-    metadata.deviceProperties = {
-      model: model.stdout.trim(),
-      release: release.stdout.trim(),
-      sdk: sdk.stdout.trim(),
-    };
-    raw['adb-device-properties.txt'] = [
-      `model=${model.stdout.trim()}`,
-      `release=${release.stdout.trim()}`,
-      `sdk=${sdk.stdout.trim()}`,
-    ].join('\n');
 
-    let selectedPackageInstalled = false;
-    if (packageName) {
-      const packageCheck = await executor(adbPath, [...shellPrefix, 'pm', 'path', packageName]);
-      raw['adb-package.txt'] = [packageCheck.stdout, packageCheck.stderr].filter(Boolean).join('\n');
-      const packageInstalled = packageCheck.exitCode === 0 && packageCheck.stdout.includes('package:');
-      selectedPackageInstalled = packageInstalled;
-      checks.push({
-        name: 'android_package_installed',
-        status: packageInstalled ? 'passed' : 'failed',
-        source: 'runner',
-        code: packageInstalled
-          ? 'android_package_installed'
-          : 'android_package_missing',
-        message: packageInstalled
-          ? `Package ${packageName} is installed.`
-          : `Package ${packageName} is not installed on ${device.serial}.`,
-        ...(!packageInstalled
-          ? {
-              metadata: nextActionHint(
-                'install_android_package',
-                'Build and install the app on the selected device, or rerun with --package set to the installed application id.',
-              ),
-            }
-          : {}),
+    const devicesOutput = adbAvailable
+      ? await executor(adbPath, ['devices', '-l'])
+      : {
+          command: adbPath,
+          args: ['devices', '-l'],
+          exitCode: 1,
+          stderr: 'adb unavailable',
+          stdout: '',
+        };
+    raw['adb-devices.txt'] = [devicesOutput.stdout, devicesOutput.stderr].filter(Boolean).join('\n');
+    const devices = parseAdbDevices(devicesOutput.stdout);
+    metadata.devices = devices;
+    device = selectDevice(devices, serial);
+    metadata.selectedDevice = device;
+    const deviceOnline = Boolean(device && device.state === 'device');
+    const deviceFailure = !deviceOnline
+      ? buildAndroidDeviceFailure({ devicesOutput, serial })
+      : null;
+    checks.push({
+      name: 'android_device_connected',
+      status: deviceOnline ? 'passed' : 'failed',
+      source: 'runner',
+      code: deviceOnline ? 'android_device_connected' : deviceFailure?.code,
+      message: deviceOnline && device
+        ? `Selected Android device ${device.serial}.`
+        : deviceFailure?.message,
+      ...(!deviceOnline
+        ? {
+            metadata: deviceFailure?.metadata,
+          }
+        : {}),
+    });
+
+    const resolvedDriverSteps = resolveAndroidAdbDriverSteps({
+      captureLogcat,
+      driverSteps,
+      logcatLines,
+      waitMs,
+    });
+
+    if (device && device.state === 'device') {
+      const shellPrefix = ['-s', device.serial, 'shell'];
+      const driver = createAndroidAdbDriver({
+        adbPath,
+        deviceSerial: device.serial,
+        executor,
       });
-    }
+      const [model, release, sdk] = await Promise.all([
+        executor(adbPath, [...shellPrefix, 'getprop', 'ro.product.model']),
+        executor(adbPath, [...shellPrefix, 'getprop', 'ro.build.version.release']),
+        executor(adbPath, [...shellPrefix, 'getprop', 'ro.build.version.sdk']),
+      ]);
+      metadata.deviceProperties = {
+        model: model.stdout.trim(),
+        release: release.stdout.trim(),
+        sdk: sdk.stdout.trim(),
+      };
+      raw['adb-device-properties.txt'] = [
+        `model=${model.stdout.trim()}`,
+        `release=${release.stdout.trim()}`,
+        `sdk=${sdk.stdout.trim()}`,
+      ].join('\n');
 
-    if (reactNativeDebugHost) {
-      const reactNativeDebugPort = parseReactNativeDebugHostPort(reactNativeDebugHost);
-      if (!packageName) {
+      let selectedPackageInstalled = false;
+      if (packageName) {
+        const packageCheck = await executor(adbPath, [...shellPrefix, 'pm', 'path', packageName]);
+        raw['adb-package.txt'] = [packageCheck.stdout, packageCheck.stderr].filter(Boolean).join('\n');
+        const packageInstalled = packageCheck.exitCode === 0 && packageCheck.stdout.includes('package:');
+        selectedPackageInstalled = packageInstalled;
         checks.push({
-          name: 'android_react_native_debug_host_configured',
-          status: 'failed',
+          name: 'android_package_installed',
+          status: packageInstalled ? 'passed' : 'failed',
           source: 'runner',
-          code: 'android_react_native_debug_host_missing_package',
-          message: 'React Native debug host setup was requested, but --package was not provided.',
-          metadata: nextActionHint(
-            'provide_android_package',
-            'Rerun with --package set to the installed Android application id when --react-native-debug-host is enabled.',
-          ),
+          code: packageInstalled
+            ? 'android_package_installed'
+            : 'android_package_missing',
+          message: packageInstalled
+            ? `Package ${packageName} is installed.`
+            : `Package ${packageName} is not installed on ${device.serial}.`,
+          ...(!packageInstalled
+            ? {
+                metadata: nextActionHint(
+                  'install_android_package',
+                  'Build and install the app on the selected device, or rerun with --package set to the installed application id.',
+                ),
+              }
+            : {}),
         });
-      } else if (!selectedPackageInstalled) {
+      }
+
+      if (reactNativeDebugHost) {
+        const reactNativeDebugPort = parseReactNativeDebugHostPort(reactNativeDebugHost);
+        if (!packageName) {
+          checks.push({
+            name: 'android_react_native_debug_host_configured',
+            status: 'failed',
+            source: 'runner',
+            code: 'android_react_native_debug_host_missing_package',
+            message: 'React Native debug host setup was requested, but --package was not provided.',
+            metadata: nextActionHint(
+              'provide_android_package',
+              'Rerun with --package set to the installed Android application id when --react-native-debug-host is enabled.',
+            ),
+          });
+        } else if (!selectedPackageInstalled) {
+          checks.push({
+            name: 'android_react_native_debug_host_configured',
+            status: 'failed',
+            source: 'runner',
+            code: 'android_react_native_debug_host_package_missing',
+            message: `React Native debug host setup requires installed package ${packageName}.`,
+            metadata: nextActionHint(
+              'install_android_package',
+              'Build and install the app on the selected device before configuring the React Native debug host.',
+            ),
+          });
+        } else if (!reactNativeDebugPort) {
+          checks.push({
+            name: 'android_react_native_debug_host_configured',
+            status: 'failed',
+            source: 'runner',
+            code: 'android_react_native_debug_host_invalid',
+            message: `React Native debug host ${reactNativeDebugHost} must be a host:port value without a URL scheme.`,
+            metadata: nextActionHint(
+              'fix_react_native_debug_host',
+              'Pass a React Native debug host such as localhost:8097, not a full http:// URL.',
+            ),
+          });
+        } else {
+          const reverseResult = await executor(adbPath, [
+            '-s',
+            device.serial,
+            'reverse',
+            `tcp:${reactNativeDebugPort}`,
+            `tcp:${reactNativeDebugPort}`,
+          ]);
+          const preferenceCommand = buildReactNativeDebugHostPreferenceCommand({
+            debugHost: reactNativeDebugHost,
+            packageName,
+          });
+          const preferenceResult = await executor(adbPath, [
+            '-s',
+            device.serial,
+            'shell',
+            'run-as',
+            packageName,
+            'sh',
+            '-c',
+            quoteAndroidShellArg(preferenceCommand),
+          ]);
+          const reversePassed = reverseResult.exitCode === 0;
+          const preferencePassed = preferenceResult.exitCode === 0;
+          raw['adb-react-native-reverse.txt'] = formatAndroidCommandRawOutput(reverseResult);
+          raw['adb-react-native-debug-host.txt'] = formatAndroidCommandRawOutput(preferenceResult);
+          checks.push({
+            name: 'android_react_native_reverse_configured',
+            status: reversePassed ? 'passed' : 'failed',
+            source: 'runner',
+            code: reversePassed
+              ? 'android_react_native_reverse_configured'
+              : 'android_react_native_reverse_failed',
+            message: reversePassed
+              ? `Configured adb reverse for React Native debug port ${reactNativeDebugPort}.`
+              : `Failed to configure adb reverse for React Native debug port ${reactNativeDebugPort}.`,
+            ...(!reversePassed
+              ? {
+                  metadata: nextActionHint(
+                    'inspect_android_react_native_reverse',
+                    'Inspect raw/adb-react-native-reverse.txt, confirm the selected device supports adb reverse, then rerun the capture.',
+                  ),
+                }
+              : {}),
+          });
+          checks.push({
+            name: 'android_react_native_debug_host_configured',
+            status: preferencePassed ? 'passed' : 'failed',
+            source: 'runner',
+            code: preferencePassed
+              ? 'android_react_native_debug_host_configured'
+              : 'android_react_native_debug_host_failed',
+            message: preferencePassed
+              ? `Configured React Native debug host ${reactNativeDebugHost} for ${packageName}.`
+              : `Failed to configure React Native debug host ${reactNativeDebugHost} for ${packageName}.`,
+            ...(!preferencePassed
+              ? {
+                  metadata: nextActionHint(
+                    'inspect_android_react_native_debug_host',
+                    'Inspect raw/adb-react-native-debug-host.txt, confirm the app is debuggable and run-as works for the package, then rerun the capture.',
+                  ),
+                }
+              : {}),
+          });
+          metadata.reactNativeDebugHostSetup = {
+            debugHost: reactNativeDebugHost,
+            port: reactNativeDebugPort,
+            preferenceRawPath: 'raw/adb-react-native-debug-host.txt',
+            reverseRawPath: 'raw/adb-react-native-reverse.txt',
+          };
+        }
+      }
+
+      if (clearLogcat) {
+        const clear = await driver.clearLogs();
+        const logcatCleared = clear.exitCode === 0;
+        raw[clear.rawFileName] = formatAndroidAdbRawOutput(clear);
         checks.push({
-          name: 'android_react_native_debug_host_configured',
-          status: 'failed',
+          name: 'android_logcat_cleared',
+          status: logcatCleared ? 'passed' : 'failed',
           source: 'runner',
-          code: 'android_react_native_debug_host_package_missing',
-          message: `React Native debug host setup requires installed package ${packageName}.`,
-          metadata: nextActionHint(
-            'install_android_package',
-            'Build and install the app on the selected device before configuring the React Native debug host.',
-          ),
+          code: logcatCleared ? 'android_logcat_cleared' : 'android_logcat_clear_failed',
+          message: logcatCleared ? 'Cleared adb logcat before capture.' : 'adb logcat clear failed.',
+          ...(!logcatCleared
+            ? {
+                metadata: nextActionHint(
+                  'inspect_adb_logcat_clear',
+                  `Inspect raw/${clear.rawFileName}, confirm the selected device allows logcat access, then rerun the capture.`,
+                ),
+              }
+            : {}),
         });
-      } else if (!reactNativeDebugPort) {
-        checks.push({
-          name: 'android_react_native_debug_host_configured',
-          status: 'failed',
-          source: 'runner',
-          code: 'android_react_native_debug_host_invalid',
-          message: `React Native debug host ${reactNativeDebugHost} must be a host:port value without a URL scheme.`,
-          metadata: nextActionHint(
-            'fix_react_native_debug_host',
-            'Pass a React Native debug host such as localhost:8097, not a full http:// URL.',
-          ),
-        });
-      } else {
-        const reverseResult = await executor(adbPath, [
-          '-s',
-          device.serial,
-          'reverse',
-          `tcp:${reactNativeDebugPort}`,
-          `tcp:${reactNativeDebugPort}`,
-        ]);
-        const preferenceCommand = buildReactNativeDebugHostPreferenceCommand({
-          debugHost: reactNativeDebugHost,
+        metadata.logcatClear = {
+          args: clear.args,
+          exitCode: clear.exitCode,
+          rawPath: `raw/${clear.rawFileName}`,
+        };
+      }
+
+      const appLifecycleMetadata: Record<string, unknown> = {};
+      let lifecyclePackageName: string | null = null;
+      let knownLifecyclePids: string[] = [];
+
+      if (launch) {
+        if (!packageName) {
+          checks.push({
+            name: 'android_package_launched',
+            status: 'failed',
+            source: 'runner',
+            code: 'android_launch_missing_package',
+            message: 'Package launch was requested, but --package was not provided.',
+            metadata: nextActionHint(
+              'provide_android_package',
+              'Rerun with --package set to the installed Android application id when --launch is enabled.',
+            ),
+          });
+        } else {
+          const launchResult = await driver.launchPackage(packageName);
+          const launchPassed = launchResult.exitCode === 0;
+          raw[launchResult.rawFileName] = formatAndroidAdbRawOutput(launchResult);
+          checks.push({
+            name: 'android_package_launched',
+            status: launchPassed ? 'passed' : 'failed',
+            source: 'runner',
+            code: launchPassed ? 'android_package_launched' : 'android_package_launch_failed',
+            message: launchPassed
+              ? `Launched package ${packageName}.`
+              : `Failed to launch package ${packageName}.`,
+            ...(!launchPassed
+              ? {
+                  metadata: nextActionHint(
+                    'inspect_android_launch',
+                    `Inspect raw/${launchResult.rawFileName}, verify the package has a launcher activity, and confirm the app can open manually on the device.`,
+                  ),
+                }
+              : {}),
+          });
+          metadata.launchResult = {
+            args: launchResult.args,
+            exitCode: launchResult.exitCode,
+            rawPath: `raw/${launchResult.rawFileName}`,
+          };
+          if (launchPassed && launchWaitMs > 0) {
+            await wait(launchWaitMs);
+            checks.push({
+              name: 'android_launch_waited',
+              status: 'passed',
+              source: 'runner',
+              code: 'android_launch_waited',
+              message: `Waited ${launchWaitMs}ms after Android package launch.`,
+            });
+            metadata.launchWaitMs = launchWaitMs;
+          }
+          if (launchPassed) {
+            lifecyclePackageName = packageName;
+            const pidofAfterLaunch = await executor(adbPath, [
+              '-s',
+              device.serial,
+              'shell',
+              'pidof',
+              packageName,
+            ]);
+            const rawPath = 'raw/adb-app-pidof-after-launch.txt';
+            raw['adb-app-pidof-after-launch.txt'] = formatAndroidCommandRawOutput(pidofAfterLaunch);
+            const afterLaunchPids = parseAndroidPidofOutput(pidofAfterLaunch.stdout);
+            knownLifecyclePids = afterLaunchPids;
+            const runningAfterLaunch = pidofAfterLaunch.exitCode === 0 && afterLaunchPids.length > 0;
+            checks.push({
+              name: 'android_app_process_running_after_launch',
+              status: runningAfterLaunch ? 'passed' : 'failed',
+              source: 'runner',
+              code: runningAfterLaunch
+                ? 'android_app_process_running_after_launch'
+                : 'android_app_not_running_after_launch',
+              message: runningAfterLaunch
+                ? `Package ${packageName} is running after launch with PID ${afterLaunchPids.join(', ')}.`
+                : `Package ${packageName} is not running after launch.`,
+              ...(!runningAfterLaunch
+                ? {
+                    metadata: nextActionHint(
+                      'inspect_android_app_launch',
+                      `Inspect ${rawPath} and the app's device logs to find why the launched process exited before evidence capture.`,
+                    ),
+                  }
+                : {}),
+            });
+            Object.assign(appLifecycleMetadata, {
+              afterLaunchPids,
+              afterLaunchRawPath: rawPath,
+            });
+          }
+        }
+      }
+
+      let startupReady = true;
+
+      for (const [index, deepLink] of startupDeepLinks.entries()) {
+        const rawFileName = `adb-startup-deep-link-${index + 1}.txt`;
+        const deepLinkResult = await driver.openDeepLink({
           packageName,
+          rawFileName,
+          url: deepLink.url,
         });
-        const preferenceResult = await executor(adbPath, [
+        const deepLinkOpened = deepLinkResult.exitCode === 0;
+        if (!deepLinkOpened) {
+          startupReady = false;
+        }
+        raw[deepLinkResult.rawFileName] = formatAndroidAdbRawOutput(deepLinkResult);
+        checks.push({
+          name: 'android_startup_deep_link_opened',
+          status: deepLinkOpened ? 'passed' : 'failed',
+          source: 'runner',
+          code: deepLinkOpened ? 'android_startup_deep_link_opened' : 'android_startup_deep_link_failed',
+          message: deepLinkOpened
+            ? `Opened Android startup deep link ${deepLink.label ?? index + 1}.`
+            : `Failed to open Android startup deep link ${deepLink.label ?? index + 1}.`,
+          ...(!deepLinkOpened
+            ? {
+                metadata: nextActionHint(
+                  'inspect_android_startup_deep_link',
+                  `Inspect raw/${deepLinkResult.rawFileName}, verify the dev-client URL and package intent filter, then rerun the capture.`,
+                ),
+              }
+            : {}),
+        });
+
+        if (deepLink.waitMs && deepLink.waitMs > 0) {
+          await wait(deepLink.waitMs);
+          checks.push({
+            name: 'android_startup_deep_link_waited',
+            status: 'passed',
+            source: 'runner',
+            code: 'android_startup_deep_link_waited',
+            message: `Waited ${deepLink.waitMs}ms after Android startup deep link ${deepLink.label ?? index + 1}.`,
+          });
+        }
+
+        if (deepLink.readyLogPattern) {
+          const rawFileName = `adb-startup-deep-link-${index + 1}-ready-log.txt`;
+          const readyLog = await waitForAndroidReadyLog({
+            driver,
+            logcatLines,
+            pattern: deepLink.readyLogPattern,
+            quietMs: deepLink.readyLogQuietMs ?? 0,
+            rawFileName,
+            timeoutMs: deepLink.readyLogTimeoutMs ?? 60000,
+            wait,
+          });
+          if (!readyLog.ready) {
+            startupReady = false;
+          }
+          raw[rawFileName] = formatAndroidAdbRawOutput(readyLog.result);
+          checks.push({
+            name: 'android_startup_deep_link_ready',
+            status: readyLog.ready ? 'passed' : 'failed',
+            source: 'runner',
+            code: readyLog.ready
+              ? 'android_startup_deep_link_ready'
+              : 'android_startup_deep_link_not_ready',
+            message: readyLog.ready
+              ? `Android startup deep link ${deepLink.label ?? index + 1} emitted readiness log evidence.`
+              : `Android startup deep link ${deepLink.label ?? index + 1} did not emit readiness log evidence before timeout.`,
+            ...(!readyLog.ready
+              ? {
+                  metadata: nextActionHint(
+                    'inspect_android_startup_deep_link_ready_log',
+                    `Inspect raw/${rawFileName}, confirm the dev-client loaded the app bundle, and increase the ready timeout only if the app is still making progress.`,
+                  ),
+                }
+              : {}),
+          });
+        }
+      }
+
+      if (!startupReady && (storageWrites.length > 0 || deepLinks.length > 0)) {
+        checks.push({
+          name: 'android_startup_ready_for_control',
+          status: 'failed',
+          source: 'runner',
+          code: 'android_startup_not_ready_for_control',
+          message: 'Android startup readiness failed before profile-session control was delivered.',
+          metadata: nextActionHint(
+            'verify_android_startup_readiness',
+            'Inspect startup deep-link and ready-log artifacts, confirm the app loaded the expected bundle, then rerun before delivering profile-session storage or command deep links.',
+          ),
+        });
+      }
+
+      for (const [index, write] of storageWrites.entries()) {
+        const rawFileName = `adb-async-storage-write-${index + 1}.txt`;
+        if (!startupReady) {
+          checks.push({
+            name: 'android_async_storage_written',
+            status: 'failed',
+            source: 'runner',
+            code: 'android_async_storage_skipped_startup_not_ready',
+            message: `Skipped Android AsyncStorage value ${write.label ?? index + 1} because startup readiness failed.`,
+            metadata: nextActionHint(
+              'verify_android_startup_readiness',
+              'Rerun after Android startup readiness passes; ASL will not write profile-session storage into an app that has not proven bundle readiness.',
+            ),
+          });
+          continue;
+        }
+
+        if (!packageName) {
+          checks.push({
+            name: 'android_async_storage_written',
+            status: 'failed',
+            source: 'runner',
+            code: 'android_async_storage_missing_package',
+            message: 'Android AsyncStorage write was requested, but --package was not provided.',
+            metadata: nextActionHint(
+              'provide_android_package',
+              'Rerun with --package set to the installed Android application id when Android AsyncStorage profile-session storage is enabled.',
+            ),
+          });
+          continue;
+        }
+
+        let resolvedWrite = write;
+        if (write.value.includes(ANDROID_DEVICE_EPOCH_MS_PLACEHOLDER)) {
+          const deviceEpoch = await readAndroidDeviceEpochMs({
+            adbPath,
+            deviceSerial: device.serial,
+            executor,
+          });
+          raw['adb-device-epoch-ms.txt'] = formatAndroidCommandRawOutput(deviceEpoch);
+          const deviceClockRead = typeof deviceEpoch.epochMs === 'number';
+          checks.push({
+            name: 'android_device_clock_read',
+            status: deviceClockRead ? 'passed' : 'failed',
+            source: 'runner',
+            code: deviceClockRead ? 'android_device_clock_read' : 'android_device_clock_unavailable',
+            message: deviceClockRead
+              ? `Read Android device clock as ${deviceEpoch.epochMs}ms since epoch.`
+              : 'Failed to read Android device clock for AsyncStorage timing evidence.',
+            ...(!deviceClockRead
+              ? {
+                  metadata: nextActionHint(
+                    'inspect_android_device_clock',
+                    'Inspect raw/adb-device-epoch-ms.txt and confirm the selected Android device supports `adb shell date +%s` before using storage-backed timing evidence.',
+                  ),
+                }
+              : {}),
+          });
+          if (!deviceClockRead || deviceEpoch.epochMs === null) {
+            continue;
+          }
+
+          resolvedWrite = {
+            ...write,
+            value: resolveAndroidDeviceEpochPlaceholders(write.value, deviceEpoch.epochMs),
+          };
+        }
+
+        const writeResult = await executor(adbPath, [
           '-s',
           device.serial,
           'shell',
-          'run-as',
-          packageName,
-          'sh',
-          '-c',
-          quoteAndroidShellArg(preferenceCommand),
+          buildAndroidAsyncStorageWriteCommand({ packageName, write: resolvedWrite }),
         ]);
-        const reversePassed = reverseResult.exitCode === 0;
-        const preferencePassed = preferenceResult.exitCode === 0;
-        raw['adb-react-native-reverse.txt'] = formatAndroidCommandRawOutput(reverseResult);
-        raw['adb-react-native-debug-host.txt'] = formatAndroidCommandRawOutput(preferenceResult);
+        const writePassed = writeResult.exitCode === 0;
+        raw[rawFileName] = formatAndroidCommandRawOutput(writeResult);
         checks.push({
-          name: 'android_react_native_reverse_configured',
-          status: reversePassed ? 'passed' : 'failed',
+          name: 'android_async_storage_written',
+          status: writePassed ? 'passed' : 'failed',
           source: 'runner',
-          code: reversePassed
-            ? 'android_react_native_reverse_configured'
-            : 'android_react_native_reverse_failed',
-          message: reversePassed
-            ? `Configured adb reverse for React Native debug port ${reactNativeDebugPort}.`
-            : `Failed to configure adb reverse for React Native debug port ${reactNativeDebugPort}.`,
-          ...(!reversePassed
+          code: writePassed ? 'android_async_storage_written' : 'android_async_storage_write_failed',
+          message: writePassed
+            ? `Wrote Android AsyncStorage value ${write.label ?? index + 1}.`
+            : `Failed to write Android AsyncStorage value ${write.label ?? index + 1}.`,
+          ...(!writePassed
             ? {
                 metadata: nextActionHint(
-                  'inspect_android_react_native_reverse',
-                  'Inspect raw/adb-react-native-reverse.txt, confirm the selected device supports adb reverse, then rerun the capture.',
+                  'inspect_android_async_storage_write',
+                  `Inspect raw/${rawFileName}, confirm the app is debuggable and sqlite3 can access RKStorage through run-as, then rerun the capture.`,
                 ),
               }
             : {}),
         });
-        checks.push({
-          name: 'android_react_native_debug_host_configured',
-          status: preferencePassed ? 'passed' : 'failed',
-          source: 'runner',
-          code: preferencePassed
-            ? 'android_react_native_debug_host_configured'
-            : 'android_react_native_debug_host_failed',
-          message: preferencePassed
-            ? `Configured React Native debug host ${reactNativeDebugHost} for ${packageName}.`
-            : `Failed to configure React Native debug host ${reactNativeDebugHost} for ${packageName}.`,
-          ...(!preferencePassed
-            ? {
-                metadata: nextActionHint(
-                  'inspect_android_react_native_debug_host',
-                  'Inspect raw/adb-react-native-debug-host.txt, confirm the app is debuggable and run-as works for the package, then rerun the capture.',
-                ),
-              }
-            : {}),
-        });
-        metadata.reactNativeDebugHostSetup = {
-          debugHost: reactNativeDebugHost,
-          port: reactNativeDebugPort,
-          preferenceRawPath: 'raw/adb-react-native-debug-host.txt',
-          reverseRawPath: 'raw/adb-react-native-reverse.txt',
-        };
-      }
-    }
 
-    if (clearLogcat) {
-      const clear = await driver.clearLogs();
-      const logcatCleared = clear.exitCode === 0;
-      raw[clear.rawFileName] = formatAndroidAdbRawOutput(clear);
-      checks.push({
-        name: 'android_logcat_cleared',
-        status: logcatCleared ? 'passed' : 'failed',
-        source: 'runner',
-        code: logcatCleared ? 'android_logcat_cleared' : 'android_logcat_clear_failed',
-        message: logcatCleared ? 'Cleared adb logcat before capture.' : 'adb logcat clear failed.',
-        ...(!logcatCleared
-          ? {
-              metadata: nextActionHint(
-                'inspect_adb_logcat_clear',
-                `Inspect raw/${clear.rawFileName}, confirm the selected device allows logcat access, then rerun the capture.`,
-              ),
-            }
-          : {}),
-      });
-      metadata.logcatClear = {
-        args: clear.args,
-        exitCode: clear.exitCode,
-        rawPath: `raw/${clear.rawFileName}`,
-      };
-    }
-
-    const appLifecycleMetadata: Record<string, unknown> = {};
-    let lifecyclePackageName: string | null = null;
-    let knownLifecyclePids: string[] = [];
-
-    if (launch) {
-      if (!packageName) {
-        checks.push({
-          name: 'android_package_launched',
-          status: 'failed',
-          source: 'runner',
-          code: 'android_launch_missing_package',
-          message: 'Package launch was requested, but --package was not provided.',
-          metadata: nextActionHint(
-            'provide_android_package',
-            'Rerun with --package set to the installed Android application id when --launch is enabled.',
-          ),
-        });
-      } else {
-        const launchResult = await driver.launchPackage(packageName);
-        const launchPassed = launchResult.exitCode === 0;
-        raw[launchResult.rawFileName] = formatAndroidAdbRawOutput(launchResult);
-        checks.push({
-          name: 'android_package_launched',
-          status: launchPassed ? 'passed' : 'failed',
-          source: 'runner',
-          code: launchPassed ? 'android_package_launched' : 'android_package_launch_failed',
-          message: launchPassed
-            ? `Launched package ${packageName}.`
-            : `Failed to launch package ${packageName}.`,
-          ...(!launchPassed
-            ? {
-                metadata: nextActionHint(
-                  'inspect_android_launch',
-                  `Inspect raw/${launchResult.rawFileName}, verify the package has a launcher activity, and confirm the app can open manually on the device.`,
-                ),
-              }
-            : {}),
-        });
-        metadata.launchResult = {
-          args: launchResult.args,
-          exitCode: launchResult.exitCode,
-          rawPath: `raw/${launchResult.rawFileName}`,
-        };
-        if (launchPassed && launchWaitMs > 0) {
-          await wait(launchWaitMs);
+        if (write.waitMs && write.waitMs > 0) {
+          await wait(write.waitMs);
           checks.push({
-            name: 'android_launch_waited',
+            name: 'android_async_storage_waited',
             status: 'passed',
             source: 'runner',
-            code: 'android_launch_waited',
-            message: `Waited ${launchWaitMs}ms after Android package launch.`,
+            code: 'android_async_storage_waited',
+            message: `Waited ${write.waitMs}ms after Android AsyncStorage write ${write.label ?? index + 1}.`,
           });
-          metadata.launchWaitMs = launchWaitMs;
         }
-        if (launchPassed) {
+      }
+
+      for (const [index, deepLink] of deepLinks.entries()) {
+        const rawFileName = `adb-deep-link-${index + 1}.txt`;
+        if (!startupReady) {
+          checks.push({
+            name: 'android_deep_link_opened',
+            status: 'failed',
+            source: 'runner',
+            code: 'android_deep_link_skipped_startup_not_ready',
+            message: `Skipped Android deep link ${deepLink.label ?? index + 1} because startup readiness failed.`,
+            metadata: nextActionHint(
+              'verify_android_startup_readiness',
+              'Rerun after Android startup readiness passes; ASL will not deliver profile-session command deep links into an app that has not proven bundle readiness.',
+            ),
+          });
+          continue;
+        }
+
+        const deepLinkResult = await driver.openDeepLink({
+          packageName,
+          rawFileName,
+          url: deepLink.url,
+        });
+        const deepLinkOpened = deepLinkResult.exitCode === 0;
+        raw[deepLinkResult.rawFileName] = formatAndroidAdbRawOutput(deepLinkResult);
+        checks.push({
+          name: 'android_deep_link_opened',
+          status: deepLinkOpened ? 'passed' : 'failed',
+          source: 'runner',
+          code: deepLinkOpened ? 'android_deep_link_opened' : 'android_deep_link_failed',
+          message: deepLinkOpened
+            ? `Opened Android deep link ${deepLink.label ?? index + 1}.`
+            : `Failed to open Android deep link ${deepLink.label ?? index + 1}.`,
+          ...(!deepLinkOpened
+            ? {
+                metadata: nextActionHint(
+                  'inspect_android_deep_link',
+                  `Inspect raw/${deepLinkResult.rawFileName}, verify the app scheme/intent filter, and rerun with --package if the intent must target one app.`,
+                ),
+              }
+            : {}),
+        });
+
+        if (deepLink.waitMs && deepLink.waitMs > 0) {
+          await wait(deepLink.waitMs);
+          checks.push({
+            name: 'android_deep_link_waited',
+            status: 'passed',
+            source: 'runner',
+            code: 'android_deep_link_waited',
+            message: `Waited ${deepLink.waitMs}ms after Android deep link ${deepLink.label ?? index + 1}.`,
+          });
+        }
+
+        if (deepLinkOpened && packageName && !lifecyclePackageName) {
           lifecyclePackageName = packageName;
-          const pidofAfterLaunch = await executor(adbPath, [
+          const pidofAfterDeepLink = await executor(adbPath, [
             '-s',
             device.serial,
             'shell',
             'pidof',
             packageName,
           ]);
-          const rawPath = 'raw/adb-app-pidof-after-launch.txt';
-          raw['adb-app-pidof-after-launch.txt'] = formatAndroidCommandRawOutput(pidofAfterLaunch);
-          const afterLaunchPids = parseAndroidPidofOutput(pidofAfterLaunch.stdout);
-          knownLifecyclePids = afterLaunchPids;
-          const runningAfterLaunch = pidofAfterLaunch.exitCode === 0 && afterLaunchPids.length > 0;
+          const rawPath = 'raw/adb-app-pidof-after-deep-link.txt';
+          raw['adb-app-pidof-after-deep-link.txt'] = formatAndroidCommandRawOutput(pidofAfterDeepLink);
+          const afterDeepLinkPids = parseAndroidPidofOutput(pidofAfterDeepLink.stdout);
+          knownLifecyclePids = afterDeepLinkPids;
+          const runningAfterDeepLink = pidofAfterDeepLink.exitCode === 0 && afterDeepLinkPids.length > 0;
           checks.push({
-            name: 'android_app_process_running_after_launch',
-            status: runningAfterLaunch ? 'passed' : 'failed',
+            name: 'android_app_process_running_after_deep_link',
+            status: runningAfterDeepLink ? 'passed' : 'failed',
             source: 'runner',
-            code: runningAfterLaunch
-              ? 'android_app_process_running_after_launch'
-              : 'android_app_not_running_after_launch',
-            message: runningAfterLaunch
-              ? `Package ${packageName} is running after launch with PID ${afterLaunchPids.join(', ')}.`
-              : `Package ${packageName} is not running after launch.`,
-            ...(!runningAfterLaunch
+            code: runningAfterDeepLink
+              ? 'android_app_process_running_after_deep_link'
+              : 'android_app_not_running_after_deep_link',
+            message: runningAfterDeepLink
+              ? `Package ${packageName} is running after deep link with PID ${afterDeepLinkPids.join(', ')}.`
+              : `Package ${packageName} is not running after opening the deep link.`,
+            ...(!runningAfterDeepLink
               ? {
                   metadata: nextActionHint(
-                    'inspect_android_app_launch',
-                    `Inspect ${rawPath} and the app's device logs to find why the launched process exited before evidence capture.`,
+                    'inspect_android_deep_link_launch',
+                    `Inspect ${rawPath} and the app's device logs to find why the package-targeted deep link did not leave the app process running.`,
                   ),
                 }
               : {}),
           });
           Object.assign(appLifecycleMetadata, {
-            afterLaunchPids,
-            afterLaunchRawPath: rawPath,
+            afterDeepLinkPids,
+            afterDeepLinkRawPath: rawPath,
           });
         }
       }
-    }
 
-    let startupReady = true;
+      const driverActionMetadata: Record<string, unknown>[] = [];
+      const logcatMetadata: Record<string, unknown>[] = [];
+      const selectorResolutionMetadata: AndroidSelectorResolutionMetadata[] = [];
+      for (const [index, driverStep] of resolvedDriverSteps.entries()) {
+        if (driverStep.waitMs && driverStep.waitMs > 0) {
+          await wait(driverStep.waitMs);
+          checks.push({
+            name: 'android_capture_window_waited',
+            status: 'passed',
+            source: 'runner',
+            code: 'android_capture_window_waited',
+            message: `Waited ${driverStep.waitMs}ms before running adb driver action ${driverStep.driverAction}.`,
+            metadata: {
+              driverAction: driverStep.driverAction,
+              ...(driverStep.stepId ? { stepId: driverStep.stepId } : {}),
+            },
+          });
+        }
 
-    for (const [index, deepLink] of startupDeepLinks.entries()) {
-      const rawFileName = `adb-startup-deep-link-${index + 1}.txt`;
-      const deepLinkResult = await driver.openDeepLink({
-        packageName,
-        rawFileName,
-        url: deepLink.url,
-      });
-      const deepLinkOpened = deepLinkResult.exitCode === 0;
-      if (!deepLinkOpened) {
-        startupReady = false;
-      }
-      raw[deepLinkResult.rawFileName] = formatAndroidAdbRawOutput(deepLinkResult);
-      checks.push({
-        name: 'android_startup_deep_link_opened',
-        status: deepLinkOpened ? 'passed' : 'failed',
-        source: 'runner',
-        code: deepLinkOpened ? 'android_startup_deep_link_opened' : 'android_startup_deep_link_failed',
-        message: deepLinkOpened
-          ? `Opened Android startup deep link ${deepLink.label ?? index + 1}.`
-          : `Failed to open Android startup deep link ${deepLink.label ?? index + 1}.`,
-        ...(!deepLinkOpened
-          ? {
-              metadata: nextActionHint(
-                'inspect_android_startup_deep_link',
-                `Inspect raw/${deepLinkResult.rawFileName}, verify the dev-client URL and package intent filter, then rerun the capture.`,
-              ),
-            }
-          : {}),
-      });
+        let executableDriverStep = driverStep;
+        if (needsAndroidSelectorResolution(driverStep)) {
+          const selectorRawFileName = `adb-selector-tree-${index + 1}.xml`;
+          const treeResult = await driver.inspectTree({ rawFileName: selectorRawFileName });
+          raw[treeResult.rawFileName] = formatAndroidAdbRawOutput(treeResult);
+          const resolution = treeResult.exitCode === 0 && driverStep.selector
+            ? resolveAndroidSelectorFromUiTree({
+                selector: driverStep.selector,
+                uiTreeXml: treeResult.stdout,
+              })
+            : null;
+          const resolved = Boolean(resolution);
+          if (resolution) {
+            executableDriverStep = applyAndroidSelectorResolution({
+              driverStep,
+              resolution,
+            });
+          }
+          checks.push({
+            name: 'android_selector_resolved',
+            status: resolved ? 'passed' : driverStep.required === false ? 'warning' : 'failed',
+            source: 'runner',
+            code: resolved ? 'android_selector_resolved' : 'android_selector_resolution_failed',
+            message: resolved
+              ? `Resolved Android selector for adb driver action ${driverStep.driverAction}.`
+              : `Failed to resolve Android selector for adb driver action ${driverStep.driverAction}.`,
+            metadata: {
+              driverAction: driverStep.driverAction,
+              ...buildAndroidSelectorHealthMetadata(driverStep.selector),
+              ...(!resolved
+                ? nextActionHint(
+                    'fix_android_selector',
+                    `Inspect raw/${treeResult.rawFileName}, update the scenario selector, or provide explicit adb coordinates for this driver action.`,
+                  )
+                : {}),
+              ...(driverStep.stepId ? { stepId: driverStep.stepId } : {}),
+            },
+          });
+          selectorResolutionMetadata.push({
+            ...(resolution ? { bounds: resolution.bounds } : {}),
+            driverAction: driverStep.driverAction,
+            rawPath: `raw/${treeResult.rawFileName}`,
+            ...(driverStep.selector ? { selector: driverStep.selector } : {}),
+            status: resolved ? 'passed' : 'failed',
+            ...(driverStep.stepId ? { stepId: driverStep.stepId } : {}),
+          });
+        }
 
-      if (deepLink.waitMs && deepLink.waitMs > 0) {
-        await wait(deepLink.waitMs);
-        checks.push({
-          name: 'android_startup_deep_link_waited',
-          status: 'passed',
-          source: 'runner',
-          code: 'android_startup_deep_link_waited',
-          message: `Waited ${deepLink.waitMs}ms after Android startup deep link ${deepLink.label ?? index + 1}.`,
-        });
-      }
-
-      if (deepLink.readyLogPattern) {
-        const rawFileName = `adb-startup-deep-link-${index + 1}-ready-log.txt`;
-        const readyLog = await waitForAndroidReadyLog({
+        const driverResult = await runAndroidAdbDriverStep({
+          capturesDir: layout.captures,
           driver,
+          driverStep: executableDriverStep,
           logcatLines,
-          pattern: deepLink.readyLogPattern,
-          quietMs: deepLink.readyLogQuietMs ?? 0,
-          rawFileName,
-          timeoutMs: deepLink.readyLogTimeoutMs ?? 60000,
-          wait,
         });
-        if (!readyLog.ready) {
-          startupReady = false;
-        }
-        raw[rawFileName] = formatAndroidAdbRawOutput(readyLog.result);
+        raw[driverResult.rawFileName] = formatAndroidAdbRawOutput(driverResult);
+        const failed = driverResult.exitCode !== 0;
+        const codeSuffix = androidDriverActionCode(driverStep.driverAction);
+        const isReadLogs = driverStep.driverAction === 'readLogs';
         checks.push({
-          name: 'android_startup_deep_link_ready',
-          status: readyLog.ready ? 'passed' : 'failed',
+          name: isReadLogs ? 'android_logcat_captured' : `android_${codeSuffix}`,
+          status: failed && driverStep.required === false ? 'warning' : failed ? 'failed' : 'passed',
           source: 'runner',
-          code: readyLog.ready
-            ? 'android_startup_deep_link_ready'
-            : 'android_startup_deep_link_not_ready',
-          message: readyLog.ready
-            ? `Android startup deep link ${deepLink.label ?? index + 1} emitted readiness log evidence.`
-            : `Android startup deep link ${deepLink.label ?? index + 1} did not emit readiness log evidence before timeout.`,
-          ...(!readyLog.ready
-            ? {
-                metadata: nextActionHint(
-                  'inspect_android_startup_deep_link_ready_log',
-                  `Inspect raw/${rawFileName}, confirm the dev-client loaded the app bundle, and increase the ready timeout only if the app is still making progress.`,
-                ),
-              }
+          code: isReadLogs
+            ? driverResult.exitCode === 0 ? 'android_logcat_captured' : 'android_logcat_failed'
+            : driverResult.exitCode === 0 ? `android_${codeSuffix}_completed` : `android_${codeSuffix}_failed`,
+          message: isReadLogs
+            ? driverResult.exitCode === 0
+              ? `Captured the last ${driverStep.lines ?? logcatLines} adb logcat lines.`
+              : 'adb logcat capture failed.'
+            : driverResult.exitCode === 0
+              ? `Completed adb driver action ${driverStep.driverAction}.`
+              : `adb driver action ${driverStep.driverAction} failed.`,
+          metadata: {
+            driverAction: executableDriverStep.driverAction,
+            ...buildAndroidSelectorHealthMetadata(executableDriverStep.selector),
+            ...(failed ? buildAndroidDriverFailureMetadata({ driverResult, isReadLogs }) : {}),
+            ...(executableDriverStep.stepId ? { stepId: executableDriverStep.stepId } : {}),
+          },
+        });
+        const actionMetadata = {
+          args: driverResult.args,
+          driverAction: executableDriverStep.driverAction,
+          exitCode: driverResult.exitCode,
+          ...(driverResult.capturePath
+            ? { capturePath: `captures/${path.basename(driverResult.capturePath)}` }
             : {}),
-        });
-      }
-    }
-
-    if (!startupReady && (storageWrites.length > 0 || deepLinks.length > 0)) {
-      checks.push({
-        name: 'android_startup_ready_for_control',
-        status: 'failed',
-        source: 'runner',
-        code: 'android_startup_not_ready_for_control',
-        message: 'Android startup readiness failed before profile-session control was delivered.',
-        metadata: nextActionHint(
-          'verify_android_startup_readiness',
-          'Inspect startup deep-link and ready-log artifacts, confirm the app loaded the expected bundle, then rerun before delivering profile-session storage or command deep links.',
-        ),
-      });
-    }
-
-    for (const [index, write] of storageWrites.entries()) {
-      const rawFileName = `adb-async-storage-write-${index + 1}.txt`;
-      if (!startupReady) {
-        checks.push({
-          name: 'android_async_storage_written',
-          status: 'failed',
-          source: 'runner',
-          code: 'android_async_storage_skipped_startup_not_ready',
-          message: `Skipped Android AsyncStorage value ${write.label ?? index + 1} because startup readiness failed.`,
-          metadata: nextActionHint(
-            'verify_android_startup_readiness',
-            'Rerun after Android startup readiness passes; ASL will not write profile-session storage into an app that has not proven bundle readiness.',
-          ),
-        });
-        continue;
-      }
-
-      if (!packageName) {
-        checks.push({
-          name: 'android_async_storage_written',
-          status: 'failed',
-          source: 'runner',
-          code: 'android_async_storage_missing_package',
-          message: 'Android AsyncStorage write was requested, but --package was not provided.',
-          metadata: nextActionHint(
-            'provide_android_package',
-            'Rerun with --package set to the installed Android application id when Android AsyncStorage profile-session storage is enabled.',
-          ),
-        });
-        continue;
-      }
-
-      let resolvedWrite = write;
-      if (write.value.includes(ANDROID_DEVICE_EPOCH_MS_PLACEHOLDER)) {
-        const deviceEpoch = await readAndroidDeviceEpochMs({
-          adbPath,
-          deviceSerial: device.serial,
-          executor,
-        });
-        raw['adb-device-epoch-ms.txt'] = formatAndroidCommandRawOutput(deviceEpoch);
-        const deviceClockRead = typeof deviceEpoch.epochMs === 'number';
-        checks.push({
-          name: 'android_device_clock_read',
-          status: deviceClockRead ? 'passed' : 'failed',
-          source: 'runner',
-          code: deviceClockRead ? 'android_device_clock_read' : 'android_device_clock_unavailable',
-          message: deviceClockRead
-            ? `Read Android device clock as ${deviceEpoch.epochMs}ms since epoch.`
-            : 'Failed to read Android device clock for AsyncStorage timing evidence.',
-          ...(!deviceClockRead
-            ? {
-                metadata: nextActionHint(
-                  'inspect_android_device_clock',
-                  'Inspect raw/adb-device-epoch-ms.txt and confirm the selected Android device supports `adb shell date +%s` before using storage-backed timing evidence.',
-                ),
-              }
-            : {}),
-        });
-        if (!deviceClockRead || deviceEpoch.epochMs === null) {
-          continue;
-        }
-
-        resolvedWrite = {
-          ...write,
-          value: resolveAndroidDeviceEpochPlaceholders(write.value, deviceEpoch.epochMs),
+          rawPath: `raw/${driverResult.rawFileName}`,
+          ...(executableDriverStep.selector ? { selector: executableDriverStep.selector } : {}),
+          ...(executableDriverStep.stepId ? { stepId: executableDriverStep.stepId } : {}),
         };
+        driverActionMetadata.push(actionMetadata);
+        if (executableDriverStep.driverAction === 'readLogs') {
+          logcatMetadata.push(actionMetadata);
+        }
+      }
+      if (selectorResolutionMetadata.length > 0) {
+        metadata.selectorResolutions = selectorResolutionMetadata;
+      }
+      if (driverActionMetadata.length > 0) {
+        metadata.driverActions = driverActionMetadata;
+      }
+      if (logcatMetadata.length === 1) {
+        metadata.logcat = logcatMetadata[0];
+      } else if (logcatMetadata.length > 1) {
+        metadata.logcat = logcatMetadata;
       }
 
-      const writeResult = await executor(adbPath, [
-        '-s',
-        device.serial,
-        'shell',
-        buildAndroidAsyncStorageWriteCommand({ packageName, write: resolvedWrite }),
-      ]);
-      const writePassed = writeResult.exitCode === 0;
-      raw[rawFileName] = formatAndroidCommandRawOutput(writeResult);
-      checks.push({
-        name: 'android_async_storage_written',
-        status: writePassed ? 'passed' : 'failed',
-        source: 'runner',
-        code: writePassed ? 'android_async_storage_written' : 'android_async_storage_write_failed',
-        message: writePassed
-          ? `Wrote Android AsyncStorage value ${write.label ?? index + 1}.`
-          : `Failed to write Android AsyncStorage value ${write.label ?? index + 1}.`,
-        ...(!writePassed
-          ? {
-              metadata: nextActionHint(
-                'inspect_android_async_storage_write',
-                `Inspect raw/${rawFileName}, confirm the app is debuggable and sqlite3 can access RKStorage through run-as, then rerun the capture.`,
-              ),
-            }
-          : {}),
-      });
-
-      if (write.waitMs && write.waitMs > 0) {
-        await wait(write.waitMs);
-        checks.push({
-          name: 'android_async_storage_waited',
-          status: 'passed',
-          source: 'runner',
-          code: 'android_async_storage_waited',
-          message: `Waited ${write.waitMs}ms after Android AsyncStorage write ${write.label ?? index + 1}.`,
-        });
-      }
-    }
-
-    for (const [index, deepLink] of deepLinks.entries()) {
-      const rawFileName = `adb-deep-link-${index + 1}.txt`;
-      if (!startupReady) {
-        checks.push({
-          name: 'android_deep_link_opened',
-          status: 'failed',
-          source: 'runner',
-          code: 'android_deep_link_skipped_startup_not_ready',
-          message: `Skipped Android deep link ${deepLink.label ?? index + 1} because startup readiness failed.`,
-          metadata: nextActionHint(
-            'verify_android_startup_readiness',
-            'Rerun after Android startup readiness passes; ASL will not deliver profile-session command deep links into an app that has not proven bundle readiness.',
-          ),
-        });
-        continue;
-      }
-
-      const deepLinkResult = await driver.openDeepLink({
-        packageName,
-        rawFileName,
-        url: deepLink.url,
-      });
-      const deepLinkOpened = deepLinkResult.exitCode === 0;
-      raw[deepLinkResult.rawFileName] = formatAndroidAdbRawOutput(deepLinkResult);
-      checks.push({
-        name: 'android_deep_link_opened',
-        status: deepLinkOpened ? 'passed' : 'failed',
-        source: 'runner',
-        code: deepLinkOpened ? 'android_deep_link_opened' : 'android_deep_link_failed',
-        message: deepLinkOpened
-          ? `Opened Android deep link ${deepLink.label ?? index + 1}.`
-          : `Failed to open Android deep link ${deepLink.label ?? index + 1}.`,
-        ...(!deepLinkOpened
-          ? {
-              metadata: nextActionHint(
-                'inspect_android_deep_link',
-                `Inspect raw/${deepLinkResult.rawFileName}, verify the app scheme/intent filter, and rerun with --package if the intent must target one app.`,
-              ),
-            }
-          : {}),
-      });
-
-      if (deepLink.waitMs && deepLink.waitMs > 0) {
-        await wait(deepLink.waitMs);
-        checks.push({
-          name: 'android_deep_link_waited',
-          status: 'passed',
-          source: 'runner',
-          code: 'android_deep_link_waited',
-          message: `Waited ${deepLink.waitMs}ms after Android deep link ${deepLink.label ?? index + 1}.`,
-        });
-      }
-
-      if (deepLinkOpened && packageName && !lifecyclePackageName) {
-        lifecyclePackageName = packageName;
-        const pidofAfterDeepLink = await executor(adbPath, [
+      if (lifecyclePackageName) {
+        const pidofAfterCapture = await executor(adbPath, [
           '-s',
           device.serial,
           'shell',
           'pidof',
-          packageName,
+          lifecyclePackageName,
         ]);
-        const rawPath = 'raw/adb-app-pidof-after-deep-link.txt';
-        raw['adb-app-pidof-after-deep-link.txt'] = formatAndroidCommandRawOutput(pidofAfterDeepLink);
-        const afterDeepLinkPids = parseAndroidPidofOutput(pidofAfterDeepLink.stdout);
-        knownLifecyclePids = afterDeepLinkPids;
-        const runningAfterDeepLink = pidofAfterDeepLink.exitCode === 0 && afterDeepLinkPids.length > 0;
-        checks.push({
-          name: 'android_app_process_running_after_deep_link',
-          status: runningAfterDeepLink ? 'passed' : 'failed',
-          source: 'runner',
-          code: runningAfterDeepLink
-            ? 'android_app_process_running_after_deep_link'
-            : 'android_app_not_running_after_deep_link',
-          message: runningAfterDeepLink
-            ? `Package ${packageName} is running after deep link with PID ${afterDeepLinkPids.join(', ')}.`
-            : `Package ${packageName} is not running after opening the deep link.`,
-          ...(!runningAfterDeepLink
-            ? {
-                metadata: nextActionHint(
-                  'inspect_android_deep_link_launch',
-                  `Inspect ${rawPath} and the app's device logs to find why the package-targeted deep link did not leave the app process running.`,
-                ),
-              }
-            : {}),
+        const pidofAfterCaptureRawPath = 'raw/adb-app-pidof-after-capture.txt';
+        raw['adb-app-pidof-after-capture.txt'] = formatAndroidCommandRawOutput(pidofAfterCapture);
+        const afterCapturePids = parseAndroidPidofOutput(pidofAfterCapture.stdout);
+        const lifecycleLogLines = Math.max(logcatLines, 200);
+        const lifecycleLog = await driver.readLogs({
+          lines: lifecycleLogLines,
+          rawFileName: 'adb-app-lifecycle-log.txt',
         });
-        Object.assign(appLifecycleMetadata, {
-          afterDeepLinkPids,
-          afterDeepLinkRawPath: rawPath,
-        });
-      }
-    }
-
-    const driverActionMetadata: Record<string, unknown>[] = [];
-    const logcatMetadata: Record<string, unknown>[] = [];
-    const selectorResolutionMetadata: AndroidSelectorResolutionMetadata[] = [];
-    for (const [index, driverStep] of resolvedDriverSteps.entries()) {
-      if (driverStep.waitMs && driverStep.waitMs > 0) {
-        await wait(driverStep.waitMs);
-        checks.push({
-          name: 'android_capture_window_waited',
-          status: 'passed',
-          source: 'runner',
-          code: 'android_capture_window_waited',
-          message: `Waited ${driverStep.waitMs}ms before running adb driver action ${driverStep.driverAction}.`,
-          metadata: {
-            driverAction: driverStep.driverAction,
-            ...(driverStep.stepId ? { stepId: driverStep.stepId } : {}),
-          },
-        });
-      }
-
-      let executableDriverStep = driverStep;
-      if (needsAndroidSelectorResolution(driverStep)) {
-        const selectorRawFileName = `adb-selector-tree-${index + 1}.xml`;
-        const treeResult = await driver.inspectTree({ rawFileName: selectorRawFileName });
-        raw[treeResult.rawFileName] = formatAndroidAdbRawOutput(treeResult);
-        const resolution = treeResult.exitCode === 0 && driverStep.selector
-          ? resolveAndroidSelectorFromUiTree({
-              selector: driverStep.selector,
-              uiTreeXml: treeResult.stdout,
+        raw[lifecycleLog.rawFileName] = formatAndroidAdbRawOutput(lifecycleLog);
+        const allKnownPids = Array.from(new Set([...knownLifecyclePids, ...afterCapturePids]));
+        const scan = lifecycleLog.exitCode === 0
+          ? scanAndroidAppLifecycleLog({
+              logText: `${lifecycleLog.stdout}\n${lifecycleLog.stderr}`,
+              packageName: lifecyclePackageName,
+              pids: allKnownPids,
             })
-          : null;
-        const resolved = Boolean(resolution);
-        if (resolution) {
-          executableDriverStep = applyAndroidSelectorResolution({
-            driverStep,
-            resolution,
-          });
-        }
+          : { crashed: false, evidence: [] };
+        const runningAfterCapture = pidofAfterCapture.exitCode === 0 && afterCapturePids.length > 0;
+        const lifecycleStatus = !runningAfterCapture || scan.crashed
+          ? 'failed'
+          : lifecycleLog.exitCode === 0
+            ? 'passed'
+            : 'warning';
         checks.push({
-          name: 'android_selector_resolved',
-          status: resolved ? 'passed' : driverStep.required === false ? 'warning' : 'failed',
+          name: 'android_app_lifecycle_stable',
+          status: lifecycleStatus,
           source: 'runner',
-          code: resolved ? 'android_selector_resolved' : 'android_selector_resolution_failed',
-          message: resolved
-            ? `Resolved Android selector for adb driver action ${driverStep.driverAction}.`
-            : `Failed to resolve Android selector for adb driver action ${driverStep.driverAction}.`,
-          metadata: {
-            driverAction: driverStep.driverAction,
-            ...buildAndroidSelectorHealthMetadata(driverStep.selector),
-            ...(!resolved
-              ? nextActionHint(
-                  'fix_android_selector',
-                  `Inspect raw/${treeResult.rawFileName}, update the scenario selector, or provide explicit adb coordinates for this driver action.`,
-                )
-              : {}),
-            ...(driverStep.stepId ? { stepId: driverStep.stepId } : {}),
-          },
-        });
-        selectorResolutionMetadata.push({
-          ...(resolution ? { bounds: resolution.bounds } : {}),
-          driverAction: driverStep.driverAction,
-          rawPath: `raw/${treeResult.rawFileName}`,
-          ...(driverStep.selector ? { selector: driverStep.selector } : {}),
-          status: resolved ? 'passed' : 'failed',
-          ...(driverStep.stepId ? { stepId: driverStep.stepId } : {}),
-        });
-      }
-
-      const driverResult = await runAndroidAdbDriverStep({
-        capturesDir: layout.captures,
-        driver,
-        driverStep: executableDriverStep,
-        logcatLines,
-      });
-      raw[driverResult.rawFileName] = formatAndroidAdbRawOutput(driverResult);
-      const failed = driverResult.exitCode !== 0;
-      const codeSuffix = androidDriverActionCode(driverStep.driverAction);
-      const isReadLogs = driverStep.driverAction === 'readLogs';
-      checks.push({
-        name: isReadLogs ? 'android_logcat_captured' : `android_${codeSuffix}`,
-        status: failed && driverStep.required === false ? 'warning' : failed ? 'failed' : 'passed',
-        source: 'runner',
-        code: isReadLogs
-          ? driverResult.exitCode === 0 ? 'android_logcat_captured' : 'android_logcat_failed'
-          : driverResult.exitCode === 0 ? `android_${codeSuffix}_completed` : `android_${codeSuffix}_failed`,
-        message: isReadLogs
-          ? driverResult.exitCode === 0
-            ? `Captured the last ${driverStep.lines ?? logcatLines} adb logcat lines.`
-            : 'adb logcat capture failed.'
-          : driverResult.exitCode === 0
-            ? `Completed adb driver action ${driverStep.driverAction}.`
-            : `adb driver action ${driverStep.driverAction} failed.`,
-        metadata: {
-          driverAction: executableDriverStep.driverAction,
-          ...buildAndroidSelectorHealthMetadata(executableDriverStep.selector),
-          ...(failed ? buildAndroidDriverFailureMetadata({ driverResult, isReadLogs }) : {}),
-          ...(executableDriverStep.stepId ? { stepId: executableDriverStep.stepId } : {}),
-        },
-      });
-      const actionMetadata = {
-        args: driverResult.args,
-        driverAction: executableDriverStep.driverAction,
-        exitCode: driverResult.exitCode,
-        ...(driverResult.capturePath
-          ? { capturePath: `captures/${path.basename(driverResult.capturePath)}` }
-          : {}),
-        rawPath: `raw/${driverResult.rawFileName}`,
-        ...(executableDriverStep.selector ? { selector: executableDriverStep.selector } : {}),
-        ...(executableDriverStep.stepId ? { stepId: executableDriverStep.stepId } : {}),
-      };
-      driverActionMetadata.push(actionMetadata);
-      if (executableDriverStep.driverAction === 'readLogs') {
-        logcatMetadata.push(actionMetadata);
-      }
-    }
-    if (selectorResolutionMetadata.length > 0) {
-      metadata.selectorResolutions = selectorResolutionMetadata;
-    }
-    if (driverActionMetadata.length > 0) {
-      metadata.driverActions = driverActionMetadata;
-    }
-    if (logcatMetadata.length === 1) {
-      metadata.logcat = logcatMetadata[0];
-    } else if (logcatMetadata.length > 1) {
-      metadata.logcat = logcatMetadata;
-    }
-
-    if (lifecyclePackageName) {
-      const pidofAfterCapture = await executor(adbPath, [
-        '-s',
-        device.serial,
-        'shell',
-        'pidof',
-        lifecyclePackageName,
-      ]);
-      const pidofAfterCaptureRawPath = 'raw/adb-app-pidof-after-capture.txt';
-      raw['adb-app-pidof-after-capture.txt'] = formatAndroidCommandRawOutput(pidofAfterCapture);
-      const afterCapturePids = parseAndroidPidofOutput(pidofAfterCapture.stdout);
-      const lifecycleLogLines = Math.max(logcatLines, 200);
-      const lifecycleLog = await driver.readLogs({
-        lines: lifecycleLogLines,
-        rawFileName: 'adb-app-lifecycle-log.txt',
-      });
-      raw[lifecycleLog.rawFileName] = formatAndroidAdbRawOutput(lifecycleLog);
-      const allKnownPids = Array.from(new Set([...knownLifecyclePids, ...afterCapturePids]));
-      const scan = lifecycleLog.exitCode === 0
-        ? scanAndroidAppLifecycleLog({
-            logText: `${lifecycleLog.stdout}\n${lifecycleLog.stderr}`,
-            packageName: lifecyclePackageName,
-            pids: allKnownPids,
-          })
-        : { crashed: false, evidence: [] };
-      const runningAfterCapture = pidofAfterCapture.exitCode === 0 && afterCapturePids.length > 0;
-      const lifecycleStatus = !runningAfterCapture || scan.crashed
-        ? 'failed'
-        : lifecycleLog.exitCode === 0
-          ? 'passed'
-          : 'warning';
-      checks.push({
-        name: 'android_app_lifecycle_stable',
-        status: lifecycleStatus,
-        source: 'runner',
-        code: !runningAfterCapture
-          ? 'android_app_exited_during_capture'
-          : scan.crashed
-            ? 'android_app_crashed_during_capture'
-            : lifecycleLog.exitCode === 0
-              ? 'android_app_lifecycle_stable'
-              : 'android_app_lifecycle_log_unavailable',
-        message: !runningAfterCapture
-          ? `Package ${lifecyclePackageName} was not running after evidence capture.`
-          : scan.crashed
-            ? `Package ${lifecyclePackageName} emitted crash evidence during capture.`
-            : lifecycleLog.exitCode === 0
-              ? `Package ${lifecyclePackageName} remained running with no crash evidence in the bounded log window.`
-              : `Could not read Android lifecycle logs for package ${lifecyclePackageName}.`,
-        ...(!runningAfterCapture || scan.crashed
-          ? {
-              metadata: nextActionHint(
-                'inspect_android_app_crash',
-                `Inspect raw/${lifecycleLog.rawFileName} and ${pidofAfterCaptureRawPath}; scenario timing evidence is not trustworthy until the app stays alive.`,
-              ),
-            }
-          : lifecycleLog.exitCode !== 0
+          code: !runningAfterCapture
+            ? 'android_app_exited_during_capture'
+            : scan.crashed
+              ? 'android_app_crashed_during_capture'
+              : lifecycleLog.exitCode === 0
+                ? 'android_app_lifecycle_stable'
+                : 'android_app_lifecycle_log_unavailable',
+          message: !runningAfterCapture
+            ? `Package ${lifecyclePackageName} was not running after evidence capture.`
+            : scan.crashed
+              ? `Package ${lifecyclePackageName} emitted crash evidence during capture.`
+              : lifecycleLog.exitCode === 0
+                ? `Package ${lifecyclePackageName} remained running with no crash evidence in the bounded log window.`
+                : `Could not read Android lifecycle logs for package ${lifecyclePackageName}.`,
+          ...(!runningAfterCapture || scan.crashed
             ? {
                 metadata: nextActionHint(
-                  'inspect_android_lifecycle_log',
-                  `Inspect raw/${lifecycleLog.rawFileName}; lifecycle log capture failed but the app process was still running.`,
+                  'inspect_android_app_crash',
+                  `Inspect raw/${lifecycleLog.rawFileName} and ${pidofAfterCaptureRawPath}; scenario timing evidence is not trustworthy until the app stays alive.`,
                 ),
               }
-            : {}),
-      });
-      metadata.appLifecycle = {
-        ...appLifecycleMetadata,
-        afterCapturePids,
-        afterCaptureRawPath: pidofAfterCaptureRawPath,
-        crashEvidence: scan.evidence,
-        lifecycleLogLines,
-        lifecycleLogRawPath: `raw/${lifecycleLog.rawFileName}`,
-        packageName: lifecyclePackageName,
-      };
-    }
-  } else {
-    if (clearLogcat || launch || startupDeepLinks.length > 0 || storageWrites.length > 0) {
-      checks.push({
-        name: 'android_capture_window_started',
-        status: 'failed',
-        source: 'runner',
-        code: 'android_capture_window_no_device',
-        message: 'Android capture window setup was requested, but no online Android device was selected.',
-        metadata: nextActionHint(
-          'select_android_device',
-          'Start or unlock an Android emulator/device, confirm it appears as `device` in adb devices -l, then rerun the capture.',
-        ),
-      });
-    }
+            : lifecycleLog.exitCode !== 0
+              ? {
+                  metadata: nextActionHint(
+                    'inspect_android_lifecycle_log',
+                    `Inspect raw/${lifecycleLog.rawFileName}; lifecycle log capture failed but the app process was still running.`,
+                  ),
+                }
+              : {}),
+        });
+        metadata.appLifecycle = {
+          ...appLifecycleMetadata,
+          afterCapturePids,
+          afterCaptureRawPath: pidofAfterCaptureRawPath,
+          crashEvidence: scan.evidence,
+          lifecycleLogLines,
+          lifecycleLogRawPath: `raw/${lifecycleLog.rawFileName}`,
+          packageName: lifecyclePackageName,
+        };
+      }
+    } else {
+      if (clearLogcat || launch || startupDeepLinks.length > 0 || storageWrites.length > 0) {
+        checks.push({
+          name: 'android_capture_window_started',
+          status: 'failed',
+          source: 'runner',
+          code: 'android_capture_window_no_device',
+          message: 'Android capture window setup was requested, but no online Android device was selected.',
+          metadata: nextActionHint(
+            'select_android_device',
+            'Start or unlock an Android emulator/device, confirm it appears as `device` in adb devices -l, then rerun the capture.',
+          ),
+        });
+      }
 
-    if (resolvedDriverSteps.some((step) => step.driverAction === 'readLogs')) {
-      checks.push({
-        name: 'android_logcat_captured',
-        status: 'failed',
-        source: 'runner',
-        code: 'android_logcat_no_device',
-        message: 'adb logcat capture was requested, but no online Android device was selected.',
-        metadata: nextActionHint(
-          'select_android_device',
-          'Start or unlock an Android emulator/device before requesting logcat capture.',
-        ),
-      });
-    }
+      if (resolvedDriverSteps.some((step) => step.driverAction === 'readLogs')) {
+        checks.push({
+          name: 'android_logcat_captured',
+          status: 'failed',
+          source: 'runner',
+          code: 'android_logcat_no_device',
+          message: 'adb logcat capture was requested, but no online Android device was selected.',
+          metadata: nextActionHint(
+            'select_android_device',
+            'Start or unlock an Android emulator/device before requesting logcat capture.',
+          ),
+        });
+      }
 
-    if (resolvedDriverSteps.some((step) => step.driverAction !== 'readLogs')) {
-      checks.push({
-        name: 'android_driver_actions_completed',
-        status: 'failed',
-        source: 'runner',
-        code: 'android_driver_actions_no_device',
-        message: 'adb driver actions were requested, but no online Android device was selected.',
-        metadata: nextActionHint(
-          'select_android_device',
-          'Start or unlock an Android emulator/device before running adb driver actions.',
-        ),
-      });
+      if (resolvedDriverSteps.some((step) => step.driverAction !== 'readLogs')) {
+        checks.push({
+          name: 'android_driver_actions_completed',
+          status: 'failed',
+          source: 'runner',
+          code: 'android_driver_actions_no_device',
+          message: 'adb driver actions were requested, but no online Android device was selected.',
+          metadata: nextActionHint(
+            'select_android_device',
+            'Start or unlock an Android emulator/device before running adb driver actions.',
+          ),
+        });
+      }
     }
+  };
+
+  try {
+    await runAndroidAdbCaptureBodyWithWatchdog({
+      body: runCaptureBody,
+      watchdog: captureWatchdog,
+    });
+  } catch (error: unknown) {
+    const timedOut = isAndroidAdbCaptureWatchdogError(error);
+    const failure = {
+      ...normalizeAndroidRunnerFailure(error),
+      ...(timedOut
+        ? {
+            code: error.code,
+            watchdog: error.watchdog,
+          }
+        : {}),
+    };
+    const rawFileName = timedOut ? 'adb-runner-watchdog-timeout.txt' : 'adb-runner-failure.txt';
+    raw[rawFileName] = formatAndroidRunnerFailureRaw(failure);
+    metadata.runnerFailure = {
+      ...failure,
+      rawPath: `raw/${rawFileName}`,
+      collectedRawArtifacts: Object.keys(raw).map((fileName) => `raw/${fileName}`),
+    };
+    checks.push({
+      name: 'android_adb_capture_liveness',
+      status: 'failed',
+      source: 'runner',
+      code: timedOut ? 'android_adb_runner_liveness_timeout' : 'android_adb_runner_liveness_failure',
+      message: timedOut
+        ? `Android adb capture did not complete before the ${captureWatchdog.timeoutMs}ms watchdog deadline.`
+        : 'Android adb capture stopped before normal artifact finalization.',
+      metadata: {
+        ...nextActionHint(
+          timedOut ? 'inspect_android_adb_runner_timeout' : 'inspect_android_adb_runner_failure',
+          timedOut
+            ? `Inspect raw/${rawFileName}, raw/android-metadata.json, and the last collected raw adb artifact to identify the command or declared wait that exceeded the whole-capture watchdog.`
+            : `Inspect raw/${rawFileName} and raw/android-metadata.json to determine which adb or runner step stopped before finalization, then rerun with a bounded command timeout if the host command stalled.`,
+        ),
+        rawPath: `raw/${rawFileName}`,
+      },
+    });
   }
 
   const health = buildAndroidHealth({ runId, checks });
   const verdict = buildAndroidVerdict({ runId, health });
   const agentSummary = buildAgentSummaryMarkdown({ health, verdict });
 
-  await Promise.all(
-    Object.entries(raw).map(([fileName, content]) =>
-      fsp.writeFile(path.join(rawDir, fileName), `${content.trimEnd()}\n`, 'utf8'),
-    ),
-  );
-  await fsp.writeFile(path.join(rawDir, 'android-metadata.json'), `${JSON.stringify(metadata, null, 2)}\n`, 'utf8');
-  await writeJsonArtifact({
-    filePath: layout.health,
-    value: health,
-    schema: SCHEMAS.health,
-    label: 'Health artifact',
-  });
-  await writeJsonArtifact({
-    filePath: layout.verdict,
-    value: verdict,
-    schema: SCHEMAS.verdict,
-    label: 'Verdict artifact',
-  });
-  await writeTextArtifact({
-    filePath: layout.agentSummary,
-    content: agentSummary,
+  await writeAndroidAdbArtifacts({
+    agentSummary,
+    health,
+    layout,
+    metadata,
+    raw,
+    rawDir,
+    verdict,
   });
 
   return {
@@ -2170,6 +2577,7 @@ export {
   buildAndroidHealth,
   buildAndroidVerdict,
   buildReactNativeDebugHostPreferenceCommand,
+  deriveAndroidAdbCaptureWatchdogBudget,
   escapeAndroidPreferenceXml,
   execFileCommand,
   execFileCommandWithTimeout,
