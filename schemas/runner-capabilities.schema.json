@@ -90,7 +90,9 @@
           "finalize",
           "startWindow",
           "capture",
-          "stopWindow"
+          "stopWindow",
+          "afterCapture",
+          "postRun"
         ]
       }
     },
@@ -174,7 +176,7 @@
         },
         "phase": {
           "type": "string",
-          "enum": ["prepare", "startWindow", "capture", "stopWindow", "finalize"]
+          "enum": ["prepare", "startWindow", "capture", "stopWindow", "afterCapture", "postRun", "finalize"]
         },
         "command": {
           "type": "string",

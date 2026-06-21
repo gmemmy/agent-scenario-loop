@@ -194,6 +194,74 @@ test('profile-ios profiles public scenario ids and milestone budgets', async (t:
   });
 });
 
+test('profile-ios rehydrates simctl sidecar events when enriched run id differs', async (t: TestContext) => {
+  const tempRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-ios-rehydrate-sidecar-'));
+  t.after(async () => {
+    await fsp.rm(tempRoot, { recursive: true, force: true });
+  });
+  const artifactRoot = path.join(tempRoot, 'artifacts');
+  const sidecarRoot = path.join(tempRoot, '_ios-simctl-captures', 'source-public-journey-ios');
+  const scenarioPath = path.join(tempRoot, 'public-journey.json');
+  const scenario = readJson(fixturePath('templates/mobile-scenario.json'));
+  scenario.id = 'public-journey';
+  scenario.flowId = 'public-journey';
+  await fsp.mkdir(path.join(sidecarRoot, 'raw'), { recursive: true });
+  await fsp.writeFile(scenarioPath, `${JSON.stringify(scenario, null, 2)}\n`, 'utf8');
+  await fsp.writeFile(
+    path.join(sidecarRoot, 'raw', 'ios-profile-events.log'),
+    [
+      '2026-01-01T00:00:00.000Z public-ios [profile-event] {"event":"first_journey_started","scenario":"public-journey","runId":"source-public-journey-ios","iteration":1,"atMs":0}',
+      '2026-01-01T00:00:00.700Z public-ios [profile-event] {"event":"first_journey_completed","scenario":"public-journey","runId":"source-public-journey-ios","iteration":1,"atMs":700}',
+      '2026-01-01T00:00:01.000Z public-ios [profile-event] {"event":"first_journey_started","scenario":"public-journey","runId":"source-public-journey-ios","iteration":2,"atMs":1000}',
+      '2026-01-01T00:00:01.760Z public-ios [profile-event] {"event":"first_journey_completed","scenario":"public-journey","runId":"source-public-journey-ios","iteration":2,"atMs":1760}',
+      '2026-01-01T00:00:02.000Z public-ios [profile-event] {"event":"first_journey_started","scenario":"public-journey","runId":"source-public-journey-ios","iteration":3,"atMs":2000}',
+      '2026-01-01T00:00:02.830Z public-ios [profile-event] {"event":"first_journey_completed","scenario":"public-journey","runId":"source-public-journey-ios","iteration":3,"atMs":2830}',
+      '',
+    ].join('\n'),
+    'utf8',
+  );
+  await fsp.writeFile(
+    path.join(sidecarRoot, 'raw', 'ios-simctl-log.txt'),
+    'Timestamp Ty Process[PID:TID]\n',
+    'utf8',
+  );
+
+  const { stdout } = await execFileAsync(process.execPath, [
+    PROFILE_IOS,
+    '--config',
+    fixturePath('examples/mobile-app/asl.config.json'),
+    '--scenario',
+    scenarioPath,
+    '--simctl-artifacts',
+    sidecarRoot,
+    '--out',
+    artifactRoot,
+    '--run-id',
+    'public-journey-ios-aftercapture',
+  ]);
+
+  const runDir = stdout.trim();
+  const metrics = readJson(path.join(runDir, 'metrics.json'));
+  const health = readJson(path.join(runDir, 'health.json'));
+  const verdict = readJson(path.join(runDir, 'verdict.json'));
+  const causalRun = readJson(path.join(runDir, 'causal-run.json'));
+  const manifest = readJson(path.join(runDir, 'manifest.json'));
+  const diagnostics = (manifest.artifacts as { diagnostics: Array<Record<string, any>> }).diagnostics;
+  const jsDiagnostic = diagnostics.find((entry) => entry.kind === 'js');
+
+  assert.equal(runDir, path.join(artifactRoot, 'public-journey', 'public-journey-ios-aftercapture'));
+  assert.equal(metrics.iterations, 3);
+  assert.deepEqual(metrics.durationsMs, [700, 760, 830]);
+  assert.equal(health.healthStatus, 'passed');
+  assert.equal(verdict.verdictStatus, 'passed');
+  assert.equal(causalRun.runId, 'public-journey-ios-aftercapture');
+  assert.ok(causalRun.timeline.length > 0);
+  assert.equal(jsDiagnostic?.status, 'captured');
+  assert.equal(jsDiagnostic?.path, 'raw/ios-profile-events.log');
+  assert.equal(jsDiagnostic?.evidenceDependency?.root, 'sidecar');
+  assert.equal(jsDiagnostic?.evidenceDependency?.path, 'raw/ios-profile-events.log');
+});
+
 test('profile-ios falls back to bundled simctl driver metadata when no host driver is declared', async (t: TestContext) => {
   const tempRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-ios-neutral-driver-'));
   t.after(async () => {
@@ -677,8 +745,9 @@ test('profile-ios can seed and profile stored iOS app truth events', async (t: T
   assert.equal(logDiagnostic?.provider, 'simctl');
   assert.equal(logDiagnostic?.runnerId, 'ios-simctl');
   assert.ok(String(logDiagnostic?.sidecarRoot).endsWith('simctl-capture'));
-  assert.ok(String(logDiagnostic?.path).endsWith('simctl-capture/raw/ios-simctl-log.txt'));
-  assert.ok(String(logDiagnostic?.evidenceDependency?.path).endsWith('simctl-capture/raw/ios-simctl-log.txt'));
+  assert.equal(logDiagnostic?.path, 'raw/ios-simctl-log.txt');
+  assert.equal(logDiagnostic?.evidenceDependency?.root, 'sidecar');
+  assert.equal(logDiagnostic?.evidenceDependency?.path, 'raw/ios-simctl-log.txt');
   assert.equal(fs.existsSync(path.join(simctlCaptureRoot, 'raw', 'ios-simctl-log.txt')), true);
   assert.equal(jsDiagnostic?.status, 'captured');
   assert.equal(jsDiagnostic?.path, 'raw/ios-profile-events.log');

@@ -6,11 +6,11 @@
   "capabilities": ["profiler"],
   "driverActions": ["collectPerfSignals"],
   "artifactOutputs": ["profiler", "signals"],
-  "lifecycle": ["prepare", "startWindow", "capture", "stopWindow", "finalize"],
+  "lifecycle": ["prepare", "startWindow", "capture", "stopWindow", "afterCapture", "finalize"],
   "providerCommands": [
     {
       "id": "capture-profiler",
-      "phase": "capture",
+      "phase": "afterCapture",
       "command": "capture-profiler",
       "args": ["--platform", "{platform}", "--run-id", "{runId}", "--out", "{providerDir}/profiler.json"],
       "outputs": [

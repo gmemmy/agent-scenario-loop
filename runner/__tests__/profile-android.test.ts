@@ -166,8 +166,8 @@ test('profile-android writes artifacts from fixture event logs', async (t: TestC
   const runDir = stdout.trim();
   const manifest = readJson(path.join(runDir, 'manifest.json')) as Record<string, any>;
   const causalRun = readJson(path.join(runDir, 'causal-run.json'));
-  const health = readJson(path.join(runDir, 'health.json'));
-  const verdict = readJson(path.join(runDir, 'verdict.json'));
+  const health = readJson(path.join(runDir, 'health.json')) as Record<string, any>;
+  const verdict = readJson(path.join(runDir, 'verdict.json')) as Record<string, any>;
   const agentSummary = fs.readFileSync(path.join(runDir, 'agent-summary.md'), 'utf8');
   const profileSummary = fs.readFileSync(path.join(runDir, 'summary.md'), 'utf8');
 
@@ -1307,6 +1307,85 @@ test('profile-android executes declared evidence provider commands', async (t: T
   assert.match(summary, /provider\/accessibility/u);
 });
 
+test('profile-android fails health for malformed profiler provider evidence', async (t: TestContext) => {
+  const artifactRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-android-provider-profiler-invalid-'));
+  const providerRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-provider-profiler-invalid-'));
+  t.after(async () => {
+    await fsp.rm(artifactRoot, { recursive: true, force: true });
+    await fsp.rm(providerRoot, { recursive: true, force: true });
+  });
+  const providerScript = path.join(providerRoot, 'write-invalid-profiler.js');
+  await fsp.writeFile(
+    providerScript,
+    [
+      "const fs = require('node:fs');",
+      "const path = require('node:path');",
+      "const outputPath = process.argv[2];",
+      "fs.mkdirSync(path.dirname(outputPath), { recursive: true });",
+      "fs.writeFileSync(outputPath, JSON.stringify({ samples: [] }) + '\\n');",
+    ].join('\n'),
+    'utf8',
+  );
+  const providerManifestPath = path.join(providerRoot, 'provider.json');
+  await fsp.writeFile(
+    providerManifestPath,
+    `${JSON.stringify({
+      schemaVersion: '1.0.0',
+      runnerId: 'invalid-profiler-provider',
+      kind: 'evidenceProvider',
+      platforms: ['android'],
+      capabilities: ['profiler'],
+      artifactOutputs: ['profiler'],
+      lifecycle: ['afterCapture'],
+      providerCommands: [
+        {
+          id: 'capture-profiler',
+          phase: 'afterCapture',
+          command: process.execPath,
+          args: [providerScript, '{providerDir}/profiler.json'],
+          outputs: [
+            {
+              channel: 'provider',
+              kind: 'profiler',
+              path: '{providerDir}/profiler.json',
+              required: true,
+            },
+          ],
+        },
+      ],
+    }, null, 2)}\n`,
+    'utf8',
+  );
+
+  const { stdout } = await execFileAsync(process.execPath, [
+    PROFILE_ANDROID,
+    '--config',
+    fixturePath('examples/mobile-app/asl.config.json'),
+    '--scenario',
+    fixturePath('examples/mobile-app/scenarios/android/app-startup.json'),
+    '--events',
+    fixturePath('examples/mobile-app/event-logs/android-app-startup.log'),
+    '--provider',
+    providerManifestPath,
+    '--out',
+    artifactRoot,
+    '--run-id',
+    'android-invalid-profiler-provider',
+  ]);
+
+  const runDir = stdout.trim();
+  const health = readJson(path.join(runDir, 'health.json')) as Record<string, any>;
+  const verdict = readJson(path.join(runDir, 'verdict.json')) as Record<string, any>;
+  const agentSummary = fs.readFileSync(path.join(runDir, 'agent-summary.md'), 'utf8');
+
+  assert.equal(health.healthStatus, 'failed');
+  assert.equal(health.checks[0].code, 'provider_evidence_invalid');
+  assert.equal(health.checks[0].metadata.providerId, 'invalid-profiler-provider');
+  assert.equal(health.checks[0].metadata.nextActionCode, 'fix_provider_evidence_output');
+  assert.equal(verdict.verdictStatus, 'inconclusive');
+  assert.match(agentSummary, /fix_provider_evidence_output/u);
+});
+
 test('profile-android marks required provider command outputs as required diagnostics', async (t: TestContext) => {
   const artifactRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-android-provider-required-'));
   const providerRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-provider-required-'));
@@ -1663,7 +1742,8 @@ test('profile-android reads logcat from adb artifact folders', async (t: TestCon
   assert.equal(logDiagnostic?.path, 'raw/adb-logcat.txt');
   assert.equal(logDiagnostic?.runnerId, 'android-adb');
   assert.ok(String(logDiagnostic?.sidecarRoot).endsWith('adb-capture'));
-  assert.ok(String(logDiagnostic?.evidenceDependency?.path).endsWith('adb-capture/raw/adb-logcat.txt'));
+  assert.equal(logDiagnostic?.evidenceDependency?.root, 'sidecar');
+  assert.equal(logDiagnostic?.evidenceDependency?.path, 'raw/adb-logcat.txt');
   assert.equal(health.healthStatus, 'passed');
   assert.equal(verdict.verdictStatus, 'passed');
   assert.ok(fs.existsSync(path.join(runDir, 'raw', 'adb-logcat.txt')));
@@ -1722,10 +1802,11 @@ test('profile-android reports adb sidecar screenshots as captured diagnostics', 
   assert.equal(screenshotDiagnostic?.status, 'captured');
   assert.equal(screenshotDiagnostic?.provider, 'adb');
   assert.equal(screenshotDiagnostic?.runnerId, 'android-adb');
-  assert.ok(String(screenshotDiagnostic?.path).endsWith('adb-capture/raw/adb-screenshot-2.png'));
+  assert.equal(screenshotDiagnostic?.path, 'raw/adb-screenshot-2.png');
   assert.ok(String(screenshotDiagnostic?.sidecarRoot).endsWith('adb-capture'));
   assert.equal(screenshotDiagnostic?.evidenceDependency?.kind, 'sidecar');
-  assert.ok(String(screenshotDiagnostic?.evidenceDependency?.path).endsWith('adb-capture/raw/adb-screenshot-2.png'));
+  assert.equal(screenshotDiagnostic?.evidenceDependency?.root, 'sidecar');
+  assert.equal(screenshotDiagnostic?.evidenceDependency?.path, 'raw/adb-screenshot-2.png');
   assert.deepEqual((manifest.artifacts as { captures: { screenshots: string[] } }).captures.screenshots, []);
   assert.equal(fs.existsSync(path.join(runDir, 'captures', 'adb-screenshot-2.png')), false);
 });

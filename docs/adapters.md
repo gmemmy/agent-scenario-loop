@@ -102,6 +102,8 @@ The built-in adb and simctl adapters show the expected boundary:
 
 External tools such as agent-device, Argent, XcodeBuildMCP, axe, profilers, and custom scripts should plug in behind the same shape. The tactical tool can change; the scenario and artifact contract should not.
 
+Prefer capability-based orchestration over forcing one tool to own every surface. Use adb and simctl as the primary live profile capture lanes for app launch, logs, screenshots, profile-session truth, and causal timelines. Attach heavier or tool-specific diagnostics after the active profile window through provider commands or rehydration. Agent Device is a good fit for Android snapshots and cross-platform network/performance evidence when its session is bound to the target. Argent is a good fit for iOS accessibility descriptions when `describe` can return AXRuntime evidence; native hierarchy, video, trace, React DevTools, and long profiler captures should be explicit heavy lanes until a runner/provider maps them into stable ASL artifacts.
+
 ## Preserve Evidence
 
 Every run should leave agent-readable proof:
@@ -133,7 +135,7 @@ asl-profile-android \
   --capture screenshot:artifacts/provider/final-screen.png
 ```
 
-If the provider should run during profiling, declare `providerCommands` in its manifest. Commands run without a shell, preserve stdout/stderr/exit code, and inventory outputs in `manifest.artifacts.evidenceAttachments`. Provider command outputs may set `required: true` so the matching diagnostic inventory entry is required when the provider successfully captures that output; scenario-authored required artifacts and capabilities remain canonical too. Runtime profiles reject a provider whose `platforms` do not include the selected platform before command execution, preserving the same active-provider semantics used by planner compatibility.
+If the provider should run during profile artifact assembly, declare `providerCommands` in its manifest. Profile runners execute provider commands after the selected platform evidence source is available, including live `--adb-capture` / `--simctl-capture` runs and later `--adb-artifacts` / `--simctl-artifacts` rehydration runs. Use `phase: "afterCapture"` for diagnostics collected from an existing capture sidecar; use `phase: "postRun"` for evidence that should be understood as post-profile enrichment. Commands run without a shell, preserve stdout/stderr/exit code, and inventory outputs in `manifest.artifacts.evidenceAttachments`. Provider command outputs may set `required: true` so the matching diagnostic inventory entry is required when the provider successfully captures that output; scenario-authored required artifacts and capabilities remain canonical too. Runtime profiles reject a provider whose `platforms` do not include the selected platform before command execution, preserving the same active-provider semantics used by planner compatibility.
 
 ## Acceptance Checklist
 

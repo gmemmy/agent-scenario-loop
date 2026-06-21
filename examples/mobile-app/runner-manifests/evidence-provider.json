@@ -6,11 +6,11 @@
   "capabilities": ["accessibility", "memory", "network", "profiler"],
   "driverActions": ["collectPerfSignals"],
   "artifactOutputs": ["accessibility", "memory", "network", "profiler", "signals"],
-  "lifecycle": ["prepare", "startWindow", "capture", "stopWindow", "finalize"],
+  "lifecycle": ["prepare", "startWindow", "capture", "stopWindow", "afterCapture", "finalize"],
   "providerCommands": [
     {
       "id": "capture-accessibility",
-      "phase": "capture",
+      "phase": "afterCapture",
       "command": "node",
       "cwd": "..",
       "args": [
@@ -34,7 +34,7 @@
     },
     {
       "id": "capture-profiler",
-      "phase": "capture",
+      "phase": "afterCapture",
       "command": "node",
       "cwd": "..",
       "args": [
