@@ -167,6 +167,7 @@ test('script provider examples declare command-backed evidence outputs', () => {
   const expected = new Map([
     ['examples/runners/script-accessibility-provider.json', 'accessibility'],
     ['examples/runners/script-memory-provider.json', 'memory'],
+    ['examples/runners/script-native-performance-provider.json', 'nativePerformance'],
     ['examples/runners/script-network-provider.json', 'network'],
     ['examples/runners/script-profiler-provider.json', 'profiler'],
   ]);

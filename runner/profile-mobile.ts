@@ -69,7 +69,7 @@ type ProfileMobileOptions = {
   provenanceCohort?: Record<string, unknown>;
 };
 type CaptureEvidenceKind = 'screenshot' | 'uiTree' | 'video';
-type ProviderEvidenceKind = 'accessibility' | 'logs' | 'profiler';
+type ProviderEvidenceKind = 'accessibility' | 'logs' | 'nativePerformance' | 'profiler';
 type SignalEvidenceKind = 'js' | 'memory' | 'network';
 type EvidenceChannel = 'capture' | 'provider' | 'signal';
 type EvidenceKind = CaptureEvidenceKind | ProviderEvidenceKind | SignalEvidenceKind;
@@ -242,7 +242,7 @@ type ProfileSessionFreshness = {
   status: 'fresh' | 'missing-app-session' | 'stale';
 };
 const CAPTURE_EVIDENCE_KINDS = new Set(['screenshot', 'uiTree', 'video']);
-const PROVIDER_EVIDENCE_KINDS = new Set(['accessibility', 'logs', 'profiler']);
+const PROVIDER_EVIDENCE_KINDS = new Set(['accessibility', 'logs', 'nativePerformance', 'profiler']);
 const SIGNAL_EVIDENCE_KINDS = new Set(['js', 'memory', 'network']);
 const DEFAULT_PROVIDER_COMMAND_TIMEOUT_MS = 180_000;
 
@@ -1340,6 +1340,7 @@ function diagnosticArtifactAliases(kind: DiagnosticKind): string[] {
     js: ['js', 'profileEvents', 'profileSession'],
     logs: ['logs', 'deviceLog', 'interactionLog'],
     memory: ['memory'],
+    nativePerformance: ['nativePerformance', 'native-performance', 'nativePerf', 'perfetto', 'gfxinfo', 'framestats', 'meminfo'],
     network: ['network'],
     profiler: ['profiler', 'profile'],
     screenshot: ['screenshot', 'screenshots'],
@@ -1362,6 +1363,7 @@ function diagnosticCapabilityAliases(kind: DiagnosticKind): string[] {
     js: ['js', 'profileSession', 'profileEvents'],
     logs: ['logCapture', 'logs', 'deviceLog'],
     memory: ['memory', 'memoryCapture'],
+    nativePerformance: ['nativePerformance', 'native-performance', 'nativePerf', 'nativePerformanceCapture', 'perfetto', 'gfxinfo', 'framestats', 'meminfo'],
     network: ['network', 'networkCapture'],
     profiler: ['profiler', 'profile', 'profilerCapture'],
     screenshot: ['screenshot', 'screenshots'],
@@ -1635,7 +1637,7 @@ function buildDiagnosticInventory({
           }),
     });
   }
-  for (const kind of ['accessibility', 'profiler'] as const) {
+  for (const kind of ['accessibility', 'nativePerformance', 'profiler'] as const) {
     const attachment = attachedEvidence.attachments.find((item) => item.kind === kind);
     pushDiagnostic(kind, {
       ...(attachment?.channel === 'provider' ? { provider: 'evidence-provider' } : {}),

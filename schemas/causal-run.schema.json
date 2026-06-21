@@ -247,7 +247,7 @@
               },
               "kind": {
                 "type": "string",
-                "enum": ["accessibility", "js", "logs", "memory", "network", "profiler", "screenshot", "uiTree", "video"]
+                "enum": ["accessibility", "js", "logs", "memory", "nativePerformance", "network", "profiler", "screenshot", "uiTree", "video"]
               },
               "path": {
                 "type": "string",

@@ -1,0 +1,25 @@
+{
+  "schemaVersion": "1.0.0",
+  "runnerId": "script-native-performance-provider",
+  "kind": "evidenceProvider",
+  "platforms": ["android", "ios"],
+  "capabilities": ["nativePerformance"],
+  "driverActions": ["collectPerfSignals"],
+  "artifactOutputs": ["nativePerformance"],
+  "lifecycle": ["prepare", "startWindow", "capture", "stopWindow", "afterCapture", "finalize"],
+  "providerCommands": [
+    {
+      "id": "capture-native-performance",
+      "phase": "afterCapture",
+      "command": "capture-native-performance",
+      "args": ["--platform", "{platform}", "--run-id", "{runId}", "--out", "{providerDir}/native-performance.json"],
+      "outputs": [
+        {
+          "channel": "provider",
+          "kind": "nativePerformance",
+          "path": "{providerDir}/native-performance.json"
+        }
+      ]
+    }
+  ]
+}
