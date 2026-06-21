@@ -4,6 +4,7 @@ const path = require('node:path');
 type JsonSchema = Record<string, unknown> & {
   $ref?: string;
   allOf?: JsonSchema[];
+  anyOf?: JsonSchema[];
   const?: unknown;
   description?: string;
   else?: JsonSchema;
@@ -88,6 +89,7 @@ const SCHEMAS = {
   liveProofSet: loadSchema('live-proof-set.schema.json'),
   manifest: loadSchema('manifest.schema.json'),
   metrics: loadSchema('metrics.schema.json'),
+  nativePerformance: loadSchema('native-performance.schema.json'),
   profiler: loadSchema('profiler.schema.json'),
   projectValidation: loadSchema('project-validation.schema.json'),
   scenario: loadSchema('scenario.schema.json'),
@@ -275,6 +277,14 @@ function validateSchema(
 
   for (const childSchema of schema.allOf ?? []) {
     validateSchema(value, childSchema, rootSchema, pathSegments, errors);
+  }
+
+  if (schema.anyOf && !schema.anyOf.some((childSchema) => matchesSchema(value, childSchema, rootSchema))) {
+    errors.push({
+      code: 'schema_any_of',
+      path: formatPath(pathSegments),
+      message: 'Expected value to match at least one allowed schema.',
+    });
   }
 
   if ('const' in schema && !Object.is(schema.const, value)) {

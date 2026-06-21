@@ -1419,6 +1419,85 @@ test('profile-android fails health for malformed profiler provider evidence', as
   assert.match(agentSummary, /fix_provider_evidence_output/u);
 });
 
+test('profile-android fails health for malformed native performance provider evidence', async (t: TestContext) => {
+  const artifactRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-android-provider-native-performance-invalid-'));
+  const providerRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-provider-native-performance-invalid-'));
+  t.after(async () => {
+    await fsp.rm(artifactRoot, { recursive: true, force: true });
+    await fsp.rm(providerRoot, { recursive: true, force: true });
+  });
+  const providerScript = path.join(providerRoot, 'write-invalid-native-performance.js');
+  await fsp.writeFile(
+    providerScript,
+    [
+      "const fs = require('node:fs');",
+      "const path = require('node:path');",
+      "const outputPath = process.argv[2];",
+      "fs.mkdirSync(path.dirname(outputPath), { recursive: true });",
+      "fs.writeFileSync(outputPath, JSON.stringify({ frames: { janky: 0 } }) + '\\n');",
+    ].join('\n'),
+    'utf8',
+  );
+  const providerManifestPath = path.join(providerRoot, 'provider.json');
+  await fsp.writeFile(
+    providerManifestPath,
+    `${JSON.stringify({
+      schemaVersion: '1.0.0',
+      runnerId: 'invalid-native-performance-provider',
+      kind: 'evidenceProvider',
+      platforms: ['android'],
+      capabilities: ['nativePerformance'],
+      artifactOutputs: ['nativePerformance'],
+      lifecycle: ['afterCapture'],
+      providerCommands: [
+        {
+          id: 'capture-native-performance',
+          phase: 'afterCapture',
+          command: process.execPath,
+          args: [providerScript, '{providerDir}/native-performance.json'],
+          outputs: [
+            {
+              channel: 'provider',
+              kind: 'nativePerformance',
+              path: '{providerDir}/native-performance.json',
+              required: true,
+            },
+          ],
+        },
+      ],
+    }, null, 2)}\n`,
+    'utf8',
+  );
+
+  const { stdout } = await execFileAsync(process.execPath, [
+    PROFILE_ANDROID,
+    '--config',
+    fixturePath('examples/mobile-app/asl.config.json'),
+    '--scenario',
+    fixturePath('examples/mobile-app/scenarios/android/app-startup.json'),
+    '--events',
+    fixturePath('examples/mobile-app/event-logs/android-app-startup.log'),
+    '--provider',
+    providerManifestPath,
+    '--out',
+    artifactRoot,
+    '--run-id',
+    'android-invalid-native-performance-provider',
+  ]);
+
+  const runDir = stdout.trim();
+  const health = readJson(path.join(runDir, 'health.json')) as Record<string, any>;
+  const verdict = readJson(path.join(runDir, 'verdict.json')) as Record<string, any>;
+  const agentSummary = fs.readFileSync(path.join(runDir, 'agent-summary.md'), 'utf8');
+
+  assert.equal(health.healthStatus, 'failed');
+  assert.equal(health.checks[0].code, 'provider_evidence_invalid');
+  assert.equal(health.checks[0].metadata.providerId, 'invalid-native-performance-provider');
+  assert.equal(health.checks[0].metadata.nextActionCode, 'fix_provider_evidence_output');
+  assert.equal(verdict.verdictStatus, 'inconclusive');
+  assert.match(agentSummary, /fix_provider_evidence_output/u);
+});
+
 test('profile-android marks required provider command outputs as required diagnostics', async (t: TestContext) => {
   const artifactRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-android-provider-required-'));
   const providerRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-provider-required-'));
@@ -1437,7 +1516,21 @@ test('profile-android marks required provider command outputs as required diagno
       "}",
       "fs.writeFileSync(process.argv[2], JSON.stringify({ heapBytes: 1234 }) + '\\n');",
       "fs.writeFileSync(process.argv[3], JSON.stringify({ violations: [] }) + '\\n');",
-      "fs.writeFileSync(process.argv[4], JSON.stringify({ tool: 'gfxinfo', frames: { janky: 0 } }) + '\\n');",
+      "fs.writeFileSync(process.argv[4], JSON.stringify({",
+      "  schemaVersion: '1.0.0',",
+      "  providerId: 'required-diagnostics-provider',",
+      "  platform: 'android',",
+      "  runId: 'android-provider-required',",
+      "  scenarioId: 'app-startup',",
+      "  tool: { name: 'adb', command: 'dumpsys gfxinfo' },",
+      "  captureMode: 'afterCapture',",
+      "  evidenceKind: 'gfxinfo',",
+      "  dataClasses: ['frames', 'jank'],",
+      "  completenessStatus: 'complete',",
+      "  targetBinding: { status: 'verified', deviceId: 'emulator-5554', appId: 'dev.agent-scenario-loop.example' },",
+      "  comparability: { status: 'diagnostic-only', reason: 'Provider evidence was captured after the profile loop.' },",
+      "  frames: { janky: 0 }",
+      "}) + '\\n');",
     ].join('\n'),
     'utf8',
   );
