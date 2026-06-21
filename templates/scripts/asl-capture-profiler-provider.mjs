@@ -80,7 +80,22 @@ function writeProviderEvidence({
 
   writeJsonArtifact(outPath, {
     ...shared,
+    captureMode: 'afterCapture',
     completenessStatus: 'partial',
+    comparability: {
+      status: 'diagnostic-only',
+      reason: 'Scaffold evidence is collected after the profile window and is not comparable timing data.',
+    },
+    dataClasses: ['unknown'],
+    lifecycle: {
+      phase: 'afterCapture',
+      perturbsTiming: false,
+    },
+    profileKind: 'diagnostic-summary',
+    targetBinding: {
+      status: 'unverified',
+      reason: 'Replace this scaffold provider with a project-local profiler that verifies its target device and app.',
+    },
     tool: {
       name: 'agent-scenario-loop scaffold profiler',
       version: '1.0.0',

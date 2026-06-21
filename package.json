@@ -286,8 +286,10 @@
     "profile:ios:open-close": "pnpm build && node dist/runner/profile-ios.js --config core/config-template.json --scenario examples/scenarios/ios/open-close-cycle.json",
     "validate-project": "pnpm build && node dist/runner/validate-project.js"
   },
+  "dependencies": {
+    "@types/node": "^25.9.3"
+  },
   "devDependencies": {
-    "@types/node": "^25.9.3",
     "typescript": "^6.0.3"
   }
 }

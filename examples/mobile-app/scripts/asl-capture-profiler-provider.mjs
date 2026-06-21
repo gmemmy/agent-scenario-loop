@@ -80,11 +80,26 @@ function writeProviderEvidence({
 
   writeJsonArtifact(outPath, {
     ...shared,
+    captureMode: 'afterCapture',
     completenessStatus: 'complete',
+    comparability: {
+      status: 'diagnostic-only',
+      reason: 'Deterministic example evidence is collected after the profile window and is not used for timing budgets.',
+    },
+    dataClasses: ['cpu-samples'],
+    lifecycle: {
+      phase: 'afterCapture',
+      perturbsTiming: false,
+    },
     metrics: {
       commitCount: 0,
       droppedFrameCount: 0,
       jsLongTaskCount: 0,
+    },
+    profileKind: 'diagnostic-summary',
+    targetBinding: {
+      status: 'verified',
+      source: 'example-provider-fixture',
     },
     tool: {
       name: 'agent-scenario-loop deterministic profiler',
