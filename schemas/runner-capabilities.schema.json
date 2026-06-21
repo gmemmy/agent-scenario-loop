@@ -178,7 +178,8 @@
         },
         "phase": {
           "type": "string",
-          "enum": ["prepare", "startWindow", "capture", "stopWindow", "afterCapture", "postRun", "finalize"]
+          "enum": ["prepare", "startWindow", "capture", "stopWindow", "afterCapture", "postRun", "finalize"],
+          "description": "Provider command lifecycle phase. Current profile runners execute capture as a legacy afterCapture alias plus afterCapture and postRun commands; prepare, startWindow, stopWindow, and finalize are reserved for future runners with true lifecycle scheduling."
         },
         "command": {
           "type": "string",
