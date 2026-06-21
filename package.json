@@ -60,7 +60,7 @@
       "default": "./dist/index.js"
     },
     "./app/profile-session": {
-      "types": "./app/profile-session.ts",
+      "types": "./app/profile-session.d.ts",
       "import": "./app/profile-session.ts",
       "require": "./app/profile-session.ts",
       "default": "./app/profile-session.ts"
@@ -203,6 +203,7 @@
     "./package.json": "./package.json"
   },
   "files": [
+    "app/profile-session.d.ts",
     "app/profile-session.ts",
     "core/config-template.json",
     "dist",

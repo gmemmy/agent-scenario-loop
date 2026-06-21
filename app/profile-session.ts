@@ -38,7 +38,7 @@ export type ProfileEventPhase =
   | 'completion';
 export type ProfileEventStatus = 'started' | 'completed' | 'failed' | 'skipped' | 'observed';
 
-type ProfileEventMetadata = {
+export type ProfileEventMetadata = {
   flowId?: string;
   owner?: string;
   phase?: ProfileEventPhase;
@@ -48,7 +48,7 @@ type ProfileEventMetadata = {
   [key: string]: unknown;
 };
 
-type ProfileSignalMetadata = {
+export type ProfileSignalMetadata = {
   flowId?: string;
   owner?: string;
   route?: string;
