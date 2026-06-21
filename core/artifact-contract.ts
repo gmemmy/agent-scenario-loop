@@ -1679,6 +1679,10 @@ function buildManifest({
  */
 function buildSummaryMarkdown({ manifest, metrics }: { manifest: ArtifactRecord; metrics: ArtifactRecord }): string {
   const runtimeLabel = manifest.platform === 'android' ? 'Device' : 'Simulator';
+  const iterationSummary = buildIterationSummary(metrics);
+  const completedCycles = typeof iterationSummary?.completed === 'number'
+    ? iterationSummary.completed
+    : metrics.durationsMs.length;
   const signalLines = [
     `- JS: ${
       manifest.artifacts.signals.js.length > 0
@@ -1744,7 +1748,7 @@ function buildSummaryMarkdown({ manifest, metrics }: { manifest: ArtifactRecord;
     `- ${runtimeLabel}: ${manifest.simulator.name} (${manifest.simulator.udid})`,
     `- Bundle ID: \`${manifest.bundleId}\``,
     `- Iterations: ${metrics.iterations}`,
-    `- Completed cycles: ${metrics.durationsMs.length}/${metrics.iterations}`,
+    `- Completed cycles: ${completedCycles}/${metrics.iterations}`,
     `- Failures: ${metrics.failures}`,
     `- Timeouts: ${metrics.timeouts}`,
     `- p50 cycle: ${metrics.p50Ms === null ? 'n/a' : `${metrics.p50Ms}ms`}`,

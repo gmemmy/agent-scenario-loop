@@ -2159,6 +2159,96 @@ test('profile-android fails health when storage session seed is newer than app s
   );
 });
 
+test('profile-android fails health when storage session seed has no matching app session start', async (t: TestContext) => {
+  const tempRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-android-missing-session-start-'));
+  t.after(async () => {
+    await fsp.rm(tempRoot, { recursive: true, force: true });
+  });
+  const artifactRoot = path.join(tempRoot, 'profile');
+  const adbRoot = path.join(tempRoot, 'adb');
+  const rawDir = path.join(adbRoot, 'raw');
+  await fsp.mkdir(rawDir, { recursive: true });
+  const scenarioPath = path.join(tempRoot, 'missing-session-start.json');
+  await fsp.writeFile(
+    scenarioPath,
+    `${JSON.stringify({
+      schemaVersion: '1.0.0',
+      id: 'missing-session-start',
+      flowId: 'missing-session-start',
+      journey: {
+        name: 'Missing session start',
+        intent: 'Reject app truth that never acknowledged the runner-written session.',
+        actor: 'runner',
+        startState: 'home',
+        endState: 'home',
+      },
+      platforms: ['android'],
+      requiredCapabilities: ['launch', 'sessionControl', 'logCapture', 'artifactWrite'],
+      truthEvents: {
+        done: { event: 'profile_done', required: true, timeoutMs: 1000, phase: 'completion' },
+      },
+      milestones: [
+        { id: 'done', event: 'profile_done', required: true, phase: 'completion' },
+      ],
+      expectedEvents: ['profile_done'],
+      cycles: { iterations: 1, warmupIterations: 0, stopOnFailure: true },
+      budgets: [
+        { name: 'cycle p95', source: 'milestone', metric: 'p95', unit: 'ms', limit: 1000, toMilestone: 'done' },
+        { name: 'failures', source: 'milestone', metric: 'failures', unit: 'count', limit: 0 },
+      ],
+      artifacts: { required: ['logs'], optional: [] },
+    }, null, 2)}\n`,
+    'utf8',
+  );
+  await fsp.writeFile(
+    path.join(rawDir, 'adb-logcat.txt'),
+    [
+      '06-21 18:51:25.000 I/ReactNativeJS(123): [profile-event] {"event":"profile_done","scenario":"missing-session-start","runId":"missing-start-run","atMs":100}',
+      '',
+    ].join('\n'),
+    'utf8',
+  );
+  await fsp.writeFile(
+    path.join(rawDir, 'adb-async-storage-write-1.txt'),
+    [
+      '$ adb -s emulator-5554 shell run-as dev.example sqlite3 databases/RKStorage \'INSERT OR REPLACE INTO catalystLocalStorage (key,value) VALUES (\'agent-scenario-loop.profile-session.1\',\'{"active":true,"scenario":"missing-session-start","runId":"missing-start-run","startedAt":2000}\');\'',
+      'exitCode=0',
+      '',
+    ].join('\n'),
+    'utf8',
+  );
+
+  const { stdout } = await execFileAsync(process.execPath, [
+    PROFILE_ANDROID,
+    '--config',
+    fixturePath('examples/mobile-app/asl.config.json'),
+    '--scenario',
+    scenarioPath,
+    '--adb-artifacts',
+    adbRoot,
+    '--out',
+    artifactRoot,
+    '--run-id',
+    'missing-start-run',
+  ]);
+
+  const runDir = stdout.trim();
+  const metrics = readJson(path.join(runDir, 'metrics.json')) as Record<string, any>;
+  const health = readJson(path.join(runDir, 'health.json')) as Record<string, any>;
+  const verdict = readJson(path.join(runDir, 'verdict.json')) as Record<string, any>;
+
+  assert.equal(metrics.status, 'passed');
+  assert.equal(health.healthStatus, 'failed');
+  assert.equal(verdict.verdictStatus, 'inconclusive');
+  assert.ok(
+    (health.checks as Array<{ code: string; metadata?: Record<string, unknown>; status: string }>).some((check) => (
+      check.code === 'profile_session_start_missing' &&
+      check.status === 'failed' &&
+      check.metadata?.seedStartedAt === 2000
+    )),
+  );
+});
+
 test('profile-android reports adb sidecar screenshots as captured diagnostics', async (t: TestContext) => {
   const tempRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-android-adb-screenshot-'));
   t.after(async () => {
@@ -2768,7 +2858,7 @@ test('profile-android starts profile sessions and executes scenario commands dur
   assert.equal(health.healthStatus, 'passed');
   assert.equal(adbHealth.healthStatus, 'passed');
   assert.equal(deepLinkCount, 7);
-  assert.deepEqual(waits, [500, 125, 250, 300, 300, 300, 300, 300, 300, 1000]);
+  assert.deepEqual(waits, [500, 125, 250, 300, 300, 300, 300, 300, 300, 2800]);
   const firstCommandDeepLink = calls.find((call) => (
     call.includes('profile-session/command') && call.includes('activate-target%3Aexample-card-1')
   ));
@@ -3059,6 +3149,12 @@ test('profile-android derives adb capture waits from scenario execution windows'
     profileSessionEnabled: true,
     scenario: startup,
   }), 25);
+  assert.equal(resolveProfileSessionCaptureWaitMs({
+    args: {},
+    profileSessionEnabled: true,
+    profileSessionStorageEnabled: true,
+    scenario: startup,
+  }), 23000);
   assert.equal(resolveProfileSessionCaptureWaitMs({
     args: {},
     profileSessionEnabled: false,

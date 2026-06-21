@@ -7,6 +7,7 @@ const {
   buildCausalTimeline,
   buildManifest,
   buildMetricsFromProfileEvents,
+  buildSummaryMarkdown,
 } = require('../artifact-contract');
 const { SCHEMAS, validateJson } = require('../schema-validator');
 
@@ -1032,6 +1033,45 @@ test('counts repeated milestone-only cycles without explicit iteration payloads'
   assert.deepEqual(metrics.incompleteIterations, []);
   assert.equal(metrics.failures, 0);
   assert.equal(metrics.budgetEvaluation.pass, false);
+});
+
+test('summarizes repeated milestone-only completions without treating empty durations as zero completed cycles', () => {
+  const metrics = buildMetricsFromProfileEvents({
+    scenario: 'home-feed-scroll-stress',
+    runId: 'android-live-scroll',
+    expectedIterations: 6,
+    cycleEventNames: {
+      milestone: 'home_feed_scroll_settled',
+    },
+    events: [
+      { event: 'home_feed_scroll_settled', atMs: 7939 },
+      { event: 'home_feed_scroll_settled', atMs: 8489 },
+      { event: 'home_feed_scroll_settled', atMs: 9155 },
+      { event: 'home_feed_scroll_settled', atMs: 9458 },
+      { event: 'home_feed_scroll_settled', atMs: 9876 },
+      { event: 'home_feed_scroll_settled', atMs: 10410 },
+    ],
+  });
+  const summary = buildSummaryMarkdown({
+    metrics,
+    manifest: {
+      artifacts: sampleManifestArtifacts(),
+      bundleId: 'com.example.app',
+      interactionDriver: 'android-adb',
+      platform: 'android',
+      runId: 'android-live-scroll',
+      scenario: 'home-feed-scroll-stress',
+      simulator: {
+        name: 'Pixel',
+        udid: 'emulator-5554',
+      },
+      status: 'passed',
+    },
+  });
+
+  assert.equal(metrics.status, 'passed');
+  assert.deepEqual(metrics.durationsMs, []);
+  assert.match(summary, /- Completed cycles: 6\/6/u);
 });
 
 test('counts multi-command milestone-only cycles without explicit iteration payloads', () => {
