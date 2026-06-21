@@ -80,7 +80,7 @@ For concrete runner and evidence-provider integration steps, see [Adapter Onboar
 
 ## App Helper
 
-`agent-scenario-loop/app/profile-session` is shipped as React Native source. Apps can copy `app/profile-session.ts` into their own codebase or re-export the package subpath from an app-local helper module. It is not a compiled CommonJS runtime export because it depends on app-side React Native modules, app bundling, and platform storage behavior.
+`agent-scenario-loop/app/profile-session` is shipped as React Native source with a package-owned declaration file. Apps can copy `app/profile-session.ts` into their own codebase or re-export the package subpath from an app-local helper module. The runtime target remains source because it depends on app-side React Native modules, app bundling, and platform storage behavior; the `types` condition points at `app/profile-session.d.ts` so consumer TypeScript does not need to parse the implementation file from `node_modules`.
 
 The intended integration is:
 

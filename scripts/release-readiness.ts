@@ -36,7 +36,7 @@ const REQUIRED_EXPORTS: Record<string, string | Record<string, string>> = {
   },
   './app/profile-session': {
     require: './app/profile-session.ts',
-    types: './app/profile-session.ts',
+    types: './app/profile-session.d.ts',
     import: './app/profile-session.ts',
     default: './app/profile-session.ts',
   },
@@ -182,6 +182,7 @@ const REQUIRED_PACKAGE_FILES = [
   'LICENSE',
   'README.md',
   'app/profile-session.ts',
+  'app/profile-session.d.ts',
   'core/config-template.json',
   'dist',
   'docs',
