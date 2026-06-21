@@ -10,6 +10,25 @@ const {
 } = require('../artifact-contract');
 const { SCHEMAS, validateJson } = require('../schema-validator');
 
+function sampleDiagnostics() {
+  return [
+    {
+      kind: 'logs',
+      name: 'device-log',
+      status: 'captured',
+      required: true,
+      path: 'raw/device.log',
+      reason: 'Device log evidence was captured.',
+    },
+    {
+      kind: 'video',
+      status: 'not_requested',
+      required: false,
+      reason: 'Scenario did not request this optional diagnostic surface.',
+    },
+  ];
+}
+
 function sampleManifestArtifacts() {
   return {
     causalRun: 'causal-run.json',
@@ -32,6 +51,7 @@ function sampleManifestArtifacts() {
       memory: [],
       network: [],
     },
+    diagnostics: sampleDiagnostics(),
   };
 }
 

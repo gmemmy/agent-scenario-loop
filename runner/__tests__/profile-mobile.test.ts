@@ -96,3 +96,41 @@ test('profile health fails when command sequence fails even if truth metrics pas
   assert.equal(health.checks[1].name, 'profile_command_sequence');
   assert.equal(health.checks[1].status, 'failed');
 });
+
+test('profile health fails when an explicit required diagnostic is unavailable', () => {
+  const health = buildProfileHealth({
+    scenario: {
+      name: 'mobile-required-video',
+      flowId: 'mobile-required-video',
+    },
+    runId: 'mobile-required-video-run',
+    metrics: {
+      failures: 0,
+      status: 'passed',
+      timeouts: 0,
+    },
+    diagnostics: [
+      {
+        kind: 'video',
+        status: 'unavailable',
+        required: true,
+        reason: 'No video capture was produced by the selected runner/provider set.',
+        nextAction: 'Use --capture video:<path> or run a capture provider that records video.',
+      },
+    ],
+  });
+
+  assert.equal(health.healthStatus, 'failed');
+  assert.deepEqual(health.checks[1], {
+    name: 'required_video_diagnostic',
+    status: 'failed',
+    source: 'evidence',
+    code: 'required_diagnostic_not_captured',
+    message: 'No video capture was produced by the selected runner/provider set.',
+    metadata: {
+      kind: 'video',
+      status: 'unavailable',
+      nextAction: 'Use --capture video:<path> or run a capture provider that records video.',
+    },
+  });
+});

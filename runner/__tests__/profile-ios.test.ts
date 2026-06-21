@@ -640,6 +640,16 @@ test('profile-ios can seed and profile stored iOS app truth events', async (t: T
           runId: 'ios-live-startup',
         }));
       manifest['agent-scenario-loop.profile-events.1'] = JSON.stringify(manifest['agent-scenario-loop.profile-events.1']);
+      manifest['agent-scenario-loop.profile-session-entries.1'] = JSON.stringify([
+        {
+          kind: 'command',
+          scenario: 'app-startup',
+          runId: 'ios-live-startup',
+          source: 'storage',
+          status: 'completed',
+          timestamp: Date.now(),
+        },
+      ]);
       fs.writeFileSync(path.join(storageDir, 'manifest.json'), JSON.stringify(manifest), 'utf8');
     },
     executor,
@@ -651,12 +661,34 @@ test('profile-ios can seed and profile stored iOS app truth events', async (t: T
 
   assert.equal(health.healthStatus, 'passed');
   assert.equal(simctlHealth.healthStatus, 'passed');
-  assert.equal((manifest.artifacts as { raw: { deviceLog: string; interactionLog: string } }).raw.interactionLog, 'raw/ios-profile-events.log');
-  assert.equal((manifest.artifacts as { raw: { deviceLog: string; interactionLog: string } }).raw.deviceLog, 'raw/ios-profile-events.log');
+  assert.equal('interactionLog' in (manifest.artifacts as { raw: Record<string, unknown> }).raw, false);
+  assert.equal('deviceLog' in (manifest.artifacts as { raw: Record<string, unknown> }).raw, false);
+  assert.equal((manifest.artifacts as { raw: { profileSessionEntries: string } }).raw.profileSessionEntries, 'raw/ios-profile-session-entries.json');
+  assert.equal('artifact' in (manifest.environment as Record<string, any>).preconditions.lifecyclePhase, false);
+  assert.equal('artifact' in (manifest.environment as Record<string, any>).postconditions.appState, false);
+  assert.equal('artifact' in (manifest.environment as Record<string, any>).postconditions.lifecyclePhase, false);
+  assert.equal(fs.existsSync(path.join(result.runDir, 'raw', 'ios-simctl-log.txt')), false);
+  assert.equal('video' in (manifest.artifacts as { captures: Record<string, unknown> }).captures, false);
+  assert.equal('uiTree' in (manifest.artifacts as { captures: Record<string, unknown> }).captures, false);
+  const diagnostics = (manifest.artifacts as { diagnostics: Array<Record<string, any>> }).diagnostics;
+  const logDiagnostic = diagnostics.find((entry) => entry.kind === 'logs');
+  const jsDiagnostic = diagnostics.find((entry) => entry.kind === 'js');
+  assert.equal(logDiagnostic?.status, 'captured');
+  assert.equal(logDiagnostic?.provider, 'simctl');
+  assert.equal(logDiagnostic?.runnerId, 'ios-simctl');
+  assert.ok(String(logDiagnostic?.sidecarRoot).endsWith('simctl-capture'));
+  assert.ok(String(logDiagnostic?.path).endsWith('simctl-capture/raw/ios-simctl-log.txt'));
+  assert.ok(String(logDiagnostic?.evidenceDependency?.path).endsWith('simctl-capture/raw/ios-simctl-log.txt'));
+  assert.equal(fs.existsSync(path.join(simctlCaptureRoot, 'raw', 'ios-simctl-log.txt')), true);
+  assert.equal(jsDiagnostic?.status, 'captured');
+  assert.equal(jsDiagnostic?.path, 'raw/ios-profile-events.log');
+  assert.equal(jsDiagnostic?.evidenceDependency?.kind, 'profile-session-entries');
+  assert.equal(jsDiagnostic?.evidenceDependency?.path, 'raw/ios-profile-session-entries.json');
   assert.ok(calls.includes('simctl terminate A692ED28-893E-453F-8866-C69331AE757F dev.agent-scenario-loop.example'));
   assert.equal(calls.includes('simctl launch A692ED28-893E-453F-8866-C69331AE757F dev.agent-scenario-loop.example'), false);
   assert.ok(calls.some((call) => call.startsWith('simctl openurl A692ED28-893E-453F-8866-C69331AE757F asl-example://expo-development-client/')));
   assert.ok(fs.existsSync(path.join(result.runDir, 'raw', 'ios-profile-events.log')));
+  assert.ok(fs.existsSync(path.join(result.runDir, 'raw', 'ios-profile-session-entries.json')));
 });
 
 test('profile-ios seeds iOS scenario commands through app storage', async (t: TestContext) => {
