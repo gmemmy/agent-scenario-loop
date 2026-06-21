@@ -1732,7 +1732,7 @@ function buildRequiredDiagnosticHealthChecks(diagnostics: DiagnosticInventoryEnt
 /**
  * Builds scenario health from profile metrics.
  *
- * @param {{scenario: Record<string, unknown>, runId: string, metrics: Record<string, unknown>, diagnostics?: DiagnosticInventoryEntry[], profileEventCount?: number, profileSessionEntryCount?: number, commandTransport?: string, sessionEntries?: Record<string, unknown>[], sessionFreshness?: ProfileSessionFreshness | null}} options
+ * @param {{scenario: Record<string, unknown>, runId: string, metrics: Record<string, unknown>, diagnostics?: DiagnosticInventoryEntry[], profileEventCount?: number, profileSessionEntryCount?: number, commandTransport?: string, sessionEntries?: Record<string, unknown>[], sessionFreshness?: ProfileSessionFreshness | null, sessionFreshnessRequired?: boolean}} options
  * @returns {Record<string, unknown>}
  */
 function buildProfileHealth({
@@ -1745,6 +1745,7 @@ function buildProfileHealth({
   commandTransport,
   sessionEntries = [],
   sessionFreshness = null,
+  sessionFreshnessRequired = false,
 }: {
   scenario: Record<string, any>;
   runId: string;
@@ -1755,6 +1756,7 @@ function buildProfileHealth({
   commandTransport?: string;
   sessionEntries?: Record<string, any>[];
   sessionFreshness?: ProfileSessionFreshness | null;
+  sessionFreshnessRequired?: boolean;
 }): Record<string, unknown> {
   const passed = metrics.status === 'passed';
   const metadata: Record<string, string | number | boolean | null> = {
@@ -1828,7 +1830,7 @@ function buildProfileHealth({
           name: 'profile_session_freshness',
           status: sessionFreshness.status === 'fresh'
             ? 'passed'
-            : sessionFreshness.status === 'missing-app-session'
+            : sessionFreshness.status === 'missing-app-session' && !sessionFreshnessRequired
               ? 'warning'
               : 'failed',
           source: 'runner',
@@ -3597,6 +3599,7 @@ async function runProfileMobile(args: CliArgs, options: ProfileMobileOptions): P
     commandTransport,
     sessionEntries,
     sessionFreshness,
+    sessionFreshnessRequired: options.platform === 'android' && typeof args['adb-artifacts'] === 'string',
   });
   const verdict = buildProfileVerdict({ scenario: profileScenario, runId, health, metrics });
   const agentSummary = buildAgentSummaryMarkdown({ health, verdict, manifest });

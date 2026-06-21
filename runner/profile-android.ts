@@ -46,6 +46,7 @@ type AndroidAsyncStorageWrite = import('./android-adb').AndroidAsyncStorageWrite
 type ScenarioExecutionStep = import('../core/execution-plan').ScenarioExecutionStep;
 
 const PROFILE_SESSION_CAPTURE_BOOTSTRAP_MS = 1000;
+const PROFILE_SESSION_STORAGE_CAPTURE_BOOTSTRAP_MS = 15000;
 const PROFILE_SESSION_CAPTURE_MAX_MS = 120000;
 const PROFILE_SESSION_LOGCAT_MIN_LINES = 1000;
 const PROFILE_SESSION_LOGCAT_MAX_LINES = 20000;
@@ -363,14 +364,35 @@ function readStepWaitMs(step: ScenarioExecutionStep): number {
 }
 
 /**
+ * Sums the command-side pacing and milestone-gate windows the app helper can spend before command evidence appears.
+ *
+ * @param {AndroidAdbProfileCommand[]} commands
+ * @returns {number}
+ */
+function deriveProfileCommandCaptureBudgetMs(commands: AndroidAdbProfileCommand[]): number {
+  return commands.reduce((total, command) => {
+    const waitMs = typeof command.waitMs === 'number' && command.waitMs > 0 ? command.waitMs : 0;
+    const waitTimeoutMs = typeof command.waitTimeoutMs === 'number' && command.waitTimeoutMs > 0
+      ? command.waitTimeoutMs
+      : 0;
+    return total + waitMs + waitTimeoutMs;
+  }, 0);
+}
+
+/**
  * Derives a logcat-backed profile capture window from scenario waits and cycles.
  *
  * @param {Record<string, unknown>} scenario
+ * @param {{bootstrapMs?: number, commands?: AndroidAdbProfileCommand[]}} [options]
  * @returns {number}
  */
-function deriveProfileSessionCaptureWaitMs(scenario: Record<string, any>): number {
+function deriveProfileSessionCaptureWaitMs(
+  scenario: Record<string, any>,
+  options: { bootstrapMs?: number; commands?: AndroidAdbProfileCommand[] } = {},
+): number {
   const executionPlan = buildScenarioExecutionPlan(scenario);
   const iterations = readScenarioIterationCount(scenario);
+  const bootstrapMs = readPositiveInteger(options.bootstrapMs, PROFILE_SESSION_CAPTURE_BOOTSTRAP_MS);
   const perIterationWaitMs = executionPlan.steps.reduce((total: number, step: ScenarioExecutionStep) => {
     if (step.kind === 'command') {
       return total + readStepWaitMs(step);
@@ -380,24 +402,30 @@ function deriveProfileSessionCaptureWaitMs(scenario: Record<string, any>): numbe
     }
     return total;
   }, 0);
-  const derivedWaitMs = PROFILE_SESSION_CAPTURE_BOOTSTRAP_MS + (perIterationWaitMs * iterations);
+  const planWaitMs = perIterationWaitMs * iterations;
+  const commandWaitMs = deriveProfileCommandCaptureBudgetMs(options.commands ?? resolveAndroidAdbProfileCommands(scenario));
+  const derivedWaitMs = bootstrapMs + Math.max(planWaitMs, commandWaitMs);
 
-  return Math.min(Math.max(derivedWaitMs, PROFILE_SESSION_CAPTURE_BOOTSTRAP_MS), PROFILE_SESSION_CAPTURE_MAX_MS);
+  return Math.min(Math.max(derivedWaitMs, bootstrapMs), PROFILE_SESSION_CAPTURE_MAX_MS);
 }
 
 /**
  * Resolves the Android adb capture wait, keeping explicit CLI waits authoritative.
  *
- * @param {{args: import('./profile-mobile').CliArgs, scenario: Record<string, unknown>, profileSessionEnabled: boolean}} options
+ * @param {{args: import('./profile-mobile').CliArgs, commands?: AndroidAdbProfileCommand[], scenario: Record<string, unknown>, profileSessionEnabled: boolean, profileSessionStorageEnabled?: boolean}} options
  * @returns {number}
  */
 function resolveProfileSessionCaptureWaitMs({
   args,
+  commands,
   profileSessionEnabled,
+  profileSessionStorageEnabled = false,
   scenario,
 }: {
   args: import('./profile-mobile').CliArgs;
+  commands?: AndroidAdbProfileCommand[];
   profileSessionEnabled: boolean;
+  profileSessionStorageEnabled?: boolean;
   scenario: Record<string, any>;
 }): number {
   const explicitWaitMs = readScalarArg(args['wait-ms']);
@@ -405,7 +433,16 @@ function resolveProfileSessionCaptureWaitMs({
     return parsePositiveInteger(explicitWaitMs, 0);
   }
 
-  return profileSessionEnabled ? deriveProfileSessionCaptureWaitMs(scenario) : 0;
+  if (!profileSessionEnabled) {
+    return 0;
+  }
+
+  return deriveProfileSessionCaptureWaitMs(scenario, {
+    bootstrapMs: profileSessionStorageEnabled
+      ? PROFILE_SESSION_STORAGE_CAPTURE_BOOTSTRAP_MS
+      : PROFILE_SESSION_CAPTURE_BOOTSTRAP_MS,
+    ...(commands ? { commands } : {}),
+  });
 }
 
 /**
@@ -1150,7 +1187,9 @@ async function runProfileAndroid(
         storageWrites: profileSessionStorageWrites,
         waitMs: resolveProfileSessionCaptureWaitMs({
           args,
+          commands: profileSessionCommands,
           profileSessionEnabled,
+          profileSessionStorageEnabled,
           scenario,
         }),
       })
