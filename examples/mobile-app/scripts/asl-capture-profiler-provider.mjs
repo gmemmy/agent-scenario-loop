@@ -80,6 +80,16 @@ function writeProviderEvidence({
 
   writeJsonArtifact(outPath, {
     ...shared,
+    completenessStatus: 'complete',
+    metrics: {
+      commitCount: 0,
+      droppedFrameCount: 0,
+      jsLongTaskCount: 0,
+    },
+    tool: {
+      name: 'agent-scenario-loop deterministic profiler',
+      version: '1.0.0',
+    },
     samples: [],
     summary: 'Deterministic example profiler evidence for package and consumer rehearsal.',
   });

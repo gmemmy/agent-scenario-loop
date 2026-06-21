@@ -195,6 +195,8 @@ Provider manifests can also declare `providerCommands`. Profile runners execute 
 
 The `examples/runners/script-*.json` manifests show package-neutral wrappers for accessibility, profiler, memory, and network evidence. They intentionally reference placeholder commands such as `capture-accessibility` or `capture-memory`; replace those with your project-local script, binary, or agent command. The contract that matters is the declared output path and evidence kind, not the specific tool used to create the file.
 
+For React Native profiling, prefer a provider that emits both the raw profiler export and a structured JSON summary. JSON outputs with `kind: "profiler"` are validated against ASL's profiler evidence schema, so include the provider id, platform, run id, scenario id, tool metadata, completeness status, and at least one content surface such as samples, metrics, events, traces, a profile object, summary, or attachment references. If your profiler only produces a native trace or flamegraph, attach it as preserved evidence and avoid making performance claims until a provider translates the relevant facts into structured metrics.
+
 ## Artifacts
 
 A completed profile run should leave the standard artifact set:

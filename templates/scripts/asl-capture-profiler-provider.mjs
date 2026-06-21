@@ -80,6 +80,11 @@ function writeProviderEvidence({
 
   writeJsonArtifact(outPath, {
     ...shared,
+    completenessStatus: 'partial',
+    tool: {
+      name: 'agent-scenario-loop scaffold profiler',
+      version: '1.0.0',
+    },
     samples: [],
     summary: 'Replace this scaffold provider with a project-local profiler command when real profiler data is available.',
   });

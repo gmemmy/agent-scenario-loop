@@ -393,6 +393,37 @@ test('accepts required provider command outputs', () => {
   assert.deepEqual(result.errors, []);
 });
 
+test('validates structured profiler evidence envelopes', () => {
+  const result = validateJson({
+    schemaVersion: '1.0.0',
+    providerId: 'rn-profiler',
+    platform: 'ios',
+    runId: 'profile-run',
+    scenarioId: 'startup',
+    tool: {
+      name: 'react-native-profiler',
+      version: '1.0.0',
+    },
+    completenessStatus: 'complete',
+    metrics: {
+      commitCount: 12,
+      jsLongTaskCount: 1,
+    },
+    samples: [],
+  }, SCHEMAS.profiler, 'Profiler evidence artifact');
+
+  assert.equal(result.valid, true, result.message);
+});
+
+test('rejects profiler evidence without source and content envelope', () => {
+  const result = validateJson({
+    samples: [],
+  }, SCHEMAS.profiler, 'Profiler evidence artifact');
+
+  assert.equal(result.valid, false);
+  assert.ok(result.errors.some((error: ValidationIssue) => error.path === '$.providerId'));
+});
+
 test('rejects invalid scenario cycle counts', () => {
   const scenario = readJson('examples/scenarios/mobile/open-close-cycle.json');
   scenario.cycles.iterations = 0;

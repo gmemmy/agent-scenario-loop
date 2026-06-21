@@ -101,6 +101,7 @@ type EvidenceAttachmentInput = {
   destinationPath: string;
   kind: EvidenceKind;
   manifestPath: string;
+  providerId?: string;
   required?: boolean;
   sourcePath: string;
 };
@@ -459,6 +460,7 @@ function buildProviderEvidenceInput({
       destinationPath: path.join(layout.signals[kind], fileName),
       kind,
       manifestPath: `signals/${kind}/${fileName}`,
+      providerId,
       ...(typeof output.required === 'boolean' ? { required: output.required } : {}),
       sourcePath,
     };
@@ -474,6 +476,7 @@ function buildProviderEvidenceInput({
       destinationPath: path.join(layout.captures, fileName),
       kind: output.kind as CaptureEvidenceKind,
       manifestPath: `captures/${fileName}`,
+      providerId,
       ...(typeof output.required === 'boolean' ? { required: output.required } : {}),
       sourcePath,
     };
@@ -488,9 +491,39 @@ function buildProviderEvidenceInput({
     destinationPath: path.join(layout.raw, 'providers', providerId, fileName),
     kind: output.kind,
     manifestPath: `raw/providers/${providerId}/${fileName}`,
+    providerId,
     ...(typeof output.required === 'boolean' ? { required: output.required } : {}),
     sourcePath,
   };
+}
+
+/**
+ * Validates structured profiler evidence when a provider emits JSON.
+ *
+ * Native traces and flamegraph files may be attached as profiler evidence, but
+ * JSON profiler files must carry enough envelope metadata for agents to reason
+ * about source, target, and completeness.
+ *
+ * @param {{kind: EvidenceKind, sourcePath: string}} options
+ * @returns {void}
+ */
+function validateStructuredProfilerEvidence({
+  kind,
+  sourcePath,
+}: {
+  kind: EvidenceKind;
+  sourcePath: string;
+}): void {
+  if (kind !== 'profiler' || path.extname(sourcePath).toLowerCase() !== '.json') {
+    return;
+  }
+
+  try {
+    assertValidJson(readJson(sourcePath), SCHEMAS.profiler, 'Profiler evidence artifact');
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new Error(`Profiler evidence artifact is invalid: ${sourcePath}. ${detail}`);
+  }
 }
 
 /**
@@ -723,6 +756,8 @@ async function resolveAttachedEvidence({
     if (destinationPaths.has(destinationPath)) {
       throw new Error(`Duplicate evidence artifact destination: ${manifestPath}`);
     }
+
+    validateStructuredProfilerEvidence({ kind, sourcePath });
 
     destinationPaths.add(destinationPath);
     const attachment = {
@@ -2621,7 +2656,54 @@ async function runProfileMobile(args: CliArgs, options: ProfileMobileOptions): P
     };
   }
 
-  const attachedEvidence = await resolveAttachedEvidence({ args, layout, providerInputs: providerExecution.inputs });
+  let attachedEvidence: AttachedEvidence;
+  try {
+    attachedEvidence = await resolveAttachedEvidence({ args, layout, providerInputs: providerExecution.inputs });
+  } catch (error) {
+    const providerInput = providerExecution.inputs.find((input) => error instanceof Error && error.message.includes(input.sourcePath));
+    const health = buildProviderCommandFailureHealth({
+      failures: [
+        {
+          commandId: 'provider-evidence',
+          code: 'provider_evidence_invalid',
+          exitCode: null,
+          message: error instanceof Error ? error.message : String(error),
+          name: 'evidence_provider_output_valid',
+          nextAction: 'Fix the provider output so it satisfies the ASL evidence contract, then rerun the profile.',
+          nextActionCode: 'fix_provider_evidence_output',
+          phase: 'afterCapture',
+          providerId: providerInput?.providerId ?? 'unknown-provider',
+          ...(providerInput?.manifestPath ? { rawPath: providerInput.manifestPath } : {}),
+        },
+      ],
+      runId,
+      scenario: profileScenario,
+    });
+    const verdict = buildProfileVerdict({ scenario: profileScenario, runId, health, metrics: {} });
+    const agentSummary = buildAgentSummaryMarkdown({ health, verdict });
+    await writeJsonArtifact({
+      filePath: layout.health,
+      value: health,
+      schema: SCHEMAS.health,
+      label: 'Health artifact',
+    });
+    await writeJsonArtifact({
+      filePath: layout.verdict,
+      value: verdict,
+      schema: SCHEMAS.verdict,
+      label: 'Verdict artifact',
+    });
+    await writeTextArtifact({
+      filePath: layout.agentSummary,
+      content: agentSummary,
+    });
+
+    return {
+      runDir,
+      health,
+      verdict,
+    };
+  }
 
   const eventLogText = eventLogPath ? await fsp.readFile(eventLogPath, 'utf8') : '';
   const evidenceFilterRunId = resolveEvidenceFilterRunId({
