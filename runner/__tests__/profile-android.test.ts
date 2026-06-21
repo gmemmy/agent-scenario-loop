@@ -165,6 +165,7 @@ test('profile-android writes artifacts from fixture event logs', async (t: TestC
 
   const runDir = stdout.trim();
   const manifest = readJson(path.join(runDir, 'manifest.json')) as Record<string, any>;
+  const runPlan = readJson(path.join(runDir, 'run-plan.json')) as Record<string, any>;
   const causalRun = readJson(path.join(runDir, 'causal-run.json'));
   const health = readJson(path.join(runDir, 'health.json')) as Record<string, any>;
   const verdict = readJson(path.join(runDir, 'verdict.json')) as Record<string, any>;
@@ -172,6 +173,38 @@ test('profile-android writes artifacts from fixture event logs', async (t: TestC
   const profileSummary = fs.readFileSync(path.join(runDir, 'summary.md'), 'utf8');
 
   assert.equal(runDir, path.join(artifactRoot, 'app-startup', 'android-example-startup'));
+  assert.deepEqual(runPlan, {
+    artifactVersion: '1.0.0',
+    runId: 'android-example-startup',
+    scenarioId: 'app-startup',
+    scenarioHash: manifest.scenarioHash,
+    platform: 'android',
+    inputMode: 'fixture-event-log',
+    artifactRoot,
+    runDir,
+    interactionDriver: 'fixture-log-ingest',
+    expectedIterations: 1,
+    milestoneEventsPerIteration: 1,
+    commandTransport: 'fixture-log-ingest',
+    providers: [],
+    requestedDiagnostics: {
+      required: [],
+      optional: [],
+    },
+    scenarioShape: {
+      budgets: 0,
+      steps: 0,
+      stepKinds: [],
+      waitForMilestones: [],
+    },
+    evidenceSources: {
+      events: 'examples/mobile-app/event-logs/android-app-startup.log',
+      adbCapture: false,
+      simctlCapture: false,
+      signals: 0,
+      captures: 0,
+    },
+  });
   assert.equal(manifest.platform, 'android');
   assert.equal(typeof manifest.scenarioHash, 'string');
   assert.match(manifest.scenarioHash, /^[a-f0-9]{64}$/u);
@@ -1671,9 +1704,13 @@ test('profile-android writes failed health when an evidence provider command fai
   const runDir = stdout.trim();
   const health = readJson(path.join(runDir, 'health.json'));
   const verdict = readJson(path.join(runDir, 'verdict.json'));
+  const runPlan = readJson(path.join(runDir, 'run-plan.json')) as Record<string, any>;
   const summary = fs.readFileSync(path.join(runDir, 'agent-summary.md'), 'utf8');
   const commandRecord = readJson(path.join(runDir, 'raw', 'provider-commands', 'failing-provider-capture-accessibility.json'));
 
+  assert.equal(runPlan.inputMode, 'fixture-event-log');
+  assert.deepEqual(runPlan.providers, [{ path: 'provider.json' }]);
+  assert.deepEqual(runPlan.requestedDiagnostics, { required: [], optional: [] });
   assert.equal(health.healthStatus, 'failed');
   assert.equal(verdict.verdictStatus, 'inconclusive');
   assert.equal(commandRecord.exitCode, 7);

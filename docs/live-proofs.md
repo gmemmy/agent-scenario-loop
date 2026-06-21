@@ -346,6 +346,10 @@ Package smoke and consumer rehearsal keep child commands bounded so package-mana
 ASL_PACKAGE_GATE_TIMEOUT_MS=300000 pnpm release:check
 ```
 
+## Run Plan First
+
+Profile runs write `run-plan.json` before provider commands, evidence ingest, and final health classification. Inspect it first when a live loop stalls or fails early: it records the scenario id, scenario hash, input mode (`fixture-event-log`, `adb-sidecar`, `simctl-sidecar`, or live capture), expected iterations, command transport, provider manifests, requested diagnostics, and evidence source paths. The profile CLIs also print a compact run-plan heartbeat to stderr while keeping stdout reserved for the run directory.
+
 ## Side References
 
 - [Consumer App Rehearsal](consumer-rehearsal.md) for adoption inside an existing app

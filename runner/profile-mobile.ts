@@ -31,6 +31,7 @@ type CliArgs = {
   events?: string | boolean;
   out?: string | boolean;
   provider?: CliArgValue;
+  'profile-session-entries'?: string | boolean;
   'run-id'?: string | boolean;
   signal?: CliArgValue;
   [key: string]: CliArgValue | undefined;
@@ -174,6 +175,44 @@ type ProviderCommandExecution = {
   inputs: EvidenceAttachmentInput[];
   providers: Array<{ name: string; version?: string }>;
 };
+type ProfileRunPlan = {
+  artifactVersion: '1.0.0';
+  runId: string;
+  scenarioId: string;
+  scenarioHash: string;
+  platform: ProfilePlatform;
+  inputMode: string;
+  artifactRoot: string;
+  runDir: string;
+  interactionDriver: string;
+  comparisonLane?: string;
+  expectedIterations: number;
+  milestoneEventsPerIteration: number;
+  commandTransport: string;
+  providers: Array<{
+    path: string;
+  }>;
+  requestedDiagnostics: {
+    required: string[];
+    optional: string[];
+  };
+  scenarioShape: {
+    budgets: number;
+    steps: number;
+    stepKinds: string[];
+    waitForMilestones: string[];
+  };
+  evidenceSources: {
+    events?: string;
+    profileSessionEntries?: string;
+    adbArtifacts?: string;
+    simctlArtifacts?: string;
+    adbCapture: boolean;
+    simctlCapture: boolean;
+    signals: number;
+    captures: number;
+  };
+};
 type ExecFileError = Error & {
   code?: number;
 };
@@ -307,6 +346,16 @@ function readRepeatableArgValues(args: CliArgs, key: string): string[] {
 
     return entry;
   });
+}
+
+/**
+ * Reads whether a boolean-style CLI flag was supplied.
+ *
+ * @param {CliArgValue | undefined} value
+ * @returns {boolean}
+ */
+function isEnabled(value: CliArgValue | undefined): boolean {
+  return value === true || value === 'true';
 }
 
 /**
@@ -900,6 +949,173 @@ function toPortablePathReference(targetPath: string): string {
   }
 
   return path.basename(targetPath);
+}
+
+/**
+ * Resolves the evidence input mode before profile parsing starts.
+ *
+ * @param {{args: CliArgs, platform: ProfilePlatform}} options
+ * @returns {string}
+ */
+function resolveProfileInputMode({ args, platform }: { args: CliArgs; platform: ProfilePlatform }): string {
+  if (typeof args.events === 'string') {
+    return 'fixture-event-log';
+  }
+
+  if (platform === 'android') {
+    if (typeof args['adb-artifacts'] === 'string') {
+      return 'adb-sidecar';
+    }
+    if (isEnabled(args['adb-capture'])) {
+      return 'adb-live-capture';
+    }
+  }
+
+  if (typeof args['simctl-artifacts'] === 'string') {
+    return 'simctl-sidecar';
+  }
+  if (isEnabled(args['simctl-capture'])) {
+    return 'simctl-live-capture';
+  }
+
+  return 'no-profile-evidence';
+}
+
+/**
+ * Reads unique scenario step kinds for early operator visibility.
+ *
+ * @param {Record<string, unknown>} scenario
+ * @returns {string[]}
+ */
+function readScenarioStepKinds(scenario: Record<string, unknown>): string[] {
+  if (!Array.isArray(scenario.steps)) {
+    return [];
+  }
+
+  return Array.from(new Set(scenario.steps
+    .filter(isRecord)
+    .map((step) => step.kind)
+    .filter((kind): kind is string => typeof kind === 'string')))
+    .sort();
+}
+
+/**
+ * Reads wait milestone ids from scenario steps.
+ *
+ * @param {Record<string, unknown>} scenario
+ * @returns {string[]}
+ */
+function readScenarioWaitMilestones(scenario: Record<string, unknown>): string[] {
+  if (!Array.isArray(scenario.steps)) {
+    return [];
+  }
+
+  return Array.from(new Set(scenario.steps
+    .filter(isRecord)
+    .filter((step) => step.kind === 'waitForMilestone')
+    .map((step) => step.milestone)
+    .filter((milestone): milestone is string => typeof milestone === 'string')))
+    .sort();
+}
+
+/**
+ * Builds the early run plan artifact before provider commands or event parsing.
+ *
+ * @param {{args: CliArgs, artifactRoot: string, comparisonLane?: string | undefined, expectedIterations: number, interactionDriver: string, layout: ReturnType<typeof createArtifactLayout>, milestoneEventsPerIteration: number, options: ProfileMobileOptions, profileScenario: Record<string, unknown>, runDir: string, runId: string, scenarioHash: string, scenarioPath: string}} options
+ * @returns {ProfileRunPlan}
+ */
+function buildProfileRunPlan({
+  args,
+  artifactRoot,
+  comparisonLane,
+  expectedIterations,
+  interactionDriver,
+  layout,
+  milestoneEventsPerIteration,
+  options,
+  profileScenario,
+  runDir,
+  runId,
+  scenarioHash,
+  scenarioPath,
+}: {
+  args: CliArgs;
+  artifactRoot: string;
+  comparisonLane?: string | undefined;
+  expectedIterations: number;
+  interactionDriver: string;
+  layout: ReturnType<typeof createArtifactLayout>;
+  milestoneEventsPerIteration: number;
+  options: ProfileMobileOptions;
+  profileScenario: Record<string, unknown>;
+  runDir: string;
+  runId: string;
+  scenarioHash: string;
+  scenarioPath: string;
+}): ProfileRunPlan {
+  return {
+    artifactVersion: '1.0.0',
+    runId,
+    scenarioId: resolveProfileScenarioName({ scenario: profileScenario, scenarioPath }),
+    scenarioHash,
+    platform: options.platform,
+    inputMode: resolveProfileInputMode({ args, platform: options.platform }),
+    artifactRoot,
+    runDir,
+    interactionDriver,
+    ...(comparisonLane ? { comparisonLane } : {}),
+    expectedIterations,
+    milestoneEventsPerIteration,
+    commandTransport: resolveCommandTransport({ args, interactionDriver, options }),
+    providers: readRepeatableArgValues(args, 'provider').map((providerPath) => ({
+      path: toPortablePathReference(path.resolve(providerPath)),
+    })),
+    requestedDiagnostics: {
+      required: Array.from(readScenarioStringSet(profileScenario, ['artifacts', 'required'])).sort(),
+      optional: Array.from(readScenarioStringSet(profileScenario, ['artifacts', 'optional'])).sort(),
+    },
+    scenarioShape: {
+      budgets: Array.isArray(profileScenario.budgets) ? profileScenario.budgets.length : 0,
+      steps: Array.isArray(profileScenario.steps) ? profileScenario.steps.length : 0,
+      stepKinds: readScenarioStepKinds(profileScenario),
+      waitForMilestones: readScenarioWaitMilestones(profileScenario),
+    },
+    evidenceSources: {
+      ...(typeof args.events === 'string' ? { events: toPortablePathReference(path.resolve(args.events)) } : {}),
+      ...(typeof args['profile-session-entries'] === 'string'
+        ? { profileSessionEntries: toPortablePathReference(path.resolve(args['profile-session-entries'])) }
+        : {}),
+      ...(typeof args['adb-artifacts'] === 'string'
+        ? { adbArtifacts: toPortablePathReference(path.resolve(args['adb-artifacts'])) }
+        : {}),
+      ...(typeof args['simctl-artifacts'] === 'string'
+        ? { simctlArtifacts: toPortablePathReference(path.resolve(args['simctl-artifacts'])) }
+        : {}),
+      adbCapture: isEnabled(args['adb-capture']),
+      simctlCapture: isEnabled(args['simctl-capture']),
+      signals: readRepeatableArgValues(args, 'signal').length,
+      captures: readRepeatableArgValues(args, 'capture').length,
+    },
+  };
+}
+
+/**
+ * Writes the early profile run plan artifact and a compact status heartbeat.
+ *
+ * @param {{layout: ReturnType<typeof createArtifactLayout>, plan: ProfileRunPlan}} options
+ * @returns {Promise<void>}
+ */
+async function writeProfileRunPlan({
+  layout,
+  plan,
+}: {
+  layout: ReturnType<typeof createArtifactLayout>;
+  plan: ProfileRunPlan;
+}): Promise<void> {
+  await fsp.writeFile(layout.runPlan, `${JSON.stringify(plan, null, 2)}\n`, 'utf8');
+  process.stderr.write(
+    `profile run plan: ${plan.platform}/${plan.scenarioId} mode=${plan.inputMode} providers=${plan.providers.length} requiredDiagnostics=${plan.requestedDiagnostics.required.length} runPlan=${path.relative(process.cwd(), layout.runPlan)}\n`,
+  );
 }
 
 /**
@@ -2616,6 +2832,22 @@ async function runProfileMobile(args: CliArgs, options: ProfileMobileOptions): P
   await ensureDir(layout.signals.js);
   await ensureDir(layout.signals.memory);
   await ensureDir(layout.signals.network);
+  const runPlan = buildProfileRunPlan({
+    args,
+    artifactRoot,
+    comparisonLane,
+    expectedIterations,
+    interactionDriver,
+    layout,
+    milestoneEventsPerIteration,
+    options,
+    profileScenario,
+    runDir,
+    runId,
+    scenarioHash,
+    scenarioPath,
+  });
+  await writeProfileRunPlan({ layout, plan: runPlan });
   const providerExecution = await executeProviderCommands({
     args,
     layout,
