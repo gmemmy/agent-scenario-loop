@@ -204,6 +204,7 @@ function parseKeyValueProfileSessionEntry(payload: string): ProfileSessionEntry 
   }
 
   const timestamp = coerceNumber(entry.timestamp);
+  const startedAt = coerceNumber(entry.startedAt);
   const atMs = coerceNumber(entry.atMs);
   const sequence = coerceNumber(entry.sequence);
   const waitMs = coerceNumber(entry.waitMs);
@@ -213,6 +214,9 @@ function parseKeyValueProfileSessionEntry(payload: string): ProfileSessionEntry 
   }
   if (timestamp !== null) {
     entry.timestamp = timestamp;
+  }
+  if (startedAt !== null) {
+    entry.startedAt = startedAt;
   }
   if (sequence !== null) {
     entry.sequence = sequence;
@@ -603,9 +607,13 @@ function buildMetricsFromProfileEvents({
       ) &&
       record.milestoneAt >= 0;
 
-    if (hasMilestoneDuration) {
+    if (hasMilestoneDuration && expectedIterations === 1) {
       durationsMs.push(roundMs(record.milestoneAt));
       openDurationsMs.push(roundMs(record.milestoneAt));
+    } else if (hasMilestoneDuration) {
+      // Repeated completion-only milestones prove that cycles finished, but
+      // their atMs values are positions on the session timeline, not per-cycle
+      // latency samples. Repeated latency budgets need explicit interval anchors.
     } else if (hasCycleDuration) {
       durationsMs.push(roundMs(record.dismissedAt - record.presentRequestedAt));
     }

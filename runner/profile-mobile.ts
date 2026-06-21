@@ -230,6 +230,17 @@ type ProfileRunPlan = {
     captures: number;
   };
 };
+type ProfileSessionSeed = {
+  runId: string;
+  scenario: string;
+  startedAt: number;
+};
+type ProfileSessionFreshness = {
+  appStartedAt?: number;
+  reason?: string;
+  seed: ProfileSessionSeed;
+  status: 'fresh' | 'missing-app-session' | 'stale';
+};
 const CAPTURE_EVIDENCE_KINDS = new Set(['screenshot', 'uiTree', 'video']);
 const PROVIDER_EVIDENCE_KINDS = new Set(['accessibility', 'logs', 'profiler']);
 const SIGNAL_EVIDENCE_KINDS = new Set(['js', 'memory', 'network']);
@@ -1674,7 +1685,7 @@ function buildRequiredDiagnosticHealthChecks(diagnostics: DiagnosticInventoryEnt
 /**
  * Builds scenario health from profile metrics.
  *
- * @param {{scenario: Record<string, unknown>, runId: string, metrics: Record<string, unknown>, diagnostics?: DiagnosticInventoryEntry[], profileEventCount?: number, profileSessionEntryCount?: number, commandTransport?: string, sessionEntries?: Record<string, unknown>[]}} options
+ * @param {{scenario: Record<string, unknown>, runId: string, metrics: Record<string, unknown>, diagnostics?: DiagnosticInventoryEntry[], profileEventCount?: number, profileSessionEntryCount?: number, commandTransport?: string, sessionEntries?: Record<string, unknown>[], sessionFreshness?: ProfileSessionFreshness | null}} options
  * @returns {Record<string, unknown>}
  */
 function buildProfileHealth({
@@ -1686,6 +1697,7 @@ function buildProfileHealth({
   profileSessionEntryCount,
   commandTransport,
   sessionEntries = [],
+  sessionFreshness = null,
 }: {
   scenario: Record<string, any>;
   runId: string;
@@ -1695,6 +1707,7 @@ function buildProfileHealth({
   profileSessionEntryCount?: number;
   commandTransport?: string;
   sessionEntries?: Record<string, any>[];
+  sessionFreshness?: ProfileSessionFreshness | null;
 }): Record<string, unknown> {
   const passed = metrics.status === 'passed';
   const metadata: Record<string, string | number | boolean | null> = {
@@ -1762,7 +1775,39 @@ function buildProfileHealth({
   const commandChecksPassed = commandChecks.every((check) => check.status === 'passed');
   const diagnosticChecks = buildRequiredDiagnosticHealthChecks(diagnostics);
   const diagnosticChecksPassed = diagnosticChecks.every((check) => check.status === 'passed');
-  const healthPassed = passed && commandChecksPassed && diagnosticChecksPassed;
+  const sessionFreshnessChecks = sessionFreshness
+    ? [
+        {
+          name: 'profile_session_freshness',
+          status: sessionFreshness.status === 'fresh'
+            ? 'passed'
+            : sessionFreshness.status === 'missing-app-session'
+              ? 'warning'
+              : 'failed',
+          source: 'runner',
+          code: sessionFreshness.status === 'fresh'
+            ? 'profile_session_fresh'
+            : sessionFreshness.status === 'missing-app-session'
+              ? 'profile_session_start_missing'
+              : 'profile_session_stale',
+          message: sessionFreshness.status === 'fresh'
+            ? 'App-side profile-session start matched the runner-written session seed.'
+            : sessionFreshness.reason ?? 'App-side profile-session evidence did not match the runner-written session seed.',
+          metadata: {
+            appStartedAt: sessionFreshness.appStartedAt ?? null,
+            nextAction: sessionFreshness.status === 'fresh'
+              ? 'No action required.'
+              : 'Clear stale app/session state, reload the expected app bundle, and rerun before treating profile events or metrics as product evidence.',
+            nextActionCode: sessionFreshness.status === 'fresh'
+              ? 'none'
+              : 'rerun_with_fresh_profile_session',
+            seedStartedAt: sessionFreshness.seed.startedAt,
+          },
+        },
+      ]
+    : [];
+  const sessionFreshnessChecksPassed = sessionFreshnessChecks.every((check) => check.status !== 'failed');
+  const healthPassed = passed && commandChecksPassed && diagnosticChecksPassed && sessionFreshnessChecksPassed;
 
   return assertValidJson(
     {
@@ -1782,6 +1827,7 @@ function buildProfileHealth({
             : 'Profile events did not complete every expected iteration.',
           metadata,
         },
+        ...sessionFreshnessChecks,
         ...commandChecks,
         ...diagnosticChecks,
       ],
@@ -2126,6 +2172,193 @@ function resolveProfileSessionEntriesPath({ args, platform }: { args: CliArgs; p
   }
 
   return null;
+}
+
+/**
+ * Reads one JSON object candidate from raw command text.
+ *
+ * @param {string} text
+ * @returns {Record<string, unknown>[]}
+ */
+function parseJsonObjectsFromText(text: string): Record<string, unknown>[] {
+  const matches = text.match(/\{[^{}\n]*\}/gu) ?? [];
+  const objects: Record<string, unknown>[] = [];
+  for (const match of matches) {
+    try {
+      const parsed = JSON.parse(match);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        objects.push(parsed as Record<string, unknown>);
+      }
+    } catch {
+      // Raw command files can contain shell syntax around JSON payloads.
+    }
+  }
+
+  return objects;
+}
+
+/**
+ * Reads an Android profile-session seed from adb AsyncStorage raw artifacts.
+ *
+ * @param {{sidecarRoot: string, runId: string, scenarioName: string}} options
+ * @returns {ProfileSessionSeed | null}
+ */
+function readAndroidProfileSessionSeed({
+  runId,
+  scenarioName,
+  sidecarRoot,
+}: {
+  runId: string;
+  scenarioName: string;
+  sidecarRoot: string;
+}): ProfileSessionSeed | null {
+  const rawDir = path.resolve(sidecarRoot, 'raw');
+  if (!fs.existsSync(rawDir)) {
+    return null;
+  }
+
+  for (const fileName of fs.readdirSync(rawDir).filter((entry: string) => /^adb-async-storage-write-\d+\.txt$/u.test(entry)).sort()) {
+    const rawText = fs.readFileSync(path.join(rawDir, fileName), 'utf8');
+    for (const candidate of parseJsonObjectsFromText(rawText)) {
+      if (
+        candidate.runId === runId &&
+        candidate.scenario === scenarioName &&
+        typeof candidate.startedAt === 'number' &&
+        Number.isFinite(candidate.startedAt)
+      ) {
+        return {
+          runId,
+          scenario: scenarioName,
+          startedAt: candidate.startedAt,
+        };
+      }
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Reads an iOS profile-session seed from simctl storage artifacts.
+ *
+ * @param {{sidecarRoot: string, runId: string, scenarioName: string}} options
+ * @returns {ProfileSessionSeed | null}
+ */
+function readIosProfileSessionSeed({
+  runId,
+  scenarioName,
+  sidecarRoot,
+}: {
+  runId: string;
+  scenarioName: string;
+  sidecarRoot: string;
+}): ProfileSessionSeed | null {
+  const seedPath = path.resolve(sidecarRoot, 'raw', 'ios-profile-session-seed.json');
+  const seed = readOptionalJsonObject(seedPath);
+  const session = seed?.session;
+  if (!session || typeof session !== 'object' || Array.isArray(session)) {
+    return null;
+  }
+
+  const record = session as Record<string, unknown>;
+  if (
+    record.runId === runId &&
+    record.scenario === scenarioName &&
+    typeof record.startedAt === 'number' &&
+    Number.isFinite(record.startedAt)
+  ) {
+    return {
+      runId,
+      scenario: scenarioName,
+      startedAt: record.startedAt,
+    };
+  }
+
+  return null;
+}
+
+/**
+ * Reads the profile-session seed written by a platform sidecar, when present.
+ *
+ * @param {{args: CliArgs, platform: ProfilePlatform, runId: string, scenarioName: string}} options
+ * @returns {ProfileSessionSeed | null}
+ */
+function resolveProfileSessionSeed({
+  args,
+  platform,
+  runId,
+  scenarioName,
+}: {
+  args: CliArgs;
+  platform: ProfilePlatform;
+  runId: string;
+  scenarioName: string;
+}): ProfileSessionSeed | null {
+  if (platform === 'android' && typeof args['adb-artifacts'] === 'string') {
+    return readAndroidProfileSessionSeed({
+      runId,
+      scenarioName,
+      sidecarRoot: path.resolve(args['adb-artifacts']),
+    });
+  }
+
+  if (platform === 'ios' && typeof args['simctl-artifacts'] === 'string') {
+    return readIosProfileSessionSeed({
+      runId,
+      scenarioName,
+      sidecarRoot: path.resolve(args['simctl-artifacts']),
+    });
+  }
+
+  return null;
+}
+
+/**
+ * Compares the sidecar-written profile session to the app-emitted session.
+ *
+ * @param {{seed: ProfileSessionSeed | null, sessionEntries: Record<string, unknown>[]}} options
+ * @returns {ProfileSessionFreshness | null}
+ */
+function resolveProfileSessionFreshness({
+  seed,
+  sessionEntries,
+}: {
+  seed: ProfileSessionSeed | null;
+  sessionEntries: Record<string, unknown>[];
+}): ProfileSessionFreshness | null {
+  if (!seed) {
+    return null;
+  }
+
+  const appStart = sessionEntries.find((entry) => (
+    entry?.kind === 'start' &&
+    entry.runId === seed.runId &&
+    entry.scenario === seed.scenario &&
+    typeof entry.startedAt === 'number' &&
+    Number.isFinite(entry.startedAt)
+  ));
+  if (!appStart || typeof appStart.startedAt !== 'number') {
+    return {
+      seed,
+      status: 'missing-app-session',
+      reason: 'The runner wrote a profile-session seed, but no matching app-side start entry was observed.',
+    };
+  }
+
+  if (appStart.startedAt !== seed.startedAt) {
+    return {
+      appStartedAt: appStart.startedAt,
+      seed,
+      status: 'stale',
+      reason: 'The app-side profile-session start did not match the runner-written seed.',
+    };
+  }
+
+  return {
+    appStartedAt: appStart.startedAt,
+    seed,
+    status: 'fresh',
+  };
 }
 
 /**
@@ -3172,6 +3405,16 @@ async function runProfileMobile(args: CliArgs, options: ProfileMobileOptions): P
         })
       : []),
   ];
+  const profileSessionSeed = resolveProfileSessionSeed({
+    args,
+    platform: options.platform,
+    runId: evidenceFilterRunId,
+    scenarioName,
+  });
+  const sessionFreshness = resolveProfileSessionFreshness({
+    seed: profileSessionSeed,
+    sessionEntries,
+  });
   const runtimeTarget = resolveRuntimeTarget({ args, platform: options.platform });
 
   const metrics = buildMetricsFromProfileEvents({
@@ -3306,6 +3549,7 @@ async function runProfileMobile(args: CliArgs, options: ProfileMobileOptions): P
     profileSessionEntryCount: sessionEntries.length,
     commandTransport,
     sessionEntries,
+    sessionFreshness,
   });
   const verdict = buildProfileVerdict({ scenario: profileScenario, runId, health, metrics });
   const agentSummary = buildAgentSummaryMarkdown({ health, verdict, manifest });
