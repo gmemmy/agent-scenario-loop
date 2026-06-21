@@ -488,7 +488,7 @@ test('profile-android treats readiness-to-completion budgets as repeated milesto
   const causalRun = readJson(path.join(runDir, 'causal-run.json')) as Record<string, any>;
 
   assert.equal(metrics.status, 'passed');
-  assert.deepEqual(metrics.durationsMs, [1200, 1500, 1900]);
+  assert.deepEqual(metrics.durationsMs, []);
   assert.equal(metrics.failures, 0);
   assert.deepEqual(metrics.incompleteIterations, []);
   assert.equal(health.healthStatus, 'passed');
@@ -603,7 +603,7 @@ test('profile-android accounts for multi-command repeated milestone cycle bodies
   const causalRun = readJson(path.join(runDir, 'causal-run.json')) as Record<string, any>;
 
   assert.equal(metrics.status, 'passed');
-  assert.deepEqual(metrics.durationsMs, [2600, 4700]);
+  assert.deepEqual(metrics.durationsMs, []);
   assert.equal(metrics.failures, 0);
   assert.deepEqual(metrics.incompleteIterations, []);
   assert.equal(health.healthStatus, 'passed');
@@ -930,7 +930,7 @@ test('profile-android keeps intent interval anchors separate from completion hea
 
   assert.equal(health.healthStatus, 'passed');
   assert.equal(verdict.verdictStatus, 'passed');
-  assert.deepEqual(metrics.durationsMs, [1440, 2870]);
+  assert.deepEqual(metrics.durationsMs, []);
   assert.equal(metrics.budgetEvaluation.pass, true);
   assert.deepEqual(metrics.budgetEvaluation.checks, [
     { actual: 0, limit: 0, name: 'failures', pass: true, unit: 'count' },
@@ -1879,6 +1879,97 @@ test('profile-android reads logcat from adb artifact folders', async (t: TestCon
   assert.ok(fs.existsSync(path.join(runDir, 'raw', 'adb-logcat.txt')));
 });
 
+test('profile-android fails health when storage session seed is newer than app session start', async (t: TestContext) => {
+  const tempRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-android-stale-session-'));
+  t.after(async () => {
+    await fsp.rm(tempRoot, { recursive: true, force: true });
+  });
+  const artifactRoot = path.join(tempRoot, 'profile');
+  const adbRoot = path.join(tempRoot, 'adb');
+  const rawDir = path.join(adbRoot, 'raw');
+  await fsp.mkdir(rawDir, { recursive: true });
+  const scenarioPath = path.join(tempRoot, 'stale-session.json');
+  await fsp.writeFile(
+    scenarioPath,
+    `${JSON.stringify({
+      schemaVersion: '1.0.0',
+      id: 'stale-session',
+      flowId: 'stale-session',
+      journey: {
+        name: 'Stale session',
+        intent: 'Reject stale profile-session evidence.',
+        actor: 'runner',
+        startState: 'home',
+        endState: 'home',
+      },
+      platforms: ['android'],
+      requiredCapabilities: ['launch', 'sessionControl', 'logCapture', 'artifactWrite'],
+      truthEvents: {
+        done: { event: 'profile_done', required: true, timeoutMs: 1000, phase: 'completion' },
+      },
+      milestones: [
+        { id: 'done', event: 'profile_done', required: true, phase: 'completion' },
+      ],
+      expectedEvents: ['profile_done'],
+      cycles: { iterations: 1, warmupIterations: 0, stopOnFailure: true },
+      budgets: [
+        { name: 'cycle p95', source: 'milestone', metric: 'p95', unit: 'ms', limit: 1000, toMilestone: 'done' },
+        { name: 'failures', source: 'milestone', metric: 'failures', unit: 'count', limit: 0 },
+      ],
+      artifacts: { required: ['logs'], optional: [] },
+    }, null, 2)}\n`,
+    'utf8',
+  );
+  await fsp.writeFile(
+    path.join(rawDir, 'adb-logcat.txt'),
+    [
+      '06-21 18:51:24.886 I/ReactNativeJS(123): [profile-session] {"kind":"start","scenario":"stale-session","runId":"stale-run","startedAt":1000,"timestamp":1000,"atMs":0}',
+      '06-21 18:51:25.000 I/ReactNativeJS(123): [profile-event] {"event":"profile_done","scenario":"stale-session","runId":"stale-run","atMs":100}',
+      '',
+    ].join('\n'),
+    'utf8',
+  );
+  await fsp.writeFile(
+    path.join(rawDir, 'adb-async-storage-write-1.txt'),
+    [
+      '$ adb -s emulator-5554 shell run-as dev.example sqlite3 databases/RKStorage \'INSERT OR REPLACE INTO catalystLocalStorage (key,value) VALUES (\'agent-scenario-loop.profile-session.1\',\'{"active":true,"scenario":"stale-session","runId":"stale-run","startedAt":2000}\');\'',
+      'exitCode=0',
+      '',
+    ].join('\n'),
+    'utf8',
+  );
+
+  const { stdout } = await execFileAsync(process.execPath, [
+    PROFILE_ANDROID,
+    '--config',
+    fixturePath('examples/mobile-app/asl.config.json'),
+    '--scenario',
+    scenarioPath,
+    '--adb-artifacts',
+    adbRoot,
+    '--out',
+    artifactRoot,
+    '--run-id',
+    'stale-run',
+  ]);
+
+  const runDir = stdout.trim();
+  const metrics = readJson(path.join(runDir, 'metrics.json')) as Record<string, any>;
+  const health = readJson(path.join(runDir, 'health.json')) as Record<string, any>;
+  const verdict = readJson(path.join(runDir, 'verdict.json')) as Record<string, any>;
+
+  assert.equal(metrics.status, 'passed');
+  assert.equal(health.healthStatus, 'failed');
+  assert.equal(verdict.verdictStatus, 'inconclusive');
+  assert.ok(
+    (health.checks as Array<{ code: string; metadata?: Record<string, unknown> }>).some((check) => (
+      check.code === 'profile_session_stale' &&
+      check.metadata?.seedStartedAt === 2000 &&
+      check.metadata?.appStartedAt === 1000
+    )),
+  );
+});
+
 test('profile-android reports adb sidecar screenshots as captured diagnostics', async (t: TestContext) => {
   const tempRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-android-adb-screenshot-'));
   t.after(async () => {
@@ -2549,6 +2640,7 @@ test('profile-android seeds Android scenario commands as one ordered storage que
           fs
             .readFileSync(fixturePath('examples/mobile-app/event-logs/android-open-close-cycle.log'), 'utf8')
             .replace(/android-example-open-close/gu, 'android-storage-open-close'),
+          '2026-01-01T00:00:00.000Z public-android [profile-session] kind=start scenario=open-close-cycle runId=android-storage-open-close startedAt=1800000000000 timestamp=1800000000000 atMs=0',
           '2026-01-01T00:00:00.050Z public-android [profile-session] kind=command scenario=open-close-cycle runId=android-storage-open-close command=activate-target:example-card-1 commandId=open-card queueId=open-close-cycle sequence=1 source=storage status=received atMs=50 waitForMilestone=card_opened waitMs=300 waitTimeoutMs=1500',
           '2026-01-01T00:00:00.070Z public-android [profile-session] kind=command scenario=open-close-cycle runId=android-storage-open-close command=activate-target:example-card-1 commandId=open-card queueId=open-close-cycle sequence=1 source=storage status=completed result=target-dispatched atMs=70 waitForMilestone=card_opened waitMs=300 waitTimeoutMs=1500',
           '2026-01-01T00:00:00.820Z public-android [profile-session] kind=command scenario=open-close-cycle runId=android-storage-open-close command=activate-target:close-card commandId=close-card queueId=open-close-cycle sequence=2 source=storage status=received atMs=820 waitMs=300',

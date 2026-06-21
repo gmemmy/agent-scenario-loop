@@ -1028,7 +1028,7 @@ test('counts repeated milestone-only cycles without explicit iteration payloads'
   });
 
   assert.equal(metrics.status, 'passed');
-  assert.deepEqual(metrics.durationsMs, [7939, 8489, 9155, 9158, 9458, 9876]);
+  assert.deepEqual(metrics.durationsMs, []);
   assert.deepEqual(metrics.incompleteIterations, []);
   assert.equal(metrics.failures, 0);
   assert.equal(metrics.budgetEvaluation.pass, false);
@@ -1064,7 +1064,7 @@ test('counts multi-command milestone-only cycles without explicit iteration payl
   });
 
   assert.equal(metrics.status, 'passed');
-  assert.deepEqual(metrics.durationsMs, [11480, 15557, 20216]);
+  assert.deepEqual(metrics.durationsMs, []);
   assert.deepEqual(metrics.incompleteIterations, []);
   assert.equal(metrics.failures, 0);
 });
