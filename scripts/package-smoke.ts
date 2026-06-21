@@ -175,6 +175,24 @@ function createSmokeEnv(tempRoot: string): NodeJS.ProcessEnv {
 }
 
 /**
+ * Resolves an existing tarball from the environment, when a parent release gate
+ * has already packed the current package.
+ *
+ * @param {NodeJS.ProcessEnv} env
+ * @returns {string | null}
+ */
+function resolveProvidedTarball(env: NodeJS.ProcessEnv): string | null {
+  const tarballPath = env.ASL_PACKAGE_TARBALL ? path.resolve(env.ASL_PACKAGE_TARBALL) : '';
+  if (!tarballPath) {
+    return null;
+  }
+
+  assert.equal(fs.existsSync(tarballPath), true, `ASL_PACKAGE_TARBALL does not exist: ${tarballPath}`);
+  assert.match(path.basename(tarballPath), /^agent-scenario-loop-.+\.tgz$/u, 'ASL_PACKAGE_TARBALL must point to an agent-scenario-loop tarball');
+  return tarballPath;
+}
+
+/**
  * Resolves the per-command timeout for package gate child processes.
  *
  * @param {NodeJS.ProcessEnv} env
@@ -672,14 +690,18 @@ function main(): void {
       true,
       'example app .npmignore must exist so npm pack never falls back to the app-local .gitignore',
     );
-    const packOutput = run('npm', ['pack', '--pack-destination', packDir], {
-      cwd: repoRoot,
-      env,
-    });
-    const tarballName = packOutput.trim().split(/\n/u).pop();
-    assert.ok(tarballName, 'npm pack did not print a tarball name');
-    const tarballPath = path.join(packDir, tarballName);
-    assert.equal(fs.existsSync(tarballPath), true, `missing packed tarball: ${tarballPath}`);
+    const providedTarballPath = resolveProvidedTarball(env);
+    const tarballPath = providedTarballPath ?? (() => {
+      const packOutput = run('npm', ['pack', '--pack-destination', packDir], {
+        cwd: repoRoot,
+        env,
+      });
+      const tarballName = packOutput.trim().split(/\n/u).pop();
+      assert.ok(tarballName, 'npm pack did not print a tarball name');
+      const packedTarballPath = path.join(packDir, tarballName);
+      assert.equal(fs.existsSync(packedTarballPath), true, `missing packed tarball: ${packedTarballPath}`);
+      return packedTarballPath;
+    })();
 
     run('npm', ['init', '-y'], {
       cwd: installDir,
@@ -2622,6 +2644,7 @@ export {
   main,
   isAllowedPackedFile,
   packageBinPath,
+  resolveProvidedTarball,
   run,
   runExpectFailure,
   typescriptBinPath,

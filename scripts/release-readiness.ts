@@ -386,7 +386,7 @@ function assertReleaseScripts(packageJson: Record<string, unknown>): void {
   assert.equal(scripts['release:readiness'], 'pnpm build && node dist/scripts/release-readiness.js');
   assert.equal(
     scripts['release:check'],
-    'pnpm test && pnpm release:readiness && pnpm package:smoke && pnpm consumer:rehearse',
+    'pnpm build && node dist/scripts/release-check.js',
   );
   assert.equal(scripts['package:smoke'], 'pnpm build && node dist/scripts/package-smoke.js');
   assert.equal(scripts['consumer:rehearse'], 'pnpm build && node dist/scripts/consumer-rehearsal.js');
