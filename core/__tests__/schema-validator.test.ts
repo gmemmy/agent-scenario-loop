@@ -577,6 +577,84 @@ test('rejects native performance evidence without source and content envelope', 
   assert.ok(result.errors.some((error: ValidationIssue) => error.path === '$'));
 });
 
+test('accepts diagnostic-only native performance evidence without comparable claim fields', () => {
+  const result = validateJson({
+    schemaVersion: '1.0.0',
+    providerId: 'native-performance-provider',
+    platform: 'android',
+    runId: 'profile-run',
+    scenarioId: 'feed-scroll',
+    comparability: {
+      status: 'diagnostic-only',
+      reason: 'Post-run native counters are useful for diagnosis but not a product budget.',
+    },
+    summary: 'Captured post-run native diagnostics.',
+  }, SCHEMAS.nativePerformance, 'Native performance evidence artifact');
+
+  assert.equal(result.valid, true, result.message);
+});
+
+test('rejects comparable native performance evidence without verified claim support', () => {
+  const result = validateJson({
+    schemaVersion: '1.0.0',
+    providerId: 'native-performance-provider',
+    platform: 'android',
+    runId: 'profile-run',
+    scenarioId: 'feed-scroll',
+    captureMode: 'unknown',
+    comparability: {
+      status: 'comparable',
+    },
+    completenessStatus: 'partial',
+    targetBinding: {
+      status: 'unverified',
+    },
+    frames: {
+      janky: 42,
+    },
+  }, SCHEMAS.nativePerformance, 'Native performance evidence artifact');
+
+  assert.equal(result.valid, false);
+  assert.ok(result.errors.some((error: ValidationIssue) => error.path === '$.tool'));
+  assert.ok(result.errors.some((error: ValidationIssue) => error.path === '$.captureMode'));
+  assert.ok(result.errors.some((error: ValidationIssue) => error.path === '$.completenessStatus'));
+  assert.ok(result.errors.some((error: ValidationIssue) => error.path === '$.targetBinding.status'));
+});
+
+test('accepts comparable native performance evidence with verified claim support', () => {
+  const result = validateJson({
+    schemaVersion: '1.0.0',
+    providerId: 'native-performance-provider',
+    platform: 'android',
+    runId: 'profile-run',
+    scenarioId: 'feed-scroll',
+    tool: {
+      name: 'trace-processor',
+      command: 'trace_processor_shell',
+    },
+    captureMode: 'session',
+    evidenceKind: 'trace-processor',
+    comparability: {
+      status: 'comparable',
+      policy: 'Same device, app build, scenario hash, and trace window cohort.',
+    },
+    completenessStatus: 'complete',
+    targetBinding: {
+      status: 'verified',
+      deviceId: 'emulator-5554',
+      appId: 'dev.agent-scenario-loop.example',
+      source: 'adb',
+    },
+    frames: {
+      total: 180,
+      janky: 3,
+      p95Ms: 12.4,
+    },
+  }, SCHEMAS.nativePerformance, 'Native performance evidence artifact');
+
+  assert.equal(result.valid, true, result.message);
+});
+
 test('rejects invalid scenario cycle counts', () => {
   const scenario = readJson('examples/scenarios/mobile/open-close-cycle.json');
   scenario.cycles.iterations = 0;

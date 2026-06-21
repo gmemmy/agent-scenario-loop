@@ -5,6 +5,44 @@
   "type": "object",
   "additionalProperties": true,
   "required": ["schemaVersion", "providerId", "platform", "runId", "scenarioId"],
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "comparability": {
+            "type": "object",
+            "properties": {
+              "status": { "const": "comparable" }
+            },
+            "required": ["status"]
+          }
+        },
+        "required": ["comparability"]
+      },
+      "then": {
+        "required": ["tool", "captureMode", "completenessStatus", "targetBinding"],
+        "properties": {
+          "tool": {
+            "type": "object",
+            "required": ["name"]
+          },
+          "captureMode": {
+            "enum": ["passive-report", "session", "inline", "afterCapture", "postRun", "rehydrated"]
+          },
+          "completenessStatus": {
+            "const": "complete"
+          },
+          "targetBinding": {
+            "type": "object",
+            "properties": {
+              "status": { "const": "verified" }
+            },
+            "required": ["status"]
+          }
+        }
+      }
+    }
+  ],
   "anyOf": [
     { "required": ["summary"] },
     { "required": ["metrics"] },

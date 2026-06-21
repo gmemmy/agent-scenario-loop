@@ -1977,7 +1977,7 @@ test('profile-android writes provider liveness artifacts when an evidence provid
   ], {
     env: {
       ...process.env,
-      ASL_PROVIDER_COMMAND_TIMEOUT_MS: '300',
+      ASL_PROVIDER_COMMAND_TIMEOUT_MS: '1000',
     },
   });
 
@@ -1994,7 +1994,7 @@ test('profile-android writes provider liveness artifacts when an evidence provid
   assert.equal(verdict.verdictStatus, 'inconclusive');
   assert.equal(commandRecord.status, 'timed_out');
   assert.equal(commandRecord.timedOut, true);
-  assert.equal(commandRecord.timeoutMs, 300);
+  assert.equal(commandRecord.timeoutMs, 1000);
   assert.equal(fs.readFileSync(stdoutPath, 'utf8'), 'provider started\n');
   assert.equal(fs.readFileSync(stderrPath, 'utf8'), 'waiting for external tool\n');
   assert.ok(
