@@ -1758,6 +1758,68 @@ function resolveProfileSessionEntriesPath({ args, platform }: { args: CliArgs; p
 }
 
 /**
+ * Resolves the run id used by rehydrated sidecar evidence.
+ *
+ * A rehydrated artifact can intentionally have a new run id while ingesting a
+ * previously captured adb/simctl sidecar. Keep live runs strict, but allow an
+ * explicit sidecar with exactly one source run id for the scenario to provide
+ * the event filter.
+ *
+ * @param {{args: CliArgs, eventLogText: string, profileSessionEntriesPath: string | null, runId: string, scenarioName: string}} options
+ * @returns {string}
+ */
+function resolveEvidenceFilterRunId({
+  args,
+  eventLogText,
+  profileSessionEntriesPath,
+  runId,
+  scenarioName,
+}: {
+  args: CliArgs;
+  eventLogText: string;
+  profileSessionEntriesPath: string | null;
+  runId: string;
+  scenarioName: string;
+}): string {
+  const isRehydratedSidecar = typeof args['adb-artifacts'] === 'string' || typeof args['simctl-artifacts'] === 'string';
+  if (!isRehydratedSidecar) {
+    return runId;
+  }
+
+  const scenarioEvents = extractProfileEvents(eventLogText, { scenario: scenarioName });
+  const currentRunEvents = scenarioEvents.filter((event: Record<string, unknown>) => event.runId === runId);
+  if (currentRunEvents.length > 0) {
+    return runId;
+  }
+
+  const sourceRunIds = new Set<string>(
+    scenarioEvents
+      .map((event: Record<string, unknown>) => event.runId)
+      .filter((sourceRunId: unknown): sourceRunId is string => typeof sourceRunId === 'string' && sourceRunId.length > 0),
+  );
+
+  if (profileSessionEntriesPath && fs.existsSync(profileSessionEntriesPath)) {
+    const storedEntries = JSON.parse(fs.readFileSync(profileSessionEntriesPath, 'utf8'));
+    if (Array.isArray(storedEntries)) {
+      for (const entry of storedEntries) {
+        if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+          continue;
+        }
+        const record = entry as Record<string, unknown>;
+        if (record.scenario !== scenarioName) {
+          continue;
+        }
+        if (typeof record.runId === 'string' && record.runId.length > 0) {
+          sourceRunIds.add(record.runId);
+        }
+      }
+    }
+  }
+
+  return sourceRunIds.size === 1 ? [...sourceRunIds][0] as string : runId;
+}
+
+/**
  * Returns the first usable adb screenshot file from sidecar metadata.
  *
  * ADB can produce a valid PNG even when command metadata records a nonzero
@@ -2562,13 +2624,20 @@ async function runProfileMobile(args: CliArgs, options: ProfileMobileOptions): P
   const attachedEvidence = await resolveAttachedEvidence({ args, layout, providerInputs: providerExecution.inputs });
 
   const eventLogText = eventLogPath ? await fsp.readFile(eventLogPath, 'utf8') : '';
+  const evidenceFilterRunId = resolveEvidenceFilterRunId({
+    args,
+    eventLogText,
+    profileSessionEntriesPath,
+    runId,
+    scenarioName,
+  });
   const events = extractProfileEvents(eventLogText, {
     scenario: scenarioName,
-    runId,
+    runId: evidenceFilterRunId,
   });
   const logSessionEntries = extractProfileSessionEntries(eventLogText, {
     scenario: scenarioName,
-    runId,
+    runId: evidenceFilterRunId,
   });
   const storedSessionEntries = profileSessionEntriesPath
     ? JSON.parse(await fsp.readFile(profileSessionEntriesPath, 'utf8'))
@@ -2583,7 +2652,7 @@ async function runProfileMobile(args: CliArgs, options: ProfileMobileOptions): P
           const record = entry as Record<string, unknown>;
           return (
             (!('scenario' in record) || record.scenario === scenarioName) &&
-            (!('runId' in record) || record.runId === runId)
+            (!('runId' in record) || record.runId === evidenceFilterRunId)
           );
         })
       : []),
