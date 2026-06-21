@@ -485,6 +485,60 @@ test('validates lifecycle-owned profiler evidence envelopes', () => {
   assert.equal(result.valid, true, result.message);
 });
 
+test('validates native performance evidence envelopes', () => {
+  const result = validateJson({
+    schemaVersion: '1.0.0',
+    providerId: 'native-performance-provider',
+    platform: 'android',
+    runId: 'profile-run',
+    scenarioId: 'feed-scroll',
+    captureMode: 'afterCapture',
+    evidenceKind: 'gfxinfo',
+    dataClasses: ['frames', 'jank', 'memory'],
+    tool: {
+      name: 'adb',
+      command: 'dumpsys gfxinfo',
+    },
+    lifecycle: {
+      phase: 'afterCapture',
+      perturbsTiming: false,
+    },
+    targetBinding: {
+      status: 'verified',
+      deviceId: 'emulator-5554',
+      appId: 'dev.agent-scenario-loop.example',
+      source: 'adb',
+    },
+    comparability: {
+      status: 'diagnostic-only',
+      reason: 'Native frame summary was captured after the ASL loop.',
+      policy: 'Use for diagnosis until cohort-aware native metric comparison is configured.',
+    },
+    completenessStatus: 'complete',
+    frames: {
+      total: 180,
+      janky: 3,
+      p95Ms: 12.4,
+    },
+    memory: {
+      rssBytes: 12345678,
+    },
+    attachments: [
+      {
+        kind: 'raw-gfxinfo',
+        path: 'raw/providers/native-performance/gfxinfo.txt',
+      },
+      {
+        kind: 'meminfo',
+        path: 'raw/providers/native-performance/meminfo.txt',
+      },
+    ],
+    summary: 'Captured Android native frame and memory diagnostics.',
+  }, SCHEMAS.nativePerformance, 'Native performance evidence artifact');
+
+  assert.equal(result.valid, true, result.message);
+});
+
 test('rejects profiler evidence with invalid lifecycle vocabulary', () => {
   const result = validateJson({
     schemaVersion: '1.0.0',
@@ -508,6 +562,19 @@ test('rejects profiler evidence without source and content envelope', () => {
 
   assert.equal(result.valid, false);
   assert.ok(result.errors.some((error: ValidationIssue) => error.path === '$.providerId'));
+});
+
+test('rejects native performance evidence without source and content envelope', () => {
+  const result = validateJson({
+    schemaVersion: '1.0.0',
+    providerId: 'native-performance-provider',
+    platform: 'android',
+    runId: 'profile-run',
+    scenarioId: 'feed-scroll',
+  }, SCHEMAS.nativePerformance, 'Native performance evidence artifact');
+
+  assert.equal(result.valid, false);
+  assert.ok(result.errors.some((error: ValidationIssue) => error.path === '$'));
 });
 
 test('rejects invalid scenario cycle counts', () => {

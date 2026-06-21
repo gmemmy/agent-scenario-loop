@@ -640,31 +640,48 @@ function buildProviderEvidenceInput({
 }
 
 /**
- * Validates structured profiler evidence when a provider emits JSON.
+ * Validates structured provider evidence when a provider emits JSON.
  *
- * Native traces and flamegraph files may be attached as profiler evidence, but
- * JSON profiler files must carry enough envelope metadata for agents to reason
- * about source, target, and completeness.
+ * Raw traces, screenshots, and binary captures may be attached as preserved
+ * evidence, but JSON profiler and native-performance files must carry enough
+ * envelope metadata for agents to reason about source, target, completeness,
+ * and comparability.
  *
  * @param {{kind: EvidenceKind, sourcePath: string}} options
  * @returns {void}
  */
-function validateStructuredProfilerEvidence({
+function validateStructuredProviderEvidence({
   kind,
   sourcePath,
 }: {
   kind: EvidenceKind;
   sourcePath: string;
 }): void {
-  if (kind !== 'profiler' || path.extname(sourcePath).toLowerCase() !== '.json') {
+  if (path.extname(sourcePath).toLowerCase() !== '.json') {
+    return;
+  }
+
+  const structuredSchema = kind === 'profiler'
+    ? {
+        label: 'Profiler evidence artifact',
+        schema: SCHEMAS.profiler,
+      }
+    : kind === 'nativePerformance'
+      ? {
+          label: 'Native performance evidence artifact',
+          schema: SCHEMAS.nativePerformance,
+        }
+      : null;
+
+  if (!structuredSchema) {
     return;
   }
 
   try {
-    assertValidJson(readJson(sourcePath), SCHEMAS.profiler, 'Profiler evidence artifact');
+    assertValidJson(readJson(sourcePath), structuredSchema.schema, structuredSchema.label);
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
-    throw new Error(`Profiler evidence artifact is invalid: ${sourcePath}. ${detail}`);
+    throw new Error(`${structuredSchema.label} is invalid: ${sourcePath}. ${detail}`);
   }
 }
 
@@ -937,7 +954,7 @@ async function resolveAttachedEvidence({
       throw new Error(`Duplicate evidence artifact destination: ${manifestPath}`);
     }
 
-    validateStructuredProfilerEvidence({ kind, sourcePath });
+    validateStructuredProviderEvidence({ kind, sourcePath });
 
     destinationPaths.add(destinationPath);
     const attachment = {
