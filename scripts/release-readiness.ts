@@ -405,6 +405,25 @@ function assertReleaseScripts(packageJson: Record<string, unknown>): void {
 }
 
 /**
+ * Asserts that pushed semver tags synchronize GitHub Releases from npm package truth.
+ *
+ * @param {string} repoRoot
+ * @returns {void}
+ */
+function assertGithubReleaseWorkflow(repoRoot: string): void {
+  const workflowPath = path.join(repoRoot, '.github', 'workflows', 'github-release.yml');
+  const workflow = fs.readFileSync(workflowPath, 'utf8');
+  assert.match(workflow, /tags:\n\s+- 'v\*\.\*\.\*'/u);
+  assert.match(workflow, /contents: write/u);
+  assert.match(workflow, /VERSION="\$\{GITHUB_REF_NAME#v\}"/u);
+  assert.match(workflow, /PACKAGE_VERSION="\$\(node -p "require\('\.\/package\.json'\)\.version"\)"/u);
+  assert.match(workflow, /npm view agent-scenario-loop@"\$VERSION" version/u);
+  assert.match(workflow, /gh release create "\$GITHUB_REF_NAME"/u);
+  assert.match(workflow, /--generate-notes/u);
+  assert.match(workflow, /--verify-tag/u);
+}
+
+/**
  * Asserts that public binaries and package subpath exports map to built files.
  *
  * @param {Record<string, unknown>} packageJson
@@ -550,6 +569,7 @@ function main(): void {
 
   assertPublicPackageMetadata(packageJson);
   assertReleaseScripts(packageJson);
+  assertGithubReleaseWorkflow(repoRoot);
   assertPublicEntrypoints(packageJson);
   assertPublicApiDocs(packageJson, repoRoot);
   assertPackageFileList(packageJson);
