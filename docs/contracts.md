@@ -168,6 +168,8 @@ Milestone budget interval semantics are explicit:
 
 This distinction is visible in `metrics.json`: elapsed milestone-only runs populate `durationsMs` with milestone timestamps, while interval runs populate `durationsMs` with `to - from` values. Timing still remains untrusted unless `health.json` passes.
 
+When a configured latency budget has no measurable samples, ASL reports the budget evaluation as `partial` and marks that check `unmeasurable` instead of treating it as product-performance failure. This keeps claim gating strict: the run did not pass all configured budgets, but agents must not optimize from a latency number ASL never measured. Use explicit `fromMilestone`/`toMilestone` interval budgets for command-to-completion or transition-latency claims.
+
 `buildRunIndex()` can scan an artifact root after runs complete. It indexes folders that contain both `health.json` and `verdict.json`, marks a run trusted only when health and verdict both passed, and lets agents find the latest trusted prior run for a scenario without relying on terminal history.
 
 ## Supported Runner Surface

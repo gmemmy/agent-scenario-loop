@@ -53,6 +53,10 @@
           "pass": {
             "type": "boolean"
           },
+          "status": {
+            "type": "string",
+            "enum": ["passed", "failed", "unmeasurable"]
+          },
           "sourceEvent": {
             "type": "string"
           },

@@ -1033,6 +1033,29 @@ test('counts repeated milestone-only cycles without explicit iteration payloads'
   assert.deepEqual(metrics.incompleteIterations, []);
   assert.equal(metrics.failures, 0);
   assert.equal(metrics.budgetEvaluation.pass, false);
+  assert.equal(metrics.budgetEvaluation.status, 'partial');
+  assert.deepEqual(metrics.budgetEvaluation.failedChecks, []);
+  assert.deepEqual(metrics.budgetEvaluation.unmeasurableChecks, ['cycle p95']);
+  assert.deepEqual(
+    metrics.budgetEvaluation.checks.find((check: Record<string, unknown>) => check.name === 'cycle p95'),
+    {
+      name: 'cycle p95',
+      actual: null,
+      limit: 1400,
+      pass: false,
+      status: 'unmeasurable',
+      code: 'budget_sample_unmeasurable',
+      notes: 'No latency samples were available for this budget. Use explicit interval anchors when the claim is transition latency.',
+      unit: 'ms',
+    },
+  );
+
+  const budgetVerdict = buildBudgetVerdict({
+    flowId: 'home-feed-scroll-stress',
+    runId: 'android-live-scroll',
+    budgetEvaluation: metrics.budgetEvaluation,
+  });
+  assert.equal(budgetVerdict?.status, 'partial');
 });
 
 test('summarizes repeated milestone-only completions without treating empty durations as zero completed cycles', () => {

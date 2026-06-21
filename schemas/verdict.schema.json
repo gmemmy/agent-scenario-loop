@@ -79,6 +79,10 @@
         "pass": {
           "type": "boolean"
         },
+        "status": {
+          "type": "string",
+          "enum": ["passed", "failed", "unmeasurable"]
+        },
         "notes": {
           "type": "string"
         }

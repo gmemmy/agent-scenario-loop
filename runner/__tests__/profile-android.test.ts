@@ -502,6 +502,97 @@ test('profile-android treats readiness-to-completion budgets as repeated milesto
   });
 });
 
+test('profile-android treats unmeasurable milestone latency budgets as partial evidence', async (t: TestContext) => {
+  const tempRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-android-unmeasurable-budget-'));
+  t.after(async () => {
+    await fsp.rm(tempRoot, { recursive: true, force: true });
+  });
+  const artifactRoot = path.join(tempRoot, 'artifacts');
+  const scenarioPath = path.join(tempRoot, 'completion-only-budget.json');
+  const eventLogPath = path.join(tempRoot, 'completion-only-budget.log');
+  const scenario = {
+    schemaVersion: '1.0.0',
+    id: 'completion-only-budget',
+    flowId: 'completion-only-budget',
+    journey: {
+      name: 'Completion-only budget',
+      intent: 'Show that completion-only evidence does not imply transition latency.',
+      actor: 'runner',
+      startState: 'home',
+      endState: 'home',
+    },
+    platforms: ['android'],
+    requiredCapabilities: ['launch', 'sessionControl', 'logCapture', 'artifactWrite'],
+    truthEvents: {
+      settled: { event: 'surface_settled', required: true, timeoutMs: 8000, phase: 'completion' },
+    },
+    milestones: [
+      { id: 'settled', event: 'surface_settled', required: true, phase: 'completion' },
+    ],
+    expectedEvents: ['surface_settled'],
+    cycles: { iterations: 3, warmupIterations: 0, stopOnFailure: true },
+    budgets: [
+      { name: 'cycle p95', source: 'milestone', metric: 'p95', unit: 'ms', limit: 1000, toMilestone: 'settled' },
+      { name: 'failures', source: 'milestone', metric: 'failures', unit: 'count', limit: 0 },
+    ],
+    steps: [{ id: 'launch', kind: 'launch' }],
+    artifacts: { required: ['logs'], optional: [] },
+  };
+  await fsp.writeFile(scenarioPath, `${JSON.stringify(scenario, null, 2)}\n`, 'utf8');
+  await fsp.writeFile(
+    eventLogPath,
+    [
+      '2026-01-01T00:10:00.200Z public-android [profile-event] {"event":"surface_settled","scenario":"completion-only-budget","runId":"completion-only-budget-android","atMs":1200}',
+      '2026-01-01T00:10:00.900Z public-android [profile-event] {"event":"surface_settled","scenario":"completion-only-budget","runId":"completion-only-budget-android","atMs":1900}',
+      '2026-01-01T00:10:01.600Z public-android [profile-event] {"event":"surface_settled","scenario":"completion-only-budget","runId":"completion-only-budget-android","atMs":2600}',
+      '',
+    ].join('\n'),
+    'utf8',
+  );
+
+  const { stdout } = await execFileAsync(process.execPath, [
+    PROFILE_ANDROID,
+    '--config',
+    fixturePath('examples/mobile-app/asl.config.json'),
+    '--scenario',
+    scenarioPath,
+    '--events',
+    eventLogPath,
+    '--out',
+    artifactRoot,
+    '--run-id',
+    'completion-only-budget-android',
+  ]);
+
+  const runDir = stdout.trim();
+  const metrics = readJson(path.join(runDir, 'metrics.json')) as Record<string, any>;
+  const verdict = readJson(path.join(runDir, 'verdict.json')) as Record<string, any>;
+  const budgetVerdict = readJson(path.join(runDir, 'budget-verdict.json')) as Record<string, any>;
+  const summary = await fsp.readFile(path.join(runDir, 'summary.md'), 'utf8');
+
+  assert.equal(metrics.status, 'passed');
+  assert.equal(metrics.budgetEvaluation.status, 'partial');
+  assert.deepEqual(metrics.budgetEvaluation.failedChecks, []);
+  assert.deepEqual(metrics.budgetEvaluation.unmeasurableChecks, ['cycle p95']);
+  assert.equal(verdict.verdictStatus, 'inconclusive');
+  assert.equal(budgetVerdict.status, 'partial');
+  assert.match(summary, /- Status: partial/u);
+  assert.deepEqual(
+    verdict.budgetChecks.find((check: Record<string, unknown>) => check.name === 'cycle p95'),
+    {
+      actual: null,
+      expected: 1000,
+      metric: 'milestone budget',
+      name: 'cycle p95',
+      notes: 'No latency samples were available for this budget. Use explicit interval anchors when the claim is transition latency.',
+      pass: false,
+      source: 'milestone',
+      status: 'unmeasurable',
+      unit: 'ms',
+    },
+  );
+});
+
 test('profile-android accounts for multi-command repeated milestone cycle bodies', async (t: TestContext) => {
   const tempRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-android-multi-command-cycle-'));
   t.after(async () => {
