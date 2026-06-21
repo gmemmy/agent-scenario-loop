@@ -10,6 +10,7 @@ type AndroidAdbCommandResult = {
   rawFileName: string;
   stderr: string;
   stdout: string;
+  stdoutBuffer?: Uint8Array;
 };
 
 type AndroidAdbDriver = {
@@ -38,12 +39,17 @@ type AndroidAdbDriverOptions = {
   executor: AndroidAdbCommandExecutor;
 };
 
-type AndroidAdbCommandExecutor = (command: string, args: string[]) => Promise<{
+type AndroidAdbCommandExecutor = (
+  command: string,
+  args: string[],
+  options?: { encoding?: 'buffer' | 'utf8' },
+) => Promise<{
   args: string[];
   command: string;
   exitCode: number;
   stderr: string;
   stdout: string;
+  stdoutBuffer?: Uint8Array;
 }>;
 
 type AndroidAdbDeepLinkOptions = {
@@ -168,6 +174,7 @@ function buildDriverResult({
     rawFileName,
     stderr: result.stderr,
     stdout: result.stdout,
+    ...(result.stdoutBuffer ? { stdoutBuffer: result.stdoutBuffer } : {}),
   };
 }
 
@@ -177,7 +184,11 @@ function buildDriverResult({
  * @param {{stdout: string, stderr: string}} result
  * @returns {string}
  */
-function formatAndroidAdbRawOutput(result: { stdout: string; stderr: string }): string {
+function formatAndroidAdbRawOutput(result: { stdout: string; stderr: string; stdoutBuffer?: Uint8Array }): string | Uint8Array {
+  if (result.stdoutBuffer && !result.stderr) {
+    return result.stdoutBuffer;
+  }
+
   return [result.stdout, result.stderr].filter(Boolean).join('\n');
 }
 
@@ -558,7 +569,9 @@ function createAndroidAdbDriver({
     async screenshot({
       rawFileName = 'adb-screenshot.png',
     }: AndroidAdbScreenshotOptions = {}): Promise<AndroidAdbCommandResult> {
-      const result = await executor(adbPath, ['-s', deviceSerial, 'exec-out', 'screencap', '-p']);
+      const result = await executor(adbPath, ['-s', deviceSerial, 'exec-out', 'screencap', '-p'], {
+        encoding: 'buffer',
+      });
       return buildDriverResult({ action: 'screenshot', rawFileName, result });
     },
 

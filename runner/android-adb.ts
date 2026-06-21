@@ -49,9 +49,13 @@ type CommandResult = {
   exitCode: number;
   stderr: string;
   stdout: string;
+  stdoutBuffer?: Uint8Array;
+};
+type CommandExecutorOptions = {
+  encoding?: 'buffer' | 'utf8';
 };
 
-type CommandExecutor = (command: string, args: string[]) => Promise<CommandResult>;
+type CommandExecutor = (command: string, args: string[], options?: CommandExecutorOptions) => Promise<CommandResult>;
 type ExecFileError = Error & {
   code?: number;
   killed?: boolean;
@@ -69,7 +73,7 @@ type AndroidPreflightResult = {
   device: AndroidDevice | null;
   health: Record<string, unknown>;
   metadata: Record<string, unknown>;
-  raw: Record<string, string>;
+  raw: Record<string, string | Uint8Array>;
   runDir: string;
   verdict: Record<string, unknown>;
 };
@@ -260,8 +264,12 @@ function parsePositiveInteger(value: string | boolean | undefined, fallback: num
  * @param {string[]} args
  * @returns {Promise<CommandResult>}
  */
-function execFileCommand(command: string, args: string[]): Promise<CommandResult> {
-  return execFileCommandWithTimeout(command, args);
+function execFileCommand(
+  command: string,
+  args: string[],
+  options: CommandExecutorOptions = {},
+): Promise<CommandResult> {
+  return execFileCommandWithTimeout(command, args, DEFAULT_ADB_COMMAND_TIMEOUT_MS, options);
 }
 
 /**
@@ -276,16 +284,26 @@ function execFileCommandWithTimeout(
   command: string,
   args: string[],
   timeoutMs = DEFAULT_ADB_COMMAND_TIMEOUT_MS,
+  options: CommandExecutorOptions = {},
 ): Promise<CommandResult> {
   return new Promise((resolve) => {
-    execFile(command, args, { timeout: timeoutMs }, (error: ExecFileError | null, stdout: string, stderr: string) => {
+    execFile(command, args, { encoding: options.encoding === 'buffer' ? 'buffer' : 'utf8', timeout: timeoutMs }, (
+      error: ExecFileError | null,
+      stdout: string | Buffer,
+      stderr: string | Buffer,
+    ) => {
       const timedOut = Boolean(error?.killed || error?.signal === 'SIGTERM');
+      const stdoutText = Buffer.isBuffer(stdout) ? stdout.toString('utf8') : stdout;
+      const stderrText = Buffer.isBuffer(stderr) ? stderr.toString('utf8') : stderr;
       resolve({
         command,
         args,
         exitCode: error && typeof error.code === 'number' ? error.code : error ? 1 : 0,
-        stderr: [stderr, timedOut ? `adb command timed out after ${timeoutMs}ms.` : ''].filter(Boolean).join('\n'),
-        stdout,
+        stderr: [stderrText, timedOut ? `adb command timed out after ${timeoutMs}ms.` : ''].filter(Boolean).join('\n'),
+        stdout: stdoutText,
+        ...(options.encoding === 'buffer'
+          ? { stdoutBuffer: Buffer.isBuffer(stdout) ? stdout : Buffer.from(stdout, 'utf8') }
+          : {}),
       });
     });
   });
@@ -1054,7 +1072,7 @@ async function runAndroidAdbCaptureBodyWithWatchdog({
 /**
  * Writes the Android adb artifact set.
  *
- * @param {{agentSummary: string, health: Record<string, unknown>, layout: ReturnType<typeof createArtifactLayout>, metadata: Record<string, unknown>, raw: Record<string, string>, rawDir: string, verdict: Record<string, unknown>}} options
+ * @param {{agentSummary: string, health: Record<string, unknown>, layout: ReturnType<typeof createArtifactLayout>, metadata: Record<string, unknown>, raw: Record<string, string | Uint8Array>, rawDir: string, verdict: Record<string, unknown>}} options
  * @returns {Promise<void>}
  */
 async function writeAndroidAdbArtifacts({
@@ -1070,14 +1088,16 @@ async function writeAndroidAdbArtifacts({
   health: Record<string, unknown>;
   layout: ReturnType<typeof createArtifactLayout>;
   metadata: Record<string, unknown>;
-  raw: Record<string, string>;
+  raw: Record<string, string | Uint8Array>;
   rawDir: string;
   verdict: Record<string, unknown>;
 }): Promise<void> {
   await Promise.all(
-    Object.entries(raw).map(([fileName, content]) =>
-      fsp.writeFile(path.join(rawDir, fileName), `${content.trimEnd()}\n`, 'utf8'),
-    ),
+    Object.entries(raw).map(([fileName, content]) => (
+      content instanceof Uint8Array
+        ? fsp.writeFile(path.join(rawDir, fileName), content)
+        : fsp.writeFile(path.join(rawDir, fileName), `${content.trimEnd()}\n`, 'utf8')
+    )),
   );
   await fsp.writeFile(path.join(rawDir, 'android-metadata.json'), `${JSON.stringify(metadata, null, 2)}\n`, 'utf8');
   await writeJsonArtifact({
@@ -1485,7 +1505,7 @@ async function runAndroidAdbPreflight({
   deepLinks = [],
   delay: wait = delay,
   driverSteps = [],
-  executor = (command, args) => execFileCommandWithTimeout(command, args, commandTimeoutMs),
+  executor = (command, args, options) => execFileCommandWithTimeout(command, args, commandTimeoutMs, options),
   launch = false,
   launchWaitMs = 0,
   logcatLines = 1000,
@@ -1503,7 +1523,7 @@ async function runAndroidAdbPreflight({
   const rawDir = layout.raw;
   await fsp.mkdir(rawDir, { recursive: true });
 
-  const raw: Record<string, string> = {};
+  const raw: Record<string, string | Uint8Array> = {};
   const checks: Record<string, unknown>[] = [];
   let device: AndroidDevice | null = null;
   const captureWatchdog = deriveAndroidAdbCaptureWatchdogBudget({
