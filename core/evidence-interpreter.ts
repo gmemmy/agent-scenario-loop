@@ -49,6 +49,36 @@ function isUnmeasurableBudgetCheck(check: EvidenceRecord): boolean {
 }
 
 /**
+ * Reads a string metadata field from a health check.
+ *
+ * @param {EvidenceRecord} check
+ * @param {string} key
+ * @returns {string}
+ */
+function readMetadataString(check: EvidenceRecord, key: string): string {
+  const metadata = check.metadata;
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) {
+    return '';
+  }
+
+  const value = (metadata as EvidenceRecord)[key];
+  return typeof value === 'string' ? value : '';
+}
+
+/**
+ * Splits comma-delimited metadata into non-empty tokens.
+ *
+ * @param {string} value
+ * @returns {string[]}
+ */
+function splitMetadataList(value: string): string[] {
+  return value
+    .split(',')
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0);
+}
+
+/**
  * Classifies whether the artifact can support a product claim.
  *
  * @param {{failedHealthChecks: EvidenceRecord[], health: EvidenceRecord, unmeasurableBudgetChecks: EvidenceRecord[], verdict?: EvidenceRecord | null}} options
@@ -141,6 +171,14 @@ function interpretEvidence({
   if (claimSufficiency.status === 'diagnostic-only') {
     blockedReasons.push(claimSufficiency.reason);
     recommendations.push('use preserved partial provider evidence only for diagnosis');
+  }
+
+  const partialProviderEvidenceChecks = failedChecks.filter(isPartialProviderEvidenceCheck);
+  for (const check of partialProviderEvidenceChecks) {
+    const blockingKinds = splitMetadataList(readMetadataString(check, 'blockingRequiredKinds'));
+    if (blockingKinds.length > 0) {
+      recommendations.push(`fix missing required provider diagnostics ${blockingKinds.join(', ')}`);
+    }
   }
 
   for (const check of failedChecks) {

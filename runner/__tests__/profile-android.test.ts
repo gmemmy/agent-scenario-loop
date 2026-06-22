@@ -2276,10 +2276,12 @@ test('profile-android preserves captured provider evidence when another required
     ),
   );
   assert.ok(
-    (health.checks as Array<{ code: string; metadata?: { capturedKinds?: string; nextActionCode?: string } }>).some(
+    (health.checks as Array<{ code: string; metadata?: { blockingRequiredKinds?: string; blockingRequiredStatuses?: string; capturedKinds?: string; nextActionCode?: string } }>).some(
       (check) => (
         check.code === 'partial_provider_evidence_preserved' &&
         check.metadata?.capturedKinds?.split(',').includes('nativePerformance') &&
+        check.metadata?.blockingRequiredKinds?.split(',').includes('accessibility') &&
+        check.metadata?.blockingRequiredStatuses?.split(',').includes('accessibility:failed') &&
         check.metadata?.nextActionCode === 'use_partial_provider_evidence_for_diagnosis'
       ),
     ),

@@ -2114,6 +2114,14 @@ function buildPartialProviderEvidenceHealthChecks(
 
   const capturedKinds = uniqueStrings(capturedProviderDiagnostics.map((diagnostic) => diagnostic.kind));
   const capturedPaths = uniqueStrings(capturedProviderDiagnostics.map((diagnostic) => readTrimmedString(diagnostic.path)));
+  const blockingRequiredDiagnostics = diagnostics.filter((diagnostic) => (
+    diagnostic.required &&
+    diagnostic.status !== 'captured' &&
+    typeof diagnostic.provider === 'string' &&
+    diagnostic.provider.length > 0
+  ));
+  const blockingRequiredKinds = uniqueStrings(blockingRequiredDiagnostics.map((diagnostic) => diagnostic.kind));
+  const blockingRequiredStatuses = uniqueStrings(blockingRequiredDiagnostics.map((diagnostic) => `${diagnostic.kind}:${diagnostic.status}`));
   return [
     {
       name: 'partial_provider_evidence_preserved',
@@ -2122,6 +2130,8 @@ function buildPartialProviderEvidenceHealthChecks(
       code: 'partial_provider_evidence_preserved',
       message: 'Provider command health failed, but some provider-backed diagnostics were preserved for diagnosis.',
       metadata: {
+        blockingRequiredKinds: blockingRequiredKinds.join(','),
+        blockingRequiredStatuses: blockingRequiredStatuses.join(','),
         capturedKinds: capturedKinds.join(','),
         capturedPaths: capturedPaths.join(','),
         nextAction: 'Use preserved diagnostics for investigation only; rerun or fix missing required provider outputs before making product claims.',

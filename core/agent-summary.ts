@@ -113,6 +113,7 @@ function formatPreservedProviderEvidence(checks: unknown[]): string[] {
 
       const kinds = splitMetadataList(metadataRecord.capturedKinds);
       const paths = splitMetadataList(metadataRecord.capturedPaths);
+      const blockingKinds = splitMetadataList(metadataRecord.blockingRequiredKinds);
       let kindText = code('unknown');
       if (kinds.length > 0) {
         kindText = kinds.map((kind) => code(kind)).join(', ');
@@ -130,7 +131,12 @@ function formatPreservedProviderEvidence(checks: unknown[]): string[] {
         nextActionText = ` ${nextAction}`;
       }
 
-      return `- Captured ${kindText} at ${pathText}. ${message}${nextActionText}`;
+      let blockingText = '';
+      if (blockingKinds.length > 0) {
+        blockingText = ` Blocking required surfaces: ${blockingKinds.map((kind) => code(kind)).join(', ')}.`;
+      }
+
+      return `- Captured ${kindText} at ${pathText}. ${message}${blockingText}${nextActionText}`;
     });
 }
 

@@ -88,6 +88,7 @@ test('classifies preserved partial provider evidence as diagnostic only', () => 
           name: 'partial_provider_evidence_preserved',
           status: 'warning',
           metadata: {
+            blockingRequiredKinds: 'accessibility,uiTree',
             capturedKinds: 'nativePerformance',
           },
         },
@@ -108,6 +109,7 @@ test('classifies preserved partial provider evidence as diagnostic only', () => 
     'scenario health failed but partial provider evidence was preserved for diagnosis',
   ]);
   assert.ok(result.recommendations.includes('use preserved partial provider evidence only for diagnosis'));
+  assert.ok(result.recommendations.includes('fix missing required provider diagnostics accessibility, uiTree'));
   assert.ok(result.recommendations.includes('resolve health check provider_command_failed'));
 });
 

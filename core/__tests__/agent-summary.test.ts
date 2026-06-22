@@ -240,6 +240,7 @@ test('indexes preserved provider diagnostics separately from product claims', ()
           source: 'evidence',
           message: 'Provider command health failed, but some provider-backed diagnostics were preserved for diagnosis.',
           metadata: {
+            blockingRequiredKinds: 'accessibility,uiTree',
             capturedKinds: 'nativePerformance,profiler',
             capturedPaths: 'raw/providers/native/native-performance.json,raw/providers/native/profiler.json',
             nextAction: 'Use preserved diagnostics for investigation only; rerun before making product claims.',
@@ -266,6 +267,7 @@ test('indexes preserved provider diagnostics separately from product claims', ()
   assert.match(summary, /Do not optimize from this run/u);
   assert.match(summary, /## preserved diagnostic evidence/u);
   assert.match(summary, /Captured `nativePerformance`, `profiler`/u);
+  assert.match(summary, /Blocking required surfaces: `accessibility`, `uiTree`/u);
   assert.match(summary, /`raw\/providers\/native\/native-performance\.json`/u);
   assert.match(summary, /Next action `use_partial_provider_evidence_for_diagnosis`/u);
   assert.match(summary, /## failed checks/u);
