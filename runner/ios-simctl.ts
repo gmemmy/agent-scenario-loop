@@ -721,6 +721,18 @@ function formatStoredProfileEventLog(events: Record<string, unknown>[]): string 
     .join('\n');
 }
 
+function resolveExecFileExitCode(error: ExecFileError | null): number {
+  if (!error) {
+    return 0;
+  }
+
+  if (typeof error.code === 'number') {
+    return error.code;
+  }
+
+  return 1;
+}
+
 /**
  * Runs a command and captures stdout, stderr, and exit code without throwing.
  *
@@ -734,7 +746,7 @@ function execFileCommand(command: string, args: string[]): Promise<CommandResult
       resolve({
         command,
         args,
-        exitCode: error && typeof error.code === 'number' ? error.code : error ? 1 : 0,
+        exitCode: resolveExecFileExitCode(error),
         stderr,
         stdout,
       });
@@ -805,6 +817,232 @@ function nextActionHint(nextActionCode: string, nextAction: string): NextActionH
   return {
     nextAction,
     nextActionCode,
+  };
+}
+
+function iosAppLifecycleStatus({
+  appLifecycleAmbiguousExit,
+  appLifecycleCaptured,
+  appLifecycleCrashed,
+}: {
+  appLifecycleAmbiguousExit: boolean;
+  appLifecycleCaptured: boolean;
+  appLifecycleCrashed: boolean;
+}): 'failed' | 'passed' | 'warning' {
+  if (!appLifecycleCaptured) {
+    return 'warning';
+  }
+
+  if (appLifecycleCrashed) {
+    return 'failed';
+  }
+
+  if (appLifecycleAmbiguousExit) {
+    return 'warning';
+  }
+
+  return 'passed';
+}
+
+function iosAppLifecycleCode({
+  appLifecycleAmbiguousExit,
+  appLifecycleCaptured,
+  appLifecycleCrashed,
+}: {
+  appLifecycleAmbiguousExit: boolean;
+  appLifecycleCaptured: boolean;
+  appLifecycleCrashed: boolean;
+}): string {
+  if (!appLifecycleCaptured) {
+    return 'ios_app_lifecycle_log_unavailable';
+  }
+
+  if (appLifecycleCrashed) {
+    return 'ios_app_exited_during_capture';
+  }
+
+  if (appLifecycleAmbiguousExit) {
+    return 'ios_app_lifecycle_exit_unconfirmed';
+  }
+
+  return 'ios_app_lifecycle_stable';
+}
+
+function iosAppLifecycleMessage({
+  appLifecycleAmbiguousExit,
+  appLifecycleCaptured,
+  appLifecycleCrashed,
+  bundleId,
+}: {
+  appLifecycleAmbiguousExit: boolean;
+  appLifecycleCaptured: boolean;
+  appLifecycleCrashed: boolean;
+  bundleId: string;
+}): string {
+  if (!appLifecycleCaptured) {
+    return 'Could not inspect the launched iOS app lifecycle log.';
+  }
+
+  if (appLifecycleCrashed) {
+    return `App ${bundleId} exited during the simulator capture window.`;
+  }
+
+  if (appLifecycleAmbiguousExit) {
+    return `Simulator logs mentioned an app exit for ${bundleId}, but no matching host crash report was found.`;
+  }
+
+  return `No native app exit was found for ${bundleId} during the simulator capture window.`;
+}
+
+function iosAppLifecycleMetadata({
+  appLifecycleAmbiguousExit,
+  appLifecycleCaptured,
+  appLifecycleCrashed,
+  appLifecycleRawFileName,
+  hostDiagnosticReport,
+}: {
+  appLifecycleAmbiguousExit: boolean;
+  appLifecycleCaptured: boolean;
+  appLifecycleCrashed: boolean;
+  appLifecycleRawFileName: string;
+  hostDiagnosticReport: HostDiagnosticReportProbe | null;
+}): {metadata: NextActionHint} | Record<string, never> {
+  if (!appLifecycleCaptured) {
+    return {
+      metadata: nextActionHint(
+        'inspect_ios_app_lifecycle',
+        `Inspect raw/${appLifecycleRawFileName}, confirm xcrun simctl log access works for the selected simulator, then rerun the capture.`,
+      ),
+    };
+  }
+
+  if (!appLifecycleCrashed && !appLifecycleAmbiguousExit) {
+    return {};
+  }
+
+  let nextActionCode = 'confirm_ios_app_lifecycle';
+  let nextAction = `Inspect raw/${appLifecycleRawFileName}, raw/ios-host-diagnostic-report-search.txt, and simulator UI/process evidence before treating this as an app crash.`;
+  if (appLifecycleCrashed) {
+    nextActionCode = 'inspect_ios_app_crash';
+    if (hostDiagnosticReport?.metadata?.matched) {
+      nextAction = `Inspect raw/${appLifecycleRawFileName} and ${hostDiagnosticReport.metadata.rawPath}; do not trust timing or profile evidence until the app remains foregrounded.`;
+    }
+  }
+  return {
+    metadata: nextActionHint(nextActionCode, nextAction),
+  };
+}
+
+function iosTargetForegroundStatus({
+  appInfoCaptured,
+  applicationState,
+  targetForeground,
+}: {
+  appInfoCaptured: boolean;
+  applicationState: string | null;
+  targetForeground: boolean;
+}): 'failed' | 'passed' | 'warning' {
+  if (!appInfoCaptured || !applicationState) {
+    return 'warning';
+  }
+
+  if (targetForeground) {
+    return 'passed';
+  }
+
+  return 'failed';
+}
+
+function iosTargetForegroundCode({
+  appInfoCaptured,
+  applicationState,
+  targetForeground,
+}: {
+  appInfoCaptured: boolean;
+  applicationState: string | null;
+  targetForeground: boolean;
+}): string {
+  if (!appInfoCaptured) {
+    return 'ios_target_app_info_unavailable';
+  }
+
+  if (targetForeground) {
+    return 'ios_target_app_foreground';
+  }
+
+  if (applicationState) {
+    return 'ios_target_app_backgrounded';
+  }
+
+  return 'ios_target_app_state_unknown';
+}
+
+function iosTargetForegroundMessage({
+  appInfoCaptured,
+  applicationState,
+  bundleId,
+  targetForeground,
+}: {
+  appInfoCaptured: boolean;
+  applicationState: string | null;
+  bundleId: string;
+  targetForeground: boolean;
+}): string {
+  if (!appInfoCaptured) {
+    return `Could not inspect foreground state for ${bundleId}.`;
+  }
+
+  if (targetForeground) {
+    return `Target app ${bundleId} remained foreground-owned after capture.`;
+  }
+
+  if (applicationState) {
+    return `Target app ${bundleId} was ${applicationState} after capture.`;
+  }
+
+  return `Target app ${bundleId} foreground state was not reported by simctl appinfo.`;
+}
+
+function iosTargetForegroundMetadata({
+  appInfoCaptured,
+  applicationState,
+  bundleId,
+  rawFileName,
+  targetForeground,
+}: {
+  appInfoCaptured: boolean;
+  applicationState: string | null;
+  bundleId: string;
+  rawFileName: string;
+  targetForeground: boolean;
+}): {metadata: NextActionHint} | Record<string, never> {
+  if (!appInfoCaptured) {
+    return {
+      metadata: nextActionHint(
+        'inspect_ios_app_info',
+        `Inspect raw/${rawFileName}; if simctl appinfo is unavailable on this Xcode, use a host runner that can prove target foreground ownership before trusting screenshot evidence.`,
+      ),
+    };
+  }
+
+  if (targetForeground) {
+    return {};
+  }
+
+  if (applicationState) {
+    return {
+      metadata: nextActionHint(
+        'restore_ios_target_foreground',
+        `The target app reported ${applicationState}. Inspect raw/${rawFileName}, confirm the selected bundle and dev-client URL, and rerun on a simulator where ${bundleId} owns the foreground surface.`,
+      ),
+    };
+  }
+
+  return {
+    metadata: nextActionHint(
+      'confirm_ios_target_foreground',
+      `Inspect raw/${rawFileName} and simulator UI evidence; this Xcode/simulator did not report ApplicationState.`,
+    ),
   };
 }
 
@@ -1424,39 +1662,30 @@ async function runIosSimctlCapture({
       }
       checks.push({
         name: 'ios_app_lifecycle_stable',
-        status: !appLifecycleCaptured ? 'warning' : appLifecycleCrashed ? 'failed' : appLifecycleAmbiguousExit ? 'warning' : 'passed',
+        status: iosAppLifecycleStatus({
+          appLifecycleAmbiguousExit,
+          appLifecycleCaptured,
+          appLifecycleCrashed,
+        }),
         source: 'runner',
-        code: !appLifecycleCaptured
-          ? 'ios_app_lifecycle_log_unavailable'
-          : appLifecycleCrashed
-            ? 'ios_app_exited_during_capture'
-            : appLifecycleAmbiguousExit
-              ? 'ios_app_lifecycle_exit_unconfirmed'
-            : 'ios_app_lifecycle_stable',
-        message: !appLifecycleCaptured
-          ? 'Could not inspect the launched iOS app lifecycle log.'
-          : appLifecycleCrashed
-            ? `App ${bundleId} exited during the simulator capture window.`
-            : appLifecycleAmbiguousExit
-              ? `Simulator logs mentioned an app exit for ${bundleId}, but no matching host crash report was found.`
-            : `No native app exit was found for ${bundleId} during the simulator capture window.`,
-        ...(!appLifecycleCaptured
-          ? {
-              metadata: nextActionHint(
-                'inspect_ios_app_lifecycle',
-                `Inspect raw/${appLifecycleRawFileName}, confirm xcrun simctl log access works for the selected simulator, then rerun the capture.`,
-              ),
-            }
-          : appLifecycleCrashed || appLifecycleAmbiguousExit
-            ? {
-                metadata: nextActionHint(
-                  appLifecycleCrashed ? 'inspect_ios_app_crash' : 'confirm_ios_app_lifecycle',
-                  appLifecycleCrashed && hostDiagnosticReport?.metadata?.matched
-                    ? `Inspect raw/${appLifecycleRawFileName} and ${hostDiagnosticReport.metadata.rawPath}; do not trust timing or profile evidence until the app remains foregrounded.`
-                    : `Inspect raw/${appLifecycleRawFileName}, raw/ios-host-diagnostic-report-search.txt, and simulator UI/process evidence before treating this as an app crash.`,
-                ),
-              }
-            : {}),
+        code: iosAppLifecycleCode({
+          appLifecycleAmbiguousExit,
+          appLifecycleCaptured,
+          appLifecycleCrashed,
+        }),
+        message: iosAppLifecycleMessage({
+          appLifecycleAmbiguousExit,
+          appLifecycleCaptured,
+          appLifecycleCrashed,
+          bundleId,
+        }),
+        ...iosAppLifecycleMetadata({
+          appLifecycleAmbiguousExit,
+          appLifecycleCaptured,
+          appLifecycleCrashed,
+          appLifecycleRawFileName,
+          hostDiagnosticReport,
+        }),
       });
       metadata.appLifecycle = {
         args: appLifecycleLog.args,
@@ -1495,39 +1724,30 @@ async function runIosSimctlCapture({
       raw[appInfoResult.rawFileName] = appInfoOutput;
       checks.push({
         name: 'ios_target_app_foreground',
-        status: !appInfoCaptured || !applicationState ? 'warning' : targetForeground ? 'passed' : 'failed',
+        status: iosTargetForegroundStatus({
+          appInfoCaptured,
+          applicationState,
+          targetForeground,
+        }),
         source: 'runner',
-        code: !appInfoCaptured
-          ? 'ios_target_app_info_unavailable'
-          : targetForeground
-            ? 'ios_target_app_foreground'
-            : applicationState
-              ? 'ios_target_app_backgrounded'
-              : 'ios_target_app_state_unknown',
-        message: !appInfoCaptured
-          ? `Could not inspect foreground state for ${bundleId}.`
-          : targetForeground
-            ? `Target app ${bundleId} remained foreground-owned after capture.`
-            : applicationState
-              ? `Target app ${bundleId} was ${applicationState} after capture.`
-              : `Target app ${bundleId} foreground state was not reported by simctl appinfo.`,
-        ...(!appInfoCaptured
-          ? {
-              metadata: nextActionHint(
-                'inspect_ios_app_info',
-                `Inspect raw/${appInfoResult.rawFileName}; if simctl appinfo is unavailable on this Xcode, use a host runner that can prove target foreground ownership before trusting screenshot evidence.`,
-              ),
-            }
-          : !targetForeground
-            ? {
-                metadata: nextActionHint(
-                  applicationState ? 'restore_ios_target_foreground' : 'confirm_ios_target_foreground',
-                  applicationState
-                    ? `The target app reported ${applicationState}. Inspect raw/${appInfoResult.rawFileName}, confirm the selected bundle and dev-client URL, and rerun on a simulator where ${bundleId} owns the foreground surface.`
-                    : `Inspect raw/${appInfoResult.rawFileName} and simulator UI evidence; this Xcode/simulator did not report ApplicationState.`,
-                ),
-              }
-            : {}),
+        code: iosTargetForegroundCode({
+          appInfoCaptured,
+          applicationState,
+          targetForeground,
+        }),
+        message: iosTargetForegroundMessage({
+          appInfoCaptured,
+          applicationState,
+          bundleId,
+          targetForeground,
+        }),
+        ...iosTargetForegroundMetadata({
+          appInfoCaptured,
+          applicationState,
+          bundleId,
+          rawFileName: appInfoResult.rawFileName,
+          targetForeground,
+        }),
       });
       metadata.appInfo = {
         applicationState,
