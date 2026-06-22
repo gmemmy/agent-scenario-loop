@@ -2,6 +2,13 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useEffect, useSyncExternalStore } from 'react';
 import { Linking, NativeModules, Platform } from 'react-native';
 import * as ExpoLinking from 'expo-linking';
+import {
+  buildProfileCommandMilestoneGate,
+  compareProfileCommands,
+  doesProfileEventReleaseCommandGate,
+  hasObservedProfileCommandMilestone,
+  type ProfileCommandMilestoneGate as BaseProfileCommandMilestoneGate,
+} from './profile-session-command-ordering';
 import { PROFILE_SESSION_STORAGE_KEYS } from './profile-session-storage';
 
 export type ProfileSessionState = {
@@ -87,16 +94,8 @@ type StoredProfileSessionEntry = {
 };
 
 type StoredProfileSignals = Record<ProfileSignalKind, Record<string, unknown>>;
-type ProfileCommandMilestoneGate = {
-  commandId?: string;
-  id: string;
-  milestone: string;
-  queueId?: string;
-  runId?: string;
-  scenario?: string;
-  sequence?: number;
+type ProfileCommandMilestoneGate = BaseProfileCommandMilestoneGate & {
   timeoutId?: ReturnType<typeof setTimeout>;
-  waitMs?: number;
 };
 
 const INITIAL_STATE: ProfileSessionState = {
@@ -561,51 +560,9 @@ function markProfileCommandIdProcessed(command: ProfileSessionCommand) {
   }
 }
 
-function compareProfileCommands(left: ProfileSessionCommand, right: ProfileSessionCommand): number {
-  const leftSequence = typeof left.sequence === 'number' ? left.sequence : Number.POSITIVE_INFINITY;
-  const rightSequence = typeof right.sequence === 'number' ? right.sequence : Number.POSITIVE_INFINITY;
-  if (leftSequence !== rightSequence) {
-    return leftSequence - rightSequence;
-  }
-
-  return left.timestamp - right.timestamp;
-}
-
 function shouldQueueProfileCommand(command: ProfileSessionCommand): boolean {
   return !hasProcessedProfileCommandId(command) &&
     !sequencedProfileCommands.some((queuedCommand) => queuedCommand.id === command.id);
-}
-
-function buildProfileCommandMilestoneGate(command: ProfileSessionCommand): ProfileCommandMilestoneGate | null {
-  if (typeof command.waitForMilestone !== 'string' || command.waitForMilestone.length === 0) {
-    return null;
-  }
-
-  return {
-    id: command.id,
-    milestone: command.waitForMilestone,
-    ...(typeof command.commandId === 'string' ? { commandId: command.commandId } : {}),
-    ...(typeof command.queueId === 'string' ? { queueId: command.queueId } : {}),
-    ...(typeof command.runId === 'string' ? { runId: command.runId } : {}),
-    ...(typeof command.scenario === 'string' ? { scenario: command.scenario } : {}),
-    ...(typeof command.sequence === 'number' ? { sequence: command.sequence } : {}),
-    ...(typeof command.waitMs === 'number' && command.waitMs > 0 ? { waitMs: command.waitMs } : {}),
-  };
-}
-
-function hasObservedProfileCommandMilestone(command: ProfileSessionCommand): boolean {
-  if (typeof command.waitForMilestone !== 'string' || command.waitForMilestone.length === 0) {
-    return false;
-  }
-  if (typeof command.sequence === 'number' && command.sequence > 1) {
-    return false;
-  }
-
-  return observedProfileEvents.some((eventPayload) => (
-    eventPayload.event === command.waitForMilestone &&
-    (!command.runId || eventPayload.runId === command.runId) &&
-    (!command.scenario || eventPayload.scenario === command.scenario)
-  ));
 }
 
 function clearProfileCommandMilestoneGate() {
@@ -751,7 +708,7 @@ function processSequencedProfileCommands() {
     }
 
     markProfileCommandIdProcessed(command);
-    const nextGate = hasObservedProfileCommandMilestone(command)
+    const nextGate = hasObservedProfileCommandMilestone(command, observedProfileEvents)
       ? null
       : buildProfileCommandMilestoneGate(command);
     profileCommandMilestoneGate = nextGate;
@@ -784,18 +741,9 @@ function enqueueSequencedProfileCommands(commands: ProfileSessionCommand[]) {
 }
 
 function releaseProfileCommandMilestoneGate(eventPayload: StoredProfileEvent) {
-  if (!profileCommandMilestoneGate || profileCommandMilestoneGate.milestone !== eventPayload.event) {
-    return;
-  }
   if (
-    profileCommandMilestoneGate.runId &&
-    profileCommandMilestoneGate.runId !== eventPayload.runId
-  ) {
-    return;
-  }
-  if (
-    profileCommandMilestoneGate.scenario &&
-    profileCommandMilestoneGate.scenario !== eventPayload.scenario
+    !profileCommandMilestoneGate ||
+    !doesProfileEventReleaseCommandGate(profileCommandMilestoneGate, eventPayload)
   ) {
     return;
   }

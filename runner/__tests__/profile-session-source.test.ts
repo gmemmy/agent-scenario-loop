@@ -18,6 +18,7 @@ function readSource(relativePath: string): string {
 
 test('profile-session helper keeps storage-backed command control safeguards', () => {
   const source = readSource('app/profile-session.ts');
+  const orderingSource = readSource('app/profile-session-command-ordering.ts');
 
   assert.match(source, /const PROFILE_SESSION_MAX_AGE_MS = 2 \* 60 \* 60_000;/u);
   assert.match(source, /export function isProfileSessionFresh/u);
@@ -56,21 +57,19 @@ test('profile-session helper keeps storage-backed command control safeguards', (
   assert.match(source, /let profileCommandMilestoneGate: ProfileCommandMilestoneGate \| null = null;/u);
   assert.match(source, /let profileCommandProcessingTimeoutId: ReturnType<typeof setTimeout> \| null = null;/u);
   assert.match(source, /let profileCommandProcessingAvailableAt = 0;/u);
-  assert.match(source, /function compareProfileCommands/u);
+  assert.match(source, /from '\.\/profile-session-command-ordering';/u);
   assert.match(source, /sequencedProfileCommands\.sort\(compareProfileCommands\);/u);
   assert.match(source, /function processSequencedProfileCommands/u);
   assert.match(source, /profileCommandMilestoneGate = nextGate;/u);
-  assert.match(source, /function hasObservedProfileCommandMilestone\(command: ProfileSessionCommand\): boolean/u);
-  assert.match(source, /typeof command\.sequence === 'number' && command\.sequence > 1/u);
-  assert.match(source, /hasObservedProfileCommandMilestone\(command\)/u);
+  assert.match(orderingSource, /typeof command\.sequence === 'number' && command\.sequence > 1/u);
+  assert.match(source, /hasObservedProfileCommandMilestone\(command, observedProfileEvents\)/u);
   assert.match(source, /observedProfileEvents\.push\(eventPayload\);/u);
   assert.match(source, /observedProfileEvents\.length = 0;/u);
   assert.doesNotMatch(source, /command\.timestamp < activeSession\.startedAt/u);
   assert.match(source, /runId\?: string;/u);
   assert.match(source, /scenario\?: string;/u);
   assert.match(source, /function releaseProfileCommandMilestoneGate\(eventPayload: StoredProfileEvent\)/u);
-  assert.match(source, /profileCommandMilestoneGate\.runId !== eventPayload\.runId/u);
-  assert.match(source, /profileCommandMilestoneGate\.scenario !== eventPayload\.scenario/u);
+  assert.match(source, /doesProfileEventReleaseCommandGate\(profileCommandMilestoneGate, eventPayload\)/u);
   assert.match(source, /let profileCommandProcessingScheduled = false;/u);
   assert.match(source, /function scheduleProfileCommandProcessing\(waitMs = 0\)/u);
   assert.match(source, /profileCommandProcessingAvailableAt = availableAt;/u);

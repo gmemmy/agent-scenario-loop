@@ -17,6 +17,13 @@
     "forceConsistentCasingInFileNames": true,
     "skipLibCheck": true
   },
-  "include": ["index.ts", "profile-session-storage.ts", "core/**/*.ts", "runner/**/*.ts", "scripts/**/*.ts"],
+  "include": [
+    "index.ts",
+    "profile-session-command-ordering.ts",
+    "profile-session-storage.ts",
+    "core/**/*.ts",
+    "runner/**/*.ts",
+    "scripts/**/*.ts"
+  ],
   "exclude": ["dist", "node_modules", "app"]
 }
