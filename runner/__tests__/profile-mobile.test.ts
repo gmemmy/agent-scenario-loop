@@ -134,3 +134,91 @@ test('profile health fails when an explicit required diagnostic is unavailable',
     },
   });
 });
+
+test('profile health fails when sidecar runtime identity mismatches expected app id', () => {
+  const health = buildProfileHealth({
+    scenario: {
+      name: 'mobile-runtime-identity',
+      flowId: 'mobile-runtime-identity',
+    },
+    runId: 'mobile-runtime-identity-run',
+    metrics: {
+      failures: 0,
+      status: 'passed',
+      timeouts: 0,
+    },
+    runtimeIdentity: {
+      expectedAppId: 'dev.expected.app',
+      expectedAppIdSource: 'cli',
+      nextAction: 'Rerun the adb sidecar with the expected package.',
+      nextActionCode: 'rerun_sidecar_with_expected_runtime_identity',
+      observedAppId: 'dev.other.app',
+      platform: 'android',
+      reason: 'Android adb sidecar metadata records package dev.other.app, but this profile run expected dev.expected.app.',
+      sidecarMetadataPath: 'raw/android-metadata.json',
+      status: 'mismatched',
+    },
+  });
+
+  assert.equal(health.healthStatus, 'failed');
+  assert.deepEqual(health.checks[1], {
+    name: 'runtime_identity',
+    status: 'failed',
+    source: 'runner',
+    code: 'runtime_identity_mismatch',
+    message: 'Android adb sidecar metadata records package dev.other.app, but this profile run expected dev.expected.app.',
+    metadata: {
+      platform: 'android',
+      identityStatus: 'mismatched',
+      sidecarMetadataPath: 'raw/android-metadata.json',
+      nextAction: 'Rerun the adb sidecar with the expected package.',
+      nextActionCode: 'rerun_sidecar_with_expected_runtime_identity',
+      expectedAppId: 'dev.expected.app',
+      expectedAppIdSource: 'cli',
+      observedAppId: 'dev.other.app',
+    },
+  });
+});
+
+test('profile health records unverified sidecar runtime identity without failing passed metrics', () => {
+  const health = buildProfileHealth({
+    scenario: {
+      name: 'mobile-runtime-identity',
+      flowId: 'mobile-runtime-identity',
+    },
+    runId: 'mobile-runtime-identity-run',
+    metrics: {
+      failures: 0,
+      status: 'passed',
+      timeouts: 0,
+    },
+    runtimeIdentity: {
+      expectedAppId: 'dev.expected.app',
+      expectedAppIdSource: 'cli',
+      nextAction: 'Use a simctl capture sidecar that writes raw/ios-metadata.json.',
+      nextActionCode: 'capture_runtime_identity_metadata',
+      platform: 'ios',
+      reason: 'iOS simctl sidecar metadata did not include enough runtime identity to verify the expected app or target.',
+      sidecarMetadataPath: 'raw/ios-metadata.json',
+      status: 'unverified',
+    },
+  });
+
+  assert.equal(health.healthStatus, 'passed');
+  assert.deepEqual(health.checks[1], {
+    name: 'runtime_identity',
+    status: 'warning',
+    source: 'runner',
+    code: 'runtime_identity_unverified',
+    message: 'iOS simctl sidecar metadata did not include enough runtime identity to verify the expected app or target.',
+    metadata: {
+      platform: 'ios',
+      identityStatus: 'unverified',
+      sidecarMetadataPath: 'raw/ios-metadata.json',
+      nextAction: 'Use a simctl capture sidecar that writes raw/ios-metadata.json.',
+      nextActionCode: 'capture_runtime_identity_metadata',
+      expectedAppId: 'dev.expected.app',
+      expectedAppIdSource: 'cli',
+    },
+  });
+});

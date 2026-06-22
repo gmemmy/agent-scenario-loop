@@ -283,10 +283,29 @@ type ProfileSessionFreshness = {
   seed: ProfileSessionSeed;
   status: 'fresh' | 'missing-app-session' | 'stale';
 };
+type ExpectedRuntimeIdentityValue = {
+  source: 'cli' | 'config';
+  value: string;
+};
+type RuntimeIdentityVerification = {
+  expectedAppId?: string;
+  expectedAppIdSource?: 'cli' | 'config';
+  expectedTargetId?: string;
+  expectedTargetIdSource?: 'cli';
+  nextAction: string;
+  nextActionCode: string;
+  observedAppId?: string;
+  observedTargetId?: string;
+  platform: ProfilePlatform;
+  reason: string;
+  sidecarMetadataPath: string;
+  status: 'mismatched' | 'unverified' | 'verified';
+};
 const CAPTURE_EVIDENCE_KINDS = new Set(['screenshot', 'uiTree', 'video']);
 const PROVIDER_EVIDENCE_KINDS = new Set(['accessibility', 'logs', 'nativePerformance', 'profiler']);
 const SIGNAL_EVIDENCE_KINDS = new Set(['js', 'memory', 'network']);
 const DEFAULT_PROVIDER_COMMAND_TIMEOUT_MS = 180_000;
+const PLACEHOLDER_APP_IDS = new Set(['com.example.app']);
 
 /**
  * Prints CLI usage to stderr.
@@ -1862,9 +1881,76 @@ function buildProviderCommandFailureChecks(failures: ProviderCommandFailure[] = 
 }
 
 /**
+ * Resolves the health status for a runtime identity check.
+ *
+ * @param {RuntimeIdentityVerification['status']} status
+ * @returns {'failed' | 'passed' | 'warning'}
+ */
+function resolveRuntimeIdentityHealthStatus(status: RuntimeIdentityVerification['status']): 'failed' | 'passed' | 'warning' {
+  if (status === 'mismatched') {
+    return 'failed';
+  }
+  if (status === 'verified') {
+    return 'passed';
+  }
+  return 'warning';
+}
+
+/**
+ * Resolves the health code for a runtime identity check.
+ *
+ * @param {RuntimeIdentityVerification['status']} status
+ * @returns {string}
+ */
+function resolveRuntimeIdentityHealthCode(status: RuntimeIdentityVerification['status']): string {
+  if (status === 'mismatched') {
+    return 'runtime_identity_mismatch';
+  }
+  if (status === 'verified') {
+    return 'runtime_identity_verified';
+  }
+  return 'runtime_identity_unverified';
+}
+
+/**
+ * Converts sidecar runtime identity verification into a scenario health check.
+ *
+ * @param {RuntimeIdentityVerification | null} runtimeIdentity
+ * @returns {Record<string, unknown>[]}
+ */
+function buildRuntimeIdentityHealthChecks(runtimeIdentity: RuntimeIdentityVerification | null = null): Record<string, unknown>[] {
+  if (!runtimeIdentity) {
+    return [];
+  }
+
+  return [
+    {
+      name: 'runtime_identity',
+      status: resolveRuntimeIdentityHealthStatus(runtimeIdentity.status),
+      source: 'runner',
+      code: resolveRuntimeIdentityHealthCode(runtimeIdentity.status),
+      message: runtimeIdentity.reason,
+      metadata: {
+        platform: runtimeIdentity.platform,
+        identityStatus: runtimeIdentity.status,
+        sidecarMetadataPath: runtimeIdentity.sidecarMetadataPath,
+        nextAction: runtimeIdentity.nextAction,
+        nextActionCode: runtimeIdentity.nextActionCode,
+        ...(runtimeIdentity.expectedAppId ? { expectedAppId: runtimeIdentity.expectedAppId } : {}),
+        ...(runtimeIdentity.expectedAppIdSource ? { expectedAppIdSource: runtimeIdentity.expectedAppIdSource } : {}),
+        ...(runtimeIdentity.observedAppId ? { observedAppId: runtimeIdentity.observedAppId } : {}),
+        ...(runtimeIdentity.expectedTargetId ? { expectedTargetId: runtimeIdentity.expectedTargetId } : {}),
+        ...(runtimeIdentity.expectedTargetIdSource ? { expectedTargetIdSource: runtimeIdentity.expectedTargetIdSource } : {}),
+        ...(runtimeIdentity.observedTargetId ? { observedTargetId: runtimeIdentity.observedTargetId } : {}),
+      },
+    },
+  ];
+}
+
+/**
  * Builds scenario health from profile metrics.
  *
- * @param {{scenario: Record<string, unknown>, runId: string, metrics: Record<string, unknown>, diagnostics?: DiagnosticInventoryEntry[], providerFailures?: ProviderCommandFailure[], profileEventCount?: number, profileSessionEntryCount?: number, commandTransport?: string, sessionEntries?: Record<string, unknown>[], sessionFreshness?: ProfileSessionFreshness | null, sessionFreshnessRequired?: boolean}} options
+ * @param {{scenario: Record<string, unknown>, runId: string, metrics: Record<string, unknown>, diagnostics?: DiagnosticInventoryEntry[], providerFailures?: ProviderCommandFailure[], profileEventCount?: number, profileSessionEntryCount?: number, commandTransport?: string, runtimeIdentity?: RuntimeIdentityVerification | null, sessionEntries?: Record<string, unknown>[], sessionFreshness?: ProfileSessionFreshness | null, sessionFreshnessRequired?: boolean}} options
  * @returns {Record<string, unknown>}
  */
 function buildProfileHealth({
@@ -1877,6 +1963,7 @@ function buildProfileHealth({
   profileSessionEntryCount,
   commandTransport,
   evidenceIdentityFailure = null,
+  runtimeIdentity = null,
   sessionEntries = [],
   sessionFreshness = null,
   sessionFreshnessRequired = false,
@@ -1890,6 +1977,7 @@ function buildProfileHealth({
   profileSessionEntryCount?: number;
   commandTransport?: string;
   evidenceIdentityFailure?: EvidenceIdentityFailure | null;
+  runtimeIdentity?: RuntimeIdentityVerification | null;
   sessionEntries?: Record<string, any>[];
   sessionFreshness?: ProfileSessionFreshness | null;
   sessionFreshnessRequired?: boolean;
@@ -1980,6 +2068,8 @@ function buildProfileHealth({
   const evidenceIdentityChecksPassed = evidenceIdentityChecks.every((check) => check.status !== 'failed');
   const providerFailureChecks = buildProviderCommandFailureChecks(providerFailures);
   const providerFailureChecksPassed = providerFailureChecks.every((check) => check.status === 'passed');
+  const runtimeIdentityChecks = buildRuntimeIdentityHealthChecks(runtimeIdentity);
+  const runtimeIdentityChecksPassed = runtimeIdentityChecks.every((check) => check.status !== 'failed');
   const sessionFreshnessChecks = sessionFreshness
     ? [
         {
@@ -2017,6 +2107,7 @@ function buildProfileHealth({
     diagnosticChecksPassed &&
     evidenceIdentityChecksPassed &&
     providerFailureChecksPassed &&
+    runtimeIdentityChecksPassed &&
     sessionFreshnessChecksPassed;
 
   return assertValidJson(
@@ -2041,6 +2132,7 @@ function buildProfileHealth({
         ...sessionFreshnessChecks,
         ...commandChecks,
         ...providerFailureChecks,
+        ...runtimeIdentityChecks,
         ...diagnosticChecks,
       ],
     },
@@ -2788,6 +2880,352 @@ function readOptionalJsonObject(filePath: string): Record<string, unknown> | nul
   return value && typeof value === 'object' && !Array.isArray(value)
     ? value as Record<string, unknown>
     : null;
+}
+
+/**
+ * Returns an object value when sidecar metadata provides one.
+ *
+ * @param {unknown} value
+ * @returns {Record<string, unknown> | null}
+ */
+function readRecordValue(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+/**
+ * Returns a trimmed non-empty string from sidecar or CLI input.
+ *
+ * @param {unknown} value
+ * @returns {string | null}
+ */
+function readTrimmedString(value: unknown): string | null {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
+}
+
+/**
+ * Deduplicates concrete strings while preserving their first observed order.
+ *
+ * @param {Array<string | null | undefined>} values
+ * @returns {string[]}
+ */
+function uniqueStrings(values: Array<string | null | undefined>): string[] {
+  const unique = new Set<string>();
+  for (const value of values) {
+    if (value) {
+      unique.add(value);
+    }
+  }
+
+  return [...unique];
+}
+
+/**
+ * Classifies app id strings that should not drive runtime identity verification.
+ *
+ * @param {unknown} value
+ * @returns {value is string}
+ */
+function isConcreteAppId(value: unknown): value is string {
+  const appId = readTrimmedString(value);
+  return Boolean(appId && !PLACEHOLDER_APP_IDS.has(appId));
+}
+
+/**
+ * Resolves the app id that this profile run expects the sidecar to represent.
+ *
+ * @param {{args: CliArgs, config: Record<string, unknown>, platform: ProfilePlatform}} options
+ * @returns {ExpectedRuntimeIdentityValue | null}
+ */
+function resolveExpectedRuntimeAppId({
+  args,
+  config,
+  platform,
+}: {
+  args: CliArgs;
+  config: Record<string, any>;
+  platform: ProfilePlatform;
+}): ExpectedRuntimeIdentityValue | null {
+  const cliValue = readScalarArg(platform === 'android' ? args.package : args.bundle);
+  const cliAppId = readTrimmedString(cliValue);
+  if (cliAppId) {
+    return {
+      source: 'cli',
+      value: cliAppId,
+    };
+  }
+
+  const configValue = platform === 'android' ? config.app?.androidPackage : config.app?.iosBundleId;
+  if (isConcreteAppId(configValue)) {
+    return {
+      source: 'config',
+      value: configValue.trim(),
+    };
+  }
+
+  return null;
+}
+
+/**
+ * Resolves the concrete device/simulator id that this profile run expects.
+ *
+ * @param {{args: CliArgs, platform: ProfilePlatform}} options
+ * @returns {ExpectedRuntimeIdentityValue | null}
+ */
+function resolveExpectedRuntimeTargetId({
+  args,
+  platform,
+}: {
+  args: CliArgs;
+  platform: ProfilePlatform;
+}): ExpectedRuntimeIdentityValue | null {
+  const cliValue = readScalarArg(platform === 'android' ? args.serial : args.device);
+  const targetId = readTrimmedString(cliValue);
+  if (!targetId || (platform === 'ios' && targetId === 'booted')) {
+    return null;
+  }
+
+  return {
+    source: 'cli',
+    value: targetId,
+  };
+}
+
+/**
+ * Resolves platform sidecar metadata for runtime identity verification.
+ *
+ * @param {{args: CliArgs, platform: ProfilePlatform}} options
+ * @returns {{metadata: Record<string, unknown> | null, metadataPath: string} | null}
+ */
+function resolveRuntimeIdentityMetadata({
+  args,
+  platform,
+}: {
+  args: CliArgs;
+  platform: ProfilePlatform;
+}): { metadata: Record<string, unknown> | null; metadataPath: string } | null {
+  if (platform === 'android' && typeof args['adb-artifacts'] === 'string') {
+    const metadataPath = 'raw/android-metadata.json';
+    return {
+      metadata: readOptionalJsonObject(path.resolve(args['adb-artifacts'], metadataPath)),
+      metadataPath,
+    };
+  }
+
+  if (platform === 'ios' && typeof args['simctl-artifacts'] === 'string') {
+    const metadataPath = 'raw/ios-metadata.json';
+    return {
+      metadata: readOptionalJsonObject(path.resolve(args['simctl-artifacts'], metadataPath)),
+      metadataPath,
+    };
+  }
+
+  return null;
+}
+
+/**
+ * Reads app ids recorded by the selected sidecar metadata.
+ *
+ * @param {{metadata: Record<string, unknown>, platform: ProfilePlatform}} options
+ * @returns {string[]}
+ */
+function resolveObservedRuntimeAppIds({
+  metadata,
+  platform,
+}: {
+  metadata: Record<string, unknown>;
+  platform: ProfilePlatform;
+}): string[] {
+  if (platform === 'android') {
+    const appLifecycle = readRecordValue(metadata.appLifecycle);
+    return uniqueStrings([
+      readTrimmedString(metadata.packageName),
+      readTrimmedString(appLifecycle?.packageName),
+    ]);
+  }
+
+  return uniqueStrings([readTrimmedString(metadata.bundleId)]);
+}
+
+/**
+ * Reads the device/simulator target id recorded by the selected sidecar metadata.
+ *
+ * @param {{metadata: Record<string, unknown>, platform: ProfilePlatform}} options
+ * @returns {string | null}
+ */
+function resolveObservedRuntimeTargetId({
+  metadata,
+  platform,
+}: {
+  metadata: Record<string, unknown>;
+  platform: ProfilePlatform;
+}): string | null {
+  const targetRecord = readRecordValue(platform === 'android' ? metadata.selectedDevice : metadata.selectedSimulator);
+  return readTrimmedString(targetRecord?.udid) ?? readTrimmedString(targetRecord?.serial);
+}
+
+/**
+ * Creates the shared runtime identity verification payload.
+ *
+ * @param {{expectedAppId: ExpectedRuntimeIdentityValue | null, expectedTargetId: ExpectedRuntimeIdentityValue | null, metadataPath: string, nextAction: string, nextActionCode: string, observedAppId?: string, observedTargetId?: string, platform: ProfilePlatform, reason: string, status: RuntimeIdentityVerification['status']}} options
+ * @returns {RuntimeIdentityVerification}
+ */
+function buildRuntimeIdentityVerification({
+  expectedAppId,
+  expectedTargetId,
+  metadataPath,
+  nextAction,
+  nextActionCode,
+  observedAppId,
+  observedTargetId,
+  platform,
+  reason,
+  status,
+}: {
+  expectedAppId: ExpectedRuntimeIdentityValue | null;
+  expectedTargetId: ExpectedRuntimeIdentityValue | null;
+  metadataPath: string;
+  nextAction: string;
+  nextActionCode: string;
+  observedAppId?: string;
+  observedTargetId?: string;
+  platform: ProfilePlatform;
+  reason: string;
+  status: RuntimeIdentityVerification['status'];
+}): RuntimeIdentityVerification {
+  return {
+    platform,
+    reason,
+    sidecarMetadataPath: metadataPath,
+    status,
+    nextAction,
+    nextActionCode,
+    ...(expectedAppId
+      ? {
+          expectedAppId: expectedAppId.value,
+          expectedAppIdSource: expectedAppId.source,
+        }
+      : {}),
+    ...(expectedTargetId
+      ? {
+          expectedTargetId: expectedTargetId.value,
+          expectedTargetIdSource: 'cli' as const,
+        }
+      : {}),
+    ...(observedAppId ? { observedAppId } : {}),
+    ...(observedTargetId ? { observedTargetId } : {}),
+  };
+}
+
+/**
+ * Verifies that supplied sidecar metadata matches the expected runtime identity.
+ *
+ * @param {{args: CliArgs, config: Record<string, unknown>, platform: ProfilePlatform}} options
+ * @returns {RuntimeIdentityVerification | null}
+ */
+function resolveRuntimeIdentityVerification({
+  args,
+  config,
+  platform,
+}: {
+  args: CliArgs;
+  config: Record<string, any>;
+  platform: ProfilePlatform;
+}): RuntimeIdentityVerification | null {
+  const sidecarMetadata = resolveRuntimeIdentityMetadata({ args, platform });
+  if (!sidecarMetadata) {
+    return null;
+  }
+
+  const expectedAppId = resolveExpectedRuntimeAppId({ args, config, platform });
+  const expectedTargetId = resolveExpectedRuntimeTargetId({ args, platform });
+  if (!expectedAppId && !expectedTargetId) {
+    return null;
+  }
+
+  const sidecarName = platform === 'android' ? 'adb' : 'simctl';
+  const appLabel = platform === 'android' ? 'package' : 'bundle';
+  const targetLabel = platform === 'android' ? 'device serial' : 'simulator UDID';
+  const rerunAction = `Rerun the ${sidecarName} sidecar with the expected ${appLabel} or target id, or profile this sidecar with matching CLI identity flags before trusting runtime evidence.`;
+
+  if (!sidecarMetadata.metadata) {
+    return buildRuntimeIdentityVerification({
+      expectedAppId,
+      expectedTargetId,
+      metadataPath: sidecarMetadata.metadataPath,
+      nextAction: `Use a ${sidecarName} capture sidecar that writes ${sidecarMetadata.metadataPath}, then rerun before treating sidecar evidence as runtime-owned.`,
+      nextActionCode: 'capture_runtime_identity_metadata',
+      platform,
+      reason: `${platform === 'android' ? 'Android adb' : 'iOS simctl'} sidecar metadata did not include enough runtime identity to verify the expected app or target.`,
+      status: 'unverified',
+    });
+  }
+
+  const observedAppIds = resolveObservedRuntimeAppIds({ metadata: sidecarMetadata.metadata, platform });
+  const observedTargetId = resolveObservedRuntimeTargetId({ metadata: sidecarMetadata.metadata, platform });
+  const mismatchedAppId = expectedAppId
+    ? observedAppIds.find((observedAppId) => observedAppId !== expectedAppId.value) ?? null
+    : null;
+  if (expectedAppId && mismatchedAppId) {
+    return buildRuntimeIdentityVerification({
+      expectedAppId,
+      expectedTargetId,
+      metadataPath: sidecarMetadata.metadataPath,
+      nextAction: rerunAction,
+      nextActionCode: 'rerun_sidecar_with_expected_runtime_identity',
+      observedAppId: mismatchedAppId,
+      ...(observedTargetId ? { observedTargetId } : {}),
+      platform,
+      reason: `${platform === 'android' ? 'Android adb' : 'iOS simctl'} sidecar metadata records ${appLabel} ${mismatchedAppId}, but this profile run expected ${expectedAppId.value}.`,
+      status: 'mismatched',
+    });
+  }
+
+  if (expectedTargetId && observedTargetId && observedTargetId !== expectedTargetId.value) {
+    return buildRuntimeIdentityVerification({
+      expectedAppId,
+      expectedTargetId,
+      metadataPath: sidecarMetadata.metadataPath,
+      nextAction: rerunAction,
+      nextActionCode: 'rerun_sidecar_with_expected_runtime_identity',
+      observedAppId: observedAppIds.join(','),
+      observedTargetId,
+      platform,
+      reason: `${platform === 'android' ? 'Android adb' : 'iOS simctl'} sidecar metadata records ${targetLabel} ${observedTargetId}, but this profile run expected ${expectedTargetId.value}.`,
+      status: 'mismatched',
+    });
+  }
+
+  const appIdentityMissing = Boolean(expectedAppId && observedAppIds.length === 0);
+  const targetIdentityMissing = Boolean(expectedTargetId && !observedTargetId);
+  if (appIdentityMissing || targetIdentityMissing) {
+    return buildRuntimeIdentityVerification({
+      expectedAppId,
+      expectedTargetId,
+      metadataPath: sidecarMetadata.metadataPath,
+      nextAction: `Use a ${sidecarName} capture sidecar that records the selected ${appLabel} and ${targetLabel}, then rerun before treating sidecar evidence as runtime-owned.`,
+      nextActionCode: 'capture_runtime_identity_metadata',
+      observedAppId: observedAppIds.join(','),
+      ...(observedTargetId ? { observedTargetId } : {}),
+      platform,
+      reason: `${platform === 'android' ? 'Android adb' : 'iOS simctl'} sidecar metadata could not prove the expected runtime identity.`,
+      status: 'unverified',
+    });
+  }
+
+  return buildRuntimeIdentityVerification({
+    expectedAppId,
+    expectedTargetId,
+    metadataPath: sidecarMetadata.metadataPath,
+    nextAction: 'No action required.',
+    nextActionCode: 'none',
+    observedAppId: observedAppIds.join(','),
+    ...(observedTargetId ? { observedTargetId } : {}),
+    platform,
+    reason: `${platform === 'android' ? 'Android adb' : 'iOS simctl'} sidecar metadata matched the expected runtime identity.`,
+    status: 'verified',
+  });
 }
 
 /**
@@ -3685,6 +4123,11 @@ async function runProfileMobile(args: CliArgs, options: ProfileMobileOptions): P
     sessionEntries,
   });
   const runtimeTarget = resolveRuntimeTarget({ args, platform: options.platform });
+  const runtimeIdentity = resolveRuntimeIdentityVerification({
+    args,
+    config,
+    platform: options.platform,
+  });
 
   const metrics = buildMetricsFromProfileEvents({
     scenario: scenarioName,
@@ -3814,6 +4257,7 @@ async function runProfileMobile(args: CliArgs, options: ProfileMobileOptions): P
     profileEventCount: events.length,
     profileSessionEntryCount: sessionEntries.length,
     commandTransport,
+    runtimeIdentity,
     sessionEntries,
     sessionFreshness,
     sessionFreshnessRequired: options.platform === 'android' && typeof args['adb-artifacts'] === 'string',
