@@ -2003,6 +2003,115 @@ test('profile-android writes failed health when an evidence provider command fai
   assert.match(summary, /Next action `fix_provider_command`/u);
 });
 
+test('profile-android preserves provider outputs when a provider command fails', async (t: TestContext) => {
+  const artifactRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-android-provider-partial-'));
+  const providerRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-provider-partial-'));
+  t.after(async () => {
+    await fsp.rm(artifactRoot, { recursive: true, force: true });
+    await fsp.rm(providerRoot, { recursive: true, force: true });
+  });
+  const providerScript = path.join(providerRoot, 'partial-provider.js');
+  await fsp.writeFile(
+    providerScript,
+    [
+      "const fs = require('node:fs');",
+      "const path = require('node:path');",
+      "const outputPath = process.argv[2];",
+      "fs.mkdirSync(path.dirname(outputPath), { recursive: true });",
+      "fs.writeFileSync(outputPath, JSON.stringify({",
+      "  schemaVersion: '1.0.0',",
+      "  providerId: 'partial-native-provider',",
+      "  platform: 'android',",
+      "  runId: 'android-example-startup',",
+      "  scenarioId: 'app-startup',",
+      "  captureMode: 'afterCapture',",
+      "  completenessStatus: 'partial',",
+      "  targetBinding: { status: 'verified', appId: 'com.example.app' },",
+      "  comparability: { status: 'diagnostic-only', reason: 'provider failed after native frame evidence was written' },",
+      "  evidenceKind: 'gfxinfo',",
+      "  frames: { totalFrameCount: 7574, droppedFrameCount: 805, droppedFramePercent: 10.6 }",
+      "}) + '\\n');",
+      "process.stderr.write('accessibility snapshot timed out after native performance capture\\n');",
+      "process.exit(7);",
+    ].join('\n'),
+    'utf8',
+  );
+  const providerManifestPath = path.join(providerRoot, 'provider.json');
+  await fsp.writeFile(
+    providerManifestPath,
+    `${JSON.stringify({
+      schemaVersion: '1.0.0',
+      runnerId: 'partial-native-provider',
+      kind: 'evidenceProvider',
+      platforms: ['android'],
+      capabilities: ['nativePerformance'],
+      artifactOutputs: ['nativePerformance'],
+      lifecycle: ['capture'],
+      providerCommands: [
+        {
+          id: 'capture-native-performance',
+          phase: 'capture',
+          command: process.execPath,
+          args: [providerScript, '{providerDir}/native-performance.json'],
+          outputs: [
+            {
+              channel: 'provider',
+              kind: 'nativePerformance',
+              path: '{providerDir}/native-performance.json',
+            },
+          ],
+        },
+      ],
+    }, null, 2)}\n`,
+    'utf8',
+  );
+
+  const { stdout } = await execFileAsync(process.execPath, [
+    PROFILE_ANDROID,
+    '--config',
+    fixturePath('examples/mobile-app/asl.config.json'),
+    '--scenario',
+    fixturePath('examples/mobile-app/scenarios/android/app-startup.json'),
+    '--events',
+    fixturePath('examples/mobile-app/event-logs/android-app-startup.log'),
+    '--provider',
+    providerManifestPath,
+    '--out',
+    artifactRoot,
+    '--run-id',
+    'android-example-startup',
+  ]);
+
+  const runDir = stdout.trim();
+  const providerOutputPath = path.join(runDir, 'raw', 'providers', 'partial-native-provider', 'native-performance.json');
+  const health = readJson(path.join(runDir, 'health.json'));
+  const verdict = readJson(path.join(runDir, 'verdict.json'));
+  const manifest = readJson(path.join(runDir, 'manifest.json'));
+  const metrics = readJson(path.join(runDir, 'metrics.json'));
+  const commandRecord = readJson(path.join(runDir, 'raw', 'provider-commands', 'partial-native-provider-capture-native-performance.json'));
+  const diagnostics = (manifest.artifacts as { diagnostics: Array<{ kind: string; status: string; path?: string }> }).diagnostics;
+  const nativeDiagnostic = diagnostics.find((entry) => entry.kind === 'nativePerformance');
+  const attachments = (manifest.artifacts as { evidenceAttachments: Array<{ kind: string; path: string }> }).evidenceAttachments;
+
+  assert.ok(fs.existsSync(providerOutputPath));
+  assert.equal(health.healthStatus, 'failed');
+  assert.equal(verdict.verdictStatus, 'inconclusive');
+  assert.equal(metrics.status, 'passed');
+  assert.ok(fs.existsSync(path.join(runDir, 'causal-run.json')));
+  assert.equal(commandRecord.exitCode, 7);
+  assert.equal(nativeDiagnostic?.status, 'captured');
+  assert.equal(nativeDiagnostic?.path, 'raw/providers/partial-native-provider/native-performance.json');
+  assert.ok(attachments.some((attachment) => (
+    attachment.kind === 'nativePerformance' &&
+    attachment.path === 'raw/providers/partial-native-provider/native-performance.json'
+  )));
+  assert.ok(
+    (health.checks as Array<{ code: string; metadata?: { nextActionCode?: string } }>).some(
+      (check) => check.code === 'provider_command_failed' && check.metadata?.nextActionCode === 'fix_provider_command',
+    ),
+  );
+});
+
 test('profile-android writes provider liveness artifacts when an evidence provider command hangs', async (t: TestContext) => {
   const artifactRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-android-provider-hang-'));
   const providerRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-provider-hang-'));

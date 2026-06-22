@@ -1054,7 +1054,7 @@ function main(): void {
     );
     assert.deepEqual(
       JSON.parse(fs.readFileSync(path.join(initOutputDir, 'runner-manifests', 'evidence-provider.json'), 'utf8')).capabilities,
-      ['accessibility', 'memory', 'network', 'profiler'],
+      ['accessibility', 'memory', 'nativePerformance', 'network', 'profiler'],
     );
     assert.equal(fs.existsSync(path.join(initOutputDir, 'scripts', 'asl-capture-accessibility-provider.mjs')), true);
     assert.equal(fs.existsSync(path.join(initOutputDir, 'scripts', 'asl-capture-profiler-provider.mjs')), true);
@@ -2361,6 +2361,8 @@ function main(): void {
       "assert.equal(fs.existsSync('node_modules/agent-scenario-loop/app/profile-session.ts'), true);",
       "assert.equal(fs.existsSync('node_modules/agent-scenario-loop/app/profile-session.d.ts'), true);",
       "require.resolve('agent-scenario-loop/app/profile-session');",
+      "const profileSessionDeclarations = fs.readFileSync('node_modules/agent-scenario-loop/app/profile-session.d.ts', 'utf8');",
+      "assert.match(profileSessionDeclarations, /PROFILE_SESSION_STORAGE_KEYS/u);",
       "assert.equal(fs.existsSync('node_modules/agent-scenario-loop/core/config-template.json'), true);",
       "assert.equal(fs.existsSync('node_modules/agent-scenario-loop/docs/api.md'), true);",
       "assert.equal(fs.existsSync('node_modules/agent-scenario-loop/docs/authoring.md'), true);",
@@ -2420,6 +2422,7 @@ function main(): void {
       "import { validateProject } from 'agent-scenario-loop/runner/validate-project';",
       "import {",
       "  emitProfileEvent,",
+      "  PROFILE_SESSION_STORAGE_KEYS,",
       "  storeProfileSignal,",
       "  useProfileSession,",
       "  type ProfileEventMetadata,",
@@ -2568,6 +2571,7 @@ function main(): void {
       "const profileState: ProfileSessionState = { active: true, scenario: 'startup', runId: 'run-1', startedAt: Date.now() };",
       "const profileCommand: ProfileSessionCommand = { id: 'command-1', command: 'activate-target:open', timestamp: Date.now() };",
       "const profileMetadata: ProfileEventMetadata = { phase: 'completion', status: 'completed', atMs: 10 };",
+      "const profileSessionStorageKey: string = PROFILE_SESSION_STORAGE_KEYS.session;",
       'const comparison = buildComparisonArtifact({',
       "  baselineHealth: { schemaVersion: '1.0.0', scenarioId: 'startup', runId: 'before', healthStatus: 'passed', checks: [] },",
       "  baselineVerdict: { schemaVersion: '1.0.0', scenarioId: 'startup', runId: 'before', healthStatus: 'passed', verdictStatus: 'passed' },",
@@ -2611,6 +2615,7 @@ function main(): void {
       'void profileState;',
       'void profileCommand;',
       'void profileMetadata;',
+      'void profileSessionStorageKey;',
       'void emitProfileEvent;',
       'void storeProfileSignal;',
       'void useProfileSession;',

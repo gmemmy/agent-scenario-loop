@@ -29,6 +29,34 @@ function readStartupLog(runId: string): string {
     .replace(/android-example-startup/gu, runId);
 }
 
+test('generic Android live proof rejects scaffold package placeholders before device commands', async (t: TestContext) => {
+  const tempRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-live-android-placeholder-'));
+  t.after(async () => {
+    await fsp.rm(tempRoot, { recursive: true, force: true });
+  });
+  const config = JSON.parse(fs.readFileSync(path.join(ROOT, 'examples', 'mobile-app', 'asl.config.json'), 'utf8'));
+  config.app.androidPackage = 'com.example.app';
+  const configPath = path.join(tempRoot, 'asl.config.json');
+  await fsp.writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
+  const calls: string[] = [];
+
+  await assert.rejects(
+    () => runAndroidLiveProof({
+      config: configPath,
+      out: tempRoot,
+      scenario: path.join(ROOT, 'examples', 'mobile-app', 'scenarios', 'mobile', 'app-startup.json'),
+      serial: 'emulator-5554',
+    }, {
+      executor: async (command: string, args: string[]): Promise<CommandResult> => {
+        calls.push(`${command} ${args.join(' ')}`);
+        return { command, args, exitCode: 0, stderr: '', stdout: '' };
+      },
+    }),
+    /android live proof resolved scaffold placeholder Android package "com\.example\.app"/u,
+  );
+  assert.deepEqual(calls, []);
+});
+
 test('generic Android live proof captures profile evidence before sidecar proofs', async (t: TestContext) => {
   const outputDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-live-android-'));
   t.after(async () => {
