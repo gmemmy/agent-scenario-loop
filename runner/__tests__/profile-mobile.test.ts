@@ -97,6 +97,103 @@ test('profile health fails when command sequence fails even if truth metrics pas
   assert.equal(health.checks[1].status, 'failed');
 });
 
+test('profile health classifies incomplete truth after terminal profile-session commands', () => {
+  const health = buildProfileHealth({
+    scenario: {
+      name: 'mobile-scroll-cycle',
+      flowId: 'mobile-scroll-cycle',
+    },
+    runId: 'mobile-scroll-cycle-run',
+    metrics: {
+      failures: 2,
+      status: 'failed',
+      timeouts: 0,
+    },
+    profileEventCount: 12,
+    profileSessionEntryCount: 6,
+    commandTransport: 'profile-session-storage',
+    sessionEntries: [
+      {
+        kind: 'command',
+        scenario: 'mobile-scroll-cycle',
+        runId: 'mobile-scroll-cycle-run',
+        command: 'scroll-by:600',
+        commandId: 'scroll-surface',
+        queueId: 'mobile-scroll-cycle',
+        sequence: 2,
+        source: 'storage',
+        status: 'completed',
+        result: 'target-dispatched',
+        waitForMilestone: 'surface_settled',
+        waitTimeoutMs: 8000,
+      },
+      {
+        kind: 'command',
+        scenario: 'mobile-scroll-cycle',
+        runId: 'mobile-scroll-cycle-run',
+        command: 'scroll-by:600',
+        commandId: 'scroll-surface',
+        queueId: 'mobile-scroll-cycle',
+        sequence: 3,
+        source: 'storage',
+        status: 'completed',
+        result: 'target-dispatched',
+        waitForMilestone: 'surface_settled',
+        waitTimeoutMs: 8000,
+      },
+    ],
+  });
+
+  assert.equal(health.healthStatus, 'failed');
+  assert.equal(health.checks[0].code, 'truth_events_incomplete');
+  assert.equal(health.checks[0].metadata.completedCommandCount, 2);
+  assert.equal(health.checks[0].metadata.milestoneBackedCommandCount, 2);
+  assert.equal(health.checks[0].metadata.nextActionCode, 'inspect_truth_iteration_mapping');
+  assert.match(
+    health.checks[0].metadata.nextAction,
+    /Profile-session commands reached terminal status/u,
+  );
+});
+
+test('profile health does not misclassify incomplete truth without event counts', () => {
+  const health = buildProfileHealth({
+    scenario: {
+      name: 'mobile-scroll-cycle',
+      flowId: 'mobile-scroll-cycle',
+    },
+    runId: 'mobile-scroll-cycle-run',
+    metrics: {
+      failures: 2,
+      status: 'failed',
+      timeouts: 0,
+    },
+    profileSessionEntryCount: 6,
+    commandTransport: 'profile-session-storage',
+    sessionEntries: [
+      {
+        kind: 'command',
+        scenario: 'mobile-scroll-cycle',
+        runId: 'mobile-scroll-cycle-run',
+        command: 'scroll-by:600',
+        commandId: 'scroll-surface',
+        queueId: 'mobile-scroll-cycle',
+        sequence: 2,
+        source: 'storage',
+        status: 'completed',
+        result: 'target-dispatched',
+        waitForMilestone: 'surface_settled',
+        waitTimeoutMs: 8000,
+      },
+    ],
+  });
+
+  assert.equal(health.healthStatus, 'failed');
+  assert.equal(health.checks[0].code, 'truth_events_incomplete');
+  assert.equal('nextActionCode' in health.checks[0].metadata, false);
+  assert.equal('completedCommandCount' in health.checks[0].metadata, false);
+  assert.equal('milestoneBackedCommandCount' in health.checks[0].metadata, false);
+});
+
 test('profile health fails when an explicit required diagnostic is unavailable', () => {
   const health = buildProfileHealth({
     scenario: {

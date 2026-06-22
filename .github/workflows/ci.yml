@@ -17,6 +17,7 @@ jobs:
   validate:
     name: node ${{ matrix.node }}
     runs-on: ubuntu-latest
+    timeout-minutes: 20
 
     strategy:
       fail-fast: true
@@ -43,4 +44,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: release check
+        timeout-minutes: 10
+        env:
+          ASL_PACKAGE_GATE_TIMEOUT_MS: 300000
         run: pnpm release:check
