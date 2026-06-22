@@ -1363,6 +1363,42 @@ test('counts repeated milestone-only cycles without explicit iteration payloads'
   assert.equal(budgetVerdict?.status, 'partial');
 });
 
+test('groups repeated milestone-only completions by command sequence when iteration is absent', () => {
+  const metrics = buildMetricsFromProfileEvents({
+    scenario: 'home-feed-scroll-stress',
+    runId: 'android-live-scroll',
+    expectedIterations: 6,
+    cycleEventNames: {
+      milestone: 'home_feed_scroll_settled',
+    },
+    budgets: {
+      metric: 'milestone budget',
+      pass: {
+        cycleP95Ms: 1400,
+        failures: 0,
+      },
+    },
+    events: [
+      { event: 'home_feed_scroll_settled', atMs: 115198, sequence: 2 },
+      { event: 'home_feed_scroll_settled', atMs: 116226, sequence: 3 },
+      { event: 'home_feed_scroll_settled', atMs: 116230, sequence: 3 },
+      { event: 'home_feed_scroll_settled', atMs: 117315, sequence: 4 },
+      { event: 'home_feed_scroll_settled', atMs: 118425, sequence: 5 },
+      { event: 'home_feed_scroll_settled', atMs: 119465, sequence: 6 },
+      { event: 'home_feed_scroll_settled', atMs: 120478, sequence: 7 },
+    ],
+  });
+
+  assert.equal(metrics.status, 'passed');
+  assert.deepEqual(metrics.durationsMs, []);
+  assert.deepEqual(metrics.incompleteIterations, []);
+  assert.equal(metrics.failures, 0);
+  assert.equal(metrics.budgetEvaluation.pass, false);
+  assert.equal(metrics.budgetEvaluation.status, 'partial');
+  assert.deepEqual(metrics.budgetEvaluation.failedChecks, []);
+  assert.deepEqual(metrics.budgetEvaluation.unmeasurableChecks, ['cycle p95']);
+});
+
 test('summarizes repeated milestone-only completions without treating empty durations as zero completed cycles', () => {
   const metrics = buildMetricsFromProfileEvents({
     scenario: 'home-feed-scroll-stress',

@@ -9,6 +9,7 @@ type ProfileEvent = ArtifactRecord & {
   scenario?: string;
   runId?: string;
   iteration?: number;
+  sequence?: number;
   atMs?: number;
   timestamp?: number | string;
 };
@@ -356,6 +357,17 @@ function readIterationLabel(value: unknown): number | null {
 }
 
 /**
+ * Reads a positive command sequence label from app-owned profile events.
+ *
+ * @param {unknown} value
+ * @returns {number | null}
+ */
+function readCommandSequenceLabel(value: unknown): number | null {
+  const sequence = readIterationLabel(value);
+  return sequence !== null && sequence > 0 ? sequence : null;
+}
+
+/**
  * Detects unambiguous zero-based repeated-cycle iteration labels.
  *
  * @param {{events: ProfileEvent[], expectedIterations: number}} options
@@ -542,6 +554,7 @@ function buildMetricsFromProfileEvents({
       : 1;
   const iterations = new Map();
   const iterationLabelOffset = resolveIterationLabelOffset({ events, expectedIterations });
+  const milestoneSequenceIterations = new Map<number, number>();
   let nextImplicitMilestoneIteration = 1;
   let nextImplicitMilestoneCount = 0;
   let nextImplicitIntervalIteration = 1;
@@ -565,11 +578,21 @@ function buildMetricsFromProfileEvents({
       event.event === resolvedCycleEventNames.milestone &&
       nextImplicitMilestoneIteration <= expectedIterations
     ) {
-      eventIteration = nextImplicitMilestoneIteration;
-      nextImplicitMilestoneCount += 1;
-      if (nextImplicitMilestoneCount >= requiredMilestoneEventsPerIteration) {
-        nextImplicitMilestoneIteration += 1;
-        nextImplicitMilestoneCount = 0;
+      const sequence = readCommandSequenceLabel(event.sequence);
+      if (sequence !== null) {
+        let sequenceIteration = milestoneSequenceIterations.get(sequence);
+        if (typeof sequenceIteration !== 'number') {
+          sequenceIteration = milestoneSequenceIterations.size + 1;
+          milestoneSequenceIterations.set(sequence, sequenceIteration);
+        }
+        eventIteration = sequenceIteration;
+      } else {
+        eventIteration = nextImplicitMilestoneIteration;
+        nextImplicitMilestoneCount += 1;
+        if (nextImplicitMilestoneCount >= requiredMilestoneEventsPerIteration) {
+          nextImplicitMilestoneIteration += 1;
+          nextImplicitMilestoneCount = 0;
+        }
       }
     }
     if (
@@ -1434,6 +1457,30 @@ function resolveCommandAcknowledgementTimelineStatus(commandStatus: string): str
 }
 
 /**
+ * Resolves the timeline phase for one app-owned profile event.
+ *
+ * @param {{event: ProfileEvent, phaseMap?: Record<string, unknown> | null}} options
+ * @returns {string}
+ */
+function resolveProfileEventTimelinePhase({
+  event,
+  phaseMap = null,
+}: {
+  event: ProfileEvent;
+  phaseMap?: ArtifactRecord | null;
+}): string {
+  if (typeof event.phase === 'string') {
+    return event.phase;
+  }
+  const eventName = event.event ?? '';
+  const mappedPhase = phaseMap ? phaseMap[eventName] : null;
+  if (typeof mappedPhase === 'string') {
+    return mappedPhase;
+  }
+  return inferTimelinePhase(eventName);
+}
+
+/**
  * Converts profile-session command control entries into causal timeline events.
  *
  * These are ASL control-plane acknowledgements, not product truth events. They
@@ -1531,12 +1578,6 @@ function buildCausalTimeline({
         event.metadata && typeof event.metadata === 'object' && !Array.isArray(event.metadata)
           ? event.metadata
           : {};
-      const explicitPhase =
-        typeof event.phase === 'string'
-          ? event.phase
-          : phaseMap && typeof phaseMap[event.event] === 'string'
-            ? phaseMap[event.event]
-            : null;
       const metadata = {
         ...eventMetadata,
         ...(typeof event.flowId === 'string' ? { flowId: event.flowId } : {}),
@@ -1551,7 +1592,7 @@ function buildCausalTimeline({
       };
       const timelineValues = normalizeTimelineContractValues({
         metadata,
-        phase: explicitPhase ?? inferTimelinePhase(event.event),
+        phase: resolveProfileEventTimelinePhase({ event, phaseMap }),
         status: typeof event.status === 'string' ? event.status : inferTimelineStatus(event.event),
       });
 
