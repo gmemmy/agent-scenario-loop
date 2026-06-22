@@ -31,6 +31,7 @@ type CliArgs = {
   'ios-bundle'?: string | boolean;
   'ios-device'?: string | boolean;
   'min-free-disk'?: string | boolean;
+  'orphan-process'?: string | boolean;
   out?: string | boolean;
   'exclusive-process'?: string | boolean;
   require?: string | boolean;
@@ -62,6 +63,8 @@ type HostDoctorOptions = {
   diskSpaceTargets?: DiskSpaceTarget[];
   exclusiveProcessProbe?: (target: ExclusiveProcessTarget) => Promise<ExclusiveProcessProbeResult>;
   exclusiveProcessTargets?: ExclusiveProcessTarget[];
+  orphanProcessProbe?: (target: OrphanProcessTarget) => Promise<OrphanProcessProbeResult>;
+  orphanProcessTargets?: OrphanProcessTarget[];
   outputDir?: string;
   requirements?: HostDoctorRequirement[];
   runId?: string;
@@ -85,12 +88,23 @@ type ExclusiveProcessProbeResult = {
   matches?: ProcessMatch[];
   status: 'failed' | 'passed';
 };
+type OrphanProcessProbeResult = {
+  command?: string[];
+  errorMessage?: string;
+  matches?: ProcessMatch[];
+  platform?: string;
+  status: 'error' | 'failed' | 'passed';
+};
 type DiskSpaceTarget = {
   label: string;
   minFreeBytes: number;
   path: string;
 };
 type ExclusiveProcessTarget = {
+  label: string;
+  pattern: string;
+};
+type OrphanProcessTarget = {
   label: string;
   pattern: string;
 };
@@ -142,6 +156,7 @@ function usage(output: {write: (message: string) => unknown} = process.stderr): 
     'Use --tcp-port <host:port[,host:port]> to verify local services such as Metro before live proof.',
     'Use --min-free-disk <path:mb[,path:mb]> to verify artifact storage capacity before trace-heavy proof.',
     'Use --exclusive-process <label:pattern[,label:pattern]> to fail when an exclusive profiler or trace tool is already running.',
+    'Use --orphan-process <label:pattern[,label:pattern]> to report stale tool processes before live proof.',
     'Use --command-timeout-ms <ms> to bound agent-device and Argent availability checks.',
   ], output);
 }
@@ -329,6 +344,41 @@ function parseExclusiveProcessTargets(value: unknown): ExclusiveProcessTarget[] 
       const pattern = item.slice(separatorIndex + 1).trim();
       if (!label || !pattern) {
         throw new Error(`Invalid --exclusive-process target: ${item}.`);
+      }
+      return { label, pattern };
+    });
+}
+
+/**
+ * Parses comma-separated stale process probes.
+ *
+ * @param {unknown} value
+ * @returns {OrphanProcessTarget[]}
+ */
+function parseOrphanProcessTargets(value: unknown): OrphanProcessTarget[] {
+  if (value === undefined || value === false) {
+    return [];
+  }
+  if (value === true || typeof value !== 'string') {
+    throw new Error('--orphan-process must be a comma-separated list of <label:pattern> targets.');
+  }
+
+  return value
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .map((item) => {
+      const separatorIndex = item.indexOf(':');
+      if (separatorIndex <= 0 || separatorIndex >= item.length - 1) {
+        throw new Error(`Invalid --orphan-process target: ${item}.`);
+      }
+      const label = item.slice(0, separatorIndex).trim();
+      const pattern = item.slice(separatorIndex + 1).trim();
+      if (!label || !pattern) {
+        throw new Error(`Invalid --orphan-process target: ${item}.`);
+      }
+      if (pattern.length < 3) {
+        throw new Error(`Invalid --orphan-process target: ${item}. Pattern must be at least 3 characters.`);
       }
       return { label, pattern };
     });
@@ -804,6 +854,158 @@ function buildExclusiveProcessCheck({
 }
 
 /**
+ * Lists processes whose command contains the configured target pattern.
+ *
+ * @param {OrphanProcessTarget} target
+ * @returns {Promise<OrphanProcessProbeResult>}
+ */
+async function probeOrphanProcess(target: OrphanProcessTarget): Promise<OrphanProcessProbeResult> {
+  const command = ['ps', '-axo', 'pid=,command='];
+  const platform = process.platform;
+  if (platform === 'win32') {
+    return {
+      command,
+      errorMessage: 'Host process inspection requires a POSIX ps command.',
+      platform,
+      status: 'error',
+    };
+  }
+
+  try {
+    const { stdout } = await execFileAsync(command[0] ?? 'ps', command.slice(1), {
+      encoding: 'utf8',
+      timeout: 5_000,
+      maxBuffer: 1024 * 1024,
+    });
+    const matches = parseProcessList(stdout)
+      .filter((processInfo) => (
+        processInfo.pid !== process.pid &&
+        processInfo.command.includes(target.pattern)
+      ));
+    return {
+      command,
+      matches,
+      platform,
+      status: matches.length === 0 ? 'passed' : 'failed',
+    };
+  } catch (error) {
+    return {
+      command,
+      errorMessage: error instanceof Error ? error.message : String(error),
+      platform,
+      status: 'error',
+    };
+  }
+}
+
+type OrphanProcessCheckPolicy = {
+  code: string;
+  message: string;
+  nextAction: string;
+  nextActionCode: string;
+  passed: boolean;
+};
+
+/**
+ * Maps stale-process probe output to public host-doctor health vocabulary.
+ *
+ * @param {{errorMessage: string, matchCount: number, probeStatus: OrphanProcessProbeResult['status'], target: OrphanProcessTarget}} options
+ * @returns {OrphanProcessCheckPolicy}
+ */
+function determineOrphanProcessCheckPolicy({
+  errorMessage,
+  matchCount,
+  probeStatus,
+  target,
+}: {
+  errorMessage: string;
+  matchCount: number;
+  probeStatus: OrphanProcessProbeResult['status'];
+  target: OrphanProcessTarget;
+}): OrphanProcessCheckPolicy {
+  if (probeStatus === 'error' || errorMessage.length > 0) {
+    return {
+      code: 'orphan_process_probe_failed',
+      message: `Unable to inspect ${target.label} process state.`,
+      nextAction: 'Diagnose the host process inspection failure, then rerun the host doctor before live proof.',
+      nextActionCode: 'retry_orphan_process_probe',
+      passed: false,
+    };
+  }
+
+  if (matchCount > 0) {
+    return {
+      code: 'orphan_process_detected',
+      message: `Found ${matchCount} stale ${target.label} process(es) matching ${target.pattern}.`,
+      nextAction: `Stop or account for stale ${target.label} process(es), then rerun the host doctor before live proof.`,
+      nextActionCode: 'resolve_orphan_process',
+      passed: false,
+    };
+  }
+
+  return {
+    code: 'orphan_process_absent',
+    message: `No stale ${target.label} process matched ${target.pattern}.`,
+    nextAction: 'No action required.',
+    nextActionCode: 'none',
+    passed: true,
+  };
+}
+
+/**
+ * Builds a host health check for one stale process probe.
+ *
+ * @param {{result: OrphanProcessProbeResult, target: OrphanProcessTarget}} options
+ * @returns {HostDoctorCheck}
+ */
+function buildOrphanProcessCheck({
+  result,
+  target,
+}: {
+  result: OrphanProcessProbeResult;
+  target: OrphanProcessTarget;
+}): HostDoctorCheck {
+  const name = `orphan_process_${safeCheckSegment(target.label)}`;
+  const matches = result.matches ?? [];
+  const firstMatch = matches[0];
+  const errorMessage = typeof result.errorMessage === 'string' ? result.errorMessage.trim() : '';
+  const firstCommand = typeof firstMatch?.command === 'string' ? firstMatch.command : '';
+  const firstCommandPreview = firstCommand.slice(0, 240);
+  const matchedPids = matches
+    .map((match) => match.pid)
+    .filter((pid) => Number.isInteger(pid))
+    .slice(0, 10)
+    .join(',');
+  const policy = determineOrphanProcessCheckPolicy({
+    errorMessage,
+    matchCount: matches.length,
+    probeStatus: result.status,
+    target,
+  });
+  return {
+    code: policy.code,
+    message: policy.message,
+    metadata: {
+      label: target.label,
+      matchCount: matches.length,
+      nextAction: policy.nextAction,
+      nextActionCode: policy.nextActionCode,
+      pattern: target.pattern,
+      probeStatus: result.status,
+      ...(typeof result.platform === 'string' ? { platform: result.platform } : {}),
+      ...(matchedPids ? { matchedPids } : {}),
+      ...(typeof firstMatch?.pid === 'number' ? { firstPid: firstMatch.pid } : {}),
+      ...(firstCommandPreview ? { firstCommand: firstCommandPreview } : {}),
+      ...(firstCommand.length > firstCommandPreview.length ? { firstCommandTruncated: true } : {}),
+      ...(errorMessage.length > 0 ? { errorMessage } : {}),
+    },
+    name,
+    source: 'runner',
+    status: policy.passed ? 'passed' : 'failed',
+  };
+}
+
+/**
  * Reads a string field from an artifact record.
  *
  * @param {Record<string, unknown>} record
@@ -950,6 +1152,8 @@ async function runHostDoctor({
   diskSpaceTargets = [],
   exclusiveProcessProbe = probeExclusiveProcess,
   exclusiveProcessTargets = [],
+  orphanProcessProbe = probeOrphanProcess,
+  orphanProcessTargets = [],
   outputDir = path.resolve('artifacts/host-doctor'),
   requirements = DEFAULT_REQUIREMENTS,
   runId = createRunId(),
@@ -965,6 +1169,7 @@ async function runHostDoctor({
   const raw: Record<string, unknown> = {
     diskSpaceTargets,
     exclusiveProcessTargets,
+    orphanProcessTargets,
     requirements,
     runId,
     tcpPortTargets,
@@ -985,6 +1190,16 @@ async function runHostDoctor({
       checks.push(buildExclusiveProcessCheck({ result, target }));
     } catch (error) {
       checks.push(buildExceptionCheck({ error, name: `exclusive_process_${safeCheckSegment(target.label)}` }));
+    }
+  }
+
+  for (const target of orphanProcessTargets) {
+    try {
+      const result = await orphanProcessProbe(target);
+      checks.push(buildOrphanProcessCheck({ result, target }));
+      raw[`orphanProcess:${target.label}`] = result;
+    } catch (error) {
+      checks.push(buildExceptionCheck({ error, name: `orphan_process_${safeCheckSegment(target.label)}` }));
     }
   }
 
@@ -1198,6 +1413,10 @@ async function main(): Promise<void> {
     args['exclusive-process'],
     ['ASL_HOST_DOCTOR_EXCLUSIVE_PROCESSES'],
   ));
+  const orphanProcessTargets = parseOrphanProcessTargets(readStringArgOrEnv(
+    args['orphan-process'],
+    ['ASL_HOST_DOCTOR_ORPHAN_PROCESSES'],
+  ));
   const result = await runHostDoctor({
     ...(adbPath ? { adbPath } : {}),
     ...(agentDevicePath ? { agentDevicePath } : {}),
@@ -1209,6 +1428,7 @@ async function main(): Promise<void> {
     commandTimeoutMs: parsePositiveInteger(commandTimeoutMsValue, 30_000),
     diskSpaceTargets,
     exclusiveProcessTargets,
+    orphanProcessTargets,
     ...(iosBundleId ? { iosBundleId } : {}),
     ...(iosDevice ? { iosDevice } : {}),
     ...(typeof args.out === 'string' ? { outputDir: args.out } : {}),
@@ -1236,15 +1456,18 @@ export {
   buildDiskSpaceCheck,
   buildExclusiveProcessCheck,
   buildHostDoctorSummary,
+  buildOrphanProcessCheck,
   buildTcpPortCheck,
   main,
   parseArgs,
   parseDiskSpaceTargets,
   parseExclusiveProcessTargets,
+  parseOrphanProcessTargets,
   parseRequirements,
   parseTcpPortTargets,
   probeDiskSpace,
   probeExclusiveProcess,
+  probeOrphanProcess,
   probeTcpPort,
   runHostDoctor,
   usage,
@@ -1260,6 +1483,8 @@ export type {
   HostDoctorOptions,
   HostDoctorRequirement,
   HostDoctorResult,
+  OrphanProcessProbeResult,
+  OrphanProcessTarget,
   TcpPortProbeResult,
   TcpPortTarget,
 };

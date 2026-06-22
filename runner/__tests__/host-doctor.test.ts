@@ -8,6 +8,7 @@ const test = require('node:test');
 const {
   parseExclusiveProcessTargets,
   parseDiskSpaceTargets,
+  parseOrphanProcessTargets,
   parseTcpPortTargets,
   parseRequirements,
   runHostDoctor,
@@ -326,6 +327,59 @@ test('host doctor checks exclusive process ownership before heavy proof', async 
   assert.match(summary, /stop_conflicting_process/u);
 });
 
+test('host doctor reports stale orphan processes before live proof', async (t: TestContext) => {
+  const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-host-doctor-orphan-process-'));
+  t.after(async () => {
+    await fsp.rm(tempDir, { recursive: true, force: true });
+  });
+  const orphanProcessProbe = async (
+    target: {label: string},
+  ): Promise<{matches?: Array<{command: string; pid: number}>; platform: string; status: 'failed' | 'passed'}> => {
+    if (target.label === 'trace') {
+      return {
+        matches: [{ command: 'trace_processor_shell --httpd', pid: 4321 }],
+        platform: 'darwin',
+        status: 'failed',
+      };
+    }
+    return { matches: [], platform: 'darwin', status: 'passed' };
+  };
+
+  const result = await runHostDoctor({
+    orphanProcessProbe,
+    orphanProcessTargets: [
+      { label: 'profiler', pattern: 'profiler-daemon' },
+      { label: 'trace', pattern: 'trace_processor' },
+    ],
+    outputDir: tempDir,
+    requirements: [],
+    runId: 'host-doctor-orphan-process',
+  });
+
+  const health = readJson(path.join(tempDir, 'health.json'));
+  assert.equal(result.health.healthStatus, 'failed');
+  assert.equal(health.healthStatus, 'failed');
+  const checks = health.checks as Array<{metadata?: Record<string, unknown>; name: string; status: string}>;
+  assert.deepEqual(checks.map((check) => [check.name, check.status]), [
+    ['orphan_process_profiler', 'passed'],
+    ['orphan_process_trace', 'failed'],
+  ]);
+  assert.equal(checks[1]?.metadata?.nextActionCode, 'resolve_orphan_process');
+  assert.equal(checks[1]?.metadata?.matchCount, 1);
+  assert.equal(checks[1]?.metadata?.matchedPids, '4321');
+  assert.equal(checks[1]?.metadata?.firstPid, 4321);
+  assert.equal(checks[1]?.metadata?.firstCommand, 'trace_processor_shell --httpd');
+  const raw = readJson(path.join(tempDir, 'raw', 'host-doctor.json'));
+  assert.deepEqual(raw.orphanProcessTargets, [
+    { label: 'profiler', pattern: 'profiler-daemon' },
+    { label: 'trace', pattern: 'trace_processor' },
+  ]);
+  assert.equal((raw['orphanProcess:trace'] as Record<string, unknown>).status, 'failed');
+  const summary = fs.readFileSync(path.join(tempDir, 'agent-summary.md'), 'utf8');
+  assert.match(summary, /orphan_process_trace: failed/u);
+  assert.match(summary, /resolve_orphan_process/u);
+});
+
 test('host doctor requirement parser defaults to platform lanes and rejects unknown lanes', () => {
   assert.deepEqual(parseRequirements(undefined), ['android', 'ios']);
   assert.deepEqual(parseRequirements('android,ios,agent-device,argent'), ['android', 'ios', 'agent-device', 'argent']);
@@ -357,4 +411,14 @@ test('host doctor exclusive process parser accepts labeled patterns', () => {
     { label: 'xctrace', pattern: 'xctrace record' },
   ]);
   assert.throws(() => parseExclusiveProcessTargets('xctrace'), /Invalid --exclusive-process target/u);
+});
+
+test('host doctor orphan process parser accepts labeled literal patterns', () => {
+  assert.deepEqual(parseOrphanProcessTargets(undefined), []);
+  assert.deepEqual(parseOrphanProcessTargets('trace:trace_processor,profiler:profiler daemon'), [
+    { label: 'trace', pattern: 'trace_processor' },
+    { label: 'profiler', pattern: 'profiler daemon' },
+  ]);
+  assert.throws(() => parseOrphanProcessTargets('trace'), /Invalid --orphan-process target/u);
+  assert.throws(() => parseOrphanProcessTargets('trace:ps'), /Pattern must be at least 3 characters/u);
 });
