@@ -553,6 +553,29 @@
                 "type": "string",
                 "enum": ["not-redacted", "redacted", "unknown"]
               },
+              "redactionPolicy": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["authority", "reason", "sensitivity", "status"],
+                "properties": {
+                  "authority": {
+                    "type": "string",
+                    "enum": ["asl-default", "operator-declared", "provider-declared"]
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "sensitivity": {
+                    "type": "string",
+                    "enum": ["declared-non-sensitive", "may-contain-sensitive-data", "unknown"]
+                  },
+                  "status": {
+                    "type": "string",
+                    "enum": ["not-redacted", "redacted", "unknown"]
+                  }
+                }
+              },
               "sha256": {
                 "type": "string",
                 "pattern": "^[a-f0-9]{64}$"

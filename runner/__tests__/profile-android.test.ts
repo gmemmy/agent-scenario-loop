@@ -1382,6 +1382,12 @@ test('profile-android attaches provider signal and capture artifacts', async (t:
       corruptionStatus: string;
       kind: string;
       path: string;
+      redactionPolicy: {
+        authority: string;
+        reason: string;
+        sensitivity: string;
+        status: string;
+      };
       redactionStatus: string;
       sha256: string;
       sizeBytes: number;
@@ -1403,6 +1409,12 @@ test('profile-android attaches provider signal and capture artifacts', async (t:
       corruptionStatus: 'valid',
       kind: 'js',
       path: 'signals/js/js-profile.json',
+      redactionPolicy: {
+        authority: 'asl-default',
+        reason: 'ASL copied the artifact but did not inspect it for secrets, PII, tokens, or other sensitive content.',
+        sensitivity: 'may-contain-sensitive-data',
+        status: 'unknown',
+      },
       redactionStatus: 'unknown',
       sha256: sha256File(jsSignalPath),
       sizeBytes: fs.statSync(jsSignalPath).size,
@@ -1415,6 +1427,12 @@ test('profile-android attaches provider signal and capture artifacts', async (t:
       corruptionStatus: 'valid',
       kind: 'network',
       path: 'signals/network/network-capture.har',
+      redactionPolicy: {
+        authority: 'asl-default',
+        reason: 'ASL copied the artifact but did not inspect it for secrets, PII, tokens, or other sensitive content.',
+        sensitivity: 'may-contain-sensitive-data',
+        status: 'unknown',
+      },
       redactionStatus: 'unknown',
       sha256: sha256File(networkSignalPath),
       sizeBytes: fs.statSync(networkSignalPath).size,
@@ -1427,6 +1445,12 @@ test('profile-android attaches provider signal and capture artifacts', async (t:
       corruptionStatus: 'valid',
       kind: 'uiTree',
       path: 'captures/ui-tree-provider.json',
+      redactionPolicy: {
+        authority: 'asl-default',
+        reason: 'ASL copied the artifact but did not inspect it for secrets, PII, tokens, or other sensitive content.',
+        sensitivity: 'may-contain-sensitive-data',
+        status: 'unknown',
+      },
       redactionStatus: 'unknown',
       sha256: sha256File(uiTreePath),
       sizeBytes: fs.statSync(uiTreePath).size,
@@ -1519,6 +1543,12 @@ test('profile-android executes declared evidence provider commands', async (t: T
       corruptionStatus: string;
       kind: string;
       path: string;
+      redactionPolicy: {
+        authority: string;
+        reason: string;
+        sensitivity: string;
+        status: string;
+      };
       redactionStatus: string;
       sha256: string;
       sizeBytes: number;
@@ -1537,6 +1567,12 @@ test('profile-android executes declared evidence provider commands', async (t: T
       corruptionStatus: 'valid',
       kind: 'accessibility',
       path: 'raw/providers/local-accessibility-provider/accessibility.json',
+      redactionPolicy: {
+        authority: 'provider-declared',
+        reason: 'The artifact producer declared that sensitive content was redacted before ASL copied it.',
+        sensitivity: 'unknown',
+        status: 'redacted',
+      },
       redactionStatus: 'redacted',
       sha256: sha256File(providerOutputPath),
       sizeBytes: fs.statSync(providerOutputPath).size,

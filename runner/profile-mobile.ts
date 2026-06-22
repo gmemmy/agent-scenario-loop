@@ -76,6 +76,14 @@ type EvidenceKind = CaptureEvidenceKind | ProviderEvidenceKind | SignalEvidenceK
 type DiagnosticStatus = 'captured' | 'not_requested' | 'not_supported' | 'unavailable' | 'failed' | 'skipped' | 'missing';
 type DiagnosticKind = EvidenceKind | 'logs';
 type EvidenceRedactionStatus = 'not-redacted' | 'redacted' | 'unknown';
+type EvidenceRedactionAuthority = 'asl-default' | 'operator-declared' | 'provider-declared';
+type EvidenceSensitivity = 'declared-non-sensitive' | 'may-contain-sensitive-data' | 'unknown';
+type EvidenceRedactionPolicy = {
+  authority: EvidenceRedactionAuthority;
+  reason: string;
+  sensitivity: EvidenceSensitivity;
+  status: EvidenceRedactionStatus;
+};
 type DiagnosticInventoryEntry = {
   kind: DiagnosticKind;
   status: DiagnosticStatus;
@@ -106,6 +114,7 @@ type EvidenceAttachment = {
   kind: EvidenceKind;
   manifestPath: string;
   providerId?: string;
+  redactionPolicy: EvidenceRedactionPolicy;
   redactionStatus: EvidenceRedactionStatus;
   required: boolean;
   sha256: string;
@@ -121,6 +130,7 @@ type EvidenceAttachmentInput = {
   manifestPath: string;
   providerId?: string;
   redactionStatus?: EvidenceRedactionStatus;
+  redactionAuthority?: EvidenceRedactionAuthority;
   required?: boolean;
   sourcePath: string;
 };
@@ -690,6 +700,49 @@ function resolveEvidenceRedactionStatus(status: EvidenceRedactionStatus | undefi
 }
 
 /**
+ * Resolves agent-readable privacy policy metadata for copied evidence.
+ *
+ * This does not inspect artifact contents. It records who declared the
+ * redaction state and keeps unknown/direct attachments conservative.
+ *
+ * @param {{authority?: EvidenceRedactionAuthority, status?: EvidenceRedactionStatus}} options
+ * @returns {EvidenceRedactionPolicy}
+ */
+function resolveEvidenceRedactionPolicy({
+  authority = 'asl-default',
+  status,
+}: {
+  authority?: EvidenceRedactionAuthority;
+  status?: EvidenceRedactionStatus;
+}): EvidenceRedactionPolicy {
+  const resolvedStatus = resolveEvidenceRedactionStatus(status);
+
+  switch (resolvedStatus) {
+    case 'redacted':
+      return {
+        authority,
+        reason: 'The artifact producer declared that sensitive content was redacted before ASL copied it.',
+        sensitivity: 'unknown',
+        status: resolvedStatus,
+      };
+    case 'not-redacted':
+      return {
+        authority,
+        reason: 'The artifact producer declared that the copied artifact was not redacted.',
+        sensitivity: 'may-contain-sensitive-data',
+        status: resolvedStatus,
+      };
+    case 'unknown':
+      return {
+        authority,
+        reason: 'ASL copied the artifact but did not inspect it for secrets, PII, tokens, or other sensitive content.',
+        sensitivity: 'may-contain-sensitive-data',
+        status: resolvedStatus,
+      };
+  }
+}
+
+/**
  * Converts one provider-declared output into an attachment copy plan.
  *
  * @param {{layout: ReturnType<typeof createArtifactLayout>, output: ProviderCommandOutput, providerId: string, sourcePath: string}} options
@@ -713,13 +766,16 @@ function buildProviderEvidenceInput({
     }
 
     const kind = output.kind as SignalEvidenceKind;
+    const redactionStatus = resolveEvidenceRedactionStatus(output.redactionStatus);
+    const redactionAuthority = typeof output.redactionStatus === 'string' ? 'provider-declared' : undefined;
     return {
       channel: 'signal',
       destinationPath: path.join(layout.signals[kind], fileName),
       kind,
       manifestPath: `signals/${kind}/${fileName}`,
       providerId,
-      redactionStatus: resolveEvidenceRedactionStatus(output.redactionStatus),
+      redactionStatus,
+      ...(redactionAuthority ? { redactionAuthority } : {}),
       ...(typeof output.required === 'boolean' ? { required: output.required } : {}),
       sourcePath,
     };
@@ -730,13 +786,16 @@ function buildProviderEvidenceInput({
       throw new Error(`Provider output ${providerId}/${output.path} uses capture channel with unsupported kind "${output.kind}".`);
     }
 
+    const redactionStatus = resolveEvidenceRedactionStatus(output.redactionStatus);
+    const redactionAuthority = typeof output.redactionStatus === 'string' ? 'provider-declared' : undefined;
     return {
       channel: 'capture',
       destinationPath: path.join(layout.captures, fileName),
       kind: output.kind as CaptureEvidenceKind,
       manifestPath: `captures/${fileName}`,
       providerId,
-      redactionStatus: resolveEvidenceRedactionStatus(output.redactionStatus),
+      redactionStatus,
+      ...(redactionAuthority ? { redactionAuthority } : {}),
       ...(typeof output.required === 'boolean' ? { required: output.required } : {}),
       sourcePath,
     };
@@ -746,13 +805,16 @@ function buildProviderEvidenceInput({
     throw new Error(`Provider output ${providerId}/${output.path} uses unsupported provider kind "${output.kind}".`);
   }
 
+  const redactionStatus = resolveEvidenceRedactionStatus(output.redactionStatus);
+  const redactionAuthority = typeof output.redactionStatus === 'string' ? 'provider-declared' : undefined;
   return {
     channel: 'provider',
     destinationPath: path.join(layout.raw, 'providers', providerId, fileName),
     kind: output.kind,
     manifestPath: `raw/providers/${providerId}/${fileName}`,
     providerId,
-    redactionStatus: resolveEvidenceRedactionStatus(output.redactionStatus),
+    redactionStatus,
+    ...(redactionAuthority ? { redactionAuthority } : {}),
     ...(typeof output.required === 'boolean' ? { required: output.required } : {}),
     sourcePath,
   };
@@ -780,17 +842,18 @@ function validateStructuredProviderEvidence({
     return;
   }
 
-  const structuredSchema = kind === 'profiler'
-    ? {
-        label: 'Profiler evidence artifact',
-        schema: SCHEMAS.profiler,
-      }
-    : kind === 'nativePerformance'
-      ? {
-          label: 'Native performance evidence artifact',
-          schema: SCHEMAS.nativePerformance,
-        }
-      : null;
+  let structuredSchema: { label: string; schema: unknown } | null = null;
+  if (kind === 'profiler') {
+    structuredSchema = {
+      label: 'Profiler evidence artifact',
+      schema: SCHEMAS.profiler,
+    };
+  } else if (kind === 'nativePerformance') {
+    structuredSchema = {
+      label: 'Native performance evidence artifact',
+      schema: SCHEMAS.nativePerformance,
+    };
+  }
 
   if (!structuredSchema) {
     return;
@@ -1065,6 +1128,7 @@ function buildEvidenceAttachmentManifest(attachments: EvidenceAttachment[]): Rec
     corruptionStatus: attachment.corruptionStatus,
     kind: attachment.kind,
     path: attachment.manifestPath,
+    redactionPolicy: attachment.redactionPolicy,
     redactionStatus: attachment.redactionStatus,
     sha256: attachment.sha256,
     sizeBytes: attachment.sizeBytes,
@@ -1110,6 +1174,7 @@ async function resolveAttachedEvidence({
     kind,
     manifestPath,
     providerId,
+    redactionAuthority = 'asl-default',
     redactionStatus = 'unknown',
     required = false,
     sourcePath,
@@ -1134,6 +1199,10 @@ async function resolveAttachedEvidence({
       kind,
       manifestPath,
       ...(providerId ? { providerId } : {}),
+      redactionPolicy: resolveEvidenceRedactionPolicy({
+        authority: redactionAuthority,
+        status: redactionStatus,
+      }),
       redactionStatus,
       required,
       sha256: await hashFileSha256(sourcePath),

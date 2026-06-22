@@ -1390,6 +1390,12 @@ test('rejects unstable evidence attachment inventory entries', () => {
     corruptionStatus: 'valid',
     kind: 'accessibility',
     path: 'raw/providers/axe/accessibility.json',
+    redactionPolicy: {
+      authority: 'provider-declared',
+      reason: 'Provider declared this output is not redacted.',
+      sensitivity: 'may-contain-sensitive-data',
+      status: 'not-redacted',
+    },
     redactionStatus: 'not-redacted',
     sha256: 'a'.repeat(64),
     sizeBytes: 42,
@@ -1465,7 +1471,19 @@ test('rejects unstable evidence attachment inventory entries', () => {
       evidenceAttachments: [
         attachment,
         { ...attachment },
-        { ...attachment, path: '', sourceFileName: '', completenessStatus: 'partial', transformations: [] },
+        {
+          ...attachment,
+          path: '',
+          sourceFileName: '',
+          completenessStatus: 'partial',
+          redactionPolicy: {
+            authority: 'consumer-declared',
+            reason: '',
+            sensitivity: 'private',
+            status: 'scrubbed',
+          },
+          transformations: [],
+        },
       ],
     },
     failureReason: null,
@@ -1478,6 +1496,10 @@ test('rejects unstable evidence attachment inventory entries', () => {
   assert.ok(result.errors.some((error: ValidationIssue) => error.code === 'too_short' && error.path === '$.artifacts.evidenceAttachments[2].path'));
   assert.ok(result.errors.some((error: ValidationIssue) => error.code === 'too_short' && error.path === '$.artifacts.evidenceAttachments[2].sourceFileName'));
   assert.ok(result.errors.some((error: ValidationIssue) => error.code === 'invalid_enum' && error.path === '$.artifacts.evidenceAttachments[2].completenessStatus'));
+  assert.ok(result.errors.some((error: ValidationIssue) => error.code === 'invalid_enum' && error.path === '$.artifacts.evidenceAttachments[2].redactionPolicy.authority'));
+  assert.ok(result.errors.some((error: ValidationIssue) => error.code === 'too_short' && error.path === '$.artifacts.evidenceAttachments[2].redactionPolicy.reason'));
+  assert.ok(result.errors.some((error: ValidationIssue) => error.code === 'invalid_enum' && error.path === '$.artifacts.evidenceAttachments[2].redactionPolicy.sensitivity'));
+  assert.ok(result.errors.some((error: ValidationIssue) => error.code === 'invalid_enum' && error.path === '$.artifacts.evidenceAttachments[2].redactionPolicy.status'));
   assert.ok(result.errors.some((error: ValidationIssue) => error.code === 'too_few_items' && error.path === '$.artifacts.evidenceAttachments[2].transformations'));
 });
 
@@ -1488,6 +1510,12 @@ test('rejects unstable causal-run evidence attachment inventory entries', () => 
     corruptionStatus: 'valid',
     kind: 'js',
     path: 'signals/js/profile.json',
+    redactionPolicy: {
+      authority: 'operator-declared',
+      reason: 'Operator declared this fixture is not redacted.',
+      sensitivity: 'may-contain-sensitive-data',
+      status: 'not-redacted',
+    },
     redactionStatus: 'not-redacted',
     sha256: 'b'.repeat(64),
     sizeBytes: 42,
@@ -1526,7 +1554,19 @@ test('rejects unstable causal-run evidence attachment inventory entries', () => 
       evidenceAttachments: [
         attachment,
         { ...attachment },
-        { ...attachment, path: '', sourceFileName: '', redactionStatus: 'scrubbed', transformations: ['copied', 'copied'] },
+        {
+          ...attachment,
+          path: '',
+          sourceFileName: '',
+          redactionPolicy: {
+            authority: 'consumer-declared',
+            reason: '',
+            sensitivity: 'private',
+            status: 'scrubbed',
+          },
+          redactionStatus: 'scrubbed',
+          transformations: ['copied', 'copied'],
+        },
       ],
     },
   };
@@ -1537,6 +1577,10 @@ test('rejects unstable causal-run evidence attachment inventory entries', () => 
   assert.ok(result.errors.some((error: ValidationIssue) => error.code === 'duplicate_item' && error.path === '$.artifacts.evidenceAttachments'));
   assert.ok(result.errors.some((error: ValidationIssue) => error.code === 'too_short' && error.path === '$.artifacts.evidenceAttachments[2].path'));
   assert.ok(result.errors.some((error: ValidationIssue) => error.code === 'too_short' && error.path === '$.artifacts.evidenceAttachments[2].sourceFileName'));
+  assert.ok(result.errors.some((error: ValidationIssue) => error.code === 'invalid_enum' && error.path === '$.artifacts.evidenceAttachments[2].redactionPolicy.authority'));
+  assert.ok(result.errors.some((error: ValidationIssue) => error.code === 'too_short' && error.path === '$.artifacts.evidenceAttachments[2].redactionPolicy.reason'));
+  assert.ok(result.errors.some((error: ValidationIssue) => error.code === 'invalid_enum' && error.path === '$.artifacts.evidenceAttachments[2].redactionPolicy.sensitivity'));
+  assert.ok(result.errors.some((error: ValidationIssue) => error.code === 'invalid_enum' && error.path === '$.artifacts.evidenceAttachments[2].redactionPolicy.status'));
   assert.ok(result.errors.some((error: ValidationIssue) => error.code === 'invalid_enum' && error.path === '$.artifacts.evidenceAttachments[2].redactionStatus'));
   assert.ok(result.errors.some((error: ValidationIssue) => error.code === 'duplicate_item' && error.path === '$.artifacts.evidenceAttachments[2].transformations'));
 });
