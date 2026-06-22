@@ -6,6 +6,7 @@ const path = require('node:path');
 const test = require('node:test');
 
 const {
+  parseDiskSpaceTargets,
   parseTcpPortTargets,
   parseRequirements,
   runHostDoctor,
@@ -238,6 +239,48 @@ test('host doctor checks required TCP services before live proof', async (t: Tes
   assert.match(summary, /start_required_tcp_service/u);
 });
 
+test('host doctor checks artifact disk capacity before live proof', async (t: TestContext) => {
+  const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-host-doctor-disk-'));
+  t.after(async () => {
+    await fsp.rm(tempDir, { recursive: true, force: true });
+  });
+  const diskSpaceProbe = async (
+    target: {path: string},
+  ): Promise<{availableBytes: number; status: 'failed' | 'passed'}> => {
+    if (target.path.endsWith('ample')) {
+      return { availableBytes: 750 * 1024 * 1024, status: 'passed' };
+    }
+    return { availableBytes: 64 * 1024 * 1024, status: 'failed' };
+  };
+  const amplePath = path.join(tempDir, 'ample');
+  const tightPath = path.join(tempDir, 'tight');
+
+  const result = await runHostDoctor({
+    diskSpaceProbe,
+    diskSpaceTargets: [
+      { label: `${amplePath}:500mb`, minFreeBytes: 500 * 1024 * 1024, path: amplePath },
+      { label: `${tightPath}:500mb`, minFreeBytes: 500 * 1024 * 1024, path: tightPath },
+    ],
+    outputDir: tempDir,
+    requirements: [],
+    runId: 'host-doctor-disk',
+  });
+
+  const health = readJson(path.join(tempDir, 'health.json'));
+  assert.equal(result.health.healthStatus, 'failed');
+  assert.equal(health.healthStatus, 'failed');
+  const checks = health.checks as Array<{metadata?: Record<string, unknown>; name: string; status: string}>;
+  assert.deepEqual(checks.map((check) => [check.name, check.status]), [
+    [`disk_space_${amplePath.toLowerCase().replace(/[^a-z0-9]+/gu, '_').replace(/^_|_$/gu, '')}`, 'passed'],
+    [`disk_space_${tightPath.toLowerCase().replace(/[^a-z0-9]+/gu, '_').replace(/^_|_$/gu, '')}`, 'failed'],
+  ]);
+  assert.equal(checks[1]?.metadata?.nextActionCode, 'free_artifact_disk_space');
+  assert.equal(checks[1]?.metadata?.minFreeMib, 500);
+  assert.equal(checks[1]?.metadata?.availableMib, 64);
+  const summary = fs.readFileSync(path.join(tempDir, 'agent-summary.md'), 'utf8');
+  assert.match(summary, /free_artifact_disk_space/u);
+});
+
 test('host doctor requirement parser defaults to platform lanes and rejects unknown lanes', () => {
   assert.deepEqual(parseRequirements(undefined), ['android', 'ios']);
   assert.deepEqual(parseRequirements('android,ios,agent-device,argent'), ['android', 'ios', 'agent-device', 'argent']);
@@ -251,4 +294,13 @@ test('host doctor TCP target parser accepts ports and host ports', () => {
     { host: '127.0.0.1', label: '127.0.0.1:8097', port: 8097 },
   ]);
   assert.throws(() => parseTcpPortTargets('localhost:not-a-port'), /Invalid --tcp-port target/u);
+});
+
+test('host doctor disk target parser accepts path and mib requirements', () => {
+  const artifactPath = path.resolve('artifacts/asl');
+  assert.deepEqual(parseDiskSpaceTargets(undefined), []);
+  assert.deepEqual(parseDiskSpaceTargets('artifacts/asl:512'), [
+    { label: `${artifactPath}:512mb`, minFreeBytes: 512 * 1024 * 1024, path: artifactPath },
+  ]);
+  assert.throws(() => parseDiskSpaceTargets('artifacts/asl:not-a-size'), /Invalid --min-free-disk target/u);
 });
