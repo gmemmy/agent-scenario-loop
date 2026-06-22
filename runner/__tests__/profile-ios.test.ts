@@ -465,12 +465,12 @@ test('profile-ios rehydrates simctl sidecar events when enriched run id differs'
   assert.equal(runDir, path.join(artifactRoot, 'public-journey', 'public-journey-ios-aftercapture'));
   assert.equal(metrics.iterations, 3);
   assert.deepEqual(metrics.durationsMs, [700, 760, 830]);
-  assert.equal(health.healthStatus, 'passed');
-  assert.equal(verdict.verdictStatus, 'passed');
+  assert.equal(health.healthStatus, 'failed');
+  assert.equal(verdict.verdictStatus, 'inconclusive');
   const identityCheck = (health.checks as Array<{ code: string; metadata?: Record<string, unknown>; status: string }>).find(
     (check) => check.code === 'runtime_identity_unverified',
   );
-  assert.equal(identityCheck?.status, 'warning');
+  assert.equal(identityCheck?.status, 'failed');
   assert.equal(identityCheck?.metadata?.expectedAppId, 'dev.agent-scenario-loop.example');
   assert.equal(identityCheck?.metadata?.sidecarMetadataPath, 'raw/ios-metadata.json');
   assert.equal(causalRun.runId, 'public-journey-ios-aftercapture');

@@ -2409,11 +2409,11 @@ test('profile-android reads logcat from adb artifact folders', async (t: TestCon
   const identityCheck = (health.checks as Array<{ code: string; metadata?: Record<string, unknown>; status: string }>).find(
     (check) => check.code === 'runtime_identity_unverified',
   );
-  assert.equal(identityCheck?.status, 'warning');
+  assert.equal(identityCheck?.status, 'failed');
   assert.equal(identityCheck?.metadata?.expectedAppId, 'dev.agentscenarioloop.example');
   assert.equal(identityCheck?.metadata?.sidecarMetadataPath, 'raw/android-metadata.json');
-  assert.equal(health.healthStatus, 'passed');
-  assert.equal(verdict.verdictStatus, 'passed');
+  assert.equal(health.healthStatus, 'failed');
+  assert.equal(verdict.verdictStatus, 'inconclusive');
   assert.ok(fs.existsSync(path.join(runDir, 'raw', 'adb-logcat.txt')));
 });
 
