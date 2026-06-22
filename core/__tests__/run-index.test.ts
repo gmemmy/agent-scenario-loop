@@ -191,6 +191,47 @@ test('filters a run index by scenario id', async (t: TestContext) => {
   assert.equal(entry.trustReason, 'trusted_legacy_without_attempt');
 });
 
+test('falls back to manifest and directory identity for legacy run artifacts', async (t: TestContext) => {
+  const root = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-run-index-'));
+  t.after(async () => {
+    await fsp.rm(root, { recursive: true, force: true });
+  });
+  const manifestIdentityRunDir = path.join(root, 'legacy', 'manifest-identity');
+  await writeJson(path.join(manifestIdentityRunDir, 'health.json'), {
+    schemaVersion: '1.0.0',
+    healthStatus: 'passed',
+    checks: [{ name: 'scenario_health', status: 'passed', source: 'truth' }],
+  });
+  await writeJson(path.join(manifestIdentityRunDir, 'verdict.json'), {
+    schemaVersion: '1.0.0',
+    healthStatus: 'passed',
+    verdictStatus: 'passed',
+  });
+  await writeJson(path.join(manifestIdentityRunDir, 'manifest.json'), {
+    scenario: 'manifest-scenario',
+    runId: 'manifest-run',
+  });
+  const directoryIdentityRunDir = path.join(root, 'legacy', 'directory-identity');
+  await writeJson(path.join(directoryIdentityRunDir, 'health.json'), {
+    schemaVersion: '1.0.0',
+    healthStatus: 'passed',
+    checks: [{ name: 'scenario_health', status: 'passed', source: 'truth' }],
+  });
+  await writeJson(path.join(directoryIdentityRunDir, 'verdict.json'), {
+    schemaVersion: '1.0.0',
+    healthStatus: 'passed',
+    verdictStatus: 'passed',
+  });
+
+  const manifestEntry = readRunIndexEntry(manifestIdentityRunDir);
+  const directoryEntry = readRunIndexEntry(directoryIdentityRunDir);
+
+  assert.equal(manifestEntry.scenarioId, 'manifest-scenario');
+  assert.equal(manifestEntry.runId, 'manifest-run');
+  assert.equal(directoryEntry.scenarioId, 'unknown-scenario');
+  assert.equal(directoryEntry.runId, 'directory-identity');
+});
+
 test('does not trust retry or partial attempt artifacts as latest baselines', async (t: TestContext) => {
   const root = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-run-index-'));
   t.after(async () => {
