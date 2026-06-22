@@ -23,9 +23,13 @@ test('profile-session helper keeps storage-backed command control safeguards', (
 
   assert.match(source, /const PROFILE_SESSION_MAX_AGE_MS = 2 \* 60 \* 60_000;/u);
   assert.match(source, /export function isProfileSessionFresh/u);
-  assert.match(source, /import \{ PROFILE_SESSION_STORAGE_KEYS \} from '\.\/profile-session-storage';/u);
-  assert.match(source, /const PROFILE_SESSION_STORAGE_KEY = PROFILE_SESSION_STORAGE_KEYS\.session;/u);
-  assert.match(source, /const PROFILE_SESSION_ENTRIES_STORAGE_KEY = PROFILE_SESSION_STORAGE_KEYS\.sessionEntries;/u);
+  assert.match(
+    source,
+    /import \{ PROFILE_SESSION_STORAGE_KEYS as PROFILE_SESSION_STORAGE_KEY_VALUES \} from '\.\/profile-session-storage';/u,
+  );
+  assert.match(source, /const PROFILE_SESSION_STORAGE_KEY = PROFILE_SESSION_STORAGE_KEY_VALUES\.session;/u);
+  assert.match(source, /const PROFILE_SESSION_ENTRIES_STORAGE_KEY = PROFILE_SESSION_STORAGE_KEY_VALUES\.sessionEntries;/u);
+  assert.match(source, /export const PROFILE_SESSION_STORAGE_KEYS = Object\.freeze/u);
   assert.match(source, /export const PROFILE_SESSION_HELPER_VERSION = '1\.0\.0';/u);
   assert.match(source, /const PROFILE_COMMAND_DUPLICATE_WINDOW_MS = 750;/u);
   assert.match(source, /reason: 'duplicate-command-window'/u);
