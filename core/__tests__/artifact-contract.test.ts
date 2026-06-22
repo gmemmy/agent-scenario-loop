@@ -1089,6 +1089,85 @@ test('normalizes numeric-string repeated iteration labels before measuring cycle
   assert.equal(metrics.failures, 0);
 });
 
+test('associates repeated interval cycles without explicit iteration payloads', () => {
+  const metrics = buildMetricsFromProfileEvents({
+    scenario: 'surface-scroll-stress',
+    runId: 'android-live-surface-scroll',
+    expectedIterations: 6,
+    cycleEventNames: {
+      closeRequested: 'surface_scroll_settled',
+      dismissed: 'surface_scroll_settled',
+      opened: 'surface_scroll_requested',
+      openRequested: 'surface_scroll_requested',
+    },
+    budgets: {
+      metric: 'milestone budget',
+      pass: {
+        cycleP95Ms: 1400,
+        failures: 0,
+      },
+      intervals: [
+        {
+          name: 'surface scroll p95',
+          metric: 'p95',
+          limit: 1400,
+          fromEvent: 'surface_scroll_requested',
+          toEvent: 'surface_scroll_settled',
+        },
+      ],
+    },
+    events: [
+      { event: 'surface_profile_ready', atMs: 7558 },
+      { event: 'surface_scroll_requested', atMs: 114740 },
+      { event: 'surface_scroll_settled', atMs: 115198 },
+      { event: 'surface_scroll_requested', atMs: 115902 },
+      { event: 'surface_scroll_settled', atMs: 116226 },
+      { event: 'surface_scroll_requested', atMs: 116935 },
+      { event: 'surface_scroll_settled', atMs: 117315 },
+      { event: 'surface_scroll_requested', atMs: 118018 },
+      { event: 'surface_scroll_settled', atMs: 118425 },
+      { event: 'surface_scroll_requested', atMs: 119135 },
+      { event: 'surface_scroll_settled', atMs: 119465 },
+      { event: 'surface_scroll_requested', atMs: 120168 },
+      { event: 'surface_scroll_settled', atMs: 120478 },
+    ],
+  });
+
+  assert.equal(metrics.status, 'passed');
+  assert.deepEqual(metrics.durationsMs, [458, 324, 380, 407, 330, 310]);
+  assert.equal(metrics.p95Ms, 458);
+  assert.deepEqual(metrics.incompleteIterations, []);
+  assert.equal(metrics.failures, 0);
+  assert.equal(metrics.budgetEvaluation.pass, true);
+  assert.deepEqual(metrics.budgetEvaluation.failedChecks, []);
+});
+
+test('keeps later interval cycles when an earlier dismissal is missing', () => {
+  const metrics = buildMetricsFromProfileEvents({
+    scenario: 'surface-scroll-stress',
+    runId: 'android-live-surface-scroll',
+    expectedIterations: 3,
+    cycleEventNames: {
+      closeRequested: 'surface_scroll_settled',
+      dismissed: 'surface_scroll_settled',
+      opened: 'surface_scroll_requested',
+      openRequested: 'surface_scroll_requested',
+    },
+    events: [
+      { event: 'surface_scroll_requested', atMs: 1000 },
+      { event: 'surface_scroll_requested', atMs: 2000 },
+      { event: 'surface_scroll_settled', atMs: 2060 },
+      { event: 'surface_scroll_requested', atMs: 3000 },
+      { event: 'surface_scroll_settled', atMs: 3040 },
+    ],
+  });
+
+  assert.equal(metrics.status, 'failed');
+  assert.deepEqual(metrics.durationsMs, [60, 40]);
+  assert.deepEqual(metrics.incompleteIterations, [1]);
+  assert.equal(metrics.failures, 1);
+});
+
 test('counts repeated milestone-only cycles without explicit iteration payloads', () => {
   const metrics = buildMetricsFromProfileEvents({
     scenario: 'home-feed-scroll-stress',

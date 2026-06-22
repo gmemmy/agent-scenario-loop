@@ -544,12 +544,15 @@ function buildMetricsFromProfileEvents({
   const iterationLabelOffset = resolveIterationLabelOffset({ events, expectedIterations });
   let nextImplicitMilestoneIteration = 1;
   let nextImplicitMilestoneCount = 0;
+  let nextImplicitIntervalIteration = 1;
+  let implicitIntervalState: 'idle' | 'requested' | 'opened' | 'closing' = 'idle';
 
   for (const event of [...events].sort((left, right) => {
     const leftAt = typeof left.atMs === 'number' ? left.atMs : Number.POSITIVE_INFINITY;
     const rightAt = typeof right.atMs === 'number' ? right.atMs : Number.POSITIVE_INFINITY;
     return leftAt - rightAt;
   })) {
+    let advanceImplicitIntervalAfterEvent = false;
     const rawIteration = readIterationLabel(event.iteration);
     let eventIteration = rawIteration !== null
       ? rawIteration + iterationLabelOffset
@@ -567,6 +570,42 @@ function buildMetricsFromProfileEvents({
       if (nextImplicitMilestoneCount >= requiredMilestoneEventsPerIteration) {
         nextImplicitMilestoneIteration += 1;
         nextImplicitMilestoneCount = 0;
+      }
+    }
+    if (
+      eventIteration === null &&
+      !usesMilestoneOnlyCycle &&
+      nextImplicitIntervalIteration <= expectedIterations
+    ) {
+      if (event.event === resolvedCycleEventNames.openRequested) {
+        if (implicitIntervalState !== 'idle') {
+          nextImplicitIntervalIteration += 1;
+          implicitIntervalState = 'idle';
+          if (nextImplicitIntervalIteration > expectedIterations) {
+            continue;
+          }
+        }
+        eventIteration = nextImplicitIntervalIteration;
+        implicitIntervalState = 'requested';
+      } else if (
+        event.event === resolvedCycleEventNames.opened &&
+        (implicitIntervalState === 'requested' || implicitIntervalState === 'opened')
+      ) {
+        eventIteration = nextImplicitIntervalIteration;
+        implicitIntervalState = 'opened';
+      } else if (
+        event.event === resolvedCycleEventNames.closeRequested &&
+        (implicitIntervalState === 'requested' || implicitIntervalState === 'opened')
+      ) {
+        eventIteration = nextImplicitIntervalIteration;
+        implicitIntervalState = 'closing';
+        advanceImplicitIntervalAfterEvent = event.event === resolvedCycleEventNames.dismissed;
+      } else if (
+        event.event === resolvedCycleEventNames.dismissed &&
+        (implicitIntervalState === 'requested' || implicitIntervalState === 'opened' || implicitIntervalState === 'closing')
+      ) {
+        eventIteration = nextImplicitIntervalIteration;
+        advanceImplicitIntervalAfterEvent = true;
       }
     }
     if (eventIteration === null) {
@@ -620,6 +659,10 @@ function buildMetricsFromProfileEvents({
     }
 
     iterations.set(eventIteration, current);
+    if (advanceImplicitIntervalAfterEvent) {
+      nextImplicitIntervalIteration += 1;
+      implicitIntervalState = 'idle';
+    }
   }
 
   const durationsMs: number[] = [];
