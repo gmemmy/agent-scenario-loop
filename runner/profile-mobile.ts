@@ -3596,12 +3596,6 @@ async function runProfileMobile(args: CliArgs, options: ProfileMobileOptions): P
     metrics,
   });
 
-  const budgetVerdict = buildBudgetVerdict({
-    flowId: scenario.flowId ?? scenarioName,
-    runId,
-    budgetEvaluation: metrics.budgetEvaluation ?? null,
-  });
-
   const health = buildProfileHealth({
     scenario: profileScenario,
     runId,
@@ -3613,6 +3607,12 @@ async function runProfileMobile(args: CliArgs, options: ProfileMobileOptions): P
     sessionEntries,
     sessionFreshness,
     sessionFreshnessRequired: options.platform === 'android' && typeof args['adb-artifacts'] === 'string',
+  });
+  const budgetVerdict = buildBudgetVerdict({
+    flowId: scenario.flowId ?? scenarioName,
+    runId,
+    budgetEvaluation: metrics.budgetEvaluation ?? null,
+    healthStatus: typeof health.healthStatus === 'string' ? health.healthStatus : null,
   });
   const verdict = buildProfileVerdict({ scenario: profileScenario, runId, health, metrics });
   const agentSummary = buildAgentSummaryMarkdown({ health, verdict, manifest });

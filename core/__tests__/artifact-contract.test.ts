@@ -914,6 +914,43 @@ test('builds baseline regression metadata without stale implementation disclaime
   assert.equal(verdict.regression.summary.includes(staleDisclaimer), false);
 });
 
+test('marks budget verdict diagnostic-only when scenario health failed', () => {
+  const verdict = buildBudgetVerdict({
+    flowId: 'home-feed-scroll-stress',
+    runId: 'android-live-scroll',
+    healthStatus: 'failed',
+    budgetEvaluation: {
+      metric: 'feed scroll budget',
+      pass: false,
+      status: 'failed',
+      checks: [
+        {
+          name: 'first visible p95',
+          unit: 'ms',
+          limit: 1400,
+          actual: 1647,
+          pass: false,
+        },
+      ],
+    },
+  });
+
+  assert.equal(validateJson(verdict, SCHEMAS.budgetVerdict, 'Budget verdict artifact').valid, true);
+  assert.equal(verdict.status, 'partial');
+  assert.equal(verdict.claimStatus, 'diagnostic_only');
+  assert.match(verdict.claimReason, /not trusted product-performance claims/u);
+  assert.deepEqual(verdict.checks, [
+    {
+      actual: 1647,
+      expected: 1400,
+      metric: 'feed scroll budget',
+      name: 'first visible p95',
+      pass: false,
+      unit: 'ms',
+    },
+  ]);
+});
+
 test('keeps first valid lifecycle timestamps when duplicate completion events arrive late', () => {
   const metrics = buildMetricsFromProfileEvents({
     scenario: 'scroll-settle',
