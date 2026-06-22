@@ -117,6 +117,62 @@ function isRunDir(dir: string): boolean {
 }
 
 /**
+ * Resolves the scenario id used to group indexed run artifacts.
+ *
+ * Health owns run identity. Manifest scenario ids are a fallback for legacy
+ * artifacts that predate complete health identity fields.
+ *
+ * @param {{health: Record<string, unknown>, manifest: Record<string, unknown>}} options
+ * @returns {string}
+ */
+function resolveRunIndexScenarioId({
+  health,
+  manifest,
+}: {
+  health: Record<string, unknown>;
+  manifest: Record<string, unknown>;
+}): string {
+  if (typeof health.scenarioId === 'string') {
+    return health.scenarioId;
+  }
+
+  if (typeof manifest.scenario === 'string') {
+    return manifest.scenario;
+  }
+
+  return 'unknown-scenario';
+}
+
+/**
+ * Resolves the run id used to identify an indexed artifact folder.
+ *
+ * Health owns run identity. Manifest run ids are a fallback, and the directory
+ * name is used only for legacy or partial artifacts with missing identity.
+ *
+ * @param {{health: Record<string, unknown>, manifest: Record<string, unknown>, runDir: string}} options
+ * @returns {string}
+ */
+function resolveRunIndexRunId({
+  health,
+  manifest,
+  runDir,
+}: {
+  health: Record<string, unknown>;
+  manifest: Record<string, unknown>;
+  runDir: string;
+}): string {
+  if (typeof health.runId === 'string') {
+    return health.runId;
+  }
+
+  if (typeof manifest.runId === 'string') {
+    return manifest.runId;
+  }
+
+  return path.basename(runDir);
+}
+
+/**
  * Recursively finds run directories under one artifact root.
  *
  * @param {string} rootDir
@@ -161,16 +217,8 @@ function readRunIndexEntry(runDir: string): RunIndexEntry {
   const verdict = readJson(path.join(runDir, ARTIFACT_FILENAMES.verdict));
   const manifestPath = path.join(runDir, PROFILE_ARTIFACT_FILENAMES.manifest);
   const manifest = fs.existsSync(manifestPath) ? readJson(manifestPath) : {};
-  const scenarioId = typeof health.scenarioId === 'string'
-    ? health.scenarioId
-    : typeof manifest.scenario === 'string'
-      ? manifest.scenario
-      : 'unknown-scenario';
-  const runId = typeof health.runId === 'string'
-    ? health.runId
-    : typeof manifest.runId === 'string'
-      ? manifest.runId
-      : path.basename(runDir);
+  const scenarioId = resolveRunIndexScenarioId({ health, manifest });
+  const runId = resolveRunIndexRunId({ health, manifest, runDir });
   const healthStatus = typeof health.healthStatus === 'string' ? health.healthStatus : 'unknown';
   const verdictStatus = typeof verdict.verdictStatus === 'string' ? verdict.verdictStatus : undefined;
   const provenance = isRecord(manifest.provenance) ? manifest.provenance : {};
