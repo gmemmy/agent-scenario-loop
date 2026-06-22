@@ -181,6 +181,8 @@ const REQUIRED_EXPORTS: Record<string, string | Record<string, string>> = {
 const REQUIRED_PACKAGE_FILES = [
   'LICENSE',
   'README.md',
+  'app/profile-session-command-ordering.d.ts',
+  'app/profile-session-command-ordering.ts',
   'app/profile-session.ts',
   'app/profile-session.d.ts',
   'app/profile-session-storage.d.ts',

@@ -206,6 +206,10 @@ function buildScaffoldFiles({
       source: path.join(packageRoot, 'app', 'profile-session-storage.ts'),
       destination: path.join(targetDir, 'src', 'devtools', 'profile-session-storage.ts'),
     },
+    {
+      source: path.join(packageRoot, 'app', 'profile-session-command-ordering.ts'),
+      destination: path.join(targetDir, 'src', 'devtools', 'profile-session-command-ordering.ts'),
+    },
   ];
 
   if (withAgentSkill) {
