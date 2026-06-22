@@ -180,7 +180,7 @@ test('profile health fails when sidecar runtime identity mismatches expected app
   });
 });
 
-test('profile health records unverified sidecar runtime identity without failing passed metrics', () => {
+test('profile health fails when sidecar runtime identity is unverified', () => {
   const health = buildProfileHealth({
     scenario: {
       name: 'mobile-runtime-identity',
@@ -204,10 +204,10 @@ test('profile health records unverified sidecar runtime identity without failing
     },
   });
 
-  assert.equal(health.healthStatus, 'passed');
+  assert.equal(health.healthStatus, 'failed');
   assert.deepEqual(health.checks[1], {
     name: 'runtime_identity',
-    status: 'warning',
+    status: 'failed',
     source: 'runner',
     code: 'runtime_identity_unverified',
     message: 'iOS simctl sidecar metadata did not include enough runtime identity to verify the expected app or target.',

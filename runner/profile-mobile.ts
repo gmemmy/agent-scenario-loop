@@ -2156,14 +2156,14 @@ function buildProviderCommandFailureChecks(failures: ProviderCommandFailure[] = 
   }));
 }
 
-function runtimeIdentityHealthStatus(status: RuntimeIdentityVerification['status']): 'failed' | 'passed' | 'warning' {
+function runtimeIdentityHealthStatus(status: RuntimeIdentityVerification['status']): 'failed' | 'passed' {
   switch (status) {
     case 'mismatched':
       return 'failed';
     case 'verified':
       return 'passed';
     case 'unverified':
-      return 'warning';
+      return 'failed';
   }
 }
 

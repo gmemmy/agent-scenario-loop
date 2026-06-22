@@ -1517,8 +1517,14 @@ function main(): void {
     assert.equal(adbArtifactManifest.artifacts.raw.interactionLog, 'raw/adb-logcat.txt');
     assert.equal(adbArtifactManifest.interactionDriver, 'adb-logcat');
     assert.equal(adbArtifactCausalRun.scenario.driver, 'adb-logcat');
-    assert.equal(adbArtifactHealth.healthStatus, 'passed');
-    assert.equal(adbArtifactVerdict.verdictStatus, 'passed');
+    assert.equal(adbArtifactHealth.healthStatus, 'failed');
+    assert.equal(
+      adbArtifactHealth.checks.some((check: { code: string; status: string }) =>
+        check.code === 'runtime_identity_unverified' && check.status === 'failed'
+      ),
+      true,
+    );
+    assert.equal(adbArtifactVerdict.verdictStatus, 'inconclusive');
 
     const adbCaptureRunId = 'package-smoke-adb-capture';
     const androidPackageName = 'dev.agentscenarioloop.example';
