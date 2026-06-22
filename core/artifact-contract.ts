@@ -1668,6 +1668,56 @@ function buildIterationSummary(metrics: ArtifactRecord): ArtifactRecord | null {
   };
 }
 
+function resolveBudgetVerdictClaim({
+  budgetEvaluation,
+  healthStatus,
+}: {
+  budgetEvaluation: ArtifactRecord;
+  healthStatus?: string | null;
+}): { claimReason?: string; claimStatus: 'diagnostic_only' | 'trusted'; diagnosticOnly: boolean } {
+  const healthDiagnosticOnly = typeof healthStatus === 'string' && healthStatus !== 'passed';
+  if (healthDiagnosticOnly) {
+    return {
+      claimReason: 'Scenario health did not pass; budget checks are preserved for diagnosis but are not trusted product-performance claims.',
+      claimStatus: 'diagnostic_only',
+      diagnosticOnly: true,
+    };
+  }
+
+  if (budgetEvaluation.status === 'partial') {
+    return {
+      claimReason: 'Budget evaluation was partial; unmeasurable checks are preserved for diagnosis but are not trusted product-performance claims.',
+      claimStatus: 'diagnostic_only',
+      diagnosticOnly: true,
+    };
+  }
+
+  return {
+    claimStatus: 'trusted',
+    diagnosticOnly: false,
+  };
+}
+
+function resolveBudgetVerdictStatus({
+  budgetEvaluation,
+  diagnosticOnly,
+  hasManualVisualReview,
+}: {
+  budgetEvaluation: ArtifactRecord;
+  diagnosticOnly: boolean;
+  hasManualVisualReview: boolean | null;
+}): 'failed' | 'partial' | 'passed' {
+  if (diagnosticOnly || hasManualVisualReview || budgetEvaluation.status === 'partial') {
+    return 'partial';
+  }
+
+  if (budgetEvaluation.pass) {
+    return 'passed';
+  }
+
+  return 'failed';
+}
+
 /**
  * Builds the `budget-verdict.json` profile artifact from budget evaluation.
  *
@@ -1697,28 +1747,19 @@ function buildBudgetVerdict({
     visualOutcome &&
     Array.isArray(visualOutcome.checks) &&
     visualOutcome.checks.some((check) => check.status === 'manual-review-needed');
-  const diagnosticOnly = typeof healthStatus === 'string' && healthStatus !== 'passed';
+  const claim = resolveBudgetVerdictClaim({ budgetEvaluation, healthStatus });
 
   return sortValue({
     schemaVersion: '1.0.0',
     flowId,
     runId,
-    status: diagnosticOnly
-      ? 'partial'
-      : hasManualVisualReview
-      ? 'partial'
-      : budgetEvaluation.status === 'partial'
-        ? 'partial'
-        : budgetEvaluation.pass
-          ? 'passed'
-          : 'failed',
-    claimStatus: diagnosticOnly ? 'diagnostic_only' : 'trusted',
-    ...(diagnosticOnly
-      ? {
-          claimReason:
-            'Scenario health did not pass; budget checks are preserved for diagnosis but are not trusted product-performance claims.',
-        }
-      : {}),
+    status: resolveBudgetVerdictStatus({
+      budgetEvaluation,
+      diagnosticOnly: claim.diagnosticOnly,
+      hasManualVisualReview,
+    }),
+    claimStatus: claim.claimStatus,
+    ...(claim.claimReason ? { claimReason: claim.claimReason } : {}),
     checks: (budgetEvaluation.checks ?? []).map((check: BudgetCheck) => ({
       name: check.name,
       metric: budgetEvaluation.metric ?? 'profile budget',
