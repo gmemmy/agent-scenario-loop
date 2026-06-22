@@ -2210,6 +2210,83 @@ function buildProfileHelperVersionHealthChecks(helperVersion: ProfileHelperVersi
   ];
 }
 
+function profileSessionFreshnessHealthStatus(
+  freshness: ProfileSessionFreshness,
+  sessionFreshnessRequired: boolean,
+): 'failed' | 'passed' | 'warning' {
+  switch (freshness.status) {
+    case 'fresh':
+      return 'passed';
+    case 'missing-app-session':
+      if (sessionFreshnessRequired) {
+        return 'failed';
+      }
+      return 'warning';
+    case 'stale':
+      return 'failed';
+  }
+}
+
+function profileSessionFreshnessHealthCode(freshness: ProfileSessionFreshness): string {
+  switch (freshness.status) {
+    case 'fresh':
+      return 'profile_session_fresh';
+    case 'missing-app-session':
+      return 'profile_session_start_missing';
+    case 'stale':
+      return 'profile_session_stale';
+  }
+}
+
+function profileSessionFreshnessHealthMessage(freshness: ProfileSessionFreshness): string {
+  if (freshness.status === 'fresh') {
+    return 'App-side profile-session start matched the runner-written session seed.';
+  }
+
+  return freshness.reason ?? 'App-side profile-session evidence did not match the runner-written session seed.';
+}
+
+function profileSessionFreshnessNextAction(freshness: ProfileSessionFreshness): {nextAction: string; nextActionCode: string} {
+  if (freshness.status === 'fresh') {
+    return {
+      nextAction: 'No action required.',
+      nextActionCode: 'none',
+    };
+  }
+
+  return {
+    nextAction: 'Clear stale app/session state, reload the expected app bundle, and rerun before treating profile events or metrics as product evidence.',
+    nextActionCode: 'rerun_with_fresh_profile_session',
+  };
+}
+
+function buildProfileSessionFreshnessHealthChecks(
+  freshness: ProfileSessionFreshness | null,
+  sessionFreshnessRequired: boolean,
+): Record<string, unknown>[] {
+  if (!freshness) {
+    return [];
+  }
+
+  const nextAction = profileSessionFreshnessNextAction(freshness);
+
+  return [
+    {
+      name: 'profile_session_freshness',
+      status: profileSessionFreshnessHealthStatus(freshness, sessionFreshnessRequired),
+      source: 'runner',
+      code: profileSessionFreshnessHealthCode(freshness),
+      message: profileSessionFreshnessHealthMessage(freshness),
+      metadata: {
+        appStartedAt: freshness.appStartedAt ?? null,
+        nextAction: nextAction.nextAction,
+        nextActionCode: nextAction.nextActionCode,
+        seedStartedAt: freshness.seed.startedAt,
+      },
+    },
+  ];
+}
+
 /**
  * Builds scenario health from profile metrics.
  *
@@ -2338,37 +2415,7 @@ function buildProfileHealth({
   const helperVersionChecksPassed = helperVersionChecks.every((check) => check.status !== 'failed');
   const runtimeIdentityChecks = buildRuntimeIdentityHealthChecks(runtimeIdentity);
   const runtimeIdentityChecksPassed = runtimeIdentityChecks.every((check) => check.status !== 'failed');
-  const sessionFreshnessChecks = sessionFreshness
-    ? [
-        {
-          name: 'profile_session_freshness',
-          status: sessionFreshness.status === 'fresh'
-            ? 'passed'
-            : sessionFreshness.status === 'missing-app-session' && !sessionFreshnessRequired
-              ? 'warning'
-              : 'failed',
-          source: 'runner',
-          code: sessionFreshness.status === 'fresh'
-            ? 'profile_session_fresh'
-            : sessionFreshness.status === 'missing-app-session'
-              ? 'profile_session_start_missing'
-              : 'profile_session_stale',
-          message: sessionFreshness.status === 'fresh'
-            ? 'App-side profile-session start matched the runner-written session seed.'
-            : sessionFreshness.reason ?? 'App-side profile-session evidence did not match the runner-written session seed.',
-          metadata: {
-            appStartedAt: sessionFreshness.appStartedAt ?? null,
-            nextAction: sessionFreshness.status === 'fresh'
-              ? 'No action required.'
-              : 'Clear stale app/session state, reload the expected app bundle, and rerun before treating profile events or metrics as product evidence.',
-            nextActionCode: sessionFreshness.status === 'fresh'
-              ? 'none'
-              : 'rerun_with_fresh_profile_session',
-            seedStartedAt: sessionFreshness.seed.startedAt,
-          },
-        },
-      ]
-    : [];
+  const sessionFreshnessChecks = buildProfileSessionFreshnessHealthChecks(sessionFreshness, sessionFreshnessRequired);
   const sessionFreshnessChecksPassed = sessionFreshnessChecks.every((check) => check.status !== 'failed');
   const healthPassed = passed &&
     commandChecksPassed &&
