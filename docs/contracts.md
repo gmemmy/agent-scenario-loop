@@ -165,6 +165,7 @@ Milestone budget interval semantics are explicit:
 - `toMilestone` without `fromMilestone` measures elapsed time from the run or session clock origin to the matching milestone occurrence.
 - `fromMilestone` plus `toMilestone` measures the interval between the two app-owned truth events for each iteration.
 - repeated transition, gesture, open, close, scroll, or handoff budgets should use both milestones when the intended number is transition duration rather than cumulative elapsed time.
+- when repeated interval events do not carry explicit `iteration` fields, ASL associates ordered `fromMilestone`/`toMilestone` pairs with the next expected iteration. Apps may still emit `iteration` to make the pairing explicit.
 
 This distinction is visible in `metrics.json`: elapsed milestone-only runs populate `durationsMs` with milestone timestamps, while interval runs populate `durationsMs` with `to - from` values. Timing still remains untrusted unless `health.json` passes.
 

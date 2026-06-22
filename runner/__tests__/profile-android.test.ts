@@ -507,6 +507,116 @@ test('profile-android treats readiness-to-completion budgets as repeated milesto
   });
 });
 
+test('profile-android associates repeated interval milestones without iteration payloads', async (t: TestContext) => {
+  const tempRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-android-implicit-interval-'));
+  t.after(async () => {
+    await fsp.rm(tempRoot, { recursive: true, force: true });
+  });
+  const artifactRoot = path.join(tempRoot, 'artifacts');
+  const scenarioPath = path.join(tempRoot, 'scroll-interval-cycle.json');
+  const eventLogPath = path.join(tempRoot, 'scroll-interval-cycle-android.log');
+  const scenario = {
+    schemaVersion: '1.0.0',
+    id: 'scroll-interval-cycle',
+    flowId: 'scroll-interval-cycle',
+    journey: {
+      name: 'Scroll interval cycle',
+      intent: 'Measure repeated request-to-settle scroll intervals.',
+      actor: 'app user',
+      startState: 'surface ready',
+      endState: 'surface settled',
+    },
+    platforms: ['android'],
+    requiredCapabilities: ['launch', 'sessionControl', 'command', 'logCapture', 'artifactWrite'],
+    truthEvents: {
+      ready: { event: 'surface_ready', required: true, timeoutMs: 120000, phase: 'render' },
+      requested: { event: 'surface_scroll_requested', required: true, timeoutMs: 5000, phase: 'intent' },
+      settled: { event: 'surface_scroll_settled', required: true, timeoutMs: 8000, phase: 'completion' },
+    },
+    milestones: [
+      { id: 'ready', event: 'surface_ready', required: true, phase: 'render' },
+      { id: 'requested', event: 'surface_scroll_requested', required: true, phase: 'intent' },
+      { id: 'settled', event: 'surface_scroll_settled', required: true, phase: 'completion' },
+    ],
+    expectedEvents: ['surface_ready', 'surface_scroll_requested', 'surface_scroll_settled'],
+    cycles: { iterations: 3, warmupIterations: 0, stopOnFailure: true },
+    budgets: [
+      {
+        name: 'scroll settle p95',
+        source: 'milestone',
+        metric: 'p95',
+        unit: 'ms',
+        limit: 1000,
+        fromMilestone: 'requested',
+        toMilestone: 'settled',
+      },
+      {
+        name: 'failures',
+        source: 'milestone',
+        metric: 'failures',
+        unit: 'count',
+        limit: 0,
+      },
+    ],
+    steps: [
+      { id: 'launch', kind: 'launch' },
+      { id: 'wait-ready', kind: 'waitForMilestone', milestone: 'ready', timeoutMs: 120000 },
+      { id: 'scroll-surface', kind: 'command', command: 'scroll-by:600' },
+      { id: 'wait-scroll-settle', kind: 'waitForMilestone', milestone: 'settled', timeoutMs: 8000 },
+    ],
+    artifacts: { required: ['logs'], optional: [] },
+  };
+  await fsp.writeFile(scenarioPath, `${JSON.stringify(scenario, null, 2)}\n`, 'utf8');
+  await fsp.writeFile(
+    eventLogPath,
+    [
+      '2026-01-01T00:10:00.000Z public-android [profile-event] {"event":"surface_ready","scenario":"scroll-interval-cycle","runId":"scroll-interval-cycle-android","atMs":1000}',
+      '2026-01-01T00:10:00.200Z public-android [profile-event] {"event":"surface_scroll_requested","scenario":"scroll-interval-cycle","runId":"scroll-interval-cycle-android","atMs":1200}',
+      '2026-01-01T00:10:00.520Z public-android [profile-event] {"event":"surface_scroll_settled","scenario":"scroll-interval-cycle","runId":"scroll-interval-cycle-android","atMs":1520}',
+      '2026-01-01T00:10:01.000Z public-android [profile-event] {"event":"surface_scroll_requested","scenario":"scroll-interval-cycle","runId":"scroll-interval-cycle-android","atMs":2000}',
+      '2026-01-01T00:10:01.410Z public-android [profile-event] {"event":"surface_scroll_settled","scenario":"scroll-interval-cycle","runId":"scroll-interval-cycle-android","atMs":2410}',
+      '2026-01-01T00:10:02.000Z public-android [profile-event] {"event":"surface_scroll_requested","scenario":"scroll-interval-cycle","runId":"scroll-interval-cycle-android","atMs":3000}',
+      '2026-01-01T00:10:02.360Z public-android [profile-event] {"event":"surface_scroll_settled","scenario":"scroll-interval-cycle","runId":"scroll-interval-cycle-android","atMs":3360}',
+      '',
+    ].join('\n'),
+    'utf8',
+  );
+
+  const { stdout } = await execFileAsync(process.execPath, [
+    PROFILE_ANDROID,
+    '--config',
+    fixturePath('examples/mobile-app/asl.config.json'),
+    '--scenario',
+    scenarioPath,
+    '--events',
+    eventLogPath,
+    '--out',
+    artifactRoot,
+    '--run-id',
+    'scroll-interval-cycle-android',
+  ]);
+
+  const runDir = stdout.trim();
+  const metrics = readJson(path.join(runDir, 'metrics.json')) as Record<string, any>;
+  const health = readJson(path.join(runDir, 'health.json')) as Record<string, any>;
+  const causalRun = readJson(path.join(runDir, 'causal-run.json')) as Record<string, any>;
+
+  assert.equal(metrics.status, 'passed');
+  assert.deepEqual(metrics.durationsMs, [320, 410, 360]);
+  assert.equal(metrics.p95Ms, 410);
+  assert.deepEqual(metrics.incompleteIterations, []);
+  assert.equal(metrics.failures, 0);
+  assert.equal(health.healthStatus, 'passed');
+  assert.deepEqual(causalRun.iterationSummary, {
+    completed: 3,
+    expected: 3,
+    failed: 0,
+    incomplete: [],
+    status: 'complete',
+    timeouts: 0,
+  });
+});
+
 test('profile-android treats unmeasurable milestone latency budgets as partial evidence', async (t: TestContext) => {
   const tempRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-android-unmeasurable-budget-'));
   t.after(async () => {
