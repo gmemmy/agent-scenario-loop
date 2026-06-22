@@ -65,6 +65,8 @@ If a live command cannot reach adb, CoreSimulator, `agent-device`, Argent, a sim
 
 For repeated local work, prefer narrow, reusable permissions for the exact package scripts you run often instead of one-off retries after expected preflight failures. Keep Metro on an isolated port for the proof app, use direct installed binaries when available, and keep bounded command timeouts on wrapper-based tools such as `npx`-launched Argent.
 
+When a live proof validates a freshly installed local ASL tarball inside a downstream Expo or React Native app, restart Metro from that downstream app root before launching the dev client. Otherwise the native shell can load a stale JS bundle even though `node_modules` points at the candidate package.
+
 Put machine-specific runner settings in an ignored `.asl.local.env` file at the app or repo root instead of repeating inline environment variables in every command. ASL CLIs load the nearest `.asl.local.env` without overriding already-exported values, so CI and explicit shell overrides still win. Typical local values include:
 
 ```sh
