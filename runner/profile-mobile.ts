@@ -1930,55 +1930,42 @@ function buildProviderCommandFailureChecks(failures: ProviderCommandFailure[] = 
   }));
 }
 
-/**
- * Resolves the health status for a runtime identity check.
- *
- * @param {RuntimeIdentityVerification['status']} status
- * @returns {'failed' | 'passed' | 'warning'}
- */
-function resolveRuntimeIdentityHealthStatus(status: RuntimeIdentityVerification['status']): 'failed' | 'passed' | 'warning' {
-  if (status === 'mismatched') {
-    return 'failed';
+function runtimeIdentityHealthStatus(status: RuntimeIdentityVerification['status']): 'failed' | 'passed' | 'warning' {
+  switch (status) {
+    case 'mismatched':
+      return 'failed';
+    case 'verified':
+      return 'passed';
+    case 'unverified':
+      return 'warning';
   }
-  if (status === 'verified') {
-    return 'passed';
-  }
-  return 'warning';
 }
 
-/**
- * Resolves the health code for a runtime identity check.
- *
- * @param {RuntimeIdentityVerification['status']} status
- * @returns {string}
- */
-function resolveRuntimeIdentityHealthCode(status: RuntimeIdentityVerification['status']): string {
-  if (status === 'mismatched') {
-    return 'runtime_identity_mismatch';
+function runtimeIdentityHealthCode(status: RuntimeIdentityVerification['status']): string {
+  switch (status) {
+    case 'mismatched':
+      return 'runtime_identity_mismatch';
+    case 'verified':
+      return 'runtime_identity_verified';
+    case 'unverified':
+      return 'runtime_identity_unverified';
   }
-  if (status === 'verified') {
-    return 'runtime_identity_verified';
-  }
-  return 'runtime_identity_unverified';
 }
 
-/**
- * Converts sidecar runtime identity verification into a scenario health check.
- *
- * @param {RuntimeIdentityVerification | null} runtimeIdentity
- * @returns {Record<string, unknown>[]}
- */
 function buildRuntimeIdentityHealthChecks(runtimeIdentity: RuntimeIdentityVerification | null = null): Record<string, unknown>[] {
   if (!runtimeIdentity) {
     return [];
   }
 
+  const healthStatus = runtimeIdentityHealthStatus(runtimeIdentity.status);
+  const healthCode = runtimeIdentityHealthCode(runtimeIdentity.status);
+
   return [
     {
       name: 'runtime_identity',
-      status: resolveRuntimeIdentityHealthStatus(runtimeIdentity.status),
+      status: healthStatus,
       source: 'runner',
-      code: resolveRuntimeIdentityHealthCode(runtimeIdentity.status),
+      code: healthCode,
       message: runtimeIdentity.reason,
       metadata: {
         platform: runtimeIdentity.platform,
