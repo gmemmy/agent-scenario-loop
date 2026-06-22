@@ -546,12 +546,14 @@ function buildMetricsFromProfileEvents({
     milestone: cycleEventNames?.milestone,
   };
   const usesMilestoneOnlyCycle = typeof resolvedCycleEventNames.milestone === 'string';
-  const requiredMilestoneEventsPerIteration =
+  let requiredMilestoneEventsPerIteration = 1;
+  if (
     usesMilestoneOnlyCycle &&
     Number.isInteger(milestoneEventsPerIteration) &&
     milestoneEventsPerIteration > 1
-      ? milestoneEventsPerIteration
-      : 1;
+  ) {
+    requiredMilestoneEventsPerIteration = milestoneEventsPerIteration;
+  }
   const iterations = new Map();
   const iterationLabelOffset = resolveIterationLabelOffset({ events, expectedIterations });
   const milestoneSequenceIterations = new Map<number, number>();
@@ -567,11 +569,12 @@ function buildMetricsFromProfileEvents({
   })) {
     let advanceImplicitIntervalAfterEvent = false;
     const rawIteration = readIterationLabel(event.iteration);
-    let eventIteration = rawIteration !== null
-      ? rawIteration + iterationLabelOffset
-      : expectedIterations === 1
-        ? 1
-        : null;
+    let eventIteration: number | null = null;
+    if (rawIteration !== null) {
+      eventIteration = rawIteration + iterationLabelOffset;
+    } else if (expectedIterations === 1) {
+      eventIteration = 1;
+    }
     if (
       eventIteration === null &&
       usesMilestoneOnlyCycle &&
