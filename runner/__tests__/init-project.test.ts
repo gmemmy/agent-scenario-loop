@@ -1,9 +1,11 @@
 const assert = require('node:assert/strict');
+const { execFile } = require('node:child_process');
 const fs = require('node:fs');
 const fsp = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
+const { promisify } = require('node:util');
 
 const {
   formatResult,
@@ -15,6 +17,7 @@ const {
 type TestContext = import('node:test').TestContext;
 
 const ROOT = path.join(__dirname, '..', '..', '..');
+const execFileAsync = promisify(execFile);
 
 /**
  * Reads a JSON fixture from disk.
@@ -24,6 +27,30 @@ const ROOT = path.join(__dirname, '..', '..', '..');
  */
 function readJson(filePath: string): Record<string, unknown> {
   return JSON.parse(fs.readFileSync(filePath, 'utf8'));
+}
+
+async function runNativePerformanceProvider({
+  outPath,
+  platform,
+  scriptPath,
+}: {
+  outPath: string;
+  platform: string;
+  scriptPath: string;
+}): Promise<Record<string, unknown>> {
+  await execFileAsync(process.execPath, [
+    scriptPath,
+    '--platform',
+    platform,
+    '--scenario',
+    'checkout-submit',
+    '--run-id',
+    `checkout-submit-${platform}`,
+    '--out',
+    outPath,
+  ]);
+
+  return readJson(outPath);
 }
 
 test('normalizes scenario ids for scaffold filenames', () => {
@@ -147,7 +174,48 @@ test('init-project scaffolds templates into a consuming app layout', async (t: T
   assert.match(accessibilityProviderScript, /violations/u);
   const nativePerformanceProviderScript = fs.readFileSync(path.join(targetDir, 'scripts', 'asl-capture-native-performance-provider.mjs'), 'utf8');
   assert.match(nativePerformanceProviderScript, /writeNativePerformanceEvidence/u);
+  assert.match(nativePerformanceProviderScript, /resolveNativePerformanceScaffold/u);
+  assert.match(nativePerformanceProviderScript, /insufficient-for-claim/u);
+  assert.match(nativePerformanceProviderScript, /Perfetto/u);
+  assert.match(nativePerformanceProviderScript, /xctrace/u);
   assert.match(nativePerformanceProviderScript, /diagnostic-only/u);
+  const nativePerformanceProviderPath = path.join(targetDir, 'scripts', 'asl-capture-native-performance-provider.mjs');
+  const androidNativePerformance = await runNativePerformanceProvider({
+    outPath: path.join(targetDir, 'artifacts', 'native-performance-android.json'),
+    platform: 'android',
+    scriptPath: nativePerformanceProviderPath,
+  });
+  const androidClaimSufficiency = androidNativePerformance.claimSufficiency as {
+    missingEvidence?: string[];
+    status?: string;
+  };
+  assert.equal(androidNativePerformance.platform, 'android');
+  assert.equal(androidNativePerformance.evidenceKind, 'mixed');
+  assert.equal(androidNativePerformance.completenessStatus, 'partial');
+  assert.equal(androidClaimSufficiency.status, 'insufficient-for-claim');
+  assert.deepEqual(androidNativePerformance.dataClasses, [
+    'frames',
+    'jank',
+    'render',
+    'memory',
+    'cpu',
+    'thread-scheduling',
+    'native-trace',
+  ]);
+  assert.ok(androidClaimSufficiency.missingEvidence?.includes('Perfetto or trace-processor summary'));
+  const iosNativePerformance = await runNativePerformanceProvider({
+    outPath: path.join(targetDir, 'artifacts', 'native-performance-ios.json'),
+    platform: 'ios',
+    scriptPath: nativePerformanceProviderPath,
+  });
+  const iosClaimSufficiency = iosNativePerformance.claimSufficiency as {
+    missingEvidence?: string[];
+    status?: string;
+  };
+  assert.equal(iosNativePerformance.platform, 'ios');
+  assert.equal(iosNativePerformance.evidenceKind, 'mixed');
+  assert.equal(iosClaimSufficiency.status, 'insufficient-for-claim');
+  assert.ok(iosClaimSufficiency.missingEvidence?.includes('Instruments or xctrace summary'));
   const providerScript = fs.readFileSync(path.join(targetDir, 'scripts', 'asl-capture-profiler-provider.mjs'), 'utf8');
   assert.match(providerScript, /writeProviderEvidence/u);
   assert.match(providerScript, /memory-out/u);
