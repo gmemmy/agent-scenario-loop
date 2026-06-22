@@ -147,3 +147,37 @@ test('surfaces failed budget checks for valid runs', () => {
   assert.match(summary, /## failed budgets/u);
   assert.match(summary, /scroll settle p95: p95 expected 1400, actual 1600/u);
 });
+
+test('separates unmeasurable budget checks from failed budgets', () => {
+  const summary = buildAgentSummaryMarkdown({
+    health: {
+      scenarioId: 'home-feed-scroll-stress',
+      runId: 'run-4',
+      healthStatus: 'passed',
+      checks: [{ name: 'truth_events_complete', status: 'passed', source: 'truth' }],
+    },
+    verdict: {
+      scenarioId: 'home-feed-scroll-stress',
+      runId: 'run-4',
+      verdictStatus: 'inconclusive',
+      budgetChecks: [
+        {
+          name: 'cycle p95',
+          source: 'milestone',
+          metric: 'feed scroll budget',
+          unit: 'ms',
+          expected: 1400,
+          actual: null,
+          pass: false,
+          status: 'unmeasurable',
+          notes: 'No latency samples were available for this budget. Use explicit interval anchors when the claim is transition latency.',
+        },
+      ],
+    },
+  });
+
+  assert.doesNotMatch(summary, /## failed budgets/u);
+  assert.match(summary, /## unmeasurable budgets/u);
+  assert.match(summary, /cycle p95: feed scroll budget was unmeasurable/u);
+  assert.match(summary, /Use explicit interval anchors/u);
+});

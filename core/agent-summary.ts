@@ -84,13 +84,34 @@ function formatFailedBudgets(budgetChecks: unknown[]): string[] {
   return asArray(budgetChecks)
     .filter((check) => {
       const record = check as SummaryRecord | null;
-      return !!record && typeof record === 'object' && record.pass === false;
+      return !!record && typeof record === 'object' && record.pass === false && record.status !== 'unmeasurable';
     })
     .map((check) => {
       const record = check as SummaryRecord;
       const name = firstString([record.name], 'unknown budget');
       const metric = firstString([record.metric], 'unknown metric');
       return `- ${name}: ${metric} expected ${record.expected ?? 'n/a'}, actual ${record.actual ?? 'n/a'}`;
+    });
+}
+
+/**
+ * Formats unmeasurable budget checks as non-optimization guidance.
+ *
+ * @param {unknown[]} budgetChecks
+ * @returns {string[]}
+ */
+function formatUnmeasurableBudgets(budgetChecks: unknown[]): string[] {
+  return asArray(budgetChecks)
+    .filter((check) => {
+      const record = check as SummaryRecord | null;
+      return !!record && typeof record === 'object' && record.status === 'unmeasurable';
+    })
+    .map((check) => {
+      const record = check as SummaryRecord;
+      const name = firstString([record.name], 'unknown budget');
+      const metric = firstString([record.metric], 'unknown metric');
+      const notes = firstString([record.notes], 'No measurable samples were available.');
+      return `- ${name}: ${metric} was unmeasurable. ${notes}`;
     });
 }
 
@@ -232,6 +253,11 @@ function buildAgentSummaryMarkdown({ health, verdict, comparison = null, manifes
   const failedBudgets = formatFailedBudgets(asArray(verdict?.budgetChecks));
   if (failedBudgets.length > 0) {
     lines.push('', '## failed budgets', '', ...failedBudgets);
+  }
+
+  const unmeasurableBudgets = formatUnmeasurableBudgets(asArray(verdict?.budgetChecks));
+  if (unmeasurableBudgets.length > 0) {
+    lines.push('', '## unmeasurable budgets', '', ...unmeasurableBudgets);
   }
 
   lines.push(...formatAttempt(manifest));
