@@ -431,7 +431,12 @@ async function ensureDir(dirPath: string): Promise<void> {
  */
 function readRepeatableArgValues(args: CliArgs, key: string): string[] {
   const value = args[key];
-  const values = Array.isArray(value) ? value : value === undefined ? [] : [value];
+  let values: Array<string | boolean> = [];
+  if (Array.isArray(value)) {
+    values = value;
+  } else if (value !== undefined) {
+    values = [value];
+  }
 
   return values.map((entry) => {
     if (typeof entry !== 'string') {
@@ -3334,7 +3339,15 @@ function resolveExpectedRuntimeAppId({
     };
   }
 
-  const configValue = platform === 'android' ? config.app?.androidPackage : config.app?.iosBundleId;
+  let configValue: unknown;
+  switch (platform) {
+    case 'android':
+      configValue = config.app?.androidPackage;
+      break;
+    case 'ios':
+      configValue = config.app?.iosBundleId;
+      break;
+  }
   if (isConcreteAppId(configValue)) {
     return {
       source: 'config',
@@ -4096,7 +4109,15 @@ function resolveProfileBudgetKey({
   budget: Record<string, unknown>;
   metric: string;
 }): string | null {
-  const suffix = metric === 'p95' ? 'P95Ms' : metric === 'p50' ? 'P50Ms' : null;
+  let suffix: string | null = null;
+  switch (metric) {
+    case 'p95':
+      suffix = 'P95Ms';
+      break;
+    case 'p50':
+      suffix = 'P50Ms';
+      break;
+  }
   if (!suffix) {
     return null;
   }
