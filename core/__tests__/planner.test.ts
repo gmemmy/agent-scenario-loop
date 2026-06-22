@@ -185,6 +185,20 @@ test('collects app UI context by default for UI driver actions', () => {
   }), ['app']);
 });
 
+test('does not infer app UI context for non-UI driver actions', () => {
+  const scenario = readJson('examples/scenarios/mobile/app-startup.json');
+  scenario.steps.push({
+    id: 'collect-perf',
+    kind: 'captureEvidence',
+    driverAction: 'collectPerfSignals',
+  });
+
+  assert.deepEqual(collectScenarioUiContexts(scenario), {
+    optional: [],
+    required: [],
+  });
+});
+
 test('fails when a required system UI context has no owner', () => {
   const scenario = readJson('examples/scenarios/mobile/app-startup.json');
   const runner = readJson('examples/runners/xcodebuildmcp-ios.json');

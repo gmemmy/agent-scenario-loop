@@ -473,6 +473,27 @@ function collectProvidedUiContexts({
 }
 
 /**
+ * Resolves the UI/system context a scenario step requires from its driver action.
+ *
+ * Explicit step ownership wins. UI driver actions default to app-owned UI, and
+ * non-UI steps do not claim a UI context.
+ *
+ * @param {ScenarioStep} step
+ * @returns {string | null}
+ */
+function resolveScenarioStepUiContext(step: ScenarioStep): string | null {
+  if (typeof step.uiContext === 'string') {
+    return step.uiContext;
+  }
+
+  if (typeof step.driverAction === 'string' && UI_DRIVER_ACTIONS.has(step.driverAction)) {
+    return 'app';
+  }
+
+  return null;
+}
+
+/**
  * Collects UI/system contexts required by scenario steps.
  *
  * @param {Record<string, unknown>} scenario
@@ -488,11 +509,7 @@ function collectScenarioUiContexts(scenario: ScenarioManifest): { required: stri
       continue;
     }
 
-    const uiContext = typeof step.uiContext === 'string'
-      ? step.uiContext
-      : typeof step.driverAction === 'string' && UI_DRIVER_ACTIONS.has(step.driverAction)
-        ? 'app'
-        : null;
+    const uiContext = resolveScenarioStepUiContext(step);
     if (!uiContext) {
       continue;
     }
