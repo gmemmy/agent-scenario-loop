@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-const { spawn } = require('node:child_process');
+const { execFileSync, spawn } = require('node:child_process');
 const fs = require('node:fs');
 const fsp = require('node:fs/promises');
 const path = require('node:path');
@@ -135,6 +135,29 @@ type RuntimeTarget = {
   name: string;
   udid: string;
 };
+
+/**
+ * Resolves the consumer repo git revision for manifest provenance.
+ *
+ * @returns {string}
+ */
+function resolveGitSha(): string {
+  const envSha = process.env.ASL_GIT_SHA;
+  if (typeof envSha === 'string' && envSha.trim().length > 0) {
+    return envSha.trim();
+  }
+
+  const gitRoot = process.env.ASL_GIT_ROOT;
+  const cwd = typeof gitRoot === 'string' && gitRoot.trim().length > 0 ? gitRoot.trim() : process.cwd();
+  try {
+    return execFileSync('git', ['-C', cwd, 'rev-parse', 'HEAD'], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim() || 'unknown';
+  } catch {
+    return 'unknown';
+  }
+}
 type ProviderCommandOutput = {
   channel: EvidenceChannel;
   kind: EvidenceKind;
@@ -3565,7 +3588,7 @@ async function runProfileMobile(args: CliArgs, options: ProfileMobileOptions): P
     startedAt,
     simulator: runtimeTarget,
     bundleId: appId,
-    gitSha: 'unknown',
+    gitSha: resolveGitSha(),
     toolVersions: {
       node: process.version,
     },
