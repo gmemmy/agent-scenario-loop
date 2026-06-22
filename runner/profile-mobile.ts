@@ -1611,6 +1611,92 @@ function resolveProviderDiagnosticReason(
   };
 }
 
+function resolveProviderBackedDiagnosticStatus(
+  captured: boolean,
+  missingProviderOutput: ProviderOutputStatus | undefined,
+): DiagnosticStatus {
+  if (captured) {
+    return 'captured';
+  }
+
+  if (missingProviderOutput) {
+    return 'failed';
+  }
+
+  return 'unavailable';
+}
+
+function resolveCaptureDiagnosticReason(
+  kind: 'uiTree' | 'video',
+  captured: boolean,
+  missingProviderOutput: ProviderOutputStatus | undefined,
+): Pick<DiagnosticInventoryEntry, 'nextAction' | 'reason'> {
+  if (captured) {
+    switch (kind) {
+      case 'uiTree':
+        return {
+          reason: 'UI tree capture was attached to the run.',
+        };
+      case 'video':
+        return {
+          reason: 'Video capture was attached to the run.',
+        };
+    }
+  }
+
+  if (missingProviderOutput) {
+    switch (kind) {
+      case 'uiTree':
+        return {
+          reason: missingProviderOutput.reason ?? 'Required UI tree provider output was not produced.',
+          nextAction: 'Inspect the provider command record and fix the UI tree capture path before treating this diagnostic as complete.',
+        };
+      case 'video':
+        return {
+          reason: missingProviderOutput.reason ?? 'Required video provider output was not produced.',
+          nextAction: 'Inspect the provider command record and fix the video capture path before treating this diagnostic as complete.',
+        };
+    }
+  }
+
+  switch (kind) {
+    case 'uiTree':
+      return {
+        reason: 'No UI tree capture was produced by the selected runner/provider set.',
+        nextAction: 'Use --capture uiTree:<path> or add an accessibility/UI-tree provider.',
+      };
+    case 'video':
+      return {
+        reason: 'No video capture was produced by the selected runner/provider set.',
+        nextAction: 'Use --capture video:<path> or run a capture provider that records video.',
+      };
+  }
+}
+
+function resolveSignalDiagnosticReason(
+  kind: 'memory' | 'network',
+  captured: boolean,
+  missingProviderOutput: ProviderOutputStatus | undefined,
+): Pick<DiagnosticInventoryEntry, 'nextAction' | 'reason'> {
+  if (captured) {
+    return {
+      reason: `${kind} signal evidence was attached to the run.`,
+    };
+  }
+
+  if (missingProviderOutput) {
+    return {
+      reason: missingProviderOutput.reason ?? `Required ${kind} provider output was not produced.`,
+      nextAction: `Inspect the provider command record and fix ${kind} capture before treating this diagnostic as complete.`,
+    };
+  }
+
+  return {
+    reason: `No ${kind} signal evidence was produced by the selected provider set.`,
+    nextAction: `Attach ${kind} evidence with --signal ${kind}:<path> or add a provider command that emits it.`,
+  };
+}
+
 /**
  * Builds the product-neutral diagnostic inventory for a profile run.
  *
@@ -1807,56 +1893,32 @@ function buildDiagnosticInventory({
         }),
   });
   const missingUiTreeProviderOutput = missingProviderOutputByKind.get('uiTree');
+  const uiTreeCaptured = Boolean(attachedEvidence.captures.uiTree);
+  const uiTreeReason = resolveCaptureDiagnosticReason('uiTree', uiTreeCaptured, missingUiTreeProviderOutput);
   pushDiagnostic('uiTree', {
     ...(missingUiTreeProviderOutput ? { provider: missingUiTreeProviderOutput.providerId } : {}),
-    status: attachedEvidence.captures.uiTree ? 'captured' : missingUiTreeProviderOutput ? 'failed' : 'unavailable',
+    status: resolveProviderBackedDiagnosticStatus(uiTreeCaptured, missingUiTreeProviderOutput),
     ...(attachedEvidence.captures.uiTree ? { path: attachedEvidence.captures.uiTree } : {}),
-    ...(attachedEvidence.captures.uiTree
-      ? { reason: 'UI tree capture was attached to the run.' }
-      : missingUiTreeProviderOutput
-        ? {
-            reason: missingUiTreeProviderOutput.reason ?? 'Required UI tree provider output was not produced.',
-            nextAction: 'Inspect the provider command record and fix the UI tree capture path before treating this diagnostic as complete.',
-          }
-      : {
-          reason: 'No UI tree capture was produced by the selected runner/provider set.',
-          nextAction: 'Use --capture uiTree:<path> or add an accessibility/UI-tree provider.',
-        }),
+    ...uiTreeReason,
   });
   const missingVideoProviderOutput = missingProviderOutputByKind.get('video');
+  const videoCaptured = Boolean(attachedEvidence.captures.video);
+  const videoReason = resolveCaptureDiagnosticReason('video', videoCaptured, missingVideoProviderOutput);
   pushDiagnostic('video', {
     ...(missingVideoProviderOutput ? { provider: missingVideoProviderOutput.providerId } : {}),
-    status: attachedEvidence.captures.video ? 'captured' : missingVideoProviderOutput ? 'failed' : 'unavailable',
+    status: resolveProviderBackedDiagnosticStatus(videoCaptured, missingVideoProviderOutput),
     ...(attachedEvidence.captures.video ? { path: attachedEvidence.captures.video } : {}),
-    ...(attachedEvidence.captures.video
-      ? { reason: 'Video capture was attached to the run.' }
-      : missingVideoProviderOutput
-        ? {
-            reason: missingVideoProviderOutput.reason ?? 'Required video provider output was not produced.',
-            nextAction: 'Inspect the provider command record and fix the video capture path before treating this diagnostic as complete.',
-          }
-      : {
-          reason: 'No video capture was produced by the selected runner/provider set.',
-          nextAction: 'Use --capture video:<path> or run a capture provider that records video.',
-        }),
+    ...videoReason,
   });
   for (const kind of ['memory', 'network'] as const) {
     const missingProviderOutput = missingProviderOutputByKind.get(kind);
+    const captured = attachedEvidence.signals[kind].length > 0;
+    const reason = resolveSignalDiagnosticReason(kind, captured, missingProviderOutput);
     pushDiagnostic(kind, {
       ...(missingProviderOutput ? { provider: missingProviderOutput.providerId } : {}),
-      status: attachedEvidence.signals[kind].length > 0 ? 'captured' : missingProviderOutput ? 'failed' : 'unavailable',
+      status: resolveProviderBackedDiagnosticStatus(captured, missingProviderOutput),
       ...(attachedEvidence.signals[kind][0] ? { path: attachedEvidence.signals[kind][0] } : {}),
-      ...(attachedEvidence.signals[kind].length > 0
-        ? { reason: `${kind} signal evidence was attached to the run.` }
-        : missingProviderOutput
-          ? {
-              reason: missingProviderOutput.reason ?? `Required ${kind} provider output was not produced.`,
-              nextAction: `Inspect the provider command record and fix ${kind} capture before treating this diagnostic as complete.`,
-            }
-        : {
-            reason: `No ${kind} signal evidence was produced by the selected provider set.`,
-            nextAction: `Attach ${kind} evidence with --signal ${kind}:<path> or add a provider command that emits it.`,
-          }),
+      ...reason,
     });
   }
   for (const kind of ['accessibility', 'nativePerformance', 'profiler'] as const) {
