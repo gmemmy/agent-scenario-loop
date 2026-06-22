@@ -1,10 +1,12 @@
 #!/usr/bin/env node
 
 const crypto = require('node:crypto');
+const { execFile } = require('node:child_process');
 const fs = require('node:fs');
 const fsp = require('node:fs/promises');
 const net = require('node:net');
 const path = require('node:path');
+const { promisify } = require('node:util');
 
 const { createArtifactLayout } = require('../core/artifact-layout');
 const { writeJsonArtifact, writeTextArtifact } = require('../core/artifact-writer');
@@ -30,6 +32,7 @@ type CliArgs = {
   'ios-device'?: string | boolean;
   'min-free-disk'?: string | boolean;
   out?: string | boolean;
+  'exclusive-process'?: string | boolean;
   require?: string | boolean;
   'run-id'?: string | boolean;
   'tcp-port'?: string | boolean;
@@ -57,6 +60,8 @@ type HostDoctorOptions = {
   iosPreflight?: (options: Record<string, unknown>) => Promise<HostDoctorChildResult>;
   diskSpaceProbe?: (target: DiskSpaceTarget) => Promise<DiskSpaceProbeResult>;
   diskSpaceTargets?: DiskSpaceTarget[];
+  exclusiveProcessProbe?: (target: ExclusiveProcessTarget) => Promise<ExclusiveProcessProbeResult>;
+  exclusiveProcessTargets?: ExclusiveProcessTarget[];
   outputDir?: string;
   requirements?: HostDoctorRequirement[];
   runId?: string;
@@ -75,10 +80,23 @@ type DiskSpaceProbeResult = {
   errorMessage?: string;
   status: 'failed' | 'passed';
 };
+type ExclusiveProcessProbeResult = {
+  errorMessage?: string;
+  matches?: ProcessMatch[];
+  status: 'failed' | 'passed';
+};
 type DiskSpaceTarget = {
   label: string;
   minFreeBytes: number;
   path: string;
+};
+type ExclusiveProcessTarget = {
+  label: string;
+  pattern: string;
+};
+type ProcessMatch = {
+  command: string;
+  pid: number;
 };
 type TcpPortTarget = {
   host: string;
@@ -103,6 +121,7 @@ type HostDoctorResult = {
 
 const DEFAULT_REQUIREMENTS: HostDoctorRequirement[] = ['android', 'ios'];
 const REQUIREMENT_SET = new Set<HostDoctorRequirement>(['agent-device', 'android', 'argent', 'ios']);
+const execFileAsync = promisify(execFile);
 
 /**
  * Prints CLI usage.
@@ -122,6 +141,7 @@ function usage(output: {write: (message: string) => unknown} = process.stderr): 
     'Use --argent <binary> and --base-args "<args>" to verify a non-global Argent command shape.',
     'Use --tcp-port <host:port[,host:port]> to verify local services such as Metro before live proof.',
     'Use --min-free-disk <path:mb[,path:mb]> to verify artifact storage capacity before trace-heavy proof.',
+    'Use --exclusive-process <label:pattern[,label:pattern]> to fail when an exclusive profiler or trace tool is already running.',
     'Use --command-timeout-ms <ms> to bound agent-device and Argent availability checks.',
   ], output);
 }
@@ -279,6 +299,38 @@ function parseDiskSpaceTargets(value: unknown): DiskSpaceTarget[] {
         minFreeBytes: Math.ceil(minFreeMb * 1024 * 1024),
         path: resolvedPath,
       };
+    });
+}
+
+/**
+ * Parses comma-separated process exclusivity targets.
+ *
+ * @param {unknown} value
+ * @returns {ExclusiveProcessTarget[]}
+ */
+function parseExclusiveProcessTargets(value: unknown): ExclusiveProcessTarget[] {
+  if (value === undefined || value === false) {
+    return [];
+  }
+  if (value === true || typeof value !== 'string') {
+    throw new Error('--exclusive-process must be a comma-separated list of <label:pattern> targets.');
+  }
+
+  return value
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .map((item) => {
+      const separatorIndex = item.indexOf(':');
+      if (separatorIndex <= 0 || separatorIndex >= item.length - 1) {
+        throw new Error(`Invalid --exclusive-process target: ${item}.`);
+      }
+      const label = item.slice(0, separatorIndex).trim();
+      const pattern = item.slice(separatorIndex + 1).trim();
+      if (!label || !pattern) {
+        throw new Error(`Invalid --exclusive-process target: ${item}.`);
+      }
+      return { label, pattern };
     });
 }
 
@@ -653,6 +705,105 @@ function buildDiskSpaceCheck({
 }
 
 /**
+ * Parses `ps` output into process records.
+ *
+ * @param {string} stdout
+ * @returns {ProcessMatch[]}
+ */
+function parseProcessList(stdout: string): ProcessMatch[] {
+  return stdout
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const match = /^(\d+)\s+(.+)$/u.exec(line);
+      if (!match) {
+        return null;
+      }
+      return {
+        command: match[2] ?? '',
+        pid: Number(match[1]),
+      };
+    })
+    .filter((match): match is ProcessMatch => (
+      !!match &&
+      Number.isInteger(match.pid) &&
+      match.pid > 0 &&
+      Boolean(match.command)
+    ));
+}
+
+/**
+ * Checks whether a process pattern is already running.
+ *
+ * @param {ExclusiveProcessTarget} target
+ * @returns {Promise<ExclusiveProcessProbeResult>}
+ */
+async function probeExclusiveProcess(target: ExclusiveProcessTarget): Promise<ExclusiveProcessProbeResult> {
+  try {
+    const { stdout } = await execFileAsync('ps', ['-axo', 'pid=,command='], {
+      encoding: 'utf8',
+      timeout: 5_000,
+      maxBuffer: 1024 * 1024,
+    });
+    const pattern = target.pattern.toLowerCase();
+    const matches = parseProcessList(stdout)
+      .filter((processInfo) => (
+        processInfo.pid !== process.pid &&
+        processInfo.command.toLowerCase().includes(pattern)
+      ));
+    return {
+      ...(matches.length > 0 ? { matches } : {}),
+      status: matches.length > 0 ? 'failed' : 'passed',
+    };
+  } catch (error) {
+    return {
+      errorMessage: error instanceof Error ? error.message : String(error),
+      status: 'failed',
+    };
+  }
+}
+
+/**
+ * Builds a host health check for one exclusive process target.
+ *
+ * @param {{result: ExclusiveProcessProbeResult, target: ExclusiveProcessTarget}} options
+ * @returns {HostDoctorCheck}
+ */
+function buildExclusiveProcessCheck({
+  result,
+  target,
+}: {
+  result: ExclusiveProcessProbeResult;
+  target: ExclusiveProcessTarget;
+}): HostDoctorCheck {
+  const name = `exclusive_process_${safeCheckSegment(target.label)}`;
+  const matches = result.matches ?? [];
+  const passed = result.status === 'passed' && matches.length === 0;
+  return {
+    code: passed ? 'exclusive_process_clear' : 'exclusive_process_conflict',
+    message: passed
+      ? `No existing process matched exclusive target ${target.label}.`
+      : `Existing process matched exclusive target ${target.label}.`,
+    metadata: {
+      label: target.label,
+      matchCount: matches.length,
+      nextAction: passed
+        ? 'No action required.'
+        : `Stop or isolate existing ${target.label} process ownership before starting heavy diagnostics.`,
+      nextActionCode: passed ? 'none' : 'stop_conflicting_process',
+      pattern: target.pattern,
+      ...(matches.length > 0 ? { matchingPids: matches.slice(0, 5).map((match) => String(match.pid)).join(',') } : {}),
+      ...(matches.length > 0 ? { matchingCommands: matches.slice(0, 3).map((match) => match.command).join('\n') } : {}),
+      ...(result.errorMessage ? { errorMessage: result.errorMessage } : {}),
+    },
+    name,
+    source: 'runner',
+    status: passed ? 'passed' : 'failed',
+  };
+}
+
+/**
  * Reads a string field from an artifact record.
  *
  * @param {Record<string, unknown>} record
@@ -797,6 +948,8 @@ async function runHostDoctor({
   iosPreflight = runIosSimctlCapture,
   diskSpaceProbe = probeDiskSpace,
   diskSpaceTargets = [],
+  exclusiveProcessProbe = probeExclusiveProcess,
+  exclusiveProcessTargets = [],
   outputDir = path.resolve('artifacts/host-doctor'),
   requirements = DEFAULT_REQUIREMENTS,
   runId = createRunId(),
@@ -811,6 +964,7 @@ async function runHostDoctor({
   const checks: HostDoctorCheck[] = [];
   const raw: Record<string, unknown> = {
     diskSpaceTargets,
+    exclusiveProcessTargets,
     requirements,
     runId,
     tcpPortTargets,
@@ -822,6 +976,15 @@ async function runHostDoctor({
       checks.push(buildDiskSpaceCheck({ result, target }));
     } catch (error) {
       checks.push(buildExceptionCheck({ error, name: `disk_space_${safeCheckSegment(target.path)}` }));
+    }
+  }
+
+  for (const target of exclusiveProcessTargets) {
+    try {
+      const result = await exclusiveProcessProbe(target);
+      checks.push(buildExclusiveProcessCheck({ result, target }));
+    } catch (error) {
+      checks.push(buildExceptionCheck({ error, name: `exclusive_process_${safeCheckSegment(target.label)}` }));
     }
   }
 
@@ -1031,6 +1194,10 @@ async function main(): Promise<void> {
     args['min-free-disk'],
     ['ASL_HOST_DOCTOR_MIN_FREE_DISK'],
   ));
+  const exclusiveProcessTargets = parseExclusiveProcessTargets(readStringArgOrEnv(
+    args['exclusive-process'],
+    ['ASL_HOST_DOCTOR_EXCLUSIVE_PROCESSES'],
+  ));
   const result = await runHostDoctor({
     ...(adbPath ? { adbPath } : {}),
     ...(agentDevicePath ? { agentDevicePath } : {}),
@@ -1041,6 +1208,7 @@ async function main(): Promise<void> {
     ...(argentBaseArgs ? { argentBaseArgs } : {}),
     commandTimeoutMs: parsePositiveInteger(commandTimeoutMsValue, 30_000),
     diskSpaceTargets,
+    exclusiveProcessTargets,
     ...(iosBundleId ? { iosBundleId } : {}),
     ...(iosDevice ? { iosDevice } : {}),
     ...(typeof args.out === 'string' ? { outputDir: args.out } : {}),
@@ -1066,14 +1234,17 @@ export {
   buildAvailabilityCheck,
   buildChildRunCheck,
   buildDiskSpaceCheck,
+  buildExclusiveProcessCheck,
   buildHostDoctorSummary,
   buildTcpPortCheck,
   main,
   parseArgs,
   parseDiskSpaceTargets,
+  parseExclusiveProcessTargets,
   parseRequirements,
   parseTcpPortTargets,
   probeDiskSpace,
+  probeExclusiveProcess,
   probeTcpPort,
   runHostDoctor,
   usage,
@@ -1083,6 +1254,8 @@ export type {
   CliArgs,
   DiskSpaceProbeResult,
   DiskSpaceTarget,
+  ExclusiveProcessProbeResult,
+  ExclusiveProcessTarget,
   HostDoctorCheck,
   HostDoctorOptions,
   HostDoctorRequirement,

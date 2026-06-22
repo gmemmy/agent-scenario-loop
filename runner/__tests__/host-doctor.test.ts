@@ -6,6 +6,7 @@ const path = require('node:path');
 const test = require('node:test');
 
 const {
+  parseExclusiveProcessTargets,
   parseDiskSpaceTargets,
   parseTcpPortTargets,
   parseRequirements,
@@ -281,6 +282,50 @@ test('host doctor checks artifact disk capacity before live proof', async (t: Te
   assert.match(summary, /free_artifact_disk_space/u);
 });
 
+test('host doctor checks exclusive process ownership before heavy proof', async (t: TestContext) => {
+  const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-host-doctor-exclusive-process-'));
+  t.after(async () => {
+    await fsp.rm(tempDir, { recursive: true, force: true });
+  });
+  const exclusiveProcessProbe = async (
+    target: {label: string},
+  ): Promise<{matches?: Array<{command: string; pid: number}>; status: 'failed' | 'passed'}> => {
+    if (target.label === 'xctrace') {
+      return {
+        matches: [{ command: 'xctrace record --template Time Profiler', pid: 1234 }],
+        status: 'failed',
+      };
+    }
+    return { status: 'passed' };
+  };
+
+  const result = await runHostDoctor({
+    exclusiveProcessProbe,
+    exclusiveProcessTargets: [
+      { label: 'perfetto', pattern: 'perfetto' },
+      { label: 'xctrace', pattern: 'xctrace record' },
+    ],
+    outputDir: tempDir,
+    requirements: [],
+    runId: 'host-doctor-exclusive-process',
+  });
+
+  const health = readJson(path.join(tempDir, 'health.json'));
+  assert.equal(result.health.healthStatus, 'failed');
+  assert.equal(health.healthStatus, 'failed');
+  const checks = health.checks as Array<{metadata?: Record<string, unknown>; name: string; status: string}>;
+  assert.deepEqual(checks.map((check) => [check.name, check.status]), [
+    ['exclusive_process_perfetto', 'passed'],
+    ['exclusive_process_xctrace', 'failed'],
+  ]);
+  assert.equal(checks[1]?.metadata?.nextActionCode, 'stop_conflicting_process');
+  assert.equal(checks[1]?.metadata?.matchCount, 1);
+  assert.equal(checks[1]?.metadata?.matchingPids, '1234');
+  const summary = fs.readFileSync(path.join(tempDir, 'agent-summary.md'), 'utf8');
+  assert.match(summary, /exclusive_process_xctrace: failed/u);
+  assert.match(summary, /stop_conflicting_process/u);
+});
+
 test('host doctor requirement parser defaults to platform lanes and rejects unknown lanes', () => {
   assert.deepEqual(parseRequirements(undefined), ['android', 'ios']);
   assert.deepEqual(parseRequirements('android,ios,agent-device,argent'), ['android', 'ios', 'agent-device', 'argent']);
@@ -303,4 +348,13 @@ test('host doctor disk target parser accepts path and mib requirements', () => {
     { label: `${artifactPath}:512mb`, minFreeBytes: 512 * 1024 * 1024, path: artifactPath },
   ]);
   assert.throws(() => parseDiskSpaceTargets('artifacts/asl:not-a-size'), /Invalid --min-free-disk target/u);
+});
+
+test('host doctor exclusive process parser accepts labeled patterns', () => {
+  assert.deepEqual(parseExclusiveProcessTargets(undefined), []);
+  assert.deepEqual(parseExclusiveProcessTargets('perfetto:perfetto,xctrace:xctrace record'), [
+    { label: 'perfetto', pattern: 'perfetto' },
+    { label: 'xctrace', pattern: 'xctrace record' },
+  ]);
+  assert.throws(() => parseExclusiveProcessTargets('xctrace'), /Invalid --exclusive-process target/u);
 });
