@@ -1002,6 +1002,56 @@ test('measures custom transition milestone pairs as interval durations', () => {
   assert.equal(metrics.budgetEvaluation.pass, true);
 });
 
+test('normalizes zero-based repeated iteration labels before measuring cycles', () => {
+  const metrics = buildMetricsFromProfileEvents({
+    scenario: 'custom-transition',
+    runId: 'android-live-transition',
+    expectedIterations: 2,
+    cycleEventNames: {
+      closeRequested: 'surface_settled',
+      dismissed: 'surface_settled',
+      opened: 'surface_transition_requested',
+      openRequested: 'surface_transition_requested',
+    },
+    events: [
+      { event: 'surface_transition_requested', iteration: 0, atMs: 1200 },
+      { event: 'surface_settled', iteration: 0, atMs: 1440 },
+      { event: 'surface_transition_requested', iteration: 1, atMs: 2600 },
+      { event: 'surface_settled', iteration: 1, atMs: 2870 },
+    ],
+  });
+
+  assert.equal(metrics.status, 'passed');
+  assert.deepEqual(metrics.durationsMs, [240, 270]);
+  assert.deepEqual(metrics.incompleteIterations, []);
+  assert.equal(metrics.failures, 0);
+});
+
+test('normalizes numeric-string repeated iteration labels before measuring cycles', () => {
+  const metrics = buildMetricsFromProfileEvents({
+    scenario: 'custom-transition',
+    runId: 'android-live-transition',
+    expectedIterations: 2,
+    cycleEventNames: {
+      closeRequested: 'surface_settled',
+      dismissed: 'surface_settled',
+      opened: 'surface_transition_requested',
+      openRequested: 'surface_transition_requested',
+    },
+    events: [
+      { event: 'surface_transition_requested', iteration: '1', atMs: 1200 },
+      { event: 'surface_settled', iteration: '1', atMs: 1440 },
+      { event: 'surface_transition_requested', iteration: '2', atMs: 2600 },
+      { event: 'surface_settled', iteration: '2', atMs: 2870 },
+    ],
+  });
+
+  assert.equal(metrics.status, 'passed');
+  assert.deepEqual(metrics.durationsMs, [240, 270]);
+  assert.deepEqual(metrics.incompleteIterations, []);
+  assert.equal(metrics.failures, 0);
+});
+
 test('counts repeated milestone-only cycles without explicit iteration payloads', () => {
   const metrics = buildMetricsFromProfileEvents({
     scenario: 'home-feed-scroll-stress',
