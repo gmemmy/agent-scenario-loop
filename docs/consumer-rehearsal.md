@@ -37,6 +37,8 @@ pnpm downstream:local-package -- \
 
 The gate packs the current checkout, installs the tarball into the downstream app with `pnpm add`, verifies `node_modules/agent-scenario-loop/package.json` matches the local candidate version, runs the supplied commands, and restores `package.json` plus `pnpm-lock.yaml` unless `--keep-install` is passed. Generated downstream proof artifacts remain the consumer app's local ignored state.
 
+For Expo or React Native live proof commands, restart Metro from the downstream app root after installing a local ASL tarball and before launching the app. A running Metro graph can keep serving the previous helper bundle after `node_modules` changes, which makes helper-version, storage-key, and profile-session evidence look stale even when the installed package is correct. Record the Metro workdir/port in the downstream packet when the proof depends on a dev-client URL.
+
 For live probes, pass direct package CLI commands as additional JSON arrays so the target scenario and artifact root are explicit:
 
 ```bash
@@ -114,6 +116,8 @@ asl-profile-ios --config asl.config.json --scenario scenarios/mobile/first-journ
 ```
 
 For Expo dev-client builds, set `ASL_ANDROID_DEV_CLIENT_URL` or `ASL_IOS_DEV_CLIENT_URL` to the app's dev-client URL in ignored local env state. Prefer the LAN URL advertised by Metro for physical-device validation. Use `127.0.0.1` only when the selected simulator/emulator resolves that address back to the host Metro process. Android opens the dev-client URL before profile-session control. When Android storage transport is enabled, ASL waits for `Running "main"` by default before writing profile-session storage; override `ASL_ANDROID_DEV_CLIENT_READY_PATTERN` only when the app has a better readiness marker. If startup readiness fails, ASL reports an unhealthy run and skips command delivery instead of writing into a stale native shell. iOS opens the dev-client URL before reading stored profile-session evidence.
+
+After a local package tarball install, restart Metro from the consuming app root before running dev-client live proofs. Treat an unrestarted Metro process as runtime contamination unless the packet proves the bundle was rebuilt from the installed candidate.
 
 When Android deep-link delivery is unreliable in a dev-client shell, use `--android-profile-session-storage` so `asl-profile-android` seeds the app-owned AsyncStorage session through `run-as` before collecting evidence. The runner reads the selected device clock for the session start timestamp, which keeps app-emitted milestone durations meaningful. Storage-backed Android capture includes a bounded bootstrap grace period before the final logcat read, and health fails if the app never emits a matching profile-session start for the runner-written seed. Keep custom storage key overrides local to the consuming app.
 
