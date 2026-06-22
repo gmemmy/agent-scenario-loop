@@ -24,6 +24,7 @@ type CompatibilityResult = {
     uiContexts: string[];
     artifacts: string[];
     evidenceProviders: string[];
+    manifestVersions: Array<Record<string, unknown>>;
   };
 };
 
@@ -52,6 +53,7 @@ type ScenarioManifest = ManifestRecord & {
 };
 
 type RunnerManifest = ManifestRecord & {
+  schemaVersion?: string;
   runnerId?: string;
   name?: string;
   kind?: string;
@@ -310,6 +312,20 @@ function getScenarioId(scenario: ScenarioManifest | null | undefined): string {
  */
 function getRunnerId(runner: RunnerManifest | null | undefined): string {
   return runner?.runnerId ?? runner?.name ?? 'unknown-runner';
+}
+
+/**
+ * Builds product-neutral manifest provenance for planner compatibility evidence.
+ *
+ * @param {Record<string, unknown>} manifest
+ * @returns {Record<string, unknown>}
+ */
+function buildManifestVersionRecord(manifest: RunnerManifest): Record<string, unknown> {
+  return {
+    runnerId: getRunnerId(manifest),
+    kind: typeof manifest.kind === 'string' ? manifest.kind : 'unknown',
+    schemaVersion: typeof manifest.schemaVersion === 'string' ? manifest.schemaVersion : 'unknown',
+  };
 }
 
 /**
@@ -1075,6 +1091,7 @@ function evaluateRunnerCompatibility({
         uiContexts: [],
         artifacts: [],
         evidenceProviders: [],
+        manifestVersions: [],
       },
     };
   }
@@ -1226,6 +1243,10 @@ function evaluateRunnerCompatibility({
       uiContexts: providedUiContexts,
       artifacts,
       evidenceProviders: activeProviders.map((provider) => getRunnerId(provider)),
+      manifestVersions: [
+        buildManifestVersionRecord(primaryRunner),
+        ...activeProviders.map(buildManifestVersionRecord),
+      ],
     },
   };
 }
@@ -1280,6 +1301,7 @@ function buildCompatibilityHealth({
       uiContexts: uniqueSorted(asArray(compatibility?.matched?.uiContexts)),
       artifacts: uniqueSorted(asArray(compatibility?.matched?.artifacts)),
       evidenceProviders: uniqueSorted(asArray(compatibility?.matched?.evidenceProviders)),
+      manifestVersions: asArray(compatibility?.matched?.manifestVersions),
     },
   };
 }
