@@ -1893,7 +1893,7 @@ function main(): void {
     assert.match(exampleLiveProofOutput, /startup \(app-startup\/android-live-startup-smoke\): health=passed verdict=passed/u);
     assert.match(exampleLiveProofOutput, /startup-ui \(agent-device\/app-startup\/android-agent-device-startup-smoke\): health=passed verdict=not_evaluated/u);
     assert.match(exampleLiveProofOutput, /startup-ui-argent \(argent\/app-startup\/android-argent-startup-smoke\): health=passed verdict=not_evaluated/u);
-    assert.match(exampleLiveProofOutput, /Next action: inspect_summary/u);
+    assert.match(exampleLiveProofOutput, /Next action: product_optimization\/inspect_summary/u);
     const exampleLiveProof = JSON.parse(
       fs.readFileSync(path.join(exampleLiveRoot, '_live-proof', 'android-live-proof-smoke', 'live-proof.json'), 'utf8'),
     );

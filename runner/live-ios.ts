@@ -252,6 +252,7 @@ function buildSkippedInteractionProofs({
     label: `interaction-${runnerId}`,
     nextAction: {
       code: 'fix_profile_gate',
+      owner: 'asl_runner',
       summary: 'Inspect the profile health and verdict before rerunning sidecar interaction proofs.',
     },
     reason,

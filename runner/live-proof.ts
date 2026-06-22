@@ -33,6 +33,7 @@ type LiveProofArtifact = {
   comparisons: LiveProofComparisonPointer[];
   nextAction: {
     code: string;
+    owner?: LiveProofNextActionOwner;
     summary: string;
   };
   interactionProofs?: Array<{
@@ -54,6 +55,7 @@ type LiveProofArtifact = {
         name?: string;
         nextAction?: {
           code?: string;
+          owner?: LiveProofNextActionOwner;
           summary?: string;
         };
       }>;
@@ -64,6 +66,7 @@ type LiveProofArtifact = {
     label: string;
     nextAction: {
       code: string;
+      owner?: LiveProofNextActionOwner;
       summary: string;
     };
     reason: string;
@@ -124,12 +127,29 @@ type LiveProofAggregateStatus = (
   'regressed' |
   'unchanged'
 );
-type LiveProofNextActionCode = LiveProofArtifact['nextAction']['code'];
+type LiveProofNextActionCode = (
+  'establish_baseline' |
+  'inspect_failed_run' |
+  'inspect_inconclusive' |
+  'inspect_low_confidence' |
+  'inspect_mixed' |
+  'inspect_regressions' |
+  'inspect_summary'
+);
+type LiveProofNextActionOwner = (
+  'app_truth' |
+  'asl_runner' |
+  'product_optimization' |
+  'provider_tooling' |
+  'runtime_environment' |
+  'scenario_contract'
+);
 type LiveProofSetArtifact = {
   failureReasons: string[];
   missingPlatforms: LiveProofPlatform[];
   nextAction: {
     code: string;
+    owner?: LiveProofNextActionOwner;
     summary: string;
   };
   presentPlatforms: LiveProofPlatform[];
@@ -149,6 +169,7 @@ type LiveProofSetProofPointer = {
   interactionWarningCount: number;
   nextAction: {
     code: string;
+    owner?: LiveProofNextActionOwner;
     summary: string;
   };
   platform: LiveProofPlatform;
@@ -164,6 +185,7 @@ type LiveProofSetInteractionWarningPointer = {
     name: string;
     nextAction?: {
       code: string;
+      owner?: LiveProofNextActionOwner;
       summary: string;
     };
   }>;
@@ -394,6 +416,27 @@ function expectedLiveProofNextActionCode(
 }
 
 /**
+ * Resolves the expected owner for an aggregate proof next action.
+ *
+ * @param {LiveProofNextActionCode} actionCode
+ * @returns {LiveProofNextActionOwner}
+ */
+function expectedLiveProofNextActionOwner(actionCode: LiveProofNextActionCode): LiveProofNextActionOwner {
+  switch (actionCode) {
+    case 'inspect_failed_run':
+      return 'asl_runner';
+    case 'inspect_regressions':
+    case 'inspect_mixed':
+    case 'inspect_summary':
+      return 'product_optimization';
+    case 'establish_baseline':
+    case 'inspect_inconclusive':
+    case 'inspect_low_confidence':
+      return 'scenario_contract';
+  }
+}
+
+/**
  * Verifies that aggregate comparison counts match the comparison pointers.
  *
  * @param {LiveProofArtifact} proof
@@ -428,6 +471,11 @@ function assertLiveProofAggregateSignals(proof: LiveProofArtifact): void {
   if (proof.nextAction.code !== expectedAction) {
     throw new Error(
       `Live proof artifact nextAction.code expected ${expectedAction} for ${proof.status}/${expectedStatus} but found ${proof.nextAction.code}.`,
+    );
+  }
+  if (proof.nextAction.owner && proof.nextAction.owner !== expectedLiveProofNextActionOwner(expectedAction)) {
+    throw new Error(
+      `Live proof artifact nextAction.owner expected ${expectedLiveProofNextActionOwner(expectedAction)} for ${proof.nextAction.code} but found ${proof.nextAction.owner}.`,
     );
   }
 }
@@ -680,7 +728,7 @@ function formatInteractionProofWarnings(proofPointer: {warnings?: {count?: numbe
 /**
  * Formats warning check details for one interaction proof pointer.
  *
- * @param {{warnings?: {checks?: Array<{code?: string, message?: string, name?: string, nextAction?: {code?: string, summary?: string}}>}}} proofPointer
+ * @param {{warnings?: {checks?: Array<{code?: string, message?: string, name?: string, nextAction?: {code?: string, owner?: LiveProofNextActionOwner, summary?: string}}>}}} proofPointer
  * @returns {string[]}
  */
 function formatInteractionProofWarningDetails(proofPointer: {
@@ -691,6 +739,7 @@ function formatInteractionProofWarningDetails(proofPointer: {
       name?: string;
       nextAction?: {
         code?: string;
+        owner?: LiveProofNextActionOwner;
         summary?: string;
       };
     }>;
@@ -698,7 +747,7 @@ function formatInteractionProofWarningDetails(proofPointer: {
 }): string[] {
   return (proofPointer.warnings?.checks ?? []).map((warning) => {
     const nextAction = warning.nextAction?.code || warning.nextAction?.summary
-      ? ` next=${warning.nextAction?.code ?? 'inspect_interaction_warning'}${warning.nextAction?.summary ? ` - ${warning.nextAction.summary}` : ''}`
+      ? ` next=${warning.nextAction?.owner ?? 'unknown'}/${warning.nextAction?.code ?? 'inspect_interaction_warning'}${warning.nextAction?.summary ? ` - ${warning.nextAction.summary}` : ''}`
       : '';
     return `  warning ${warning.name ?? 'interaction_warning'}: ${warning.code ?? 'warning'} - ${warning.message ?? 'Interaction proof emitted a warning.'}${nextAction}`;
   });
@@ -864,6 +913,7 @@ function buildLiveProofSetInteractionWarnings(proof: LiveProofArtifact): LivePro
           ? {
             nextAction: {
               code: warning.nextAction?.code ?? 'inspect_interaction_warning',
+              ...(warning.nextAction?.owner ? { owner: warning.nextAction.owner } : {}),
               summary: warning.nextAction?.summary ?? 'Inspect the interaction proof warning.',
             },
           }
@@ -939,7 +989,7 @@ function buildLiveProofSetFailureReasons({
  * Builds the next action for a proof-set artifact.
  *
  * @param {{failureReasons: string[], missingPlatforms: LiveProofPlatform[], proofs: LiveProofArtifact[]}} options
- * @returns {{code: string, summary: string}}
+ * @returns {{code: string, owner: LiveProofNextActionOwner, summary: string}}
  */
 function buildLiveProofSetNextAction({
   failureReasons,
@@ -949,33 +999,38 @@ function buildLiveProofSetNextAction({
   failureReasons: string[];
   missingPlatforms: LiveProofPlatform[];
   proofs: LiveProofArtifact[];
-}): {code: string; summary: string} {
+}): {code: string; owner: LiveProofNextActionOwner; summary: string} {
   if (missingPlatforms.length > 0) {
     return {
       code: 'collect_missing_platform_proofs',
+      owner: 'runtime_environment',
       summary: `Run the missing platform proof(s): ${missingPlatforms.join(', ')}.`,
     };
   }
   if (proofs.some((proof) => proof.status === 'failed')) {
     return {
       code: 'inspect_failed_run',
+      owner: 'asl_runner',
       summary: 'Inspect failed live-proof artifacts before trusting the platform set.',
     };
   }
   if (proofs.some((proof) => proof.comparisonStatus === 'regressed')) {
     return {
       code: 'inspect_regressions',
+      owner: 'product_optimization',
       summary: 'Inspect regressed platform proof comparisons before claiming improvement.',
     };
   }
   if (failureReasons.length > 0) {
     return {
       code: 'inspect_failed_set',
+      owner: 'asl_runner',
       summary: 'Inspect failed proof-set reasons before trusting the platform set.',
     };
   }
   return {
     code: 'inspect_summary',
+    owner: 'product_optimization',
     summary: 'Platform proof set is complete; inspect linked artifacts for detail.',
   };
 }
@@ -1042,7 +1097,7 @@ function formatLiveProofSetWarningDetails(proof: LiveProofSetProofPointer): stri
   return (proof.interactionWarnings ?? []).flatMap((interactionWarning) => (
     interactionWarning.checks.map((warning) => {
       const nextAction = warning.nextAction
-        ? ` Next action: ${warning.nextAction.code} - ${warning.nextAction.summary}`
+        ? ` Next action: ${warning.nextAction.owner ?? 'unknown'}/${warning.nextAction.code} - ${warning.nextAction.summary}`
         : '';
       return `  - warning ${proof.platform}/${interactionWarning.label} (${interactionWarning.runnerId}/${interactionWarning.scenarioId}/${interactionWarning.runId}): ${warning.name} ${warning.code} - ${warning.message}${nextAction}`;
     })
@@ -1069,7 +1124,7 @@ function formatLiveProofSetArtifactMarkdown(artifact: LiveProofSetArtifact): str
       ...formatLiveProofSetWarningDetails(proof),
     ]),
     `Failure reasons: ${artifact.failureReasons.length > 0 ? artifact.failureReasons.join(' ') : 'none'}`,
-    `Next action: ${artifact.nextAction.code} - ${artifact.nextAction.summary}`,
+    `Next action: ${artifact.nextAction.owner ?? 'unknown'}/${artifact.nextAction.code} - ${artifact.nextAction.summary}`,
     '',
     artifact.summary,
   ].join('\n');
@@ -1128,14 +1183,14 @@ function formatLiveProof(proof: LiveProofArtifact): string {
     ]),
     `Skipped interaction proofs: ${proof.skippedInteractionProofs?.length ?? 0}`,
     ...(proof.skippedInteractionProofs ?? []).map((proofPointer) => (
-      `- ${proofPointer.label} (${proofPointer.runnerId}/${proofPointer.scenarioId}/${proofPointer.runId}): ${proofPointer.reason} next=${proofPointer.nextAction.code}`
+      `- ${proofPointer.label} (${proofPointer.runnerId}/${proofPointer.scenarioId}/${proofPointer.runId}): ${proofPointer.reason} next=${proofPointer.nextAction.owner ?? 'unknown'}/${proofPointer.nextAction.code}`
     )),
     `Comparisons: ${proof.comparisons.length}`,
     `Comparison counts: better=${proof.comparisonCounts.better} worse=${proof.comparisonCounts.worse} unchanged=${proof.comparisonCounts.unchanged} mixed=${proof.comparisonCounts.mixed} inconclusive=${proof.comparisonCounts.inconclusive} low_confidence=${proof.comparisonCounts.low_confidence} skipped=${proof.comparisonCounts.skipped}`,
     ...proof.comparisons.map((comparison) => (
       `- ${comparison.label ?? 'comparison'} (${comparison.scenarioId ?? 'unknown-scenario'}/${comparison.runId ?? 'unknown-run'}): ${comparison.status ?? 'unknown'}${formatComparisonPointerMetrics(comparison)}`
     )),
-    `Next action: ${proof.nextAction.code} - ${proof.nextAction.summary}`,
+    `Next action: ${proof.nextAction.owner ?? 'unknown'}/${proof.nextAction.code} - ${proof.nextAction.summary}`,
     `Summary: ${proof.summary}`,
   ].join('\n');
 }
@@ -1243,7 +1298,7 @@ async function main(): Promise<void> {
     for (const reason of proofSet.failureReasons) {
       process.stdout.write(`- ${reason}\n`);
     }
-    process.stdout.write(`Next action: ${proofSet.nextAction.code} - ${proofSet.nextAction.summary}\n`);
+    process.stdout.write(`Next action: ${proofSet.nextAction.owner ?? 'unknown'}/${proofSet.nextAction.code} - ${proofSet.nextAction.summary}\n`);
   }
   const outputDir = resolveLiveProofSetOutputDir(args);
   if (outputDir) {

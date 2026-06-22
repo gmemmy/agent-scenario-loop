@@ -253,10 +253,17 @@
         "code": {
           "type": "string"
         },
+        "owner": {
+          "$ref": "#/$defs/nextActionOwner"
+        },
         "summary": {
           "type": "string"
         }
       }
+    },
+    "nextActionOwner": {
+      "type": "string",
+      "enum": ["app_truth", "asl_runner", "product_optimization", "provider_tooling", "runtime_environment", "scenario_contract"]
     },
     "comparisonPointer": {
       "type": "object",
@@ -411,6 +418,9 @@
         "code": {
           "type": "string",
           "enum": ["establish_baseline", "inspect_failed_run", "inspect_inconclusive", "inspect_low_confidence", "inspect_mixed", "inspect_regressions", "inspect_summary"]
+        },
+        "owner": {
+          "$ref": "#/$defs/nextActionOwner"
         },
         "summary": {
           "type": "string"
