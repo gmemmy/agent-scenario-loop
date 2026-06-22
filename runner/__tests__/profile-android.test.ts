@@ -2976,9 +2976,11 @@ test('profile-android seeds Android scenario commands as one ordered storage que
   });
   const adbCaptureRoot = path.join(tempRoot, 'adb-capture');
   const profileRoot = path.join(tempRoot, 'profile');
+  const calls: string[] = [];
   const storageWrites: string[] = [];
   const executor = async (command: string, args: string[]): Promise<CommandResult> => {
     const key = args.join(' ');
+    calls.push(key);
     if (key.includes('run-as') && key.includes('sqlite3') && key.includes('databases/RKStorage')) {
       storageWrites.push(key);
       return { command, args, exitCode: 0, stderr: '', stdout: '' };
@@ -3006,19 +3008,28 @@ test('profile-android seeds Android scenario commands as one ordered storage que
         stdout: '1234\n',
       },
       '-s emulator-5554 logcat -d -v time -t 2800': {
+        stdout: Array.from({ length: 2800 }, (_value, index) => (
+          `2026-01-01T00:00:00.${String(index).padStart(3, '0')}Z public-android noisy media line ${index}`
+        )).join('\n'),
+      },
+      '-s emulator-5554 logcat -d -v time -t 10000': {
         stdout: [
-          fs
-            .readFileSync(fixturePath('examples/mobile-app/event-logs/android-open-close-cycle.log'), 'utf8')
-            .replace(/android-example-open-close/gu, 'android-storage-open-close'),
           '2026-01-01T00:00:00.000Z public-android [profile-session] kind=start scenario=open-close-cycle runId=android-storage-open-close startedAt=1800000000000 timestamp=1800000000000 atMs=0',
           '2026-01-01T00:00:00.050Z public-android [profile-session] kind=command scenario=open-close-cycle runId=android-storage-open-close command=activate-target:example-card-1 commandId=open-card queueId=open-close-cycle sequence=1 source=storage status=received atMs=50 waitForMilestone=card_opened waitMs=300 waitTimeoutMs=1500',
-          '2026-01-01T00:00:00.070Z public-android [profile-session] kind=command scenario=open-close-cycle runId=android-storage-open-close command=activate-target:example-card-1 commandId=open-card queueId=open-close-cycle sequence=1 source=storage status=completed result=target-dispatched atMs=70 waitForMilestone=card_opened waitMs=300 waitTimeoutMs=1500',
+          '2026-01-01T00:00:00.070Z public-android [profile-session] kind=command scenario=open-close-cycle runId=android-storage-open-close command=activate-target:example-card-1 commandId=open-card queueId=open-close-cycle sequence=1 source=storage status=delivered result=target-dispatched atMs=70 waitForMilestone=card_opened waitMs=300 waitTimeoutMs=1500',
           '2026-01-01T00:00:00.820Z public-android [profile-session] kind=command scenario=open-close-cycle runId=android-storage-open-close command=activate-target:close-card commandId=close-card queueId=open-close-cycle sequence=2 source=storage status=received atMs=820 waitMs=300',
           '2026-01-01T00:00:00.850Z public-android [profile-session] kind=command scenario=open-close-cycle runId=android-storage-open-close command=activate-target:close-card commandId=close-card queueId=open-close-cycle sequence=2 source=storage status=completed result=target-dispatched atMs=850 waitMs=300',
           '2026-01-01T00:00:02.020Z public-android [profile-session] kind=command scenario=open-close-cycle runId=android-storage-open-close command=activate-target:example-card-1 commandId=open-card queueId=open-close-cycle sequence=3 source=storage status=received atMs=2020 waitForMilestone=card_opened waitMs=300 waitTimeoutMs=1500',
           '2026-01-01T00:00:02.050Z public-android [profile-session] kind=command scenario=open-close-cycle runId=android-storage-open-close command=activate-target:example-card-1 commandId=open-card queueId=open-close-cycle sequence=3 source=storage status=completed result=target-dispatched atMs=2050 waitForMilestone=card_opened waitMs=300 waitTimeoutMs=1500',
           '2026-01-01T00:00:02.900Z public-android [profile-session] kind=command scenario=open-close-cycle runId=android-storage-open-close command=activate-target:close-card commandId=close-card queueId=open-close-cycle sequence=4 source=storage status=received atMs=2900 waitMs=300',
           '2026-01-01T00:00:02.930Z public-android [profile-session] kind=command scenario=open-close-cycle runId=android-storage-open-close command=activate-target:close-card commandId=close-card queueId=open-close-cycle sequence=4 source=storage status=completed result=target-dispatched atMs=2930 waitMs=300',
+          '2026-01-01T00:00:04.020Z public-android [profile-session] kind=command scenario=open-close-cycle runId=android-storage-open-close command=activate-target:example-card-1 commandId=open-card queueId=open-close-cycle sequence=5 source=storage status=received atMs=4020 waitForMilestone=card_opened waitMs=300 waitTimeoutMs=1500',
+          '2026-01-01T00:00:04.050Z public-android [profile-session] kind=command scenario=open-close-cycle runId=android-storage-open-close command=activate-target:example-card-1 commandId=open-card queueId=open-close-cycle sequence=5 source=storage status=completed result=target-dispatched atMs=4050 waitForMilestone=card_opened waitMs=300 waitTimeoutMs=1500',
+          '2026-01-01T00:00:04.900Z public-android [profile-session] kind=command scenario=open-close-cycle runId=android-storage-open-close command=activate-target:close-card commandId=close-card queueId=open-close-cycle sequence=6 source=storage status=received atMs=4900 waitMs=300',
+          '2026-01-01T00:00:04.930Z public-android [profile-session] kind=command scenario=open-close-cycle runId=android-storage-open-close command=activate-target:close-card commandId=close-card queueId=open-close-cycle sequence=6 source=storage status=completed result=target-dispatched atMs=4930 waitMs=300',
+          fs
+            .readFileSync(fixturePath('examples/mobile-app/event-logs/android-open-close-cycle.log'), 'utf8')
+            .replace(/android-example-open-close/gu, 'android-storage-open-close'),
         ].join('\n'),
       },
     };
@@ -3054,6 +3065,7 @@ test('profile-android seeds Android scenario commands as one ordered storage que
 
   const health = readJson(path.join(result.runDir, 'health.json'));
   const adbHealth = readJson(path.join(adbCaptureRoot, 'health.json'));
+  const adbMetadata = readJson(path.join(adbCaptureRoot, 'raw', 'android-metadata.json')) as Record<string, any>;
   const causalRun = readJson(path.join(result.runDir, 'causal-run.json')) as Record<string, any>;
   const commandQueueWrite = storageWrites.find((write) => (
     write.includes('INSERT OR REPLACE INTO catalystLocalStorage')
@@ -3094,7 +3106,7 @@ test('profile-android seeds Android scenario commands as one ordered storage que
     }));
   assert.deepEqual(sequencingEvidence, [
     { atMs: 50, commandId: 'open-card', name: 'profile_command_received', sequence: 1 },
-    { atMs: 70, commandId: 'open-card', name: 'profile_command_completed', sequence: 1 },
+    { atMs: 70, commandId: 'open-card', name: 'profile_command_delivered', sequence: 1 },
     { atMs: 420, commandId: undefined, name: 'card_opened', sequence: undefined },
     { atMs: 820, commandId: 'close-card', name: 'profile_command_received', sequence: 2 },
     { atMs: 850, commandId: 'close-card', name: 'profile_command_completed', sequence: 2 },
@@ -3145,7 +3157,7 @@ test('profile-android seeds Android scenario commands as one ordered storage que
     },
     {
       commandId: 'open-card',
-      name: 'profile_command_completed',
+      name: 'profile_command_delivered',
       sequence: 1,
       status: 'completed',
       waitForMilestone: 'card_opened',
@@ -3206,8 +3218,57 @@ test('profile-android seeds Android scenario commands as one ordered storage que
       waitMs: 300,
       waitTimeoutMs: undefined,
     },
+    {
+      commandId: 'open-card',
+      name: 'profile_command_received',
+      sequence: 5,
+      status: 'started',
+      waitForMilestone: 'card_opened',
+      waitMs: 300,
+      waitTimeoutMs: 1500,
+    },
+    {
+      commandId: 'open-card',
+      name: 'profile_command_completed',
+      sequence: 5,
+      status: 'completed',
+      waitForMilestone: 'card_opened',
+      waitMs: 300,
+      waitTimeoutMs: 1500,
+    },
+    {
+      commandId: 'close-card',
+      name: 'profile_command_received',
+      sequence: 6,
+      status: 'started',
+      waitForMilestone: undefined,
+      waitMs: 300,
+      waitTimeoutMs: undefined,
+    },
+    {
+      commandId: 'close-card',
+      name: 'profile_command_completed',
+      sequence: 6,
+      status: 'completed',
+      waitForMilestone: undefined,
+      waitMs: 300,
+      waitTimeoutMs: undefined,
+    },
   ]);
-  assert.deepEqual(waits, [500, 250, 1800, 25]);
+  assert.deepEqual(waits, [500, 250, 1800]);
+  assert.ok(calls.some((call) => call.includes('logcat -d -v time -t 10000')));
+  assert.deepEqual(adbMetadata.profileSessionCompletionWait, {
+    completed: true,
+    elapsedMs: adbMetadata.profileSessionCompletionWait.elapsedMs,
+    expectedCommandCount: 6,
+    milestoneBackedSequences: [1],
+    observedTerminalCommands: 6,
+    pollCount: 1,
+    rawPath: 'raw/adb-profile-session-early-log-1.txt',
+    started: true,
+    terminalSequences: [1, 2, 3, 4, 5, 6],
+  });
+  assert.ok(fs.existsSync(path.join(adbCaptureRoot, 'raw', 'adb-profile-session-early-log-1.txt')));
   const commandQueueWritePath = path.join(adbCaptureRoot, 'raw', 'adb-async-storage-write-2.txt');
   assert.ok(fs.existsSync(commandQueueWritePath));
   const commandQueueWriteArtifact = fs.readFileSync(commandQueueWritePath, 'utf8');

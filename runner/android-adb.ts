@@ -146,6 +146,12 @@ type AndroidPreflightOptions = {
   storageWrites?: AndroidAsyncStorageWrite[];
   waitMs?: number;
 };
+type AndroidProfileSessionCompletionExpectation = {
+  expectedCommandCount: number;
+  runId: string;
+  scenario: string;
+  source: 'deeplink' | 'storage';
+};
 type NextActionHint = {
   nextAction: string;
   nextActionCode: string;
@@ -161,6 +167,16 @@ const DEFAULT_ADB_COMMAND_TIMEOUT_MS = 30000;
 const ANDROID_ADB_CAPTURE_WATCHDOG_FLOOR_MS = 15000;
 const ANDROID_ADB_CAPTURE_WATCHDOG_CEILING_MS = 120000;
 const ANDROID_ADB_CAPTURE_COMMAND_OVERHEAD_MS = 3000;
+const ANDROID_PROFILE_SESSION_EARLY_POLL_MS = 1000;
+const ANDROID_PROFILE_SESSION_TERMINAL_COMMAND_STATUSES = new Set([
+  'cancelled',
+  'completed',
+  'failed',
+  'skipped',
+  'timeout',
+  'timed-out',
+]);
+const ANDROID_PROFILE_SESSION_LOGCAT_LINES_MIN = 10000;
 const ANDROID_ADB_CAPTURE_COMMAND_OVERHEAD_CEILING_MS = 45000;
 
 /**
@@ -181,6 +197,231 @@ function resolveAndroidDeviceEpochPlaceholders(value: string, epochMs: number): 
       String(epochMs),
     )
     .replaceAll(ANDROID_DEVICE_EPOCH_MS_PLACEHOLDER, String(epochMs));
+}
+
+/**
+ * Reads one scalar string from a JSON-ish storage payload or log line.
+ *
+ * Android storage values can contain ASL's unquoted device-clock placeholder,
+ * so this intentionally supports both JSON field syntax and flat log syntax.
+ *
+ * @param {string} text
+ * @param {string} field
+ * @returns {string | null}
+ */
+function readProfileSessionScalar(text: string, field: string): string | null {
+  const escaped = field.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
+  const jsonMatch = new RegExp(`"${escaped}"\\s*:\\s*"([^"]+)"`, 'u').exec(text);
+  if (jsonMatch?.[1]) {
+    return jsonMatch[1];
+  }
+
+  const flatMatch = new RegExp(`(?:^|\\s)${escaped}=([^\\s,"}]+)`, 'u').exec(text);
+  return flatMatch?.[1] ?? null;
+}
+
+/**
+ * Reads profile-session command count from one storage value.
+ *
+ * @param {string} value
+ * @returns {number}
+ */
+function readStoredProfileCommandCount(value: string): number {
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed.filter((entry) => (
+      entry && typeof entry === 'object' && typeof entry.command === 'string'
+    )).length : 0;
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * Resolves the profile-session run identity and expected command count.
+ *
+ * @param {{deepLinks: AndroidDeepLinkCommand[], storageWrites: AndroidAsyncStorageWrite[]}} options
+ * @returns {AndroidProfileSessionCompletionExpectation | null}
+ */
+function resolveProfileSessionCompletionExpectation({
+  deepLinks,
+  storageWrites,
+}: {
+  deepLinks: AndroidDeepLinkCommand[];
+  storageWrites: AndroidAsyncStorageWrite[];
+}): AndroidProfileSessionCompletionExpectation | null {
+  const sessionWrite = storageWrites.find((write) => (
+    readProfileSessionScalar(write.value, 'runId') &&
+    readProfileSessionScalar(write.value, 'scenario') &&
+    !Array.isArray(safeJsonParse(write.value))
+  ));
+  const commandWrite = storageWrites.find((write) => readStoredProfileCommandCount(write.value) > 0);
+  if (sessionWrite && commandWrite) {
+    const runId = readProfileSessionScalar(sessionWrite.value, 'runId');
+    const scenario = readProfileSessionScalar(sessionWrite.value, 'scenario');
+    if (runId && scenario) {
+      return {
+        expectedCommandCount: readStoredProfileCommandCount(commandWrite.value),
+        runId,
+        scenario,
+        source: 'storage',
+      };
+    }
+  }
+
+  const startLink = deepLinks.find((deepLink) => deepLink.url.includes('/profile-session/start'));
+  const commandLinks = deepLinks.filter((deepLink) => deepLink.url.includes('/profile-session/command'));
+  if (startLink && commandLinks.length > 0) {
+    try {
+      const parsed = new URL(startLink.url);
+      const runId = parsed.searchParams.get('runId');
+      const scenario = parsed.searchParams.get('scenario');
+      if (runId && scenario) {
+        return {
+          expectedCommandCount: commandLinks.length,
+          runId,
+          scenario,
+          source: 'deeplink',
+        };
+      }
+    } catch {
+      return null;
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Parses JSON without throwing.
+ *
+ * @param {string} value
+ * @returns {unknown}
+ */
+function safeJsonParse(value: string): unknown {
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Returns true when one profile-session log line belongs to the expected run.
+ *
+ * @param {{expectation: AndroidProfileSessionCompletionExpectation, line: string}} options
+ * @returns {boolean}
+ */
+function isExpectedProfileSessionLine({
+  expectation,
+  line,
+}: {
+  expectation: AndroidProfileSessionCompletionExpectation;
+  line: string;
+}): boolean {
+  return line.includes('[profile-session]') &&
+    readProfileSessionScalar(line, 'runId') === expectation.runId &&
+    readProfileSessionScalar(line, 'scenario') === expectation.scenario;
+}
+
+/**
+ * Returns true when one profile-event log line belongs to the expected run.
+ *
+ * @param {{expectation: AndroidProfileSessionCompletionExpectation, line: string}} options
+ * @returns {boolean}
+ */
+function isExpectedProfileEventLine({
+  expectation,
+  line,
+}: {
+  expectation: AndroidProfileSessionCompletionExpectation;
+  line: string;
+}): boolean {
+  return line.includes('[profile-event]') &&
+    readProfileSessionScalar(line, 'runId') === expectation.runId &&
+    readProfileSessionScalar(line, 'scenario') === expectation.scenario;
+}
+
+/**
+ * Checks whether a logcat snapshot proves the profile-session command queue reached terminal status.
+ *
+ * @param {{expectation: AndroidProfileSessionCompletionExpectation, logText: string}} options
+ * @returns {{complete: boolean, milestoneBackedSequences: number[], observedTerminalCommands: number, started: boolean, terminalSequences: number[]}}
+ */
+function inspectProfileSessionCompletion({
+  expectation,
+  logText,
+}: {
+  expectation: AndroidProfileSessionCompletionExpectation;
+  logText: string;
+}): {
+  complete: boolean;
+  milestoneBackedSequences: number[];
+  observedTerminalCommands: number;
+  started: boolean;
+  terminalSequences: number[];
+} {
+  const deliveredMilestoneSequences = new Map<number, string>();
+  const milestoneBackedSequences = new Set<number>();
+  const terminalSequences = new Set<number>();
+  let started = false;
+
+  for (const line of logText.split(/\r?\n/u)) {
+    if (isExpectedProfileEventLine({ expectation, line })) {
+      const event = readProfileSessionScalar(line, 'event');
+      if (typeof event === 'string') {
+        for (const [sequence, milestone] of deliveredMilestoneSequences.entries()) {
+          if (milestone === event) {
+            milestoneBackedSequences.add(sequence);
+            terminalSequences.add(sequence);
+          }
+        }
+      }
+      continue;
+    }
+
+    if (!isExpectedProfileSessionLine({ expectation, line })) {
+      continue;
+    }
+    if (readProfileSessionScalar(line, 'kind') === 'start') {
+      started = true;
+      continue;
+    }
+    if (readProfileSessionScalar(line, 'kind') !== 'command') {
+      continue;
+    }
+    const sequence = Number(readProfileSessionScalar(line, 'sequence'));
+    const status = readProfileSessionScalar(line, 'status');
+    const waitForMilestone = readProfileSessionScalar(line, 'waitForMilestone');
+    if (
+      Number.isInteger(sequence) &&
+      sequence > 0 &&
+      sequence <= expectation.expectedCommandCount &&
+      typeof status === 'string' &&
+      ANDROID_PROFILE_SESSION_TERMINAL_COMMAND_STATUSES.has(status)
+    ) {
+      terminalSequences.add(sequence);
+      continue;
+    }
+
+    if (
+      Number.isInteger(sequence) &&
+      sequence > 0 &&
+      sequence <= expectation.expectedCommandCount &&
+      status === 'delivered' &&
+      typeof waitForMilestone === 'string'
+    ) {
+      deliveredMilestoneSequences.set(sequence, waitForMilestone);
+    }
+  }
+
+  return {
+    complete: started && terminalSequences.size >= expectation.expectedCommandCount,
+    milestoneBackedSequences: Array.from(milestoneBackedSequences).sort((left, right) => left - right),
+    observedTerminalCommands: terminalSequences.size,
+    started,
+    terminalSequences: Array.from(terminalSequences).sort((left, right) => left - right),
+  };
 }
 const ANDROID_READY_LOG_POLL_MS = 1000;
 
@@ -738,6 +979,69 @@ async function waitForAndroidReadyLog({
     await wait(ANDROID_READY_LOG_POLL_MS);
     result = await driver.readLogs({ lines: logcatLines, rawFileName });
   }
+}
+
+/**
+ * Waits until profile-session command evidence is terminal or the capture window expires.
+ *
+ * This lets storage-backed profile captures finalize as soon as the app has
+ * emitted same-run command completion evidence, while preserving the original
+ * wait budget when the app is still missing evidence.
+ *
+ * @param {{driver: import('./android-adb-driver').AndroidAdbDriver, expectation: AndroidProfileSessionCompletionExpectation, logcatLines: number, rawFileName: string, timeoutMs: number, wait: (ms: number) => Promise<void>}} options
+ * @returns {Promise<{completed: boolean, elapsedMs: number, inspection: ReturnType<typeof inspectProfileSessionCompletion>, pollCount: number, result: import('./android-adb-driver').AndroidAdbCommandResult}>}
+ */
+async function waitForAndroidProfileSessionCompletion({
+  driver,
+  expectation,
+  logcatLines,
+  rawFileName,
+  timeoutMs,
+  wait,
+}: {
+  driver: import('./android-adb-driver').AndroidAdbDriver;
+  expectation: AndroidProfileSessionCompletionExpectation;
+  logcatLines: number;
+  rawFileName: string;
+  timeoutMs: number;
+  wait: (ms: number) => Promise<void>;
+}): Promise<{
+  completed: boolean;
+  elapsedMs: number;
+  inspection: ReturnType<typeof inspectProfileSessionCompletion>;
+  pollCount: number;
+  result: import('./android-adb-driver').AndroidAdbCommandResult;
+}> {
+  const startedAt = Date.now();
+  let elapsedBudgetMs = 0;
+  let pollCount = 0;
+  let result = await driver.readLogs({ lines: logcatLines, rawFileName });
+  pollCount += 1;
+  let inspection = inspectProfileSessionCompletion({
+    expectation,
+    logText: `${result.stdout}\n${result.stderr}`,
+  });
+
+  while (!inspection.complete && elapsedBudgetMs < timeoutMs) {
+    const remainingMs = timeoutMs - elapsedBudgetMs;
+    const waitMs = Math.min(ANDROID_PROFILE_SESSION_EARLY_POLL_MS, Math.max(0, remainingMs));
+    await wait(waitMs);
+    elapsedBudgetMs += waitMs;
+    result = await driver.readLogs({ lines: logcatLines, rawFileName });
+    pollCount += 1;
+    inspection = inspectProfileSessionCompletion({
+      expectation,
+      logText: `${result.stdout}\n${result.stderr}`,
+    });
+  }
+
+  return {
+    completed: inspection.complete,
+    elapsedMs: inspection.complete ? Date.now() - startedAt : timeoutMs,
+    inspection,
+    pollCount,
+    result,
+  };
 }
 
 /**
@@ -1585,6 +1889,13 @@ async function runAndroidAdbPreflight({
     `${JSON.stringify(captureStartedCheckpoint, null, 2)}\n`,
     'utf8',
   );
+  const profileSessionCompletionExpectation = resolveProfileSessionCompletionExpectation({
+    deepLinks,
+    storageWrites,
+  });
+  if (profileSessionCompletionExpectation) {
+    metadata.profileSessionCompletionExpectation = profileSessionCompletionExpectation;
+  }
 
   const runCaptureBody = async (): Promise<void> => {
     const version = await executor(adbPath, ['version']);
@@ -2225,14 +2536,74 @@ async function runAndroidAdbPreflight({
       const logcatMetadata: Record<string, unknown>[] = [];
       const selectorResolutionMetadata: AndroidSelectorResolutionMetadata[] = [];
       for (const [index, driverStep] of resolvedDriverSteps.entries()) {
+        const profileSessionLogcatLines = profileSessionCompletionExpectation?.source === 'storage' &&
+          driverStep.driverAction === 'readLogs'
+          ? Math.max(driverStep.lines ?? logcatLines, ANDROID_PROFILE_SESSION_LOGCAT_LINES_MIN)
+          : driverStep.lines ?? logcatLines;
+        let executableDriverStep = profileSessionCompletionExpectation?.source === 'storage' &&
+          driverStep.driverAction === 'readLogs' &&
+          profileSessionLogcatLines !== (driverStep.lines ?? logcatLines)
+          ? { ...driverStep, lines: profileSessionLogcatLines }
+          : driverStep;
         if (driverStep.waitMs && driverStep.waitMs > 0) {
-          await wait(driverStep.waitMs);
+          if (
+            driverStep.driverAction === 'readLogs' &&
+            profileSessionCompletionExpectation?.source === 'storage'
+          ) {
+            const rawFileName = `adb-profile-session-early-log-${index + 1}.txt`;
+            const earlyCompletion = await waitForAndroidProfileSessionCompletion({
+              driver,
+              expectation: profileSessionCompletionExpectation,
+              logcatLines: profileSessionLogcatLines,
+              rawFileName,
+              timeoutMs: driverStep.waitMs,
+              wait,
+            });
+            raw[rawFileName] = formatAndroidAdbRawOutput(earlyCompletion.result);
+            checks.push({
+              name: 'android_profile_session_completion_wait',
+              status: earlyCompletion.completed ? 'passed' : 'warning',
+              source: 'runner',
+              code: earlyCompletion.completed
+                ? 'android_profile_session_completion_observed'
+                : 'android_profile_session_completion_wait_exhausted',
+              message: earlyCompletion.completed
+                ? `Observed terminal profile-session command evidence after ${earlyCompletion.elapsedMs}ms; proceeding to final logcat capture.`
+                : `Profile-session command evidence was not terminal before the ${driverStep.waitMs}ms capture window elapsed.`,
+              metadata: {
+                elapsedMs: earlyCompletion.elapsedMs,
+                expectedCommandCount: profileSessionCompletionExpectation.expectedCommandCount,
+                milestoneBackedSequences: earlyCompletion.inspection.milestoneBackedSequences.join(','),
+                observedTerminalCommands: earlyCompletion.inspection.observedTerminalCommands,
+                pollCount: earlyCompletion.pollCount,
+                rawPath: `raw/${rawFileName}`,
+                runId: profileSessionCompletionExpectation.runId,
+                scenario: profileSessionCompletionExpectation.scenario,
+                source: profileSessionCompletionExpectation.source,
+                started: earlyCompletion.inspection.started,
+                terminalSequences: earlyCompletion.inspection.terminalSequences.join(','),
+              },
+            });
+            metadata.profileSessionCompletionWait = {
+              completed: earlyCompletion.completed,
+              elapsedMs: earlyCompletion.elapsedMs,
+              expectedCommandCount: profileSessionCompletionExpectation.expectedCommandCount,
+              milestoneBackedSequences: earlyCompletion.inspection.milestoneBackedSequences,
+              observedTerminalCommands: earlyCompletion.inspection.observedTerminalCommands,
+              pollCount: earlyCompletion.pollCount,
+              rawPath: `raw/${rawFileName}`,
+              started: earlyCompletion.inspection.started,
+              terminalSequences: earlyCompletion.inspection.terminalSequences,
+            };
+          } else {
+            await wait(driverStep.waitMs);
+          }
           checks.push({
             name: 'android_capture_window_waited',
             status: 'passed',
             source: 'runner',
             code: 'android_capture_window_waited',
-            message: `Waited ${driverStep.waitMs}ms before running adb driver action ${driverStep.driverAction}.`,
+            message: `Waited up to ${driverStep.waitMs}ms before running adb driver action ${driverStep.driverAction}.`,
             metadata: {
               driverAction: driverStep.driverAction,
               ...(driverStep.stepId ? { stepId: driverStep.stepId } : {}),
@@ -2240,7 +2611,6 @@ async function runAndroidAdbPreflight({
           });
         }
 
-        let executableDriverStep = driverStep;
         if (needsAndroidSelectorResolution(driverStep)) {
           const selectorRawFileName = `adb-selector-tree-${index + 1}.xml`;
           const treeResult = await driver.inspectTree({ rawFileName: selectorRawFileName });
@@ -2307,7 +2677,7 @@ async function runAndroidAdbPreflight({
             : driverResult.exitCode === 0 ? `android_${codeSuffix}_completed` : `android_${codeSuffix}_failed`,
           message: isReadLogs
             ? driverResult.exitCode === 0
-              ? `Captured the last ${driverStep.lines ?? logcatLines} adb logcat lines.`
+              ? `Captured the last ${executableDriverStep.lines ?? logcatLines} adb logcat lines.`
               : 'adb logcat capture failed.'
             : driverResult.exitCode === 0
               ? `Completed adb driver action ${driverStep.driverAction}.`
