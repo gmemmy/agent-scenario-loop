@@ -240,6 +240,11 @@
         "required": {
           "type": "boolean",
           "description": "Marks this provider output as required evidence for diagnostic inventory and health evaluation when the output is not captured."
+        },
+        "redactionStatus": {
+          "type": "string",
+          "enum": ["not-redacted", "redacted", "unknown"],
+          "description": "Producer-declared privacy status for this output. Omit or use unknown when the provider has not inspected or transformed the artifact for sensitive data."
         }
       }
     }
