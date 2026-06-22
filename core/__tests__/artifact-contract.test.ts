@@ -1037,6 +1037,20 @@ test('measures custom transition milestone pairs as interval durations', () => {
   assert.equal(metrics.p95Ms, 270);
   assert.deepEqual(metrics.incompleteIterations, []);
   assert.equal(metrics.budgetEvaluation.pass, true);
+  assert.deepEqual(metrics.measurementPolicy, {
+    confidence: {
+      level: 'single_run',
+      nextAction: 'Use this as bounded proof; collect more samples before ratcheting fine-grained performance movement.',
+      nextActionCode: 'collect_more_latency_samples',
+      reason: 'Latency samples cover the expected measured iterations, but the profile has fewer than three samples.',
+    },
+    samples: {
+      expectedIterations: 2,
+      outliersExcluded: 0,
+      validLatencySamples: 2,
+      warmupSamples: 0,
+    },
+  });
 });
 
 test('normalizes zero-based repeated iteration labels before measuring cycles', () => {
@@ -1140,6 +1154,18 @@ test('associates repeated interval cycles without explicit iteration payloads', 
   assert.equal(metrics.failures, 0);
   assert.equal(metrics.budgetEvaluation.pass, true);
   assert.deepEqual(metrics.budgetEvaluation.failedChecks, []);
+  assert.deepEqual(metrics.measurementPolicy, {
+    confidence: {
+      level: 'multi_sample',
+      reason: 'Latency samples cover the expected measured iterations.',
+    },
+    samples: {
+      expectedIterations: 6,
+      outliersExcluded: 0,
+      validLatencySamples: 6,
+      warmupSamples: 0,
+    },
+  });
 });
 
 test('keeps later interval cycles when an earlier dismissal is missing', () => {
@@ -1166,6 +1192,20 @@ test('keeps later interval cycles when an earlier dismissal is missing', () => {
   assert.deepEqual(metrics.durationsMs, [60, 40]);
   assert.deepEqual(metrics.incompleteIterations, [1]);
   assert.equal(metrics.failures, 1);
+  assert.deepEqual(metrics.measurementPolicy, {
+    confidence: {
+      level: 'insufficient',
+      nextAction: 'Inspect incomplete iterations and rerun before using this profile as a stable latency baseline.',
+      nextActionCode: 'resolve_missing_latency_samples',
+      reason: 'Fewer latency samples were produced than expected iterations.',
+    },
+    samples: {
+      expectedIterations: 3,
+      outliersExcluded: 0,
+      validLatencySamples: 2,
+      warmupSamples: 0,
+    },
+  });
 });
 
 test('counts repeated milestone-only cycles without explicit iteration payloads', () => {
@@ -1202,6 +1242,20 @@ test('counts repeated milestone-only cycles without explicit iteration payloads'
   assert.equal(metrics.budgetEvaluation.status, 'partial');
   assert.deepEqual(metrics.budgetEvaluation.failedChecks, []);
   assert.deepEqual(metrics.budgetEvaluation.unmeasurableChecks, ['cycle p95']);
+  assert.deepEqual(metrics.measurementPolicy, {
+    confidence: {
+      level: 'unmeasurable',
+      nextAction: 'Use explicit interval anchors or a scenario budget that produces latency samples before making a timing claim.',
+      nextActionCode: 'add_latency_interval_anchors',
+      reason: 'No latency samples were produced for this profile metrics artifact.',
+    },
+    samples: {
+      expectedIterations: 6,
+      outliersExcluded: 0,
+      validLatencySamples: 0,
+      warmupSamples: 0,
+    },
+  });
   assert.deepEqual(
     metrics.budgetEvaluation.checks.find((check: Record<string, unknown>) => check.name === 'cycle p95'),
     {

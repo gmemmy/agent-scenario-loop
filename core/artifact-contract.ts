@@ -744,6 +744,10 @@ function buildMetricsFromProfileEvents({
     incompleteIterations,
     artifacts: sortValue(artifacts),
   };
+  metrics.measurementPolicy = buildProfileMeasurementPolicy({
+    expectedIterations,
+    validLatencySamples: durationsMs.length,
+  });
 
   const intervalBudgetChecks = evaluateIntervalBudgetChecks({ events, expectedIterations, budgets });
   const budgetEvaluation = evaluateProfileBudgets({ metrics, budgets, extraChecks: intervalBudgetChecks });
@@ -752,6 +756,93 @@ function buildMetricsFromProfileEvents({
   }
 
   return metrics;
+}
+
+/**
+ * Builds the sample sufficiency policy for one profile metrics artifact.
+ *
+ * This policy does not change scenario health or budget pass/fail status. It
+ * tells agents how much confidence the latency sample set can support.
+ *
+ * @param {{expectedIterations: number, validLatencySamples: number}} options
+ * @returns {Record<string, unknown>}
+ */
+function buildProfileMeasurementPolicy({
+  expectedIterations,
+  validLatencySamples,
+}: {
+  expectedIterations: number;
+  validLatencySamples: number;
+}): Record<string, unknown> {
+  const samplePolicy = {
+    expectedIterations,
+    validLatencySamples,
+    warmupSamples: 0,
+    outliersExcluded: 0,
+  };
+
+  if (validLatencySamples === 0) {
+    return {
+      samples: samplePolicy,
+      confidence: {
+        level: 'unmeasurable',
+        reason: 'No latency samples were produced for this profile metrics artifact.',
+        nextAction: 'Use explicit interval anchors or a scenario budget that produces latency samples before making a timing claim.',
+        nextActionCode: 'add_latency_interval_anchors',
+      },
+    };
+  }
+
+  if (validLatencySamples === 1) {
+    return {
+      samples: samplePolicy,
+      confidence: {
+        level: 'single_run',
+        reason: 'Only one latency sample was produced; this can support smoke evidence but not a stable performance claim.',
+        nextAction: 'Repeat the scenario or increase measured iterations before treating timing movement as product performance truth.',
+        nextActionCode: 'collect_more_latency_samples',
+      },
+    };
+  }
+
+  if (validLatencySamples < expectedIterations) {
+    return {
+      samples: samplePolicy,
+      confidence: {
+        level: 'insufficient',
+        reason: 'Fewer latency samples were produced than expected iterations.',
+        nextAction: 'Inspect incomplete iterations and rerun before using this profile as a stable latency baseline.',
+        nextActionCode: 'resolve_missing_latency_samples',
+      },
+    };
+  }
+
+  return {
+    samples: samplePolicy,
+    confidence: buildCompleteLatencySampleConfidence(validLatencySamples),
+  };
+}
+
+/**
+ * Builds the confidence classification for a complete latency sample set.
+ *
+ * @param {number} validLatencySamples
+ * @returns {Record<string, unknown>}
+ */
+function buildCompleteLatencySampleConfidence(validLatencySamples: number): Record<string, unknown> {
+  if (validLatencySamples >= 3) {
+    return {
+      level: 'multi_sample',
+      reason: 'Latency samples cover the expected measured iterations.',
+    };
+  }
+
+  return {
+    level: 'single_run',
+    reason: 'Latency samples cover the expected measured iterations, but the profile has fewer than three samples.',
+    nextAction: 'Use this as bounded proof; collect more samples before ratcheting fine-grained performance movement.',
+    nextActionCode: 'collect_more_latency_samples',
+  };
 }
 
 /**

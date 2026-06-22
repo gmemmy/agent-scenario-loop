@@ -83,6 +83,59 @@
       "type": "object",
       "additionalProperties": true
     },
+    "measurementPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["samples", "confidence"],
+      "properties": {
+        "samples": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["expectedIterations", "validLatencySamples", "warmupSamples", "outliersExcluded"],
+          "properties": {
+            "expectedIterations": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "validLatencySamples": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "warmupSamples": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "outliersExcluded": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "confidence": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["level"],
+          "properties": {
+            "level": {
+              "type": "string",
+              "enum": ["multi_sample", "single_run", "insufficient", "unmeasurable"]
+            },
+            "reason": {
+              "type": "string",
+              "minLength": 1
+            },
+            "nextAction": {
+              "type": "string",
+              "minLength": 1
+            },
+            "nextActionCode": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      }
+    },
     "budgetEvaluation": {
       "type": "object",
       "additionalProperties": false,
