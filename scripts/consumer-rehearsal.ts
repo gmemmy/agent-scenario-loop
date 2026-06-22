@@ -888,6 +888,12 @@ function rehearseConsumerInstall({
           path: 'signals/network/network.har',
           sourceFileName: 'network.har',
         },
+        {
+          channel: 'provider',
+          kind: 'nativePerformance',
+          path: 'raw/providers/example-evidence-provider/native-performance.json',
+          sourceFileName: 'native-performance.json',
+        },
       ],
     );
   }

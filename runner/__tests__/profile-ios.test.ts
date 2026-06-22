@@ -353,6 +353,65 @@ test('profile-ios rehydrates simctl sidecar events when enriched run id differs'
   assert.equal(jsDiagnostic?.evidenceDependency?.path, 'raw/ios-profile-events.log');
 });
 
+test('profile-ios fails health when rehydrated simctl sidecar has ambiguous source run ids', async (t: TestContext) => {
+  const tempRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-ios-rehydrate-ambiguous-'));
+  t.after(async () => {
+    await fsp.rm(tempRoot, { recursive: true, force: true });
+  });
+  const artifactRoot = path.join(tempRoot, 'artifacts');
+  const sidecarRoot = path.join(tempRoot, '_ios-simctl-captures', 'ambiguous-public-journey-ios');
+  const scenarioPath = path.join(tempRoot, 'public-journey.json');
+  const scenario = readJson(fixturePath('templates/mobile-scenario.json'));
+  scenario.id = 'public-journey';
+  scenario.flowId = 'public-journey';
+  await fsp.mkdir(path.join(sidecarRoot, 'raw'), { recursive: true });
+  await fsp.writeFile(scenarioPath, `${JSON.stringify(scenario, null, 2)}\n`, 'utf8');
+  await fsp.writeFile(
+    path.join(sidecarRoot, 'raw', 'ios-profile-events.log'),
+    [
+      '2026-01-01T00:00:00.000Z public-ios [profile-event] {"event":"first_journey_started","scenario":"public-journey","runId":"source-public-journey-ios-a","iteration":1,"atMs":0}',
+      '2026-01-01T00:00:00.700Z public-ios [profile-event] {"event":"first_journey_completed","scenario":"public-journey","runId":"source-public-journey-ios-a","iteration":1,"atMs":700}',
+      '2026-01-01T00:01:00.000Z public-ios [profile-event] {"event":"first_journey_started","scenario":"public-journey","runId":"source-public-journey-ios-b","iteration":1,"atMs":0}',
+      '2026-01-01T00:01:00.710Z public-ios [profile-event] {"event":"first_journey_completed","scenario":"public-journey","runId":"source-public-journey-ios-b","iteration":1,"atMs":710}',
+      '',
+    ].join('\n'),
+    'utf8',
+  );
+  await fsp.writeFile(
+    path.join(sidecarRoot, 'raw', 'ios-simctl-log.txt'),
+    'Timestamp Ty Process[PID:TID]\n',
+    'utf8',
+  );
+
+  const { stdout } = await execFileAsync(process.execPath, [
+    PROFILE_IOS,
+    '--config',
+    fixturePath('examples/mobile-app/asl.config.json'),
+    '--scenario',
+    scenarioPath,
+    '--simctl-artifacts',
+    sidecarRoot,
+    '--out',
+    artifactRoot,
+    '--run-id',
+    'public-journey-ios-aftercapture',
+  ]);
+
+  const runDir = stdout.trim();
+  const health = readJson(path.join(runDir, 'health.json'));
+  const verdict = readJson(path.join(runDir, 'verdict.json'));
+  const identityCheck = (health.checks as Array<{ code: string; metadata?: Record<string, unknown> }>).find(
+    (check) => check.code === 'profile_session_identity_ambiguous',
+  );
+
+  assert.equal(health.healthStatus, 'failed');
+  assert.equal(verdict.verdictStatus, 'inconclusive');
+  assert.ok(identityCheck);
+  assert.equal(identityCheck?.metadata?.sourceRunIds, 'source-public-journey-ios-a,source-public-journey-ios-b');
+  assert.equal(identityCheck?.metadata?.nextActionCode, 'rerun_with_unambiguous_profile_session');
+  assert.ok(fs.existsSync(path.join(runDir, 'manifest.json')));
+});
+
 test('profile-ios falls back to bundled simctl driver metadata when no host driver is declared', async (t: TestContext) => {
   const tempRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-ios-neutral-driver-'));
   t.after(async () => {
