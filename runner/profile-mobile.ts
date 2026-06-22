@@ -879,6 +879,19 @@ async function executeProviderCommands({
         'utf8',
       );
       if (commandResult.exitCode !== 0) {
+        for (const output of providerCommand.outputs) {
+          const sourcePath = resolveProviderPath({ context, manifestDir, value: output.path });
+          const stat = await fsp.stat(sourcePath).catch(() => null);
+          if (!stat?.isFile()) {
+            continue;
+          }
+          inputs.push(buildProviderEvidenceInput({
+            layout,
+            output,
+            providerId,
+            sourcePath,
+          }));
+        }
         const timedOut = commandResult.timedOut;
         failures.push({
           commandId: providerCommand.id,
@@ -1879,6 +1892,44 @@ function buildProfileHealth({
         ...sessionFreshnessChecks,
         ...commandChecks,
         ...diagnosticChecks,
+      ],
+    },
+    SCHEMAS.health,
+    'Health artifact',
+  ) as Record<string, unknown>;
+}
+
+/**
+ * Adds provider command failures to otherwise finalized profile health.
+ *
+ * @param {{failures: ProviderCommandFailure[], health: Record<string, unknown>, runId: string, scenario: Record<string, unknown>}} options
+ * @returns {Record<string, unknown>}
+ */
+function appendProviderCommandFailuresToHealth({
+  failures,
+  health,
+  runId,
+  scenario,
+}: {
+  failures: ProviderCommandFailure[];
+  health: Record<string, any>;
+  runId: string;
+  scenario: Record<string, any>;
+}): Record<string, unknown> {
+  if (failures.length === 0) {
+    return health;
+  }
+
+  const providerHealth = buildProviderCommandFailureHealth({ failures, runId, scenario });
+  const existingChecks = Array.isArray(health.checks) ? health.checks : [];
+  const providerChecks = Array.isArray(providerHealth.checks) ? providerHealth.checks : [];
+  return assertValidJson(
+    {
+      ...health,
+      healthStatus: 'failed',
+      checks: [
+        ...existingChecks,
+        ...providerChecks,
       ],
     },
     SCHEMAS.health,
@@ -3352,7 +3403,7 @@ async function runProfileMobile(args: CliArgs, options: ProfileMobileOptions): P
     runId,
     scenarioId: scenarioName,
   });
-  if (providerExecution.failures.length > 0) {
+  if (providerExecution.failures.length > 0 && providerExecution.inputs.length === 0) {
     const health = buildProviderCommandFailureHealth({
       failures: providerExecution.failures,
       runId,
@@ -3614,13 +3665,19 @@ async function runProfileMobile(args: CliArgs, options: ProfileMobileOptions): P
     sessionFreshness,
     sessionFreshnessRequired: options.platform === 'android' && typeof args['adb-artifacts'] === 'string',
   });
-  const verdict = buildProfileVerdict({ scenario: profileScenario, runId, health, metrics });
-  const agentSummary = buildAgentSummaryMarkdown({ health, verdict, manifest });
+  const finalHealth = appendProviderCommandFailuresToHealth({
+    failures: providerExecution.failures,
+    health,
+    runId,
+    scenario: profileScenario,
+  });
+  const verdict = buildProfileVerdict({ scenario: profileScenario, runId, health: finalHealth, metrics });
+  const agentSummary = buildAgentSummaryMarkdown({ health: finalHealth, verdict, manifest });
   const summary = buildSummaryMarkdown({ manifest, metrics });
 
   await writeJsonArtifact({
     filePath: layout.health,
-    value: health,
+    value: finalHealth,
     schema: SCHEMAS.health,
     label: 'Health artifact',
   });
@@ -3674,7 +3731,7 @@ async function runProfileMobile(args: CliArgs, options: ProfileMobileOptions): P
 
   return {
     runDir,
-    health,
+    health: finalHealth,
     verdict,
   };
 }
