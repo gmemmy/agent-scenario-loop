@@ -22,6 +22,7 @@ const {
 const { buildScenarioExecutionPlan } = require('../core/execution-plan');
 const { PROFILE_SESSION_STORAGE_KEYS } = require('../profile-session-storage');
 const { runAgentDeviceCapture } = require('./agent-device');
+const { assertConcreteMobileAppId } = require('./app-identity');
 const { loadAslLocalEnv, readStringArgOrEnv } = require('./local-env');
 
 type AndroidProfileOptions = {
@@ -1160,6 +1161,15 @@ async function runProfileAndroid(
         },
       ]
     : [];
+  const androidPackageName = resolveAndroidPackageName({ args, config });
+  if (adbCaptureEnabled || agentDeviceCaptureEnabled) {
+    assertConcreteMobileAppId({
+      appId: androidPackageName,
+      appIdKind: 'Android package',
+      platform: 'android',
+      replacementHint: 'Pass --package, set ASL_ANDROID_APP_ID in generated scripts, or replace app.androidPackage in asl.config.json.',
+    });
+  }
   const adbCapture = adbCaptureEnabled
     ? await runAndroidAdbPreflight({
         ...(typeof args.adb === 'string' ? { adbPath: args.adb } : {}),
@@ -1178,7 +1188,7 @@ async function runProfileAndroid(
           profileSessionEnabled,
         }),
         outputDir: resolveAdbCaptureOutputDir({ args, runId }),
-        packageName: resolveAndroidPackageName({ args, config }),
+        packageName: androidPackageName,
         ...(typeof args['react-native-debug-host'] === 'string'
           ? { reactNativeDebugHost: args['react-native-debug-host'] }
           : {}),
@@ -1207,7 +1217,7 @@ async function runProfileAndroid(
         ...(typeof args['agent-device'] === 'string' ? { agentDevicePath: args['agent-device'] } : {}),
         app: typeof args['agent-device-app'] === 'string'
           ? args['agent-device-app']
-          : resolveAndroidPackageName({ args, config }),
+          : androidPackageName,
         ...(options.agentDeviceExecutor ? { executor: options.agentDeviceExecutor } : {}),
         ...(typeof args['agent-device-device'] === 'string' ? { device: args['agent-device-device'] } : {}),
         ...(typeof args['agent-device-session'] === 'string' ? { session: args['agent-device-session'] } : {}),

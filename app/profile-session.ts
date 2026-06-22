@@ -118,6 +118,14 @@ const PROCESSED_PROFILE_COMMAND_ID_LIMIT = 120;
 const MAX_STORED_PROFILE_EVENTS = 300;
 const MAX_STORED_PROFILE_SESSION_ENTRIES = 120;
 
+export const PROFILE_SESSION_STORAGE_KEYS = Object.freeze({
+  command: PROFILE_COMMAND_STORAGE_KEY,
+  event: PROFILE_EVENT_STORAGE_KEY,
+  session: PROFILE_SESSION_STORAGE_KEY,
+  sessionEntries: PROFILE_SESSION_ENTRIES_STORAGE_KEY,
+  signal: PROFILE_SIGNAL_STORAGE_KEY,
+});
+
 let profileSessionState: ProfileSessionState = INITIAL_STATE;
 let profileStorageWriteChain = Promise.resolve();
 const listeners = new Set<() => void>();

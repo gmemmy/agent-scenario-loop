@@ -62,6 +62,7 @@ test('init-project scaffolds templates into a consuming app layout', async (t: T
     'runner-manifests/primary-runner.json',
     'scenarios/mobile/checkout-submit.json',
     'scripts/asl-capture-accessibility-provider.mjs',
+    'scripts/asl-capture-native-performance-provider.mjs',
     'scripts/asl-capture-profiler-provider.mjs',
     'src/devtools/profile-session-storage.ts',
     'src/devtools/profile-session.ts',
@@ -123,7 +124,7 @@ test('init-project scaffolds templates into a consuming app layout', async (t: T
   assert.match(readJson(path.join(targetDir, 'asl', 'package-scripts.json'))['asl:live-proof:android'], /artifacts\/asl\/android-live\/_live-proof\/android-live-proof\/live-proof\.json/u);
   assert.match(readJson(path.join(targetDir, 'asl', 'package-scripts.json'))['asl:live-proof:both'], /--require-platforms android,ios --out artifacts\/asl\/live-proof-set --fail-on-regression/u);
   assert.match(readJson(path.join(targetDir, 'asl', 'package-scripts.json'))['asl:live-proof'], /\$\{ASL_LIVE_PROOF:\?set_ASL_LIVE_PROOF\}/u);
-  assert.deepEqual(readJson(path.join(targetDir, 'runner-manifests', 'evidence-provider.json')).capabilities, ['accessibility', 'memory', 'network', 'profiler']);
+  assert.deepEqual(readJson(path.join(targetDir, 'runner-manifests', 'evidence-provider.json')).capabilities, ['accessibility', 'memory', 'nativePerformance', 'network', 'profiler']);
   const integrationReadme = fs.readFileSync(path.join(targetDir, 'asl', 'README.md'), 'utf8');
   assert.match(integrationReadme, /checkout-submit/u);
   assert.match(integrationReadme, /ASL_IOS_UDID=<simulator-udid>/u);
@@ -143,6 +144,9 @@ test('init-project scaffolds templates into a consuming app layout', async (t: T
   const accessibilityProviderScript = fs.readFileSync(path.join(targetDir, 'scripts', 'asl-capture-accessibility-provider.mjs'), 'utf8');
   assert.match(accessibilityProviderScript, /writeAccessibilityEvidence/u);
   assert.match(accessibilityProviderScript, /violations/u);
+  const nativePerformanceProviderScript = fs.readFileSync(path.join(targetDir, 'scripts', 'asl-capture-native-performance-provider.mjs'), 'utf8');
+  assert.match(nativePerformanceProviderScript, /writeNativePerformanceEvidence/u);
+  assert.match(nativePerformanceProviderScript, /diagnostic-only/u);
   const providerScript = fs.readFileSync(path.join(targetDir, 'scripts', 'asl-capture-profiler-provider.mjs'), 'utf8');
   assert.match(providerScript, /writeProviderEvidence/u);
   assert.match(providerScript, /memory-out/u);
@@ -197,6 +201,7 @@ test('init-project skips existing files unless force is enabled', async (t: Test
     'runner-manifests/primary-runner.json',
     'runner-manifests/evidence-provider.json',
     'scripts/asl-capture-accessibility-provider.mjs',
+    'scripts/asl-capture-native-performance-provider.mjs',
     'scripts/asl-capture-profiler-provider.mjs',
     'asl/README.md',
     'asl/package-scripts.json',
@@ -223,6 +228,6 @@ test('init-project dry run reports files without writing them', async (t: TestCo
     packageRoot: ROOT,
   });
 
-  assert.equal(result.created.length, 11);
+  assert.equal(result.created.length, 12);
   assert.equal(fs.existsSync(path.join(targetDir, 'asl.config.json')), false);
 });
