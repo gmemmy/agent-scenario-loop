@@ -19,6 +19,7 @@ const {
   runProfileMobile,
   usage,
 } = require('./profile-mobile');
+const { PROFILE_SESSION_STORAGE_KEYS } = require('../profile-session-storage');
 const { runIosSimctlCapture } = require('./ios-simctl');
 const { runAgentDeviceCapture } = require('./agent-device');
 const { assertConcreteMobileAppId } = require('./app-identity');
@@ -49,11 +50,11 @@ const PROFILE_SESSION_CAPTURE_COMMAND_OVERHEAD_MS = 250;
 const PROFILE_SESSION_CAPTURE_BUFFER_MIN_MS = 2000;
 const PROFILE_SESSION_CAPTURE_BUFFER_RATIO = 0.2;
 const PROFILE_SESSION_CAPTURE_MAX_MS = 10 * 60 * 1000;
-const DEFAULT_IOS_PROFILE_SESSION_STORAGE_KEY = 'agent-scenario-loop.profile-session.1';
-const DEFAULT_IOS_PROFILE_COMMAND_STORAGE_KEY = 'agent-scenario-loop.profile-commands.1';
-const DEFAULT_IOS_PROFILE_EVENT_STORAGE_KEY = 'agent-scenario-loop.profile-events.1';
-const DEFAULT_IOS_PROFILE_SIGNAL_STORAGE_KEY = 'agent-scenario-loop.profile-signals.1';
-const DEFAULT_IOS_PROFILE_SESSION_ENTRIES_STORAGE_KEY = 'agent-scenario-loop.profile-session-entries.1';
+const DEFAULT_IOS_PROFILE_SESSION_STORAGE_KEY = PROFILE_SESSION_STORAGE_KEYS.session;
+const DEFAULT_IOS_PROFILE_COMMAND_STORAGE_KEY = PROFILE_SESSION_STORAGE_KEYS.command;
+const DEFAULT_IOS_PROFILE_EVENT_STORAGE_KEY = PROFILE_SESSION_STORAGE_KEYS.event;
+const DEFAULT_IOS_PROFILE_SIGNAL_STORAGE_KEY = PROFILE_SESSION_STORAGE_KEYS.signal;
+const DEFAULT_IOS_PROFILE_SESSION_ENTRIES_STORAGE_KEY = PROFILE_SESSION_STORAGE_KEYS.sessionEntries;
 const MANIFEST_LIFECYCLE_PHASES = new Set([
   'cold-launch',
   'warm-launch',

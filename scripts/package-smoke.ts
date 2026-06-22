@@ -105,9 +105,11 @@ const PACKED_FILE_ALLOWLIST = [
   /^LICENSE$/u,
   /^README\.md$/u,
   /^package\.json$/u,
-  /^app\/profile-session\.(?:d\.ts|ts)$/u,
+  /^app\/profile-session(?:-storage)?\.(?:d\.ts|ts)$/u,
   /^core\/config-template\.json$/u,
   /^dist\/index\.(?:js|d\.ts)$/u,
+  /^dist\/profile-session-storage\.(?:js|d\.ts)$/u,
+  /^dist\/app\/profile-session-storage\.(?:js|d\.ts)$/u,
   /^dist\/core\/[a-z-]+\.(?:js|d\.ts)$/u,
   /^dist\/runner\/[a-z-]+\.(?:js|d\.ts)$/u,
   /^dist\/scripts\/[a-z-]+\.(?:js|d\.ts)$/u,
@@ -882,6 +884,7 @@ function main(): void {
     assert.equal(fs.existsSync(path.join(initOutputDir, 'asl', 'package-scripts.json')), true);
     assert.equal(fs.existsSync(path.join(initOutputDir, '.agents', 'skills', 'agent-scenario-loop', 'SKILL.md')), false);
     assert.equal(fs.existsSync(path.join(initOutputDir, 'src', 'devtools', 'profile-session.ts')), true);
+    assert.equal(fs.existsSync(path.join(initOutputDir, 'src', 'devtools', 'profile-session-storage.ts')), true);
     const initWithSkillOutputDir = path.join(tempRoot, 'initialized-app-with-skill');
     const initWithSkillOutput = run(packageBinPath(installDir, 'asl-init'), [
       '--out',
@@ -2359,6 +2362,8 @@ function main(): void {
       "assert.equal(aslConfig.app.androidPackage, appJson.expo.android.package);",
       "assert.equal(aslConfig.app.iosBundleId, appJson.expo.ios.bundleIdentifier);",
       "assert.equal(fs.existsSync('node_modules/agent-scenario-loop/app/profile-session.ts'), true);",
+      "assert.equal(fs.existsSync('node_modules/agent-scenario-loop/app/profile-session-storage.ts'), true);",
+      "assert.equal(fs.existsSync('node_modules/agent-scenario-loop/app/profile-session-storage.d.ts'), true);",
       "assert.equal(fs.existsSync('node_modules/agent-scenario-loop/app/profile-session.d.ts'), true);",
       "require.resolve('agent-scenario-loop/app/profile-session');",
       "const profileSessionDeclarations = fs.readFileSync('node_modules/agent-scenario-loop/app/profile-session.d.ts', 'utf8');",

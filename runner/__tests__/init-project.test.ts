@@ -64,6 +64,7 @@ test('init-project scaffolds templates into a consuming app layout', async (t: T
     'scripts/asl-capture-accessibility-provider.mjs',
     'scripts/asl-capture-native-performance-provider.mjs',
     'scripts/asl-capture-profiler-provider.mjs',
+    'src/devtools/profile-session-storage.ts',
     'src/devtools/profile-session.ts',
   ]);
   assert.deepEqual(result.skipped, []);
@@ -151,6 +152,10 @@ test('init-project scaffolds templates into a consuming app layout', async (t: T
   assert.match(providerScript, /memory-out/u);
   assert.match(providerScript, /network-out/u);
   assert.match(fs.readFileSync(path.join(targetDir, 'src', 'devtools', 'profile-session.ts'), 'utf8'), /useProfileSessionBootstrap/u);
+  assert.match(
+    fs.readFileSync(path.join(targetDir, 'src', 'devtools', 'profile-session-storage.ts'), 'utf8'),
+    /PROFILE_SESSION_STORAGE_KEYS/u,
+  );
   assert.match(formatResult(result), /created:/u);
 });
 
@@ -202,6 +207,7 @@ test('init-project skips existing files unless force is enabled', async (t: Test
     'asl/package-scripts.json',
     'asl/gitignore-snippet',
     'src/devtools/profile-session.ts',
+    'src/devtools/profile-session-storage.ts',
   ]);
   assert.equal(readJson(path.join(targetDir, 'asl.config.json')).projectName, 'custom');
 
@@ -222,6 +228,6 @@ test('init-project dry run reports files without writing them', async (t: TestCo
     packageRoot: ROOT,
   });
 
-  assert.equal(result.created.length, 11);
+  assert.equal(result.created.length, 12);
   assert.equal(fs.existsSync(path.join(targetDir, 'asl.config.json')), false);
 });

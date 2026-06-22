@@ -11,6 +11,7 @@ const { buildAgentSummaryMarkdown } = require('../core/agent-summary');
 const { createArtifactLayout } = require('../core/artifact-layout');
 const { writeJsonArtifact, writeTextArtifact } = require('../core/artifact-writer');
 const { SCHEMAS, assertValidJson } = require('../core/schema-validator');
+const { PROFILE_STORAGE_RESET_KEYS, PROFILE_SESSION_STORAGE_KEYS } = require('../profile-session-storage');
 const { hasHelpFlag, writeUsage } = require('./cli');
 const {
   createIosSimctlDriver,
@@ -137,25 +138,12 @@ type HostDiagnosticReportProbe = {
   raw: Record<string, string>;
 };
 
-const PROFILE_STORAGE_PREFIX = 'agent-scenario-loop';
-const PROFILE_STORAGE_SCHEMA = '1';
-const PROFILE_EVENT_STORAGE_KEY = `${PROFILE_STORAGE_PREFIX}.profile-events.${PROFILE_STORAGE_SCHEMA}`;
-const PROFILE_SIGNAL_STORAGE_KEY = `${PROFILE_STORAGE_PREFIX}.profile-signals.${PROFILE_STORAGE_SCHEMA}`;
-const PROFILE_SESSION_STORAGE_KEY = `${PROFILE_STORAGE_PREFIX}.profile-session.${PROFILE_STORAGE_SCHEMA}`;
-const PROFILE_COMMAND_STORAGE_KEY = `${PROFILE_STORAGE_PREFIX}.profile-commands.${PROFILE_STORAGE_SCHEMA}`;
-const PROFILE_SESSION_ENTRIES_STORAGE_KEY = `${PROFILE_STORAGE_PREFIX}.profile-session-entries.${PROFILE_STORAGE_SCHEMA}`;
-const PROFILE_STORAGE_RESET_KEYS = [
-  PROFILE_EVENT_STORAGE_KEY,
-  PROFILE_SIGNAL_STORAGE_KEY,
-  PROFILE_COMMAND_STORAGE_KEY,
-  PROFILE_SESSION_ENTRIES_STORAGE_KEY,
-];
 const DEFAULT_PROFILE_STORAGE_KEYS: ProfileStorageKeys = {
-  command: PROFILE_COMMAND_STORAGE_KEY,
-  event: PROFILE_EVENT_STORAGE_KEY,
-  session: PROFILE_SESSION_STORAGE_KEY,
-  sessionEntries: PROFILE_SESSION_ENTRIES_STORAGE_KEY,
-  signal: PROFILE_SIGNAL_STORAGE_KEY,
+  command: PROFILE_SESSION_STORAGE_KEYS.command,
+  event: PROFILE_SESSION_STORAGE_KEYS.event,
+  session: PROFILE_SESSION_STORAGE_KEYS.session,
+  sessionEntries: PROFILE_SESSION_STORAGE_KEYS.sessionEntries,
+  signal: PROFILE_SESSION_STORAGE_KEYS.signal,
 };
 const SCREENSHOT_EXTENSIONS = new Set(['bmp', 'gif', 'jpeg', 'png', 'tiff']);
 const SIMULATOR_LAUNCH_ENV_KEYS = [

@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useEffect, useSyncExternalStore } from 'react';
 import { Linking, NativeModules, Platform } from 'react-native';
 import * as ExpoLinking from 'expo-linking';
+import { PROFILE_SESSION_STORAGE_KEYS } from './profile-session-storage';
 
 export type ProfileSessionState = {
   active: boolean;
@@ -105,13 +106,11 @@ const INITIAL_STATE: ProfileSessionState = {
   startedAt: null,
 };
 
-const STORAGE_PREFIX = 'agent-scenario-loop';
-const PROFILE_STORAGE_SCHEMA = '1';
-const PROFILE_EVENT_STORAGE_KEY = `${STORAGE_PREFIX}.profile-events.${PROFILE_STORAGE_SCHEMA}`;
-const PROFILE_SIGNAL_STORAGE_KEY = `${STORAGE_PREFIX}.profile-signals.${PROFILE_STORAGE_SCHEMA}`;
-const PROFILE_SESSION_STORAGE_KEY = `${STORAGE_PREFIX}.profile-session.${PROFILE_STORAGE_SCHEMA}`;
-const PROFILE_COMMAND_STORAGE_KEY = `${STORAGE_PREFIX}.profile-commands.${PROFILE_STORAGE_SCHEMA}`;
-const PROFILE_SESSION_ENTRIES_STORAGE_KEY = `${STORAGE_PREFIX}.profile-session-entries.${PROFILE_STORAGE_SCHEMA}`;
+const PROFILE_EVENT_STORAGE_KEY = PROFILE_SESSION_STORAGE_KEYS.event;
+const PROFILE_SIGNAL_STORAGE_KEY = PROFILE_SESSION_STORAGE_KEYS.signal;
+const PROFILE_SESSION_STORAGE_KEY = PROFILE_SESSION_STORAGE_KEYS.session;
+const PROFILE_COMMAND_STORAGE_KEY = PROFILE_SESSION_STORAGE_KEYS.command;
+const PROFILE_SESSION_ENTRIES_STORAGE_KEY = PROFILE_SESSION_STORAGE_KEYS.sessionEntries;
 const PROFILE_STORAGE_POLL_INTERVAL_MS = 350;
 const PROFILE_SESSION_MAX_AGE_MS = 2 * 60 * 60_000;
 const PROFILE_COMMAND_DUPLICATE_WINDOW_MS = 750;

@@ -21,9 +21,9 @@ test('profile-session helper keeps storage-backed command control safeguards', (
 
   assert.match(source, /const PROFILE_SESSION_MAX_AGE_MS = 2 \* 60 \* 60_000;/u);
   assert.match(source, /export function isProfileSessionFresh/u);
-  assert.match(source, /export const PROFILE_SESSION_STORAGE_KEYS = Object\.freeze/u);
-  assert.match(source, /session: PROFILE_SESSION_STORAGE_KEY/u);
-  assert.match(source, /sessionEntries: PROFILE_SESSION_ENTRIES_STORAGE_KEY/u);
+  assert.match(source, /import \{ PROFILE_SESSION_STORAGE_KEYS \} from '\.\/profile-session-storage';/u);
+  assert.match(source, /const PROFILE_SESSION_STORAGE_KEY = PROFILE_SESSION_STORAGE_KEYS\.session;/u);
+  assert.match(source, /const PROFILE_SESSION_ENTRIES_STORAGE_KEY = PROFILE_SESSION_STORAGE_KEYS\.sessionEntries;/u);
   assert.match(source, /const PROFILE_COMMAND_DUPLICATE_WINDOW_MS = 750;/u);
   assert.match(source, /reason: 'duplicate-command-window'/u);
   assert.match(
@@ -84,6 +84,33 @@ test('profile-session helper keeps storage-backed command control safeguards', (
   assert.match(source, /function startProfileCommandMilestoneTimeout/u);
   assert.match(source, /reason: 'wait-for-milestone-timeout'/u);
   assert.match(source, /clearProfileCommandMilestoneGate\(\);/u);
+});
+
+test('runner default profile-session storage keys match the app helper contract', () => {
+  const rootSource = readSource('profile-session-storage.ts');
+  const appStorageSource = readSource('app/profile-session-storage.ts');
+  const androidSource = readSource('runner/profile-android.ts');
+  const iosProfileSource = readSource('runner/profile-ios.ts');
+  const iosSimctlSource = readSource('runner/ios-simctl.ts');
+
+  assert.match(appStorageSource, /export const PROFILE_SESSION_STORAGE_KEYS = Object\.freeze/u);
+  assert.match(rootSource, /from '\.\/app\/profile-session-storage';/u);
+  assert.match(androidSource, /require\('\.\.\/profile-session-storage'\)/u);
+  assert.match(androidSource, /DEFAULT_ANDROID_PROFILE_SESSION_STORAGE_KEY = PROFILE_SESSION_STORAGE_KEYS\.session/u);
+  assert.match(androidSource, /DEFAULT_ANDROID_PROFILE_COMMAND_STORAGE_KEY = PROFILE_SESSION_STORAGE_KEYS\.command/u);
+  assert.match(iosProfileSource, /require\('\.\.\/profile-session-storage'\)/u);
+  assert.match(iosProfileSource, /DEFAULT_IOS_PROFILE_SESSION_STORAGE_KEY = PROFILE_SESSION_STORAGE_KEYS\.session/u);
+  assert.match(iosProfileSource, /DEFAULT_IOS_PROFILE_COMMAND_STORAGE_KEY = PROFILE_SESSION_STORAGE_KEYS\.command/u);
+  assert.match(iosProfileSource, /DEFAULT_IOS_PROFILE_EVENT_STORAGE_KEY = PROFILE_SESSION_STORAGE_KEYS\.event/u);
+  assert.match(iosProfileSource, /DEFAULT_IOS_PROFILE_SIGNAL_STORAGE_KEY = PROFILE_SESSION_STORAGE_KEYS\.signal/u);
+  assert.match(iosProfileSource, /DEFAULT_IOS_PROFILE_SESSION_ENTRIES_STORAGE_KEY = PROFILE_SESSION_STORAGE_KEYS\.sessionEntries/u);
+  assert.match(iosSimctlSource, /require\('\.\.\/profile-session-storage'\)/u);
+  assert.match(iosSimctlSource, /PROFILE_STORAGE_RESET_KEYS/u);
+  assert.match(iosSimctlSource, /command: PROFILE_SESSION_STORAGE_KEYS\.command/u);
+  assert.match(iosSimctlSource, /event: PROFILE_SESSION_STORAGE_KEYS\.event/u);
+  assert.match(iosSimctlSource, /session: PROFILE_SESSION_STORAGE_KEYS\.session/u);
+  assert.match(iosSimctlSource, /sessionEntries: PROFILE_SESSION_STORAGE_KEYS\.sessionEntries/u);
+  assert.match(iosSimctlSource, /signal: PROFILE_SESSION_STORAGE_KEYS\.signal/u);
 });
 
 test('example app consumes the package profile-session helper as its single source', () => {
