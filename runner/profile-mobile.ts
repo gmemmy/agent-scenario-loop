@@ -75,6 +75,7 @@ type EvidenceChannel = 'capture' | 'provider' | 'signal';
 type EvidenceKind = CaptureEvidenceKind | ProviderEvidenceKind | SignalEvidenceKind;
 type DiagnosticStatus = 'captured' | 'not_requested' | 'not_supported' | 'unavailable' | 'failed' | 'skipped' | 'missing';
 type DiagnosticKind = EvidenceKind | 'logs';
+type EvidenceRedactionStatus = 'not-redacted' | 'redacted' | 'unknown';
 type DiagnosticInventoryEntry = {
   kind: DiagnosticKind;
   status: DiagnosticStatus;
@@ -105,7 +106,7 @@ type EvidenceAttachment = {
   kind: EvidenceKind;
   manifestPath: string;
   providerId?: string;
-  redactionStatus: 'not-redacted';
+  redactionStatus: EvidenceRedactionStatus;
   required: boolean;
   sha256: string;
   sourcePath: string;
@@ -119,6 +120,7 @@ type EvidenceAttachmentInput = {
   kind: EvidenceKind;
   manifestPath: string;
   providerId?: string;
+  redactionStatus?: EvidenceRedactionStatus;
   required?: boolean;
   sourcePath: string;
 };
@@ -169,6 +171,7 @@ type ProviderCommandOutput = {
   kind: EvidenceKind;
   path: string;
   required?: boolean;
+  redactionStatus?: EvidenceRedactionStatus;
 };
 type ProviderCommand = {
   args?: string[];
@@ -672,6 +675,21 @@ function safeProviderSegment(value: string): string {
 }
 
 /**
+ * Resolves the manifest redaction status for a copied evidence artifact.
+ *
+ * ASL copies evidence and records integrity metadata, but it does not inspect
+ * arbitrary HARs, screenshots, logs, traces, or provider blobs for secrets.
+ * Producers that own redaction can declare the status explicitly; otherwise
+ * the safe default is unknown.
+ *
+ * @param {EvidenceRedactionStatus | undefined} status
+ * @returns {EvidenceRedactionStatus}
+ */
+function resolveEvidenceRedactionStatus(status: EvidenceRedactionStatus | undefined): EvidenceRedactionStatus {
+  return status ?? 'unknown';
+}
+
+/**
  * Converts one provider-declared output into an attachment copy plan.
  *
  * @param {{layout: ReturnType<typeof createArtifactLayout>, output: ProviderCommandOutput, providerId: string, sourcePath: string}} options
@@ -701,6 +719,7 @@ function buildProviderEvidenceInput({
       kind,
       manifestPath: `signals/${kind}/${fileName}`,
       providerId,
+      redactionStatus: resolveEvidenceRedactionStatus(output.redactionStatus),
       ...(typeof output.required === 'boolean' ? { required: output.required } : {}),
       sourcePath,
     };
@@ -717,6 +736,7 @@ function buildProviderEvidenceInput({
       kind: output.kind as CaptureEvidenceKind,
       manifestPath: `captures/${fileName}`,
       providerId,
+      redactionStatus: resolveEvidenceRedactionStatus(output.redactionStatus),
       ...(typeof output.required === 'boolean' ? { required: output.required } : {}),
       sourcePath,
     };
@@ -732,6 +752,7 @@ function buildProviderEvidenceInput({
     kind: output.kind,
     manifestPath: `raw/providers/${providerId}/${fileName}`,
     providerId,
+    redactionStatus: resolveEvidenceRedactionStatus(output.redactionStatus),
     ...(typeof output.required === 'boolean' ? { required: output.required } : {}),
     sourcePath,
   };
@@ -1089,6 +1110,7 @@ async function resolveAttachedEvidence({
     kind,
     manifestPath,
     providerId,
+    redactionStatus = 'unknown',
     required = false,
     sourcePath,
   }: EvidenceAttachmentInput): Promise<void> => {
@@ -1112,7 +1134,7 @@ async function resolveAttachedEvidence({
       kind,
       manifestPath,
       ...(providerId ? { providerId } : {}),
-      redactionStatus: 'not-redacted' as const,
+      redactionStatus,
       required,
       sha256: await hashFileSha256(sourcePath),
       sourceFileName: path.basename(sourcePath),
