@@ -648,6 +648,124 @@ function nextActionHint(nextActionCode: string, nextAction: string): NextActionH
   };
 }
 
+function buildAndroidAppLifecycleHealthCheck({
+  lifecycleLogExitCode,
+  lifecycleLogRawFileName,
+  lifecyclePackageName,
+  pidofAfterCaptureRawPath,
+  runningAfterCapture,
+  scan,
+}: {
+  lifecycleLogExitCode: number;
+  lifecycleLogRawFileName: string;
+  lifecyclePackageName: string;
+  pidofAfterCaptureRawPath: string;
+  runningAfterCapture: boolean;
+  scan: AndroidAppLifecycleScan;
+}): Record<string, unknown> {
+  const check = {
+    name: 'android_app_lifecycle_stable',
+    source: 'runner',
+  };
+
+  if (!runningAfterCapture) {
+    return {
+      ...check,
+      code: 'android_app_exited_during_capture',
+      message: `Package ${lifecyclePackageName} was not running after evidence capture.`,
+      metadata: nextActionHint(
+        'inspect_android_app_crash',
+        `Inspect raw/${lifecycleLogRawFileName} and ${pidofAfterCaptureRawPath}; scenario timing evidence is not trustworthy until the app stays alive.`,
+      ),
+      status: 'failed',
+    };
+  }
+
+  if (scan.crashed) {
+    return {
+      ...check,
+      code: 'android_app_crashed_during_capture',
+      message: `Package ${lifecyclePackageName} emitted crash evidence during capture.`,
+      metadata: nextActionHint(
+        'inspect_android_app_crash',
+        `Inspect raw/${lifecycleLogRawFileName} and ${pidofAfterCaptureRawPath}; scenario timing evidence is not trustworthy until the app stays alive.`,
+      ),
+      status: 'failed',
+    };
+  }
+
+  if (lifecycleLogExitCode === 0) {
+    return {
+      ...check,
+      code: 'android_app_lifecycle_stable',
+      message: `Package ${lifecyclePackageName} remained running with no crash evidence in the bounded log window.`,
+      status: 'passed',
+    };
+  }
+
+  return {
+    ...check,
+    code: 'android_app_lifecycle_log_unavailable',
+    message: `Could not read Android lifecycle logs for package ${lifecyclePackageName}.`,
+    metadata: nextActionHint(
+      'inspect_android_lifecycle_log',
+      `Inspect raw/${lifecycleLogRawFileName}; lifecycle log capture failed but the app process was still running.`,
+    ),
+    status: 'warning',
+  };
+}
+
+function buildAndroidForegroundHealthCheck({
+  foregroundRawPath,
+  foregroundScan,
+  lifecyclePackageName,
+}: {
+  foregroundRawPath: string;
+  foregroundScan: AndroidForegroundScan;
+  lifecyclePackageName: string;
+}): Record<string, unknown> {
+  const check = {
+    name: 'android_target_app_foreground',
+    source: 'runner',
+  };
+
+  if (foregroundScan.targetForeground === false) {
+    return {
+      ...check,
+      code: 'android_target_app_not_foreground',
+      message: `Foreground Android window belongs to ${foregroundScan.foregroundPackage}, not ${lifecyclePackageName}.`,
+      metadata: nextActionHint(
+        'restore_android_target_foreground',
+        `Inspect ${foregroundRawPath}, confirm the selected package and dev-client URL, and rerun when ${lifecyclePackageName} owns the foreground surface.`,
+      ),
+      status: 'failed',
+    };
+  }
+
+  if (foregroundScan.targetForeground === true) {
+    return {
+      ...check,
+      code: 'android_target_app_foreground',
+      message: `Target package ${lifecyclePackageName} owns the Android foreground window after capture.`,
+      metadata: {
+        rawPath: foregroundRawPath,
+      },
+      status: 'passed',
+    };
+  }
+
+  return {
+    ...check,
+    code: 'android_target_app_foreground_unverified',
+    message: `Could not verify Android foreground ownership for ${lifecyclePackageName}.`,
+    metadata: nextActionHint(
+      'confirm_android_target_foreground',
+      `Inspect ${foregroundRawPath}; if this Android image cannot expose foreground state, use a host runner that can prove target foreground ownership before trusting UI or timing evidence.`,
+    ),
+    status: 'warning',
+  };
+}
+
 /**
  * Detects adb daemon/socket failures that are distinct from a genuinely missing device.
  *
@@ -2988,77 +3106,19 @@ async function runAndroidAdbPreflight({
             })
           : { crashed: false, evidence: [] };
         const runningAfterCapture = pidofAfterCapture.exitCode === 0 && afterCapturePids.length > 0;
-        const lifecycleStatus = !runningAfterCapture || scan.crashed
-          ? 'failed'
-          : lifecycleLog.exitCode === 0
-            ? 'passed'
-            : 'warning';
-        checks.push({
-          name: 'android_app_lifecycle_stable',
-          status: lifecycleStatus,
-          source: 'runner',
-          code: !runningAfterCapture
-            ? 'android_app_exited_during_capture'
-            : scan.crashed
-              ? 'android_app_crashed_during_capture'
-              : lifecycleLog.exitCode === 0
-                ? 'android_app_lifecycle_stable'
-                : 'android_app_lifecycle_log_unavailable',
-          message: !runningAfterCapture
-            ? `Package ${lifecyclePackageName} was not running after evidence capture.`
-            : scan.crashed
-              ? `Package ${lifecyclePackageName} emitted crash evidence during capture.`
-              : lifecycleLog.exitCode === 0
-                ? `Package ${lifecyclePackageName} remained running with no crash evidence in the bounded log window.`
-                : `Could not read Android lifecycle logs for package ${lifecyclePackageName}.`,
-          ...(!runningAfterCapture || scan.crashed
-            ? {
-                metadata: nextActionHint(
-                  'inspect_android_app_crash',
-                  `Inspect raw/${lifecycleLog.rawFileName} and ${pidofAfterCaptureRawPath}; scenario timing evidence is not trustworthy until the app stays alive.`,
-                ),
-              }
-            : lifecycleLog.exitCode !== 0
-              ? {
-                  metadata: nextActionHint(
-                    'inspect_android_lifecycle_log',
-                    `Inspect raw/${lifecycleLog.rawFileName}; lifecycle log capture failed but the app process was still running.`,
-                  ),
-                }
-              : {}),
-        });
-        checks.push({
-          name: 'android_target_app_foreground',
-          status: foregroundScan.targetForeground === false
-            ? 'failed'
-            : foregroundScan.targetForeground === true
-              ? 'passed'
-              : 'warning',
-          source: 'runner',
-          code: foregroundScan.targetForeground === false
-            ? 'android_target_app_not_foreground'
-            : foregroundScan.targetForeground === true
-              ? 'android_target_app_foreground'
-              : 'android_target_app_foreground_unverified',
-          message: foregroundScan.targetForeground === false
-            ? `Foreground Android window belongs to ${foregroundScan.foregroundPackage}, not ${lifecyclePackageName}.`
-            : foregroundScan.targetForeground === true
-              ? `Target package ${lifecyclePackageName} owns the Android foreground window after capture.`
-              : `Could not verify Android foreground ownership for ${lifecyclePackageName}.`,
-          metadata: foregroundScan.targetForeground === false
-            ? nextActionHint(
-              'restore_android_target_foreground',
-              `Inspect ${foregroundAfterCaptureRawPath}, confirm the selected package and dev-client URL, and rerun when ${lifecyclePackageName} owns the foreground surface.`,
-            )
-            : foregroundScan.targetForeground === null
-              ? nextActionHint(
-                'confirm_android_target_foreground',
-                `Inspect ${foregroundAfterCaptureRawPath}; if this Android image cannot expose foreground state, use a host runner that can prove target foreground ownership before trusting UI or timing evidence.`,
-              )
-              : {
-                  rawPath: foregroundAfterCaptureRawPath,
-                },
-        });
+        checks.push(buildAndroidAppLifecycleHealthCheck({
+          lifecycleLogExitCode: lifecycleLog.exitCode,
+          lifecycleLogRawFileName: lifecycleLog.rawFileName,
+          lifecyclePackageName,
+          pidofAfterCaptureRawPath,
+          runningAfterCapture,
+          scan,
+        }));
+        checks.push(buildAndroidForegroundHealthCheck({
+          foregroundRawPath: foregroundAfterCaptureRawPath,
+          foregroundScan,
+          lifecyclePackageName,
+        }));
         metadata.appLifecycle = {
           ...appLifecycleMetadata,
           afterCapturePids,
