@@ -144,6 +144,8 @@ Provider or custom-script evidence attachments are copied into stable run folder
 
 Native performance evidence uses the `nativePerformance` kind. This is separate from `profiler`: use it for platform-native frame, render, memory, and trace summaries such as Android Perfetto, trace-processor output, `gfxinfo`/framestats, `meminfo`, logcat-derived render signals, iOS Instruments, MetricKit, or simulator-derived native summaries. A provider can mark `nativePerformance` output as required, and the profile manifest will preserve it as a required diagnostic when captured. JSON native-performance outputs are validated against ASL's native-performance evidence schema, so they must include provider, platform, run, scenario, and at least one content surface such as summary, metrics, frames, memory, events, traces, or attachments. Raw traces should remain attached evidence while structured summaries carry the claim-ready facts, provenance, and comparability status.
 
+Native performance evidence can also declare `claimSufficiency`. Use `sufficient-for-diagnosis` when partial frame, memory, trace, or render evidence can explain a run but should not drive a product or release claim. Use `insufficient-for-claim` when useful native evidence survived but a required surface, comparable baseline, complete trace window, or target binding is missing. Use `unknown` only when a provider preserves native evidence but cannot classify sufficiency yet. ASL accepts those diagnostic states without pretending the evidence is release-ready. If a provider declares `claimSufficiency.status: "sufficient-for-comparison"`, the same artifact must also be complete, comparable, and bound to a verified target.
+
 Evidence folders:
 
 - `raw/`
