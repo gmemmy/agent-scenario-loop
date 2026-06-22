@@ -37,6 +37,31 @@ Agent Scenario Loop keeps four things separate:
 
 The scenario is the asset. Runners can change. Instrumentation can change. The app behavior remains.
 
+## What A Run Should Prove
+
+A useful ASL run should leave enough evidence for an agent or human to answer five questions without relying on terminal memory:
+
+1. **What command or scenario ran?** The artifact names the scenario, platform, run id, app target, runner, provider manifests, and command transport where the runner can prove them.
+2. **What app truth happened?** The app emits profile-session milestones and signals; ASL preserves them in health, metrics, causal-run, and summary artifacts.
+3. **What native or provider evidence was captured?** Logs, screenshots, accessibility output, profiler exports, memory/network evidence, and native-performance summaries are inventoried only when produced or intentionally referenced with status.
+4. **Can this run support the claim?** Health gates interpretation. Budgets, comparisons, and optimization claims are trusted only when the scenario is healthy and the measured samples exist.
+5. **Who owns the next action?** Artifacts should distinguish runner setup, provider/tooling, runtime environment, app truth, scenario contract, and product optimization work.
+
+That is the loop: execute, preserve evidence, classify trust, compare when valid, and route the next bounded action to the right owner.
+
+## Trust Boundaries
+
+ASL keeps several trust boundaries explicit:
+
+- **Runtime identity**: package or bundle id, foreground ownership, helper version, sidecar target, and stale profile-session evidence are runner-owned proof surfaces. When they cannot be verified, the run should not become product evidence.
+- **App-owned truth**: application milestones are not synthesized by ASL. Missing truth means the scenario or app instrumentation needs inspection before timing claims are trusted.
+- **Provider diagnostics**: provider outputs can be complete, partial, failed, unsupported, or diagnostic-only. Useful native or profiler evidence can survive a provider failure without pretending a missing surface exists.
+- **Native performance**: `nativePerformance` is a first-class evidence kind for platform frame, render, memory, and trace summaries. Built-in Perfetto, gfxinfo, meminfo, Instruments, MetricKit, and trace-processor capture are not bundled; providers can attach structured summaries under the stable contract.
+- **Platform coverage**: Android and iOS proof are separate unless both were exercised. A run on one platform is evidence for that platform only.
+- **Summaries**: `agent-summary.md` is an index into artifacts, not a replacement for `health.json`, `verdict.json`, `metrics.json`, `manifest.json`, or raw evidence.
+
+These boundaries let agents move quickly without optimizing from the wrong bundle, stale Metro graph, missing milestone, partial provider output, or diagnostic-only trace.
+
 ## Quick Start
 
 Install or use the package, then scaffold a first scenario inside an app:
