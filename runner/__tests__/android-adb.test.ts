@@ -1366,9 +1366,21 @@ test('writes adb capture started checkpoint before executor resolves', async (t:
     serial: 'emulator-5554',
   });
   const checkpointPath = path.join(outputDir, 'raw', 'adb-capture-started.json');
-  await waitFor(() => fs.existsSync(checkpointPath));
+  let checkpointText = '';
+  await waitFor(() => {
+    if (!fs.existsSync(checkpointPath)) {
+      return false;
+    }
+    checkpointText = fs.readFileSync(checkpointPath, 'utf8');
+    try {
+      JSON.parse(checkpointText);
+      return true;
+    } catch {
+      return false;
+    }
+  });
   const rawEntriesBeforeExecutorResolves = fs.readdirSync(path.join(outputDir, 'raw'));
-  const checkpoint = JSON.parse(fs.readFileSync(checkpointPath, 'utf8'));
+  const checkpoint = JSON.parse(checkpointText);
 
   assert.deepEqual(rawEntriesBeforeExecutorResolves, ['adb-capture-started.json']);
   assert.equal(checkpoint.status, 'started');
