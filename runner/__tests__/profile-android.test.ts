@@ -161,7 +161,12 @@ test('profile-android writes artifacts from fixture event logs', async (t: TestC
     artifactRoot,
     '--run-id',
     'android-example-startup',
-  ]);
+  ], {
+    env: {
+      ...process.env,
+      ASL_GIT_SHA: 'abc123profilemanifest',
+    },
+  });
 
   const runDir = stdout.trim();
   const manifest = readJson(path.join(runDir, 'manifest.json')) as Record<string, any>;
@@ -219,7 +224,7 @@ test('profile-android writes artifacts from fixture event logs', async (t: TestC
       runnerVersion: manifest.provenance.cohort.runnerVersion,
     },
     cohortHash: manifest.provenance.cohortHash,
-    gitSha: 'unknown',
+    gitSha: 'abc123profilemanifest',
     scenarioHash: manifest.scenarioHash,
     toolVersions: {
       node: process.version,
