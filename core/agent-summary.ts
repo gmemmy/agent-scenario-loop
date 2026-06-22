@@ -75,6 +75,66 @@ function formatChecks(checks: unknown[]): string[] {
 }
 
 /**
+ * Splits comma-delimited health metadata into stable non-empty tokens.
+ *
+ * @param {unknown} value
+ * @returns {string[]}
+ */
+function splitMetadataList(value: unknown): string[] {
+  if (typeof value !== 'string') {
+    return [];
+  }
+
+  return value
+    .split(',')
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0);
+}
+
+/**
+ * Formats provider diagnostics that survived an unhealthy provider command.
+ *
+ * @param {unknown[]} checks
+ * @returns {string[]}
+ */
+function formatPreservedProviderEvidence(checks: unknown[]): string[] {
+  return asArray(checks)
+    .filter((check) => {
+      const record = check as SummaryRecord | null;
+      return !!record && typeof record === 'object' && record.code === 'partial_provider_evidence_preserved';
+    })
+    .map((check) => {
+      const record = check as SummaryRecord;
+      const metadata = record.metadata;
+      let metadataRecord: SummaryRecord = {};
+      if (metadata && typeof metadata === 'object' && !Array.isArray(metadata)) {
+        metadataRecord = metadata as SummaryRecord;
+      }
+
+      const kinds = splitMetadataList(metadataRecord.capturedKinds);
+      const paths = splitMetadataList(metadataRecord.capturedPaths);
+      let kindText = code('unknown');
+      if (kinds.length > 0) {
+        kindText = kinds.map((kind) => code(kind)).join(', ');
+      }
+
+      let pathText = code('not-recorded');
+      if (paths.length > 0) {
+        pathText = paths.map((item) => code(item)).join(', ');
+      }
+
+      const message = firstString([record.message], 'Provider command failed, but diagnostics were preserved.');
+      const nextAction = formatNextAction(record).trim();
+      let nextActionText = '';
+      if (nextAction) {
+        nextActionText = ` ${nextAction}`;
+      }
+
+      return `- Captured ${kindText} at ${pathText}. ${message}${nextActionText}`;
+    });
+}
+
+/**
  * Returns health checks whose status matches one of the requested values.
  *
  * @param {unknown[]} checks
@@ -267,6 +327,11 @@ function buildAgentSummaryMarkdown({ health, verdict, comparison = null, manifes
   ];
   if (warnings.length > 0) {
     lines.push('', '## warnings', '', ...formatChecks(warnings));
+  }
+
+  const preservedProviderEvidence = formatPreservedProviderEvidence(healthChecks);
+  if (preservedProviderEvidence.length > 0) {
+    lines.push('', '## preserved diagnostic evidence', '', ...preservedProviderEvidence);
   }
 
   const failedBudgets = formatFailedBudgets(asArray(verdict?.budgetChecks));
