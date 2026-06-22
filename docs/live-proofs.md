@@ -75,6 +75,7 @@ ASL_HOST_DOCTOR_TCP_PORTS=localhost:8081
 ASL_HOST_DOCTOR_MIN_FREE_DISK=artifacts/asl:1024
 ASL_HOST_DOCTOR_EXCLUSIVE_PROCESSES=perfetto:perfetto,xctrace:xctrace record
 ASL_HOST_DOCTOR_ORPHAN_PROCESSES=trace:trace_processor
+ASL_HOST_DOCTOR_LEASES=android:artifacts/asl/leases/android.json,ios:artifacts/asl/leases/ios.json
 ASL_AGENT_DEVICE_REQUIRED_PLATFORMS=ios,android
 ASL_ANDROID_AGENT_DEVICE_SESSION=android-example
 ASL_IOS_AGENT_DEVICE_SESSION=default
@@ -91,6 +92,7 @@ asl-host-doctor --tcp-port localhost:8081 --out artifacts/asl/host-doctor
 asl-host-doctor --min-free-disk artifacts/asl:1024 --out artifacts/asl/host-doctor
 asl-host-doctor --exclusive-process "perfetto:perfetto,xctrace:xctrace record" --out artifacts/asl/host-doctor
 asl-host-doctor --orphan-process trace:trace_processor --out artifacts/asl/host-doctor
+asl-host-doctor --lease android:artifacts/asl/leases/android.json --out artifacts/asl/host-doctor
 
 ASL_ARGENT_BIN=pnpm \
   ASL_ARGENT_BASE_ARGS="dlx @swmansion/argent run" \
@@ -100,7 +102,7 @@ ASL_ARGENT_BIN=pnpm \
   --out artifacts/asl/host-doctor
 ```
 
-The doctor composes the existing adb, simctl, agent-device, Argent, optional TCP service checks, optional artifact disk-capacity checks, optional exclusive process checks, and optional stale-process checks into one ASL artifact set. Use `--tcp-port <host:port>` or `ASL_HOST_DOCTOR_TCP_PORTS` for required local services such as Metro or a dev-server debug host. Use `--min-free-disk <path:mb>` or `ASL_HOST_DOCTOR_MIN_FREE_DISK` before trace-heavy, video, or native-diagnostics proof that can fill the artifact root. Use `--exclusive-process <label:pattern>` or `ASL_HOST_DOCTOR_EXCLUSIVE_PROCESSES` when a profiler, recorder, or native trace lane must own the host resource alone. Use `--orphan-process <label:pattern>` or `ASL_HOST_DOCTOR_ORPHAN_PROCESSES` on POSIX hosts to report leftover tool processes such as trace processors, profilers, or device tool servers before a new proof starts. The orphan-process pattern is a literal process-command substring, not a regular expression, and ASL never kills matching processes. A failed doctor is environment evidence, not product evidence: fix the host access, command shape, missing local service, conflicting or stale process, or artifact storage before starting scenario execution.
+The doctor composes the existing adb, simctl, agent-device, Argent, optional TCP service checks, optional artifact disk-capacity checks, optional exclusive process checks, optional stale-process checks, and optional durable lease-record checks into one ASL artifact set. Use `--tcp-port <host:port>` or `ASL_HOST_DOCTOR_TCP_PORTS` for required local services such as Metro or a dev-server debug host. Use `--min-free-disk <path:mb>` or `ASL_HOST_DOCTOR_MIN_FREE_DISK` before trace-heavy, video, or native-diagnostics proof that can fill the artifact root. Use `--exclusive-process <label:pattern>` or `ASL_HOST_DOCTOR_EXCLUSIVE_PROCESSES` when a profiler, recorder, or native trace lane must own the host resource alone. Use `--orphan-process <label:pattern>` or `ASL_HOST_DOCTOR_ORPHAN_PROCESSES` on POSIX hosts to report leftover tool processes such as trace processors, profilers, or device tool servers before a new proof starts. The orphan-process pattern is a literal process-command substring, not a regular expression, and ASL never kills matching processes. Use `--lease <label:path>` or `ASL_HOST_DOCTOR_LEASES` when shared devices, simulators, or provider sessions have durable owner files; ASL reports active, missing, expired, malformed, and unreadable lease records but does not acquire or delete them. A failed doctor is environment evidence, not product evidence: fix the host access, command shape, missing local service, conflicting or stale process, artifact storage, or active lease before starting scenario execution.
 
 ## Platform Preflight and Profile Capture
 
