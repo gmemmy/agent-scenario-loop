@@ -205,6 +205,7 @@ type ProviderCommandResult = {
   stdout: string;
   timedOut: boolean;
 };
+type ProviderCommandRecordStatus = 'completed' | 'failed' | 'timed_out';
 type ProviderCommandFailure = {
   commandId: string;
   code?: string;
@@ -502,6 +503,30 @@ function resolveProviderCommandTimeoutMs(): number {
   return readPositiveInteger(process.env.ASL_PROVIDER_COMMAND_TIMEOUT_MS, DEFAULT_PROVIDER_COMMAND_TIMEOUT_MS);
 }
 
+function resolveProviderCommandExitCode(exitCode: number | null, timedOut: boolean): number {
+  if (typeof exitCode === 'number') {
+    return exitCode;
+  }
+
+  if (timedOut) {
+    return 124;
+  }
+
+  return 1;
+}
+
+function resolveProviderCommandRecordStatus(commandResult: ProviderCommandResult): ProviderCommandRecordStatus {
+  if (commandResult.timedOut) {
+    return 'timed_out';
+  }
+
+  if (commandResult.exitCode === 0) {
+    return 'completed';
+  }
+
+  return 'failed';
+}
+
 /**
  * Runs one provider command without a shell, streaming output to raw files.
  *
@@ -584,7 +609,7 @@ function execProviderCommand({
       resolve({
         args,
         command,
-        exitCode: typeof exitCode === 'number' ? exitCode : timedOut ? 124 : 1,
+        exitCode: resolveProviderCommandExitCode(exitCode, timedOut),
         signal,
         stderr,
         stdout,
@@ -938,7 +963,7 @@ async function executeProviderCommands({
           signal: commandResult.signal,
           stderr: commandResult.stderr,
           stderrPath: `raw/provider-commands/${stderrFileName}`,
-          status: commandResult.timedOut ? 'timed_out' : commandResult.exitCode === 0 ? 'completed' : 'failed',
+          status: resolveProviderCommandRecordStatus(commandResult),
           stdout: commandResult.stdout,
           stdoutPath: `raw/provider-commands/${stdoutFileName}`,
           timedOut: commandResult.timedOut,
