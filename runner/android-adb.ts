@@ -518,6 +518,37 @@ function execFileCommand(
   return execFileCommandWithTimeout(command, args, DEFAULT_ADB_COMMAND_TIMEOUT_MS, options);
 }
 
+function resolveExecFileExitCode(error: ExecFileError | null): number {
+  if (!error) {
+    return 0;
+  }
+
+  if (typeof error.code === 'number') {
+    return error.code;
+  }
+
+  return 1;
+}
+
+function resolveStdoutBuffer(
+  stdout: string | Buffer,
+  options: CommandExecutorOptions,
+): Pick<CommandResult, 'stdoutBuffer'> {
+  if (options.encoding !== 'buffer') {
+    return {};
+  }
+
+  if (Buffer.isBuffer(stdout)) {
+    return {
+      stdoutBuffer: stdout,
+    };
+  }
+
+  return {
+    stdoutBuffer: Buffer.from(stdout, 'utf8'),
+  };
+}
+
 /**
  * Runs a command with a bounded timeout and captures stdout, stderr, and exit code without throwing.
  *
@@ -544,12 +575,10 @@ function execFileCommandWithTimeout(
       resolve({
         command,
         args,
-        exitCode: error && typeof error.code === 'number' ? error.code : error ? 1 : 0,
+        exitCode: resolveExecFileExitCode(error),
         stderr: [stderrText, timedOut ? `adb command timed out after ${timeoutMs}ms.` : ''].filter(Boolean).join('\n'),
         stdout: stdoutText,
-        ...(options.encoding === 'buffer'
-          ? { stdoutBuffer: Buffer.isBuffer(stdout) ? stdout : Buffer.from(stdout, 'utf8') }
-          : {}),
+        ...resolveStdoutBuffer(stdout, options),
       });
     });
   });
@@ -1479,20 +1508,13 @@ function resolveAndroidAdbDriverSteps({
 
       return {
         ...step,
-        ...(step.driverAction === 'readLogs' ? { lines: step.lines ?? logcatLines } : {}),
+        ...resolveReadLogsDriverStepDefaults(step, logcatLines),
         rawFileName: step.rawFileName ?? defaultAndroidAdbRawFileName({
           driverAction: step.driverAction,
           index: actionIndex,
           readLogsIndex,
         }),
-        ...(step.driverAction === 'record'
-          ? {
-              captureFileName: step.captureFileName ?? defaultAndroidAdbCaptureFileName({
-                driverAction: step.driverAction,
-                index: actionIndex,
-              }),
-            }
-          : {}),
+        ...resolveRecordDriverStepDefaults(step, actionIndex),
         required: step.required !== false,
       };
     });
@@ -1508,15 +1530,232 @@ function resolveAndroidAdbDriverSteps({
     return resolved;
   }
 
-  return captureLogcat
-    ? [{
-        driverAction: 'readLogs',
-        lines: logcatLines,
-        rawFileName: 'adb-logcat.txt',
-        required: true,
-        ...(waitMs > 0 ? { waitMs } : {}),
-      }]
-    : [];
+  if (!captureLogcat) {
+    return [];
+  }
+
+  return [{
+    driverAction: 'readLogs',
+    lines: logcatLines,
+    rawFileName: 'adb-logcat.txt',
+    required: true,
+    ...(waitMs > 0 ? { waitMs } : {}),
+  }];
+}
+
+function resolveReadLogsDriverStepDefaults(
+  step: AndroidAdbDriverStep,
+  logcatLines: number,
+): Partial<AndroidAdbDriverStep> {
+  if (step.driverAction !== 'readLogs') {
+    return {};
+  }
+
+  return {
+    lines: step.lines ?? logcatLines,
+  };
+}
+
+function resolveRecordDriverStepDefaults(
+  step: AndroidAdbDriverStep,
+  actionIndex: number,
+): Partial<AndroidAdbDriverStep> {
+  if (step.driverAction !== 'record') {
+    return {};
+  }
+
+  return {
+    captureFileName: step.captureFileName ?? defaultAndroidAdbCaptureFileName({
+      driverAction: step.driverAction,
+      index: actionIndex,
+    }),
+  };
+}
+
+function buildAndroidDeviceConnectedCheck({
+  device,
+  deviceFailure,
+  deviceOnline,
+}: {
+  device: AndroidDevice | null;
+  deviceFailure: ReturnType<typeof buildAndroidDeviceFailure> | null;
+  deviceOnline: boolean;
+}): Record<string, unknown> {
+  if (deviceOnline && device) {
+    return {
+      name: 'android_device_connected',
+      status: 'passed',
+      source: 'runner',
+      code: 'android_device_connected',
+      message: `Selected Android device ${device.serial}.`,
+    };
+  }
+
+  return {
+    name: 'android_device_connected',
+    status: 'failed',
+    source: 'runner',
+    code: deviceFailure?.code,
+    message: deviceFailure?.message,
+    metadata: deviceFailure?.metadata,
+  };
+}
+
+function resolveAndroidSelectorResolutionStatus({
+  required,
+  resolved,
+}: {
+  required: boolean;
+  resolved: boolean;
+}): 'failed' | 'passed' | 'warning' {
+  if (resolved) {
+    return 'passed';
+  }
+
+  if (!required) {
+    return 'warning';
+  }
+
+  return 'failed';
+}
+
+function buildAndroidSelectorResolutionCheck({
+  driverStep,
+  rawFileName,
+  resolved,
+}: {
+  driverStep: AndroidAdbDriverStep;
+  rawFileName: string;
+  resolved: boolean;
+}): Record<string, unknown> {
+  const required = driverStep.required !== false;
+
+  return {
+    name: 'android_selector_resolved',
+    status: resolveAndroidSelectorResolutionStatus({ required, resolved }),
+    source: 'runner',
+    code: resolved ? 'android_selector_resolved' : 'android_selector_resolution_failed',
+    message: resolved
+      ? `Resolved Android selector for adb driver action ${driverStep.driverAction}.`
+      : `Failed to resolve Android selector for adb driver action ${driverStep.driverAction}.`,
+    metadata: {
+      driverAction: driverStep.driverAction,
+      ...buildAndroidSelectorHealthMetadata(driverStep.selector),
+      ...(!resolved
+        ? nextActionHint(
+            'fix_android_selector',
+            `Inspect raw/${rawFileName}, update the scenario selector, or provide explicit adb coordinates for this driver action.`,
+          )
+        : {}),
+      ...(driverStep.stepId ? { stepId: driverStep.stepId } : {}),
+    },
+  };
+}
+
+function resolveAndroidDriverActionStatus({
+  failed,
+  required,
+}: {
+  failed: boolean;
+  required: boolean;
+}): 'failed' | 'passed' | 'warning' {
+  if (!failed) {
+    return 'passed';
+  }
+
+  if (!required) {
+    return 'warning';
+  }
+
+  return 'failed';
+}
+
+function resolveAndroidDriverActionCode({
+  codeSuffix,
+  isReadLogs,
+  succeeded,
+}: {
+  codeSuffix: string;
+  isReadLogs: boolean;
+  succeeded: boolean;
+}): string {
+  if (isReadLogs && succeeded) {
+    return 'android_logcat_captured';
+  }
+
+  if (isReadLogs) {
+    return 'android_logcat_failed';
+  }
+
+  if (succeeded) {
+    return `android_${codeSuffix}_completed`;
+  }
+
+  return `android_${codeSuffix}_failed`;
+}
+
+function resolveAndroidDriverActionMessage({
+  driverAction,
+  isReadLogs,
+  lines,
+  succeeded,
+}: {
+  driverAction: AndroidAdbDriverStep['driverAction'];
+  isReadLogs: boolean;
+  lines: number;
+  succeeded: boolean;
+}): string {
+  if (isReadLogs && succeeded) {
+    return `Captured the last ${lines} adb logcat lines.`;
+  }
+
+  if (isReadLogs) {
+    return 'adb logcat capture failed.';
+  }
+
+  if (succeeded) {
+    return `Completed adb driver action ${driverAction}.`;
+  }
+
+  return `adb driver action ${driverAction} failed.`;
+}
+
+function buildAndroidDriverActionCheck({
+  codeSuffix,
+  driverResult,
+  driverStep,
+  isReadLogs,
+  logcatLines,
+}: {
+  codeSuffix: string;
+  driverResult: import('./android-adb-driver').AndroidAdbCommandResult;
+  driverStep: AndroidAdbDriverStep;
+  isReadLogs: boolean;
+  logcatLines: number;
+}): Record<string, unknown> {
+  const failed = driverResult.exitCode !== 0;
+  const succeeded = !failed;
+  const required = driverStep.required !== false;
+  const lines = driverStep.lines ?? logcatLines;
+
+  return {
+    name: isReadLogs ? 'android_logcat_captured' : `android_${codeSuffix}`,
+    status: resolveAndroidDriverActionStatus({ failed, required }),
+    source: 'runner',
+    code: resolveAndroidDriverActionCode({ codeSuffix, isReadLogs, succeeded }),
+    message: resolveAndroidDriverActionMessage({
+      driverAction: driverStep.driverAction,
+      isReadLogs,
+      lines,
+      succeeded,
+    }),
+    metadata: {
+      driverAction: driverStep.driverAction,
+      ...buildAndroidSelectorHealthMetadata(driverStep.selector),
+      ...(failed ? buildAndroidDriverFailureMetadata({ driverResult, isReadLogs }) : {}),
+      ...(driverStep.stepId ? { stepId: driverStep.stepId } : {}),
+    },
+  };
 }
 
 /**
@@ -1965,20 +2204,7 @@ async function runAndroidAdbPreflight({
     const deviceFailure = !deviceOnline
       ? buildAndroidDeviceFailure({ devicesOutput, serial })
       : null;
-    checks.push({
-      name: 'android_device_connected',
-      status: deviceOnline ? 'passed' : 'failed',
-      source: 'runner',
-      code: deviceOnline ? 'android_device_connected' : deviceFailure?.code,
-      message: deviceOnline && device
-        ? `Selected Android device ${device.serial}.`
-        : deviceFailure?.message,
-      ...(!deviceOnline
-        ? {
-            metadata: deviceFailure?.metadata,
-          }
-        : {}),
-    });
+    checks.push(buildAndroidDeviceConnectedCheck({ device, deviceFailure, deviceOnline }));
 
     const resolvedDriverSteps = resolveAndroidAdbDriverSteps({
       captureLogcat,
@@ -2658,26 +2884,11 @@ async function runAndroidAdbPreflight({
               resolution,
             });
           }
-          checks.push({
-            name: 'android_selector_resolved',
-            status: resolved ? 'passed' : driverStep.required === false ? 'warning' : 'failed',
-            source: 'runner',
-            code: resolved ? 'android_selector_resolved' : 'android_selector_resolution_failed',
-            message: resolved
-              ? `Resolved Android selector for adb driver action ${driverStep.driverAction}.`
-              : `Failed to resolve Android selector for adb driver action ${driverStep.driverAction}.`,
-            metadata: {
-              driverAction: driverStep.driverAction,
-              ...buildAndroidSelectorHealthMetadata(driverStep.selector),
-              ...(!resolved
-                ? nextActionHint(
-                    'fix_android_selector',
-                    `Inspect raw/${treeResult.rawFileName}, update the scenario selector, or provide explicit adb coordinates for this driver action.`,
-                  )
-                : {}),
-              ...(driverStep.stepId ? { stepId: driverStep.stepId } : {}),
-            },
-          });
+          checks.push(buildAndroidSelectorResolutionCheck({
+            driverStep,
+            rawFileName: treeResult.rawFileName,
+            resolved,
+          }));
           selectorResolutionMetadata.push({
             ...(resolution ? { bounds: resolution.bounds } : {}),
             driverAction: driverStep.driverAction,
@@ -2695,30 +2906,15 @@ async function runAndroidAdbPreflight({
           logcatLines,
         });
         raw[driverResult.rawFileName] = formatAndroidAdbRawOutput(driverResult);
-        const failed = driverResult.exitCode !== 0;
         const codeSuffix = androidDriverActionCode(driverStep.driverAction);
         const isReadLogs = driverStep.driverAction === 'readLogs';
-        checks.push({
-          name: isReadLogs ? 'android_logcat_captured' : `android_${codeSuffix}`,
-          status: failed && driverStep.required === false ? 'warning' : failed ? 'failed' : 'passed',
-          source: 'runner',
-          code: isReadLogs
-            ? driverResult.exitCode === 0 ? 'android_logcat_captured' : 'android_logcat_failed'
-            : driverResult.exitCode === 0 ? `android_${codeSuffix}_completed` : `android_${codeSuffix}_failed`,
-          message: isReadLogs
-            ? driverResult.exitCode === 0
-              ? `Captured the last ${executableDriverStep.lines ?? logcatLines} adb logcat lines.`
-              : 'adb logcat capture failed.'
-            : driverResult.exitCode === 0
-              ? `Completed adb driver action ${driverStep.driverAction}.`
-              : `adb driver action ${driverStep.driverAction} failed.`,
-          metadata: {
-            driverAction: executableDriverStep.driverAction,
-            ...buildAndroidSelectorHealthMetadata(executableDriverStep.selector),
-            ...(failed ? buildAndroidDriverFailureMetadata({ driverResult, isReadLogs }) : {}),
-            ...(executableDriverStep.stepId ? { stepId: executableDriverStep.stepId } : {}),
-          },
-        });
+        checks.push(buildAndroidDriverActionCheck({
+          codeSuffix,
+          driverResult,
+          driverStep: executableDriverStep,
+          isReadLogs,
+          logcatLines,
+        }));
         const actionMetadata = {
           args: driverResult.args,
           driverAction: executableDriverStep.driverAction,
