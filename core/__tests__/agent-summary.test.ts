@@ -181,3 +181,48 @@ test('separates unmeasurable budget checks from failed budgets', () => {
   assert.match(summary, /cycle p95: feed scroll budget was unmeasurable/u);
   assert.match(summary, /Use explicit interval anchors/u);
 });
+
+test('does not render warning or partial health checks as failed checks', () => {
+  const summary = buildAgentSummaryMarkdown({
+    health: {
+      scenarioId: 'gallery-video-native-fidelity',
+      runId: 'run-5',
+      healthStatus: 'failed',
+      checks: [
+        {
+          name: 'native_performance_evidence',
+          status: 'partial',
+          source: 'provider',
+          message: 'Native performance evidence was captured, but the provider reported incomplete diagnostics.',
+        },
+        {
+          name: 'accessibility_snapshot',
+          status: 'warning',
+          source: 'provider',
+          message: 'Accessibility snapshot timed out while the UI was animating.',
+        },
+        {
+          name: 'truth_events_complete',
+          status: 'failed',
+          source: 'truth',
+          message: 'Profile events did not complete every expected iteration.',
+        },
+      ],
+    },
+    verdict: {
+      scenarioId: 'gallery-video-native-fidelity',
+      runId: 'run-5',
+      verdictStatus: 'inconclusive',
+      budgetChecks: [],
+    },
+  });
+  const failedSection = summary.split('## partial checks')[0] ?? summary;
+
+  assert.match(summary, /## failed checks/u);
+  assert.match(summary, /`truth_events_complete`: failed/u);
+  assert.doesNotMatch(failedSection, /native_performance_evidence/u);
+  assert.match(summary, /## partial checks/u);
+  assert.match(summary, /`native_performance_evidence`: partial/u);
+  assert.match(summary, /## warnings/u);
+  assert.match(summary, /`accessibility_snapshot`: warning/u);
+});

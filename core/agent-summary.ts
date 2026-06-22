@@ -75,6 +75,21 @@ function formatChecks(checks: unknown[]): string[] {
 }
 
 /**
+ * Returns health checks whose status matches one of the requested values.
+ *
+ * @param {unknown[]} checks
+ * @param {string[]} statuses
+ * @returns {unknown[]}
+ */
+function filterChecksByStatus(checks: unknown[], statuses: string[]): unknown[] {
+  const statusSet = new Set(statuses);
+  return asArray(checks).filter((check) => {
+    const record = check as SummaryRecord | null;
+    return !!record && typeof record === 'object' && statusSet.has(firstString([record.status], 'unknown'));
+  });
+}
+
+/**
  * Formats failed budget checks as markdown list items.
  *
  * @param {unknown[]} budgetChecks
@@ -235,17 +250,21 @@ function buildAgentSummaryMarkdown({ health, verdict, comparison = null, manifes
     lines.push('Do not optimize from this run. Scenario health did not pass.');
   }
 
-  const failedChecks = asArray(health?.checks).filter(
-    (check) => {
-      const record = check as SummaryRecord | null;
-      return !!record && typeof record === 'object' && record.status !== 'passed';
-    },
-  );
+  const healthChecks = asArray(health?.checks);
+  const failedChecks = filterChecksByStatus(healthChecks, ['failed']);
   if (failedChecks.length > 0) {
     lines.push('', '## failed checks', '', ...formatChecks(failedChecks));
   }
 
-  const warnings = asArray(health?.warnings);
+  const partialChecks = filterChecksByStatus(healthChecks, ['partial']);
+  if (partialChecks.length > 0) {
+    lines.push('', '## partial checks', '', ...formatChecks(partialChecks));
+  }
+
+  const warnings = [
+    ...filterChecksByStatus(healthChecks, ['warning']),
+    ...asArray(health?.warnings),
+  ];
   if (warnings.length > 0) {
     lines.push('', '## warnings', '', ...formatChecks(warnings));
   }
