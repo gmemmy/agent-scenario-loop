@@ -363,6 +363,28 @@ function countValidBudgetSamples(checks: unknown): number {
   )).length;
 }
 
+function resolveMeasurementConfidenceLevel({
+  hasLowConfidenceMovement,
+  validSamples,
+}: {
+  hasLowConfidenceMovement: boolean;
+  validSamples: number;
+}): MeasurementPolicy['confidence']['level'] {
+  if (hasLowConfidenceMovement) {
+    return 'low_confidence';
+  }
+
+  if (validSamples === 0) {
+    return 'insufficient';
+  }
+
+  if (validSamples === 1) {
+    return 'single_run';
+  }
+
+  return 'multi_sample';
+}
+
 /**
  * Builds the measurement policy block for a comparison artifact.
  *
@@ -383,15 +405,10 @@ function buildMeasurementPolicy({
   const selection = comparisonBasis?.selection;
   const validSamples = metricComparisons.length;
   const hasLowConfidenceMovement = metricComparisons.some((metric) => metric.status === 'low_confidence');
-  const confidenceLevel =
-    hasLowConfidenceMovement
-      ? 'low_confidence'
-      :
-    validSamples === 0
-      ? 'insufficient'
-      : validSamples === 1
-        ? 'single_run'
-        : 'multi_sample';
+  const confidenceLevel = resolveMeasurementConfidenceLevel({
+    hasLowConfidenceMovement,
+    validSamples,
+  });
   const poisoningProtection = {
     requirePassedHealth: true,
     requirePassedVerdict: comparisonBasis?.strategy === 'latest_trusted_prior',
@@ -432,6 +449,24 @@ function buildMeasurementPolicy({
         : {}),
     },
   };
+}
+
+function resolveComparisonFlowIdentity({
+  currentHealth,
+  currentVerdict,
+}: {
+  currentHealth: ComparisonRecord;
+  currentVerdict: ComparisonRecord;
+}): { flowId?: string } {
+  if (typeof currentHealth.flowId === 'string') {
+    return { flowId: currentHealth.flowId };
+  }
+
+  if (typeof currentVerdict.flowId === 'string') {
+    return { flowId: currentVerdict.flowId };
+  }
+
+  return {};
 }
 
 /**
@@ -507,11 +542,7 @@ function buildComparisonArtifact({
   const comparison = {
     schemaVersion: '1.0.0',
     scenarioId: currentScenarioId,
-    ...(typeof currentHealth.flowId === 'string'
-      ? { flowId: currentHealth.flowId }
-      : typeof currentVerdict.flowId === 'string'
-        ? { flowId: currentVerdict.flowId }
-        : {}),
+    ...resolveComparisonFlowIdentity({ currentHealth, currentVerdict }),
     runId: currentRunId,
     baselineRunId,
     comparisonStatus,
