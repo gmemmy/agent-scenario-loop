@@ -225,3 +225,49 @@ test('does not render warning or partial health checks as failed checks', () => 
   assert.match(summary, /## warnings/u);
   assert.match(summary, /`accessibility_snapshot`: warning/u);
 });
+
+test('indexes preserved provider diagnostics separately from product claims', () => {
+  const summary = buildAgentSummaryMarkdown({
+    health: {
+      scenarioId: 'gallery-video-native-fidelity',
+      runId: 'run-6',
+      healthStatus: 'failed',
+      checks: [
+        {
+          name: 'partial_provider_evidence_preserved',
+          code: 'partial_provider_evidence_preserved',
+          status: 'warning',
+          source: 'evidence',
+          message: 'Provider command health failed, but some provider-backed diagnostics were preserved for diagnosis.',
+          metadata: {
+            capturedKinds: 'nativePerformance,profiler',
+            capturedPaths: 'raw/providers/native/native-performance.json,raw/providers/native/profiler.json',
+            nextAction: 'Use preserved diagnostics for investigation only; rerun before making product claims.',
+            nextActionCode: 'use_partial_provider_evidence_for_diagnosis',
+          },
+        },
+        {
+          name: 'required_accessibility_diagnostic',
+          code: 'required_diagnostic_not_captured',
+          status: 'failed',
+          source: 'evidence',
+          message: 'Required accessibility diagnostic was not captured.',
+        },
+      ],
+    },
+    verdict: {
+      scenarioId: 'gallery-video-native-fidelity',
+      runId: 'run-6',
+      verdictStatus: 'inconclusive',
+      budgetChecks: [],
+    },
+  });
+
+  assert.match(summary, /Do not optimize from this run/u);
+  assert.match(summary, /## preserved diagnostic evidence/u);
+  assert.match(summary, /Captured `nativePerformance`, `profiler`/u);
+  assert.match(summary, /`raw\/providers\/native\/native-performance\.json`/u);
+  assert.match(summary, /Next action `use_partial_provider_evidence_for_diagnosis`/u);
+  assert.match(summary, /## failed checks/u);
+  assert.match(summary, /`required_accessibility_diagnostic`: failed/u);
+});
