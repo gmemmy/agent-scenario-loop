@@ -1054,7 +1054,7 @@ function main(): void {
     );
     assert.deepEqual(
       JSON.parse(fs.readFileSync(path.join(initOutputDir, 'runner-manifests', 'evidence-provider.json'), 'utf8')).capabilities,
-      ['accessibility', 'memory', 'network', 'profiler'],
+      ['accessibility', 'memory', 'nativePerformance', 'network', 'profiler'],
     );
     assert.equal(fs.existsSync(path.join(initOutputDir, 'scripts', 'asl-capture-accessibility-provider.mjs')), true);
     assert.equal(fs.existsSync(path.join(initOutputDir, 'scripts', 'asl-capture-profiler-provider.mjs')), true);
