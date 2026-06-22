@@ -92,6 +92,13 @@ function getResultArtifacts(message: Record<string, any>): Record<string, unknow
   return Array.isArray(message.body?.result?.artifacts) ? message.body.result.artifacts : [];
 }
 
+function findResultByType(messages: Record<string, unknown>[], type: string): Record<string, unknown> {
+  const message = messages.find((candidate) => candidate.type === type) as Record<string, any> | undefined;
+  const result = message?.body?.result;
+  assert.ok(result !== null && typeof result === 'object', `missing ${type} result`);
+  return result;
+}
+
 function assertArtifactReference(artifact: Record<string, any>): void {
   assert.equal(typeof artifact.path, 'string');
   assert.notEqual(artifact.path, '');
@@ -288,6 +295,29 @@ test('external adapter fixture keeps cancellation and finalization explicit', as
   assert.equal(finalize?.body?.result?.status, 'finalized');
   assert.equal(finalize?.body?.result?.adapter?.name, 'asl-python-conformance-fixture');
   assert.ok(Array.isArray(finalize?.body?.result?.artifacts));
+});
+
+test('external adapter fixture records active cancellation before cleanup', async () => {
+  const transcript = await readTranscript('golden-cancel.jsonl');
+  assertValidTranscript(transcript, 'golden-cancel.jsonl');
+  assertMonotonicSenderSequences(transcript, 'golden-cancel.jsonl');
+
+  const actual = await runFixture(messagesByDirection(transcript, 'host'));
+  assertValidMessages(actual, 'fixture cancel stdout');
+
+  assert.deepEqual(actual, messagesByDirection(transcript, 'adapter'));
+  const cancelResult = findResultByType(actual, 'cancel');
+  const stopResult = findResultByType(actual, 'stop');
+  const finalizeResult = findResultByType(actual, 'finalize');
+
+  assert.deepEqual(cancelResult, {
+    reason: 'conformance active cancellation check',
+    status: 'cancelled',
+    targetOperationId: 'op-active-action',
+  });
+  assert.equal(stopResult.status, 'stopped');
+  assert.equal(stopResult.cleanupStatus, 'partial');
+  assert.equal(finalizeResult.status, 'finalized');
 });
 
 test('external adapter conformance fixture is out-of-process and imports no ASL TypeScript', async () => {

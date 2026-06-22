@@ -26,6 +26,7 @@ seq = 1
 state = {
     "prepared": False,
     "launched": False,
+    "cancelled": False,
     "finalized": False,
     "last_host_seq": 0,
 }
@@ -162,6 +163,7 @@ def handle_launch(request):
         fail(request, "not_prepared", "prepare must complete before launch")
         return
     state["launched"] = True
+    state["cancelled"] = False
     ok(request, {
         "status": "launched",
         "targetRef": "fixture-target",
@@ -258,9 +260,13 @@ def handle_cancel(request):
     if fail_if_expired(request):
         return
     body = request.get("body", {})
+    status = "not-running"
+    if state["launched"] and body.get("targetOperationId") != "op-not-running":
+        state["cancelled"] = True
+        status = "cancelled"
     ok(request, {
         "targetOperationId": body.get("targetOperationId"),
-        "status": "not-running",
+        "status": status,
         "reason": body.get("reason"),
     })
 
@@ -281,7 +287,8 @@ def handle_stop(request):
         )
         return
     state["launched"] = False
-    ok(request, {
+    cleanup_status = "partial" if state["cancelled"] else "passed"
+    result = {
         "status": "stopped",
         "artifacts": [
             {
@@ -292,7 +299,10 @@ def handle_stop(request):
                 "sizeBytes": 0,
             }
         ],
-    })
+    }
+    if cleanup_status == "partial":
+        result["cleanupStatus"] = cleanup_status
+    ok(request, result)
 
 
 def handle_finalize(request):
