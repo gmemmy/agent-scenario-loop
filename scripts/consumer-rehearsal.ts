@@ -42,6 +42,8 @@ function createRehearsalEnv(tempRoot: string): NodeJS.ProcessEnv {
 
   env.npm_config_audit = 'false';
   env.npm_config_cache = path.join(tempRoot, 'npm-cache');
+  env.npm_config_fetch_retries = '0';
+  env.npm_config_fetch_timeout = '60000';
   env.npm_config_fund = 'false';
   env.npm_config_update_notifier = 'false';
   return env;

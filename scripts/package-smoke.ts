@@ -171,6 +171,8 @@ function createSmokeEnv(tempRoot: string): NodeJS.ProcessEnv {
 
   env.npm_config_audit = 'false';
   env.npm_config_cache = path.join(tempRoot, 'npm-cache');
+  env.npm_config_fetch_retries = '0';
+  env.npm_config_fetch_timeout = '60000';
   env.npm_config_fund = 'false';
   env.npm_config_update_notifier = 'false';
   return env;
@@ -208,6 +210,55 @@ function resolveCommandTimeoutMs(env: NodeJS.ProcessEnv): number {
 }
 
 /**
+ * Builds a compact command label for package smoke progress output.
+ *
+ * @param {string} command
+ * @param {string[]} args
+ * @returns {string}
+ */
+function formatCommandLabel(command: string, args: string[]): string {
+  const commandName = path.basename(command);
+  const renderedArgs: string[] = [];
+  let skipInlineScript = false;
+  for (const arg of args) {
+    if (skipInlineScript) {
+      skipInlineScript = false;
+      continue;
+    }
+
+    if (arg === '-e') {
+      renderedArgs.push('-e <inline>');
+      skipInlineScript = true;
+      continue;
+    }
+
+    if (arg.startsWith(os.tmpdir())) {
+      renderedArgs.push(path.basename(arg));
+      continue;
+    }
+
+    if (arg.length > 80) {
+      renderedArgs.push(`${arg.slice(0, 77)}...`);
+      continue;
+    }
+
+    renderedArgs.push(arg);
+  }
+  return [commandName, ...renderedArgs].join(' ');
+}
+
+/**
+ * Writes a stable package smoke phase marker before a child command runs.
+ *
+ * @param {string} command
+ * @param {string[]} args
+ * @returns {void}
+ */
+function announceCommand(command: string, args: string[]): void {
+  process.stdout.write(`package smoke command: ${formatCommandLabel(command, args)}\n`);
+}
+
+/**
  * Runs a command and returns stdout while preserving stderr for failures.
  *
  * @param {string} command
@@ -216,6 +267,7 @@ function resolveCommandTimeoutMs(env: NodeJS.ProcessEnv): number {
  * @returns {string}
  */
 function run(command: string, args: string[], options: RunOptions): string {
+  announceCommand(command, args);
   return execFileSync(command, args, {
     cwd: options.cwd,
     encoding: 'utf8',
@@ -234,6 +286,7 @@ function run(command: string, args: string[], options: RunOptions): string {
  * @returns {FailedRunOutput}
  */
 function runExpectFailure(command: string, args: string[], options: RunOptions): FailedRunOutput {
+  announceCommand(command, args);
   try {
     const stdout = execFileSync(command, args, {
       cwd: options.cwd,

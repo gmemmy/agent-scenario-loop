@@ -14,6 +14,16 @@ type RunOptions = {
 const DEFAULT_COMMAND_TIMEOUT_MS = 180_000;
 
 /**
+ * Writes a stable release-gate phase marker before a child command runs.
+ *
+ * @param {string} phase
+ * @returns {void}
+ */
+function announcePhase(phase: string): void {
+  process.stdout.write(`release check phase: ${phase}\n`);
+}
+
+/**
  * Creates a clean npm environment for repeatable release gates.
  *
  * @param {string} tempRoot
@@ -106,9 +116,12 @@ function main(): void {
   const env = createReleaseEnv(tempRoot);
 
   try {
+    announcePhase('test');
     run('pnpm', ['test'], { cwd: repoRoot, env });
+    announcePhase('release-readiness');
     run(process.execPath, [path.join(repoRoot, 'dist', 'scripts', 'release-readiness.js')], { cwd: repoRoot, env });
 
+    announcePhase('pack');
     const tarballPath = packReleasePackage({
       env,
       packageRoot: repoRoot,
@@ -119,7 +132,9 @@ function main(): void {
       ASL_PACKAGE_TARBALL: tarballPath,
     };
 
+    announcePhase('package-smoke');
     run(process.execPath, [path.join(repoRoot, 'dist', 'scripts', 'package-smoke.js')], { cwd: repoRoot, env: gateEnv });
+    announcePhase('consumer-rehearsal');
     run(process.execPath, [path.join(repoRoot, 'dist', 'scripts', 'consumer-rehearsal.js')], { cwd: repoRoot, env: gateEnv });
     process.stdout.write(`release check passed: ${tarballPath}\n`);
     fs.rmSync(tempRoot, { recursive: true, force: true });
