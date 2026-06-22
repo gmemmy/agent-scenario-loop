@@ -26,6 +26,13 @@
       "type": "string",
       "enum": ["passed", "failed", "partial"]
     },
+    "claimStatus": {
+      "type": "string",
+      "enum": ["trusted", "diagnostic_only"]
+    },
+    "claimReason": {
+      "type": "string"
+    },
     "checks": {
       "type": "array",
       "minItems": 1,
