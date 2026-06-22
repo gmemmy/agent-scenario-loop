@@ -345,6 +345,12 @@ test('profile-ios rehydrates simctl sidecar events when enriched run id differs'
   assert.deepEqual(metrics.durationsMs, [700, 760, 830]);
   assert.equal(health.healthStatus, 'passed');
   assert.equal(verdict.verdictStatus, 'passed');
+  const identityCheck = (health.checks as Array<{ code: string; metadata?: Record<string, unknown>; status: string }>).find(
+    (check) => check.code === 'runtime_identity_unverified',
+  );
+  assert.equal(identityCheck?.status, 'warning');
+  assert.equal(identityCheck?.metadata?.expectedAppId, 'dev.agent-scenario-loop.example');
+  assert.equal(identityCheck?.metadata?.sidecarMetadataPath, 'raw/ios-metadata.json');
   assert.equal(causalRun.runId, 'public-journey-ios-aftercapture');
   assert.ok(causalRun.timeline.length > 0);
   assert.equal(jsDiagnostic?.status, 'captured');
@@ -410,6 +416,89 @@ test('profile-ios fails health when rehydrated simctl sidecar has ambiguous sour
   assert.equal(identityCheck?.metadata?.sourceRunIds, 'source-public-journey-ios-a,source-public-journey-ios-b');
   assert.equal(identityCheck?.metadata?.nextActionCode, 'rerun_with_unambiguous_profile_session');
   assert.ok(fs.existsSync(path.join(runDir, 'manifest.json')));
+});
+
+test('profile-ios fails health when simctl sidecar bundle mismatches expected bundle', async (t: TestContext) => {
+  const tempRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-ios-runtime-identity-'));
+  t.after(async () => {
+    await fsp.rm(tempRoot, { recursive: true, force: true });
+  });
+  const artifactRoot = path.join(tempRoot, 'artifacts');
+  const sidecarRoot = path.join(tempRoot, '_ios-simctl-captures', 'source-public-journey-ios');
+  const scenarioPath = path.join(tempRoot, 'public-journey.json');
+  const scenario = readJson(fixturePath('templates/mobile-scenario.json'));
+  scenario.id = 'public-journey';
+  scenario.flowId = 'public-journey';
+  await fsp.mkdir(path.join(sidecarRoot, 'raw'), { recursive: true });
+  await fsp.writeFile(scenarioPath, `${JSON.stringify(scenario, null, 2)}\n`, 'utf8');
+  await fsp.writeFile(
+    path.join(sidecarRoot, 'raw', 'ios-profile-events.log'),
+    [
+      '2026-01-01T00:00:00.000Z public-ios [profile-event] {"event":"first_journey_started","scenario":"public-journey","runId":"source-public-journey-ios","iteration":1,"atMs":0}',
+      '2026-01-01T00:00:00.700Z public-ios [profile-event] {"event":"first_journey_completed","scenario":"public-journey","runId":"source-public-journey-ios","iteration":1,"atMs":700}',
+      '2026-01-01T00:00:01.000Z public-ios [profile-event] {"event":"first_journey_started","scenario":"public-journey","runId":"source-public-journey-ios","iteration":2,"atMs":1000}',
+      '2026-01-01T00:00:01.760Z public-ios [profile-event] {"event":"first_journey_completed","scenario":"public-journey","runId":"source-public-journey-ios","iteration":2,"atMs":1760}',
+      '2026-01-01T00:00:02.000Z public-ios [profile-event] {"event":"first_journey_started","scenario":"public-journey","runId":"source-public-journey-ios","iteration":3,"atMs":2000}',
+      '2026-01-01T00:00:02.830Z public-ios [profile-event] {"event":"first_journey_completed","scenario":"public-journey","runId":"source-public-journey-ios","iteration":3,"atMs":2830}',
+      '',
+    ].join('\n'),
+    'utf8',
+  );
+  await fsp.writeFile(
+    path.join(sidecarRoot, 'raw', 'ios-simctl-log.txt'),
+    'Timestamp Ty Process[PID:TID]\n',
+    'utf8',
+  );
+  await fsp.writeFile(
+    path.join(sidecarRoot, 'raw', 'ios-metadata.json'),
+    `${JSON.stringify({
+      bundleId: 'dev.other.example',
+      selectedSimulator: {
+        name: 'iPhone 15',
+        state: 'Booted',
+        udid: 'A692ED28-893E-453F-8866-C69331AE757F',
+      },
+    }, null, 2)}\n`,
+    'utf8',
+  );
+
+  const { stdout } = await execFileAsync(process.execPath, [
+    PROFILE_IOS,
+    '--config',
+    fixturePath('examples/mobile-app/asl.config.json'),
+    '--scenario',
+    scenarioPath,
+    '--simctl-artifacts',
+    sidecarRoot,
+    '--bundle',
+    'dev.agent-scenario-loop.example',
+    '--device',
+    'A692ED28-893E-453F-8866-C69331AE757F',
+    '--out',
+    artifactRoot,
+    '--run-id',
+    'public-journey-ios-aftercapture',
+  ]);
+
+  const runDir = stdout.trim();
+  const metrics = readJson(path.join(runDir, 'metrics.json')) as Record<string, any>;
+  const health = readJson(path.join(runDir, 'health.json')) as Record<string, any>;
+  const verdict = readJson(path.join(runDir, 'verdict.json')) as Record<string, any>;
+  const identityCheck = (health.checks as Array<{ code: string; metadata?: Record<string, unknown>; status: string }>).find(
+    (check) => check.code === 'runtime_identity_mismatch',
+  );
+
+  assert.equal(metrics.status, 'passed');
+  assert.equal(health.healthStatus, 'failed');
+  assert.equal(verdict.verdictStatus, 'inconclusive');
+  assert.equal(identityCheck?.status, 'failed');
+  assert.equal(identityCheck?.metadata?.expectedAppId, 'dev.agent-scenario-loop.example');
+  assert.equal(identityCheck?.metadata?.expectedAppIdSource, 'cli');
+  assert.equal(identityCheck?.metadata?.observedAppId, 'dev.other.example');
+  assert.equal(identityCheck?.metadata?.expectedTargetId, 'A692ED28-893E-453F-8866-C69331AE757F');
+  assert.equal(identityCheck?.metadata?.observedTargetId, 'A692ED28-893E-453F-8866-C69331AE757F');
+  assert.equal(identityCheck?.metadata?.sidecarMetadataPath, 'raw/ios-metadata.json');
+  assert.equal(identityCheck?.metadata?.nextActionCode, 'rerun_sidecar_with_expected_runtime_identity');
 });
 
 test('profile-ios falls back to bundled simctl driver metadata when no host driver is declared', async (t: TestContext) => {

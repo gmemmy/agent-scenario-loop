@@ -2396,9 +2396,74 @@ test('profile-android reads logcat from adb artifact folders', async (t: TestCon
   assert.ok(String(logDiagnostic?.sidecarRoot).endsWith('adb-capture'));
   assert.equal(logDiagnostic?.evidenceDependency?.root, 'sidecar');
   assert.equal(logDiagnostic?.evidenceDependency?.path, 'raw/adb-logcat.txt');
+  const identityCheck = (health.checks as Array<{ code: string; metadata?: Record<string, unknown>; status: string }>).find(
+    (check) => check.code === 'runtime_identity_unverified',
+  );
+  assert.equal(identityCheck?.status, 'warning');
+  assert.equal(identityCheck?.metadata?.expectedAppId, 'dev.agentscenarioloop.example');
+  assert.equal(identityCheck?.metadata?.sidecarMetadataPath, 'raw/android-metadata.json');
   assert.equal(health.healthStatus, 'passed');
   assert.equal(verdict.verdictStatus, 'passed');
   assert.ok(fs.existsSync(path.join(runDir, 'raw', 'adb-logcat.txt')));
+});
+
+test('profile-android fails health when adb sidecar package mismatches expected package', async (t: TestContext) => {
+  const tempRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-android-runtime-identity-'));
+  t.after(async () => {
+    await fsp.rm(tempRoot, { recursive: true, force: true });
+  });
+  const adbArtifactRoot = path.join(tempRoot, 'adb-capture');
+  const profileArtifactRoot = path.join(tempRoot, 'profile');
+  await fsp.mkdir(path.join(adbArtifactRoot, 'raw'), { recursive: true });
+  await fsp.copyFile(
+    fixturePath('examples/mobile-app/event-logs/android-app-startup.log'),
+    path.join(adbArtifactRoot, 'raw', 'adb-logcat.txt'),
+  );
+  await fsp.writeFile(
+    path.join(adbArtifactRoot, 'raw', 'android-metadata.json'),
+    `${JSON.stringify({
+      packageName: 'dev.other.example',
+      selectedDevice: {
+        serial: 'emulator-5554',
+        state: 'device',
+      },
+    }, null, 2)}\n`,
+    'utf8',
+  );
+
+  const { stdout } = await execFileAsync(process.execPath, [
+    PROFILE_ANDROID,
+    '--config',
+    fixturePath('examples/mobile-app/asl.config.json'),
+    '--scenario',
+    fixturePath('examples/mobile-app/scenarios/android/app-startup.json'),
+    '--adb-artifacts',
+    adbArtifactRoot,
+    '--package',
+    'dev.agentscenarioloop.example',
+    '--out',
+    profileArtifactRoot,
+    '--run-id',
+    'android-runtime-identity',
+  ]);
+
+  const runDir = stdout.trim();
+  const metrics = readJson(path.join(runDir, 'metrics.json')) as Record<string, any>;
+  const health = readJson(path.join(runDir, 'health.json')) as Record<string, any>;
+  const verdict = readJson(path.join(runDir, 'verdict.json')) as Record<string, any>;
+  const identityCheck = (health.checks as Array<{ code: string; metadata?: Record<string, unknown>; status: string }>).find(
+    (check) => check.code === 'runtime_identity_mismatch',
+  );
+
+  assert.equal(metrics.status, 'passed');
+  assert.equal(health.healthStatus, 'failed');
+  assert.equal(verdict.verdictStatus, 'inconclusive');
+  assert.equal(identityCheck?.status, 'failed');
+  assert.equal(identityCheck?.metadata?.expectedAppId, 'dev.agentscenarioloop.example');
+  assert.equal(identityCheck?.metadata?.expectedAppIdSource, 'cli');
+  assert.equal(identityCheck?.metadata?.observedAppId, 'dev.other.example');
+  assert.equal(identityCheck?.metadata?.sidecarMetadataPath, 'raw/android-metadata.json');
+  assert.equal(identityCheck?.metadata?.nextActionCode, 'rerun_sidecar_with_expected_runtime_identity');
 });
 
 test('profile-android fails health when storage session seed is newer than app session start', async (t: TestContext) => {

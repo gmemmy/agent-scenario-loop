@@ -158,6 +158,8 @@ The artifact contract separates scenario health from product verdict: `health.js
 
 Failed or warning health checks may include scalar `metadata.nextActionCode` and `metadata.nextAction` fields. These are stable, agent-readable recovery hints for runner setup failures such as missing adb, an unbooted simulator, an uninstalled app package, or an unresolved selector. Host-bound availability checks may also include `metadata.failureClass` values such as `host_access`, `timeout`, `missing_binary`, or `command_surface` so agents can distinguish sandbox or daemon access from a broken runner command. The summary builder renders those hints in `agent-summary.md`, but they do not make timing evidence trustworthy unless scenario health passes.
 
+Profile runs that ingest adb or simctl sidecar artifacts verify runtime identity when the profile command supplies an expected package, bundle, serial, or concrete simulator UDID, or when project config supplies a non-placeholder app id. A proven sidecar package, bundle, or target mismatch fails health with `runtime_identity_mismatch` before timing evidence is trusted. If the selected sidecar lacks metadata that can prove identity, health records a warning `runtime_identity_unverified` instead of implying verification.
+
 The current profile runner writes health, verdict, agent summary, metrics, causal-run, and budget-verdict artifacts.
 
 Budgets are supported but optional for adoption.
