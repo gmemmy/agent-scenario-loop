@@ -1561,6 +1561,56 @@ function buildDiagnosticEntry(
   };
 }
 
+function resolveProviderDiagnosticProvider(
+  attachment: EvidenceAttachment | undefined,
+  missingProviderOutput: ProviderOutputStatus | undefined,
+): string | undefined {
+  if (attachment?.providerId) {
+    return attachment.providerId;
+  }
+
+  return missingProviderOutput?.providerId;
+}
+
+function resolveProviderDiagnosticStatus(
+  attachment: EvidenceAttachment | undefined,
+  missingProviderOutput: ProviderOutputStatus | undefined,
+): DiagnosticStatus {
+  if (attachment) {
+    return 'captured';
+  }
+
+  if (missingProviderOutput) {
+    return 'failed';
+  }
+
+  return 'unavailable';
+}
+
+function resolveProviderDiagnosticReason(
+  kind: ProviderEvidenceKind,
+  attachment: EvidenceAttachment | undefined,
+  missingProviderOutput: ProviderOutputStatus | undefined,
+): Pick<DiagnosticInventoryEntry, 'nextAction' | 'reason'> {
+  if (attachment) {
+    return {
+      reason: `${kind} provider evidence was attached to the run.`,
+    };
+  }
+
+  if (missingProviderOutput) {
+    return {
+      reason: missingProviderOutput.reason ?? `Required ${kind} provider output was not produced.`,
+      nextAction: `Inspect the provider command record and fix ${kind} capture before treating this diagnostic as complete.`,
+    };
+  }
+
+  return {
+    reason: `No ${kind} provider attachment was produced by the selected provider set.`,
+    nextAction: `Declare a provider command or attach ${kind} evidence before expecting this diagnostic.`,
+  };
+}
+
 /**
  * Builds the product-neutral diagnostic inventory for a profile run.
  *
@@ -1812,21 +1862,14 @@ function buildDiagnosticInventory({
   for (const kind of ['accessibility', 'nativePerformance', 'profiler'] as const) {
     const attachment = attachedEvidence.attachments.find((item) => item.kind === kind);
     const missingProviderOutput = missingProviderOutputByKind.get(kind);
+    const provider = resolveProviderDiagnosticProvider(attachment, missingProviderOutput);
+    const status = resolveProviderDiagnosticStatus(attachment, missingProviderOutput);
+    const reason = resolveProviderDiagnosticReason(kind, attachment, missingProviderOutput);
     pushDiagnostic(kind, {
-      ...(attachment?.providerId ? { provider: attachment.providerId } : missingProviderOutput ? { provider: missingProviderOutput.providerId } : {}),
-      status: attachment ? 'captured' : missingProviderOutput ? 'failed' : 'unavailable',
+      ...(provider ? { provider } : {}),
+      status,
       ...(attachment ? { path: attachment.manifestPath } : {}),
-      ...(attachment
-        ? { reason: `${kind} provider evidence was attached to the run.` }
-        : missingProviderOutput
-          ? {
-              reason: missingProviderOutput.reason ?? `Required ${kind} provider output was not produced.`,
-              nextAction: `Inspect the provider command record and fix ${kind} capture before treating this diagnostic as complete.`,
-            }
-        : {
-            reason: `No ${kind} provider attachment was produced by the selected provider set.`,
-            nextAction: `Declare a provider command or attach ${kind} evidence before expecting this diagnostic.`,
-          }),
+      ...reason,
     });
   }
 
