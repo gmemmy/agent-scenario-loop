@@ -14,6 +14,8 @@ export type ProfileSessionObservedEvent = {
   scenario: string;
   runId: string;
   event: string;
+  queueId?: string;
+  sequence?: number;
   timestamp: number;
 };
 

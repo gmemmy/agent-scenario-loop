@@ -14,6 +14,8 @@ export type ProfileSessionObservedEvent = {
   scenario: string;
   runId: string;
   event: string;
+  queueId?: string;
+  sequence?: number;
   timestamp: number;
 };
 
@@ -60,6 +62,26 @@ export function buildProfileCommandMilestoneGate(
   };
 }
 
+function optionalStringScopeMatches(expected: string | undefined, actual: string | undefined): boolean {
+  return typeof expected !== 'string' || typeof actual !== 'string' || expected === actual;
+}
+
+function optionalNumberScopeMatches(expected: number | undefined, actual: number | undefined): boolean {
+  return typeof expected !== 'number' || typeof actual !== 'number' || expected === actual;
+}
+
+function doesProfileEventMatchCommandScope(
+  command: ProfileCommandMilestoneGate | ProfileSessionOrderedCommand,
+  eventPayload: ProfileSessionObservedEvent,
+): boolean {
+  return (
+    optionalStringScopeMatches(command.runId, eventPayload.runId) &&
+    optionalStringScopeMatches(command.scenario, eventPayload.scenario) &&
+    optionalStringScopeMatches(command.queueId, eventPayload.queueId) &&
+    optionalNumberScopeMatches(command.sequence, eventPayload.sequence)
+  );
+}
+
 export function doesProfileEventReleaseCommandGate(
   gate: ProfileCommandMilestoneGate,
   eventPayload: ProfileSessionObservedEvent,
@@ -67,14 +89,7 @@ export function doesProfileEventReleaseCommandGate(
   if (gate.milestone !== eventPayload.event) {
     return false;
   }
-  if (gate.runId && gate.runId !== eventPayload.runId) {
-    return false;
-  }
-  if (gate.scenario && gate.scenario !== eventPayload.scenario) {
-    return false;
-  }
-
-  return true;
+  return doesProfileEventMatchCommandScope(gate, eventPayload);
 }
 
 export function hasObservedProfileCommandMilestone(
@@ -90,7 +105,6 @@ export function hasObservedProfileCommandMilestone(
 
   return observedEvents.some((eventPayload) => (
     eventPayload.event === command.waitForMilestone &&
-    (!command.runId || eventPayload.runId === command.runId) &&
-    (!command.scenario || eventPayload.scenario === command.scenario)
+    doesProfileEventMatchCommandScope(command, eventPayload)
   ));
 }
