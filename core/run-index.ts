@@ -8,6 +8,7 @@ type RunIndexEntry = {
   scenarioId: string;
   attemptId?: string;
   attemptNumber?: number;
+  artifactCompatibility: ArtifactCompatibility;
   scenarioHash?: string;
   cohortHash?: string;
   runId: string;
@@ -30,6 +31,20 @@ type RunIndex = {
   trusted: RunIndexEntry[];
 };
 
+type ArtifactCompatibilityStatus = 'compatible' | 'legacy-compatible' | 'incompatible';
+type ArtifactSchemaVersionRecord = {
+  artifact: 'health' | 'manifest' | 'verdict';
+  status: 'current' | 'future-major' | 'legacy-missing' | 'malformed';
+  version?: string;
+};
+type ArtifactCompatibility = {
+  reason: string;
+  schemaVersions: ArtifactSchemaVersionRecord[];
+  status: ArtifactCompatibilityStatus;
+};
+
+const SUPPORTED_ARTIFACT_SCHEMA_MAJOR = 1;
+
 /**
  * Reads a JSON object from disk.
  *
@@ -51,20 +66,115 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /**
+ * Resolves one schema-version field into reader compatibility metadata.
+ *
+ * @param {{artifact: ArtifactSchemaVersionRecord['artifact'], value: unknown}} options
+ * @returns {ArtifactSchemaVersionRecord}
+ */
+function resolveArtifactSchemaVersion({
+  artifact,
+  value,
+}: {
+  artifact: ArtifactSchemaVersionRecord['artifact'];
+  value: unknown;
+}): ArtifactSchemaVersionRecord {
+  if (typeof value !== 'string') {
+    return {
+      artifact,
+      status: 'legacy-missing',
+    };
+  }
+
+  const [majorText] = value.split('.');
+  const major = Number(majorText);
+  if (!Number.isInteger(major) || major < 1) {
+    return {
+      artifact,
+      status: 'malformed',
+      version: value,
+    };
+  }
+
+  if (major > SUPPORTED_ARTIFACT_SCHEMA_MAJOR) {
+    return {
+      artifact,
+      status: 'future-major',
+      version: value,
+    };
+  }
+
+  return {
+    artifact,
+    status: 'current',
+    version: value,
+  };
+}
+
+/**
+ * Classifies whether a run artifact set is safe for the current reader.
+ *
+ * @param {{health: Record<string, unknown>, manifest: Record<string, unknown>, verdict: Record<string, unknown>}} options
+ * @returns {ArtifactCompatibility}
+ */
+function resolveArtifactCompatibility({
+  health,
+  manifest,
+  verdict,
+}: {
+  health: Record<string, unknown>;
+  manifest: Record<string, unknown>;
+  verdict: Record<string, unknown>;
+}): ArtifactCompatibility {
+  const schemaVersions = [
+    resolveArtifactSchemaVersion({ artifact: 'health', value: health.schemaVersion }),
+    resolveArtifactSchemaVersion({ artifact: 'verdict', value: verdict.schemaVersion }),
+    resolveArtifactSchemaVersion({ artifact: 'manifest', value: manifest.schemaVersion }),
+  ];
+  const incompatible = schemaVersions.find((version) => version.status === 'future-major' || version.status === 'malformed');
+  if (incompatible) {
+    return {
+      reason: `${incompatible.artifact}_${incompatible.status.replaceAll('-', '_')}`,
+      schemaVersions,
+      status: 'incompatible',
+    };
+  }
+
+  if (schemaVersions.some((version) => version.status === 'legacy-missing')) {
+    return {
+      reason: 'schema_version_legacy_missing',
+      schemaVersions,
+      status: 'legacy-compatible',
+    };
+  }
+
+  return {
+    reason: 'schema_version_supported',
+    schemaVersions,
+    status: 'compatible',
+  };
+}
+
+/**
  * Returns a stable reason explaining whether this run can seed latest-trusted comparisons.
  *
- * @param {{healthStatus: string, verdictStatus?: string, manifest: Record<string, unknown>}} options
+ * @param {{artifactCompatibility: ArtifactCompatibility, healthStatus: string, verdictStatus?: string, manifest: Record<string, unknown>}} options
  * @returns {string}
  */
 function resolveTrustReason({
+  artifactCompatibility,
   healthStatus,
   manifest,
   verdictStatus,
 }: {
+  artifactCompatibility: ArtifactCompatibility;
   healthStatus: string;
   manifest: Record<string, unknown>;
   verdictStatus: string | undefined;
 }): string {
+  if (artifactCompatibility.status === 'incompatible') {
+    return 'artifact_schema_incompatible';
+  }
+
   if (healthStatus !== 'passed') {
     return 'health_not_passed';
   }
@@ -223,12 +333,19 @@ function readRunIndexEntry(runDir: string): RunIndexEntry {
   const verdictStatus = typeof verdict.verdictStatus === 'string' ? verdict.verdictStatus : undefined;
   const provenance = isRecord(manifest.provenance) ? manifest.provenance : {};
   const attempt = isRecord(manifest.attempt) ? manifest.attempt : null;
-  const trustReason = resolveTrustReason({ healthStatus, manifest, verdictStatus });
+  const artifactCompatibility = resolveArtifactCompatibility({ health, manifest, verdict });
+  const trustReason = resolveTrustReason({
+    artifactCompatibility,
+    healthStatus,
+    manifest,
+    verdictStatus,
+  });
 
   return {
     runDir,
     scenarioId,
     runId,
+    artifactCompatibility,
     ...(typeof attempt?.attemptId === 'string' ? { attemptId: attempt.attemptId } : {}),
     ...(typeof attempt?.attemptNumber === 'number' ? { attemptNumber: attempt.attemptNumber } : {}),
     ...(typeof manifest.scenarioHash === 'string' ? { scenarioHash: manifest.scenarioHash } : {}),

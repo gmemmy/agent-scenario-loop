@@ -28,7 +28,7 @@ async function writeJson(filePath: string, value: Record<string, unknown>): Prom
 /**
  * Writes the minimum run artifacts needed for the index.
  *
- * @param {{root: string, scenarioId: string, runId: string, verdictStatus: string, attempt?: Record<string, unknown>, cohortHash?: string, comparisonLane?: string, endedAt?: string, healthStatus?: string, scenarioHash?: string}} options
+ * @param {{root: string, scenarioId: string, runId: string, verdictStatus: string, attempt?: Record<string, unknown>, cohortHash?: string, comparisonLane?: string, endedAt?: string, healthSchemaVersion?: string, healthStatus?: string, manifestSchemaVersion?: string, scenarioHash?: string, verdictSchemaVersion?: string}} options
  * @returns {Promise<string>}
  */
 async function writeRun({
@@ -36,27 +36,33 @@ async function writeRun({
   cohortHash,
   comparisonLane,
   endedAt,
+  healthSchemaVersion = '1.0.0',
   healthStatus = 'passed',
+  manifestSchemaVersion,
   root,
   runId,
   scenarioHash,
   scenarioId,
+  verdictSchemaVersion = '1.0.0',
   verdictStatus,
 }: {
   attempt?: Record<string, unknown>;
   cohortHash?: string;
   endedAt?: string;
+  healthSchemaVersion?: string;
   healthStatus?: string;
+  manifestSchemaVersion?: string;
   comparisonLane?: string;
   root: string;
   runId: string;
   scenarioHash?: string;
   scenarioId: string;
+  verdictSchemaVersion?: string;
   verdictStatus: string;
 }): Promise<string> {
   const runDir = path.join(root, scenarioId, runId);
   await writeJson(path.join(runDir, 'health.json'), {
-    schemaVersion: '1.0.0',
+    schemaVersion: healthSchemaVersion,
     scenarioId,
     flowId: scenarioId,
     runId,
@@ -64,7 +70,7 @@ async function writeRun({
     checks: [{ name: 'scenario_health', status: healthStatus, source: 'truth' }],
   });
   await writeJson(path.join(runDir, 'verdict.json'), {
-    schemaVersion: '1.0.0',
+    schemaVersion: verdictSchemaVersion,
     scenarioId,
     flowId: scenarioId,
     runId,
@@ -72,6 +78,7 @@ async function writeRun({
     verdictStatus,
   });
   await writeJson(path.join(runDir, 'manifest.json'), {
+    ...(manifestSchemaVersion ? { schemaVersion: manifestSchemaVersion } : {}),
     scenario: scenarioId,
     ...(scenarioHash ? { scenarioHash } : {}),
     runId,
@@ -114,6 +121,50 @@ test('finds completed run directories under an artifact root', async (t: TestCon
   });
 
   assert.deepEqual(findRunDirs(root), [runDir]);
+});
+
+test('marks future major artifact schemas incompatible for baseline trust', async (t: TestContext) => {
+  const root = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-run-index-'));
+  t.after(async () => {
+    await fsp.rm(root, { recursive: true, force: true });
+  });
+  const runDir = await writeRun({
+    root,
+    scenarioId: 'app-startup',
+    runId: 'future-schema',
+    verdictStatus: 'passed',
+    manifestSchemaVersion: '2.0.0',
+  });
+
+  const entry = readRunIndexEntry(runDir);
+  const index = buildRunIndex({ rootDir: root });
+
+  assert.equal(entry.artifactCompatibility.status, 'incompatible');
+  assert.equal(entry.artifactCompatibility.reason, 'manifest_future_major');
+  assert.equal(entry.trusted, false);
+  assert.equal(entry.trustReason, 'artifact_schema_incompatible');
+  assert.deepEqual(index.trusted.map((item: { runId: string }) => item.runId), []);
+});
+
+test('marks malformed artifact schemas incompatible for baseline trust', async (t: TestContext) => {
+  const root = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-run-index-'));
+  t.after(async () => {
+    await fsp.rm(root, { recursive: true, force: true });
+  });
+  const runDir = await writeRun({
+    root,
+    scenarioId: 'app-startup',
+    runId: 'malformed-schema',
+    verdictStatus: 'passed',
+    healthSchemaVersion: 'next',
+  });
+
+  const entry = readRunIndexEntry(runDir);
+
+  assert.equal(entry.artifactCompatibility.status, 'incompatible');
+  assert.equal(entry.artifactCompatibility.reason, 'health_malformed');
+  assert.equal(entry.trusted, false);
+  assert.equal(entry.trustReason, 'artifact_schema_incompatible');
 });
 
 test('builds a newest-first trusted run index', async (t: TestContext) => {
@@ -187,6 +238,8 @@ test('filters a run index by scenario id', async (t: TestContext) => {
   assert.equal(entry.cohortHash, 'c'.repeat(64));
   assert.equal(entry.scenarioHash, 'a'.repeat(64));
   assert.equal(entry.interactionDriver, 'adb-logcat');
+  assert.equal(entry.artifactCompatibility.status, 'legacy-compatible');
+  assert.equal(entry.artifactCompatibility.reason, 'schema_version_legacy_missing');
   assert.equal(entry.trusted, true);
   assert.equal(entry.trustReason, 'trusted_legacy_without_attempt');
 });
