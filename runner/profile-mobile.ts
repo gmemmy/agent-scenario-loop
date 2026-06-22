@@ -104,6 +104,7 @@ type EvidenceAttachment = {
   destinationPath: string;
   kind: EvidenceKind;
   manifestPath: string;
+  providerId?: string;
   redactionStatus: 'not-redacted';
   required: boolean;
   sha256: string;
@@ -216,9 +217,21 @@ type ProviderCommandFailure = {
   providerId: string;
   rawPath?: string;
 };
+type ProviderOutputStatus = {
+  channel: EvidenceChannel;
+  commandId: string;
+  kind: EvidenceKind;
+  path: string;
+  phase: ProviderCommand['phase'];
+  providerId: string;
+  reason?: string;
+  required: boolean;
+  status: 'captured' | 'missing';
+};
 type ProviderCommandExecution = {
   failures: ProviderCommandFailure[];
   inputs: EvidenceAttachmentInput[];
+  outputStatuses: ProviderOutputStatus[];
   providers: Array<{ name: string; version?: string }>;
 };
 type ProfileRunPlan = {
@@ -759,10 +772,11 @@ async function executeProviderCommands({
 }): Promise<ProviderCommandExecution> {
   const failures: ProviderCommandFailure[] = [];
   const inputs: EvidenceAttachmentInput[] = [];
+  const outputStatuses: ProviderOutputStatus[] = [];
   const providers: Array<{ name: string; version?: string }> = [];
   const providerManifestPaths = readRepeatableArgValues(args, 'provider');
   if (providerManifestPaths.length === 0) {
-    return { failures, inputs, providers };
+    return { failures, inputs, outputStatuses, providers };
   }
 
   const commandRecordDir = path.join(layout.raw, 'provider-commands');
@@ -906,20 +920,8 @@ async function executeProviderCommands({
         }, null, 2)}\n`,
         'utf8',
       );
-      if (commandResult.exitCode !== 0) {
-        for (const output of providerCommand.outputs) {
-          const sourcePath = resolveProviderPath({ context, manifestDir, value: output.path });
-          const stat = await fsp.stat(sourcePath).catch(() => null);
-          if (!stat?.isFile()) {
-            continue;
-          }
-          inputs.push(buildProviderEvidenceInput({
-            layout,
-            output,
-            providerId,
-            sourcePath,
-          }));
-        }
+      const commandFailed = commandResult.exitCode !== 0;
+      if (commandFailed) {
         const timedOut = commandResult.timedOut;
         failures.push({
           commandId: providerCommand.id,
@@ -937,21 +939,40 @@ async function executeProviderCommands({
           providerId,
           rawPath: `raw/provider-commands/${commandRecordFileName}`,
         });
-        continue;
       }
 
       for (const output of providerCommand.outputs) {
+        const sourcePath = resolveProviderPath({ context, manifestDir, value: output.path });
+        const exists = Boolean((await fsp.stat(sourcePath).catch(() => null))?.isFile());
+        outputStatuses.push({
+          channel: output.channel,
+          commandId: providerCommand.id,
+          kind: output.kind,
+          path: output.path,
+          phase: providerCommand.phase,
+          providerId,
+          ...(commandFailed && !exists
+            ? { reason: `Provider command ${providerId}/${providerCommand.id} exited before producing this output.` }
+            : !exists
+              ? { reason: `Provider command ${providerId}/${providerCommand.id} did not produce this declared output.` }
+              : {}),
+          required: output.required === true,
+          status: exists ? 'captured' : 'missing',
+        });
+        if (!exists) {
+          continue;
+        }
         inputs.push(buildProviderEvidenceInput({
           layout,
           output,
           providerId,
-          sourcePath: resolveProviderPath({ context, manifestDir, value: output.path }),
+          sourcePath,
         }));
       }
     }
   }
 
-  return { failures, inputs, providers };
+  return { failures, inputs, outputStatuses, providers };
 }
 
 /**
@@ -1011,6 +1032,7 @@ async function resolveAttachedEvidence({
     destinationPath,
     kind,
     manifestPath,
+    providerId,
     required = false,
     sourcePath,
   }: EvidenceAttachmentInput): Promise<void> => {
@@ -1033,6 +1055,7 @@ async function resolveAttachedEvidence({
       destinationPath,
       kind,
       manifestPath,
+      ...(providerId ? { providerId } : {}),
       redactionStatus: 'not-redacted' as const,
       required,
       sha256: await hashFileSha256(sourcePath),
@@ -1515,7 +1538,7 @@ function buildDiagnosticEntry(
 /**
  * Builds the product-neutral diagnostic inventory for a profile run.
  *
- * @param {{args: CliArgs, attachedEvidence: AttachedEvidence, eventLogPath: string | null, platform: ProfilePlatform, profileSessionEntriesPath: string | null, runDir: string, scenario: Record<string, unknown>}} options
+ * @param {{args: CliArgs, attachedEvidence: AttachedEvidence, eventLogPath: string | null, platform: ProfilePlatform, profileSessionEntriesPath: string | null, providerOutputStatuses?: ProviderOutputStatus[], runDir: string, scenario: Record<string, unknown>}} options
  * @returns {DiagnosticInventoryEntry[]}
  */
 function buildDiagnosticInventory({
@@ -1524,6 +1547,7 @@ function buildDiagnosticInventory({
   eventLogPath,
   platform,
   profileSessionEntriesPath,
+  providerOutputStatuses = [],
   runDir,
   scenario,
 }: {
@@ -1532,6 +1556,7 @@ function buildDiagnosticInventory({
   eventLogPath: string | null;
   platform: ProfilePlatform;
   profileSessionEntriesPath: string | null;
+  providerOutputStatuses?: ProviderOutputStatus[];
   runDir: string;
   scenario: Record<string, any>;
 }): DiagnosticInventoryEntry[] {
@@ -1540,10 +1565,24 @@ function buildDiagnosticInventory({
   const requiredCapabilities = readScenarioStringSet(scenario, ['requiredCapabilities']);
   const optionalCapabilities = readScenarioStringSet(scenario, ['optionalCapabilities']);
   const requiredProviderDiagnostics = new Set(
-    attachedEvidence.attachments
-      .filter((attachment) => attachment.required)
-      .map((attachment) => attachment.kind),
+    [
+      ...attachedEvidence.attachments
+        .filter((attachment) => attachment.required)
+        .map((attachment) => attachment.kind),
+      ...providerOutputStatuses
+        .filter((output) => output.required)
+        .map((output) => output.kind),
+    ],
   );
+  const missingProviderOutputByKind = new Map<DiagnosticKind, ProviderOutputStatus>();
+  for (const output of providerOutputStatuses) {
+    if (output.status !== 'missing' || !output.required) {
+      continue;
+    }
+    if (!missingProviderOutputByKind.has(output.kind)) {
+      missingProviderOutputByKind.set(output.kind, output);
+    }
+  }
   const sidecarRoot = typeof args['adb-artifacts'] === 'string'
     ? path.resolve(args['adb-artifacts'])
     : typeof args['simctl-artifacts'] === 'string'
@@ -1691,32 +1730,53 @@ function buildDiagnosticInventory({
           nextAction: 'Use --capture screenshot:<path> or a runner/provider that produces screenshots.',
         }),
   });
+  const missingUiTreeProviderOutput = missingProviderOutputByKind.get('uiTree');
   pushDiagnostic('uiTree', {
-    status: attachedEvidence.captures.uiTree ? 'captured' : 'unavailable',
+    ...(missingUiTreeProviderOutput ? { provider: missingUiTreeProviderOutput.providerId } : {}),
+    status: attachedEvidence.captures.uiTree ? 'captured' : missingUiTreeProviderOutput ? 'failed' : 'unavailable',
     ...(attachedEvidence.captures.uiTree ? { path: attachedEvidence.captures.uiTree } : {}),
     ...(attachedEvidence.captures.uiTree
       ? { reason: 'UI tree capture was attached to the run.' }
+      : missingUiTreeProviderOutput
+        ? {
+            reason: missingUiTreeProviderOutput.reason ?? 'Required UI tree provider output was not produced.',
+            nextAction: 'Inspect the provider command record and fix the UI tree capture path before treating this diagnostic as complete.',
+          }
       : {
           reason: 'No UI tree capture was produced by the selected runner/provider set.',
           nextAction: 'Use --capture uiTree:<path> or add an accessibility/UI-tree provider.',
         }),
   });
+  const missingVideoProviderOutput = missingProviderOutputByKind.get('video');
   pushDiagnostic('video', {
-    status: attachedEvidence.captures.video ? 'captured' : 'unavailable',
+    ...(missingVideoProviderOutput ? { provider: missingVideoProviderOutput.providerId } : {}),
+    status: attachedEvidence.captures.video ? 'captured' : missingVideoProviderOutput ? 'failed' : 'unavailable',
     ...(attachedEvidence.captures.video ? { path: attachedEvidence.captures.video } : {}),
     ...(attachedEvidence.captures.video
       ? { reason: 'Video capture was attached to the run.' }
+      : missingVideoProviderOutput
+        ? {
+            reason: missingVideoProviderOutput.reason ?? 'Required video provider output was not produced.',
+            nextAction: 'Inspect the provider command record and fix the video capture path before treating this diagnostic as complete.',
+          }
       : {
           reason: 'No video capture was produced by the selected runner/provider set.',
           nextAction: 'Use --capture video:<path> or run a capture provider that records video.',
         }),
   });
   for (const kind of ['memory', 'network'] as const) {
+    const missingProviderOutput = missingProviderOutputByKind.get(kind);
     pushDiagnostic(kind, {
-      status: attachedEvidence.signals[kind].length > 0 ? 'captured' : 'unavailable',
+      ...(missingProviderOutput ? { provider: missingProviderOutput.providerId } : {}),
+      status: attachedEvidence.signals[kind].length > 0 ? 'captured' : missingProviderOutput ? 'failed' : 'unavailable',
       ...(attachedEvidence.signals[kind][0] ? { path: attachedEvidence.signals[kind][0] } : {}),
       ...(attachedEvidence.signals[kind].length > 0
         ? { reason: `${kind} signal evidence was attached to the run.` }
+        : missingProviderOutput
+          ? {
+              reason: missingProviderOutput.reason ?? `Required ${kind} provider output was not produced.`,
+              nextAction: `Inspect the provider command record and fix ${kind} capture before treating this diagnostic as complete.`,
+            }
         : {
             reason: `No ${kind} signal evidence was produced by the selected provider set.`,
             nextAction: `Attach ${kind} evidence with --signal ${kind}:<path> or add a provider command that emits it.`,
@@ -1725,12 +1785,18 @@ function buildDiagnosticInventory({
   }
   for (const kind of ['accessibility', 'nativePerformance', 'profiler'] as const) {
     const attachment = attachedEvidence.attachments.find((item) => item.kind === kind);
+    const missingProviderOutput = missingProviderOutputByKind.get(kind);
     pushDiagnostic(kind, {
-      ...(attachment?.channel === 'provider' ? { provider: 'evidence-provider' } : {}),
-      status: attachment ? 'captured' : 'unavailable',
+      ...(attachment?.providerId ? { provider: attachment.providerId } : missingProviderOutput ? { provider: missingProviderOutput.providerId } : {}),
+      status: attachment ? 'captured' : missingProviderOutput ? 'failed' : 'unavailable',
       ...(attachment ? { path: attachment.manifestPath } : {}),
       ...(attachment
         ? { reason: `${kind} provider evidence was attached to the run.` }
+        : missingProviderOutput
+          ? {
+              reason: missingProviderOutput.reason ?? `Required ${kind} provider output was not produced.`,
+              nextAction: `Inspect the provider command record and fix ${kind} capture before treating this diagnostic as complete.`,
+            }
         : {
             reason: `No ${kind} provider attachment was produced by the selected provider set.`,
             nextAction: `Declare a provider command or attach ${kind} evidence before expecting this diagnostic.`,
@@ -1771,9 +1837,34 @@ function buildRequiredDiagnosticHealthChecks(diagnostics: DiagnosticInventoryEnt
 }
 
 /**
+ * Converts evidence-provider command failures into health checks.
+ *
+ * @param {ProviderCommandFailure[]} failures
+ * @returns {Record<string, unknown>[]}
+ */
+function buildProviderCommandFailureChecks(failures: ProviderCommandFailure[] = []): Record<string, unknown>[] {
+  return failures.map((failure) => ({
+    name: failure.name ?? 'evidence_provider_command_completed',
+    status: 'failed',
+    source: 'evidence',
+    code: failure.code ?? 'provider_command_failed',
+    message: failure.message ?? `Evidence provider command ${failure.providerId}/${failure.commandId} failed with exit code ${failure.exitCode}.`,
+    metadata: {
+      commandId: failure.commandId,
+      exitCode: failure.exitCode,
+      nextAction: failure.nextAction ?? `Inspect ${failure.rawPath}, fix the provider command or its environment, then rerun the profile.`,
+      nextActionCode: failure.nextActionCode ?? 'fix_provider_command',
+      phase: failure.phase,
+      providerId: failure.providerId,
+      ...(failure.rawPath ? { rawPath: failure.rawPath } : {}),
+    },
+  }));
+}
+
+/**
  * Builds scenario health from profile metrics.
  *
- * @param {{scenario: Record<string, unknown>, runId: string, metrics: Record<string, unknown>, diagnostics?: DiagnosticInventoryEntry[], profileEventCount?: number, profileSessionEntryCount?: number, commandTransport?: string, sessionEntries?: Record<string, unknown>[], sessionFreshness?: ProfileSessionFreshness | null, sessionFreshnessRequired?: boolean}} options
+ * @param {{scenario: Record<string, unknown>, runId: string, metrics: Record<string, unknown>, diagnostics?: DiagnosticInventoryEntry[], providerFailures?: ProviderCommandFailure[], profileEventCount?: number, profileSessionEntryCount?: number, commandTransport?: string, sessionEntries?: Record<string, unknown>[], sessionFreshness?: ProfileSessionFreshness | null, sessionFreshnessRequired?: boolean}} options
  * @returns {Record<string, unknown>}
  */
 function buildProfileHealth({
@@ -1781,6 +1872,7 @@ function buildProfileHealth({
   runId,
   metrics,
   diagnostics = [],
+  providerFailures = [],
   profileEventCount,
   profileSessionEntryCount,
   commandTransport,
@@ -1793,6 +1885,7 @@ function buildProfileHealth({
   runId: string;
   metrics: Record<string, any>;
   diagnostics?: DiagnosticInventoryEntry[];
+  providerFailures?: ProviderCommandFailure[];
   profileEventCount?: number;
   profileSessionEntryCount?: number;
   commandTransport?: string;
@@ -1885,6 +1978,8 @@ function buildProfileHealth({
       ]
     : [];
   const evidenceIdentityChecksPassed = evidenceIdentityChecks.every((check) => check.status !== 'failed');
+  const providerFailureChecks = buildProviderCommandFailureChecks(providerFailures);
+  const providerFailureChecksPassed = providerFailureChecks.every((check) => check.status === 'passed');
   const sessionFreshnessChecks = sessionFreshness
     ? [
         {
@@ -1921,6 +2016,7 @@ function buildProfileHealth({
     commandChecksPassed &&
     diagnosticChecksPassed &&
     evidenceIdentityChecksPassed &&
+    providerFailureChecksPassed &&
     sessionFreshnessChecksPassed;
 
   return assertValidJson(
@@ -1944,6 +2040,7 @@ function buildProfileHealth({
         ...evidenceIdentityChecks,
         ...sessionFreshnessChecks,
         ...commandChecks,
+        ...providerFailureChecks,
         ...diagnosticChecks,
       ],
     },
@@ -2097,22 +2194,7 @@ function buildProviderCommandFailureHealth({
       ...(typeof scenario.flowId === 'string' ? { flowId: scenario.flowId } : {}),
       runId,
       healthStatus: 'failed',
-      checks: failures.map((failure) => ({
-        name: failure.name ?? 'evidence_provider_command_completed',
-        status: 'failed',
-        source: 'evidence',
-        code: failure.code ?? 'provider_command_failed',
-        message: failure.message ?? `Evidence provider command ${failure.providerId}/${failure.commandId} failed with exit code ${failure.exitCode}.`,
-        metadata: {
-          commandId: failure.commandId,
-          exitCode: failure.exitCode,
-          nextAction: failure.nextAction ?? `Inspect ${failure.rawPath}, fix the provider command or its environment, then rerun the profile.`,
-          nextActionCode: failure.nextActionCode ?? 'fix_provider_command',
-          phase: failure.phase,
-          providerId: failure.providerId,
-          ...(failure.rawPath ? { rawPath: failure.rawPath } : {}),
-        },
-      })),
+      checks: buildProviderCommandFailureChecks(failures),
     },
     SCHEMAS.health,
     'Health artifact',
@@ -3473,9 +3555,26 @@ async function runProfileMobile(args: CliArgs, options: ProfileMobileOptions): P
     runId,
     scenarioId: scenarioName,
   });
-  if (providerExecution.failures.length > 0 && providerExecution.inputs.length === 0) {
+  let attachedEvidence: AttachedEvidence;
+  try {
+    attachedEvidence = await resolveAttachedEvidence({ args, layout, providerInputs: providerExecution.inputs });
+  } catch (error) {
+    const providerInput = providerExecution.inputs.find((input) => error instanceof Error && error.message.includes(input.sourcePath));
     const health = buildProviderCommandFailureHealth({
-      failures: providerExecution.failures,
+      failures: [
+        {
+          commandId: 'provider-evidence',
+          code: 'provider_evidence_invalid',
+          exitCode: null,
+          message: error instanceof Error ? error.message : String(error),
+          name: 'evidence_provider_output_valid',
+          nextAction: 'Fix the provider output so it satisfies the ASL evidence contract, then rerun the profile.',
+          nextActionCode: 'fix_provider_evidence_output',
+          phase: 'afterCapture',
+          providerId: providerInput?.providerId ?? 'unknown-provider',
+          ...(providerInput?.manifestPath ? { rawPath: providerInput.manifestPath } : {}),
+        },
+      ],
       runId,
       scenario: profileScenario,
     });
@@ -3504,27 +3603,13 @@ async function runProfileMobile(args: CliArgs, options: ProfileMobileOptions): P
       verdict,
     };
   }
-
-  let attachedEvidence: AttachedEvidence;
-  try {
-    attachedEvidence = await resolveAttachedEvidence({ args, layout, providerInputs: providerExecution.inputs });
-  } catch (error) {
-    const providerInput = providerExecution.inputs.find((input) => error instanceof Error && error.message.includes(input.sourcePath));
+  if (
+    providerExecution.failures.length > 0 &&
+    providerExecution.inputs.length === 0 &&
+    providerExecution.outputStatuses.length === 0
+  ) {
     const health = buildProviderCommandFailureHealth({
-      failures: [
-        {
-          commandId: 'provider-evidence',
-          code: 'provider_evidence_invalid',
-          exitCode: null,
-          message: error instanceof Error ? error.message : String(error),
-          name: 'evidence_provider_output_valid',
-          nextAction: 'Fix the provider output so it satisfies the ASL evidence contract, then rerun the profile.',
-          nextActionCode: 'fix_provider_evidence_output',
-          phase: 'afterCapture',
-          providerId: providerInput?.providerId ?? 'unknown-provider',
-          ...(providerInput?.manifestPath ? { rawPath: providerInput.manifestPath } : {}),
-        },
-      ],
+      failures: providerExecution.failures,
       runId,
       scenario: profileScenario,
     });
@@ -3653,6 +3738,7 @@ async function runProfileMobile(args: CliArgs, options: ProfileMobileOptions): P
       eventLogPath,
       platform: options.platform,
       profileSessionEntriesPath,
+      providerOutputStatuses: providerExecution.outputStatuses,
       runDir,
       scenario: profileScenario,
     }),
@@ -3724,6 +3810,7 @@ async function runProfileMobile(args: CliArgs, options: ProfileMobileOptions): P
     metrics,
     diagnostics: manifestArtifacts.diagnostics,
     evidenceIdentityFailure: evidenceFilterRun.failure ?? null,
+    providerFailures: providerExecution.failures,
     profileEventCount: events.length,
     profileSessionEntryCount: sessionEntries.length,
     commandTransport,
