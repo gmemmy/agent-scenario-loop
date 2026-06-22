@@ -135,6 +135,12 @@ type RuntimeTarget = {
   name: string;
   udid: string;
 };
+type EvidenceIdentityFailure = {
+  code: 'profile_session_identity_ambiguous';
+  message: string;
+  requestedRunId: string;
+  sourceRunIds: string[];
+};
 type ProviderCommandOutput = {
   channel: EvidenceChannel;
   kind: EvidenceKind;
@@ -1743,6 +1749,7 @@ function buildProfileHealth({
   profileEventCount,
   profileSessionEntryCount,
   commandTransport,
+  evidenceIdentityFailure = null,
   sessionEntries = [],
   sessionFreshness = null,
   sessionFreshnessRequired = false,
@@ -1754,6 +1761,7 @@ function buildProfileHealth({
   profileEventCount?: number;
   profileSessionEntryCount?: number;
   commandTransport?: string;
+  evidenceIdentityFailure?: EvidenceIdentityFailure | null;
   sessionEntries?: Record<string, any>[];
   sessionFreshness?: ProfileSessionFreshness | null;
   sessionFreshnessRequired?: boolean;
@@ -1824,6 +1832,24 @@ function buildProfileHealth({
   const commandChecksPassed = commandChecks.every((check) => check.status === 'passed');
   const diagnosticChecks = buildRequiredDiagnosticHealthChecks(diagnostics);
   const diagnosticChecksPassed = diagnosticChecks.every((check) => check.status === 'passed');
+  const evidenceIdentityChecks = evidenceIdentityFailure
+    ? [
+        {
+          name: 'profile_session_identity',
+          status: 'failed',
+          source: 'runner',
+          code: evidenceIdentityFailure.code,
+          message: evidenceIdentityFailure.message,
+          metadata: {
+            nextAction: 'Select a sidecar with exactly one source run id for this scenario, or rerun the live capture with a fresh run id.',
+            nextActionCode: 'rerun_with_unambiguous_profile_session',
+            requestedRunId: evidenceIdentityFailure.requestedRunId,
+            sourceRunIds: evidenceIdentityFailure.sourceRunIds.join(','),
+          },
+        },
+      ]
+    : [];
+  const evidenceIdentityChecksPassed = evidenceIdentityChecks.every((check) => check.status !== 'failed');
   const sessionFreshnessChecks = sessionFreshness
     ? [
         {
@@ -1856,7 +1882,11 @@ function buildProfileHealth({
       ]
     : [];
   const sessionFreshnessChecksPassed = sessionFreshnessChecks.every((check) => check.status !== 'failed');
-  const healthPassed = passed && commandChecksPassed && diagnosticChecksPassed && sessionFreshnessChecksPassed;
+  const healthPassed = passed &&
+    commandChecksPassed &&
+    diagnosticChecksPassed &&
+    evidenceIdentityChecksPassed &&
+    sessionFreshnessChecksPassed;
 
   return assertValidJson(
     {
@@ -1876,6 +1906,7 @@ function buildProfileHealth({
             : 'Profile events did not complete every expected iteration.',
           metadata,
         },
+        ...evidenceIdentityChecks,
         ...sessionFreshnessChecks,
         ...commandChecks,
         ...diagnosticChecks,
@@ -2432,7 +2463,7 @@ function resolveProfileSessionFreshness({
  * the event filter.
  *
  * @param {{args: CliArgs, eventLogText: string, profileSessionEntriesPath: string | null, runId: string, scenarioName: string}} options
- * @returns {string}
+ * @returns {{failure?: EvidenceIdentityFailure, runId: string}}
  */
 function resolveEvidenceFilterRunId({
   args,
@@ -2446,16 +2477,16 @@ function resolveEvidenceFilterRunId({
   profileSessionEntriesPath: string | null;
   runId: string;
   scenarioName: string;
-}): string {
+}): { failure?: EvidenceIdentityFailure; runId: string } {
   const isRehydratedSidecar = typeof args['adb-artifacts'] === 'string' || typeof args['simctl-artifacts'] === 'string';
   if (!isRehydratedSidecar) {
-    return runId;
+    return { runId };
   }
 
   const scenarioEvents = extractProfileEvents(eventLogText, { scenario: scenarioName });
   const currentRunEvents = scenarioEvents.filter((event: Record<string, unknown>) => event.runId === runId);
   if (currentRunEvents.length > 0) {
-    return runId;
+    return { runId };
   }
 
   const sourceRunIds = new Set<string>(
@@ -2482,7 +2513,24 @@ function resolveEvidenceFilterRunId({
     }
   }
 
-  return sourceRunIds.size === 1 ? [...sourceRunIds][0] as string : runId;
+  if (sourceRunIds.size === 1) {
+    return { runId: [...sourceRunIds][0] as string };
+  }
+
+  const sourceRunIdList = [...sourceRunIds].sort();
+  if (sourceRunIdList.length > 1) {
+    return {
+      failure: {
+        code: 'profile_session_identity_ambiguous',
+        message: `Rehydrated sidecar evidence for scenario "${scenarioName}" contains multiple source run ids; ASL cannot choose one safely.`,
+        requestedRunId: runId,
+        sourceRunIds: sourceRunIdList,
+      },
+      runId,
+    };
+  }
+
+  return { runId };
 }
 
 /**
@@ -3434,13 +3482,14 @@ async function runProfileMobile(args: CliArgs, options: ProfileMobileOptions): P
   }
 
   const eventLogText = eventLogPath ? await fsp.readFile(eventLogPath, 'utf8') : '';
-  const evidenceFilterRunId = resolveEvidenceFilterRunId({
+  const evidenceFilterRun = resolveEvidenceFilterRunId({
     args,
     eventLogText,
     profileSessionEntriesPath,
     runId,
     scenarioName,
   });
+  const evidenceFilterRunId = evidenceFilterRun.runId;
   const events = extractProfileEvents(eventLogText, {
     scenario: scenarioName,
     runId: evidenceFilterRunId,
@@ -3607,6 +3656,7 @@ async function runProfileMobile(args: CliArgs, options: ProfileMobileOptions): P
     runId,
     metrics,
     diagnostics: manifestArtifacts.diagnostics,
+    evidenceIdentityFailure: evidenceFilterRun.failure ?? null,
     profileEventCount: events.length,
     profileSessionEntryCount: sessionEntries.length,
     commandTransport,
