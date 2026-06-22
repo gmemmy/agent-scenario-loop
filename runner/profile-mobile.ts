@@ -2287,6 +2287,22 @@ function buildProfileSessionFreshnessHealthChecks(
   ];
 }
 
+function profileCommandSequenceFailureCode(firstSkippedReason: string | undefined): string {
+  if (firstSkippedReason === 'wait-for-milestone-timeout') {
+    return 'profile_command_gate_timeout';
+  }
+
+  return 'profile_command_skipped';
+}
+
+function profileCommandSequenceFailureMessage(firstSkippedReason: string | undefined): string {
+  if (firstSkippedReason === 'wait-for-milestone-timeout') {
+    return 'One or more profile-session commands waited for a milestone that was not observed before timeout.';
+  }
+
+  return 'One or more profile-session commands were skipped before the scenario completed.';
+}
+
 /**
  * Builds scenario health from profile metrics.
  *
@@ -2356,12 +2372,8 @@ function buildProfileHealth({
   const firstSkippedReason = typeof firstSkippedCommand?.reason === 'string'
     ? firstSkippedCommand.reason
     : undefined;
-  const commandFailureCode = firstSkippedReason === 'wait-for-milestone-timeout'
-    ? 'profile_command_gate_timeout'
-    : 'profile_command_skipped';
-  const commandFailureMessage = firstSkippedReason === 'wait-for-milestone-timeout'
-    ? 'One or more profile-session commands waited for a milestone that was not observed before timeout.'
-    : 'One or more profile-session commands were skipped before the scenario completed.';
+  const commandFailureCode = profileCommandSequenceFailureCode(firstSkippedReason);
+  const commandFailureMessage = profileCommandSequenceFailureMessage(firstSkippedReason);
   const commandChecks = skippedCommands.length > 0
     ? [
         {
