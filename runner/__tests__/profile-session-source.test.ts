@@ -18,6 +18,7 @@ function readSource(relativePath: string): string {
 
 test('profile-session helper keeps storage-backed command control safeguards', () => {
   const source = readSource('app/profile-session.ts');
+  const declarationSource = readSource('app/profile-session.d.ts');
   const orderingSource = readSource('app/profile-session-command-ordering.ts');
 
   assert.match(source, /const PROFILE_SESSION_MAX_AGE_MS = 2 \* 60 \* 60_000;/u);
@@ -25,6 +26,7 @@ test('profile-session helper keeps storage-backed command control safeguards', (
   assert.match(source, /import \{ PROFILE_SESSION_STORAGE_KEYS \} from '\.\/profile-session-storage';/u);
   assert.match(source, /const PROFILE_SESSION_STORAGE_KEY = PROFILE_SESSION_STORAGE_KEYS\.session;/u);
   assert.match(source, /const PROFILE_SESSION_ENTRIES_STORAGE_KEY = PROFILE_SESSION_STORAGE_KEYS\.sessionEntries;/u);
+  assert.match(source, /export const PROFILE_SESSION_HELPER_VERSION = '1\.0\.0';/u);
   assert.match(source, /const PROFILE_COMMAND_DUPLICATE_WINDOW_MS = 750;/u);
   assert.match(source, /reason: 'duplicate-command-window'/u);
   assert.match(
@@ -39,8 +41,10 @@ test('profile-session helper keeps storage-backed command control safeguards', (
   assert.match(source, /entry\.waitMs = payload\.waitMs;/u);
   assert.match(source, /entry\.waitTimeoutMs = payload\.waitTimeoutMs;/u);
   assert.match(source, /const sessionStartedAt = readProfileSessionStartedAt\(profileSessionState\);/u);
-  assert.match(source, /const atMs =\s+typeof payload\.atMs === 'number'/u);
+  assert.match(source, /function resolveProfileSessionElapsedAtMs/u);
+  assert.match(source, /const atMs = resolveProfileSessionElapsedAtMs\(timestamp, payload\.atMs, sessionStartedAt\);/u);
   assert.match(source, /writeProfileLog\(buildLogLine\('profile-session', logPayload\)\);/u);
+  assert.match(source, /helperVersion: PROFILE_SESSION_HELPER_VERSION/u);
   assert.match(source, /\.\.\.\(atMs !== undefined \? \{ atMs \} : \{\}\),/u);
   assert.match(source, /status: 'received'/u);
   assert.match(source, /status: 'queued'/u);
@@ -64,6 +68,7 @@ test('profile-session helper keeps storage-backed command control safeguards', (
   assert.match(orderingSource, /typeof command\.sequence === 'number' && command\.sequence > 1/u);
   assert.match(source, /hasObservedProfileCommandMilestone\(command, observedProfileEvents\)/u);
   assert.match(source, /observedProfileEvents\.push\(eventPayload\);/u);
+  assert.match(declarationSource, /export const PROFILE_SESSION_HELPER_VERSION: '1\.0\.0';/u);
   assert.match(source, /observedProfileEvents\.length = 0;/u);
   assert.doesNotMatch(source, /command\.timestamp < activeSession\.startedAt/u);
   assert.match(source, /runId\?: string;/u);

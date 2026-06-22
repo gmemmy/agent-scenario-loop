@@ -283,6 +283,12 @@ type ProfileSessionFreshness = {
   seed: ProfileSessionSeed;
   status: 'fresh' | 'missing-app-session' | 'stale';
 };
+type ProfileHelperVersionCheck = {
+  expectedVersion: string;
+  observedVersions: string[];
+  reason: string;
+  status: 'matched' | 'missing' | 'mismatched';
+};
 type ExpectedRuntimeIdentityValue = {
   source: 'cli' | 'config';
   value: string;
@@ -306,6 +312,7 @@ const PROVIDER_EVIDENCE_KINDS = new Set(['accessibility', 'logs', 'nativePerform
 const SIGNAL_EVIDENCE_KINDS = new Set(['js', 'memory', 'network']);
 const DEFAULT_PROVIDER_COMMAND_TIMEOUT_MS = 180_000;
 const PLACEHOLDER_APP_IDS = new Set(['com.example.app']);
+const EXPECTED_PROFILE_SESSION_HELPER_VERSION = '1.0.0';
 
 /**
  * Prints CLI usage to stderr.
@@ -1948,9 +1955,105 @@ function buildRuntimeIdentityHealthChecks(runtimeIdentity: RuntimeIdentityVerifi
 }
 
 /**
+ * Resolves the health status for an app helper version check.
+ *
+ * @param {ProfileHelperVersionCheck['status']} status
+ * @returns {'failed' | 'passed' | 'warning'}
+ */
+function profileHelperVersionHealthStatus(status: ProfileHelperVersionCheck['status']): 'failed' | 'passed' | 'warning' {
+  switch (status) {
+    case 'matched':
+      return 'passed';
+    case 'missing':
+      return 'warning';
+    case 'mismatched':
+      return 'failed';
+  }
+}
+
+/**
+ * Resolves the health code for an app helper version check.
+ *
+ * @param {ProfileHelperVersionCheck['status']} status
+ * @returns {string}
+ */
+function profileHelperVersionHealthCode(status: ProfileHelperVersionCheck['status']): string {
+  switch (status) {
+    case 'matched':
+      return 'profile_session_helper_version_matched';
+    case 'missing':
+      return 'profile_session_helper_version_missing';
+    case 'mismatched':
+      return 'profile_session_helper_version_mismatch';
+  }
+}
+
+/**
+ * Resolves the next action for an app helper version check.
+ *
+ * @param {ProfileHelperVersionCheck['status']} status
+ * @returns {{nextAction: string, nextActionCode: string}}
+ */
+function profileHelperVersionNextAction(status: ProfileHelperVersionCheck['status']): {
+  nextAction: string;
+  nextActionCode: string;
+} {
+  switch (status) {
+    case 'matched':
+      return {
+        nextAction: 'No action required.',
+        nextActionCode: 'none',
+      };
+    case 'missing':
+      return {
+        nextAction: 'Use an app-side profile-session helper that emits helperVersion in session entries and profile events so ASL can verify helper/package compatibility.',
+        nextActionCode: 'emit_profile_session_helper_version',
+      };
+    case 'mismatched':
+      return {
+        nextAction: 'Update the app-side profile-session helper to the package version used by the runner, then rerun before trusting timing evidence.',
+        nextActionCode: 'update_profile_session_helper',
+      };
+  }
+}
+
+/**
+ * Converts app helper version evidence into a scenario health check.
+ *
+ * @param {ProfileHelperVersionCheck | null} helperVersion
+ * @returns {Record<string, unknown>[]}
+ */
+function buildProfileHelperVersionHealthChecks(helperVersion: ProfileHelperVersionCheck | null = null): Record<string, unknown>[] {
+  if (!helperVersion) {
+    return [];
+  }
+
+  const healthStatus = profileHelperVersionHealthStatus(helperVersion.status);
+  const healthCode = profileHelperVersionHealthCode(helperVersion.status);
+  const nextAction = profileHelperVersionNextAction(helperVersion.status);
+
+  return [
+    {
+      name: 'profile_session_helper_version',
+      status: healthStatus,
+      source: 'runner',
+      code: healthCode,
+      message: helperVersion.reason,
+      metadata: {
+        expectedVersion: helperVersion.expectedVersion,
+        observedVersions: helperVersion.observedVersions.join(','),
+        observedVersionCount: helperVersion.observedVersions.length,
+        nextAction: nextAction.nextAction,
+        nextActionCode: nextAction.nextActionCode,
+      },
+    },
+  ];
+}
+
+/**
  * Builds scenario health from profile metrics.
  *
- * @param {{scenario: Record<string, unknown>, runId: string, metrics: Record<string, unknown>, diagnostics?: DiagnosticInventoryEntry[], providerFailures?: ProviderCommandFailure[], profileEventCount?: number, profileSessionEntryCount?: number, commandTransport?: string, runtimeIdentity?: RuntimeIdentityVerification | null, sessionEntries?: Record<string, unknown>[], sessionFreshness?: ProfileSessionFreshness | null, sessionFreshnessRequired?: boolean}} options
+ * @param {{scenario: Record<string, unknown>, runId: string, metrics: Record<string, unknown>, diagnostics?: DiagnosticInventoryEntry[], providerFailures?: ProviderCommandFailure[], profileEventCount?: number, profileSessionEntryCount?: number, commandTransport?: string, helperVersion?: ProfileHelperVersionCheck | null, runtimeIdentity?: RuntimeIdentityVerification | null, sessionEntries?: Record<string, unknown>[], sessionFreshness?: ProfileSessionFreshness | null, sessionFreshnessRequired?: boolean}} options
  * @returns {Record<string, unknown>}
  */
 function buildProfileHealth({
@@ -1963,6 +2066,7 @@ function buildProfileHealth({
   profileSessionEntryCount,
   commandTransport,
   evidenceIdentityFailure = null,
+  helperVersion = null,
   runtimeIdentity = null,
   sessionEntries = [],
   sessionFreshness = null,
@@ -1977,6 +2081,7 @@ function buildProfileHealth({
   profileSessionEntryCount?: number;
   commandTransport?: string;
   evidenceIdentityFailure?: EvidenceIdentityFailure | null;
+  helperVersion?: ProfileHelperVersionCheck | null;
   runtimeIdentity?: RuntimeIdentityVerification | null;
   sessionEntries?: Record<string, any>[];
   sessionFreshness?: ProfileSessionFreshness | null;
@@ -2068,6 +2173,8 @@ function buildProfileHealth({
   const evidenceIdentityChecksPassed = evidenceIdentityChecks.every((check) => check.status !== 'failed');
   const providerFailureChecks = buildProviderCommandFailureChecks(providerFailures);
   const providerFailureChecksPassed = providerFailureChecks.every((check) => check.status === 'passed');
+  const helperVersionChecks = buildProfileHelperVersionHealthChecks(helperVersion);
+  const helperVersionChecksPassed = helperVersionChecks.every((check) => check.status !== 'failed');
   const runtimeIdentityChecks = buildRuntimeIdentityHealthChecks(runtimeIdentity);
   const runtimeIdentityChecksPassed = runtimeIdentityChecks.every((check) => check.status !== 'failed');
   const sessionFreshnessChecks = sessionFreshness
@@ -2107,6 +2214,7 @@ function buildProfileHealth({
     diagnosticChecksPassed &&
     evidenceIdentityChecksPassed &&
     providerFailureChecksPassed &&
+    helperVersionChecksPassed &&
     runtimeIdentityChecksPassed &&
     sessionFreshnessChecksPassed;
 
@@ -2132,6 +2240,7 @@ function buildProfileHealth({
         ...sessionFreshnessChecks,
         ...commandChecks,
         ...providerFailureChecks,
+        ...helperVersionChecks,
         ...runtimeIdentityChecks,
         ...diagnosticChecks,
       ],
@@ -2698,6 +2807,54 @@ function resolveProfileSessionFreshness({
     appStartedAt: appStart.startedAt,
     seed,
     status: 'fresh',
+  };
+}
+
+/**
+ * Resolves app helper version evidence from profile-session entries and profile events.
+ *
+ * @param {{events: Record<string, unknown>[], sessionEntries: Record<string, unknown>[]}} options
+ * @returns {ProfileHelperVersionCheck | null}
+ */
+function resolveProfileHelperVersionCheck({
+  events,
+  sessionEntries,
+}: {
+  events: Record<string, unknown>[];
+  sessionEntries: Record<string, unknown>[];
+}): ProfileHelperVersionCheck | null {
+  if (events.length === 0 && sessionEntries.length === 0) {
+    return null;
+  }
+
+  const observedVersions = uniqueStrings([
+    ...events.map((event) => readTrimmedString(event.helperVersion)),
+    ...sessionEntries.map((entry) => readTrimmedString(entry.helperVersion)),
+  ]);
+  if (observedVersions.length === 0) {
+    return {
+      expectedVersion: EXPECTED_PROFILE_SESSION_HELPER_VERSION,
+      observedVersions,
+      reason: 'Profile evidence did not include app helper version metadata.',
+      status: 'missing',
+    };
+  }
+
+  const mismatchedVersion = observedVersions.find((version) => version !== EXPECTED_PROFILE_SESSION_HELPER_VERSION);
+  if (mismatchedVersion) {
+    return {
+      expectedVersion: EXPECTED_PROFILE_SESSION_HELPER_VERSION,
+      observedVersions,
+      reason: `Profile evidence was emitted by app helper version ${mismatchedVersion}, but this runner expects ${EXPECTED_PROFILE_SESSION_HELPER_VERSION}.`,
+      status: 'mismatched',
+    };
+  }
+
+  return {
+    expectedVersion: EXPECTED_PROFILE_SESSION_HELPER_VERSION,
+    observedVersions,
+    reason: 'Profile evidence helper version matched the runner contract.',
+    status: 'matched',
   };
 }
 
@@ -4122,6 +4279,10 @@ async function runProfileMobile(args: CliArgs, options: ProfileMobileOptions): P
     seed: profileSessionSeed,
     sessionEntries,
   });
+  const helperVersion = resolveProfileHelperVersionCheck({
+    events,
+    sessionEntries,
+  });
   const runtimeTarget = resolveRuntimeTarget({ args, platform: options.platform });
   const runtimeIdentity = resolveRuntimeIdentityVerification({
     args,
@@ -4257,6 +4418,7 @@ async function runProfileMobile(args: CliArgs, options: ProfileMobileOptions): P
     profileEventCount: events.length,
     profileSessionEntryCount: sessionEntries.length,
     commandTransport,
+    helperVersion,
     runtimeIdentity,
     sessionEntries,
     sessionFreshness,

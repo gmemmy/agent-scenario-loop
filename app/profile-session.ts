@@ -76,6 +76,7 @@ type StoredProfileSessionEntry = {
   scenario: string;
   runId: string;
   timestamp: number;
+  helperVersion?: string;
   atMs?: number;
   startedAt?: number;
   stoppedAt?: number;
@@ -97,6 +98,8 @@ type StoredProfileSignals = Record<ProfileSignalKind, Record<string, unknown>>;
 type ProfileCommandMilestoneGate = BaseProfileCommandMilestoneGate & {
   timeoutId?: ReturnType<typeof setTimeout>;
 };
+
+export const PROFILE_SESSION_HELPER_VERSION = '1.0.0';
 
 const INITIAL_STATE: ProfileSessionState = {
   active: false,
@@ -280,9 +283,27 @@ function setProfileSessionState(nextState: ProfileSessionState) {
  * @returns {number | null}
  */
 function readProfileSessionStartedAt(session: ProfileSessionState | null): number | null {
-  return typeof session?.startedAt === 'number' && Number.isFinite(session.startedAt)
-    ? session.startedAt
-    : null;
+  if (typeof session?.startedAt !== 'number' || !Number.isFinite(session.startedAt)) {
+    return null;
+  }
+
+  return session.startedAt;
+}
+
+function resolveProfileSessionElapsedAtMs(
+  timestamp: number,
+  explicitAtMs: unknown,
+  sessionStartedAt: number | null | undefined,
+): number | undefined {
+  if (typeof explicitAtMs === 'number' && Number.isFinite(explicitAtMs)) {
+    return explicitAtMs;
+  }
+
+  if (typeof sessionStartedAt !== 'number' || !Number.isFinite(sessionStartedAt)) {
+    return undefined;
+  }
+
+  return Math.max(0, timestamp - sessionStartedAt);
 }
 
 /**
@@ -331,15 +352,11 @@ export function isProfileSessionFresh(
 function logProfileSession(kind: 'start' | 'stop' | 'command', payload: Record<string, unknown>) {
   const timestamp = Date.now();
   const sessionStartedAt = readProfileSessionStartedAt(profileSessionState);
-  const atMs =
-    typeof payload.atMs === 'number' && Number.isFinite(payload.atMs)
-      ? payload.atMs
-      : sessionStartedAt !== null
-        ? Math.max(0, timestamp - sessionStartedAt)
-        : undefined;
+  const atMs = resolveProfileSessionElapsedAtMs(timestamp, payload.atMs, sessionStartedAt);
   const logPayload = {
     kind,
     ...payload,
+    helperVersion: PROFILE_SESSION_HELPER_VERSION,
     timestamp,
     ...(atMs !== undefined ? { atMs } : {}),
   };
@@ -356,6 +373,7 @@ function logProfileSession(kind: 'start' | 'stop' | 'command', payload: Record<s
     scenario,
     runId,
     timestamp,
+    helperVersion: PROFILE_SESSION_HELPER_VERSION,
     ...(atMs !== undefined ? { atMs } : {}),
   };
 
@@ -881,12 +899,7 @@ export function emitProfileEvent(event: string, metadata?: ProfileEventMetadata)
   }
 
   const timestamp = Date.now();
-  const atMs =
-    typeof metadata?.atMs === 'number' && Number.isFinite(metadata.atMs)
-      ? metadata.atMs
-      : typeof session.startedAt === 'number' && Number.isFinite(session.startedAt)
-        ? Math.max(0, timestamp - session.startedAt)
-        : undefined;
+  const atMs = resolveProfileSessionElapsedAtMs(timestamp, metadata?.atMs, session.startedAt);
 
   const eventPayload: StoredProfileEvent = {
     scenario: session.scenario,
@@ -895,6 +908,7 @@ export function emitProfileEvent(event: string, metadata?: ProfileEventMetadata)
     timestamp,
     ...(atMs !== undefined ? { atMs } : {}),
     ...(metadata ?? {}),
+    helperVersion: PROFILE_SESSION_HELPER_VERSION,
   };
 
   writeProfileLog(buildLogLine('profile-event', eventPayload));

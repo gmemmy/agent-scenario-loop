@@ -60,6 +60,8 @@ export declare const PROFILE_SESSION_STORAGE_KEYS: Readonly<{
   signal: string;
 }>;
 
+export const PROFILE_SESSION_HELPER_VERSION: '1.0.0';
+
 export function isProfileSessionFresh(
   session: Pick<ProfileSessionState, 'active' | 'startedAt'>,
   now?: number,
