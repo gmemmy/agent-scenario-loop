@@ -8,6 +8,7 @@ const test = require('node:test');
 const {
   parseExclusiveProcessTargets,
   parseDiskSpaceTargets,
+  parseLeaseTargets,
   parseOrphanProcessTargets,
   parseTcpPortTargets,
   parseRequirements,
@@ -380,6 +381,113 @@ test('host doctor reports stale orphan processes before live proof', async (t: T
   assert.match(summary, /resolve_orphan_process/u);
 });
 
+test('host doctor reports active durable lease records before live proof', async (t: TestContext) => {
+  const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-host-doctor-lease-active-'));
+  t.after(async () => {
+    await fsp.rm(tempDir, { recursive: true, force: true });
+  });
+  const leasePath = path.join(tempDir, 'android-emulator-5554.json');
+  await fsp.writeFile(leasePath, JSON.stringify({
+    holder: 'home-feed-scroll-native-fidelity',
+    owner: 'worker-7',
+    pid: 8765,
+    expiresAtMs: 2_000,
+  }), 'utf8');
+
+  const result = await runHostDoctor({
+    leaseTargets: [
+      { label: 'android-emulator-5554', path: leasePath },
+    ],
+    nowMs: 1_000,
+    outputDir: tempDir,
+    requirements: [],
+    runId: 'host-doctor-active-lease',
+  });
+
+  const health = readJson(path.join(tempDir, 'health.json'));
+  assert.equal(result.health.healthStatus, 'failed');
+  assert.equal(health.healthStatus, 'failed');
+  const checks = health.checks as Array<{metadata?: Record<string, unknown>; name: string; status: string}>;
+  assert.deepEqual(checks.map((check) => [check.name, check.status]), [
+    ['lease_android_emulator_5554', 'failed'],
+  ]);
+  assert.equal(checks[0]?.metadata?.nextActionCode, 'resolve_lease_record');
+  assert.equal(checks[0]?.metadata?.reason, 'lease_active');
+  assert.equal(checks[0]?.metadata?.holder, 'home-feed-scroll-native-fidelity');
+  assert.equal(checks[0]?.metadata?.owner, 'worker-7');
+  assert.equal(checks[0]?.metadata?.pid, 8765);
+  const raw = readJson(path.join(tempDir, 'raw', 'host-doctor.json'));
+  assert.equal((raw['lease:android-emulator-5554'] as Record<string, unknown>).status, 'active');
+  assert.deepEqual((raw['lease:android-emulator-5554'] as Record<string, unknown>).recordKeys, [
+    'expiresAtMs',
+    'holder',
+    'owner',
+    'pid',
+  ]);
+  const summary = fs.readFileSync(path.join(tempDir, 'agent-summary.md'), 'utf8');
+  assert.match(summary, /lease_android_emulator_5554: failed/u);
+  assert.match(summary, /resolve_lease_record/u);
+});
+
+test('host doctor treats missing and expired lease records as available', async (t: TestContext) => {
+  const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-host-doctor-lease-available-'));
+  t.after(async () => {
+    await fsp.rm(tempDir, { recursive: true, force: true });
+  });
+  const expiredPath = path.join(tempDir, 'expired.json');
+  await fsp.writeFile(expiredPath, JSON.stringify({
+    holder: 'old-run',
+    createdAtMs: 1_000,
+    ttlMs: 250,
+  }), 'utf8');
+
+  const result = await runHostDoctor({
+    leaseTargets: [
+      { label: 'missing', path: path.join(tempDir, 'missing.json') },
+      { label: 'expired', path: expiredPath },
+    ],
+    nowMs: 2_000,
+    outputDir: tempDir,
+    requirements: [],
+    runId: 'host-doctor-available-leases',
+  });
+
+  const health = readJson(path.join(tempDir, 'health.json'));
+  assert.equal(result.health.healthStatus, 'passed');
+  assert.deepEqual((health.checks as Array<{name: string; status: string}>).map((check) => [check.name, check.status]), [
+    ['lease_missing', 'passed'],
+    ['lease_expired', 'passed'],
+  ]);
+  const checks = health.checks as Array<{metadata?: Record<string, unknown>}>;
+  assert.equal(checks[0]?.metadata?.reason, 'lease_file_missing');
+  assert.equal(checks[1]?.metadata?.reason, 'lease_expired');
+});
+
+test('host doctor fails malformed durable lease records as host evidence', async (t: TestContext) => {
+  const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-host-doctor-lease-error-'));
+  t.after(async () => {
+    await fsp.rm(tempDir, { recursive: true, force: true });
+  });
+  const leasePath = path.join(tempDir, 'bad.json');
+  await fsp.writeFile(leasePath, '{not-json', 'utf8');
+
+  const result = await runHostDoctor({
+    leaseTargets: [
+      { label: 'ios-simulator', path: leasePath },
+    ],
+    outputDir: tempDir,
+    requirements: [],
+    runId: 'host-doctor-bad-lease',
+  });
+
+  const health = readJson(path.join(tempDir, 'health.json'));
+  assert.equal(result.health.healthStatus, 'failed');
+  const checks = health.checks as Array<{metadata?: Record<string, unknown>; name: string; status: string}>;
+  assert.equal(checks[0]?.name, 'lease_ios_simulator');
+  assert.equal(checks[0]?.metadata?.nextActionCode, 'inspect_lease_record');
+  assert.equal(checks[0]?.metadata?.reason, 'lease_json_invalid');
+});
+
 test('host doctor requirement parser defaults to platform lanes and rejects unknown lanes', () => {
   assert.deepEqual(parseRequirements(undefined), ['android', 'ios']);
   assert.deepEqual(parseRequirements('android,ios,agent-device,argent'), ['android', 'ios', 'agent-device', 'argent']);
@@ -421,4 +529,13 @@ test('host doctor orphan process parser accepts labeled literal patterns', () =>
   ]);
   assert.throws(() => parseOrphanProcessTargets('trace'), /Invalid --orphan-process target/u);
   assert.throws(() => parseOrphanProcessTargets('trace:ps'), /Pattern must be at least 3 characters/u);
+});
+
+test('host doctor lease target parser accepts labels and paths', () => {
+  const leasePath = path.resolve('artifacts/asl/leases/android.json');
+  assert.deepEqual(parseLeaseTargets(undefined), []);
+  assert.deepEqual(parseLeaseTargets('android:artifacts/asl/leases/android.json'), [
+    { label: 'android', path: leasePath },
+  ]);
+  assert.throws(() => parseLeaseTargets('android'), /Invalid --lease target/u);
 });

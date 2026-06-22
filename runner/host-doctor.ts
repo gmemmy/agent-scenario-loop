@@ -30,6 +30,7 @@ type CliArgs = {
   'command-timeout-ms'?: string | boolean;
   'ios-bundle'?: string | boolean;
   'ios-device'?: string | boolean;
+  lease?: string | boolean;
   'min-free-disk'?: string | boolean;
   'orphan-process'?: string | boolean;
   out?: string | boolean;
@@ -63,6 +64,9 @@ type HostDoctorOptions = {
   diskSpaceTargets?: DiskSpaceTarget[];
   exclusiveProcessProbe?: (target: ExclusiveProcessTarget) => Promise<ExclusiveProcessProbeResult>;
   exclusiveProcessTargets?: ExclusiveProcessTarget[];
+  leaseProbe?: (target: LeaseTarget, nowMs: number) => Promise<LeaseProbeResult>;
+  leaseTargets?: LeaseTarget[];
+  nowMs?: number;
   orphanProcessProbe?: (target: OrphanProcessTarget) => Promise<OrphanProcessProbeResult>;
   orphanProcessTargets?: OrphanProcessTarget[];
   outputDir?: string;
@@ -95,6 +99,19 @@ type OrphanProcessProbeResult = {
   platform?: string;
   status: 'error' | 'failed' | 'passed';
 };
+type LeaseProbeResult = {
+  errorMessage?: string;
+  exists: boolean;
+  expired?: boolean;
+  expiresAt?: string;
+  holder?: string;
+  nextActionCode: string;
+  owner?: string;
+  pid?: number;
+  reason: string;
+  recordKeys?: string[];
+  status: 'active' | 'available' | 'error';
+};
 type DiskSpaceTarget = {
   label: string;
   minFreeBytes: number;
@@ -107,6 +124,10 @@ type ExclusiveProcessTarget = {
 type OrphanProcessTarget = {
   label: string;
   pattern: string;
+};
+type LeaseTarget = {
+  label: string;
+  path: string;
 };
 type ProcessMatch = {
   command: string;
@@ -157,6 +178,7 @@ function usage(output: {write: (message: string) => unknown} = process.stderr): 
     'Use --min-free-disk <path:mb[,path:mb]> to verify artifact storage capacity before trace-heavy proof.',
     'Use --exclusive-process <label:pattern[,label:pattern]> to fail when an exclusive profiler or trace tool is already running.',
     'Use --orphan-process <label:pattern[,label:pattern]> to report stale tool processes before live proof.',
+    'Use --lease <label:path[,label:path]> to reject active durable device or simulator lease records.',
     'Use --command-timeout-ms <ms> to bound agent-device and Argent availability checks.',
   ], output);
 }
@@ -382,6 +404,238 @@ function parseOrphanProcessTargets(value: unknown): OrphanProcessTarget[] {
       }
       return { label, pattern };
     });
+}
+
+/**
+ * Parses comma-separated durable lease record targets.
+ *
+ * @param {unknown} value
+ * @returns {LeaseTarget[]}
+ */
+function parseLeaseTargets(value: unknown): LeaseTarget[] {
+  if (value === undefined || value === false) {
+    return [];
+  }
+  if (value === true || typeof value !== 'string') {
+    throw new Error('--lease must be a comma-separated list of <label:path> targets.');
+  }
+
+  return value
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .map((item) => {
+      const separatorIndex = item.indexOf(':');
+      if (separatorIndex <= 0 || separatorIndex >= item.length - 1) {
+        throw new Error(`Invalid --lease target: ${item}.`);
+      }
+      const label = item.slice(0, separatorIndex).trim();
+      const leasePath = item.slice(separatorIndex + 1).trim();
+      if (!label || !leasePath) {
+        throw new Error(`Invalid --lease target: ${item}.`);
+      }
+      return {
+        label,
+        path: path.resolve(leasePath),
+      };
+    });
+}
+
+/**
+ * Reads a string from a parsed lease record.
+ *
+ * @param {Record<string, unknown>} record
+ * @param {string[]} keys
+ * @returns {string | undefined}
+ */
+function readLeaseString(record: Record<string, unknown>, keys: string[]): string | undefined {
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === 'string' && value.trim().length > 0) {
+      return value.trim();
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Reads a number from a parsed lease record.
+ *
+ * @param {Record<string, unknown>} record
+ * @param {string[]} keys
+ * @returns {number | undefined}
+ */
+function readLeaseNumber(record: Record<string, unknown>, keys: string[]): number | undefined {
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return value;
+    }
+    if (typeof value === 'string' && value.trim().length > 0) {
+      const parsed = Number(value.trim());
+      if (Number.isFinite(parsed)) {
+        return parsed;
+      }
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Resolves a lease expiry timestamp from known durable lease fields.
+ *
+ * @param {Record<string, unknown>} record
+ * @param {number} nowMs
+ * @returns {{errorMessage?: string, expiresAt?: string, expiresAtMs?: number, hasExpiry: boolean}}
+ */
+function resolveLeaseExpiry(
+  record: Record<string, unknown>,
+  nowMs: number,
+): {errorMessage?: string; expiresAt?: string; expiresAtMs?: number; hasExpiry: boolean} {
+  const explicitExpiresAtMs = readLeaseNumber(record, ['expiresAtMs', 'expiresAtEpochMs']);
+  if (typeof explicitExpiresAtMs === 'number') {
+    return {
+      expiresAt: new Date(explicitExpiresAtMs).toISOString(),
+      expiresAtMs: explicitExpiresAtMs,
+      hasExpiry: true,
+    };
+  }
+
+  const expiresAt = readLeaseString(record, ['expiresAt', 'expires_at']);
+  if (expiresAt) {
+    const parsed = Date.parse(expiresAt);
+    if (!Number.isFinite(parsed)) {
+      return {
+        errorMessage: `Invalid lease expiresAt timestamp: ${expiresAt}.`,
+        hasExpiry: true,
+      };
+    }
+    return {
+      expiresAt: new Date(parsed).toISOString(),
+      expiresAtMs: parsed,
+      hasExpiry: true,
+    };
+  }
+
+  const ttlMs = readLeaseNumber(record, ['ttlMs', 'ttl_ms']);
+  const createdAtMs = readLeaseNumber(record, ['createdAtMs', 'startedAtMs', 'createdAtEpochMs']);
+  if (typeof ttlMs === 'number' && typeof createdAtMs === 'number') {
+    const derivedExpiryMs = createdAtMs + ttlMs;
+    return {
+      expiresAt: new Date(derivedExpiryMs).toISOString(),
+      expiresAtMs: derivedExpiryMs,
+      hasExpiry: true,
+    };
+  }
+
+  const createdAt = readLeaseString(record, ['createdAt', 'startedAt', 'created_at']);
+  if (typeof ttlMs === 'number' && createdAt) {
+    const parsedCreatedAt = Date.parse(createdAt);
+    if (!Number.isFinite(parsedCreatedAt)) {
+      return {
+        errorMessage: `Invalid lease createdAt timestamp: ${createdAt}.`,
+        hasExpiry: true,
+      };
+    }
+    const derivedExpiryMs = parsedCreatedAt + ttlMs;
+    return {
+      expiresAt: new Date(derivedExpiryMs).toISOString(),
+      expiresAtMs: derivedExpiryMs,
+      hasExpiry: true,
+    };
+  }
+
+  return {
+    hasExpiry: false,
+  };
+}
+
+/**
+ * Checks a durable lease record file without acquiring or deleting it.
+ *
+ * @param {LeaseTarget} target
+ * @param {number} nowMs
+ * @returns {Promise<LeaseProbeResult>}
+ */
+async function probeLeaseRecord(target: LeaseTarget, nowMs: number): Promise<LeaseProbeResult> {
+  let text: string;
+  try {
+    text = await fsp.readFile(target.path, 'utf8');
+  } catch (error) {
+    if (error && typeof error === 'object' && (error as {code?: unknown}).code === 'ENOENT') {
+      return {
+        exists: false,
+        nextActionCode: 'none',
+        reason: 'lease_file_missing',
+        status: 'available',
+      };
+    }
+    return {
+      errorMessage: error instanceof Error ? error.message : String(error),
+      exists: false,
+      nextActionCode: 'inspect_lease_record',
+      reason: 'lease_file_unreadable',
+      status: 'error',
+    };
+  }
+
+  let record: Record<string, unknown>;
+  try {
+    const parsed = JSON.parse(text);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      throw new Error('Lease record must be a JSON object.');
+    }
+    record = parsed as Record<string, unknown>;
+  } catch (error) {
+    return {
+      errorMessage: error instanceof Error ? error.message : String(error),
+      exists: true,
+      nextActionCode: 'inspect_lease_record',
+      reason: 'lease_json_invalid',
+      status: 'error',
+    };
+  }
+
+  const expiry = resolveLeaseExpiry(record, nowMs);
+  const holder = readLeaseString(record, ['holder', 'runId', 'run_id', 'target', 'deviceId', 'device_id']);
+  const owner = readLeaseString(record, ['owner', 'ownerId', 'owner_id']);
+  const pid = readLeaseNumber(record, ['pid']);
+  const baseResult = {
+    exists: true,
+    recordKeys: Object.keys(record).sort(),
+    ...(holder ? { holder } : {}),
+    ...(owner ? { owner } : {}),
+    ...(typeof pid === 'number' ? { pid } : {}),
+  };
+  if (expiry.errorMessage) {
+    return {
+      ...baseResult,
+      errorMessage: expiry.errorMessage,
+      nextActionCode: 'inspect_lease_record',
+      reason: 'lease_expiry_invalid',
+      status: 'error',
+    };
+  }
+  if (expiry.hasExpiry && typeof expiry.expiresAtMs === 'number' && expiry.expiresAtMs <= nowMs) {
+    return {
+      ...baseResult,
+      expired: true,
+      ...(expiry.expiresAt ? { expiresAt: expiry.expiresAt } : {}),
+      nextActionCode: 'none',
+      reason: 'lease_expired',
+      status: 'available',
+    };
+  }
+
+  const activeReason = expiry.hasExpiry ? 'lease_active' : 'lease_active_without_expiry';
+  return {
+    ...baseResult,
+    expired: false,
+    ...(expiry.expiresAt ? { expiresAt: expiry.expiresAt } : {}),
+    nextActionCode: 'resolve_lease_record',
+    reason: activeReason,
+    status: 'active',
+  };
 }
 
 /**
@@ -854,6 +1108,57 @@ function buildExclusiveProcessCheck({
 }
 
 /**
+ * Builds a host health check for one durable lease record target.
+ *
+ * @param {{result: LeaseProbeResult, target: LeaseTarget}} options
+ * @returns {HostDoctorCheck}
+ */
+function buildLeaseCheck({
+  result,
+  target,
+}: {
+  result: LeaseProbeResult;
+  target: LeaseTarget;
+}): HostDoctorCheck {
+  const name = `lease_${safeCheckSegment(target.label)}`;
+  const passed = result.status === 'available';
+  let code = 'lease_record_available';
+  let message = `No active lease blocked ${target.label}.`;
+  let nextAction = 'No action required.';
+  if (result.status === 'active') {
+    code = 'lease_record_active';
+    message = `Active lease record blocks ${target.label}.`;
+    nextAction = 'Wait for the lease to expire, coordinate with the recorded owner, or remove the stale lease only after proving the owner is gone.';
+  } else if (result.status === 'error') {
+    code = 'lease_record_unreadable';
+    message = `Lease record for ${target.label} could not be trusted.`;
+    nextAction = 'Inspect the lease record file and repair or remove it only after proving the target is not owned by another run.';
+  }
+
+  return {
+    code,
+    message,
+    metadata: {
+      label: target.label,
+      leasePath: target.path,
+      leaseStatus: result.status,
+      nextAction,
+      nextActionCode: result.nextActionCode,
+      reason: result.reason,
+      ...(result.expiresAt ? { expiresAt: result.expiresAt } : {}),
+      ...(result.holder ? { holder: result.holder } : {}),
+      ...(result.owner ? { owner: result.owner } : {}),
+      ...(typeof result.pid === 'number' ? { pid: result.pid } : {}),
+      ...(result.errorMessage ? { errorMessage: result.errorMessage } : {}),
+      ...(result.recordKeys ? { recordKeys: result.recordKeys.join(',') } : {}),
+    },
+    name,
+    source: 'runner',
+    status: passed ? 'passed' : 'failed',
+  };
+}
+
+/**
  * Lists processes whose command contains the configured target pattern.
  *
  * @param {OrphanProcessTarget} target
@@ -1152,6 +1457,9 @@ async function runHostDoctor({
   diskSpaceTargets = [],
   exclusiveProcessProbe = probeExclusiveProcess,
   exclusiveProcessTargets = [],
+  leaseProbe = probeLeaseRecord,
+  leaseTargets = [],
+  nowMs = Date.now(),
   orphanProcessProbe = probeOrphanProcess,
   orphanProcessTargets = [],
   outputDir = path.resolve('artifacts/host-doctor'),
@@ -1169,6 +1477,7 @@ async function runHostDoctor({
   const raw: Record<string, unknown> = {
     diskSpaceTargets,
     exclusiveProcessTargets,
+    leaseTargets,
     orphanProcessTargets,
     requirements,
     runId,
@@ -1200,6 +1509,17 @@ async function runHostDoctor({
       raw[`orphanProcess:${target.label}`] = result;
     } catch (error) {
       checks.push(buildExceptionCheck({ error, name: `orphan_process_${safeCheckSegment(target.label)}` }));
+    }
+  }
+
+  for (const target of leaseTargets) {
+    const rawKey = `lease:${target.label}`;
+    try {
+      const result = await leaseProbe(target, nowMs);
+      raw[rawKey] = result;
+      checks.push(buildLeaseCheck({ result, target }));
+    } catch (error) {
+      checks.push(buildExceptionCheck({ error, name: `lease_${safeCheckSegment(target.label)}` }));
     }
   }
 
@@ -1417,6 +1737,7 @@ async function main(): Promise<void> {
     args['orphan-process'],
     ['ASL_HOST_DOCTOR_ORPHAN_PROCESSES'],
   ));
+  const leaseTargets = parseLeaseTargets(readStringArgOrEnv(args.lease, ['ASL_HOST_DOCTOR_LEASES']));
   const result = await runHostDoctor({
     ...(adbPath ? { adbPath } : {}),
     ...(agentDevicePath ? { agentDevicePath } : {}),
@@ -1428,6 +1749,7 @@ async function main(): Promise<void> {
     commandTimeoutMs: parsePositiveInteger(commandTimeoutMsValue, 30_000),
     diskSpaceTargets,
     exclusiveProcessTargets,
+    leaseTargets,
     orphanProcessTargets,
     ...(iosBundleId ? { iosBundleId } : {}),
     ...(iosDevice ? { iosDevice } : {}),
@@ -1456,17 +1778,20 @@ export {
   buildDiskSpaceCheck,
   buildExclusiveProcessCheck,
   buildHostDoctorSummary,
+  buildLeaseCheck,
   buildOrphanProcessCheck,
   buildTcpPortCheck,
   main,
   parseArgs,
   parseDiskSpaceTargets,
   parseExclusiveProcessTargets,
+  parseLeaseTargets,
   parseOrphanProcessTargets,
   parseRequirements,
   parseTcpPortTargets,
   probeDiskSpace,
   probeExclusiveProcess,
+  probeLeaseRecord,
   probeOrphanProcess,
   probeTcpPort,
   runHostDoctor,
@@ -1483,6 +1808,8 @@ export type {
   HostDoctorOptions,
   HostDoctorRequirement,
   HostDoctorResult,
+  LeaseProbeResult,
+  LeaseTarget,
   OrphanProcessProbeResult,
   OrphanProcessTarget,
   TcpPortProbeResult,
