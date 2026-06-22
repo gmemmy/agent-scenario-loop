@@ -27,6 +27,7 @@ state = {
     "prepared": False,
     "launched": False,
     "finalized": False,
+    "last_host_seq": 0,
 }
 
 
@@ -67,7 +68,7 @@ def failure_category(code):
         return "unsupported"
     if code in ["not_launched", "already_finalized"]:
         return "cleanup"
-    if code == "invalid_json":
+    if code in ["invalid_json", "invalid_sequence"]:
         return "protocol"
     return "adapter"
 
@@ -105,6 +106,25 @@ def fail_if_expired(request):
         {
             "deadline": request.get("deadline"),
             "clockDomain": "host-monotonic",
+        },
+    )
+    return True
+
+
+def fail_if_invalid_host_sequence(request):
+    seq_value = request.get("seq")
+    expected_seq = state["last_host_seq"] + 1
+    if seq_value == expected_seq:
+        state["last_host_seq"] = seq_value
+        return False
+    fail(
+        request,
+        "invalid_sequence",
+        "host seq must increase by exactly one",
+        False,
+        {
+            "actualSeq": seq_value,
+            "expectedSeq": expected_seq,
         },
     )
     return True
@@ -330,6 +350,9 @@ for line in sys.stdin:
             "operationId": "decode-error",
         }
         fail(synthetic, "invalid_json", str(error))
+        continue
+
+    if fail_if_invalid_host_sequence(request):
         continue
 
     handler = HANDLERS.get(request.get("type"))

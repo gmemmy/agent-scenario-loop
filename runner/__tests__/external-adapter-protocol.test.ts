@@ -180,6 +180,59 @@ test('external adapter fixture classifies expired deadlines as retryable failure
   });
 });
 
+test('external adapter fixture classifies non-monotonic host sequence as protocol failure', async () => {
+  const actual = await runFixture([
+    {
+      protocolVersion: '1.0',
+      seq: 1,
+      operationId: 'op-hello',
+      kind: 'request',
+      type: 'hello',
+      deadline: '2026-06-19T12:00:01.000Z',
+      body: {
+        host: {
+          name: 'agent-scenario-loop',
+          version: '0.1.x',
+        },
+        platform: 'android',
+      },
+    },
+    {
+      protocolVersion: '1.0',
+      seq: 1,
+      operationId: 'op-repeated-seq',
+      kind: 'request',
+      type: 'prepare',
+      runId: 'run-001',
+      attemptId: 'attempt-001',
+      deadline: '2026-06-19T12:00:02.000Z',
+      body: {
+        artifactsRoot: 'artifacts/asl/run-001',
+        platform: 'android',
+        target: {
+          appId: 'dev.example.fixture',
+        },
+      },
+    },
+  ]);
+
+  assertValidMessages(actual, 'fixture non-monotonic host sequence stdout');
+  assert.deepEqual(actual[1]?.body, {
+    ok: false,
+    failure: {
+      category: 'protocol',
+      code: 'invalid_sequence',
+      message: 'host seq must increase by exactly one',
+      retryable: false,
+      details: {
+        actualSeq: 1,
+        expectedSeq: 2,
+      },
+    },
+  });
+  assert.equal(actual[1]?.operationId, 'op-repeated-seq');
+});
+
 test('external adapter fixture classifies cleanup and finalization invariants', async () => {
   const transcript = await readTranscript('golden-cleanup.jsonl');
   assertValidTranscript(transcript, 'golden-cleanup.jsonl');
