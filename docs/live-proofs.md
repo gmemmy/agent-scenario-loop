@@ -72,6 +72,7 @@ Put machine-specific runner settings in an ignored `.asl.local.env` file at the 
 ```sh
 ASL_HOST_DOCTOR_REQUIRE=android,ios,agent-device,argent
 ASL_HOST_DOCTOR_TCP_PORTS=localhost:8081
+ASL_HOST_DOCTOR_MIN_FREE_DISK=artifacts/asl:1024
 ASL_AGENT_DEVICE_REQUIRED_PLATFORMS=ios,android
 ASL_ANDROID_AGENT_DEVICE_SESSION=android-example
 ASL_IOS_AGENT_DEVICE_SESSION=default
@@ -85,6 +86,7 @@ Before a live proof, run the host doctor for the lanes you intend to use:
 ```bash
 asl-host-doctor --require android,ios --out artifacts/asl/host-doctor
 asl-host-doctor --tcp-port localhost:8081 --out artifacts/asl/host-doctor
+asl-host-doctor --min-free-disk artifacts/asl:1024 --out artifacts/asl/host-doctor
 
 ASL_ARGENT_BIN=pnpm \
   ASL_ARGENT_BASE_ARGS="dlx @swmansion/argent run" \
@@ -94,7 +96,7 @@ ASL_ARGENT_BIN=pnpm \
   --out artifacts/asl/host-doctor
 ```
 
-The doctor composes the existing adb, simctl, agent-device, Argent, and optional TCP service checks into one ASL artifact set. Use `--tcp-port <host:port>` or `ASL_HOST_DOCTOR_TCP_PORTS` for required local services such as Metro or a dev-server debug host. A failed doctor is environment evidence, not product evidence: fix the host access, command shape, or missing local service before starting scenario execution.
+The doctor composes the existing adb, simctl, agent-device, Argent, optional TCP service checks, and optional artifact disk-capacity checks into one ASL artifact set. Use `--tcp-port <host:port>` or `ASL_HOST_DOCTOR_TCP_PORTS` for required local services such as Metro or a dev-server debug host. Use `--min-free-disk <path:mb>` or `ASL_HOST_DOCTOR_MIN_FREE_DISK` before trace-heavy, video, or native-diagnostics proof that can fill the artifact root. A failed doctor is environment evidence, not product evidence: fix the host access, command shape, missing local service, or artifact storage before starting scenario execution.
 
 ## Platform Preflight and Profile Capture
 

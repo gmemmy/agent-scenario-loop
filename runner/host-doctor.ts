@@ -28,6 +28,7 @@ type CliArgs = {
   'command-timeout-ms'?: string | boolean;
   'ios-bundle'?: string | boolean;
   'ios-device'?: string | boolean;
+  'min-free-disk'?: string | boolean;
   out?: string | boolean;
   require?: string | boolean;
   'run-id'?: string | boolean;
@@ -54,6 +55,8 @@ type HostDoctorOptions = {
   iosBundleId?: string | null;
   iosDevice?: string | null;
   iosPreflight?: (options: Record<string, unknown>) => Promise<HostDoctorChildResult>;
+  diskSpaceProbe?: (target: DiskSpaceTarget) => Promise<DiskSpaceProbeResult>;
+  diskSpaceTargets?: DiskSpaceTarget[];
   outputDir?: string;
   requirements?: HostDoctorRequirement[];
   runId?: string;
@@ -66,6 +69,16 @@ type TcpPortProbeResult = {
   elapsedMs?: number;
   errorMessage?: string;
   status: 'failed' | 'passed';
+};
+type DiskSpaceProbeResult = {
+  availableBytes?: number;
+  errorMessage?: string;
+  status: 'failed' | 'passed';
+};
+type DiskSpaceTarget = {
+  label: string;
+  minFreeBytes: number;
+  path: string;
 };
 type TcpPortTarget = {
   host: string;
@@ -108,6 +121,7 @@ function usage(output: {write: (message: string) => unknown} = process.stderr): 
     'Use --agent-device-require-platforms ios,android when agent-device discovery must prove booted OS targets.',
     'Use --argent <binary> and --base-args "<args>" to verify a non-global Argent command shape.',
     'Use --tcp-port <host:port[,host:port]> to verify local services such as Metro before live proof.',
+    'Use --min-free-disk <path:mb[,path:mb]> to verify artifact storage capacity before trace-heavy proof.',
     'Use --command-timeout-ms <ms> to bound agent-device and Argent availability checks.',
   ], output);
 }
@@ -227,6 +241,43 @@ function parseTcpPortTargets(value: unknown): TcpPortTarget[] {
         host,
         label: `${host}:${port}`,
         port,
+      };
+    });
+}
+
+/**
+ * Parses comma-separated disk free-space targets.
+ *
+ * @param {unknown} value
+ * @returns {DiskSpaceTarget[]}
+ */
+function parseDiskSpaceTargets(value: unknown): DiskSpaceTarget[] {
+  if (value === undefined || value === false) {
+    return [];
+  }
+  if (value === true || typeof value !== 'string') {
+    throw new Error('--min-free-disk must be a comma-separated list of <path:mb> targets.');
+  }
+
+  return value
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .map((item) => {
+      const separatorIndex = item.lastIndexOf(':');
+      if (separatorIndex <= 0 || separatorIndex >= item.length - 1) {
+        throw new Error(`Invalid --min-free-disk target: ${item}.`);
+      }
+      const targetPath = item.slice(0, separatorIndex).trim();
+      const minFreeMb = Number(item.slice(separatorIndex + 1).trim());
+      if (!targetPath || !Number.isFinite(minFreeMb) || minFreeMb <= 0) {
+        throw new Error(`Invalid --min-free-disk target: ${item}.`);
+      }
+      const resolvedPath = path.resolve(targetPath);
+      return {
+        label: `${resolvedPath}:${minFreeMb}mb`,
+        minFreeBytes: Math.ceil(minFreeMb * 1024 * 1024),
+        path: resolvedPath,
       };
     });
 }
@@ -529,6 +580,79 @@ function buildTcpPortCheck({
 }
 
 /**
+ * Checks available bytes for an artifact storage path.
+ *
+ * @param {DiskSpaceTarget} target
+ * @returns {Promise<DiskSpaceProbeResult>}
+ */
+async function probeDiskSpace(target: DiskSpaceTarget): Promise<DiskSpaceProbeResult> {
+  try {
+    const stats = await fsp.statfs(target.path);
+    const availableBytes = Number(stats.bavail) * Number(stats.bsize);
+    return {
+      availableBytes,
+      status: availableBytes >= target.minFreeBytes ? 'passed' : 'failed',
+    };
+  } catch (error) {
+    return {
+      errorMessage: error instanceof Error ? error.message : String(error),
+      status: 'failed',
+    };
+  }
+}
+
+/**
+ * Formats a byte count as MiB for scalar health metadata.
+ *
+ * @param {number} bytes
+ * @returns {number}
+ */
+function bytesToMib(bytes: number): number {
+  return Math.round((bytes / 1024 / 1024) * 100) / 100;
+}
+
+/**
+ * Builds a host health check for one required disk capacity target.
+ *
+ * @param {{result: DiskSpaceProbeResult, target: DiskSpaceTarget}} options
+ * @returns {HostDoctorCheck}
+ */
+function buildDiskSpaceCheck({
+  result,
+  target,
+}: {
+  result: DiskSpaceProbeResult;
+  target: DiskSpaceTarget;
+}): HostDoctorCheck {
+  const name = `disk_space_${safeCheckSegment(target.path)}`;
+  const passed = result.status === 'passed';
+  const minFreeMib = bytesToMib(target.minFreeBytes);
+  const availableMib = typeof result.availableBytes === 'number'
+    ? bytesToMib(result.availableBytes)
+    : null;
+  return {
+    code: passed ? 'disk_space_available' : 'disk_space_insufficient',
+    message: passed
+      ? `Disk target ${target.path} has at least ${minFreeMib} MiB free.`
+      : `Disk target ${target.path} does not have the required ${minFreeMib} MiB free.`,
+    metadata: {
+      label: target.label,
+      minFreeMib,
+      path: target.path,
+      nextAction: passed
+        ? 'No action required.'
+        : `Free disk space for ${target.path}, choose a larger artifact root, or lower --min-free-disk only if the run does not need heavy traces.`,
+      nextActionCode: passed ? 'none' : 'free_artifact_disk_space',
+      ...(availableMib !== null ? { availableMib } : {}),
+      ...(result.errorMessage ? { errorMessage: result.errorMessage } : {}),
+    },
+    name,
+    source: 'runner',
+    status: passed ? 'passed' : 'failed',
+  };
+}
+
+/**
  * Reads a string field from an artifact record.
  *
  * @param {Record<string, unknown>} record
@@ -671,6 +795,8 @@ async function runHostDoctor({
   iosBundleId = null,
   iosDevice = null,
   iosPreflight = runIosSimctlCapture,
+  diskSpaceProbe = probeDiskSpace,
+  diskSpaceTargets = [],
   outputDir = path.resolve('artifacts/host-doctor'),
   requirements = DEFAULT_REQUIREMENTS,
   runId = createRunId(),
@@ -684,10 +810,20 @@ async function runHostDoctor({
 
   const checks: HostDoctorCheck[] = [];
   const raw: Record<string, unknown> = {
+    diskSpaceTargets,
     requirements,
     runId,
     tcpPortTargets,
   };
+
+  for (const target of diskSpaceTargets) {
+    try {
+      const result = await diskSpaceProbe(target);
+      checks.push(buildDiskSpaceCheck({ result, target }));
+    } catch (error) {
+      checks.push(buildExceptionCheck({ error, name: `disk_space_${safeCheckSegment(target.path)}` }));
+    }
+  }
 
   for (const target of tcpPortTargets) {
     try {
@@ -891,6 +1027,10 @@ async function main(): Promise<void> {
   ]);
   const xcrunPath = readStringArgOrEnv(args.xcrun, ['ASL_XCRUN_PATH', 'ASL_IOS_XCRUN_BIN']);
   const tcpPortTargets = parseTcpPortTargets(readStringArgOrEnv(args['tcp-port'], ['ASL_HOST_DOCTOR_TCP_PORTS']));
+  const diskSpaceTargets = parseDiskSpaceTargets(readStringArgOrEnv(
+    args['min-free-disk'],
+    ['ASL_HOST_DOCTOR_MIN_FREE_DISK'],
+  ));
   const result = await runHostDoctor({
     ...(adbPath ? { adbPath } : {}),
     ...(agentDevicePath ? { agentDevicePath } : {}),
@@ -900,6 +1040,7 @@ async function main(): Promise<void> {
     ...(argentCommand ? { argentCommand } : {}),
     ...(argentBaseArgs ? { argentBaseArgs } : {}),
     commandTimeoutMs: parsePositiveInteger(commandTimeoutMsValue, 30_000),
+    diskSpaceTargets,
     ...(iosBundleId ? { iosBundleId } : {}),
     ...(iosDevice ? { iosDevice } : {}),
     ...(typeof args.out === 'string' ? { outputDir: args.out } : {}),
@@ -924,12 +1065,15 @@ if (require.main === module) {
 export {
   buildAvailabilityCheck,
   buildChildRunCheck,
+  buildDiskSpaceCheck,
   buildHostDoctorSummary,
   buildTcpPortCheck,
   main,
   parseArgs,
+  parseDiskSpaceTargets,
   parseRequirements,
   parseTcpPortTargets,
+  probeDiskSpace,
   probeTcpPort,
   runHostDoctor,
   usage,
@@ -937,6 +1081,8 @@ export {
 
 export type {
   CliArgs,
+  DiskSpaceProbeResult,
+  DiskSpaceTarget,
   HostDoctorCheck,
   HostDoctorOptions,
   HostDoctorRequirement,
