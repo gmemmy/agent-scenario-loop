@@ -57,6 +57,34 @@ function writeCurrentSessionEvents(dataContainer: string): void {
   fs.writeFileSync(manifestPath, JSON.stringify(manifest), 'utf8');
 }
 
+test('generic iOS live proof rejects scaffold bundle placeholders before device commands', async (t: TestContext) => {
+  const tempRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-live-ios-placeholder-'));
+  t.after(async () => {
+    await fsp.rm(tempRoot, { recursive: true, force: true });
+  });
+  const config = JSON.parse(fs.readFileSync(path.join(ROOT, 'examples', 'mobile-app', 'asl.config.json'), 'utf8'));
+  config.app.iosBundleId = 'com.example.app';
+  const configPath = path.join(tempRoot, 'asl.config.json');
+  await fsp.writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
+  const calls: string[] = [];
+
+  await assert.rejects(
+    () => runIosLiveProof({
+      config: configPath,
+      device: DEVICE_ID,
+      out: tempRoot,
+      scenario: path.join(ROOT, 'examples', 'mobile-app', 'scenarios', 'mobile', 'app-startup.json'),
+    }, {
+      executor: async (command: string, args: string[]): Promise<CommandResult> => {
+        calls.push(`${command} ${args.join(' ')}`);
+        return { command, args, exitCode: 0, stderr: '', stdout: '' };
+      },
+    }),
+    /ios live proof resolved scaffold placeholder iOS bundle id "com\.example\.app"/u,
+  );
+  assert.deepEqual(calls, []);
+});
+
 test('generic iOS live proof captures profile evidence before sidecar proofs', async (t: TestContext) => {
   const outputDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-live-ios-'));
   const dataContainer = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-live-ios-data-'));

@@ -339,6 +339,51 @@ function percentile(values: number[], percentileValue: number): number | null {
 }
 
 /**
+ * Reads an app-emitted repeated-cycle iteration label.
+ *
+ * @param {unknown} value
+ * @returns {number | null}
+ */
+function readIterationLabel(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isInteger(value)) {
+    return value;
+  }
+  if (typeof value !== 'string' || !/^\d+$/u.test(value.trim())) {
+    return null;
+  }
+
+  return Number(value.trim());
+}
+
+/**
+ * Detects unambiguous zero-based repeated-cycle iteration labels.
+ *
+ * @param {{events: ProfileEvent[], expectedIterations: number}} options
+ * @returns {number}
+ */
+function resolveIterationLabelOffset({
+  events,
+  expectedIterations,
+}: {
+  events: ProfileEvent[];
+  expectedIterations: number;
+}): number {
+  if (expectedIterations < 1) {
+    return 0;
+  }
+
+  const labels = events
+    .map((event) => readIterationLabel(event.iteration))
+    .filter((iteration): iteration is number => iteration !== null);
+  if (labels.length === 0 || !labels.includes(0)) {
+    return 0;
+  }
+
+  const maxLabel = Math.max(...labels);
+  return maxLabel <= expectedIterations - 1 ? 1 : 0;
+}
+
+/**
  * Extracts structured profile events from device logs.
  *
  * Supports both JSON payloads and the older key/value payload format.
@@ -496,6 +541,7 @@ function buildMetricsFromProfileEvents({
       ? milestoneEventsPerIteration
       : 1;
   const iterations = new Map();
+  const iterationLabelOffset = resolveIterationLabelOffset({ events, expectedIterations });
   let nextImplicitMilestoneIteration = 1;
   let nextImplicitMilestoneCount = 0;
 
@@ -504,8 +550,9 @@ function buildMetricsFromProfileEvents({
     const rightAt = typeof right.atMs === 'number' ? right.atMs : Number.POSITIVE_INFINITY;
     return leftAt - rightAt;
   })) {
-    let eventIteration = typeof event.iteration === 'number'
-      ? event.iteration
+    const rawIteration = readIterationLabel(event.iteration);
+    let eventIteration = rawIteration !== null
+      ? rawIteration + iterationLabelOffset
       : expectedIterations === 1
         ? 1
         : null;
@@ -523,6 +570,9 @@ function buildMetricsFromProfileEvents({
       }
     }
     if (eventIteration === null) {
+      continue;
+    }
+    if (eventIteration < 1 || eventIteration > expectedIterations) {
       continue;
     }
     if (typeof event.atMs !== 'number') {
