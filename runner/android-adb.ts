@@ -161,6 +161,11 @@ type AndroidAppLifecycleScan = {
   crashed: boolean;
   evidence: string[];
 };
+type AndroidForegroundScan = {
+  captured: boolean;
+  foregroundPackage: string | null;
+  targetForeground: boolean | null;
+};
 
 const ANDROID_DEVICE_EPOCH_MS_PLACEHOLDER = '__ASL_ANDROID_DEVICE_EPOCH_MS__';
 const DEFAULT_ADB_COMMAND_TIMEOUT_MS = 30000;
@@ -910,6 +915,31 @@ function scanAndroidAppLifecycleLog({
   return {
     crashed: evidence.size > 0,
     evidence: Array.from(evidence),
+  };
+}
+
+/**
+ * Reads the package currently owning the Android foreground window from dumpsys output.
+ *
+ * @param {{output: string, packageName: string}} options
+ * @returns {AndroidForegroundScan}
+ */
+function scanAndroidForegroundWindow({
+  output,
+  packageName,
+}: {
+  output: string;
+  packageName: string;
+}): AndroidForegroundScan {
+  const text = String(output);
+  const focusMatch = /mCurrentFocus=Window\{[^}]*\s(?<component>[A-Za-z0-9_.]+)\/[^\s}]+/u.exec(text)
+    ?? /mFocusedApp=ActivityRecord\{[^}]*\s(?<component>[A-Za-z0-9_.]+)\/[^\s}]+/u.exec(text)
+    ?? /topResumedActivity=ActivityRecord\{[^}]*\s(?<component>[A-Za-z0-9_.]+)\/[^\s}]+/u.exec(text);
+  const foregroundPackage = focusMatch?.groups?.component ?? null;
+  return {
+    captured: text.trim().length > 0,
+    foregroundPackage,
+    targetForeground: foregroundPackage ? foregroundPackage === packageName : null,
   };
 }
 
@@ -2728,6 +2758,25 @@ async function runAndroidAdbPreflight({
         const pidofAfterCaptureRawPath = 'raw/adb-app-pidof-after-capture.txt';
         raw['adb-app-pidof-after-capture.txt'] = formatAndroidCommandRawOutput(pidofAfterCapture);
         const afterCapturePids = parseAndroidPidofOutput(pidofAfterCapture.stdout);
+        const foregroundAfterCapture = await executor(adbPath, [
+          '-s',
+          device.serial,
+          'shell',
+          'dumpsys',
+          'window',
+        ]);
+        const foregroundAfterCaptureRawPath = 'raw/adb-window-foreground-after-capture.txt';
+        raw['adb-window-foreground-after-capture.txt'] = formatAndroidCommandRawOutput(foregroundAfterCapture);
+        const foregroundScan = foregroundAfterCapture.exitCode === 0
+          ? scanAndroidForegroundWindow({
+              output: `${foregroundAfterCapture.stdout}\n${foregroundAfterCapture.stderr}`,
+              packageName: lifecyclePackageName,
+            })
+          : {
+              captured: false,
+              foregroundPackage: null,
+              targetForeground: null,
+            };
         const lifecycleLogLines = Math.max(logcatLines, 200);
         const lifecycleLog = await driver.readLogs({
           lines: lifecycleLogLines,
@@ -2782,11 +2831,48 @@ async function runAndroidAdbPreflight({
                 }
               : {}),
         });
+        checks.push({
+          name: 'android_target_app_foreground',
+          status: foregroundScan.targetForeground === false
+            ? 'failed'
+            : foregroundScan.targetForeground === true
+              ? 'passed'
+              : 'warning',
+          source: 'runner',
+          code: foregroundScan.targetForeground === false
+            ? 'android_target_app_not_foreground'
+            : foregroundScan.targetForeground === true
+              ? 'android_target_app_foreground'
+              : 'android_target_app_foreground_unverified',
+          message: foregroundScan.targetForeground === false
+            ? `Foreground Android window belongs to ${foregroundScan.foregroundPackage}, not ${lifecyclePackageName}.`
+            : foregroundScan.targetForeground === true
+              ? `Target package ${lifecyclePackageName} owns the Android foreground window after capture.`
+              : `Could not verify Android foreground ownership for ${lifecyclePackageName}.`,
+          metadata: foregroundScan.targetForeground === false
+            ? nextActionHint(
+              'restore_android_target_foreground',
+              `Inspect ${foregroundAfterCaptureRawPath}, confirm the selected package and dev-client URL, and rerun when ${lifecyclePackageName} owns the foreground surface.`,
+            )
+            : foregroundScan.targetForeground === null
+              ? nextActionHint(
+                'confirm_android_target_foreground',
+                `Inspect ${foregroundAfterCaptureRawPath}; if this Android image cannot expose foreground state, use a host runner that can prove target foreground ownership before trusting UI or timing evidence.`,
+              )
+              : {
+                  rawPath: foregroundAfterCaptureRawPath,
+                },
+        });
         metadata.appLifecycle = {
           ...appLifecycleMetadata,
           afterCapturePids,
           afterCaptureRawPath: pidofAfterCaptureRawPath,
           crashEvidence: scan.evidence,
+          foreground: {
+            foregroundPackage: foregroundScan.foregroundPackage,
+            rawPath: foregroundAfterCaptureRawPath,
+            targetForeground: foregroundScan.targetForeground,
+          },
           lifecycleLogLines,
           lifecycleLogRawPath: `raw/${lifecycleLog.rawFileName}`,
           packageName: lifecyclePackageName,
