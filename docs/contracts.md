@@ -162,6 +162,8 @@ Failed or warning health checks may include scalar `metadata.nextActionCode` and
 
 Profile runs that ingest adb or simctl sidecar artifacts verify runtime identity when the profile command supplies an expected package, bundle, serial, or concrete simulator UDID, or when project config supplies a non-placeholder app id. A proven sidecar package, bundle, or target mismatch fails health with `runtime_identity_mismatch` before timing evidence is trusted. If the selected sidecar lacks metadata that can prove identity, health records a warning `runtime_identity_unverified` instead of implying verification.
 
+Profile-session helper evidence also carries `helperVersion`. When profile events or session entries prove a helper version that does not match the runner's expected helper contract, profile health fails with `profile_session_helper_version_mismatch` so agents do not optimize from a stale app helper. Older helper evidence that lacks the field records `profile_session_helper_version_missing` as a warning instead of being treated as verified.
+
 The current profile runner writes health, verdict, agent summary, metrics, causal-run, and budget-verdict artifacts.
 
 Budgets are supported but optional for adoption.
