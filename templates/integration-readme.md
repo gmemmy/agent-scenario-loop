@@ -120,6 +120,6 @@ That script requires both platform proofs, writes `artifacts/asl/live-proof-set/
 
 Set `ASL_REQUIRE_LIVE_PROOF_ARTIFACTS=1` before this gate when the local artifact tree itself is part of the proof, not just the aggregate `live-proof.json` files.
 
-Run `pnpm asl:host:doctor` before host/device live proof when adb, CoreSimulator, agent-device, or Argent availability is uncertain. Set `ASL_HOST_DOCTOR_REQUIRE=android,ios,agent-device,argent` in `.asl.local.env` or the shell when sidecar proof availability is part of the gate.
+Run `pnpm asl:host:doctor` before host/device live proof when adb, CoreSimulator, agent-device, Argent, Metro, or a local debug host is uncertain. Set `ASL_HOST_DOCTOR_REQUIRE=android,ios,agent-device,argent` in `.asl.local.env` or the shell when sidecar proof availability is part of the gate. Set `ASL_HOST_DOCTOR_TCP_PORTS=localhost:8081` or pass `--tcp-port localhost:8081` when a live proof depends on a warm Metro/dev-server port.
 
 The package-script snippets in `asl/package-scripts.json` include fixture, host doctor, portable agent-device and Argent interaction proof, live profile, compare, and proof-inspection commands. Merge the snippets you use into your app `package.json` so future agents can run the loop without rediscovering command arguments.

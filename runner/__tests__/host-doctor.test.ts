@@ -6,6 +6,7 @@ const path = require('node:path');
 const test = require('node:test');
 
 const {
+  parseTcpPortTargets,
   parseRequirements,
   runHostDoctor,
 } = require('../host-doctor');
@@ -192,8 +193,62 @@ test('host doctor fails health when a required sidecar command surface fails', a
   assert.equal(readJson(path.join(tempDir, 'raw', 'agent-device-check.json')).status, 'failed');
 });
 
+test('host doctor checks required TCP services before live proof', async (t: TestContext) => {
+  const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-host-doctor-tcp-'));
+  t.after(async () => {
+    await fsp.rm(tempDir, { recursive: true, force: true });
+  });
+  const tcpPortProbe = async (
+    target: {port: number},
+  ): Promise<{elapsedMs: number; errorMessage?: string; status: 'failed' | 'passed'}> => {
+    if (target.port === 8081) {
+      return { elapsedMs: 12, status: 'passed' };
+    }
+    return {
+      elapsedMs: 12,
+      errorMessage: 'connect ECONNREFUSED 127.0.0.1:8097',
+      status: 'failed',
+    };
+  };
+
+  const result = await runHostDoctor({
+    outputDir: tempDir,
+    requirements: [],
+    runId: 'host-doctor-tcp',
+    tcpPortProbe,
+    tcpPortTargets: [
+      { host: 'localhost', label: 'localhost:8081', port: 8081 },
+      { host: 'localhost', label: 'localhost:8097', port: 8097 },
+    ],
+  });
+
+  const health = readJson(path.join(tempDir, 'health.json'));
+  assert.equal(result.health.healthStatus, 'failed');
+  assert.equal(health.healthStatus, 'failed');
+  assert.equal(readJson(path.join(tempDir, 'verdict.json')).verdictStatus, 'inconclusive');
+  const checks = health.checks as Array<{metadata?: Record<string, unknown>; name: string; status: string}>;
+  assert.deepEqual(checks.map((check) => [check.name, check.status]), [
+    ['tcp_port_localhost_8081', 'passed'],
+    ['tcp_port_localhost_8097', 'failed'],
+  ]);
+  assert.equal(checks[1]?.metadata?.nextActionCode, 'start_required_tcp_service');
+  assert.equal(checks[1]?.metadata?.port, 8097);
+  const summary = fs.readFileSync(path.join(tempDir, 'agent-summary.md'), 'utf8');
+  assert.match(summary, /tcp_port_localhost_8097: failed/u);
+  assert.match(summary, /start_required_tcp_service/u);
+});
+
 test('host doctor requirement parser defaults to platform lanes and rejects unknown lanes', () => {
   assert.deepEqual(parseRequirements(undefined), ['android', 'ios']);
   assert.deepEqual(parseRequirements('android,ios,agent-device,argent'), ['android', 'ios', 'agent-device', 'argent']);
   assert.throws(() => parseRequirements('android,maestro'), /Unsupported host doctor requirement/u);
+});
+
+test('host doctor TCP target parser accepts ports and host ports', () => {
+  assert.deepEqual(parseTcpPortTargets(undefined), []);
+  assert.deepEqual(parseTcpPortTargets('8081,127.0.0.1:8097'), [
+    { host: 'localhost', label: 'localhost:8081', port: 8081 },
+    { host: '127.0.0.1', label: '127.0.0.1:8097', port: 8097 },
+  ]);
+  assert.throws(() => parseTcpPortTargets('localhost:not-a-port'), /Invalid --tcp-port target/u);
 });

@@ -3,6 +3,7 @@
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const fsp = require('node:fs/promises');
+const net = require('node:net');
 const path = require('node:path');
 
 const { createArtifactLayout } = require('../core/artifact-layout');
@@ -30,6 +31,7 @@ type CliArgs = {
   out?: string | boolean;
   require?: string | boolean;
   'run-id'?: string | boolean;
+  'tcp-port'?: string | boolean;
   xcrun?: string | boolean;
   [key: string]: string | boolean | undefined;
 };
@@ -56,7 +58,19 @@ type HostDoctorOptions = {
   requirements?: HostDoctorRequirement[];
   runId?: string;
   agentDeviceAvailability?: (options: Record<string, unknown>) => Promise<Record<string, unknown>>;
+  tcpPortProbe?: (target: TcpPortTarget, timeoutMs: number) => Promise<TcpPortProbeResult>;
+  tcpPortTargets?: TcpPortTarget[];
   xcrunPath?: string;
+};
+type TcpPortProbeResult = {
+  elapsedMs?: number;
+  errorMessage?: string;
+  status: 'failed' | 'passed';
+};
+type TcpPortTarget = {
+  host: string;
+  label: string;
+  port: number;
 };
 type HostDoctorCheck = {
   code: string;
@@ -93,6 +107,7 @@ function usage(output: {write: (message: string) => unknown} = process.stderr): 
     'Use --android-package, --android-serial, --ios-bundle, and --ios-device to target an installed app or specific target.',
     'Use --agent-device-require-platforms ios,android when agent-device discovery must prove booted OS targets.',
     'Use --argent <binary> and --base-args "<args>" to verify a non-global Argent command shape.',
+    'Use --tcp-port <host:port[,host:port]> to verify local services such as Metro before live proof.',
     'Use --command-timeout-ms <ms> to bound agent-device and Argent availability checks.',
   ], output);
 }
@@ -170,6 +185,50 @@ function parseRequirements(value: unknown): HostDoctorRequirement[] {
 function parsePositiveInteger(value: unknown, fallback: number): number {
   const parsed = typeof value === 'string' ? Number(value) : value;
   return typeof parsed === 'number' && Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+/**
+ * Makes a host/port label safe for a health check name.
+ *
+ * @param {string} value
+ * @returns {string}
+ */
+function safeCheckSegment(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/gu, '_').replace(/^_|_$/gu, '') || 'target';
+}
+
+/**
+ * Parses comma-separated TCP host/port targets.
+ *
+ * @param {unknown} value
+ * @returns {TcpPortTarget[]}
+ */
+function parseTcpPortTargets(value: unknown): TcpPortTarget[] {
+  if (value === undefined || value === false) {
+    return [];
+  }
+  if (value === true || typeof value !== 'string') {
+    throw new Error('--tcp-port must be a comma-separated list of <host:port> or <port> targets.');
+  }
+
+  return value
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .map((item) => {
+      const parts = item.split(':');
+      const host = parts.length > 1 ? parts.slice(0, -1).join(':').trim() : 'localhost';
+      const portText = parts[parts.length - 1]?.trim() ?? '';
+      const port = Number(portText);
+      if (!host || !Number.isInteger(port) || port <= 0 || port > 65_535) {
+        throw new Error(`Invalid --tcp-port target: ${item}.`);
+      }
+      return {
+        host,
+        label: `${host}:${port}`,
+        port,
+      };
+    });
 }
 
 /**
@@ -403,6 +462,73 @@ function buildExceptionCheck({
 }
 
 /**
+ * Checks whether a TCP service accepts a bounded connection.
+ *
+ * @param {TcpPortTarget} target
+ * @param {number} timeoutMs
+ * @returns {Promise<TcpPortProbeResult>}
+ */
+function probeTcpPort(target: TcpPortTarget, timeoutMs: number): Promise<TcpPortProbeResult> {
+  return new Promise((resolve) => {
+    const startedAt = Date.now();
+    const socket = net.createConnection({ host: target.host, port: target.port });
+    const finish = (result: TcpPortProbeResult): void => {
+      socket.removeAllListeners();
+      socket.destroy();
+      resolve({
+        ...result,
+        elapsedMs: Date.now() - startedAt,
+      });
+    };
+
+    socket.setTimeout(timeoutMs);
+    socket.once('connect', () => finish({ status: 'passed' }));
+    socket.once('error', (error: Error) => finish({ errorMessage: error.message, status: 'failed' }));
+    socket.once('timeout', () => finish({
+      errorMessage: `Timed out after ${timeoutMs}ms.`,
+      status: 'failed',
+    }));
+  });
+}
+
+/**
+ * Builds a host health check for one required TCP service.
+ *
+ * @param {{result: TcpPortProbeResult, target: TcpPortTarget}} options
+ * @returns {HostDoctorCheck}
+ */
+function buildTcpPortCheck({
+  result,
+  target,
+}: {
+  result: TcpPortProbeResult;
+  target: TcpPortTarget;
+}): HostDoctorCheck {
+  const name = `tcp_port_${safeCheckSegment(target.label)}`;
+  const passed = result.status === 'passed';
+  return {
+    code: passed ? 'tcp_port_available' : 'tcp_port_unavailable',
+    message: passed
+      ? `TCP service ${target.label} accepted a connection.`
+      : `TCP service ${target.label} did not accept a connection.`,
+    metadata: {
+      host: target.host,
+      label: target.label,
+      nextAction: passed
+        ? 'No action required.'
+        : `Start or restart the expected service on ${target.label}, then rerun the host doctor before live proof.`,
+      nextActionCode: passed ? 'none' : 'start_required_tcp_service',
+      port: target.port,
+      ...(typeof result.elapsedMs === 'number' ? { elapsedMs: result.elapsedMs } : {}),
+      ...(result.errorMessage ? { errorMessage: result.errorMessage } : {}),
+    },
+    name,
+    source: 'runner',
+    status: passed ? 'passed' : 'failed',
+  };
+}
+
+/**
  * Reads a string field from an artifact record.
  *
  * @param {Record<string, unknown>} record
@@ -548,6 +674,8 @@ async function runHostDoctor({
   outputDir = path.resolve('artifacts/host-doctor'),
   requirements = DEFAULT_REQUIREMENTS,
   runId = createRunId(),
+  tcpPortProbe = probeTcpPort,
+  tcpPortTargets = [],
   xcrunPath = 'xcrun',
 }: HostDoctorOptions = {}): Promise<HostDoctorResult> {
   const runDir = path.resolve(outputDir);
@@ -558,7 +686,17 @@ async function runHostDoctor({
   const raw: Record<string, unknown> = {
     requirements,
     runId,
+    tcpPortTargets,
   };
+
+  for (const target of tcpPortTargets) {
+    try {
+      const result = await tcpPortProbe(target, commandTimeoutMs);
+      checks.push(buildTcpPortCheck({ result, target }));
+    } catch (error) {
+      checks.push(buildExceptionCheck({ error, name: `tcp_port_${safeCheckSegment(target.label)}` }));
+    }
+  }
 
   if (requirements.includes('android')) {
     try {
@@ -752,6 +890,7 @@ async function main(): Promise<void> {
     'ASL_EXAMPLE_IOS_UDID',
   ]);
   const xcrunPath = readStringArgOrEnv(args.xcrun, ['ASL_XCRUN_PATH', 'ASL_IOS_XCRUN_BIN']);
+  const tcpPortTargets = parseTcpPortTargets(readStringArgOrEnv(args['tcp-port'], ['ASL_HOST_DOCTOR_TCP_PORTS']));
   const result = await runHostDoctor({
     ...(adbPath ? { adbPath } : {}),
     ...(agentDevicePath ? { agentDevicePath } : {}),
@@ -766,6 +905,7 @@ async function main(): Promise<void> {
     ...(typeof args.out === 'string' ? { outputDir: args.out } : {}),
     requirements,
     ...(typeof args['run-id'] === 'string' ? { runId: args['run-id'] } : {}),
+    tcpPortTargets,
     ...(xcrunPath ? { xcrunPath } : {}),
   });
   process.stdout.write(`${result.runDir}\n`);
@@ -785,9 +925,12 @@ export {
   buildAvailabilityCheck,
   buildChildRunCheck,
   buildHostDoctorSummary,
+  buildTcpPortCheck,
   main,
   parseArgs,
   parseRequirements,
+  parseTcpPortTargets,
+  probeTcpPort,
   runHostDoctor,
   usage,
 };
@@ -798,4 +941,6 @@ export type {
   HostDoctorOptions,
   HostDoctorRequirement,
   HostDoctorResult,
+  TcpPortProbeResult,
+  TcpPortTarget,
 };
