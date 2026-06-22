@@ -130,6 +130,128 @@ test('profile-ios writes artifacts from fixture event logs', async (t: TestConte
   assert.match(summary, /Scenario health passed/u);
 });
 
+test('profile-ios preserves captured provider evidence when another required output fails', async (t: TestContext) => {
+  const artifactRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-ios-provider-partial-'));
+  const providerRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-ios-provider-partial-'));
+  t.after(async () => {
+    await fsp.rm(artifactRoot, { recursive: true, force: true });
+    await fsp.rm(providerRoot, { recursive: true, force: true });
+  });
+  const providerScript = path.join(providerRoot, 'partial-provider.js');
+  await fsp.writeFile(
+    providerScript,
+    [
+      "const fs = require('node:fs');",
+      "const path = require('node:path');",
+      "const nativePerformancePath = process.argv[2];",
+      'fs.mkdirSync(path.dirname(nativePerformancePath), { recursive: true });',
+      "fs.writeFileSync(nativePerformancePath, JSON.stringify({",
+      "  schemaVersion: '1.0.0',",
+      "  providerId: 'partial-ios-native-provider',",
+      "  platform: 'ios',",
+      "  runId: 'demo-baseline',",
+      "  scenarioId: 'app-startup',",
+      "  tool: { name: 'xctrace', command: 'xctrace export' },",
+      "  captureMode: 'afterCapture',",
+      "  evidenceKind: 'instruments',",
+      "  dataClasses: ['frames', 'memory'],",
+      "  completenessStatus: 'partial',",
+      "  targetBinding: { status: 'verified', deviceId: 'A692ED28-893E-453F-8866-C69331AE757F', appId: 'dev.agent-scenario-loop.example' },",
+      "  comparability: { status: 'diagnostic-only', reason: 'Provider command failed after preserving iOS native performance evidence.' },",
+      "  frames: { frameHitchCount: 2 },",
+      "  memory: { peakResidentMemoryKb: 420000 },",
+      "  summary: 'Captured partial iOS native performance diagnostics.'",
+      "}) + '\\n');",
+      "process.stderr.write('accessibility describe timed out\\n');",
+      'process.exit(7);',
+    ].join('\n'),
+    'utf8',
+  );
+  const providerManifestPath = path.join(providerRoot, 'provider.json');
+  await fsp.writeFile(
+    providerManifestPath,
+    `${JSON.stringify({
+      schemaVersion: '1.0.0',
+      runnerId: 'partial-ios-native-provider',
+      kind: 'evidenceProvider',
+      platforms: ['ios'],
+      capabilities: ['accessibility', 'nativePerformance'],
+      artifactOutputs: ['accessibility', 'nativePerformance'],
+      lifecycle: ['capture'],
+      providerCommands: [
+        {
+          id: 'capture-required-diagnostics',
+          phase: 'capture',
+          command: process.execPath,
+          args: [
+            providerScript,
+            '{providerDir}/native-performance.json',
+          ],
+          outputs: [
+            {
+              channel: 'provider',
+              kind: 'nativePerformance',
+              path: '{providerDir}/native-performance.json',
+              required: true,
+            },
+            {
+              channel: 'provider',
+              kind: 'accessibility',
+              path: '{providerDir}/accessibility.json',
+              required: true,
+            },
+          ],
+        },
+      ],
+    }, null, 2)}\n`,
+    'utf8',
+  );
+
+  const { stdout } = await execFileAsync(process.execPath, [
+    PROFILE_IOS,
+    '--config',
+    fixturePath('core/config-template.json'),
+    '--scenario',
+    fixturePath('examples/scenarios/ios/app-startup.json'),
+    '--events',
+    fixturePath('examples/event-logs/app-startup-baseline.log'),
+    '--provider',
+    providerManifestPath,
+    '--out',
+    artifactRoot,
+    '--run-id',
+    'demo-baseline',
+  ]);
+
+  const runDir = stdout.trim();
+  const nativePerformancePath = path.join(runDir, 'raw', 'providers', 'partial-ios-native-provider', 'native-performance.json');
+  const manifest = readJson(path.join(runDir, 'manifest.json'));
+  const health = readJson(path.join(runDir, 'health.json')) as Record<string, any>;
+  const verdict = readJson(path.join(runDir, 'verdict.json')) as Record<string, any>;
+  const commandRecord = readJson(path.join(runDir, 'raw', 'provider-commands', 'partial-ios-native-provider-capture-required-diagnostics.json'));
+  const diagnostics = (manifest.artifacts as { diagnostics: Array<Record<string, unknown>> }).diagnostics;
+  const nativePerformanceDiagnostic = diagnostics.find((entry) => entry.kind === 'nativePerformance');
+  const accessibilityDiagnostic = diagnostics.find((entry) => entry.kind === 'accessibility');
+
+  assert.equal(fs.existsSync(nativePerformancePath), true);
+  assert.equal(health.healthStatus, 'failed');
+  assert.equal(verdict.verdictStatus, 'inconclusive');
+  assert.equal(commandRecord.exitCode, 7);
+  assert.equal(nativePerformanceDiagnostic?.status, 'captured');
+  assert.equal(nativePerformanceDiagnostic?.path, 'raw/providers/partial-ios-native-provider/native-performance.json');
+  assert.equal(accessibilityDiagnostic?.status, 'failed');
+  assert.equal(accessibilityDiagnostic?.provider, 'partial-ios-native-provider');
+  assert.ok(
+    (health.checks as Array<{ code: string; metadata?: { capturedKinds?: string; nextActionCode?: string } }>).some(
+      (check) => (
+        check.code === 'partial_provider_evidence_preserved' &&
+        check.metadata?.capturedKinds?.split(',').includes('nativePerformance') &&
+        check.metadata?.nextActionCode === 'use_partial_provider_evidence_for_diagnosis'
+      ),
+    ),
+  );
+});
+
 test('profile-ios profiles public scenario ids and milestone budgets', async (t: TestContext) => {
   const tempRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-ios-public-scenario-'));
   t.after(async () => {
