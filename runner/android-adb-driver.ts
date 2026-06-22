@@ -211,6 +211,35 @@ function formatAndroidAdbCommandTranscript(
     .join('\n\n');
 }
 
+function buildAssertVisibleCommandResult({
+  resolution,
+  result,
+  selector,
+}: {
+  resolution: AndroidSelectorResolution | null;
+  result: Awaited<ReturnType<AndroidAdbCommandExecutor>>;
+  selector: AndroidSelector;
+}): Awaited<ReturnType<AndroidAdbCommandExecutor>> {
+  if (resolution) {
+    return {
+      ...result,
+      exitCode: 0,
+    };
+  }
+
+  if (result.exitCode !== 0) {
+    return result;
+  }
+
+  return {
+    ...result,
+    exitCode: 1,
+    stderr: [result.stderr, `Android selector ${selector.kind}=${selector.value} was not visible.`]
+      .filter(Boolean)
+      .join('\n'),
+  };
+}
+
 /**
  * Decodes XML attribute entities emitted by `uiautomator dump`.
  *
@@ -470,15 +499,7 @@ function createAndroidAdbDriver({
       return buildDriverResult({
         action: 'assertVisible',
         rawFileName,
-        result: {
-          ...result,
-          exitCode: resolution ? 0 : result.exitCode === 0 ? 1 : result.exitCode,
-          stderr: resolution
-            ? result.stderr
-            : [result.stderr, `Android selector ${selector.kind}=${selector.value} was not visible.`]
-                .filter(Boolean)
-                .join('\n'),
-        },
+        result: buildAssertVisibleCommandResult({ resolution, result, selector }),
       });
     },
 
