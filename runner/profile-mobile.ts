@@ -3718,12 +3718,6 @@ async function runProfileMobile(args: CliArgs, options: ProfileMobileOptions): P
     metrics,
   });
 
-  const budgetVerdict = buildBudgetVerdict({
-    flowId: scenario.flowId ?? scenarioName,
-    runId,
-    budgetEvaluation: metrics.budgetEvaluation ?? null,
-  });
-
   const health = buildProfileHealth({
     scenario: profileScenario,
     runId,
@@ -3742,6 +3736,12 @@ async function runProfileMobile(args: CliArgs, options: ProfileMobileOptions): P
     health,
     runId,
     scenario: profileScenario,
+  });
+  const budgetVerdict = buildBudgetVerdict({
+    flowId: scenario.flowId ?? scenarioName,
+    runId,
+    budgetEvaluation: metrics.budgetEvaluation ?? null,
+    healthStatus: typeof finalHealth.healthStatus === 'string' ? finalHealth.healthStatus : null,
   });
   const verdict = buildProfileVerdict({ scenario: profileScenario, runId, health: finalHealth, metrics });
   const agentSummary = buildAgentSummaryMarkdown({ health: finalHealth, verdict, manifest });

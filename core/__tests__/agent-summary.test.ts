@@ -181,7 +181,6 @@ test('separates unmeasurable budget checks from failed budgets', () => {
   assert.match(summary, /cycle p95: feed scroll budget was unmeasurable/u);
   assert.match(summary, /Use explicit interval anchors/u);
 });
-
 test('does not render warning or partial health checks as failed checks', () => {
   const summary = buildAgentSummaryMarkdown({
     health: {

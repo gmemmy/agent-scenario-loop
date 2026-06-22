@@ -485,6 +485,67 @@ test('validates lifecycle-owned profiler evidence envelopes', () => {
   assert.equal(result.valid, true, result.message);
 });
 
+test('rejects comparable profiler evidence without verified claim support', () => {
+  const result = validateJson({
+    schemaVersion: '1.0.0',
+    providerId: 'react-profiler-provider',
+    platform: 'ios',
+    runId: 'profile-run',
+    scenarioId: 'startup',
+    captureMode: 'unknown',
+    comparability: {
+      status: 'comparable',
+    },
+    completenessStatus: 'partial',
+    targetBinding: {
+      status: 'ambiguous',
+      reason: 'Debugger status returned a different attached runtime.',
+    },
+    metrics: {
+      sampleCount: 1457,
+    },
+  }, SCHEMAS.profiler, 'Profiler evidence artifact');
+
+  assert.equal(result.valid, false);
+  assert.ok(result.errors.some((error: ValidationIssue) => error.path === '$.tool'));
+  assert.ok(result.errors.some((error: ValidationIssue) => error.path === '$.captureMode'));
+  assert.ok(result.errors.some((error: ValidationIssue) => error.path === '$.completenessStatus'));
+  assert.ok(result.errors.some((error: ValidationIssue) => error.path === '$.targetBinding.status'));
+});
+
+test('accepts comparable profiler evidence with verified claim support', () => {
+  const result = validateJson({
+    schemaVersion: '1.0.0',
+    providerId: 'react-profiler-provider',
+    platform: 'android',
+    runId: 'profile-run',
+    scenarioId: 'startup',
+    captureMode: 'session',
+    profileKind: 'cpu-summary',
+    tool: {
+      name: 'argent',
+      version: '0.12.1',
+    },
+    comparability: {
+      status: 'comparable',
+      policy: 'Same isolated runtime, app build, scenario hash, and profiler window cohort.',
+    },
+    completenessStatus: 'complete',
+    targetBinding: {
+      status: 'verified',
+      deviceId: 'emulator-5554',
+      appId: 'dev.agent-scenario-loop.example',
+      source: 'debugger-status',
+    },
+    metrics: {
+      sampleCount: 2084,
+      durationMs: 23100,
+    },
+  }, SCHEMAS.profiler, 'Profiler evidence artifact');
+
+  assert.equal(result.valid, true, result.message);
+});
+
 test('validates native performance evidence envelopes', () => {
   const result = validateJson({
     schemaVersion: '1.0.0',

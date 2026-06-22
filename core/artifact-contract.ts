@@ -1477,7 +1477,7 @@ function buildIterationSummary(metrics: ArtifactRecord): ArtifactRecord | null {
 /**
  * Builds the `budget-verdict.json` profile artifact from budget evaluation.
  *
- * @param {{flowId: string, runId: string, budgetEvaluation?: Record<string, unknown> | null, visualOutcome?: Record<string, unknown> | null, baselineRunId?: string | null}} options
+ * @param {{flowId: string, runId: string, budgetEvaluation?: Record<string, unknown> | null, visualOutcome?: Record<string, unknown> | null, baselineRunId?: string | null, healthStatus?: string | null}} options
  * @returns {Record<string, unknown> | null}
  */
 function buildBudgetVerdict({
@@ -1486,12 +1486,14 @@ function buildBudgetVerdict({
   budgetEvaluation,
   visualOutcome = null,
   baselineRunId = null,
+  healthStatus = null,
 }: {
   flowId: string;
   runId: string;
   budgetEvaluation?: ArtifactRecord | null;
   visualOutcome?: ArtifactRecord | null;
   baselineRunId?: string | null;
+  healthStatus?: string | null;
 }): ArtifactRecord | null {
   if (!budgetEvaluation) {
     return null;
@@ -1501,18 +1503,28 @@ function buildBudgetVerdict({
     visualOutcome &&
     Array.isArray(visualOutcome.checks) &&
     visualOutcome.checks.some((check) => check.status === 'manual-review-needed');
+  const diagnosticOnly = typeof healthStatus === 'string' && healthStatus !== 'passed';
 
   return sortValue({
     schemaVersion: '1.0.0',
     flowId,
     runId,
-    status: hasManualVisualReview
+    status: diagnosticOnly
+      ? 'partial'
+      : hasManualVisualReview
       ? 'partial'
       : budgetEvaluation.status === 'partial'
         ? 'partial'
         : budgetEvaluation.pass
           ? 'passed'
           : 'failed',
+    claimStatus: diagnosticOnly ? 'diagnostic_only' : 'trusted',
+    ...(diagnosticOnly
+      ? {
+          claimReason:
+            'Scenario health did not pass; budget checks are preserved for diagnosis but are not trusted product-performance claims.',
+        }
+      : {}),
     checks: (budgetEvaluation.checks ?? []).map((check: BudgetCheck) => ({
       name: check.name,
       metric: budgetEvaluation.metric ?? 'profile budget',
