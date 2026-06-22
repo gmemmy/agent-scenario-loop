@@ -1036,6 +1036,48 @@ test('marks budget verdict diagnostic-only when scenario health failed', () => {
   ]);
 });
 
+test('marks partial budget verdict diagnostic-only when latency is unmeasurable', () => {
+  const verdict = buildBudgetVerdict({
+    flowId: 'home-feed-scroll-stress',
+    runId: 'android-live-scroll',
+    healthStatus: 'passed',
+    budgetEvaluation: {
+      metric: 'feed scroll budget',
+      pass: false,
+      status: 'partial',
+      checks: [
+        {
+          name: 'cycle p95',
+          unit: 'ms',
+          limit: 1400,
+          actual: null,
+          pass: false,
+          status: 'unmeasurable',
+          notes: 'No latency samples were available; add interval anchors before making timing claims.',
+        },
+      ],
+      unmeasurableChecks: ['cycle p95'],
+    },
+  });
+
+  assert.equal(validateJson(verdict, SCHEMAS.budgetVerdict, 'Budget verdict artifact').valid, true);
+  assert.equal(verdict.status, 'partial');
+  assert.equal(verdict.claimStatus, 'diagnostic_only');
+  assert.match(verdict.claimReason, /Budget evaluation was partial/u);
+  assert.deepEqual(verdict.checks, [
+    {
+      actual: null,
+      expected: 1400,
+      metric: 'feed scroll budget',
+      name: 'cycle p95',
+      notes: 'No latency samples were available; add interval anchors before making timing claims.',
+      pass: false,
+      status: 'unmeasurable',
+      unit: 'ms',
+    },
+  ]);
+});
+
 test('keeps first valid lifecycle timestamps when duplicate completion events arrive late', () => {
   const metrics = buildMetricsFromProfileEvents({
     scenario: 'scroll-settle',
