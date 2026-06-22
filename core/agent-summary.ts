@@ -9,6 +9,20 @@ function asArray(value: unknown): unknown[] {
 }
 
 /**
+ * Returns a summary record when the value is object-like.
+ *
+ * @param {unknown} value
+ * @returns {SummaryRecord}
+ */
+function asSummaryRecord(value: unknown): SummaryRecord {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return {};
+  }
+
+  return value as SummaryRecord;
+}
+
+/**
  * Wraps a scalar value in markdown code ticks.
  *
  * @param {unknown} value
@@ -150,6 +164,225 @@ function filterChecksByStatus(checks: unknown[], statuses: string[]): unknown[] 
 }
 
 /**
+ * Returns a lower-case matching string for a health or budget record.
+ *
+ * @param {SummaryRecord} record
+ * @returns {string}
+ */
+function recordSearchText(record: SummaryRecord): string {
+  const metadata = asSummaryRecord(record.metadata);
+  return [
+    record.code,
+    record.name,
+    record.source,
+    record.status,
+    metadata.nextActionCode,
+    metadata.nextAction,
+  ]
+    .filter((value) => typeof value === 'string' && value.length > 0)
+    .join(' ')
+    .toLowerCase();
+}
+
+/**
+ * Returns whether text contains any of the target fragments.
+ *
+ * @param {string} text
+ * @param {string[]} fragments
+ * @returns {boolean}
+ */
+function containsAny(text: string, fragments: string[]): boolean {
+  return fragments.some((fragment) => text.includes(fragment));
+}
+
+/**
+ * Classifies the owner of the next useful action for an unhealthy check.
+ *
+ * @param {SummaryRecord} record
+ * @returns {NextActionOwner}
+ */
+function classifyCheckOwner(record: SummaryRecord): NextActionOwner {
+  const text = recordSearchText(record);
+
+  if (containsAny(text, ['provider', 'diagnostic', 'accessibility_snapshot', 'ui_tree', 'native_performance'])) {
+    return 'provider_tooling';
+  }
+
+  if (containsAny(text, [
+    'runtime_identity',
+    'foreground',
+    'backgrounded',
+    'bundle',
+    'package',
+    'metro',
+    'dev_client',
+    'launch_env',
+    'adb_daemon',
+    'simctl',
+    'core_simulator',
+    'xcode',
+    'profile_session_stale',
+    'stale',
+  ])) {
+    return 'runtime_environment';
+  }
+
+  if (containsAny(text, [
+    'truth_events',
+    'profile_session_start_missing',
+    'milestone',
+    'command_handler',
+    'command_sequence',
+    'app_truth',
+  ])) {
+    return 'app_truth';
+  }
+
+  if (containsAny(text, ['unmeasurable', 'interval_anchor', 'scenario_contract', 'missing_required_artifact'])) {
+    return 'scenario_contract';
+  }
+
+  if (containsAny(text, ['finalization', 'sidecar', 'ingest', 'artifact_write', 'manifest'])) {
+    return 'asl_runner';
+  }
+
+  return 'asl_runner';
+}
+
+/**
+ * Ranks owner classes so summaries choose the safest blocker before optimization.
+ *
+ * @param {NextActionOwner} owner
+ * @returns {number}
+ */
+function nextActionOwnerRank(owner: NextActionOwner): number {
+  const rank: Record<NextActionOwner, number> = {
+    runtime_environment: 0,
+    asl_runner: 1,
+    app_truth: 2,
+    scenario_contract: 3,
+    provider_tooling: 4,
+    product_optimization: 5,
+  };
+  return rank[owner];
+}
+
+/**
+ * Picks the most actionable owner from health and budget evidence.
+ *
+ * @param {{healthStatus: string, healthChecks: unknown[], verdictStatus: string, budgetChecks: unknown[]}} options
+ * @returns {NextActionSummary}
+ */
+function resolveNextActionSummary({
+  healthStatus,
+  healthChecks,
+  verdictStatus,
+  budgetChecks,
+}: {
+  budgetChecks: unknown[];
+  healthChecks: unknown[];
+  healthStatus: string;
+  verdictStatus: string;
+}): NextActionSummary {
+  const activeHealthChecks = asArray(healthChecks)
+    .map((check) => asSummaryRecord(check))
+    .filter((record) => firstString([record.status], 'unknown') !== 'passed');
+
+  if (healthStatus !== 'passed' && activeHealthChecks.length > 0) {
+    const owners = activeHealthChecks.map((record) => classifyCheckOwner(record));
+    const owner = owners.sort((left, right) => nextActionOwnerRank(left) - nextActionOwnerRank(right))[0] ?? 'asl_runner';
+    const ownerRecords = activeHealthChecks.filter((record) => classifyCheckOwner(record) === owner);
+    return nextActionSummaryForOwner(owner, ownerRecords);
+  }
+
+  const unmeasurableBudgets = asArray(budgetChecks)
+    .map((check) => asSummaryRecord(check))
+    .filter((record) => record.status === 'unmeasurable');
+  if (unmeasurableBudgets.length > 0 || verdictStatus === 'inconclusive' || verdictStatus === 'not_evaluated') {
+    return nextActionSummaryForOwner('scenario_contract', unmeasurableBudgets);
+  }
+
+  const failedBudgets = asArray(budgetChecks)
+    .map((check) => asSummaryRecord(check))
+    .filter((record) => record.pass === false && record.status !== 'unmeasurable');
+  if (healthStatus === 'passed' && failedBudgets.length > 0) {
+    return nextActionSummaryForOwner('product_optimization', failedBudgets);
+  }
+
+  if (healthStatus === 'passed' && verdictStatus === 'passed') {
+    return {
+      action: 'Use the artifact as trusted evidence or compare it against a compatible baseline.',
+      owner: 'product_optimization',
+      reason: 'scenario health and product verdict passed',
+    };
+  }
+
+  return nextActionSummaryForOwner('asl_runner', []);
+}
+
+/**
+ * Builds owner-specific next-action copy.
+ *
+ * @param {NextActionOwner} owner
+ * @param {SummaryRecord[]} records
+ * @returns {NextActionSummary}
+ */
+function nextActionSummaryForOwner(owner: NextActionOwner, records: SummaryRecord[]): NextActionSummary {
+  const firstRecord = records[0] ?? {};
+  const firstName = firstString([firstRecord.name, firstRecord.code], 'unknown_check');
+  const summaries: Record<NextActionOwner, NextActionSummary> = {
+    runtime_environment: {
+      action: 'Fix target selection or runtime setup, then rerun before interpreting product timing.',
+      owner,
+      reason: `runtime evidence is invalid or unverified at ${firstName}`,
+    },
+    app_truth: {
+      action: 'Repair app-owned scenario truth or command milestone emission, then rerun the same scenario.',
+      owner,
+      reason: `app-owned truth is incomplete at ${firstName}`,
+    },
+    provider_tooling: {
+      action: 'Fix or downgrade provider diagnostics and use preserved outputs only as diagnostic evidence.',
+      owner,
+      reason: `provider evidence is incomplete at ${firstName}`,
+    },
+    asl_runner: {
+      action: 'Inspect runner, sidecar, or artifact finalization before trusting this artifact.',
+      owner,
+      reason: `ASL artifact production needs attention at ${firstName}`,
+    },
+    scenario_contract: {
+      action: 'Clarify scenario contracts or add interval anchors before making a product claim.',
+      owner,
+      reason: `the requested claim is not measurable at ${firstName}`,
+    },
+    product_optimization: {
+      action: 'Treat the run as product evidence and investigate the failing budget or regression.',
+      owner,
+      reason: `scenario health passed and product budgets need attention at ${firstName}`,
+    },
+  };
+  return summaries[owner];
+}
+
+/**
+ * Formats the next-action owner section.
+ *
+ * @param {NextActionSummary} summary
+ * @returns {string[]}
+ */
+function formatNextActionSummary(summary: NextActionSummary): string[] {
+  return [
+    '',
+    '## next action',
+    '',
+    `- Owner: ${code(summary.owner)}`,
+    `- Reason: ${summary.reason}`,
+    `- Action: ${summary.action}`,
+  ];
+}
+
+/**
  * Formats failed budget checks as markdown list items.
  *
  * @param {unknown[]} budgetChecks
@@ -244,15 +477,9 @@ function formatAttempt(manifest: SummaryRecord | null | undefined): string[] {
   }
 
   const attemptRecord = attempt as SummaryRecord;
-  const classification = attemptRecord.classification && typeof attemptRecord.classification === 'object' && !Array.isArray(attemptRecord.classification)
-    ? attemptRecord.classification as SummaryRecord
-    : {};
-  const cleanup = attemptRecord.cleanup && typeof attemptRecord.cleanup === 'object' && !Array.isArray(attemptRecord.cleanup)
-    ? attemptRecord.cleanup as SummaryRecord
-    : {};
-  const partialArtifacts = attemptRecord.partialArtifacts && typeof attemptRecord.partialArtifacts === 'object' && !Array.isArray(attemptRecord.partialArtifacts)
-    ? attemptRecord.partialArtifacts as SummaryRecord
-    : {};
+  const classification = asSummaryRecord(attemptRecord.classification);
+  const cleanup = asSummaryRecord(attemptRecord.cleanup);
+  const partialArtifacts = asSummaryRecord(attemptRecord.partialArtifacts);
   const retryOfAttemptId = firstString([attemptRecord.retryOfAttemptId], '');
   const retryReason = firstString([attemptRecord.retryReason], '');
   const lines = [
@@ -311,6 +538,14 @@ function buildAgentSummaryMarkdown({ health, verdict, comparison = null, manifes
   }
 
   const healthChecks = asArray(health?.checks);
+  const budgetChecks = asArray(verdict?.budgetChecks);
+  lines.push(...formatNextActionSummary(resolveNextActionSummary({
+    budgetChecks,
+    healthChecks,
+    healthStatus,
+    verdictStatus,
+  })));
+
   const failedChecks = filterChecksByStatus(healthChecks, ['failed']);
   if (failedChecks.length > 0) {
     lines.push('', '## failed checks', '', ...formatChecks(failedChecks));
@@ -334,12 +569,12 @@ function buildAgentSummaryMarkdown({ health, verdict, comparison = null, manifes
     lines.push('', '## preserved diagnostic evidence', '', ...preservedProviderEvidence);
   }
 
-  const failedBudgets = formatFailedBudgets(asArray(verdict?.budgetChecks));
+  const failedBudgets = formatFailedBudgets(budgetChecks);
   if (failedBudgets.length > 0) {
     lines.push('', '## failed budgets', '', ...failedBudgets);
   }
 
-  const unmeasurableBudgets = formatUnmeasurableBudgets(asArray(verdict?.budgetChecks));
+  const unmeasurableBudgets = formatUnmeasurableBudgets(budgetChecks);
   if (unmeasurableBudgets.length > 0) {
     lines.push('', '## unmeasurable budgets', '', ...unmeasurableBudgets);
   }
@@ -369,4 +604,18 @@ type AgentSummaryInput = {
   verdict: SummaryRecord;
   comparison?: SummaryRecord | null;
   manifest?: SummaryRecord | null;
+};
+
+type NextActionOwner =
+  | 'app_truth'
+  | 'asl_runner'
+  | 'product_optimization'
+  | 'provider_tooling'
+  | 'runtime_environment'
+  | 'scenario_contract';
+
+type NextActionSummary = {
+  action: string;
+  owner: NextActionOwner;
+  reason: string;
 };
