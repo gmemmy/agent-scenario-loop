@@ -1863,6 +1863,49 @@ function buildRequiredDiagnosticHealthChecks(diagnostics: DiagnosticInventoryEnt
 }
 
 /**
+ * Reports provider-backed diagnostics that survived a provider command failure.
+ *
+ * @param {DiagnosticInventoryEntry[]} diagnostics
+ * @param {ProviderCommandFailure[]} failures
+ * @returns {Record<string, unknown>[]}
+ */
+function buildPartialProviderEvidenceHealthChecks(
+  diagnostics: DiagnosticInventoryEntry[] = [],
+  failures: ProviderCommandFailure[] = [],
+): Record<string, unknown>[] {
+  if (failures.length === 0) {
+    return [];
+  }
+
+  const capturedProviderDiagnostics = diagnostics.filter((diagnostic) => (
+    diagnostic.status === 'captured' &&
+    typeof diagnostic.provider === 'string' &&
+    diagnostic.provider.length > 0
+  ));
+  if (capturedProviderDiagnostics.length === 0) {
+    return [];
+  }
+
+  const capturedKinds = uniqueStrings(capturedProviderDiagnostics.map((diagnostic) => diagnostic.kind));
+  const capturedPaths = uniqueStrings(capturedProviderDiagnostics.map((diagnostic) => readTrimmedString(diagnostic.path)));
+  return [
+    {
+      name: 'partial_provider_evidence_preserved',
+      status: 'warning',
+      source: 'evidence',
+      code: 'partial_provider_evidence_preserved',
+      message: 'Provider command health failed, but some provider-backed diagnostics were preserved for diagnosis.',
+      metadata: {
+        capturedKinds: capturedKinds.join(','),
+        capturedPaths: capturedPaths.join(','),
+        nextAction: 'Use preserved diagnostics for investigation only; rerun or fix missing required provider outputs before making product claims.',
+        nextActionCode: 'use_partial_provider_evidence_for_diagnosis',
+      },
+    },
+  ];
+}
+
+/**
  * Converts evidence-provider command failures into health checks.
  *
  * @param {ProviderCommandFailure[]} failures
@@ -2173,6 +2216,7 @@ function buildProfileHealth({
   const evidenceIdentityChecksPassed = evidenceIdentityChecks.every((check) => check.status !== 'failed');
   const providerFailureChecks = buildProviderCommandFailureChecks(providerFailures);
   const providerFailureChecksPassed = providerFailureChecks.every((check) => check.status === 'passed');
+  const partialProviderEvidenceChecks = buildPartialProviderEvidenceHealthChecks(diagnostics, providerFailures);
   const helperVersionChecks = buildProfileHelperVersionHealthChecks(helperVersion);
   const helperVersionChecksPassed = helperVersionChecks.every((check) => check.status !== 'failed');
   const runtimeIdentityChecks = buildRuntimeIdentityHealthChecks(runtimeIdentity);
@@ -2240,6 +2284,7 @@ function buildProfileHealth({
         ...sessionFreshnessChecks,
         ...commandChecks,
         ...providerFailureChecks,
+        ...partialProviderEvidenceChecks,
         ...helperVersionChecks,
         ...runtimeIdentityChecks,
         ...diagnosticChecks,
