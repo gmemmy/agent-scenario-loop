@@ -120,6 +120,13 @@ test('accepts a compatible primary runner for a canonical scenario', () => {
   assert.ok(result.matched.capabilities.includes('command'));
   assert.ok(result.matched.driverActions.includes('tap'));
   assert.ok(result.matched.artifacts.includes('logs'));
+  assert.deepEqual(result.matched.manifestVersions, [
+    {
+      kind: 'primary',
+      runnerId: 'xcodebuildmcp-ios',
+      schemaVersion: '1.0.0',
+    },
+  ]);
 });
 
 test('fails when a runner is missing a required capability', () => {
@@ -957,6 +964,13 @@ test('maps compatible planner output to passed health', () => {
   assert.ok(health.matched.capabilities.includes('launch'));
   assert.ok(health.matched.driverActions.includes('screenshot'));
   assert.ok(health.matched.uiContexts.includes('app'));
+  assert.deepEqual(health.matched.manifestVersions, [
+    {
+      kind: 'primary',
+      runnerId: 'xcodebuildmcp-ios',
+      schemaVersion: '1.0.0',
+    },
+  ]);
   assert.deepEqual(health.downgradePolicy, {
     allowedSubstitutions: [],
     mode: 'no-silent-downgrade',
@@ -964,6 +978,37 @@ test('maps compatible planner output to passed health', () => {
     unsupported: [],
     warnings: [],
   });
+});
+
+test('planner compatibility health records active provider manifest versions', () => {
+  const scenario = readJson('examples/scenarios/mobile/app-startup.json');
+  const runner = readJson('examples/runners/xcodebuildmcp-ios.json');
+  const provider = readJson('examples/runners/axe-accessibility-provider.json');
+  const compatibility = evaluateRunnerCompatibility({
+    scenario,
+    runner,
+    evidenceProviders: [provider],
+    platform: 'ios',
+  });
+
+  const health = buildCompatibilityHealth({
+    scenario,
+    runId: 'run-provider-version',
+    compatibility,
+  });
+
+  assert.deepEqual(health.matched.manifestVersions, [
+    {
+      kind: 'primary',
+      runnerId: 'xcodebuildmcp-ios',
+      schemaVersion: '1.0.0',
+    },
+    {
+      kind: 'evidenceProvider',
+      runnerId: 'axe-accessibility-provider',
+      schemaVersion: '1.0.0',
+    },
+  ]);
 });
 
 test('maps planner warnings into health warnings without failing health', () => {

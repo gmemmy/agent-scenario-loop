@@ -75,6 +75,25 @@
           "items": {
             "type": "string"
           }
+        },
+        "manifestVersions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["runnerId", "kind", "schemaVersion"],
+            "properties": {
+              "runnerId": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string"
+              },
+              "schemaVersion": {
+                "type": "string"
+              }
+            }
+          }
         }
       }
     },
