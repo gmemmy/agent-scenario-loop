@@ -871,6 +871,63 @@ test('does not treat Android WebView renderer crashes as app process crashes', a
   assert.match(fs.readFileSync(path.join(outputDir, 'raw', 'adb-app-lifecycle-log.txt'), 'utf8'), /Renderer process/u);
 });
 
+test('fails health when Android foreground belongs to another package', async (t: TestContext) => {
+  const outputDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-android-adb-foreground-'));
+  t.after(async () => {
+    await fsp.rm(outputDir, { recursive: true, force: true });
+  });
+  const executor = createExecutor({
+    version: { stdout: 'Android Debug Bridge version 1.0.41\n' },
+    'devices -l': {
+      stdout: [
+        'List of devices attached',
+        'emulator-5554 device product:sdk_gphone model:Pixel_6 device:emu64',
+      ].join('\n'),
+    },
+    '-s emulator-5554 shell getprop ro.product.model': { stdout: 'Pixel 6\n' },
+    '-s emulator-5554 shell getprop ro.build.version.release': { stdout: '15\n' },
+    '-s emulator-5554 shell getprop ro.build.version.sdk': { stdout: '35\n' },
+    '-s emulator-5554 shell pm path dev.agentscenarioloop.example': {
+      stdout: 'package:/data/app/dev.agentscenarioloop.example/base.apk\n',
+    },
+    '-s emulator-5554 shell monkey -p dev.agentscenarioloop.example -c android.intent.category.LAUNCHER 1': {
+      stdout: 'Events injected: 1\n',
+    },
+    '-s emulator-5554 shell pidof dev.agentscenarioloop.example': {
+      stdout: '1234\n',
+    },
+    '-s emulator-5554 shell dumpsys window': {
+      stdout: 'mCurrentFocus=Window{6f2 u0 com.android.launcher3/.Launcher}\n',
+    },
+    '-s emulator-5554 logcat -d -v time -t 1000': {
+      stdout: '06-16 10:00:01.000 I/ReactNativeJS(1234): Running "main"\n',
+    },
+  });
+
+  const result = await runAndroidAdbPreflight({
+    executor,
+    launch: true,
+    outputDir,
+    packageName: 'dev.agentscenarioloop.example',
+    runId: 'android-foreground-mismatch',
+  });
+
+  assert.equal(result.health.healthStatus, 'failed');
+  assert.ok(fs.existsSync(path.join(outputDir, 'raw', 'adb-window-foreground-after-capture.txt')));
+  assert.ok(
+    (result.health.checks as Array<{ code: string; metadata?: { nextActionCode?: string } }>).some(
+      (check) => check.code === 'android_target_app_not_foreground'
+        && check.metadata?.nextActionCode === 'restore_android_target_foreground',
+    ),
+  );
+  const metadata = JSON.parse(fs.readFileSync(path.join(outputDir, 'raw', 'android-metadata.json'), 'utf8'));
+  assert.deepEqual(metadata.appLifecycle.foreground, {
+    foregroundPackage: 'com.android.launcher3',
+    rawPath: 'raw/adb-window-foreground-after-capture.txt',
+    targetForeground: false,
+  });
+});
+
 test('opens profile-session deep links before logcat capture', async (t: TestContext) => {
   const outputDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-android-adb-deep-link-'));
   t.after(async () => {

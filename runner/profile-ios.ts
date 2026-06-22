@@ -21,6 +21,7 @@ const {
 } = require('./profile-mobile');
 const { runIosSimctlCapture } = require('./ios-simctl');
 const { runAgentDeviceCapture } = require('./agent-device');
+const { assertConcreteMobileAppId } = require('./app-identity');
 const { loadAslLocalEnv, readStringArgOrEnv } = require('./local-env');
 
 type IosProfileOptions = {
@@ -891,9 +892,18 @@ async function runProfileIos(
     : [];
   const deepLinks = [...iosDevClientDeepLinks, ...profileSessionDeepLinks];
   const shouldLaunchWithSimctl = isEnabled(args.launch) && !(profileSessionStorageEnabled && iosDevClientUrl);
+  const iosBundleId = resolveIosBundleId({ args, config });
+  if (isEnabled(args['simctl-capture']) || isEnabled(args['agent-device-capture'])) {
+    assertConcreteMobileAppId({
+      appId: iosBundleId,
+      appIdKind: 'iOS bundle id',
+      platform: 'ios',
+      replacementHint: 'Pass --bundle, set ASL_IOS_APP_ID in generated scripts, or replace app.iosBundleId in asl.config.json.',
+    });
+  }
   const simctlCapture = isEnabled(args['simctl-capture'])
     ? await runIosSimctlCapture({
-        bundleId: resolveIosBundleId({ args, config }),
+        bundleId: iosBundleId,
         collectProfileStorage: profileSessionStorageEnabled,
         conflictingBundleIds: resolveIosConflictingBundleIds(config),
         deepLinks,
@@ -954,7 +964,7 @@ async function runProfileIos(
         ...(typeof args['agent-device'] === 'string' ? { agentDevicePath: args['agent-device'] } : {}),
         app: typeof args['agent-device-app'] === 'string'
           ? args['agent-device-app']
-          : resolveIosBundleId({ args, config }),
+          : iosBundleId,
         ...(options.agentDeviceExecutor ? { executor: options.agentDeviceExecutor } : {}),
         ...(typeof args['agent-device-device'] === 'string' ? { device: args['agent-device-device'] } : {}),
         ...(typeof args['agent-device-session'] === 'string' ? { session: args['agent-device-session'] } : {}),
