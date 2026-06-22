@@ -575,6 +575,13 @@ test('validates native performance evidence envelopes', () => {
       reason: 'Native frame summary was captured after the ASL loop.',
       policy: 'Use for diagnosis until cohort-aware native metric comparison is configured.',
     },
+    claimSufficiency: {
+      status: 'sufficient-for-diagnosis',
+      claim: 'Explain native frame and memory pressure after a profile run.',
+      reason: 'Captured frame and memory surfaces are present, but this evidence was not collected under a comparable native-performance baseline.',
+      supportingEvidence: ['frames', 'memory', 'attachments'],
+      missingEvidence: ['comparable native-performance cohort'],
+    },
     completenessStatus: 'complete',
     frames: {
       total: 180,
@@ -655,6 +662,76 @@ test('accepts diagnostic-only native performance evidence without comparable cla
   assert.equal(result.valid, true, result.message);
 });
 
+test('accepts partial native performance evidence with explicit claim insufficiency', () => {
+  const result = validateJson({
+    schemaVersion: '1.0.0',
+    providerId: 'native-performance-provider',
+    platform: 'android',
+    runId: 'profile-run',
+    scenarioId: 'video-handoff',
+    captureMode: 'afterCapture',
+    evidenceKind: 'mixed',
+    dataClasses: ['frames', 'memory'],
+    completenessStatus: 'partial',
+    targetBinding: {
+      status: 'verified',
+      deviceId: 'emulator-5554',
+      appId: 'dev.agent-scenario-loop.example',
+      source: 'adb',
+    },
+    comparability: {
+      status: 'diagnostic-only',
+      reason: 'Accessibility capture failed, but native frame and memory evidence survived.',
+    },
+    claimSufficiency: {
+      status: 'insufficient-for-claim',
+      claim: 'Native performance release readiness.',
+      reason: 'The evidence can explain jank and memory pressure but is missing a complete comparable native trace.',
+      supportingEvidence: ['frames', 'memory'],
+      missingEvidence: ['complete provider diagnostics', 'comparable baseline'],
+      nextAction: 'Use this as diagnosis only; rerun a complete comparable native-performance lane before making a release claim.',
+    },
+    frames: {
+      total: 7574,
+      droppedFramePercent: 10.6,
+    },
+    memory: {
+      totalPssKb: 1264994,
+    },
+  }, SCHEMAS.nativePerformance, 'Native performance evidence artifact');
+
+  assert.equal(result.valid, true, result.message);
+});
+
+test('rejects native performance claim sufficiency without comparable support', () => {
+  const result = validateJson({
+    schemaVersion: '1.0.0',
+    providerId: 'native-performance-provider',
+    platform: 'android',
+    runId: 'profile-run',
+    scenarioId: 'video-handoff',
+    completenessStatus: 'partial',
+    targetBinding: {
+      status: 'unverified',
+    },
+    comparability: {
+      status: 'diagnostic-only',
+    },
+    claimSufficiency: {
+      status: 'sufficient-for-comparison',
+      claim: 'Native performance release readiness.',
+    },
+    frames: {
+      droppedFramePercent: 10.6,
+    },
+  }, SCHEMAS.nativePerformance, 'Native performance evidence artifact');
+
+  assert.equal(result.valid, false);
+  assert.ok(result.errors.some((error: ValidationIssue) => error.path === '$.comparability.status'));
+  assert.ok(result.errors.some((error: ValidationIssue) => error.path === '$.completenessStatus'));
+  assert.ok(result.errors.some((error: ValidationIssue) => error.path === '$.targetBinding.status'));
+});
+
 test('rejects comparable native performance evidence without verified claim support', () => {
   const result = validateJson({
     schemaVersion: '1.0.0',
@@ -698,6 +775,12 @@ test('accepts comparable native performance evidence with verified claim support
     comparability: {
       status: 'comparable',
       policy: 'Same device, app build, scenario hash, and trace window cohort.',
+    },
+    claimSufficiency: {
+      status: 'sufficient-for-comparison',
+      claim: 'Compare native frame timing against the matching cohort baseline.',
+      reason: 'Trace summary is complete, comparable, and bound to the expected target.',
+      supportingEvidence: ['frames'],
     },
     completenessStatus: 'complete',
     targetBinding: {

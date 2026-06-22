@@ -9,6 +9,42 @@
     {
       "if": {
         "properties": {
+          "claimSufficiency": {
+            "type": "object",
+            "properties": {
+              "status": { "const": "sufficient-for-comparison" }
+            },
+            "required": ["status"]
+          }
+        },
+        "required": ["claimSufficiency"]
+      },
+      "then": {
+        "required": ["comparability", "completenessStatus", "targetBinding"],
+        "properties": {
+          "comparability": {
+            "type": "object",
+            "properties": {
+              "status": { "const": "comparable" }
+            },
+            "required": ["status"]
+          },
+          "completenessStatus": {
+            "const": "complete"
+          },
+          "targetBinding": {
+            "type": "object",
+            "properties": {
+              "status": { "const": "verified" }
+            },
+            "required": ["status"]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
           "comparability": {
             "type": "object",
             "properties": {
@@ -165,6 +201,45 @@
         "policy": {
           "type": "string",
           "minLength": 1
+        }
+      }
+    },
+    "claimSufficiency": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["status"],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": ["sufficient-for-diagnosis", "insufficient-for-claim", "sufficient-for-comparison", "unknown"]
+        },
+        "claim": {
+          "type": "string",
+          "minLength": 1
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        },
+        "nextAction": {
+          "type": "string",
+          "minLength": 1
+        },
+        "missingEvidence": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        },
+        "supportingEvidence": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
         }
       }
     },
