@@ -2461,9 +2461,28 @@ function buildProfileHealth({
     metadata.nextAction =
       'Verify the app loaded the expected bundle, mounted the profile-session bootstrap near the app root, and uses the configured storage keys or deep-link scheme before treating this as a product failure.';
   }
+  const completedCommands = sessionEntries.filter((entry) => (
+    entry?.kind === 'command' && entry.status === 'completed'
+  ));
+  const milestoneBackedCompletedCommands = completedCommands.filter((entry) => (
+    typeof entry.waitForMilestone === 'string' && entry.waitForMilestone.length > 0
+  ));
   const skippedCommands = sessionEntries.filter((entry) => (
     entry?.kind === 'command' && entry.status === 'skipped'
   ));
+  if (
+    !passed &&
+    typeof profileEventCount === 'number' &&
+    profileEventCount > 0 &&
+    completedCommands.length > 0 &&
+    skippedCommands.length === 0
+  ) {
+    metadata.completedCommandCount = completedCommands.length;
+    metadata.milestoneBackedCommandCount = milestoneBackedCompletedCommands.length;
+    metadata.nextActionCode = 'inspect_truth_iteration_mapping';
+    metadata.nextAction =
+      'Profile-session commands reached terminal status, but app-owned truth events did not satisfy every expected iteration. Inspect causal-run command correlation, milestone names, sequence or iteration metadata, and scenario cycle body settings before treating this as product performance evidence.';
+  }
   const firstSkippedCommand = skippedCommands[0] as Record<string, any> | undefined;
   const firstSkippedReason = typeof firstSkippedCommand?.reason === 'string'
     ? firstSkippedCommand.reason
