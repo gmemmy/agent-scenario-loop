@@ -48,6 +48,7 @@ const TEMPLATE_FILES = {
   packageScripts: 'package-scripts.json',
   primaryRunner: 'primary-runner.json',
   accessibilityProviderScript: path.join('scripts', 'asl-capture-accessibility-provider.mjs'),
+  nativePerformanceProviderScript: path.join('scripts', 'asl-capture-native-performance-provider.mjs'),
   profilerProviderScript: path.join('scripts', 'asl-capture-profiler-provider.mjs'),
   scenario: 'mobile-scenario.json',
 };
@@ -172,6 +173,10 @@ function buildScaffoldFiles({
     {
       source: path.join(templatesRoot, TEMPLATE_FILES.accessibilityProviderScript),
       destination: path.join(targetDir, 'scripts', 'asl-capture-accessibility-provider.mjs'),
+    },
+    {
+      source: path.join(templatesRoot, TEMPLATE_FILES.nativePerformanceProviderScript),
+      destination: path.join(targetDir, 'scripts', 'asl-capture-native-performance-provider.mjs'),
     },
     {
       source: path.join(templatesRoot, TEMPLATE_FILES.profilerProviderScript),

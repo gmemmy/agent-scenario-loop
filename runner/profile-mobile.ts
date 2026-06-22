@@ -135,7 +135,6 @@ type RuntimeTarget = {
   name: string;
   udid: string;
 };
-
 /**
  * Resolves the consumer repo git revision for manifest provenance.
  *
@@ -158,6 +157,12 @@ function resolveGitSha(): string {
     return 'unknown';
   }
 }
+type EvidenceIdentityFailure = {
+  code: 'profile_session_identity_ambiguous';
+  message: string;
+  requestedRunId: string;
+  sourceRunIds: string[];
+};
 type ProviderCommandOutput = {
   channel: EvidenceChannel;
   kind: EvidenceKind;
@@ -902,6 +907,19 @@ async function executeProviderCommands({
         'utf8',
       );
       if (commandResult.exitCode !== 0) {
+        for (const output of providerCommand.outputs) {
+          const sourcePath = resolveProviderPath({ context, manifestDir, value: output.path });
+          const stat = await fsp.stat(sourcePath).catch(() => null);
+          if (!stat?.isFile()) {
+            continue;
+          }
+          inputs.push(buildProviderEvidenceInput({
+            layout,
+            output,
+            providerId,
+            sourcePath,
+          }));
+        }
         const timedOut = commandResult.timedOut;
         failures.push({
           commandId: providerCommand.id,
@@ -1766,6 +1784,7 @@ function buildProfileHealth({
   profileEventCount,
   profileSessionEntryCount,
   commandTransport,
+  evidenceIdentityFailure = null,
   sessionEntries = [],
   sessionFreshness = null,
   sessionFreshnessRequired = false,
@@ -1777,6 +1796,7 @@ function buildProfileHealth({
   profileEventCount?: number;
   profileSessionEntryCount?: number;
   commandTransport?: string;
+  evidenceIdentityFailure?: EvidenceIdentityFailure | null;
   sessionEntries?: Record<string, any>[];
   sessionFreshness?: ProfileSessionFreshness | null;
   sessionFreshnessRequired?: boolean;
@@ -1847,6 +1867,24 @@ function buildProfileHealth({
   const commandChecksPassed = commandChecks.every((check) => check.status === 'passed');
   const diagnosticChecks = buildRequiredDiagnosticHealthChecks(diagnostics);
   const diagnosticChecksPassed = diagnosticChecks.every((check) => check.status === 'passed');
+  const evidenceIdentityChecks = evidenceIdentityFailure
+    ? [
+        {
+          name: 'profile_session_identity',
+          status: 'failed',
+          source: 'runner',
+          code: evidenceIdentityFailure.code,
+          message: evidenceIdentityFailure.message,
+          metadata: {
+            nextAction: 'Select a sidecar with exactly one source run id for this scenario, or rerun the live capture with a fresh run id.',
+            nextActionCode: 'rerun_with_unambiguous_profile_session',
+            requestedRunId: evidenceIdentityFailure.requestedRunId,
+            sourceRunIds: evidenceIdentityFailure.sourceRunIds.join(','),
+          },
+        },
+      ]
+    : [];
+  const evidenceIdentityChecksPassed = evidenceIdentityChecks.every((check) => check.status !== 'failed');
   const sessionFreshnessChecks = sessionFreshness
     ? [
         {
@@ -1879,7 +1917,11 @@ function buildProfileHealth({
       ]
     : [];
   const sessionFreshnessChecksPassed = sessionFreshnessChecks.every((check) => check.status !== 'failed');
-  const healthPassed = passed && commandChecksPassed && diagnosticChecksPassed && sessionFreshnessChecksPassed;
+  const healthPassed = passed &&
+    commandChecksPassed &&
+    diagnosticChecksPassed &&
+    evidenceIdentityChecksPassed &&
+    sessionFreshnessChecksPassed;
 
   return assertValidJson(
     {
@@ -1899,9 +1941,48 @@ function buildProfileHealth({
             : 'Profile events did not complete every expected iteration.',
           metadata,
         },
+        ...evidenceIdentityChecks,
         ...sessionFreshnessChecks,
         ...commandChecks,
         ...diagnosticChecks,
+      ],
+    },
+    SCHEMAS.health,
+    'Health artifact',
+  ) as Record<string, unknown>;
+}
+
+/**
+ * Adds provider command failures to otherwise finalized profile health.
+ *
+ * @param {{failures: ProviderCommandFailure[], health: Record<string, unknown>, runId: string, scenario: Record<string, unknown>}} options
+ * @returns {Record<string, unknown>}
+ */
+function appendProviderCommandFailuresToHealth({
+  failures,
+  health,
+  runId,
+  scenario,
+}: {
+  failures: ProviderCommandFailure[];
+  health: Record<string, any>;
+  runId: string;
+  scenario: Record<string, any>;
+}): Record<string, unknown> {
+  if (failures.length === 0) {
+    return health;
+  }
+
+  const providerHealth = buildProviderCommandFailureHealth({ failures, runId, scenario });
+  const existingChecks = Array.isArray(health.checks) ? health.checks : [];
+  const providerChecks = Array.isArray(providerHealth.checks) ? providerHealth.checks : [];
+  return assertValidJson(
+    {
+      ...health,
+      healthStatus: 'failed',
+      checks: [
+        ...existingChecks,
+        ...providerChecks,
       ],
     },
     SCHEMAS.health,
@@ -2455,7 +2536,7 @@ function resolveProfileSessionFreshness({
  * the event filter.
  *
  * @param {{args: CliArgs, eventLogText: string, profileSessionEntriesPath: string | null, runId: string, scenarioName: string}} options
- * @returns {string}
+ * @returns {{failure?: EvidenceIdentityFailure, runId: string}}
  */
 function resolveEvidenceFilterRunId({
   args,
@@ -2469,16 +2550,16 @@ function resolveEvidenceFilterRunId({
   profileSessionEntriesPath: string | null;
   runId: string;
   scenarioName: string;
-}): string {
+}): { failure?: EvidenceIdentityFailure; runId: string } {
   const isRehydratedSidecar = typeof args['adb-artifacts'] === 'string' || typeof args['simctl-artifacts'] === 'string';
   if (!isRehydratedSidecar) {
-    return runId;
+    return { runId };
   }
 
   const scenarioEvents = extractProfileEvents(eventLogText, { scenario: scenarioName });
   const currentRunEvents = scenarioEvents.filter((event: Record<string, unknown>) => event.runId === runId);
   if (currentRunEvents.length > 0) {
-    return runId;
+    return { runId };
   }
 
   const sourceRunIds = new Set<string>(
@@ -2505,7 +2586,24 @@ function resolveEvidenceFilterRunId({
     }
   }
 
-  return sourceRunIds.size === 1 ? [...sourceRunIds][0] as string : runId;
+  if (sourceRunIds.size === 1) {
+    return { runId: [...sourceRunIds][0] as string };
+  }
+
+  const sourceRunIdList = [...sourceRunIds].sort();
+  if (sourceRunIdList.length > 1) {
+    return {
+      failure: {
+        code: 'profile_session_identity_ambiguous',
+        message: `Rehydrated sidecar evidence for scenario "${scenarioName}" contains multiple source run ids; ASL cannot choose one safely.`,
+        requestedRunId: runId,
+        sourceRunIds: sourceRunIdList,
+      },
+      runId,
+    };
+  }
+
+  return { runId };
 }
 
 /**
@@ -3375,7 +3473,7 @@ async function runProfileMobile(args: CliArgs, options: ProfileMobileOptions): P
     runId,
     scenarioId: scenarioName,
   });
-  if (providerExecution.failures.length > 0) {
+  if (providerExecution.failures.length > 0 && providerExecution.inputs.length === 0) {
     const health = buildProviderCommandFailureHealth({
       failures: providerExecution.failures,
       runId,
@@ -3457,13 +3555,14 @@ async function runProfileMobile(args: CliArgs, options: ProfileMobileOptions): P
   }
 
   const eventLogText = eventLogPath ? await fsp.readFile(eventLogPath, 'utf8') : '';
-  const evidenceFilterRunId = resolveEvidenceFilterRunId({
+  const evidenceFilterRun = resolveEvidenceFilterRunId({
     args,
     eventLogText,
     profileSessionEntriesPath,
     runId,
     scenarioName,
   });
+  const evidenceFilterRunId = evidenceFilterRun.runId;
   const events = extractProfileEvents(eventLogText, {
     scenario: scenarioName,
     runId: evidenceFilterRunId,
@@ -3630,6 +3729,7 @@ async function runProfileMobile(args: CliArgs, options: ProfileMobileOptions): P
     runId,
     metrics,
     diagnostics: manifestArtifacts.diagnostics,
+    evidenceIdentityFailure: evidenceFilterRun.failure ?? null,
     profileEventCount: events.length,
     profileSessionEntryCount: sessionEntries.length,
     commandTransport,
@@ -3637,13 +3737,19 @@ async function runProfileMobile(args: CliArgs, options: ProfileMobileOptions): P
     sessionFreshness,
     sessionFreshnessRequired: options.platform === 'android' && typeof args['adb-artifacts'] === 'string',
   });
-  const verdict = buildProfileVerdict({ scenario: profileScenario, runId, health, metrics });
-  const agentSummary = buildAgentSummaryMarkdown({ health, verdict, manifest });
+  const finalHealth = appendProviderCommandFailuresToHealth({
+    failures: providerExecution.failures,
+    health,
+    runId,
+    scenario: profileScenario,
+  });
+  const verdict = buildProfileVerdict({ scenario: profileScenario, runId, health: finalHealth, metrics });
+  const agentSummary = buildAgentSummaryMarkdown({ health: finalHealth, verdict, manifest });
   const summary = buildSummaryMarkdown({ manifest, metrics });
 
   await writeJsonArtifact({
     filePath: layout.health,
-    value: health,
+    value: finalHealth,
     schema: SCHEMAS.health,
     label: 'Health artifact',
   });
@@ -3697,7 +3803,7 @@ async function runProfileMobile(args: CliArgs, options: ProfileMobileOptions): P
 
   return {
     runDir,
-    health,
+    health: finalHealth,
     verdict,
   };
 }
