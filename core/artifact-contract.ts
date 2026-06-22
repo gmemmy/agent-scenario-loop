@@ -1410,6 +1410,30 @@ function normalizeTimelineContractValues({
 }
 
 /**
+ * Maps app-helper command transport statuses into the public causal timeline
+ * status vocabulary.
+ *
+ * @param {string} commandStatus
+ * @returns {string}
+ */
+function resolveCommandAcknowledgementTimelineStatus(commandStatus: string): string {
+  switch (commandStatus) {
+    case 'completed':
+    case 'delivered':
+      return 'completed';
+    case 'failed':
+      return 'failed';
+    case 'queued':
+    case 'received':
+      return 'started';
+    case 'skipped':
+      return 'skipped';
+    default:
+      return 'observed';
+  }
+}
+
+/**
  * Converts profile-session command control entries into causal timeline events.
  *
  * These are ASL control-plane acknowledgements, not product truth events. They
@@ -1441,15 +1465,7 @@ function buildCommandAcknowledgementTimeline({
       }
 
       const commandStatus = typeof entry.status === 'string' ? entry.status : 'observed';
-      const status = commandStatus === 'completed' || commandStatus === 'delivered'
-        ? 'completed'
-        : commandStatus === 'skipped'
-          ? 'skipped'
-          : commandStatus === 'failed'
-            ? 'failed'
-            : commandStatus === 'received' || commandStatus === 'queued'
-              ? 'started'
-              : 'observed';
+      const status = resolveCommandAcknowledgementTimelineStatus(commandStatus);
       const metadata = {
         ...(typeof entry.command === 'string' ? { command: entry.command } : {}),
         ...(typeof entry.commandId === 'string' ? { commandId: entry.commandId } : {}),
