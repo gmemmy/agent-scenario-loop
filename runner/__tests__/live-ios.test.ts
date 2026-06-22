@@ -313,7 +313,7 @@ test('generic iOS live proof can use deep-link profile transport without termina
     }
     if (key === `simctl spawn ${DEVICE_ID} log show --style compact --last 2m --predicate eventMessage CONTAINS "[profile-event]" OR eventMessage CONTAINS "[profile-session]"`) {
       const stdout = readStartupEvents(profileRunId)
-        .map((event) => `HelpBnk [profile-event] ${JSON.stringify(event)}`)
+        .map((event) => `ASLExample [profile-event] ${JSON.stringify(event)}`)
         .join('\n');
       return { command, args, exitCode: 0, stderr: '', stdout };
     }

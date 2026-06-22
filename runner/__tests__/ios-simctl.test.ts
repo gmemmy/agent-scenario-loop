@@ -763,42 +763,42 @@ test('seeds profile-session AsyncStorage with app-owned storage keys', async (t:
     await fsp.rm(dataContainer, { recursive: true, force: true });
   });
   const storageDir = resolveAsyncStorageDirectory({
-    bundleId: 'com.helpbnk.ios.dev',
+    bundleId: 'dev.agent-scenario-loop.consumer',
     dataContainer,
   });
   await fsp.mkdir(storageDir, { recursive: true });
   await fsp.writeFile(path.join(storageDir, 'manifest.json'), JSON.stringify({
-    'helpbnk.profile-events.v1': null,
+    'consumer.profile-events.v1': null,
     'unrelated.key': 'keep-me',
   }), 'utf8');
-  await fsp.writeFile(path.join(storageDir, asyncStorageFileNameForKey('helpbnk.profile-events.v1')), '[]', 'utf8');
+  await fsp.writeFile(path.join(storageDir, asyncStorageFileNameForKey('consumer.profile-events.v1')), '[]', 'utf8');
 
   await seedProfileSessionStorage({
-    bundleId: 'com.helpbnk.ios.dev',
+    bundleId: 'dev.agent-scenario-loop.consumer',
     dataContainer,
     profileStorageKeys: {
-      command: 'helpbnk.profile-commands.v1',
-      event: 'helpbnk.profile-events.v1',
-      session: 'helpbnk.profile-session.v1',
-      sessionEntries: 'helpbnk.profile-session-entries.v1',
-      signal: 'helpbnk.profile-signals.v1',
+      command: 'consumer.profile-commands.v1',
+      event: 'consumer.profile-events.v1',
+      session: 'consumer.profile-session.v1',
+      sessionEntries: 'consumer.profile-session-entries.v1',
+      signal: 'consumer.profile-signals.v1',
     },
-    runId: 'helpbnk-ios-live-startup',
+    runId: 'consumer-ios-live-startup',
     scenario: 'app-startup',
     startedAt: 456,
   });
 
   const manifest = JSON.parse(fs.readFileSync(path.join(storageDir, 'manifest.json'), 'utf8'));
-  const session = JSON.parse(manifest['helpbnk.profile-session.v1']);
+  const session = JSON.parse(manifest['consumer.profile-session.v1']);
 
   assert.equal(manifest['unrelated.key'], 'keep-me');
-  assert.equal(manifest['helpbnk.profile-events.v1'], undefined);
+  assert.equal(manifest['consumer.profile-events.v1'], undefined);
   assert.equal(manifest['agent-scenario-loop.profile-session.1'], undefined);
-  assert.equal(fs.existsSync(path.join(storageDir, asyncStorageFileNameForKey('helpbnk.profile-events.v1'))), false);
+  assert.equal(fs.existsSync(path.join(storageDir, asyncStorageFileNameForKey('consumer.profile-events.v1'))), false);
   assert.deepEqual(session, {
     active: true,
     scenario: 'app-startup',
-    runId: 'helpbnk-ios-live-startup',
+    runId: 'consumer-ios-live-startup',
     startedAt: 456,
   });
 });
@@ -945,20 +945,20 @@ test('captures stored iOS profile events from app-owned storage keys', async (t:
       'simctl spawn A692ED28-893E-453F-8866-C69331AE757F launchctl getenv NATIVE_DEVTOOLS_IOS_CDP_SOCKET': {
         stdout: '',
       },
-      'simctl get_app_container A692ED28-893E-453F-8866-C69331AE757F com.helpbnk.ios.dev app': {
-        stdout: '/tmp/HelpBnk.app\n',
+      'simctl get_app_container A692ED28-893E-453F-8866-C69331AE757F dev.agent-scenario-loop.consumer app': {
+        stdout: '/tmp/ASLConsumer.app\n',
       },
-      'simctl get_app_container A692ED28-893E-453F-8866-C69331AE757F com.helpbnk.ios.dev data': {
+      'simctl get_app_container A692ED28-893E-453F-8866-C69331AE757F dev.agent-scenario-loop.consumer data': {
         stdout: `${dataContainer}\n`,
       },
-      'simctl launch A692ED28-893E-453F-8866-C69331AE757F com.helpbnk.ios.dev': {
-        stdout: 'com.helpbnk.ios.dev: 1234\n',
+      'simctl launch A692ED28-893E-453F-8866-C69331AE757F dev.agent-scenario-loop.consumer': {
+        stdout: 'dev.agent-scenario-loop.consumer: 1234\n',
       },
-      'simctl spawn A692ED28-893E-453F-8866-C69331AE757F log show --style compact --last 1m --predicate eventMessage CONTAINS "com.helpbnk.ios.dev" AND eventMessage CONTAINS "1234"': {
+      'simctl spawn A692ED28-893E-453F-8866-C69331AE757F log show --style compact --last 1m --predicate eventMessage CONTAINS "dev.agent-scenario-loop.consumer" AND eventMessage CONTAINS "1234"': {
         stdout: 'Timestamp Ty Process[PID:TID]\n',
       },
-      'simctl appinfo A692ED28-893E-453F-8866-C69331AE757F com.helpbnk.ios.dev': {
-        stdout: '{"ApplicationState":"ForegroundRunning","Bundle":"com.helpbnk.ios.dev"}\n',
+      'simctl appinfo A692ED28-893E-453F-8866-C69331AE757F dev.agent-scenario-loop.consumer': {
+        stdout: '{"ApplicationState":"ForegroundRunning","Bundle":"dev.agent-scenario-loop.consumer"}\n',
       },
       'simctl spawn A692ED28-893E-453F-8866-C69331AE757F log show --style compact --last 1m --predicate eventMessage CONTAINS "[profile-event]" OR eventMessage CONTAINS "[profile-session]"': {
         stdout: 'Timestamp Ty Process[PID:TID]\n',
@@ -974,23 +974,23 @@ test('captures stored iOS profile events from app-owned storage keys', async (t:
     };
   };
   const profileStorageKeys = {
-    command: 'helpbnk.profile-commands.v1',
-    event: 'helpbnk.profile-events.v1',
-    session: 'helpbnk.profile-session.v1',
-    sessionEntries: 'helpbnk.profile-session-entries.v1',
-    signal: 'helpbnk.profile-signals.v1',
+    command: 'consumer.profile-commands.v1',
+    event: 'consumer.profile-events.v1',
+    session: 'consumer.profile-session.v1',
+    sessionEntries: 'consumer.profile-session-entries.v1',
+    signal: 'consumer.profile-signals.v1',
   };
   const wait = async () => {
     const storageDir = resolveAsyncStorageDirectory({
-      bundleId: 'com.helpbnk.ios.dev',
+      bundleId: 'dev.agent-scenario-loop.consumer',
       dataContainer,
     });
     const manifest = JSON.parse(fs.readFileSync(path.join(storageDir, 'manifest.json'), 'utf8'));
-    manifest['helpbnk.profile-events.v1'] = JSON.stringify([
+    manifest['consumer.profile-events.v1'] = JSON.stringify([
       {
         event: 'app_first_usable_screen',
         scenario: 'app-startup',
-        runId: 'helpbnk-ios-live-startup',
+        runId: 'consumer-ios-live-startup',
         timestamp: 789,
       },
     ]);
@@ -998,7 +998,7 @@ test('captures stored iOS profile events from app-owned storage keys', async (t:
   };
 
   const result = await runIosSimctlCapture({
-    bundleId: 'com.helpbnk.ios.dev',
+    bundleId: 'dev.agent-scenario-loop.consumer',
     collectProfileStorage: true,
     delay: wait,
     executor,
@@ -1006,12 +1006,12 @@ test('captures stored iOS profile events from app-owned storage keys', async (t:
     logLast: '1m',
     outputDir,
     profileSessionStorage: {
-      runId: 'helpbnk-ios-live-startup',
+      runId: 'consumer-ios-live-startup',
       scenario: 'app-startup',
       startedAt: 456,
     },
     profileStorageKeys,
-    runId: 'helpbnk-ios-live-startup',
+    runId: 'consumer-ios-live-startup',
     waitMs: 25,
   });
 
@@ -1022,6 +1022,6 @@ test('captures stored iOS profile events from app-owned storage keys', async (t:
       .includes('[profile-event] {"event":"app_first_usable_screen"'),
   );
   const seedText = fs.readFileSync(path.join(outputDir, 'raw', 'ios-profile-session-seed.json'), 'utf8');
-  assert.match(seedText, /helpbnk-ios-live-startup/u);
+  assert.match(seedText, /consumer-ios-live-startup/u);
   assert.equal(seedText.includes(dataContainer), false);
 });
