@@ -265,6 +265,24 @@ const REQUIRED_STRICT_EXAMPLE_LIVE_SCRIPTS = [
   'example:ios:live:runners',
 ];
 
+const REQUIRED_DOWNSTREAM_PROOF_DOC_PATTERNS: Array<{ path: string; patterns: RegExp[] }> = [
+  {
+    path: 'docs/consumer-rehearsal.md',
+    patterns: [
+      /Before publishing a release candidate, validate the packed local package inside at least one real downstream app/u,
+      /pnpm downstream:local-package/u,
+      /restart Metro from the downstream app root after installing a local ASL tarball/u,
+    ],
+  },
+  {
+    path: 'docs/live-proofs.md',
+    patterns: [
+      /When a live proof validates a freshly installed local ASL tarball inside a downstream Expo or React Native app, restart Metro/u,
+      /pnpm downstream:local-package/u,
+    ],
+  },
+];
+
 /**
  * Reads and parses a JSON object from disk.
  *
@@ -407,6 +425,21 @@ function assertReleaseScripts(packageJson: Record<string, unknown>): void {
   assert.match(scripts['example:mobile:live-proof'], /--out artifacts\/example-mobile-app\/live-proof-set/u);
   assert.match(scripts['example:mobile:live-proof'], /--fail-on-regression/u);
   assert.match(scripts['example:app:start:isolated'], /--port 8097 --host localhost --clear/u);
+}
+
+/**
+ * Asserts that public release guidance keeps downstream proof and Metro freshness visible.
+ *
+ * @param {string} repoRoot
+ * @returns {void}
+ */
+function assertDownstreamProofGuidance(repoRoot: string): void {
+  for (const doc of REQUIRED_DOWNSTREAM_PROOF_DOC_PATTERNS) {
+    const contents = fs.readFileSync(path.join(repoRoot, doc.path), 'utf8');
+    for (const pattern of doc.patterns) {
+      assert.match(contents, pattern, `${doc.path} must retain downstream release-proof guidance`);
+    }
+  }
 }
 
 /**
@@ -574,6 +607,7 @@ function main(): void {
 
   assertPublicPackageMetadata(packageJson);
   assertReleaseScripts(packageJson);
+  assertDownstreamProofGuidance(repoRoot);
   assertGithubReleaseWorkflow(repoRoot);
   assertPublicEntrypoints(packageJson);
   assertPublicApiDocs(packageJson, repoRoot);
