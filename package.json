@@ -204,6 +204,8 @@
   },
   "files": [
     "app/profile-session.d.ts",
+    "app/profile-session-storage.d.ts",
+    "app/profile-session-storage.ts",
     "app/profile-session.ts",
     "core/config-template.json",
     "dist",

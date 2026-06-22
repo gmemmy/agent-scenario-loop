@@ -20,6 +20,7 @@ const {
   usage,
 } = require('./profile-mobile');
 const { buildScenarioExecutionPlan } = require('../core/execution-plan');
+const { PROFILE_SESSION_STORAGE_KEYS } = require('../profile-session-storage');
 const { runAgentDeviceCapture } = require('./agent-device');
 const { loadAslLocalEnv, readStringArgOrEnv } = require('./local-env');
 
@@ -51,8 +52,8 @@ const PROFILE_SESSION_CAPTURE_MAX_MS = 120000;
 const PROFILE_SESSION_LOGCAT_MIN_LINES = 1000;
 const PROFILE_SESSION_LOGCAT_MAX_LINES = 20000;
 const PROFILE_SESSION_LOGCAT_LINES_PER_COMMAND = 300;
-const DEFAULT_ANDROID_PROFILE_SESSION_STORAGE_KEY = 'agent-scenario-loop.profile-session.1';
-const DEFAULT_ANDROID_PROFILE_COMMAND_STORAGE_KEY = 'agent-scenario-loop.profile-commands.1';
+const DEFAULT_ANDROID_PROFILE_SESSION_STORAGE_KEY = PROFILE_SESSION_STORAGE_KEYS.session;
+const DEFAULT_ANDROID_PROFILE_COMMAND_STORAGE_KEY = PROFILE_SESSION_STORAGE_KEYS.command;
 const DEFAULT_ANDROID_DEV_CLIENT_READY_PATTERN = 'Running "main"';
 const MANIFEST_LIFECYCLE_PHASES = new Set([
   'cold-launch',

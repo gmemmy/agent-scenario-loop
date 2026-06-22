@@ -183,6 +183,8 @@ const REQUIRED_PACKAGE_FILES = [
   'README.md',
   'app/profile-session.ts',
   'app/profile-session.d.ts',
+  'app/profile-session-storage.d.ts',
+  'app/profile-session-storage.ts',
   'core/config-template.json',
   'dist',
   'docs',

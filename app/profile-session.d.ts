@@ -52,13 +52,7 @@ export type ProfileSignalMetadata = {
   [key: string]: unknown;
 };
 
-export declare const PROFILE_SESSION_STORAGE_KEYS: Readonly<{
-  command: string;
-  event: string;
-  session: string;
-  sessionEntries: string;
-  signal: string;
-}>;
+export { PROFILE_SESSION_STORAGE_KEYS } from './profile-session-storage';
 
 export function isProfileSessionFresh(
   session: Pick<ProfileSessionState, 'active' | 'startedAt'>,
