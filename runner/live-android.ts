@@ -10,6 +10,7 @@ const { execFileCommand, parseArgs, parsePositiveInteger, runAndroidAdbPreflight
 const { compareLiveProfilesToLatest, isEnabledFlag } = require('./live-comparison');
 const { writeLiveProofSummary } = require('./live-proof-summary');
 const { runAgentDeviceCapture } = require('./agent-device');
+const { assertConcreteMobileAppId } = require('./app-identity');
 const { parseBaseArgs: parseArgentBaseArgs, runArgentCapture } = require('./argent');
 const { loadAslLocalEnv, readStringArgOrEnv } = require('./local-env');
 const { runProfileAndroid } = require('./profile-android');
@@ -400,6 +401,12 @@ async function runAndroidLiveProof(
   const scenario = readJson(scenarioPath);
   const scenarioId = resolveScenarioId({ scenario, scenarioPath });
   const packageName = resolveAndroidPackageName({ args, config });
+  assertConcreteMobileAppId({
+    appId: packageName,
+    appIdKind: 'Android package',
+    platform: 'android',
+    replacementHint: 'Pass --package, set ASL_ANDROID_APP_ID, or replace app.androidPackage in asl.config.json.',
+  });
   const serial = readStringArgOrEnv(args.serial, ['ASL_ANDROID_SERIAL', 'ASL_EXAMPLE_ANDROID_SERIAL']);
   const reactNativeDebugHost = readStringArgOrEnv(args['react-native-debug-host'], [
     'ASL_ANDROID_REACT_NATIVE_DEBUG_HOST',

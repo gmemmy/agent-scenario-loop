@@ -8,6 +8,7 @@ const { parseArgs, parsePositiveInteger, runIosSimctlCapture } = require('./ios-
 const { compareLiveProfilesToLatest, isEnabledFlag } = require('./live-comparison');
 const { writeLiveProofSummary } = require('./live-proof-summary');
 const { runAgentDeviceCapture } = require('./agent-device');
+const { assertConcreteMobileAppId } = require('./app-identity');
 const { parseBaseArgs: parseArgentBaseArgs, runArgentCapture } = require('./argent');
 const { loadAslLocalEnv, readStringArgOrEnv } = require('./local-env');
 const { runProfileIos } = require('./profile-ios');
@@ -319,6 +320,12 @@ async function runIosLiveProof(
   const scenario = readJson(scenarioPath);
   const scenarioId = resolveScenarioId({ scenario, scenarioPath });
   const bundleId = resolveIosBundleId({ args, config });
+  assertConcreteMobileAppId({
+    appId: bundleId,
+    appIdKind: 'iOS bundle id',
+    platform: 'ios',
+    replacementHint: 'Pass --bundle, set ASL_IOS_APP_ID, or replace app.iosBundleId in asl.config.json.',
+  });
   const deviceId = readStringArgOrEnv(args.device, ['ASL_IOS_UDID', 'ASL_EXAMPLE_IOS_UDID']);
   const xcrunPath = readStringArgOrEnv(args.xcrun, ['ASL_XCRUN_PATH', 'ASL_IOS_XCRUN_BIN']);
   const agentDeviceSession = readStringArgOrEnv(args['agent-device-session'], [
