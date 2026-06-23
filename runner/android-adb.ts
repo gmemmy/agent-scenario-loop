@@ -157,6 +157,11 @@ type NextActionHint = {
   nextActionCode: string;
 };
 
+type AndroidStartupReadinessFailure = NextActionHint & {
+  evidencePattern?: string;
+  failureClass: 'dev_client_reload_limbo' | 'readiness_log_missing';
+};
+
 type AndroidAppLifecycleScan = {
   crashed: boolean;
   evidence: string[];
@@ -990,6 +995,49 @@ function countAndroidReadyLogMatches({
   } catch {
     return String(logText).split(pattern).length - 1;
   }
+}
+
+const ANDROID_DEV_CLIENT_RELOAD_LIMBO_PATTERNS: Array<{ label: string; pattern: RegExp }> = [
+  { label: 'expo-loading-bundle', pattern: /\b(Loading|Downloading|Bundling) (JavaScript )?bundle\b/iu },
+  { label: 'metro-connectivity', pattern: /\b(Could not connect to development server|Unable to load script)\b/iu },
+  { label: 'metro-bundle-error', pattern: /\b(Failed to load bundle|Error loading bundle|Development server returned response error)\b/iu },
+  { label: 'missing-bundle-url', pattern: /\bNo bundle URL present\b/iu },
+];
+
+/**
+ * Classifies an Android startup readiness timeout for agent next-action routing.
+ *
+ * @param {{logText: string, rawFileName: string}} options
+ * @returns {AndroidStartupReadinessFailure}
+ */
+function classifyAndroidStartupReadinessFailure({
+  logText,
+  rawFileName,
+}: {
+  logText: string;
+  rawFileName: string;
+}): AndroidStartupReadinessFailure {
+  const readyLogPath = `raw/${rawFileName}`;
+  for (const candidate of ANDROID_DEV_CLIENT_RELOAD_LIMBO_PATTERNS) {
+    if (candidate.pattern.test(logText)) {
+      return {
+        ...nextActionHint(
+          'restart_metro_and_reload_dev_client',
+          `Inspect ${readyLogPath}, restart Metro from the app worktree, reopen the dev-client URL, wait for the expected bundle readiness marker, then rerun before delivering profile-session control.`,
+        ),
+        evidencePattern: candidate.label,
+        failureClass: 'dev_client_reload_limbo',
+      };
+    }
+  }
+
+  return {
+    ...nextActionHint(
+      'inspect_android_startup_deep_link_ready_log',
+      `Inspect ${readyLogPath}, confirm the dev-client loaded the expected app bundle, and increase the ready timeout only if the app is still making progress.`,
+    ),
+    failureClass: 'readiness_log_missing',
+  };
 }
 
 /**
@@ -2553,6 +2601,10 @@ async function runAndroidAdbPreflight({
             startupReady = false;
           }
           raw[rawFileName] = formatAndroidAdbRawOutput(readyLog.result);
+          const readinessFailure = classifyAndroidStartupReadinessFailure({
+            logText: `${readyLog.result.stdout}\n${readyLog.result.stderr}`,
+            rawFileName,
+          });
           checks.push({
             name: 'android_startup_deep_link_ready',
             status: readyLog.ready ? 'passed' : 'failed',
@@ -2565,10 +2617,7 @@ async function runAndroidAdbPreflight({
               : `Android startup deep link ${deepLink.label ?? index + 1} did not emit readiness log evidence before timeout.`,
             ...(!readyLog.ready
               ? {
-                  metadata: nextActionHint(
-                    'inspect_android_startup_deep_link_ready_log',
-                    `Inspect raw/${rawFileName}, confirm the dev-client loaded the app bundle, and increase the ready timeout only if the app is still making progress.`,
-                  ),
+                  metadata: readinessFailure,
                 }
               : {}),
           });
