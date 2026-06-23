@@ -72,6 +72,8 @@ test('builds a passed-health agent summary with comparison context', () => {
   assert.match(summary, /Attempt: `attempt-2` \(2\/3\)/u);
   assert.match(summary, /Terminal state: `passed`/u);
   assert.match(summary, /Retry lineage: previous=`attempt-1` reason=Previous attempt timed out\./u);
+  assert.match(summary, /## next action/u);
+  assert.match(summary, /Owner: `scenario_contract`/u);
   assert.match(summary, /Optimization claims still require verdict or comparison evidence/u);
 });
 
@@ -111,6 +113,8 @@ test('blocks optimization claims when scenario health fails', () => {
   });
 
   assert.match(summary, /Do not optimize from this run/u);
+  assert.match(summary, /Owner: `provider_tooling`/u);
+  assert.match(summary, /provider evidence is incomplete at missing_required_artifact/u);
   assert.match(summary, /## failed checks/u);
   assert.match(summary, /`missing_required_artifact`: failed/u);
   assert.match(summary, /Next action `add_profiler_provider`: Enable a runner or provider/u);
@@ -146,6 +150,7 @@ test('surfaces failed budget checks for valid runs', () => {
 
   assert.match(summary, /## failed budgets/u);
   assert.match(summary, /scroll settle p95: p95 expected 1400, actual 1600/u);
+  assert.match(summary, /Owner: `product_optimization`/u);
 });
 
 test('separates unmeasurable budget checks from failed budgets', () => {
@@ -177,6 +182,8 @@ test('separates unmeasurable budget checks from failed budgets', () => {
   });
 
   assert.doesNotMatch(summary, /## failed budgets/u);
+  assert.match(summary, /Owner: `scenario_contract`/u);
+  assert.match(summary, /add interval anchors/u);
   assert.match(summary, /## unmeasurable budgets/u);
   assert.match(summary, /cycle p95: feed scroll budget was unmeasurable/u);
   assert.match(summary, /Use explicit interval anchors/u);
@@ -218,6 +225,8 @@ test('does not render warning or partial health checks as failed checks', () => 
   const failedSection = summary.split('## partial checks')[0] ?? summary;
 
   assert.match(summary, /## failed checks/u);
+  assert.match(summary, /Owner: `app_truth`/u);
+  assert.match(summary, /app-owned truth is incomplete at truth_events_complete/u);
   assert.match(summary, /`truth_events_complete`: failed/u);
   assert.doesNotMatch(failedSection, /native_performance_evidence/u);
   assert.match(summary, /## partial checks/u);
@@ -265,6 +274,7 @@ test('indexes preserved provider diagnostics separately from product claims', ()
   });
 
   assert.match(summary, /Do not optimize from this run/u);
+  assert.match(summary, /Owner: `provider_tooling`/u);
   assert.match(summary, /## preserved diagnostic evidence/u);
   assert.match(summary, /Captured `nativePerformance`, `profiler`/u);
   assert.match(summary, /Missing required `accessibility`, `uiTree`/u);
@@ -272,4 +282,36 @@ test('indexes preserved provider diagnostics separately from product claims', ()
   assert.match(summary, /Next action `use_partial_provider_evidence_for_diagnosis`/u);
   assert.match(summary, /## failed checks/u);
   assert.match(summary, /`required_accessibility_diagnostic`: failed/u);
+});
+
+test('classifies runtime identity failures as runtime environment work', () => {
+  const summary = buildAgentSummaryMarkdown({
+    health: {
+      scenarioId: 'app-startup',
+      runId: 'run-runtime',
+      healthStatus: 'failed',
+      checks: [
+        {
+          code: 'runtime_identity_mismatch',
+          name: 'runtime_identity_mismatch',
+          status: 'failed',
+          source: 'runtime',
+          message: 'Observed package did not match the expected app id.',
+          metadata: {
+            nextActionCode: 'rerun_sidecar_with_expected_runtime_identity',
+          },
+        },
+      ],
+    },
+    verdict: {
+      scenarioId: 'app-startup',
+      runId: 'run-runtime',
+      verdictStatus: 'inconclusive',
+      budgetChecks: [],
+    },
+  });
+
+  assert.match(summary, /Owner: `runtime_environment`/u);
+  assert.match(summary, /runtime evidence is invalid or unverified at runtime_identity_mismatch/u);
+  assert.match(summary, /Fix target selection or runtime setup/u);
 });

@@ -217,6 +217,8 @@ A completed profile run should leave the standard artifact set:
 - `manifest.json`
 - `metrics.json`
 - `causal-run.json`
+
+`agent-summary.md` is an index over those truth files, not a replacement for them. It includes a `next action` section with a product-neutral owner so agents can route follow-up work without guessing: `runtime_environment`, `app_truth`, `provider_tooling`, `asl_runner`, `scenario_contract`, or `product_optimization`. Runtime identity, stale target state, and foreground mismatches point to `runtime_environment`; missing app milestones point to `app_truth`; partial or failed diagnostics point to `provider_tooling`; runner, sidecar, ingest, or artifact-finalization problems point to `asl_runner`; missing interval anchors or unmeasurable checks point to `scenario_contract`; and only health-passed measurable budget failures point to `product_optimization`.
 - `budget-verdict.json` when budgets are configured
 - `summary.md`
 - `raw/*`
