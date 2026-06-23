@@ -1080,6 +1080,17 @@ function validateAgentDeviceAdapterOptions({
       });
     }
 
+    if (step.driverAction === 'typeText' && (typeof agentDevice.text !== 'string' || agentDevice.text.length === 0)) {
+      pushInvalidAdapterOption({
+        adapter: 'agentDevice',
+        errors,
+        field: 'text',
+        message: `Step \`${stepId}\` uses driverAction \`typeText\` but adapterOptions.agentDevice.text is required.`,
+        scenario,
+        stepId,
+      });
+    }
+
     if (step.driverAction === 'swipe' && !hasStartEndCoordinates(agentDevice)) {
       pushInvalidAdapterOption({
         adapter: 'agentDevice',

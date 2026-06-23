@@ -20,6 +20,7 @@ const EVIDENCE_PROVIDER_PORT = [
 const DRIVER_PORT = [
   'tap',
   'longPress',
+  'typeText',
   'scroll',
   'swipe',
   'assertVisible',
@@ -92,6 +93,7 @@ type EvidenceProviderContext = PortContext & {
 type DriverActionName =
   | 'tap'
   | 'longPress'
+  | 'typeText'
   | 'scroll'
   | 'swipe'
   | 'assertVisible'
@@ -179,6 +181,7 @@ type DriverPort = {
   scroll(input: DriverActionInput): MaybePromise<DriverActionResult>;
   swipe(input: DriverActionInput): MaybePromise<DriverActionResult>;
   tap(input: DriverActionInput): MaybePromise<DriverActionResult>;
+  typeText(input: DriverActionInput): MaybePromise<DriverActionResult>;
 };
 
 type ArtifactWriterPort = {

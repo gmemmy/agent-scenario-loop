@@ -96,8 +96,9 @@ type AgentDeviceAvailabilityArtifactOptions = {
 type AgentDeviceDriverStep = {
   amount?: string;
   captureFileName?: string;
+  delayMs?: number;
   direction?: string;
-  driverAction: 'assertVisible' | 'inspectTree' | 'readLogs' | 'screenshot' | 'scroll' | 'swipe' | 'tap';
+  driverAction: 'assertVisible' | 'inspectTree' | 'readLogs' | 'screenshot' | 'scroll' | 'swipe' | 'tap' | 'typeText';
   durationMs?: number;
   endX?: number;
   endY?: number;
@@ -109,6 +110,7 @@ type AgentDeviceDriverStep = {
   stepId?: string;
   startX?: number;
   startY?: number;
+  text?: string;
   waitMs?: number;
   x?: number;
   y?: number;
@@ -172,6 +174,7 @@ const DEFAULT_AGENT_DEVICE_REQUIRED_COMMANDS = [
   'click',
   'scroll',
   'swipe',
+  'type',
   'logs',
   'devices',
   'session list',
@@ -1137,7 +1140,7 @@ function resolveAgentDeviceDriverSteps(scenario: Record<string, any>): AgentDevi
   const executionPlan = buildScenarioExecutionPlan(scenario);
   return executionPlan.steps
     .filter((step: ScenarioExecutionStep) =>
-      ['assertVisible', 'inspectTree', 'readLogs', 'screenshot', 'scroll', 'swipe', 'tap'].includes(String(step.driverAction)),
+      ['assertVisible', 'inspectTree', 'readLogs', 'screenshot', 'scroll', 'swipe', 'tap', 'typeText'].includes(String(step.driverAction)),
     )
     .map((step: ScenarioExecutionStep, index: number) => {
       const agentDeviceOptions = readAgentDeviceStepOptions(step);
@@ -1153,6 +1156,9 @@ function resolveAgentDeviceDriverSteps(scenario: Record<string, any>): AgentDevi
         driverAction: action,
         ...(typeof agentDeviceOptions.amount === 'string' ? { amount: agentDeviceOptions.amount } : {}),
         ...(captureFileName ? { captureFileName } : {}),
+        ...(typeof readFiniteNumber(agentDeviceOptions.delayMs) === 'number'
+          ? { delayMs: readFiniteNumber(agentDeviceOptions.delayMs) }
+          : {}),
         ...(typeof agentDeviceOptions.direction === 'string' ? { direction: agentDeviceOptions.direction } : {}),
         ...(typeof readFiniteNumber(agentDeviceOptions.durationMs) === 'number'
           ? { durationMs: readFiniteNumber(agentDeviceOptions.durationMs) }
@@ -1169,6 +1175,7 @@ function resolveAgentDeviceDriverSteps(scenario: Record<string, any>): AgentDevi
         stepId: step.id,
         ...(typeof readFiniteNumber(agentDeviceOptions.startX) === 'number' ? { startX: readFiniteNumber(agentDeviceOptions.startX) } : {}),
         ...(typeof readFiniteNumber(agentDeviceOptions.startY) === 'number' ? { startY: readFiniteNumber(agentDeviceOptions.startY) } : {}),
+        ...(typeof agentDeviceOptions.text === 'string' ? { text: agentDeviceOptions.text } : {}),
         waitMs: readPositiveInteger(agentDeviceOptions.waitMs ?? step.timeoutMs, 0),
         ...(typeof readFiniteNumber(agentDeviceOptions.x) === 'number' ? { x: readFiniteNumber(agentDeviceOptions.x) } : {}),
         ...(typeof readFiniteNumber(agentDeviceOptions.y) === 'number' ? { y: readFiniteNumber(agentDeviceOptions.y) } : {}),
@@ -1191,6 +1198,9 @@ function validateAgentDeviceDriverSteps(driverSteps: AgentDeviceDriverStep[]): s
     }
     if (step.driverAction === 'assertVisible' && !step.selector) {
       errors.push(`${stepLabel} uses driverAction \`assertVisible\` but is missing a portable selector.`);
+    }
+    if (step.driverAction === 'typeText' && (typeof step.text !== 'string' || step.text.length === 0)) {
+      errors.push(`${stepLabel} uses driverAction \`typeText\` but is missing adapterOptions.agentDevice.text.`);
     }
     if (
       step.driverAction === 'swipe' &&
@@ -1295,6 +1305,13 @@ async function runAgentDeviceDriverStep({
       ...(driverStep.selector ? { selector: driverStep.selector } : {}),
       ...(typeof driverStep.x === 'number' ? { x: driverStep.x } : {}),
       ...(typeof driverStep.y === 'number' ? { y: driverStep.y } : {}),
+    });
+  }
+  if (driverStep.driverAction === 'typeText') {
+    return driver.typeText({
+      ...(typeof driverStep.delayMs === 'number' ? { delayMs: driverStep.delayMs } : {}),
+      ...(driverStep.rawFileName ? { rawFileName: driverStep.rawFileName } : {}),
+      text: driverStep.text as string,
     });
   }
 

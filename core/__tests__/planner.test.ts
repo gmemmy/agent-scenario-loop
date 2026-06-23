@@ -525,6 +525,30 @@ test('agent-device runner target rejects tap steps without an executable target'
   );
 });
 
+test('agent-device runner target rejects typeText steps without text', () => {
+  const scenario = readJson('examples/scenarios/mobile/app-startup.json');
+  const runner = readJson('examples/runners/agent-device-ios.json');
+  scenario.steps.push({
+    id: 'type-search',
+    kind: 'gesture',
+    driverAction: 'typeText',
+  });
+
+  const result = evaluateRunnerCompatibility({ scenario, runner, platform: 'ios' });
+
+  assert.equal(result.compatible, false);
+  assert.deepEqual(
+    result.errors
+      .filter((error: PlannerIssue) => error.code === 'invalid_adapter_options')
+      .map((error: PlannerIssue) => ({
+        adapter: error.adapter,
+        field: error.field,
+        stepId: error.stepId,
+      })),
+    [{ adapter: 'agentDevice', field: 'text', stepId: 'type-search' }],
+  );
+});
+
 test('agent-device runner target accepts coordinate-backed tap and swipe metadata', () => {
   const scenario = readJson('examples/scenarios/mobile/app-startup.json');
   const runner = readJson('examples/runners/agent-device-ios.json');
@@ -560,6 +584,16 @@ test('agent-device runner target accepts coordinate-backed tap and swipe metadat
           endY: 300,
           startX: 20,
           startY: 30,
+        },
+      },
+    },
+    {
+      id: 'type-search',
+      kind: 'gesture',
+      driverAction: 'typeText',
+      adapterOptions: {
+        agentDevice: {
+          text: 'search term',
         },
       },
     },

@@ -100,6 +100,12 @@ type AgentDeviceTapOptions = {
   y?: number;
 };
 
+type AgentDeviceTypeTextOptions = {
+  delayMs?: number;
+  rawFileName?: string;
+  text: string;
+};
+
 type AgentDeviceDriver = {
   alert: (options?: AgentDeviceAlertOptions) => Promise<AgentDeviceCommandResult>;
   assertVisible: (options: AgentDeviceAssertVisibleOptions) => Promise<AgentDeviceCommandResult>;
@@ -111,6 +117,7 @@ type AgentDeviceDriver = {
   scroll: (options?: AgentDeviceScrollOptions) => Promise<AgentDeviceCommandResult>;
   swipe: (options: AgentDeviceSwipeOptions) => Promise<AgentDeviceCommandResult>;
   tap: (options: AgentDeviceTapOptions) => Promise<AgentDeviceCommandResult>;
+  typeText: (options: AgentDeviceTypeTextOptions) => Promise<AgentDeviceCommandResult>;
 };
 
 /**
@@ -357,6 +364,18 @@ function createAgentDeviceDriver(options: AgentDeviceDriverOptions): AgentDevice
       }
       throw new Error('agent-device tap requires a selector, ref, or x/y coordinates.');
     },
+
+    async typeText({
+      delayMs,
+      rawFileName = 'agent-device-type-text.txt',
+      text,
+    }: AgentDeviceTypeTextOptions): Promise<AgentDeviceCommandResult> {
+      return run('typeText', rawFileName, [
+        'type',
+        text,
+        ...(typeof delayMs === 'number' ? ['--delay-ms', String(delayMs)] : []),
+      ]);
+    },
   };
 }
 
@@ -384,4 +403,5 @@ export type {
   AgentDeviceSelector,
   AgentDeviceSwipeOptions,
   AgentDeviceTapOptions,
+  AgentDeviceTypeTextOptions,
 };
