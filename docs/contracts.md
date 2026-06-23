@@ -103,6 +103,8 @@ Profiler evidence is a first-class artifact kind, but ASL does not pretend every
 
 Native-performance evidence is separate from profiler evidence. It covers platform-native frame, render, memory, and trace summaries such as Perfetto, trace-processor output, `gfxinfo`/framestats, `meminfo`, Instruments, xctrace, MetricKit, and log-derived render signals. Diagnostic-only native-performance evidence can be partial or post-run. Comparable native-performance evidence is a stronger artifact claim: the structured JSON must identify the tool, use a known capture mode, mark completeness as complete, and verify target binding to the measured device and app. Providers can also emit `diagnosticSources` so captured, missing, unsupported, failed, or unverified native lanes are explicit. This keeps raw diagnostics useful while preventing an agent from treating an unbound or partial native trace as release-quality performance evidence.
 
+The root package exports `buildAndroidNativePerformanceEvidence()` for project-local Android providers that already captured `dumpsys gfxinfo` and `dumpsys meminfo` text. It turns those raw summaries into schema-valid `nativePerformance` evidence with parsed frame, jank, render, and memory fields, target-binding metadata when supplied, raw attachments when supplied, and conservative `diagnostic-only` comparability. The helper is normalization, not capture: adb, Perfetto, trace-processor, and artifact lifecycle remain provider-owned until a later runner lane makes them first-class capture mechanics.
+
 ## Public artifact layout
 
 Every run should produce a stable artifact folder.
