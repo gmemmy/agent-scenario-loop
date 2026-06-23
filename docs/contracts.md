@@ -101,6 +101,8 @@ Profiler evidence is a first-class artifact kind, but ASL does not pretend every
 
 Native-performance evidence is separate from profiler evidence. It covers platform-native frame, render, memory, and trace summaries such as Perfetto, trace-processor output, `gfxinfo`/framestats, `meminfo`, Instruments, MetricKit, and log-derived render signals. Diagnostic-only native-performance evidence can be partial or post-run. Comparable native-performance evidence is a stronger artifact claim: the structured JSON must identify the tool, use a known capture mode, mark completeness as complete, and verify target binding to the measured device and app. This keeps raw diagnostics useful while preventing an agent from treating an unbound or partial native trace as release-quality performance evidence.
 
+Provider `targetBinding` is a claim boundary, not decoration. Use `verified` only when the provider proved the requested device/app target, `unverified` when it lacks target proof, `ambiguous` when more than one runtime could own the evidence, and `mismatch` when the observed target differs from the requested target. Profiler and native-performance JSON can include `candidateTargets` with expected and observed app/device/source entries so agents can see exactly why evidence is diagnostic-only.
+
 ## Public artifact layout
 
 Every run should produce a stable artifact folder.
