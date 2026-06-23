@@ -648,6 +648,20 @@ test('Argent driver step expansion validates coordinate-backed metadata', () => 
           },
         },
       },
+      {
+        id: 'swipe-card',
+        kind: 'gesture',
+        driverAction: 'swipe',
+        adapterOptions: {
+          argent: {
+            durationMs: 175,
+            endX: 300,
+            endY: 400,
+            startX: 100,
+            startY: 200,
+          },
+        },
+      },
     ],
   };
 
@@ -691,6 +705,18 @@ test('Argent driver step expansion validates coordinate-backed metadata', () => 
       stepId: 'scroll-feed',
       waitMs: 0,
     },
+    {
+      driverAction: 'swipe',
+      durationMs: 175,
+      endX: 300,
+      endY: 400,
+      rawFileName: 'argent-swipe-5.txt',
+      required: true,
+      startX: 100,
+      startY: 200,
+      stepId: 'swipe-card',
+      waitMs: 0,
+    },
   ]);
 
   assert.deepEqual(validateArgentDriverSteps(resolveArgentDriverSteps(scenario)), [
@@ -700,5 +726,9 @@ test('Argent driver step expansion validates coordinate-backed metadata', () => 
   assert.deepEqual(validateArgentDriverSteps(resolveArgentDriverSteps(scenario), { app: 'dev.example.app' }), []);
   assert.deepEqual(validateArgentDriverSteps([
     { driverAction: 'tap', rawFileName: 'tap.txt', required: true, stepId: 'tap-missing', waitMs: 0 },
-  ]), ['step `tap-missing` uses driverAction `tap` but is missing adapterOptions.argent.x/y.']);
+    { driverAction: 'swipe', rawFileName: 'swipe.txt', required: true, stepId: 'swipe-missing', waitMs: 0 },
+  ]), [
+    'step `tap-missing` uses driverAction `tap` but is missing adapterOptions.argent.x/y.',
+    'step `swipe-missing` uses driverAction `swipe` but is missing adapterOptions.argent.startX/startY/endX/endY.',
+  ]);
 });

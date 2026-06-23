@@ -27,6 +27,7 @@ type AndroidAdbDriver = {
   record: (options: AndroidAdbRecordOptions) => Promise<AndroidAdbCommandResult>;
   screenshot: (options?: AndroidAdbScreenshotOptions) => Promise<AndroidAdbCommandResult>;
   scroll: (options: AndroidAdbScrollOptions) => Promise<AndroidAdbCommandResult>;
+  swipe: (options: AndroidAdbSwipeOptions) => Promise<AndroidAdbCommandResult>;
   tap: (options: AndroidAdbTapOptions) => Promise<AndroidAdbCommandResult>;
 };
 
@@ -88,6 +89,15 @@ type AndroidAdbScreenshotOptions = {
 };
 
 type AndroidAdbScrollOptions = {
+  durationMs?: number;
+  endX: number;
+  endY: number;
+  rawFileName?: string;
+  startX: number;
+  startY: number;
+};
+
+type AndroidAdbSwipeOptions = {
   durationMs?: number;
   endX: number;
   endY: number;
@@ -623,6 +633,29 @@ function createAndroidAdbDriver({
       return buildDriverResult({ action: 'scroll', rawFileName, result });
     },
 
+    async swipe({
+      durationMs = 300,
+      endX,
+      endY,
+      rawFileName = 'adb-swipe.txt',
+      startX,
+      startY,
+    }: AndroidAdbSwipeOptions): Promise<AndroidAdbCommandResult> {
+      const result = await executor(adbPath, [
+        '-s',
+        deviceSerial,
+        'shell',
+        'input',
+        'swipe',
+        String(startX),
+        String(startY),
+        String(endX),
+        String(endY),
+        String(durationMs),
+      ]);
+      return buildDriverResult({ action: 'swipe', rawFileName, result });
+    },
+
     async tap({
       rawFileName = 'adb-tap.txt',
       x,
@@ -658,6 +691,7 @@ export type {
   AndroidAdbRecordOptions,
   AndroidAdbScreenshotOptions,
   AndroidAdbScrollOptions,
+  AndroidAdbSwipeOptions,
   AndroidSelector,
   AndroidSelectorResolution,
   AndroidUiNode,

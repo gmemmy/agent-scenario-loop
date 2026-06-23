@@ -37,7 +37,7 @@ test('reports missing driver methods', () => {
 
   assert.deepEqual(
     missingPortMethods(implementation, DRIVER_PORT),
-    ['scroll', 'assertVisible', 'inspectTree', 'record', 'readLogs', 'collectPerfSignals'],
+    ['scroll', 'swipe', 'assertVisible', 'inspectTree', 'record', 'readLogs', 'collectPerfSignals'],
   );
 });
 
@@ -47,9 +47,10 @@ test('reports implemented methods in stable sorted order', () => {
     tap() {},
     label: 'driver',
     scroll() {},
+    swipe() {},
   };
 
-  assert.deepEqual(implementedPortMethods(implementation), ['screenshot', 'scroll', 'tap']);
+  assert.deepEqual(implementedPortMethods(implementation), ['screenshot', 'scroll', 'swipe', 'tap']);
 });
 
 test('dispatches normalized driver actions to a swappable driver', async () => {
@@ -67,6 +68,7 @@ test('dispatches normalized driver actions to a swappable driver', async () => {
   };
 
   assert.equal(isDriverActionName('tap'), true);
+  assert.equal(isDriverActionName('swipe'), true);
   assert.equal(isDriverActionName('pinch'), false);
   assert.equal(isDriverActionName('unknown'), false);
 

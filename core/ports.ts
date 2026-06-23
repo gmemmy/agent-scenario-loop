@@ -20,6 +20,7 @@ const EVIDENCE_PROVIDER_PORT = [
 const DRIVER_PORT = [
   'tap',
   'scroll',
+  'swipe',
   'assertVisible',
   'inspectTree',
   'screenshot',
@@ -90,6 +91,7 @@ type EvidenceProviderContext = PortContext & {
 type DriverActionName =
   | 'tap'
   | 'scroll'
+  | 'swipe'
   | 'assertVisible'
   | 'inspectTree'
   | 'screenshot'
@@ -172,6 +174,7 @@ type DriverPort = {
   record(input: DriverActionInput): MaybePromise<DriverActionResult>;
   screenshot(input: DriverActionInput): MaybePromise<DriverActionResult>;
   scroll(input: DriverActionInput): MaybePromise<DriverActionResult>;
+  swipe(input: DriverActionInput): MaybePromise<DriverActionResult>;
   tap(input: DriverActionInput): MaybePromise<DriverActionResult>;
 };
 

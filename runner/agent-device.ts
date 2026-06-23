@@ -97,7 +97,7 @@ type AgentDeviceDriverStep = {
   amount?: string;
   captureFileName?: string;
   direction?: string;
-  driverAction: 'assertVisible' | 'inspectTree' | 'readLogs' | 'screenshot' | 'scroll' | 'tap';
+  driverAction: 'assertVisible' | 'inspectTree' | 'readLogs' | 'screenshot' | 'scroll' | 'swipe' | 'tap';
   durationMs?: number;
   endX?: number;
   endY?: number;
@@ -171,6 +171,7 @@ const DEFAULT_AGENT_DEVICE_REQUIRED_COMMANDS = [
   'is',
   'click',
   'scroll',
+  'swipe',
   'logs',
   'devices',
   'session list',
@@ -1103,6 +1104,30 @@ function defaultAgentDeviceCaptureFileName({
 }
 
 /**
+ * Returns a configured capture filename, or a screenshot default when needed.
+ *
+ * @param {{action: AgentDeviceDriverStep['driverAction'], actionIndex: number, configured: unknown}} options
+ * @returns {string | undefined}
+ */
+function resolveAgentDeviceCaptureFileName({
+  action,
+  actionIndex,
+  configured,
+}: {
+  action: AgentDeviceDriverStep['driverAction'];
+  actionIndex: number;
+  configured: unknown;
+}): string | undefined {
+  if (typeof configured === 'string' && configured.length > 0) {
+    return configured;
+  }
+  if (action === 'screenshot') {
+    return defaultAgentDeviceCaptureFileName({ driverAction: action, index: actionIndex });
+  }
+  return undefined;
+}
+
+/**
  * Expands normalized scenario steps into agent-device driver actions.
  *
  * @param {Record<string, unknown>} scenario
@@ -1112,21 +1137,22 @@ function resolveAgentDeviceDriverSteps(scenario: Record<string, any>): AgentDevi
   const executionPlan = buildScenarioExecutionPlan(scenario);
   return executionPlan.steps
     .filter((step: ScenarioExecutionStep) =>
-      ['assertVisible', 'inspectTree', 'readLogs', 'screenshot', 'scroll', 'tap'].includes(String(step.driverAction)),
+      ['assertVisible', 'inspectTree', 'readLogs', 'screenshot', 'scroll', 'swipe', 'tap'].includes(String(step.driverAction)),
     )
     .map((step: ScenarioExecutionStep, index: number) => {
       const agentDeviceOptions = readAgentDeviceStepOptions(step);
       const action = step.driverAction as AgentDeviceDriverStep['driverAction'];
       const actionIndex = index + 1;
+      const captureFileName = resolveAgentDeviceCaptureFileName({
+        action,
+        actionIndex,
+        configured: agentDeviceOptions.captureFileName,
+      });
 
       return {
         driverAction: action,
         ...(typeof agentDeviceOptions.amount === 'string' ? { amount: agentDeviceOptions.amount } : {}),
-        ...(typeof agentDeviceOptions.captureFileName === 'string' && agentDeviceOptions.captureFileName.length > 0
-          ? { captureFileName: agentDeviceOptions.captureFileName }
-          : action === 'screenshot'
-            ? { captureFileName: defaultAgentDeviceCaptureFileName({ driverAction: action, index: actionIndex }) }
-            : {}),
+        ...(captureFileName ? { captureFileName } : {}),
         ...(typeof agentDeviceOptions.direction === 'string' ? { direction: agentDeviceOptions.direction } : {}),
         ...(typeof readFiniteNumber(agentDeviceOptions.durationMs) === 'number'
           ? { durationMs: readFiniteNumber(agentDeviceOptions.durationMs) }
@@ -1165,6 +1191,17 @@ function validateAgentDeviceDriverSteps(driverSteps: AgentDeviceDriverStep[]): s
     }
     if (step.driverAction === 'assertVisible' && !step.selector) {
       errors.push(`${stepLabel} uses driverAction \`assertVisible\` but is missing a portable selector.`);
+    }
+    if (
+      step.driverAction === 'swipe' &&
+      (
+        typeof step.startX !== 'number' ||
+        typeof step.startY !== 'number' ||
+        typeof step.endX !== 'number' ||
+        typeof step.endY !== 'number'
+      )
+    ) {
+      errors.push(`${stepLabel} uses driverAction \`swipe\` but is missing adapterOptions.agentDevice.startX/startY/endX/endY.`);
     }
   }
 
@@ -1239,6 +1276,16 @@ async function runAgentDeviceDriverStep({
       ...(driverStep.rawFileName ? { rawFileName: driverStep.rawFileName } : {}),
       ...(typeof driverStep.startX === 'number' ? { startX: driverStep.startX } : {}),
       ...(typeof driverStep.startY === 'number' ? { startY: driverStep.startY } : {}),
+    });
+  }
+  if (driverStep.driverAction === 'swipe') {
+    return driver.swipe({
+      ...(typeof driverStep.durationMs === 'number' ? { durationMs: driverStep.durationMs } : {}),
+      endX: driverStep.endX as number,
+      endY: driverStep.endY as number,
+      ...(driverStep.rawFileName ? { rawFileName: driverStep.rawFileName } : {}),
+      startX: driverStep.startX as number,
+      startY: driverStep.startY as number,
     });
   }
   if (driverStep.driverAction === 'tap') {

@@ -83,6 +83,15 @@ type AgentDeviceScrollOptions = {
   startY?: number;
 };
 
+type AgentDeviceSwipeOptions = {
+  durationMs?: number;
+  endX: number;
+  endY: number;
+  rawFileName?: string;
+  startX: number;
+  startY: number;
+};
+
 type AgentDeviceTapOptions = {
   rawFileName?: string;
   ref?: string;
@@ -100,6 +109,7 @@ type AgentDeviceDriver = {
   readLogs: (options?: AgentDeviceReadLogsOptions) => Promise<AgentDeviceCommandResult>;
   screenshot: (options: AgentDeviceScreenshotOptions) => Promise<AgentDeviceCommandResult>;
   scroll: (options?: AgentDeviceScrollOptions) => Promise<AgentDeviceCommandResult>;
+  swipe: (options: AgentDeviceSwipeOptions) => Promise<AgentDeviceCommandResult>;
   tap: (options: AgentDeviceTapOptions) => Promise<AgentDeviceCommandResult>;
 };
 
@@ -280,6 +290,24 @@ function createAgentDeviceDriver(options: AgentDeviceDriverOptions): AgentDevice
       return run('screenshot', rawFileName, ['screenshot', outputPath], outputPath);
     },
 
+    async swipe({
+      durationMs,
+      endX,
+      endY,
+      rawFileName = 'agent-device-swipe.txt',
+      startX,
+      startY,
+    }: AgentDeviceSwipeOptions): Promise<AgentDeviceCommandResult> {
+      return run('swipe', rawFileName, [
+        'swipe',
+        String(startX),
+        String(startY),
+        String(endX),
+        String(endY),
+        ...(typeof durationMs === 'number' ? [String(durationMs)] : []),
+      ]);
+    },
+
     async scroll({
       amount,
       direction = 'down',
@@ -354,5 +382,6 @@ export type {
   AgentDeviceScreenshotOptions,
   AgentDeviceScrollOptions,
   AgentDeviceSelector,
+  AgentDeviceSwipeOptions,
   AgentDeviceTapOptions,
 };
