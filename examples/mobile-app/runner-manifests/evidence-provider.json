@@ -3,9 +3,9 @@
   "runnerId": "example-mobile-app-evidence-provider",
   "kind": "evidenceProvider",
   "platforms": ["ios", "android"],
-  "capabilities": ["accessibility", "memory", "network", "profiler"],
+  "capabilities": ["accessibility", "memory", "nativePerformance", "network", "profiler"],
   "driverActions": ["collectPerfSignals"],
-  "artifactOutputs": ["accessibility", "memory", "network", "profiler", "signals"],
+  "artifactOutputs": ["accessibility", "memory", "nativePerformance", "network", "profiler", "signals"],
   "lifecycle": ["prepare", "startWindow", "capture", "stopWindow", "afterCapture", "finalize"],
   "providerCommands": [
     {
@@ -72,6 +72,30 @@
           "channel": "signal",
           "kind": "network",
           "path": "{providerDir}/network.har"
+        }
+      ]
+    },
+    {
+      "id": "capture-native-performance",
+      "phase": "afterCapture",
+      "command": "node",
+      "cwd": "..",
+      "args": [
+        "scripts/asl-capture-native-performance-provider.mjs",
+        "--platform",
+        "{platform}",
+        "--scenario",
+        "{scenarioId}",
+        "--run-id",
+        "{runId}",
+        "--out",
+        "{providerDir}/native-performance.json"
+      ],
+      "outputs": [
+        {
+          "channel": "provider",
+          "kind": "nativePerformance",
+          "path": "{providerDir}/native-performance.json"
         }
       ]
     }

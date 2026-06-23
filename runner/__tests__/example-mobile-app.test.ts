@@ -459,14 +459,80 @@ test('example mobile app provider manifest writes stable evidence attachments', 
     const accessibilityCommandRecord = readJson(
       path.join(runDir, 'raw', 'provider-commands', 'example-mobile-app-evidence-provider-capture-accessibility.json'),
     ) as { exitCode?: number };
+    const nativePerformanceCommandRecord = readJson(
+      path.join(
+        runDir,
+        'raw',
+        'provider-commands',
+        'example-mobile-app-evidence-provider-capture-native-performance.json',
+      ),
+    ) as { exitCode?: number };
     const accessibilityEvidence = readJson(
       path.join(runDir, 'raw', 'providers', 'example-mobile-app-evidence-provider', 'accessibility.json'),
     ) as { providerId?: string; violations?: unknown[] };
+    const nativePerformanceEvidence = readJson(
+      path.join(runDir, 'raw', 'providers', 'example-mobile-app-evidence-provider', 'native-performance.json'),
+    ) as {
+      claimSufficiency?: { status?: string };
+      comparability?: { status?: string };
+      diagnosticSources?: Array<{ path?: string; sourceId?: string; status?: string }>;
+      providerId?: string;
+    };
 
     assert.equal(commandRecord.exitCode, 0);
     assert.equal(accessibilityCommandRecord.exitCode, 0);
+    assert.equal(nativePerformanceCommandRecord.exitCode, 0);
     assert.equal(accessibilityEvidence.providerId, 'example-mobile-app-evidence-provider');
     assert.deepEqual(accessibilityEvidence.violations, []);
+    assert.equal(nativePerformanceEvidence.providerId, 'example-mobile-app-evidence-provider');
+    assert.equal(nativePerformanceEvidence.comparability?.status, 'diagnostic-only');
+    if (exampleRun.runId === 'android-provider-proof') {
+      assert.equal(nativePerformanceEvidence.claimSufficiency?.status, 'sufficient-for-diagnosis');
+      assert.deepEqual(
+        nativePerformanceEvidence.diagnosticSources
+          ?.filter((source) => source.status === 'captured')
+          .map((source) => ({
+            path: source.path,
+            sourceId: source.sourceId,
+          })),
+        [
+          {
+            path: 'raw/providers/example-mobile-app-evidence-provider/native-performance-gfxinfo.txt',
+            sourceId: 'gfxinfo',
+          },
+          {
+            path: 'raw/providers/example-mobile-app-evidence-provider/native-performance-meminfo.txt',
+            sourceId: 'meminfo',
+          },
+        ],
+      );
+    } else {
+      assert.equal(nativePerformanceEvidence.claimSufficiency?.status, 'insufficient-for-claim');
+      assert.deepEqual(
+        nativePerformanceEvidence.diagnosticSources?.map((source) => ({
+          sourceId: source.sourceId,
+          status: source.status,
+        })),
+        [
+          {
+            sourceId: 'instruments',
+            status: 'unverified',
+          },
+          {
+            sourceId: 'xctrace',
+            status: 'unverified',
+          },
+          {
+            sourceId: 'metrickit',
+            status: 'unverified',
+          },
+          {
+            sourceId: 'simctl',
+            status: 'unverified',
+          },
+        ],
+      );
+    }
     assert.deepEqual(manifest.artifacts?.signals?.js, ['signals/js/profiler.json']);
     assert.deepEqual(manifest.artifacts?.signals?.memory, ['signals/memory/memory.json']);
     assert.deepEqual(manifest.artifacts?.signals?.network, ['signals/network/network.har']);
@@ -507,6 +573,12 @@ test('example mobile app provider manifest writes stable evidence attachments', 
           kind: 'network',
           path: 'signals/network/network.har',
           sourceFileName: 'network.har',
+        },
+        {
+          channel: 'provider',
+          kind: 'nativePerformance',
+          path: 'raw/providers/example-mobile-app-evidence-provider/native-performance.json',
+          sourceFileName: 'native-performance.json',
         },
       ],
     );
