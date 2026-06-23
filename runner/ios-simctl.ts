@@ -20,6 +20,7 @@ const {
 
 type CliArgs = {
   bundle?: string | boolean;
+  'command-timeout-ms'?: string | boolean;
   'collect-profile-storage'?: string | boolean;
   device?: string | boolean;
   'diagnostic-reports-dir'?: string | boolean;
@@ -52,6 +53,8 @@ type CommandResult = {
 type CommandExecutor = (command: string, args: string[]) => Promise<CommandResult>;
 type ExecFileError = Error & {
   code?: number;
+  killed?: boolean;
+  signal?: NodeJS.Signals | string;
 };
 type IosSimulator = {
   name: string;
@@ -90,6 +93,7 @@ type ProfileStorageKeys = {
 };
 type IosSimctlCaptureOptions = {
   bundleId?: string | null;
+  commandTimeoutMs?: number;
   collectProfileStorage?: boolean;
   conflictingBundleIds?: string[];
   deepLinks?: IosSimctlDeepLink[];
@@ -145,6 +149,8 @@ const DEFAULT_PROFILE_STORAGE_KEYS: ProfileStorageKeys = {
   sessionEntries: PROFILE_SESSION_STORAGE_KEYS.sessionEntries,
   signal: PROFILE_SESSION_STORAGE_KEYS.signal,
 };
+const DEFAULT_IOS_SIMCTL_COMMAND_TIMEOUT_MS = 60000;
+const MAX_IOS_SIMCTL_COMMAND_TIMEOUT_MS = 2_147_483_647;
 const SCREENSHOT_EXTENSIONS = new Set(['bmp', 'gif', 'jpeg', 'png', 'tiff']);
 const SIMULATOR_LAUNCH_ENV_KEYS = [
   'DYLD_INSERT_LIBRARIES',
@@ -307,6 +313,7 @@ function usage(output: { write: (message: string) => unknown } = process.stderr)
     'Use --profile-session-storage <scenario> with --bundle <id> to seed the app profile session before launch.',
     'Use --profile-session-storage-key, --profile-command-storage-key, --profile-event-storage-key, --profile-signal-storage-key, and --profile-session-entries-storage-key to target app-owned AsyncStorage keys.',
     'Use --collect-profile-storage with --bundle <id> to collect stored profile events after the capture window.',
+    'Use --command-timeout-ms <ms> to bound each xcrun/simctl subprocess; the default is 60000.',
     'Use --diagnostic-reports-dir <path> when host crash reports live outside ~/Library/Logs/DiagnosticReports.',
   ], output);
 }
@@ -367,6 +374,15 @@ function parsePositiveInteger(value: string | boolean | undefined, fallback: num
 
   const parsed = Number(value);
   return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function normalizeCommandTimeoutMs(timeoutMs: number): number {
+  if (!Number.isFinite(timeoutMs)) {
+    return DEFAULT_IOS_SIMCTL_COMMAND_TIMEOUT_MS;
+  }
+
+  const bounded = Math.max(1, Math.ceil(timeoutMs));
+  return Math.min(bounded, MAX_IOS_SIMCTL_COMMAND_TIMEOUT_MS);
 }
 
 /**
@@ -734,24 +750,43 @@ function resolveExecFileExitCode(error: ExecFileError | null): number {
 }
 
 /**
- * Runs a command and captures stdout, stderr, and exit code without throwing.
+ * Runs a command with a timeout and captures stdout, stderr, and exit code without throwing.
+ *
+ * @param {string} command
+ * @param {string[]} args
+ * @param {number} timeoutMs
+ * @returns {Promise<CommandResult>}
+ */
+function execFileCommandWithTimeout(
+  command: string,
+  args: string[],
+  timeoutMs = DEFAULT_IOS_SIMCTL_COMMAND_TIMEOUT_MS,
+): Promise<CommandResult> {
+  const timeout = normalizeCommandTimeoutMs(timeoutMs);
+  return new Promise((resolve) => {
+    execFile(command, args, { encoding: 'utf8', timeout }, (error: ExecFileError | null, stdout: string, stderr: string) => {
+      const timedOut = Boolean(error?.killed || error?.signal === 'SIGTERM');
+      const timeoutMessage = timedOut ? `Command timed out after ${timeout}ms.` : '';
+      resolve({
+        command,
+        args,
+        exitCode: resolveExecFileExitCode(error),
+        stderr: [stderr.trimEnd(), timeoutMessage].filter(Boolean).join('\n'),
+        stdout,
+      });
+    });
+  });
+}
+
+/**
+ * Runs a command with the default iOS simctl timeout.
  *
  * @param {string} command
  * @param {string[]} args
  * @returns {Promise<CommandResult>}
  */
 function execFileCommand(command: string, args: string[]): Promise<CommandResult> {
-  return new Promise((resolve) => {
-    execFile(command, args, { encoding: 'utf8' }, (error: ExecFileError | null, stdout: string, stderr: string) => {
-      resolve({
-        command,
-        args,
-        exitCode: resolveExecFileExitCode(error),
-        stderr,
-        stdout,
-      });
-    });
-  });
+  return execFileCommandWithTimeout(command, args, DEFAULT_IOS_SIMCTL_COMMAND_TIMEOUT_MS);
 }
 
 /**
@@ -1170,29 +1205,35 @@ function buildIosSimctlVerdict({ runId, health }: { runId: string; health: Recor
  * @param {IosSimctlCaptureOptions} options
  * @returns {Promise<IosSimctlCaptureResult>}
  */
-async function runIosSimctlCapture({
-  bundleId = null,
-  collectProfileStorage = false,
-  conflictingBundleIds = [],
-  deepLinks = [],
-  delay: wait = delay,
-  device = null,
-  diagnosticReportsDir = null,
-  executor = execFileCommand,
-  launch = false,
-  logLast = '2m',
-  outputDir = path.resolve('artifacts/ios-simctl-capture'),
-  profileSessionStorage = null,
-  profileStorageKeys: profileStorageKeyOverrides,
-  runId = createRunId(),
-  screenshot = false,
-  screenshotDisplay,
-  screenshotMask,
-  screenshotType,
-  terminateBeforeLaunch = false,
-  waitMs = 0,
-  xcrunPath = 'xcrun',
-}: IosSimctlCaptureOptions = {}): Promise<IosSimctlCaptureResult> {
+async function runIosSimctlCapture(options: IosSimctlCaptureOptions = {}): Promise<IosSimctlCaptureResult> {
+  const {
+    bundleId = null,
+    commandTimeoutMs: requestedCommandTimeoutMs = DEFAULT_IOS_SIMCTL_COMMAND_TIMEOUT_MS,
+    collectProfileStorage = false,
+    conflictingBundleIds = [],
+    deepLinks = [],
+    delay: wait = delay,
+    device = null,
+    diagnosticReportsDir = null,
+    executor: providedExecutor,
+    launch = false,
+    logLast = '2m',
+    outputDir = path.resolve('artifacts/ios-simctl-capture'),
+    profileSessionStorage = null,
+    profileStorageKeys: profileStorageKeyOverrides,
+    runId = createRunId(),
+    screenshot = false,
+    screenshotDisplay,
+    screenshotMask,
+    screenshotType,
+    terminateBeforeLaunch = false,
+    waitMs = 0,
+    xcrunPath = 'xcrun',
+  } = options;
+  const commandTimeoutMs = normalizeCommandTimeoutMs(requestedCommandTimeoutMs);
+  const executor: CommandExecutor = providedExecutor
+    ? providedExecutor
+    : ((command, args) => execFileCommandWithTimeout(command, args, commandTimeoutMs));
   const runDir = path.resolve(outputDir);
   const layout = createArtifactLayout({ outputDir: runDir });
   const rawDir = layout.raw;
@@ -1205,6 +1246,40 @@ async function runIosSimctlCapture({
   };
   const checks: Record<string, unknown>[] = [];
   const deepLinkResults: Record<string, unknown>[] = [];
+  const captureStartedRawFileName = 'ios-simctl-capture-started.json';
+  const captureStartedAt = new Date();
+  const captureStartedCheckpoint = {
+    status: 'started',
+    message: 'iOS simctl capture started before the first xcrun command.',
+    runId,
+    commandTimeoutMs,
+    startedAt: captureStartedAt.toISOString(),
+    selectedInputs: {
+      bundleId,
+      collectProfileStorage,
+      deepLinks,
+      device: device || 'booted',
+      launch,
+      logLast,
+      profileSessionStorage: profileSessionStorage
+        ? {
+            commandCount: Array.isArray(profileSessionStorage.commands) ? profileSessionStorage.commands.length : 0,
+            runId: profileSessionStorage.runId,
+            scenario: profileSessionStorage.scenario,
+          }
+        : null,
+      screenshot,
+      terminateBeforeLaunch,
+      waitMs,
+      xcrunPath,
+    },
+  };
+  raw[captureStartedRawFileName] = JSON.stringify(captureStartedCheckpoint, null, 2);
+  await fsp.writeFile(
+    path.join(rawDir, captureStartedRawFileName),
+    `${JSON.stringify(captureStartedCheckpoint, null, 2)}\n`,
+    'utf8',
+  );
   const devicesOutput = await executor(xcrunPath, ['simctl', 'list', 'devices']);
   const simctlAvailable = devicesOutput.exitCode === 0;
   raw['ios-simctl-devices.txt'] = [devicesOutput.stdout, devicesOutput.stderr].filter(Boolean).join('\n');
@@ -1250,6 +1325,11 @@ async function runIosSimctlCapture({
 
   const metadata: Record<string, unknown> = {
     bundleId,
+    captureStarted: {
+      rawPath: `raw/${captureStartedRawFileName}`,
+      startedAt: captureStartedCheckpoint.startedAt,
+    },
+    commandTimeoutMs,
     collectProfileStorage,
     conflictingBundleIds: [],
     deepLinks,
@@ -1963,6 +2043,7 @@ async function main(): Promise<void> {
   });
   const result = await runIosSimctlCapture({
     ...(typeof args.bundle === 'string' ? { bundleId: args.bundle } : {}),
+    commandTimeoutMs: parsePositiveInteger(args['command-timeout-ms'], DEFAULT_IOS_SIMCTL_COMMAND_TIMEOUT_MS),
     collectProfileStorage: profileSessionStorageEnabled ||
       args['collect-profile-storage'] === true ||
       args['collect-profile-storage'] === 'true',
@@ -2009,6 +2090,7 @@ export {
   buildIosSimctlVerdict,
   asyncStorageFileNameForKey,
   execFileCommand,
+  execFileCommandWithTimeout,
   formatStoredProfileEventLog,
   main,
   parseArgs,

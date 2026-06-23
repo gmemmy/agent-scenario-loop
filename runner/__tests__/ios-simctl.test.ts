@@ -7,6 +7,7 @@ const test = require('node:test');
 
 const {
   asyncStorageFileNameForKey,
+  execFileCommandWithTimeout,
   formatStoredProfileEventLog,
   parseArgs,
   parseSimctlDevices,
@@ -31,6 +32,36 @@ type CommandResult = {
   stdout: string;
 };
 type TestContext = import('node:test').TestContext;
+
+/**
+ * Creates a promise that can be resolved by the test.
+ *
+ * @returns {{promise: Promise<CommandResult>, resolve: (value: CommandResult) => void}}
+ */
+function createDeferredCommandResult() {
+  let resolve: (value: CommandResult) => void = () => {};
+  const promise = new Promise<CommandResult>((innerResolve) => {
+    resolve = innerResolve;
+  });
+  return { promise, resolve };
+}
+
+/**
+ * Waits until a condition is true or fails the test.
+ *
+ * @param {() => boolean} predicate
+ * @returns {Promise<void>}
+ */
+async function waitFor(predicate: () => boolean): Promise<void> {
+  const deadline = Date.now() + 1000;
+  while (Date.now() < deadline) {
+    if (predicate()) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  assert.fail('Timed out waiting for condition.');
+}
 
 /**
  * Creates a fake xcrun executor from argument-keyed responses.
@@ -138,6 +169,118 @@ test('explains agent sandbox access when simctl listing is unavailable', async (
     ),
   );
   assert.match(summary, /agent sandbox/u);
+});
+
+test('writes iOS capture started checkpoint before executor resolves', async (t: TestContext) => {
+  const outputDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-ios-simctl-started-'));
+  t.after(async () => {
+    await fsp.rm(outputDir, { recursive: true, force: true });
+  });
+  const devices = createDeferredCommandResult();
+  const executor = async (command: string, args: string[]): Promise<CommandResult> => {
+    if (args.join(' ') === 'simctl list devices') {
+      return devices.promise;
+    }
+
+    return {
+      args,
+      command,
+      exitCode: 1,
+      stderr: `unexpected command: ${args.join(' ')}`,
+      stdout: '',
+    };
+  };
+
+  const run = runIosSimctlCapture({
+    bundleId: 'dev.agent-scenario-loop.example',
+    commandTimeoutMs: 30000,
+    executor,
+    launch: true,
+    outputDir,
+    runId: 'ios-simctl-started',
+  });
+  const checkpointPath = path.join(outputDir, 'raw', 'ios-simctl-capture-started.json');
+  let checkpointText = '';
+  await waitFor(() => {
+    if (!fs.existsSync(checkpointPath)) {
+      return false;
+    }
+    checkpointText = fs.readFileSync(checkpointPath, 'utf8');
+    try {
+      JSON.parse(checkpointText);
+      return true;
+    } catch {
+      return false;
+    }
+  });
+  const rawEntriesBeforeExecutorResolves = fs.readdirSync(path.join(outputDir, 'raw'));
+  const checkpoint = JSON.parse(checkpointText);
+
+  assert.deepEqual(rawEntriesBeforeExecutorResolves, ['ios-simctl-capture-started.json']);
+  assert.equal(checkpoint.status, 'started');
+  assert.equal(checkpoint.runId, 'ios-simctl-started');
+  assert.equal(checkpoint.commandTimeoutMs, 30000);
+  assert.equal(checkpoint.selectedInputs.bundleId, 'dev.agent-scenario-loop.example');
+  assert.equal(checkpoint.selectedInputs.launch, true);
+
+  devices.resolve({
+    args: ['simctl', 'list', 'devices'],
+    command: 'fake-xcrun',
+    exitCode: 0,
+    stderr: '',
+    stdout: [
+      '== Devices ==',
+      '-- iOS 26.3 --',
+      '    iPhone 17 Pro Max (A692ED28-893E-453F-8866-C69331AE757F) (Booted)',
+    ].join('\n'),
+  });
+  const result = await run;
+  const finalMetadata = JSON.parse(fs.readFileSync(path.join(outputDir, 'raw', 'ios-metadata.json'), 'utf8'));
+
+  assert.equal(result.health.healthStatus, 'failed');
+  assert.equal(finalMetadata.captureStarted.rawPath, 'raw/ios-simctl-capture-started.json');
+});
+
+test('times out hung iOS simctl subprocesses with diagnostic stderr', async () => {
+  const result = await execFileCommandWithTimeout(process.execPath, ['-e', 'setTimeout(() => {}, 1000)'], 20);
+
+  assert.notEqual(result.exitCode, 0);
+  assert.match(result.stderr, /Command timed out after 20ms/u);
+});
+
+test('clamps oversized command timeout values before writing metadata', async (t: TestContext) => {
+  const outputDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-ios-simctl-timeout-clamp-'));
+  t.after(async () => {
+    await fsp.rm(outputDir, { recursive: true, force: true });
+  });
+  const executor = createExecutor({
+    'simctl list devices': {
+      stdout: [
+        '== Devices ==',
+        '-- iOS 26.3 --',
+        '    iPhone 17 Pro Max (A692ED28-893E-453F-8866-C69331AE757F) (Booted)',
+      ].join('\n'),
+    },
+    'simctl spawn A692ED28-893E-453F-8866-C69331AE757F launchctl getenv DYLD_INSERT_LIBRARIES': {
+      exitCode: 1,
+      stderr: '',
+    },
+    'simctl spawn A692ED28-893E-453F-8866-C69331AE757F launchctl getenv NATIVE_DEVTOOLS_IOS_CDP_SOCKET': {
+      exitCode: 1,
+      stderr: '',
+    },
+  });
+
+  const result = await runIosSimctlCapture({
+    commandTimeoutMs: 5_000_000_000,
+    executor,
+    outputDir,
+    runId: 'ios-simctl-timeout-clamp',
+  });
+  const checkpoint = JSON.parse(fs.readFileSync(path.join(outputDir, 'raw', 'ios-simctl-capture-started.json'), 'utf8'));
+
+  assert.equal(result.metadata.commandTimeoutMs, 2_147_483_647);
+  assert.equal(checkpoint.commandTimeoutMs, 2_147_483_647);
 });
 
 test('captures bounded iOS simulator log evidence', async (t: TestContext) => {
