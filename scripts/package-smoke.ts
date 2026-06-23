@@ -2425,6 +2425,7 @@ function main(): void {
       "require.resolve('agent-scenario-loop/templates/skills/agent-scenario-loop/references/artifact-interpretation.md');",
       "require.resolve('agent-scenario-loop/templates/skills/agent-scenario-loop/references/adoption-checklist.md');",
       "require.resolve('agent-scenario-loop/templates/scripts/asl-capture-accessibility-provider.mjs');",
+      "require.resolve('agent-scenario-loop/templates/scripts/asl-capture-native-performance-provider.mjs');",
       "require.resolve('agent-scenario-loop/templates/scripts/asl-capture-profiler-provider.mjs');",
       "for (const scenarioFixture of listJsonFiles('examples/scenarios/mobile')) {",
       "  const result = asl.validateJson(readJson(scenarioFixture), asl.SCHEMAS.scenario, scenarioFixture);",

@@ -703,6 +703,120 @@ test('accepts partial native performance evidence with explicit claim insufficie
   assert.equal(result.valid, true, result.message);
 });
 
+test('accepts iOS native performance diagnostic source inventories', () => {
+  const result = validateJson({
+    schemaVersion: '1.0.0',
+    providerId: 'native-performance-provider',
+    platform: 'ios',
+    runId: 'profile-run',
+    scenarioId: 'link-preview',
+    captureMode: 'afterCapture',
+    evidenceKind: 'mixed',
+    dataClasses: ['frames', 'jank', 'memory', 'cpu', 'native-trace'],
+    completenessStatus: 'partial',
+    targetBinding: {
+      status: 'unverified',
+      reason: 'iOS native diagnostics were scaffolded but not bound to a simulator/app target.',
+    },
+    comparability: {
+      status: 'diagnostic-only',
+      reason: 'The scaffold declares iOS source lanes but does not capture comparable native evidence.',
+    },
+    claimSufficiency: {
+      status: 'insufficient-for-claim',
+      claim: 'iOS native performance release readiness.',
+      reason: 'No Instruments, xctrace, MetricKit, or simctl-derived native-performance source has been captured yet.',
+      supportingEvidence: ['diagnosticSources'],
+      missingEvidence: ['captured iOS native diagnostic source', 'verified target binding'],
+      nextAction: 'Capture a bounded iOS native-performance source and preserve raw attachments before making a claim.',
+    },
+    diagnosticSources: [
+      {
+        sourceId: 'instruments',
+        status: 'unverified',
+        tool: {
+          name: 'Instruments',
+        },
+        dataClasses: ['frames', 'jank', 'cpu', 'memory', 'native-trace'],
+        reason: 'Not captured by this scaffold provider.',
+        nextAction: 'Capture an Instruments trace or exported summary.',
+      },
+      {
+        sourceId: 'xctrace',
+        status: 'available-unproven',
+        tool: {
+          name: 'xctrace',
+          command: 'xctrace record',
+        },
+        dataClasses: ['cpu', 'thread-scheduling', 'memory', 'native-trace'],
+        reason: 'The lane is declared, but runtime target binding and output parsing are not proven.',
+      },
+      {
+        sourceId: 'metrickit',
+        status: 'not-requested',
+        tool: {
+          name: 'MetricKit',
+        },
+        dataClasses: ['frames', 'jank', 'cpu', 'memory', 'thermal', 'battery'],
+        reason: 'MetricKit payload ingestion was not requested for this run.',
+      },
+    ],
+    summary: 'iOS native-performance source inventory is explicit but not claim-sufficient.',
+  }, SCHEMAS.nativePerformance, 'Native performance evidence artifact');
+
+  assert.equal(result.valid, true, result.message);
+});
+
+test('accepts native performance diagnostic source inventory as the only content surface', () => {
+  const result = validateJson({
+    schemaVersion: '1.0.0',
+    providerId: 'native-performance-provider',
+    platform: 'android',
+    runId: 'profile-run',
+    scenarioId: 'feed-scroll',
+    diagnosticSources: [
+      {
+        sourceId: 'gfxinfo',
+        status: 'timeout',
+        tool: {
+          name: 'adb dumpsys gfxinfo',
+        },
+        dataClasses: ['frames', 'jank', 'render'],
+        reason: 'The device did not return gfxinfo output before the provider timeout.',
+        nextAction: 'Retry after stabilizing the target app or mark frame evidence unavailable for this run.',
+      },
+      {
+        sourceId: 'meminfo',
+        status: 'not-requested',
+        dataClasses: ['memory'],
+        reason: 'Memory capture was not requested by this provider lane.',
+      },
+    ],
+  }, SCHEMAS.nativePerformance, 'Native performance evidence artifact');
+
+  assert.equal(result.valid, true, result.message);
+});
+
+test('rejects native performance diagnostic source inventories with unknown source status', () => {
+  const result = validateJson({
+    schemaVersion: '1.0.0',
+    providerId: 'native-performance-provider',
+    platform: 'ios',
+    runId: 'profile-run',
+    scenarioId: 'link-preview',
+    diagnosticSources: [
+      {
+        sourceId: 'xctrace',
+        status: 'magical',
+      },
+    ],
+    summary: 'Invalid source status.',
+  }, SCHEMAS.nativePerformance, 'Native performance evidence artifact');
+
+  assert.equal(result.valid, false);
+  assert.ok(result.errors.some((error: ValidationIssue) => error.path === '$.diagnosticSources[0].status'));
+});
+
 test('rejects native performance claim sufficiency without comparable support', () => {
   const result = validateJson({
     schemaVersion: '1.0.0',

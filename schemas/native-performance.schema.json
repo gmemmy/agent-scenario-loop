@@ -86,7 +86,8 @@
     { "required": ["memory"] },
     { "required": ["events"] },
     { "required": ["traces"] },
-    { "required": ["attachments"] }
+    { "required": ["attachments"] },
+    { "required": ["diagnosticSources"] }
   ],
   "properties": {
     "schemaVersion": {
@@ -154,6 +155,62 @@
         "enum": ["frames", "jank", "render", "memory", "cpu", "thread-scheduling", "io", "gpu", "network", "thermal", "battery", "native-trace", "unknown"]
       },
       "uniqueItems": true
+    },
+    "diagnosticSources": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["sourceId", "status"],
+        "properties": {
+          "sourceId": {
+            "type": "string",
+            "enum": ["perfetto", "trace-processor", "gfxinfo", "framestats", "meminfo", "logcat-render", "instruments", "xctrace", "metrickit", "simctl", "native-trace", "diagnostic-summary", "custom"]
+          },
+          "status": {
+            "type": "string",
+            "enum": ["captured", "partial", "failed", "timeout", "not-requested", "unsupported", "available-unproven", "unverified", "unknown"]
+          },
+          "tool": {
+            "type": "object",
+            "additionalProperties": true,
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "version": {
+                "type": "string",
+                "minLength": 1
+              },
+              "command": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          "dataClasses": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": ["frames", "jank", "render", "memory", "cpu", "thread-scheduling", "io", "gpu", "network", "thermal", "battery", "native-trace", "unknown"]
+            },
+            "uniqueItems": true
+          },
+          "path": {
+            "type": "string",
+            "minLength": 1
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1
+          },
+          "nextAction": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
     },
     "completenessStatus": {
       "type": "string",
