@@ -7,6 +7,7 @@ const test = require('node:test');
 
 const {
   asyncStorageFileNameForKey,
+  deriveIosSimctlCaptureWatchdogBudget,
   execFileCommandWithTimeout,
   formatStoredProfileEventLog,
   parseArgs,
@@ -220,6 +221,9 @@ test('writes iOS capture started checkpoint before executor resolves', async (t:
   assert.equal(checkpoint.status, 'started');
   assert.equal(checkpoint.runId, 'ios-simctl-started');
   assert.equal(checkpoint.commandTimeoutMs, 30000);
+  assert.equal(checkpoint.watchdog.armed, true);
+  assert.equal(typeof checkpoint.watchdog.timeoutMs, 'number');
+  assert.equal(typeof checkpoint.watchdog.deadlineEpochMs, 'number');
   assert.equal(checkpoint.selectedInputs.bundleId, 'dev.agent-scenario-loop.example');
   assert.equal(checkpoint.selectedInputs.launch, true);
 
@@ -239,6 +243,108 @@ test('writes iOS capture started checkpoint before executor resolves', async (t:
 
   assert.equal(result.health.healthStatus, 'failed');
   assert.equal(finalMetadata.captureStarted.rawPath, 'raw/ios-simctl-capture-started.json');
+});
+
+test('derives bounded iOS simctl capture watchdog from declared waits', () => {
+  const watchdog = deriveIosSimctlCaptureWatchdogBudget({
+    bundleId: 'dev.agent-scenario-loop.example',
+    collectProfileStorage: true,
+    commandTimeoutMs: 60000,
+    deepLinks: [
+      {
+        url: 'example://profile-session/start',
+        waitMs: 250,
+      },
+    ],
+    launch: true,
+    profileSessionStorage: {
+      commands: [
+        {
+          command: 'open',
+          sequence: 1,
+        },
+      ],
+      runId: 'ios-watchdog',
+      scenario: 'open-close-cycle',
+    },
+    screenshot: true,
+    terminateBeforeLaunch: true,
+    waitMs: 1000,
+  });
+
+  assert.equal(watchdog.source, 'derived');
+  assert.equal(watchdog.declaredWaitMs, 1250);
+  assert.equal(watchdog.perCommandOverheadMs, 3000);
+  assert.equal(watchdog.commandBudgetMs <= 45000, true);
+  assert.equal(watchdog.timeoutMs < 120000, true);
+
+  const explicitWatchdog = deriveIosSimctlCaptureWatchdogBudget({
+    captureWatchdogMs: 600000,
+    commandTimeoutMs: 60000,
+  });
+
+  assert.equal(explicitWatchdog.source, 'override');
+  assert.equal(explicitWatchdog.timeoutMs, 600000);
+});
+
+test('writes failed artifact set when iOS simctl executor never resolves after output setup', async (t: TestContext) => {
+  const outputDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-ios-simctl-watchdog-'));
+  t.after(async () => {
+    await fsp.rm(outputDir, { recursive: true, force: true });
+  });
+  const executor = async (command: string, args: string[]): Promise<CommandResult> => {
+    if (args.join(' ') === 'simctl list devices') {
+      return new Promise<CommandResult>(() => {});
+    }
+
+    return {
+      args,
+      command,
+      exitCode: 0,
+      stderr: '',
+      stdout: 'ok\n',
+    };
+  };
+
+  const result = await runIosSimctlCapture({
+    bundleId: 'dev.agent-scenario-loop.example',
+    captureWatchdogMs: 50,
+    commandTimeoutMs: 50,
+    executor,
+    launch: true,
+    outputDir,
+    runId: 'ios-simctl-watchdog',
+  });
+  const health = JSON.parse(fs.readFileSync(path.join(outputDir, 'health.json'), 'utf8'));
+  const verdict = JSON.parse(fs.readFileSync(path.join(outputDir, 'verdict.json'), 'utf8'));
+  const metadata = JSON.parse(fs.readFileSync(path.join(outputDir, 'raw', 'ios-metadata.json'), 'utf8'));
+  const failureRaw = fs.readFileSync(path.join(outputDir, 'raw', 'ios-simctl-runner-watchdog-timeout.txt'), 'utf8');
+  const summary = fs.readFileSync(path.join(outputDir, 'agent-summary.md'), 'utf8');
+
+  assert.equal(result.health.healthStatus, 'failed');
+  assert.equal(health.healthStatus, 'failed');
+  assert.notEqual(verdict.verdictStatus, 'passed');
+  assertAdapterArtifactConformance(result, {
+    expectedHealthStatus: 'failed',
+    rawArtifacts: [
+      'raw/ios-simctl-capture-started.json',
+      'raw/ios-simctl-runner-watchdog-timeout.txt',
+      'raw/ios-metadata.json',
+    ],
+  });
+  assert.ok(
+    (health.checks as Array<{ code: string; metadata?: { nextActionCode?: string; rawPath?: string } }>).some(
+      (check) => check.code === 'ios_simctl_runner_liveness_timeout'
+        && check.metadata?.nextActionCode === 'inspect_ios_simctl_runner_timeout'
+        && check.metadata?.rawPath === 'raw/ios-simctl-runner-watchdog-timeout.txt',
+    ),
+  );
+  assert.match(failureRaw, /iOS simctl capture did not complete within 50ms/u);
+  assert.match(failureRaw, /ios_simctl_runner_liveness_timeout/u);
+  assert.match(summary, /Next action `inspect_ios_simctl_runner_timeout`/u);
+  assert.equal(metadata.runnerFailure.rawPath, 'raw/ios-simctl-runner-watchdog-timeout.txt');
+  assert.equal(metadata.runnerFailure.watchdog.timeoutMs, 50);
+  assert.ok(metadata.runnerFailure.collectedRawArtifacts.includes('raw/ios-simctl-capture-started.json'));
 });
 
 test('times out hung iOS simctl subprocesses with diagnostic stderr', async () => {

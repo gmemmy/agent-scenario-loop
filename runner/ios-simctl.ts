@@ -94,6 +94,7 @@ type ProfileStorageKeys = {
 };
 type IosSimctlCaptureOptions = {
   bundleId?: string | null;
+  captureWatchdogMs?: number;
   commandTimeoutMs?: number;
   collectProfileStorage?: boolean;
   conflictingBundleIds?: string[];
@@ -145,6 +146,20 @@ type HostDiagnosticReportProbe = {
   metadata: Record<string, unknown>;
   raw: Record<string, string>;
 };
+type IosSimctlCaptureWatchdogBudget = {
+  ceilingMs: number;
+  commandBudgetMs: number;
+  commandUnits: number;
+  declaredWaitMs: number;
+  floorMs: number;
+  perCommandOverheadMs: number;
+  source: 'derived' | 'override';
+  timeoutMs: number;
+};
+type IosSimctlCaptureWatchdogError = Error & {
+  code: 'ios_simctl_runner_liveness_timeout';
+  watchdog: IosSimctlCaptureWatchdogBudget;
+};
 
 const DEFAULT_PROFILE_STORAGE_KEYS: ProfileStorageKeys = {
   command: PROFILE_SESSION_STORAGE_KEYS.command,
@@ -155,6 +170,10 @@ const DEFAULT_PROFILE_STORAGE_KEYS: ProfileStorageKeys = {
 };
 const DEFAULT_IOS_SIMCTL_COMMAND_TIMEOUT_MS = 60000;
 const MAX_IOS_SIMCTL_COMMAND_TIMEOUT_MS = 2_147_483_647;
+const IOS_SIMCTL_CAPTURE_WATCHDOG_FLOOR_MS = 15000;
+const IOS_SIMCTL_CAPTURE_WATCHDOG_CEILING_MS = 120000;
+const IOS_SIMCTL_CAPTURE_COMMAND_OVERHEAD_MS = 3000;
+const IOS_SIMCTL_CAPTURE_COMMAND_OVERHEAD_CEILING_MS = 45000;
 const SCREENSHOT_EXTENSIONS = new Set(['bmp', 'gif', 'jpeg', 'png', 'tiff']);
 const SIMULATOR_LAUNCH_ENV_KEYS = [
   'DYLD_INSERT_LIBRARIES',
@@ -387,6 +406,184 @@ function normalizeCommandTimeoutMs(timeoutMs: number): number {
 
   const bounded = Math.max(1, Math.ceil(timeoutMs));
   return Math.min(bounded, MAX_IOS_SIMCTL_COMMAND_TIMEOUT_MS);
+}
+
+/**
+ * Sums only positive finite durations.
+ *
+ * @param {Array<number | undefined>} values
+ * @returns {number}
+ */
+function sumPositiveDurations(values: Array<number | undefined>): number {
+  let total = 0;
+  for (const value of values) {
+    if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
+      total += value;
+    }
+  }
+  return total;
+}
+
+/**
+ * Derives a whole-capture watchdog for iOS simctl capture publication.
+ *
+ * @param {IosSimctlCaptureOptions & {commandTimeoutMs: number}} options
+ * @returns {IosSimctlCaptureWatchdogBudget}
+ */
+function deriveIosSimctlCaptureWatchdogBudget({
+  bundleId = null,
+  captureWatchdogMs,
+  collectProfileStorage = false,
+  commandTimeoutMs,
+  conflictingBundleIds = [],
+  deepLinks = [],
+  launch = false,
+  profileSessionStorage = null,
+  screenshot = false,
+  terminateBeforeLaunch = false,
+  waitMs = 0,
+}: IosSimctlCaptureOptions & { commandTimeoutMs: number }): IosSimctlCaptureWatchdogBudget {
+  if (typeof captureWatchdogMs === 'number' && Number.isFinite(captureWatchdogMs) && captureWatchdogMs > 0) {
+    return {
+      ceilingMs: IOS_SIMCTL_CAPTURE_WATCHDOG_CEILING_MS,
+      commandBudgetMs: 0,
+      commandUnits: 0,
+      declaredWaitMs: captureWatchdogMs,
+      floorMs: IOS_SIMCTL_CAPTURE_WATCHDOG_FLOOR_MS,
+      perCommandOverheadMs: 0,
+      source: 'override',
+      timeoutMs: Math.ceil(captureWatchdogMs),
+    };
+  }
+
+  const declaredWaitMs = sumPositiveDurations([
+    waitMs,
+    ...deepLinks.map((deepLink) => deepLink.waitMs),
+  ]);
+  const commandUnits = 4 +
+    (bundleId ? 1 : 0) +
+    conflictingBundleIds.length +
+    (collectProfileStorage || profileSessionStorage ? 1 : 0) +
+    (terminateBeforeLaunch ? 1 : 0) +
+    (profileSessionStorage ? 1 : 0) +
+    (launch ? 3 : 0) +
+    deepLinks.length +
+    (screenshot ? 1 : 0);
+  const perCommandOverheadMs = Math.min(commandTimeoutMs, IOS_SIMCTL_CAPTURE_COMMAND_OVERHEAD_MS);
+  const commandBudgetMs = Math.min(
+    commandUnits * perCommandOverheadMs,
+    IOS_SIMCTL_CAPTURE_COMMAND_OVERHEAD_CEILING_MS,
+  );
+  const bufferedBudgetMs = commandBudgetMs + declaredWaitMs + 5000;
+  const floorBoundedBudgetMs = Math.max(IOS_SIMCTL_CAPTURE_WATCHDOG_FLOOR_MS, bufferedBudgetMs);
+  const timeoutMs = Math.min(IOS_SIMCTL_CAPTURE_WATCHDOG_CEILING_MS, floorBoundedBudgetMs);
+  return {
+    ceilingMs: IOS_SIMCTL_CAPTURE_WATCHDOG_CEILING_MS,
+    commandBudgetMs,
+    commandUnits,
+    declaredWaitMs,
+    floorMs: IOS_SIMCTL_CAPTURE_WATCHDOG_FLOOR_MS,
+    perCommandOverheadMs,
+    source: 'derived',
+    timeoutMs,
+  };
+}
+
+/**
+ * Creates the classified whole-capture watchdog error.
+ *
+ * @param {IosSimctlCaptureWatchdogBudget} watchdog
+ * @returns {IosSimctlCaptureWatchdogError}
+ */
+function createIosSimctlCaptureWatchdogError(
+  watchdog: IosSimctlCaptureWatchdogBudget,
+): IosSimctlCaptureWatchdogError {
+  const error = new Error(`iOS simctl capture did not complete within ${watchdog.timeoutMs}ms.`);
+  return Object.assign(error, {
+    code: 'ios_simctl_runner_liveness_timeout' as const,
+    watchdog,
+  });
+}
+
+/**
+ * Checks whether an error came from the iOS simctl capture watchdog.
+ *
+ * @param {unknown} error
+ * @returns {error is IosSimctlCaptureWatchdogError}
+ */
+function isIosSimctlCaptureWatchdogError(error: unknown): error is IosSimctlCaptureWatchdogError {
+  return error instanceof Error &&
+    (error as Partial<IosSimctlCaptureWatchdogError>).code === 'ios_simctl_runner_liveness_timeout';
+}
+
+/**
+ * Runs the mutable iOS capture body with a whole-capture timeout.
+ *
+ * @param {{body: () => Promise<void>, watchdog: IosSimctlCaptureWatchdogBudget}} options
+ * @returns {Promise<void>}
+ */
+async function runIosSimctlCaptureBodyWithWatchdog({
+  body,
+  watchdog,
+}: {
+  body: () => Promise<void>;
+  watchdog: IosSimctlCaptureWatchdogBudget;
+}): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  try {
+    await Promise.race([
+      body(),
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => reject(createIosSimctlCaptureWatchdogError(watchdog)), watchdog.timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer) {
+      clearTimeout(timer);
+    }
+  }
+}
+
+/**
+ * Normalizes a runner failure for raw artifact publication.
+ *
+ * @param {unknown} error
+ * @returns {Record<string, unknown>}
+ */
+function normalizeIosRunnerFailure(error: unknown): Record<string, unknown> {
+  if (error instanceof Error) {
+    return {
+      message: error.message,
+      name: error.name,
+      stack: error.stack ?? '',
+    };
+  }
+
+  return {
+    message: String(error),
+    name: 'UnknownError',
+    stack: '',
+  };
+}
+
+/**
+ * Formats an iOS runner failure raw artifact.
+ *
+ * @param {Record<string, unknown>} failure
+ * @returns {string}
+ */
+function formatIosRunnerFailureRaw(failure: Record<string, unknown>): string {
+  return Object.entries(failure)
+    .map(([key, value]) => {
+      if (value && typeof value === 'object' && !Array.isArray(value)) {
+        return `${key}: ${JSON.stringify(value)}`;
+      }
+      if (Array.isArray(value)) {
+        return `${key}: ${value.join(' ')}`;
+      }
+      return `${key}: ${String(value)}`;
+    })
+    .join('\n');
 }
 
 /**
@@ -1246,6 +1443,7 @@ function buildIosSimctlVerdict({ runId, health }: { runId: string; health: Recor
 async function runIosSimctlCapture(options: IosSimctlCaptureOptions = {}): Promise<IosSimctlCaptureResult> {
   const {
     bundleId = null,
+    captureWatchdogMs: captureWatchdogMsOverride,
     commandTimeoutMs: requestedCommandTimeoutMs = DEFAULT_IOS_SIMCTL_COMMAND_TIMEOUT_MS,
     collectProfileStorage = false,
     conflictingBundleIds = [],
@@ -1284,14 +1482,35 @@ async function runIosSimctlCapture(options: IosSimctlCaptureOptions = {}): Promi
   };
   const checks: Record<string, unknown>[] = [];
   const deepLinkResults: Record<string, unknown>[] = [];
+  let simulator: IosSimulator | null = null;
   const captureStartedRawFileName = 'ios-simctl-capture-started.json';
   const captureStartedAt = new Date();
+  const captureWatchdog = deriveIosSimctlCaptureWatchdogBudget({
+    bundleId,
+    ...(typeof captureWatchdogMsOverride === 'number' ? { captureWatchdogMs: captureWatchdogMsOverride } : {}),
+    collectProfileStorage,
+    commandTimeoutMs,
+    conflictingBundleIds,
+    deepLinks,
+    launch,
+    profileSessionStorage,
+    screenshot,
+    terminateBeforeLaunch,
+    waitMs,
+  });
+  const captureDeadlineEpochMs = captureStartedAt.getTime() + captureWatchdog.timeoutMs;
   const captureStartedCheckpoint = {
     status: 'started',
-    message: 'iOS simctl capture started before the first xcrun command.',
+    message: 'iOS simctl capture started and the whole-capture watchdog deadline was derived.',
     runId,
     commandTimeoutMs,
     startedAt: captureStartedAt.toISOString(),
+    watchdog: {
+      ...captureWatchdog,
+      armed: true,
+      deadlineEpochMs: captureDeadlineEpochMs,
+      deadlineIso: new Date(captureDeadlineEpochMs).toISOString(),
+    },
     selectedInputs: {
       bundleId,
       collectProfileStorage,
@@ -1318,54 +1537,18 @@ async function runIosSimctlCapture(options: IosSimctlCaptureOptions = {}): Promi
     `${JSON.stringify(captureStartedCheckpoint, null, 2)}\n`,
     'utf8',
   );
-  const devicesOutput = await executor(xcrunPath, ['simctl', 'list', 'devices']);
-  const simctlAvailable = devicesOutput.exitCode === 0;
-  raw['ios-simctl-devices.txt'] = [devicesOutput.stdout, devicesOutput.stderr].filter(Boolean).join('\n');
-  checks.push({
-    name: 'ios_simctl_available',
-    status: simctlAvailable ? 'passed' : 'failed',
-    source: 'runner',
-    code: simctlAvailable ? 'ios_simctl_available' : 'ios_simctl_unavailable',
-    message: simctlAvailable ? 'simctl device listing succeeded.' : 'simctl device listing failed.',
-    ...(!simctlAvailable
-      ? {
-          metadata: nextActionHint(
-            'fix_xcrun_simctl',
-            'Select a working Xcode with xcode-select, finish any first-launch setup, or pass --xcrun with a working xcrun binary. If direct xcrun works but the Node runner fails from an agent sandbox, rerun with simulator/CoreSimulator access outside the sandbox.',
-          ),
-        }
-      : {}),
-  });
-
-  const simulators = parseSimctlDevices(devicesOutput.stdout);
-  const simulator = simctlAvailable ? selectSimulator(simulators, device) : null;
   const selectedDevice = device || 'booted';
-  const simulatorBooted = Boolean(simulator && simulator.state === 'Booted');
-  checks.push({
-    name: 'ios_simulator_booted',
-    status: simulatorBooted ? 'passed' : 'failed',
-    source: 'runner',
-    code: simulatorBooted ? 'ios_simulator_booted' : 'ios_simulator_missing',
-    message: simulatorBooted && simulator
-      ? `Selected iOS simulator ${simulator.name} (${simulator.udid}).`
-      : device
-        ? `No booted iOS simulator matched ${device}.`
-        : 'No booted iOS simulator was found.',
-    ...(!simulatorBooted
-      ? {
-          metadata: nextActionHint(
-            'boot_ios_simulator',
-            'Boot an iOS simulator, install the required simulator runtime if needed, or pass --device with a booted simulator UDID.',
-          ),
-        }
-      : {}),
-  });
-
   const metadata: Record<string, unknown> = {
     bundleId,
     captureStarted: {
       rawPath: `raw/${captureStartedRawFileName}`,
       startedAt: captureStartedCheckpoint.startedAt,
+    },
+    captureWatchdog: {
+      ...captureWatchdog,
+      armed: true,
+      deadlineEpochMs: captureDeadlineEpochMs,
+      deadlineIso: new Date(captureDeadlineEpochMs).toISOString(),
     },
     commandTimeoutMs,
     collectProfileStorage,
@@ -1386,636 +1569,725 @@ async function runIosSimctlCapture(options: IosSimctlCaptureOptions = {}): Promi
       : null,
     screenshot,
     selectedDevice,
-    selectedSimulator: simulator,
+    selectedSimulator: null,
     terminateBeforeLaunch,
     waitMs,
     xcrunPath,
   };
-
-  if (simulator && simulator.state === 'Booted') {
-    const launchEnvironmentNeedsCleanState = mutatesSimulatorLifecycle({
-      deepLinks,
-      launch,
-      profileSessionStorage,
-      terminateBeforeLaunch,
-    });
-    const launchEnvironment = await inspectSimulatorLaunchEnvironment({
-      deviceUdid: simulator.udid,
-      executor,
-      xcrunPath,
-    });
-    Object.assign(raw, launchEnvironment.raw);
-    const launchEnvironmentProbeAvailable = Object.values(launchEnvironment.metadata).some((entry) => (
-      typeof entry === 'object'
-        && entry !== null
-        && (entry as { exitCode?: unknown }).exitCode === 0
-    ));
-    const launchEnvironmentCleanEnough = launchEnvironment.clean || !launchEnvironmentNeedsCleanState;
+  const runCaptureBody = async (): Promise<void> => {
+    const devicesOutput = await executor(xcrunPath, ['simctl', 'list', 'devices']);
+    const simctlAvailable = devicesOutput.exitCode === 0;
+    raw['ios-simctl-devices.txt'] = [devicesOutput.stdout, devicesOutput.stderr].filter(Boolean).join('\n');
     checks.push({
-      name: 'ios_simulator_launch_environment_clean',
-      status: launchEnvironmentProbeAvailable
-        ? launchEnvironmentCleanEnough ? 'passed' : 'failed'
-        : 'warning',
+      name: 'ios_simctl_available',
+      status: simctlAvailable ? 'passed' : 'failed',
       source: 'runner',
-      code: launchEnvironmentProbeAvailable
-        ? launchEnvironmentCleanEnough
-          ? 'ios_simulator_launch_environment_clean'
-          : 'ios_simulator_launch_environment_contaminated'
-        : 'ios_simulator_launch_environment_unavailable',
-      message: launchEnvironmentProbeAvailable
-        ? launchEnvironmentCleanEnough
-          ? 'Simulator launch environment has no known hidden runner injection for this capture mode.'
-          : 'Simulator launch environment contains hidden runner injection that can contaminate simctl proof.'
-        : 'Could not inspect simulator launch environment.',
-      ...(launchEnvironmentProbeAvailable && !launchEnvironmentCleanEnough
+      code: simctlAvailable ? 'ios_simctl_available' : 'ios_simctl_unavailable',
+      message: simctlAvailable ? 'simctl device listing succeeded.' : 'simctl device listing failed.',
+      ...(!simctlAvailable
         ? {
             metadata: nextActionHint(
-              'clear_ios_simulator_launch_environment',
-              `Clear ${SIMULATOR_LAUNCH_ENV_KEYS.join(' and ')} for the selected simulator, or use the runner that owns that injected environment instead of simctl proof.`,
+              'fix_xcrun_simctl',
+              'Select a working Xcode with xcode-select, finish any first-launch setup, or pass --xcrun with a working xcrun binary. If direct xcrun works but the Node runner fails from an agent sandbox, rerun with simulator/CoreSimulator access outside the sandbox.',
             ),
           }
         : {}),
     });
-    metadata.launchEnvironment = launchEnvironment.metadata;
-    const driver = createIosSimctlDriver({
-      deviceUdid: simulator.udid,
-      executor,
-      xcrunPath,
+
+    const simulators = parseSimctlDevices(devicesOutput.stdout);
+    simulator = simctlAvailable ? selectSimulator(simulators, device) : null;
+    const simulatorBooted = Boolean(simulator && simulator.state === 'Booted');
+    metadata.selectedSimulator = simulator;
+    checks.push({
+      name: 'ios_simulator_booted',
+      status: simulatorBooted ? 'passed' : 'failed',
+      source: 'runner',
+      code: simulatorBooted ? 'ios_simulator_booted' : 'ios_simulator_missing',
+      message: simulatorBooted && simulator
+        ? `Selected iOS simulator ${simulator.name} (${simulator.udid}).`
+        : device
+          ? `No booted iOS simulator matched ${device}.`
+          : 'No booted iOS simulator was found.',
+      ...(!simulatorBooted
+        ? {
+            metadata: nextActionHint(
+              'boot_ios_simulator',
+              'Boot an iOS simulator, install the required simulator runtime if needed, or pass --device with a booted simulator UDID.',
+            ),
+          }
+        : {}),
     });
-    let dataContainerPath: string | null = null;
-    let hasInstalledConflictingBundle = false;
-    let launchedAppPid: string | null = null;
-    const lifecycleMutationBlocked = launchEnvironmentProbeAvailable && !launchEnvironmentCleanEnough;
-    if (bundleId) {
-      const appContainer = await executor(xcrunPath, ['simctl', 'get_app_container', simulator.udid, bundleId, 'app']);
-      raw['ios-app-container.txt'] = [appContainer.stdout, appContainer.stderr].filter(Boolean).join('\n');
-      const appInstalled = appContainer.exitCode === 0 && appContainer.stdout.trim().length > 0;
+
+    if (simulator && simulator.state === 'Booted') {
+      const launchEnvironmentNeedsCleanState = mutatesSimulatorLifecycle({
+        deepLinks,
+        launch,
+        profileSessionStorage,
+        terminateBeforeLaunch,
+      });
+      const launchEnvironment = await inspectSimulatorLaunchEnvironment({
+        deviceUdid: simulator.udid,
+        executor,
+        xcrunPath,
+      });
+      Object.assign(raw, launchEnvironment.raw);
+      const launchEnvironmentProbeAvailable = Object.values(launchEnvironment.metadata).some((entry) => (
+        typeof entry === 'object'
+          && entry !== null
+          && (entry as { exitCode?: unknown }).exitCode === 0
+      ));
+      const launchEnvironmentCleanEnough = launchEnvironment.clean || !launchEnvironmentNeedsCleanState;
       checks.push({
-        name: 'ios_app_installed',
-        status: appInstalled ? 'passed' : 'failed',
+        name: 'ios_simulator_launch_environment_clean',
+        status: launchEnvironmentProbeAvailable
+          ? launchEnvironmentCleanEnough ? 'passed' : 'failed'
+          : 'warning',
         source: 'runner',
-        code: appInstalled
-          ? 'ios_app_installed'
-          : 'ios_app_missing',
-        message: appInstalled
-          ? `App ${bundleId} is installed.`
-          : `App ${bundleId} is not installed on ${simulator.udid}.`,
-        ...(!appInstalled
+        code: launchEnvironmentProbeAvailable
+          ? launchEnvironmentCleanEnough
+            ? 'ios_simulator_launch_environment_clean'
+            : 'ios_simulator_launch_environment_contaminated'
+          : 'ios_simulator_launch_environment_unavailable',
+        message: launchEnvironmentProbeAvailable
+          ? launchEnvironmentCleanEnough
+            ? 'Simulator launch environment has no known hidden runner injection for this capture mode.'
+            : 'Simulator launch environment contains hidden runner injection that can contaminate simctl proof.'
+          : 'Could not inspect simulator launch environment.',
+        ...(launchEnvironmentProbeAvailable && !launchEnvironmentCleanEnough
           ? {
               metadata: nextActionHint(
-                'install_ios_app',
-                'Build and install the app on the selected simulator, or rerun with --bundle set to the installed bundle id.',
+                'clear_ios_simulator_launch_environment',
+                `Clear ${SIMULATOR_LAUNCH_ENV_KEYS.join(' and ')} for the selected simulator, or use the runner that owns that injected environment instead of simctl proof.`,
               ),
             }
           : {}),
       });
-      metadata.appContainer = {
-        rawPath: 'raw/ios-app-container.txt',
-      };
-
-      const checkedConflictingBundleIds = normalizeConflictingBundleIds({
-        bundleId,
-        conflictingBundleIds,
+      metadata.launchEnvironment = launchEnvironment.metadata;
+      const driver = createIosSimctlDriver({
+        deviceUdid: simulator.udid,
+        executor,
+        xcrunPath,
       });
-      if (checkedConflictingBundleIds.length > 0) {
-        const installedConflictingBundleIds: string[] = [];
-        const conflictChecks: Array<{ bundleId: string; rawPath: string; installed: boolean }> = [];
-        for (const [index, conflictingBundleId] of checkedConflictingBundleIds.entries()) {
-          const rawFileName = `ios-conflicting-bundle-${index + 1}-${rawBundleIdSuffix(conflictingBundleId)}.txt`;
-          const conflictContainer = await executor(xcrunPath, [
+      let dataContainerPath: string | null = null;
+      let hasInstalledConflictingBundle = false;
+      let launchedAppPid: string | null = null;
+      const lifecycleMutationBlocked = launchEnvironmentProbeAvailable && !launchEnvironmentCleanEnough;
+      if (bundleId) {
+        const appContainer = await executor(xcrunPath, ['simctl', 'get_app_container', simulator.udid, bundleId, 'app']);
+        raw['ios-app-container.txt'] = [appContainer.stdout, appContainer.stderr].filter(Boolean).join('\n');
+        const appInstalled = appContainer.exitCode === 0 && appContainer.stdout.trim().length > 0;
+        checks.push({
+          name: 'ios_app_installed',
+          status: appInstalled ? 'passed' : 'failed',
+          source: 'runner',
+          code: appInstalled
+            ? 'ios_app_installed'
+            : 'ios_app_missing',
+          message: appInstalled
+            ? `App ${bundleId} is installed.`
+            : `App ${bundleId} is not installed on ${simulator.udid}.`,
+          ...(!appInstalled
+            ? {
+                metadata: nextActionHint(
+                  'install_ios_app',
+                  'Build and install the app on the selected simulator, or rerun with --bundle set to the installed bundle id.',
+                ),
+              }
+            : {}),
+        });
+        metadata.appContainer = {
+          rawPath: 'raw/ios-app-container.txt',
+        };
+
+        const checkedConflictingBundleIds = normalizeConflictingBundleIds({
+          bundleId,
+          conflictingBundleIds,
+        });
+        if (checkedConflictingBundleIds.length > 0) {
+          const installedConflictingBundleIds: string[] = [];
+          const conflictChecks: Array<{ bundleId: string; rawPath: string; installed: boolean }> = [];
+          for (const [index, conflictingBundleId] of checkedConflictingBundleIds.entries()) {
+            const rawFileName = `ios-conflicting-bundle-${index + 1}-${rawBundleIdSuffix(conflictingBundleId)}.txt`;
+            const conflictContainer = await executor(xcrunPath, [
+              'simctl',
+              'get_app_container',
+              simulator.udid,
+              conflictingBundleId,
+              'app',
+            ]);
+            raw[rawFileName] = [conflictContainer.stdout, conflictContainer.stderr].filter(Boolean).join('\n');
+            const installed = conflictContainer.exitCode === 0 && conflictContainer.stdout.trim().length > 0;
+            if (installed) {
+              installedConflictingBundleIds.push(conflictingBundleId);
+            }
+            conflictChecks.push({
+              bundleId: conflictingBundleId,
+              installed,
+              rawPath: `raw/${rawFileName}`,
+            });
+          }
+
+          hasInstalledConflictingBundle = installedConflictingBundleIds.length > 0;
+          checks.push({
+            name: 'ios_conflicting_bundles_absent',
+            status: hasInstalledConflictingBundle ? 'failed' : 'passed',
+            source: 'runner',
+            code: hasInstalledConflictingBundle
+              ? 'ios_conflicting_bundles_installed'
+              : 'ios_conflicting_bundles_absent',
+            message: hasInstalledConflictingBundle
+              ? `Conflicting iOS bundle id(s) are installed on ${simulator.udid}: ${installedConflictingBundleIds.join(', ')}.`
+              : 'No configured conflicting iOS bundle ids are installed on the selected simulator.',
+            ...(hasInstalledConflictingBundle
+              ? {
+                  metadata: nextActionHint(
+                    'uninstall_ios_conflicting_bundles',
+                    'Uninstall the conflicting app variant(s) from the selected simulator, or use a clean simulator dedicated to the target bundle before trusting launch, deep-link, or profile-session evidence.',
+                  ),
+                }
+              : {}),
+          });
+          metadata.conflictingBundleIds = {
+            checked: conflictChecks,
+            installed: installedConflictingBundleIds,
+          };
+        }
+
+        if (collectProfileStorage || profileSessionStorage) {
+          const dataContainer = await executor(xcrunPath, [
             'simctl',
             'get_app_container',
             simulator.udid,
-            conflictingBundleId,
-            'app',
+            bundleId,
+            'data',
           ]);
-          raw[rawFileName] = [conflictContainer.stdout, conflictContainer.stderr].filter(Boolean).join('\n');
-          const installed = conflictContainer.exitCode === 0 && conflictContainer.stdout.trim().length > 0;
-          if (installed) {
-            installedConflictingBundleIds.push(conflictingBundleId);
-          }
-          conflictChecks.push({
-            bundleId: conflictingBundleId,
-            installed,
-            rawPath: `raw/${rawFileName}`,
+          raw['ios-data-container.txt'] = [dataContainer.stdout, dataContainer.stderr].filter(Boolean).join('\n');
+          dataContainerPath = dataContainer.exitCode === 0 && dataContainer.stdout.trim().length > 0
+            ? dataContainer.stdout.trim()
+            : null;
+          checks.push({
+            name: 'ios_data_container_available',
+            status: dataContainerPath ? 'passed' : 'failed',
+            source: 'runner',
+            code: dataContainerPath ? 'ios_data_container_available' : 'ios_data_container_missing',
+            message: dataContainerPath
+              ? `App data container for ${bundleId} is available.`
+              : `App data container for ${bundleId} was not available.`,
+            ...(!dataContainerPath
+              ? {
+                  metadata: nextActionHint(
+                    'inspect_ios_data_container',
+                    'Confirm the app is installed and has launched at least once so simctl can resolve its data container.',
+                  ),
+                }
+              : {}),
+          });
+          metadata.dataContainer = {
+            rawPath: 'raw/ios-data-container.txt',
+          };
+        }
+      }
+
+      if (terminateBeforeLaunch && !hasInstalledConflictingBundle && !lifecycleMutationBlocked) {
+        if (!bundleId) {
+          checks.push({
+            name: 'ios_app_terminated',
+            status: 'failed',
+            source: 'runner',
+            code: 'ios_terminate_missing_bundle',
+            message: 'App termination was requested, but no bundle id was provided.',
+            metadata: nextActionHint(
+              'provide_ios_bundle',
+              'Rerun with --bundle set to the installed iOS bundle id when termination is requested.',
+            ),
+          });
+        } else {
+          const terminateResult = await driver.terminateBundle(bundleId);
+          raw[terminateResult.rawFileName] = formatIosSimctlRawOutput(terminateResult);
+          const terminateOutput = `${terminateResult.stdout}\n${terminateResult.stderr}`;
+          const notRunning = /not running|No such process|found nothing to terminate|The operation couldn't be completed/iu.test(terminateOutput);
+          const terminatePassed = terminateResult.exitCode === 0 || notRunning;
+          checks.push({
+            name: 'ios_app_terminated',
+            status: terminatePassed ? 'passed' : 'failed',
+            source: 'runner',
+            code: terminatePassed ? 'ios_app_terminated' : 'ios_app_terminate_failed',
+            message: terminatePassed
+              ? `Terminated app ${bundleId} before capture.`
+              : `Failed to terminate app ${bundleId} before capture.`,
+            ...(!terminatePassed
+              ? {
+                  metadata: nextActionHint(
+                    'inspect_ios_terminate',
+                    'Inspect raw/ios-terminate.txt, confirm the bundle id is installed on the selected simulator, then rerun.',
+                  ),
+                }
+              : {}),
+          });
+          metadata.terminateResult = {
+            args: terminateResult.args,
+            exitCode: terminateResult.exitCode,
+            rawPath: 'raw/ios-terminate.txt',
+          };
+        }
+      }
+
+      if (profileSessionStorage && !hasInstalledConflictingBundle && !lifecycleMutationBlocked) {
+        if (!bundleId || !dataContainerPath) {
+          checks.push({
+            name: 'ios_profile_session_seeded',
+            status: 'failed',
+            source: 'runner',
+            code: 'ios_profile_session_seed_missing_container',
+            message: 'Profile-session storage seeding needs both bundle id and app data container.',
+            metadata: nextActionHint(
+              'fix_ios_profile_session_storage',
+              'Provide --bundle, install and launch the app once, then rerun so the native AsyncStorage container exists.',
+            ),
+          });
+        } else {
+          const seeded = await seedProfileSessionStorage({
+            bundleId,
+            ...(Array.isArray(profileSessionStorage.commands)
+              ? { commands: profileSessionStorage.commands }
+              : {}),
+            dataContainer: dataContainerPath,
+            profileStorageKeys,
+            runId: profileSessionStorage.runId,
+            scenario: profileSessionStorage.scenario,
+            ...(typeof profileSessionStorage.startedAt === 'number'
+              ? { startedAt: profileSessionStorage.startedAt }
+              : {}),
+          });
+          raw['ios-profile-session-seed.json'] = JSON.stringify({
+            commands: seeded.commands,
+            session: seeded.session,
+          }, null, 2);
+          checks.push({
+            name: 'ios_profile_session_seeded',
+            status: 'passed',
+            source: 'runner',
+            code: 'ios_profile_session_seeded',
+            message: `Seeded profile session ${profileSessionStorage.scenario}/${profileSessionStorage.runId} into app storage.`,
+          });
+          metadata.profileSessionSeed = {
+            commandCount: seeded.commands.length,
+            rawPath: 'raw/ios-profile-session-seed.json',
+          };
+        }
+      }
+
+      if (launch && !hasInstalledConflictingBundle && !lifecycleMutationBlocked) {
+        if (!bundleId) {
+          checks.push({
+            name: 'ios_app_launched',
+            status: 'failed',
+            source: 'runner',
+            code: 'ios_launch_missing_bundle',
+            message: 'App launch was requested, but no bundle id was provided.',
+            metadata: nextActionHint(
+              'provide_ios_bundle',
+              'Rerun with --bundle set to the installed iOS bundle id when --launch is enabled.',
+            ),
+          });
+        } else {
+          const launchResult = await driver.launchBundle(bundleId);
+          const launchPassed = launchResult.exitCode === 0;
+          launchedAppPid = launchPassed ? parseSimctlLaunchPid(launchResult.stdout) : null;
+          raw[launchResult.rawFileName] = formatIosSimctlRawOutput(launchResult);
+          checks.push({
+            name: 'ios_app_launched',
+            status: launchPassed ? 'passed' : 'failed',
+            source: 'runner',
+            code: launchPassed ? 'ios_app_launched' : 'ios_app_launch_failed',
+            message: launchPassed ? `Launched app ${bundleId}.` : `Failed to launch app ${bundleId}.`,
+            ...(!launchPassed
+              ? {
+                  metadata: nextActionHint(
+                    'inspect_ios_launch',
+                    'Inspect raw/ios-launch.txt, confirm the bundle id and simulator runtime are valid, and verify the app opens manually.',
+                  ),
+                }
+              : {}),
+          });
+          metadata.launchResult = {
+            args: launchResult.args,
+            exitCode: launchResult.exitCode,
+            pid: launchedAppPid,
+            rawPath: 'raw/ios-launch.txt',
+          };
+        }
+      }
+
+      for (const [index, deepLink] of (hasInstalledConflictingBundle || lifecycleMutationBlocked ? [] : deepLinks).entries()) {
+        const rawFileName = `ios-deep-link-${index + 1}.txt`;
+        const deepLinkResult = await driver.openDeepLink({ rawFileName, url: deepLink.url });
+        const deepLinkOpened = deepLinkResult.exitCode === 0;
+        raw[deepLinkResult.rawFileName] = formatIosSimctlRawOutput(deepLinkResult);
+        deepLinkResults.push({
+          args: deepLinkResult.args,
+          exitCode: deepLinkResult.exitCode,
+          label: deepLink.label ?? null,
+          rawPath: `raw/${deepLinkResult.rawFileName}`,
+          url: deepLink.url,
+          waitMs: deepLink.waitMs ?? 0,
+        });
+        checks.push({
+          name: 'ios_deep_link_opened',
+          status: deepLinkOpened ? 'passed' : 'failed',
+          source: 'runner',
+          code: deepLinkOpened ? 'ios_deep_link_opened' : 'ios_deep_link_failed',
+          message: deepLinkOpened
+            ? `Opened iOS deep link ${deepLink.label ?? index + 1}.`
+            : `Failed to open iOS deep link ${deepLink.label ?? index + 1}.`,
+          ...(!deepLinkOpened
+            ? {
+                metadata: nextActionHint(
+                  'inspect_ios_deep_link',
+                  `Inspect raw/${deepLinkResult.rawFileName}, verify the app URL scheme, and confirm the app is installed on the selected simulator.`,
+                ),
+              }
+            : {}),
+        });
+
+        if (deepLink.waitMs && deepLink.waitMs > 0) {
+          await wait(deepLink.waitMs);
+          checks.push({
+            name: 'ios_deep_link_waited',
+            status: 'passed',
+            source: 'runner',
+            code: 'ios_deep_link_waited',
+            message: `Waited ${deepLink.waitMs}ms after iOS deep link ${deepLink.label ?? index + 1}.`,
+          });
+        }
+      }
+      if (waitMs > 0) {
+        await wait(waitMs);
+        checks.push({
+          name: 'ios_capture_window_waited',
+          status: 'passed',
+          source: 'runner',
+          code: 'ios_capture_window_waited',
+          message: `Waited ${waitMs}ms before capturing iOS simulator logs.`,
+        });
+      }
+
+      if (launch && bundleId && !hasInstalledConflictingBundle) {
+        const appLifecycleLog = await executor(xcrunPath, [
+          'simctl',
+          'spawn',
+          simulator.udid,
+          'log',
+          'show',
+          '--style',
+          'compact',
+          '--last',
+          logLast,
+          '--predicate',
+          buildIosAppLifecycleLogPredicate({
+            bundleId,
+            pid: launchedAppPid,
+          }),
+        ]);
+        const appLifecycleRawFileName = 'ios-app-lifecycle-log.txt';
+        const appLifecycleOutput = [appLifecycleLog.stdout, appLifecycleLog.stderr].filter(Boolean).join('\n');
+        const appLifecycleCaptured = appLifecycleLog.exitCode === 0;
+        const appLifecycleInstability = appLifecycleCaptured
+          ? classifyIosAppLifecycleInstability(appLifecycleOutput)
+          : null;
+        raw[appLifecycleRawFileName] = appLifecycleOutput;
+        const hostDiagnosticReport = appLifecycleInstability
+          ? await inspectHostDiagnosticReport({ bundleId, diagnosticReportsDir })
+          : null;
+        const appLifecycleCrashed = appLifecycleInstability === 'crash' || Boolean(hostDiagnosticReport?.metadata?.matched);
+        const appLifecycleAmbiguousExit = appLifecycleInstability === 'exit' && !hostDiagnosticReport?.metadata?.matched;
+        if (hostDiagnosticReport) {
+          Object.assign(raw, hostDiagnosticReport.raw);
+        }
+        checks.push({
+          name: 'ios_app_lifecycle_stable',
+          status: iosAppLifecycleStatus({
+            appLifecycleAmbiguousExit,
+            appLifecycleCaptured,
+            appLifecycleCrashed,
+          }),
+          source: 'runner',
+          code: iosAppLifecycleCode({
+            appLifecycleAmbiguousExit,
+            appLifecycleCaptured,
+            appLifecycleCrashed,
+          }),
+          message: iosAppLifecycleMessage({
+            appLifecycleAmbiguousExit,
+            appLifecycleCaptured,
+            appLifecycleCrashed,
+            bundleId,
+          }),
+          ...iosAppLifecycleMetadata({
+            appLifecycleAmbiguousExit,
+            appLifecycleCaptured,
+            appLifecycleCrashed,
+            appLifecycleRawFileName,
+            hostDiagnosticReport,
+          }),
+        });
+        metadata.appLifecycle = {
+          args: appLifecycleLog.args,
+          exitCode: appLifecycleLog.exitCode,
+          pid: launchedAppPid,
+          rawPath: `raw/${appLifecycleRawFileName}`,
+          ...(hostDiagnosticReport ? { hostDiagnosticReport: hostDiagnosticReport.metadata } : {}),
+        };
+        if (appLifecycleInstability) {
+          checks.push({
+            name: 'ios_host_diagnostic_report_attached',
+            status: hostDiagnosticReport?.metadata?.matched ? 'passed' : 'warning',
+            source: 'runner',
+            code: hostDiagnosticReport?.metadata?.matched
+              ? 'ios_host_diagnostic_report_attached'
+              : 'ios_host_diagnostic_report_missing',
+            message: hostDiagnosticReport?.metadata?.matched
+              ? 'Attached the latest matching host DiagnosticReports crash file.'
+              : 'Could not find a recent matching host DiagnosticReports crash file.',
+            ...(!hostDiagnosticReport?.metadata?.matched
+              ? {
+                  metadata: nextActionHint(
+                    'inspect_host_diagnostic_reports',
+                    'Inspect raw/ios-host-diagnostic-report-search.txt and the host DiagnosticReports directory; Simulator may write the crash report after this capture window.',
+                  ),
+                }
+            : {}),
           });
         }
 
-        hasInstalledConflictingBundle = installedConflictingBundleIds.length > 0;
+        const appInfoResult = await driver.appInfo(bundleId);
+        const appInfoOutput = formatIosSimctlRawOutput(appInfoResult);
+        const applicationState = parseIosAppInfoApplicationState(appInfoOutput);
+        const appInfoCaptured = appInfoResult.exitCode === 0;
+        const targetForeground = appInfoCaptured && isIosAppInfoForegroundState(applicationState);
+        raw[appInfoResult.rawFileName] = appInfoOutput;
         checks.push({
-          name: 'ios_conflicting_bundles_absent',
-          status: hasInstalledConflictingBundle ? 'failed' : 'passed',
+          name: 'ios_target_app_foreground',
+          status: iosTargetForegroundStatus({
+            appInfoCaptured,
+            applicationState,
+            targetForeground,
+          }),
           source: 'runner',
-          code: hasInstalledConflictingBundle
-            ? 'ios_conflicting_bundles_installed'
-            : 'ios_conflicting_bundles_absent',
-          message: hasInstalledConflictingBundle
-            ? `Conflicting iOS bundle id(s) are installed on ${simulator.udid}: ${installedConflictingBundleIds.join(', ')}.`
-            : 'No configured conflicting iOS bundle ids are installed on the selected simulator.',
-          ...(hasInstalledConflictingBundle
-            ? {
-                metadata: nextActionHint(
-                  'uninstall_ios_conflicting_bundles',
-                  'Uninstall the conflicting app variant(s) from the selected simulator, or use a clean simulator dedicated to the target bundle before trusting launch, deep-link, or profile-session evidence.',
-                ),
-              }
-            : {}),
+          code: iosTargetForegroundCode({
+            appInfoCaptured,
+            applicationState,
+            targetForeground,
+          }),
+          message: iosTargetForegroundMessage({
+            appInfoCaptured,
+            applicationState,
+            bundleId,
+            targetForeground,
+          }),
+          ...iosTargetForegroundMetadata({
+            appInfoCaptured,
+            applicationState,
+            bundleId,
+            devClientDeepLinkOpened: hasOpenedIosDevClientDeepLink(deepLinkResults),
+            rawFileName: appInfoResult.rawFileName,
+            targetForeground,
+          }),
         });
-        metadata.conflictingBundleIds = {
-          checked: conflictChecks,
-          installed: installedConflictingBundleIds,
-        };
-      }
-
-      if (collectProfileStorage || profileSessionStorage) {
-        const dataContainer = await executor(xcrunPath, [
-          'simctl',
-          'get_app_container',
-          simulator.udid,
-          bundleId,
-          'data',
-        ]);
-        raw['ios-data-container.txt'] = [dataContainer.stdout, dataContainer.stderr].filter(Boolean).join('\n');
-        dataContainerPath = dataContainer.exitCode === 0 && dataContainer.stdout.trim().length > 0
-          ? dataContainer.stdout.trim()
-          : null;
-        checks.push({
-          name: 'ios_data_container_available',
-          status: dataContainerPath ? 'passed' : 'failed',
-          source: 'runner',
-          code: dataContainerPath ? 'ios_data_container_available' : 'ios_data_container_missing',
-          message: dataContainerPath
-            ? `App data container for ${bundleId} is available.`
-            : `App data container for ${bundleId} was not available.`,
-          ...(!dataContainerPath
-            ? {
-                metadata: nextActionHint(
-                  'inspect_ios_data_container',
-                  'Confirm the app is installed and has launched at least once so simctl can resolve its data container.',
-                ),
-              }
-            : {}),
-        });
-        metadata.dataContainer = {
-          rawPath: 'raw/ios-data-container.txt',
-        };
-      }
-    }
-
-    if (terminateBeforeLaunch && !hasInstalledConflictingBundle && !lifecycleMutationBlocked) {
-      if (!bundleId) {
-        checks.push({
-          name: 'ios_app_terminated',
-          status: 'failed',
-          source: 'runner',
-          code: 'ios_terminate_missing_bundle',
-          message: 'App termination was requested, but no bundle id was provided.',
-          metadata: nextActionHint(
-            'provide_ios_bundle',
-            'Rerun with --bundle set to the installed iOS bundle id when termination is requested.',
-          ),
-        });
-      } else {
-        const terminateResult = await driver.terminateBundle(bundleId);
-        raw[terminateResult.rawFileName] = formatIosSimctlRawOutput(terminateResult);
-        const terminateOutput = `${terminateResult.stdout}\n${terminateResult.stderr}`;
-        const notRunning = /not running|No such process|found nothing to terminate|The operation couldn't be completed/iu.test(terminateOutput);
-        const terminatePassed = terminateResult.exitCode === 0 || notRunning;
-        checks.push({
-          name: 'ios_app_terminated',
-          status: terminatePassed ? 'passed' : 'failed',
-          source: 'runner',
-          code: terminatePassed ? 'ios_app_terminated' : 'ios_app_terminate_failed',
-          message: terminatePassed
-            ? `Terminated app ${bundleId} before capture.`
-            : `Failed to terminate app ${bundleId} before capture.`,
-          ...(!terminatePassed
-            ? {
-                metadata: nextActionHint(
-                  'inspect_ios_terminate',
-                  'Inspect raw/ios-terminate.txt, confirm the bundle id is installed on the selected simulator, then rerun.',
-                ),
-              }
-            : {}),
-        });
-        metadata.terminateResult = {
-          args: terminateResult.args,
-          exitCode: terminateResult.exitCode,
-          rawPath: 'raw/ios-terminate.txt',
-        };
-      }
-    }
-
-    if (profileSessionStorage && !hasInstalledConflictingBundle && !lifecycleMutationBlocked) {
-      if (!bundleId || !dataContainerPath) {
-        checks.push({
-          name: 'ios_profile_session_seeded',
-          status: 'failed',
-          source: 'runner',
-          code: 'ios_profile_session_seed_missing_container',
-          message: 'Profile-session storage seeding needs both bundle id and app data container.',
-          metadata: nextActionHint(
-            'fix_ios_profile_session_storage',
-            'Provide --bundle, install and launch the app once, then rerun so the native AsyncStorage container exists.',
-          ),
-        });
-      } else {
-        const seeded = await seedProfileSessionStorage({
-          bundleId,
-          ...(Array.isArray(profileSessionStorage.commands)
-            ? { commands: profileSessionStorage.commands }
-            : {}),
-          dataContainer: dataContainerPath,
-          profileStorageKeys,
-          runId: profileSessionStorage.runId,
-          scenario: profileSessionStorage.scenario,
-          ...(typeof profileSessionStorage.startedAt === 'number'
-            ? { startedAt: profileSessionStorage.startedAt }
-            : {}),
-        });
-        raw['ios-profile-session-seed.json'] = JSON.stringify({
-          commands: seeded.commands,
-          session: seeded.session,
-        }, null, 2);
-        checks.push({
-          name: 'ios_profile_session_seeded',
-          status: 'passed',
-          source: 'runner',
-          code: 'ios_profile_session_seeded',
-          message: `Seeded profile session ${profileSessionStorage.scenario}/${profileSessionStorage.runId} into app storage.`,
-        });
-        metadata.profileSessionSeed = {
-          commandCount: seeded.commands.length,
-          rawPath: 'raw/ios-profile-session-seed.json',
-        };
-      }
-    }
-
-    if (launch && !hasInstalledConflictingBundle && !lifecycleMutationBlocked) {
-      if (!bundleId) {
-        checks.push({
-          name: 'ios_app_launched',
-          status: 'failed',
-          source: 'runner',
-          code: 'ios_launch_missing_bundle',
-          message: 'App launch was requested, but no bundle id was provided.',
-          metadata: nextActionHint(
-            'provide_ios_bundle',
-            'Rerun with --bundle set to the installed iOS bundle id when --launch is enabled.',
-          ),
-        });
-      } else {
-        const launchResult = await driver.launchBundle(bundleId);
-        const launchPassed = launchResult.exitCode === 0;
-        launchedAppPid = launchPassed ? parseSimctlLaunchPid(launchResult.stdout) : null;
-        raw[launchResult.rawFileName] = formatIosSimctlRawOutput(launchResult);
-        checks.push({
-          name: 'ios_app_launched',
-          status: launchPassed ? 'passed' : 'failed',
-          source: 'runner',
-          code: launchPassed ? 'ios_app_launched' : 'ios_app_launch_failed',
-          message: launchPassed ? `Launched app ${bundleId}.` : `Failed to launch app ${bundleId}.`,
-          ...(!launchPassed
-            ? {
-                metadata: nextActionHint(
-                  'inspect_ios_launch',
-                  'Inspect raw/ios-launch.txt, confirm the bundle id and simulator runtime are valid, and verify the app opens manually.',
-                ),
-              }
-            : {}),
-        });
-        metadata.launchResult = {
-          args: launchResult.args,
-          exitCode: launchResult.exitCode,
-          pid: launchedAppPid,
-          rawPath: 'raw/ios-launch.txt',
-        };
-      }
-    }
-
-    for (const [index, deepLink] of (hasInstalledConflictingBundle || lifecycleMutationBlocked ? [] : deepLinks).entries()) {
-      const rawFileName = `ios-deep-link-${index + 1}.txt`;
-      const deepLinkResult = await driver.openDeepLink({ rawFileName, url: deepLink.url });
-      const deepLinkOpened = deepLinkResult.exitCode === 0;
-      raw[deepLinkResult.rawFileName] = formatIosSimctlRawOutput(deepLinkResult);
-      deepLinkResults.push({
-        args: deepLinkResult.args,
-        exitCode: deepLinkResult.exitCode,
-        label: deepLink.label ?? null,
-        rawPath: `raw/${deepLinkResult.rawFileName}`,
-        url: deepLink.url,
-        waitMs: deepLink.waitMs ?? 0,
-      });
-      checks.push({
-        name: 'ios_deep_link_opened',
-        status: deepLinkOpened ? 'passed' : 'failed',
-        source: 'runner',
-        code: deepLinkOpened ? 'ios_deep_link_opened' : 'ios_deep_link_failed',
-        message: deepLinkOpened
-          ? `Opened iOS deep link ${deepLink.label ?? index + 1}.`
-          : `Failed to open iOS deep link ${deepLink.label ?? index + 1}.`,
-        ...(!deepLinkOpened
-          ? {
-              metadata: nextActionHint(
-                'inspect_ios_deep_link',
-                `Inspect raw/${deepLinkResult.rawFileName}, verify the app URL scheme, and confirm the app is installed on the selected simulator.`,
-              ),
-            }
-          : {}),
-      });
-
-      if (deepLink.waitMs && deepLink.waitMs > 0) {
-        await wait(deepLink.waitMs);
-        checks.push({
-          name: 'ios_deep_link_waited',
-          status: 'passed',
-          source: 'runner',
-          code: 'ios_deep_link_waited',
-          message: `Waited ${deepLink.waitMs}ms after iOS deep link ${deepLink.label ?? index + 1}.`,
-        });
-      }
-    }
-    if (waitMs > 0) {
-      await wait(waitMs);
-      checks.push({
-        name: 'ios_capture_window_waited',
-        status: 'passed',
-        source: 'runner',
-        code: 'ios_capture_window_waited',
-        message: `Waited ${waitMs}ms before capturing iOS simulator logs.`,
-      });
-    }
-
-    if (launch && bundleId && !hasInstalledConflictingBundle) {
-      const appLifecycleLog = await executor(xcrunPath, [
-        'simctl',
-        'spawn',
-        simulator.udid,
-        'log',
-        'show',
-        '--style',
-        'compact',
-        '--last',
-        logLast,
-        '--predicate',
-        buildIosAppLifecycleLogPredicate({
-          bundleId,
-          pid: launchedAppPid,
-        }),
-      ]);
-      const appLifecycleRawFileName = 'ios-app-lifecycle-log.txt';
-      const appLifecycleOutput = [appLifecycleLog.stdout, appLifecycleLog.stderr].filter(Boolean).join('\n');
-      const appLifecycleCaptured = appLifecycleLog.exitCode === 0;
-      const appLifecycleInstability = appLifecycleCaptured
-        ? classifyIosAppLifecycleInstability(appLifecycleOutput)
-        : null;
-      raw[appLifecycleRawFileName] = appLifecycleOutput;
-      const hostDiagnosticReport = appLifecycleInstability
-        ? await inspectHostDiagnosticReport({ bundleId, diagnosticReportsDir })
-        : null;
-      const appLifecycleCrashed = appLifecycleInstability === 'crash' || Boolean(hostDiagnosticReport?.metadata?.matched);
-      const appLifecycleAmbiguousExit = appLifecycleInstability === 'exit' && !hostDiagnosticReport?.metadata?.matched;
-      if (hostDiagnosticReport) {
-        Object.assign(raw, hostDiagnosticReport.raw);
-      }
-      checks.push({
-        name: 'ios_app_lifecycle_stable',
-        status: iosAppLifecycleStatus({
-          appLifecycleAmbiguousExit,
-          appLifecycleCaptured,
-          appLifecycleCrashed,
-        }),
-        source: 'runner',
-        code: iosAppLifecycleCode({
-          appLifecycleAmbiguousExit,
-          appLifecycleCaptured,
-          appLifecycleCrashed,
-        }),
-        message: iosAppLifecycleMessage({
-          appLifecycleAmbiguousExit,
-          appLifecycleCaptured,
-          appLifecycleCrashed,
-          bundleId,
-        }),
-        ...iosAppLifecycleMetadata({
-          appLifecycleAmbiguousExit,
-          appLifecycleCaptured,
-          appLifecycleCrashed,
-          appLifecycleRawFileName,
-          hostDiagnosticReport,
-        }),
-      });
-      metadata.appLifecycle = {
-        args: appLifecycleLog.args,
-        exitCode: appLifecycleLog.exitCode,
-        pid: launchedAppPid,
-        rawPath: `raw/${appLifecycleRawFileName}`,
-        ...(hostDiagnosticReport ? { hostDiagnosticReport: hostDiagnosticReport.metadata } : {}),
-      };
-      if (appLifecycleInstability) {
-        checks.push({
-          name: 'ios_host_diagnostic_report_attached',
-          status: hostDiagnosticReport?.metadata?.matched ? 'passed' : 'warning',
-          source: 'runner',
-          code: hostDiagnosticReport?.metadata?.matched
-            ? 'ios_host_diagnostic_report_attached'
-            : 'ios_host_diagnostic_report_missing',
-          message: hostDiagnosticReport?.metadata?.matched
-            ? 'Attached the latest matching host DiagnosticReports crash file.'
-            : 'Could not find a recent matching host DiagnosticReports crash file.',
-          ...(!hostDiagnosticReport?.metadata?.matched
-            ? {
-                metadata: nextActionHint(
-                  'inspect_host_diagnostic_reports',
-                  'Inspect raw/ios-host-diagnostic-report-search.txt and the host DiagnosticReports directory; Simulator may write the crash report after this capture window.',
-                ),
-              }
-          : {}),
-        });
-      }
-
-      const appInfoResult = await driver.appInfo(bundleId);
-      const appInfoOutput = formatIosSimctlRawOutput(appInfoResult);
-      const applicationState = parseIosAppInfoApplicationState(appInfoOutput);
-      const appInfoCaptured = appInfoResult.exitCode === 0;
-      const targetForeground = appInfoCaptured && isIosAppInfoForegroundState(applicationState);
-      raw[appInfoResult.rawFileName] = appInfoOutput;
-      checks.push({
-        name: 'ios_target_app_foreground',
-        status: iosTargetForegroundStatus({
-          appInfoCaptured,
+        metadata.appInfo = {
           applicationState,
-          targetForeground,
-        }),
-        source: 'runner',
-        code: iosTargetForegroundCode({
-          appInfoCaptured,
-          applicationState,
-          targetForeground,
-        }),
-        message: iosTargetForegroundMessage({
-          appInfoCaptured,
-          applicationState,
-          bundleId,
-          targetForeground,
-        }),
-        ...iosTargetForegroundMetadata({
-          appInfoCaptured,
-          applicationState,
-          bundleId,
-          devClientDeepLinkOpened: hasOpenedIosDevClientDeepLink(deepLinkResults),
-          rawFileName: appInfoResult.rawFileName,
-          targetForeground,
-        }),
-      });
-      metadata.appInfo = {
-        applicationState,
-        args: appInfoResult.args,
-        exitCode: appInfoResult.exitCode,
-        rawPath: `raw/${appInfoResult.rawFileName}`,
-      };
-    }
-
-    if (screenshot) {
-      await fsp.mkdir(layout.captures, { recursive: true });
-      const screenshotFileName = screenshotCaptureFileName(screenshotType);
-      const screenshotPath = path.join(layout.captures, screenshotFileName);
-      const screenshotResult = await driver.screenshot({
-        outputPath: screenshotPath,
-        ...(screenshotDisplay ? { display: screenshotDisplay } : {}),
-        ...(screenshotMask ? { mask: screenshotMask } : {}),
-        ...(screenshotType ? { imageType: screenshotType } : {}),
-      });
-      raw[screenshotResult.rawFileName] = formatIosSimctlRawOutput(screenshotResult);
-      const screenshotCaptured = screenshotResult.exitCode === 0 && fs.existsSync(screenshotPath);
-      if (screenshotCaptured) {
-        captures.screenshot = `captures/${screenshotFileName}`;
+          args: appInfoResult.args,
+          exitCode: appInfoResult.exitCode,
+          rawPath: `raw/${appInfoResult.rawFileName}`,
+        };
       }
-      checks.push({
-        name: 'ios_screenshot_captured',
-        status: screenshotCaptured ? 'passed' : 'failed',
-        source: 'runner',
-        code: screenshotCaptured ? 'ios_screenshot_captured' : 'ios_screenshot_failed',
-        message: screenshotCaptured ? 'Captured iOS simulator screenshot.' : 'iOS simulator screenshot capture failed.',
-        ...(!screenshotCaptured
-          ? {
-              metadata: nextActionHint(
-                'inspect_ios_screenshot',
-                `Inspect raw/${screenshotResult.rawFileName}, confirm the simulator window is available, then rerun the screenshot capture.`,
-              ),
-            }
-          : {}),
-      });
-      metadata.screenshot = {
-        args: screenshotResult.args,
-        capturePath: captures.screenshot,
-        exitCode: screenshotResult.exitCode,
-        options: {
+
+      if (screenshot) {
+        await fsp.mkdir(layout.captures, { recursive: true });
+        const screenshotFileName = screenshotCaptureFileName(screenshotType);
+        const screenshotPath = path.join(layout.captures, screenshotFileName);
+        const screenshotResult = await driver.screenshot({
+          outputPath: screenshotPath,
           ...(screenshotDisplay ? { display: screenshotDisplay } : {}),
           ...(screenshotMask ? { mask: screenshotMask } : {}),
-          ...(screenshotType ? { type: screenshotType } : {}),
-        },
-        rawPath: `raw/${screenshotResult.rawFileName}`,
-      };
-    }
-
-    const log = await driver.readLogs({ last: logLast });
-    const logsCaptured = log.exitCode === 0;
-    raw[log.rawFileName] = formatIosSimctlRawOutput(log);
-    checks.push({
-      name: 'ios_logs_captured',
-      status: logsCaptured ? 'passed' : 'failed',
-      source: 'runner',
-      code: logsCaptured ? 'ios_logs_captured' : 'ios_logs_failed',
-      message: logsCaptured ? `Captured iOS simulator logs from the last ${logLast}.` : 'iOS simulator log capture failed.',
-      ...(!logsCaptured
-        ? {
-            metadata: nextActionHint(
-              'inspect_ios_logs',
-              `Inspect raw/${log.rawFileName}, confirm xcrun simctl log access works for the selected simulator, then rerun the capture.`,
-            ),
-          }
-        : {}),
-    });
-    metadata.logs = {
-      args: log.args,
-      exitCode: log.exitCode,
-      rawPath: `raw/${log.rawFileName}`,
-    };
-
-    if (collectProfileStorage) {
-      if (!bundleId || !dataContainerPath) {
-        checks.push({
-          name: 'ios_profile_storage_collected',
-          status: 'failed',
-          source: 'runner',
-          code: 'ios_profile_storage_missing_container',
-          message: 'Profile storage collection needs both bundle id and app data container.',
-          metadata: nextActionHint(
-            'fix_ios_profile_storage',
-            'Provide --bundle, install and launch the app once, then rerun profile storage collection.',
-          ),
+          ...(screenshotType ? { imageType: screenshotType } : {}),
         });
-      } else {
-        try {
-          const storedEvents = readProfileStorageJson({
-            bundleId,
-            dataContainer: dataContainerPath,
-            fallback: [],
-            key: profileStorageKeys.event,
-          });
-          const storedEntries = readProfileStorageJson({
-            bundleId,
-            dataContainer: dataContainerPath,
-            fallback: [],
-            key: profileStorageKeys.sessionEntries,
-          });
-          const events = Array.isArray(storedEvents)
-            ? storedEvents.filter((event): event is Record<string, unknown> => Boolean(event) && typeof event === 'object' && !Array.isArray(event))
-            : [];
-          raw['ios-profile-events.json'] = JSON.stringify(events, null, 2);
-          raw['ios-profile-events.log'] = formatStoredProfileEventLog(events);
-          raw['ios-profile-session-entries.json'] = JSON.stringify(storedEntries, null, 2);
-          checks.push({
-            name: 'ios_profile_storage_collected',
-            status: 'passed',
-            source: 'runner',
-            code: 'ios_profile_storage_collected',
-            message: `Collected ${events.length} stored profile event${events.length === 1 ? '' : 's'} from app storage.`,
-          });
-          metadata.profileStorage = {
-            eventCount: events.length,
-            eventsRawPath: 'raw/ios-profile-events.json',
-            logRawPath: 'raw/ios-profile-events.log',
-            sessionEntriesRawPath: 'raw/ios-profile-session-entries.json',
-          };
-        } catch (error) {
-          raw['ios-profile-storage-error.txt'] = error instanceof Error ? error.message : String(error);
+        raw[screenshotResult.rawFileName] = formatIosSimctlRawOutput(screenshotResult);
+        const screenshotCaptured = screenshotResult.exitCode === 0 && fs.existsSync(screenshotPath);
+        if (screenshotCaptured) {
+          captures.screenshot = `captures/${screenshotFileName}`;
+        }
+        checks.push({
+          name: 'ios_screenshot_captured',
+          status: screenshotCaptured ? 'passed' : 'failed',
+          source: 'runner',
+          code: screenshotCaptured ? 'ios_screenshot_captured' : 'ios_screenshot_failed',
+          message: screenshotCaptured ? 'Captured iOS simulator screenshot.' : 'iOS simulator screenshot capture failed.',
+          ...(!screenshotCaptured
+            ? {
+                metadata: nextActionHint(
+                  'inspect_ios_screenshot',
+                  `Inspect raw/${screenshotResult.rawFileName}, confirm the simulator window is available, then rerun the screenshot capture.`,
+                ),
+              }
+            : {}),
+        });
+        metadata.screenshot = {
+          args: screenshotResult.args,
+          capturePath: captures.screenshot,
+          exitCode: screenshotResult.exitCode,
+          options: {
+            ...(screenshotDisplay ? { display: screenshotDisplay } : {}),
+            ...(screenshotMask ? { mask: screenshotMask } : {}),
+            ...(screenshotType ? { type: screenshotType } : {}),
+          },
+          rawPath: `raw/${screenshotResult.rawFileName}`,
+        };
+      }
+
+      const log = await driver.readLogs({ last: logLast });
+      const logsCaptured = log.exitCode === 0;
+      raw[log.rawFileName] = formatIosSimctlRawOutput(log);
+      checks.push({
+        name: 'ios_logs_captured',
+        status: logsCaptured ? 'passed' : 'failed',
+        source: 'runner',
+        code: logsCaptured ? 'ios_logs_captured' : 'ios_logs_failed',
+        message: logsCaptured ? `Captured iOS simulator logs from the last ${logLast}.` : 'iOS simulator log capture failed.',
+        ...(!logsCaptured
+          ? {
+              metadata: nextActionHint(
+                'inspect_ios_logs',
+                `Inspect raw/${log.rawFileName}, confirm xcrun simctl log access works for the selected simulator, then rerun the capture.`,
+              ),
+            }
+          : {}),
+      });
+      metadata.logs = {
+        args: log.args,
+        exitCode: log.exitCode,
+        rawPath: `raw/${log.rawFileName}`,
+      };
+
+      if (collectProfileStorage) {
+        if (!bundleId || !dataContainerPath) {
           checks.push({
             name: 'ios_profile_storage_collected',
             status: 'failed',
             source: 'runner',
-            code: 'ios_profile_storage_collect_failed',
-            message: 'Failed to collect stored profile events from app storage.',
+            code: 'ios_profile_storage_missing_container',
+            message: 'Profile storage collection needs both bundle id and app data container.',
             metadata: nextActionHint(
-              'inspect_ios_profile_storage',
-              'Inspect raw/ios-profile-storage-error.txt and confirm the app writes profile events to the expected AsyncStorage keys.',
+              'fix_ios_profile_storage',
+              'Provide --bundle, install and launch the app once, then rerun profile storage collection.',
             ),
           });
+        } else {
+          try {
+            const storedEvents = readProfileStorageJson({
+              bundleId,
+              dataContainer: dataContainerPath,
+              fallback: [],
+              key: profileStorageKeys.event,
+            });
+            const storedEntries = readProfileStorageJson({
+              bundleId,
+              dataContainer: dataContainerPath,
+              fallback: [],
+              key: profileStorageKeys.sessionEntries,
+            });
+            const events = Array.isArray(storedEvents)
+              ? storedEvents.filter((event): event is Record<string, unknown> => Boolean(event) && typeof event === 'object' && !Array.isArray(event))
+              : [];
+            raw['ios-profile-events.json'] = JSON.stringify(events, null, 2);
+            raw['ios-profile-events.log'] = formatStoredProfileEventLog(events);
+            raw['ios-profile-session-entries.json'] = JSON.stringify(storedEntries, null, 2);
+            checks.push({
+              name: 'ios_profile_storage_collected',
+              status: 'passed',
+              source: 'runner',
+              code: 'ios_profile_storage_collected',
+              message: `Collected ${events.length} stored profile event${events.length === 1 ? '' : 's'} from app storage.`,
+            });
+            metadata.profileStorage = {
+              eventCount: events.length,
+              eventsRawPath: 'raw/ios-profile-events.json',
+              logRawPath: 'raw/ios-profile-events.log',
+              sessionEntriesRawPath: 'raw/ios-profile-session-entries.json',
+            };
+          } catch (error) {
+            raw['ios-profile-storage-error.txt'] = error instanceof Error ? error.message : String(error);
+            checks.push({
+              name: 'ios_profile_storage_collected',
+              status: 'failed',
+              source: 'runner',
+              code: 'ios_profile_storage_collect_failed',
+              message: 'Failed to collect stored profile events from app storage.',
+              metadata: nextActionHint(
+                'inspect_ios_profile_storage',
+                'Inspect raw/ios-profile-storage-error.txt and confirm the app writes profile events to the expected AsyncStorage keys.',
+              ),
+            });
+          }
         }
       }
+    } else if (launch || terminateBeforeLaunch || profileSessionStorage || collectProfileStorage || deepLinks.length > 0) {
+      checks.push({
+        name: 'ios_capture_window_started',
+        status: 'failed',
+        source: 'runner',
+        code: 'ios_capture_window_no_simulator',
+        message: 'iOS capture window setup was requested, but no booted simulator was selected.',
+        metadata: nextActionHint(
+          'boot_ios_simulator',
+          'Boot an iOS simulator or pass --device with a booted simulator UDID before requesting launch, storage, or deep-link capture.',
+        ),
+      });
     }
-  } else if (launch || terminateBeforeLaunch || profileSessionStorage || collectProfileStorage || deepLinks.length > 0) {
+  };
+
+  try {
+    await runIosSimctlCaptureBodyWithWatchdog({
+      body: runCaptureBody,
+      watchdog: captureWatchdog,
+    });
+  } catch (error: unknown) {
+    const timedOut = isIosSimctlCaptureWatchdogError(error);
+    const failure = normalizeIosRunnerFailure(error);
+    if (timedOut) {
+      failure.code = error.code;
+      failure.watchdog = error.watchdog;
+    }
+
+    let rawFileName = 'ios-simctl-runner-failure.txt';
+    let livenessCode = 'ios_simctl_runner_liveness_failure';
+    let livenessMessage = 'iOS simctl capture stopped before normal artifact finalization.';
+    let nextActionCode = 'inspect_ios_simctl_runner_failure';
+    let nextAction = `Inspect raw/${rawFileName} and raw/ios-metadata.json to determine which simctl or runner step stopped before finalization, then rerun with a bounded command timeout if the host command stalled.`;
+    if (timedOut) {
+      rawFileName = 'ios-simctl-runner-watchdog-timeout.txt';
+      livenessCode = 'ios_simctl_runner_liveness_timeout';
+      livenessMessage = `iOS simctl capture did not complete before the ${captureWatchdog.timeoutMs}ms watchdog deadline.`;
+      nextActionCode = 'inspect_ios_simctl_runner_timeout';
+      nextAction = `Inspect raw/${rawFileName}, raw/ios-metadata.json, and the last collected raw simctl artifact to identify the command or declared wait that exceeded the whole-capture watchdog.`;
+    }
+
+    raw[rawFileName] = formatIosRunnerFailureRaw(failure);
+    metadata.runnerFailure = {
+      ...failure,
+      rawPath: `raw/${rawFileName}`,
+      collectedRawArtifacts: Object.keys(raw).map((fileName) => `raw/${fileName}`),
+    };
     checks.push({
-      name: 'ios_capture_window_started',
+      name: 'ios_simctl_capture_liveness',
       status: 'failed',
       source: 'runner',
-      code: 'ios_capture_window_no_simulator',
-      message: 'iOS capture window setup was requested, but no booted simulator was selected.',
-      metadata: nextActionHint(
-        'boot_ios_simulator',
-        'Boot an iOS simulator or pass --device with a booted simulator UDID before requesting launch, storage, or deep-link capture.',
-      ),
+      code: livenessCode,
+      message: livenessMessage,
+      metadata: {
+        ...nextActionHint(nextActionCode, nextAction),
+        rawPath: `raw/${rawFileName}`,
+      },
     });
   }
 
@@ -2128,6 +2400,7 @@ export {
   buildIosSimctlHealth,
   buildIosSimctlVerdict,
   asyncStorageFileNameForKey,
+  deriveIosSimctlCaptureWatchdogBudget,
   execFileCommand,
   execFileCommandWithTimeout,
   formatStoredProfileEventLog,
