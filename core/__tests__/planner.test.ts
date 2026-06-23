@@ -559,7 +559,31 @@ test('agent-device runner target rejects typeText steps without text', () => {
   );
 });
 
-test('agent-device runner target accepts coordinate-backed tap, longPress, and swipe metadata', () => {
+test('agent-device runner target rejects pinch steps without scale', () => {
+  const scenario = readJson('examples/scenarios/mobile/app-startup.json');
+  const runner = readJson('examples/runners/agent-device-ios.json');
+  scenario.steps.push({
+    id: 'pinch-map',
+    kind: 'gesture',
+    driverAction: 'pinch',
+  });
+
+  const result = evaluateRunnerCompatibility({ scenario, runner, platform: 'ios' });
+
+  assert.equal(result.compatible, false);
+  assert.deepEqual(
+    result.errors
+      .filter((error: PlannerIssue) => error.code === 'invalid_adapter_options')
+      .map((error: PlannerIssue) => ({
+        adapter: error.adapter,
+        field: error.field,
+        stepId: error.stepId,
+      })),
+    [{ adapter: 'agentDevice', field: 'scale', stepId: 'pinch-map' }],
+  );
+});
+
+test('agent-device runner target accepts tap, longPress, pinch, typeText, and swipe metadata', () => {
   const scenario = readJson('examples/scenarios/mobile/app-startup.json');
   const runner = readJson('examples/runners/agent-device-ios.json');
   scenario.steps.push(
@@ -592,6 +616,18 @@ test('agent-device runner target accepts coordinate-backed tap, longPress, and s
         agentDevice: {
           durationMs: 700,
           ref: 'node-2',
+        },
+      },
+    },
+    {
+      id: 'pinch-map',
+      kind: 'gesture',
+      driverAction: 'pinch',
+      adapterOptions: {
+        agentDevice: {
+          scale: 1.2,
+          x: 120,
+          y: 240,
         },
       },
     },

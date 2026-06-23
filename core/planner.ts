@@ -1091,6 +1091,17 @@ function validateAgentDeviceAdapterOptions({
       });
     }
 
+    if (step.driverAction === 'pinch' && !isFiniteNumber(agentDevice.scale)) {
+      pushInvalidAdapterOption({
+        adapter: 'agentDevice',
+        errors,
+        field: 'scale',
+        message: `Step \`${stepId}\` uses driverAction \`pinch\` but adapterOptions.agentDevice.scale is required.`,
+        scenario,
+        stepId,
+      });
+    }
+
     if (step.driverAction === 'swipe' && !hasStartEndCoordinates(agentDevice)) {
       pushInvalidAdapterOption({
         adapter: 'agentDevice',

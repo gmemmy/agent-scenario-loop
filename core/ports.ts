@@ -23,6 +23,7 @@ const DRIVER_PORT = [
   'typeText',
   'scroll',
   'swipe',
+  'pinch',
   'assertVisible',
   'inspectTree',
   'screenshot',
@@ -96,6 +97,7 @@ type DriverActionName =
   | 'typeText'
   | 'scroll'
   | 'swipe'
+  | 'pinch'
   | 'assertVisible'
   | 'inspectTree'
   | 'screenshot'
@@ -175,6 +177,7 @@ type DriverPort = {
   collectPerfSignals(input: DriverActionInput): MaybePromise<DriverActionResult>;
   inspectTree(input: DriverActionInput): MaybePromise<DriverActionResult>;
   longPress(input: DriverActionInput): MaybePromise<DriverActionResult>;
+  pinch(input: DriverActionInput): MaybePromise<DriverActionResult>;
   readLogs(input: DriverActionInput): MaybePromise<DriverActionResult>;
   record(input: DriverActionInput): MaybePromise<DriverActionResult>;
   screenshot(input: DriverActionInput): MaybePromise<DriverActionResult>;
