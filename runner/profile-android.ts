@@ -77,7 +77,7 @@ const ANDROID_PROFILE_RUNNER_CAPABILITIES = {
   kind: 'primary',
   platforms: ['android'],
   capabilities: ['launch', 'sessionControl', 'command', 'logCapture', 'artifactWrite'],
-  driverActions: ['tap', 'scroll', 'assertVisible', 'inspectTree', 'screenshot', 'record', 'readLogs'],
+  driverActions: ['tap', 'scroll', 'swipe', 'assertVisible', 'inspectTree', 'screenshot', 'record', 'readLogs'],
   artifactOutputs: ['logs', 'signals', 'screenshot', 'video', 'uiTree'],
   uiContexts: ['app'],
   lifecycle: ['prepare', 'launch', 'startSession', 'executeStep', 'waitForTruthEvent', 'captureEvidence', 'stopSession', 'finalize'],
@@ -799,7 +799,7 @@ function resolveAndroidAdbDriverSteps(scenario: Record<string, any>): AndroidAdb
   let readLogsIndex = 0;
   return executionPlan.steps
     .filter((step: ScenarioExecutionStep) =>
-      ['assertVisible', 'inspectTree', 'readLogs', 'record', 'screenshot', 'scroll', 'tap'].includes(String(step.driverAction)),
+      ['assertVisible', 'inspectTree', 'readLogs', 'record', 'screenshot', 'scroll', 'swipe', 'tap'].includes(String(step.driverAction)),
     )
     .map((step: ScenarioExecutionStep) => {
       const androidAdbOptions = readAndroidAdbStepOptions(step);
@@ -889,6 +889,19 @@ function validateAndroidAdbDriverSteps(driverSteps: AndroidAdbDriverStep[]): str
     ) {
       errors.push(
         `${stepLabel} uses driverAction \`scroll\` but is missing adapterOptions.androidAdb.startX/startY/endX/endY.`,
+      );
+    }
+    if (
+      step.driverAction === 'swipe' &&
+      (
+        typeof step.startX !== 'number' ||
+        typeof step.startY !== 'number' ||
+        typeof step.endX !== 'number' ||
+        typeof step.endY !== 'number'
+      )
+    ) {
+      errors.push(
+        `${stepLabel} uses driverAction \`swipe\` but is missing adapterOptions.androidAdb.startX/startY/endX/endY.`,
       );
     }
   }

@@ -111,6 +111,7 @@ test('Android adb driver performs portable UI and capture actions', async () => 
     const fallbackExecutor = createExecutor({
       '-s emulator-5554 shell input tap 120 240': { stdout: '' },
       '-s emulator-5554 shell input swipe 500 1400 500 400 350': { stdout: '' },
+      '-s emulator-5554 shell input swipe 50 60 250 260 175': { stdout: '' },
       '-s emulator-5554 shell rm -f /sdcard/agent-scenario-loop-ui.xml; uiautomator dump /sdcard/agent-scenario-loop-ui.xml >/dev/null; cat /sdcard/agent-scenario-loop-ui.xml; status=$?; rm -f /sdcard/agent-scenario-loop-ui.xml; exit $status': {
         stdout: '<hierarchy><node text="Home" resource-id="dev.example:id/home" bounds="[0,0][100,100]" /></hierarchy>\n',
       },
@@ -141,6 +142,7 @@ test('Android adb driver performs portable UI and capture actions', async () => 
 
     const tap = await driver.tap({ x: 120, y: 240 });
     const scroll = await driver.scroll({ durationMs: 350, endX: 500, endY: 400, startX: 500, startY: 1400 });
+    const swipe = await driver.swipe({ durationMs: 175, endX: 250, endY: 260, startX: 50, startY: 60 });
     const tree = await driver.inspectTree();
     const visible = await driver.assertVisible({
       selector: { kind: 'resourceId', value: 'dev.example:id/home' },
@@ -156,6 +158,8 @@ test('Android adb driver performs portable UI and capture actions', async () => 
     assert.equal(tap.rawFileName, 'adb-tap.txt');
     assert.equal(scroll.action, 'scroll');
     assert.equal(scroll.rawFileName, 'adb-scroll.txt');
+    assert.equal(swipe.action, 'swipe');
+    assert.equal(swipe.rawFileName, 'adb-swipe.txt');
     assert.equal(tree.action, 'inspectTree');
     assert.equal(tree.rawFileName, 'adb-ui-tree.xml');
     assert.match(formatAndroidAdbRawOutput(tree), /hierarchy/u);

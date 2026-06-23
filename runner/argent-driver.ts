@@ -36,6 +36,7 @@ type ArgentDriver = {
   openUrl: (options: ArgentOpenUrlOptions) => Promise<ArgentCommandResult>;
   screenshot: (options?: ArgentScreenshotOptions) => Promise<ArgentCommandResult>;
   scroll: (options: ArgentScrollOptions) => Promise<ArgentCommandResult>;
+  swipe: (options: ArgentSwipeOptions) => Promise<ArgentCommandResult>;
   tap: (options: ArgentTapOptions) => Promise<ArgentCommandResult>;
 };
 
@@ -87,6 +88,16 @@ type ArgentScreenshotOptions = {
 };
 
 type ArgentScrollOptions = {
+  durationMs?: number;
+  endX: number;
+  endY: number;
+  rawFileName?: string;
+  screenSize?: ArgentScreenSize;
+  startX: number;
+  startY: number;
+};
+
+type ArgentSwipeOptions = {
   durationMs?: number;
   endX: number;
   endY: number;
@@ -456,6 +467,39 @@ function createArgentDriver(options: ArgentDriverOptions): ArgentDriver {
       ]);
     },
 
+    async swipe({
+      durationMs = 300,
+      endX,
+      endY,
+      rawFileName = 'argent-swipe.txt',
+      screenSize,
+      startX,
+      startY,
+    }: ArgentSwipeOptions): Promise<ArgentCommandResult> {
+      const from = normalizeArgentPointWithOptionalScreenSize({
+        ...(screenSize ?? options.screenSize ? { screenSize: screenSize ?? options.screenSize } : {}),
+        x: startX,
+        y: startY,
+      });
+      const to = normalizeArgentPointWithOptionalScreenSize({
+        ...(screenSize ?? options.screenSize ? { screenSize: screenSize ?? options.screenSize } : {}),
+        x: endX,
+        y: endY,
+      });
+      return run('swipe', 'gesture-swipe', rawFileName, [
+        '--fromX',
+        String(from.x),
+        '--fromY',
+        String(from.y),
+        '--toX',
+        String(to.x),
+        '--toY',
+        String(to.y),
+        '--durationMs',
+        String(durationMs),
+      ]);
+    },
+
     async tap({
       rawFileName = 'argent-tap.txt',
       screenSize,
@@ -501,5 +545,6 @@ export type {
   ArgentScreenSize,
   ArgentScrollOptions,
   ArgentSelector,
+  ArgentSwipeOptions,
   ArgentTapOptions,
 };

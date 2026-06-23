@@ -97,7 +97,7 @@ type AndroidAsyncStorageWrite = {
 
 type AndroidAdbDriverStep = {
   captureFileName?: string;
-  driverAction: 'assertVisible' | 'inspectTree' | 'readLogs' | 'record' | 'screenshot' | 'scroll' | 'tap';
+  driverAction: 'assertVisible' | 'inspectTree' | 'readLogs' | 'record' | 'screenshot' | 'scroll' | 'swipe' | 'tap';
   durationMs?: number;
   durationSeconds?: number;
   endX?: number;
@@ -2035,6 +2035,34 @@ async function runAndroidAdbDriverStep({
     }
 
     return driver.scroll({
+      ...(typeof driverStep.durationMs === 'number' ? { durationMs: driverStep.durationMs } : {}),
+      endX: driverStep.endX,
+      endY: driverStep.endY,
+      ...(typeof driverStep.rawFileName === 'string' ? { rawFileName: driverStep.rawFileName } : {}),
+      startX: driverStep.startX,
+      startY: driverStep.startY,
+    });
+  }
+
+  if (driverStep.driverAction === 'swipe') {
+    if (
+      typeof driverStep.startX !== 'number' ||
+      typeof driverStep.startY !== 'number' ||
+      typeof driverStep.endX !== 'number' ||
+      typeof driverStep.endY !== 'number'
+    ) {
+      return {
+        action: 'swipe',
+        args: [],
+        command: 'adb',
+        exitCode: 1,
+        rawFileName: driverStep.rawFileName ?? 'adb-swipe.txt',
+        stderr: 'swipe driver action requires startX, startY, endX, and endY.',
+        stdout: '',
+      };
+    }
+
+    return driver.swipe({
       ...(typeof driverStep.durationMs === 'number' ? { durationMs: driverStep.durationMs } : {}),
       endX: driverStep.endX,
       endY: driverStep.endY,

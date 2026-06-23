@@ -519,7 +519,7 @@ test('agent-device runner target rejects tap steps without an executable target'
   );
 });
 
-test('agent-device runner target accepts tap steps with ref or coordinates', () => {
+test('agent-device runner target accepts coordinate-backed tap and swipe metadata', () => {
   const scenario = readJson('examples/scenarios/mobile/app-startup.json');
   const runner = readJson('examples/runners/agent-device-ios.json');
   scenario.steps.push(
@@ -544,6 +544,19 @@ test('agent-device runner target accepts tap steps with ref or coordinates', () 
         },
       },
     },
+    {
+      id: 'swipe-card',
+      kind: 'gesture',
+      driverAction: 'swipe',
+      adapterOptions: {
+        agentDevice: {
+          endX: 200,
+          endY: 300,
+          startX: 20,
+          startY: 30,
+        },
+      },
+    },
   );
 
   const result = evaluateRunnerCompatibility({ scenario, runner, platform: 'ios' });
@@ -552,6 +565,36 @@ test('agent-device runner target accepts tap steps with ref or coordinates', () 
   assert.deepEqual(
     result.errors.filter((error: PlannerIssue) => error.code === 'invalid_adapter_options'),
     [],
+  );
+});
+
+test('agent-device runner target rejects swipe without explicit coordinates', () => {
+  const scenario = readJson('examples/scenarios/mobile/app-startup.json');
+  const runner = readJson('examples/runners/agent-device-android.json');
+  scenario.steps.push({
+    id: 'swipe-card',
+    kind: 'gesture',
+    driverAction: 'swipe',
+    adapterOptions: {
+      agentDevice: {
+        startX: 20,
+        startY: 30,
+      },
+    },
+  });
+
+  const result = evaluateRunnerCompatibility({ scenario, runner, platform: 'android' });
+
+  assert.equal(result.compatible, false);
+  assert.deepEqual(
+    result.errors
+      .filter((error: PlannerIssue) => error.code === 'invalid_adapter_options')
+      .map((error: PlannerIssue) => ({
+        adapter: error.adapter,
+        field: error.field,
+        stepId: error.stepId,
+      })),
+    [{ adapter: 'agentDevice', field: 'startX/startY/endX/endY', stepId: 'swipe-card' }],
   );
 });
 
@@ -656,6 +699,17 @@ test('argent runner target rejects unsupported adapter metadata before runtime',
       },
     },
     {
+      id: 'swipe-missing',
+      kind: 'gesture',
+      driverAction: 'swipe',
+      adapterOptions: {
+        argent: {
+          startX: 100,
+          startY: 800,
+        },
+      },
+    },
+    {
       id: 'assert-missing',
       kind: 'assertUi',
       driverAction: 'assertVisible',
@@ -688,6 +742,7 @@ test('argent runner target rejects unsupported adapter metadata before runtime',
     [
       { adapter: 'argent', field: 'x/y', stepId: 'tap-missing' },
       { adapter: 'argent', field: 'startX/startY/endX/endY', stepId: 'scroll-missing' },
+      { adapter: 'argent', field: 'startX/startY/endX/endY', stepId: 'swipe-missing' },
       { adapter: 'argent', field: 'selector', stepId: 'assert-missing' },
       { adapter: 'argent', field: 'durationMs', stepId: 'tap-bad-duration' },
     ],
@@ -726,7 +781,7 @@ test('argent runner target accepts portable visibility selector match modes', ()
   assert.deepEqual(result.errors, []);
 });
 
-test('argent runner target accepts coordinate-backed tap and scroll metadata', () => {
+test('argent runner target accepts coordinate-backed tap, scroll, and swipe metadata', () => {
   const scenario = readJson('examples/scenarios/mobile/app-startup.json');
   const runner = readJson('examples/runners/argent-android.json');
   scenario.steps.push(
@@ -752,6 +807,20 @@ test('argent runner target accepts coordinate-backed tap and scroll metadata', (
           endX: 0.5,
           endY: 0.2,
           durationMs: 300,
+        },
+      },
+    },
+    {
+      id: 'swipe-card',
+      kind: 'gesture',
+      driverAction: 'swipe',
+      adapterOptions: {
+        argent: {
+          startX: 0.25,
+          startY: 0.3,
+          endX: 0.75,
+          endY: 0.8,
+          durationMs: 175,
         },
       },
     },
@@ -993,7 +1062,7 @@ test('collects provider driver actions only from active providers', () => {
       evidenceProviders: [inactiveProvider, androidProvider],
       effectivePlatforms: ['android'],
     }),
-    ['assertVisible', 'collectPerfSignals', 'inspectTree', 'readLogs', 'record', 'screenshot', 'scroll', 'tap'],
+    ['assertVisible', 'collectPerfSignals', 'inspectTree', 'readLogs', 'record', 'screenshot', 'scroll', 'swipe', 'tap'],
   );
 });
 
