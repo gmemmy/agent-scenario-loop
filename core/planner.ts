@@ -69,11 +69,21 @@ type RunnerManifest = ManifestRecord & {
 };
 const UI_DRIVER_ACTIONS = new Set([
   'tap',
+  'longPress',
   'scroll',
+  'swipe',
+  'drag',
+  'pinch',
+  'rotate',
+  'typeText',
+  'pressKey',
+  'pressButton',
   'assertVisible',
   'inspectTree',
   'screenshot',
   'record',
+  'customGesture',
+  'runSequence',
 ]);
 
 /**

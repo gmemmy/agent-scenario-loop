@@ -145,13 +145,23 @@
       "type": "string",
       "enum": [
         "tap",
+        "longPress",
         "scroll",
+        "swipe",
+        "drag",
+        "pinch",
+        "rotate",
+        "typeText",
+        "pressKey",
+        "pressButton",
         "assertVisible",
         "inspectTree",
         "screenshot",
         "record",
         "readLogs",
-        "collectPerfSignals"
+        "collectPerfSignals",
+        "customGesture",
+        "runSequence"
       ]
     },
     "uiContext": {
