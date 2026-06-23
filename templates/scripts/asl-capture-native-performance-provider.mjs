@@ -1,7 +1,11 @@
 #!/usr/bin/env node
 
 import fs from 'node:fs';
+import { createRequire } from 'node:module';
 import path from 'node:path';
+
+const require = createRequire(import.meta.url);
+const { buildAndroidNativePerformanceEvidence } = require('agent-scenario-loop');
 
 /**
  * Parses simple `--key value` CLI arguments.
@@ -155,12 +159,52 @@ function getSummary(platform) {
 }
 
 /**
- * Writes deterministic native-performance evidence for a scaffolded provider command.
+ * Reads an optional text artifact path.
+ *
+ * @param {Record<string, string | boolean>} args
+ * @param {string} key
+ * @returns {string | undefined}
+ */
+function readOptionalText(args, key) {
+  const value = args[key];
+  if (typeof value !== 'string' || value.length === 0 || !fs.existsSync(value)) {
+    return undefined;
+  }
+  return fs.readFileSync(value, 'utf8');
+}
+
+/**
+ * Builds optional raw attachment metadata for provider-owned text captures.
+ *
+ * @param {Record<string, string | boolean>} args
+ * @returns {Array<{kind: string, path: string, sizeBytes: number}>}
+ */
+function buildNativePerformanceAttachments(args) {
+  const attachments = [];
+  for (const entry of [
+    { arg: 'gfxinfo', kind: 'raw-gfxinfo' },
+    { arg: 'meminfo', kind: 'raw-meminfo' },
+  ]) {
+    const value = args[entry.arg];
+    if (typeof value !== 'string' || value.length === 0 || !fs.existsSync(value)) {
+      continue;
+    }
+    attachments.push({
+      kind: entry.kind,
+      path: value,
+      sizeBytes: fs.statSync(value).size,
+    });
+  }
+  return attachments;
+}
+
+/**
+ * Writes deterministic scaffold native-performance evidence for uncaptured lanes.
  *
  * @param {{outPath: string, platform: string, runId: string, scenarioId: string}} options
  * @returns {void}
  */
-function writeNativePerformanceEvidence({
+function writeNativePerformanceScaffold({
   outPath,
   platform,
   runId,
@@ -228,11 +272,29 @@ function writeNativePerformanceEvidence({
  */
 function main() {
   const args = parseArgs(process.argv.slice(2));
-  writeNativePerformanceEvidence({
-    outPath: requireStringArg(args, 'out'),
-    platform: requireStringArg(args, 'platform'),
-    runId: requireStringArg(args, 'run-id'),
-    scenarioId: requireStringArg(args, 'scenario'),
+  const platform = requireStringArg(args, 'platform');
+  const outPath = requireStringArg(args, 'out');
+  const runId = requireStringArg(args, 'run-id');
+  const scenarioId = requireStringArg(args, 'scenario');
+  if (platform === 'android') {
+    writeJsonArtifact(outPath, buildAndroidNativePerformanceEvidence({
+      appId: typeof args.app === 'string' ? args.app : undefined,
+      attachments: buildNativePerformanceAttachments(args),
+      deviceId: typeof args.device === 'string' ? args.device : undefined,
+      gfxinfoText: readOptionalText(args, 'gfxinfo'),
+      meminfoText: readOptionalText(args, 'meminfo'),
+      providerId: 'example-evidence-provider',
+      runId,
+      scenarioId,
+    }));
+    return;
+  }
+
+  writeNativePerformanceScaffold({
+    outPath,
+    platform,
+    runId,
+    scenarioId,
   });
 }
 
