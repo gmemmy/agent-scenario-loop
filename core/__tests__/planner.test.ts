@@ -19,13 +19,19 @@ type JsonRecord = Record<string, any>;
 type PlannerIssue = {
   adapter?: string;
   artifact?: string;
+  budgetEvents?: string[];
+  budgetNames?: string[];
   capability?: string;
   code?: string;
+  command?: string;
   driverAction?: string;
   field?: string;
+  gateEvent?: string;
+  nextAction?: string;
   status?: string;
   stepId?: string;
   uiContext?: string;
+  waitForMilestone?: string;
 };
 type HealthCheck = {
   code?: string;
@@ -761,6 +767,67 @@ test('treats missing optional evidence as warnings, not incompatibility', () => 
       .filter((warning: PlannerIssue) => warning.code === 'missing_optional_artifact')
       .map((warning: PlannerIssue) => warning.artifact),
     ['screenshot', 'video'],
+  );
+});
+
+test('warns when repeated command gate drifts from milestone budget interval anchors', () => {
+  const scenario = {
+    id: 'pagination-contract',
+    platforms: ['android'],
+    requiredCapabilities: ['launch', 'sessionControl', 'command', 'logCapture', 'artifactWrite'],
+    cycles: {
+      iterations: 4,
+      bodyStepIds: ['scroll-to-end'],
+    },
+    milestones: [
+      { id: 'scrollSettled', event: 'feed_scroll_settled' },
+      { id: 'paginationRequested', event: 'feed_pagination_requested' },
+      { id: 'paginationEnded', event: 'feed_pagination_ended' },
+    ],
+    budgets: [
+      {
+        name: 'pagination request-to-end p95',
+        source: 'milestone',
+        metric: 'p95',
+        unit: 'ms',
+        limit: 5000,
+        fromMilestone: 'paginationRequested',
+        toMilestone: 'paginationEnded',
+      },
+    ],
+    steps: [
+      { id: 'launch', kind: 'launch' },
+      { id: 'scroll-to-end', kind: 'command', command: 'scroll-to-feed-end' },
+      { id: 'wait-scroll-settled', kind: 'waitForMilestone', milestone: 'scrollSettled', timeoutMs: 5000 },
+      { id: 'wait-pagination-requested', kind: 'waitForMilestone', milestone: 'paginationRequested', timeoutMs: 5000 },
+      { id: 'wait-pagination-ended', kind: 'waitForMilestone', milestone: 'paginationEnded', timeoutMs: 5000 },
+    ],
+  };
+  const runner = readJson('examples/runners/adb-android.json');
+
+  const result = evaluateRunnerCompatibility({ scenario, runner, platform: 'android' });
+  const warning = result.warnings.find((entry: PlannerIssue) => entry.code === 'command_gate_budget_drift');
+
+  assert.equal(result.compatible, true);
+  assert.equal(warning?.stepId, 'scroll-to-end');
+  assert.equal(warning?.command, 'scroll-to-feed-end');
+  assert.equal(warning?.waitForMilestone, 'scrollSettled');
+  assert.equal(warning?.gateEvent, 'feed_scroll_settled');
+  assert.deepEqual(warning?.budgetEvents, ['feed_pagination_ended', 'feed_pagination_requested']);
+  assert.deepEqual(warning?.budgetNames, ['pagination request-to-end p95']);
+  assert.match(String(warning?.nextAction), /align body command gates/u);
+});
+
+test('does not warn when repeated command gates match milestone budget interval anchors', () => {
+  const scenario = readJson('examples/scenarios/mobile/open-close-cycle.json');
+  const runner = readJson('examples/runners/adb-android.json');
+
+  const result = evaluateRunnerCompatibility({ scenario, runner, platform: 'android' });
+
+  assert.equal(result.compatible, true);
+  assert.deepEqual(
+    result.warnings.filter((entry: PlannerIssue) => entry.code === 'command_gate_budget_drift'),
+    [],
   );
 });
 

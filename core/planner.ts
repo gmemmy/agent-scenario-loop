@@ -39,9 +39,13 @@ type ScenarioStep = ManifestRecord & {
 
 type ScenarioManifest = ManifestRecord & {
   adapterOptions?: unknown;
+  budgets?: unknown;
+  cycles?: unknown;
   id?: string;
+  milestones?: unknown;
   name?: string;
   flowId?: string;
+  metricEvents?: unknown;
   platforms?: unknown[];
   requiredCapabilities?: unknown[];
   optionalCapabilities?: unknown[];
@@ -259,6 +263,46 @@ function hasPortableSelector(step: ScenarioStep): boolean {
 }
 
 /**
+ * Reads a string set from scenario list metadata.
+ *
+ * @param {unknown} value
+ * @returns {Set<string>}
+ */
+function readStringSet(value: unknown): Set<string> {
+  const entries = Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string') : [];
+  return new Set(entries);
+}
+
+/**
+ * Resolves a scenario milestone id to its app-owned event name.
+ *
+ * @param {Record<string, unknown>} scenario
+ * @param {string} milestone
+ * @returns {string}
+ */
+function resolveMilestoneEventName(scenario: ScenarioManifest, milestone: string): string {
+  const milestoneEntry = Array.isArray(scenario.milestones)
+    ? scenario.milestones.find((entry): entry is ManifestRecord => {
+        if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+          return false;
+        }
+        return (entry as ManifestRecord).id === milestone;
+      })
+    : undefined;
+  if (typeof milestoneEntry?.event === 'string' && milestoneEntry.event.length > 0) {
+    return milestoneEntry.event;
+  }
+
+  const metricEvents = asObject(scenario.metricEvents);
+  const metricEvent = metricEvents[milestone];
+  if (typeof metricEvent === 'string' && metricEvent.length > 0) {
+    return metricEvent;
+  }
+
+  return milestone;
+}
+
+/**
  * Returns true when a value can be used as an agent-device ref target.
  *
  * @param {unknown} value
@@ -312,6 +356,152 @@ function getScenarioId(scenario: ScenarioManifest | null | undefined): string {
  */
 function getRunnerId(runner: RunnerManifest | null | undefined): string {
   return runner?.runnerId ?? runner?.name ?? 'unknown-runner';
+}
+
+/**
+ * Returns true when the scenario declares repeated body work.
+ *
+ * @param {Record<string, unknown>} scenario
+ * @returns {boolean}
+ */
+function hasRepeatedCycleBody(scenario: ScenarioManifest): boolean {
+  const cycles = asObject(scenario.cycles);
+  const cycleIterations = cycles.iterations;
+  if (typeof cycleIterations === 'number' && isPositiveInteger(cycleIterations) && cycleIterations > 1) {
+    return true;
+  }
+
+  const defaultIterations = scenario.defaultIterations;
+  return typeof defaultIterations === 'number' && isPositiveInteger(defaultIterations) && defaultIterations > 1;
+}
+
+/**
+ * Collects milestone budget anchors that describe measured product claims.
+ *
+ * @param {Record<string, unknown>} scenario
+ * @returns {{budgetNames: string[], events: string[]}}
+ */
+function collectMilestoneBudgetAnchors(scenario: ScenarioManifest): { budgetNames: string[]; events: string[] } {
+  const budgetNames = new Set<string>();
+  const events = new Set<string>();
+
+  for (const budget of Array.isArray(scenario.budgets) ? scenario.budgets : []) {
+    if (!budget || typeof budget !== 'object' || Array.isArray(budget)) {
+      continue;
+    }
+
+    const budgetRecord = budget as ManifestRecord;
+    if (budgetRecord.source !== 'milestone') {
+      continue;
+    }
+
+    if (typeof budgetRecord.name === 'string' && budgetRecord.name.length > 0) {
+      budgetNames.add(budgetRecord.name);
+    }
+    if (typeof budgetRecord.fromMilestone === 'string' && budgetRecord.fromMilestone.length > 0) {
+      events.add(resolveMilestoneEventName(scenario, budgetRecord.fromMilestone));
+    }
+    if (typeof budgetRecord.toMilestone === 'string' && budgetRecord.toMilestone.length > 0) {
+      events.add(resolveMilestoneEventName(scenario, budgetRecord.toMilestone));
+    }
+  }
+
+  return {
+    budgetNames: [...budgetNames].sort(),
+    events: [...events].sort(),
+  };
+}
+
+/**
+ * Returns true when a command step should be checked against repeated budget gates.
+ *
+ * @param {{bodyStepIds: Set<string>, setupStepIds: Set<string>, stepId: string}} options
+ * @returns {boolean}
+ */
+function shouldCheckCommandGate({
+  bodyStepIds,
+  setupStepIds,
+  stepId,
+}: {
+  bodyStepIds: Set<string>;
+  setupStepIds: Set<string>;
+  stepId: string;
+}): boolean {
+  if (setupStepIds.has(stepId)) {
+    return false;
+  }
+
+  if (bodyStepIds.size === 0) {
+    return true;
+  }
+
+  return bodyStepIds.has(stepId);
+}
+
+/**
+ * Warns when repeated command gates differ from milestone budget anchors.
+ *
+ * @param {Record<string, unknown>} scenario
+ * @returns {Record<string, unknown>[]}
+ */
+function collectCommandGateBudgetDriftWarnings(scenario: ScenarioManifest): PlannerIssue[] {
+  if (!hasRepeatedCycleBody(scenario)) {
+    return [];
+  }
+
+  const budgetAnchors = collectMilestoneBudgetAnchors(scenario);
+  if (budgetAnchors.events.length === 0) {
+    return [];
+  }
+
+  const cycles = asObject(scenario.cycles);
+  const setupStepIds = readStringSet(cycles.setupStepIds);
+  const bodyStepIds = readStringSet(cycles.bodyStepIds);
+  const steps = Array.isArray(scenario.steps) ? scenario.steps : [];
+  const budgetEventSet = new Set(budgetAnchors.events);
+  const warnings: PlannerIssue[] = [];
+
+  for (let index = 0; index < steps.length - 1; index += 1) {
+    const step = steps[index];
+    const nextStep = steps[index + 1];
+    if (!step || step.kind !== 'command' || !nextStep || nextStep.kind !== 'waitForMilestone') {
+      continue;
+    }
+
+    const stepId = getScenarioStepId(step, index);
+    if (!shouldCheckCommandGate({ bodyStepIds, setupStepIds, stepId })) {
+      continue;
+    }
+    if (typeof nextStep.milestone !== 'string' || nextStep.milestone.length === 0) {
+      continue;
+    }
+
+    const gateEvent = resolveMilestoneEventName(scenario, nextStep.milestone);
+    if (budgetEventSet.has(gateEvent)) {
+      continue;
+    }
+
+    warnings.push(
+      createIssue(
+        'command_gate_budget_drift',
+        `Command step \`${stepId}\` is gated by milestone \`${nextStep.milestone}\`, but milestone budgets measure different anchors.`,
+        {
+          scenarioId: getScenarioId(scenario),
+          stepId,
+          command: step.command,
+          waitStepId: getScenarioStepId(nextStep, index + 1),
+          waitForMilestone: nextStep.milestone,
+          gateEvent,
+          budgetEvents: budgetAnchors.events,
+          budgetNames: budgetAnchors.budgetNames,
+          nextAction:
+            'Verify the immediate command gate is intentional, or align body command gates with the milestone interval being claimed.',
+        },
+      ),
+    );
+  }
+
+  return warnings;
 }
 
 /**
@@ -1230,6 +1420,8 @@ function evaluateRunnerCompatibility({
       }),
     );
   }
+
+  warnings.push(...collectCommandGateBudgetDriftWarnings(scenario));
 
   return {
     compatible: errors.length === 0,
