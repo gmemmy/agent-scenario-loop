@@ -148,6 +148,9 @@ test('init-project scaffolds templates into a consuming app layout', async (t: T
   const nativePerformanceProviderScript = fs.readFileSync(path.join(targetDir, 'scripts', 'asl-capture-native-performance-provider.mjs'), 'utf8');
   assert.match(nativePerformanceProviderScript, /writeNativePerformanceEvidence/u);
   assert.match(nativePerformanceProviderScript, /diagnostic-only/u);
+  assert.match(nativePerformanceProviderScript, /diagnosticSources/u);
+  assert.match(nativePerformanceProviderScript, /xctrace/u);
+  assert.match(nativePerformanceProviderScript, /MetricKit/u);
   const providerScript = fs.readFileSync(path.join(targetDir, 'scripts', 'asl-capture-profiler-provider.mjs'), 'utf8');
   assert.match(providerScript, /writeProviderEvidence/u);
   assert.match(providerScript, /memory-out/u);
