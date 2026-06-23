@@ -242,10 +242,11 @@ test('profile-ios preserves captured provider evidence when another required out
   assert.equal(accessibilityDiagnostic?.status, 'failed');
   assert.equal(accessibilityDiagnostic?.provider, 'partial-ios-native-provider');
   assert.ok(
-    (health.checks as Array<{ code: string; metadata?: { capturedKinds?: string; nextActionCode?: string } }>).some(
+    (health.checks as Array<{ code: string; metadata?: { capturedKinds?: string; failedRequiredKinds?: string; nextActionCode?: string } }>).some(
       (check) => (
         check.code === 'partial_provider_evidence_preserved' &&
         check.metadata?.capturedKinds?.split(',').includes('nativePerformance') &&
+        check.metadata?.failedRequiredKinds?.split(',').includes('accessibility') &&
         check.metadata?.nextActionCode === 'use_partial_provider_evidence_for_diagnosis'
       ),
     ),

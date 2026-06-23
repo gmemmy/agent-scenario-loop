@@ -118,6 +118,7 @@ function formatPreservedDiagnosticEvidence(checks: unknown[]): string[] {
 
       const kinds = splitMetadataList(metadataRecord.capturedKinds);
       const paths = splitMetadataList(metadataRecord.capturedPaths);
+      const failedRequiredKinds = splitMetadataList(metadataRecord.failedRequiredKinds);
       let kindText = code('unknown');
       if (kinds.length > 0) {
         kindText = kinds.map((kind) => code(kind)).join(', ');
@@ -128,6 +129,12 @@ function formatPreservedDiagnosticEvidence(checks: unknown[]): string[] {
         pathText = paths.map((item) => code(item)).join(', ');
       }
 
+      let failedRequiredText = '';
+      if (failedRequiredKinds.length > 0) {
+        const failedText = failedRequiredKinds.map((kind) => code(kind)).join(', ');
+        failedRequiredText = ` Missing required ${failedText}.`;
+      }
+
       const message = firstString([record.message], 'Diagnostics were preserved from an unhealthy run.');
       const nextAction = formatNextAction(record).trim();
       let nextActionText = '';
@@ -135,7 +142,7 @@ function formatPreservedDiagnosticEvidence(checks: unknown[]): string[] {
         nextActionText = ` ${nextAction}`;
       }
 
-      return `- Captured ${kindText} at ${pathText}. ${message}${nextActionText}`;
+      return `- Captured ${kindText} at ${pathText}.${failedRequiredText} ${message}${nextActionText}`;
     });
 }
 
