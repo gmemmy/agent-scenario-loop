@@ -568,6 +568,160 @@ test('classifies Android UIAutomator contention as runner environment health', a
   );
 });
 
+test('classifies missing Android profile-session start while preserving sidecar evidence', async (t: TestContext) => {
+  const outputDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-android-preserved-sidecar-'));
+  t.after(async () => {
+    await fsp.rm(outputDir, { recursive: true, force: true });
+  });
+  const executor = async (
+    command: string,
+    args: string[],
+    options?: CommandExecutorOptions,
+  ): Promise<CommandResult> => {
+    const key = args.join(' ');
+    if (key === 'version') {
+      return { args, command, exitCode: 0, stderr: '', stdout: 'Android Debug Bridge version 1.0.41\n' };
+    }
+    if (key === 'devices -l') {
+      return {
+        args,
+        command,
+        exitCode: 0,
+        stderr: '',
+        stdout: 'List of devices attached\nemulator-5554 device product:sdk_gphone model:Pixel_6 device:emu64\n',
+      };
+    }
+    if (key === '-s emulator-5554 shell getprop ro.product.model') {
+      return { args, command, exitCode: 0, stderr: '', stdout: 'Pixel 6\n' };
+    }
+    if (key === '-s emulator-5554 shell getprop ro.build.version.release') {
+      return { args, command, exitCode: 0, stderr: '', stdout: '15\n' };
+    }
+    if (key === '-s emulator-5554 shell getprop ro.build.version.sdk') {
+      return { args, command, exitCode: 0, stderr: '', stdout: '35\n' };
+    }
+    if (key === '-s emulator-5554 shell pm path com.example.app') {
+      return { args, command, exitCode: 0, stderr: '', stdout: 'package:/data/app/com.example.app/base.apk\n' };
+    }
+    if (key.includes('run-as') && key.includes('com.example.app')) {
+      return { args, command, exitCode: 0, stderr: '', stdout: 'ok\n' };
+    }
+    if (key === '-s emulator-5554 logcat -d -v time -t 10000') {
+      return {
+        args,
+        command,
+        exitCode: 1,
+        stderr: 'logcat exited after preserving buffered output\n',
+        stdout: '06-16 10:00:00.000 I/ReactNativeJS(123): unrelated app log line\n',
+      };
+    }
+    if (key === '-s emulator-5554 exec-out screencap -p' && options?.encoding === 'buffer') {
+      return {
+        args,
+        command,
+        exitCode: 1,
+        stderr: '',
+        stdout: '',
+        stdoutBuffer: PNG_BYTES,
+      };
+    }
+    if (key.endsWith('shell rm -f /sdcard/agent-scenario-loop-ui.xml; uiautomator dump /sdcard/agent-scenario-loop-ui.xml >/dev/null; cat /sdcard/agent-scenario-loop-ui.xml; status=$?; rm -f /sdcard/agent-scenario-loop-ui.xml; exit $status')) {
+      return {
+        args,
+        command,
+        exitCode: 1,
+        stderr: 'java.lang.IllegalStateException: UiAutomationService already registered!',
+        stdout: 'cat: /sdcard/agent-scenario-loop-ui.xml: No such file or directory\n',
+      };
+    }
+
+    return {
+      args,
+      command,
+      exitCode: 1,
+      stderr: `unexpected command: ${key}`,
+      stdout: '',
+    };
+  };
+
+  const result = await runAndroidAdbPreflight({
+    delay: async () => {},
+    driverSteps: [
+      {
+        driverAction: 'readLogs',
+        rawFileName: 'adb-logcat.txt',
+        stepId: 'capture-profile-logs',
+        waitMs: 1,
+      },
+      {
+        driverAction: 'assertVisible',
+        required: false,
+        selector: { kind: 'testId', value: 'account-drawer' },
+        stepId: 'assert-drawer',
+      },
+      {
+        driverAction: 'screenshot',
+        rawFileName: 'adb-screenshot-2.png',
+        required: false,
+        stepId: 'capture-screenshot',
+      },
+    ],
+    executor,
+    outputDir,
+    packageName: 'com.example.app',
+    runId: 'android-preserved-sidecar',
+    storageWrites: [
+      {
+        key: 'agent-scenario-loop.profile-session.1',
+        value: JSON.stringify({
+          runId: 'android-preserved-sidecar',
+          scenario: 'account-drawer-stress',
+          startedAt: 1800000000000,
+        }),
+      },
+      {
+        key: 'agent-scenario-loop.profile-session.commands.1',
+        value: JSON.stringify([
+          {
+            command: 'open-account-drawer',
+            sequence: 1,
+          },
+        ]),
+      },
+    ],
+  });
+  const metadata = JSON.parse(fs.readFileSync(path.join(outputDir, 'raw', 'android-metadata.json'), 'utf8'));
+  const summary = fs.readFileSync(path.join(outputDir, 'agent-summary.md'), 'utf8');
+  const checks = result.health.checks as Array<{ code: string; metadata?: Record<string, unknown>; status: string }>;
+  const startMissing = checks.find((check) => check.code === 'android_profile_session_start_missing');
+  const preserved = checks.find((check) => check.code === 'partial_sidecar_evidence_preserved');
+
+  assert.equal(result.health.healthStatus, 'failed');
+  assert.equal(startMissing?.status, 'failed');
+  assert.equal(startMissing?.metadata?.nextActionCode, 'inspect_android_profile_session_start');
+  assert.equal(preserved?.status, 'partial');
+  assert.equal(preserved?.metadata?.capturedKinds, 'profileSessionLog,logs,screenshot');
+  assert.equal(
+    preserved?.metadata?.capturedPaths,
+    'raw/adb-profile-session-early-log-1.txt,raw/adb-logcat.txt,raw/adb-screenshot-2.png',
+  );
+  assert.deepEqual(metadata.preservedSidecarEvidence.map((entry: { path: string }) => entry.path), [
+    'raw/adb-profile-session-early-log-1.txt',
+    'raw/adb-logcat.txt',
+    'raw/adb-screenshot-2.png',
+  ]);
+  assert.ok(fs.existsSync(path.join(outputDir, 'raw', 'adb-profile-session-early-log-1.txt')));
+  assert.ok(fs.existsSync(path.join(outputDir, 'raw', 'adb-logcat.txt')));
+  assert.deepEqual([...fs.readFileSync(path.join(outputDir, 'raw', 'adb-screenshot-2.png')).subarray(0, 4)], [
+    0x89,
+    0x50,
+    0x4e,
+    0x47,
+  ]);
+  assert.match(summary, /## preserved diagnostic evidence/u);
+  assert.match(summary, /Next action `use_preserved_sidecar_evidence_for_diagnosis`/u);
+});
+
 test('resolves portable selectors into adb tap and scroll coordinates', async (t: TestContext) => {
   const outputDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-android-adb-selector-actions-'));
   t.after(async () => {
