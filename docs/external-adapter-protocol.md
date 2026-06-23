@@ -144,6 +144,8 @@ The response should include launch status, a target reference when available, an
 
 Executes one portable driver action. The request body must include `driverAction` and action-specific input. The adapter must reject unknown or unsupported actions with `ok: false`.
 
+The ASL scenario vocabulary includes simple and rich actions such as `tap`, `longPress`, `scroll`, `swipe`, `drag`, `pinch`, `rotate`, `typeText`, `pressKey`, `pressButton`, `assertVisible`, `inspectTree`, `screenshot`, `record`, `readLogs`, `collectPerfSignals`, `customGesture`, and `runSequence`. An adapter should advertise only the subset it implements in `driverActions`. A declared action is still input evidence, not proof of the resulting app or platform surface; return artifact references, structured output, or pair it with `waitCondition` when the claim depends on what appeared after the input.
+
 ### waitCondition
 
 Waits for a truth event, UI condition, log marker, or other bounded condition. The request body must include `condition`, `deadline`, and `clockDomain`.

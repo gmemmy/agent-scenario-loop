@@ -67,6 +67,7 @@ test('dispatches normalized driver actions to a swappable driver', async () => {
   };
 
   assert.equal(isDriverActionName('tap'), true);
+  assert.equal(isDriverActionName('pinch'), false);
   assert.equal(isDriverActionName('unknown'), false);
 
   const result = await dispatchDriverAction({
