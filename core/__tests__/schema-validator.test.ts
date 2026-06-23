@@ -304,7 +304,7 @@ test('rejects invalid scenario driver actions', () => {
   assert.ok(result.errors.some((error: ValidationIssue) => error.path === '$.steps[0].driverAction'));
 });
 
-test('accepts native preview long-press scenario contracts', () => {
+test('accepts long-press plus native-preview scenario composition', () => {
   const scenario = readJson('examples/scenarios/mobile/app-startup.json');
   scenario.steps.push(
     {
@@ -394,7 +394,7 @@ test('rejects invalid runner driver actions', () => {
   assert.ok(result.errors.some((error: ValidationIssue) => error.path === `$.driverActions[${runner.driverActions.length - 1}]`));
 });
 
-test('accepts native preview provider capability declarations', () => {
+test('accepts independent long-press and native-preview provider declarations', () => {
   const runner = readJson('examples/runners/agent-device-ios.json');
   runner.runnerId = 'native-preview-provider';
   runner.kind = 'evidenceProvider';

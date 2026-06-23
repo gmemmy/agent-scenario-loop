@@ -148,7 +148,7 @@ Use `driverAction` only when the scenario truly requires a concrete operation su
 
 Keep portable behavior and tool-native power separate. If a journey needs fixed multi-step input, hardware buttons, keyboard events, pinch, rotate, or custom gestures, declare that action explicitly and let planner compatibility prove the selected runner or provider owns it. Do not hide those requirements inside a generic `tap` or `scroll` step.
 
-For platform-owned previews or preview menus, model the input and the surface separately. Use `driverAction: "longPress"` for the gesture target, then use `uiContext: "nativePreview"` on preview or menu assertions. If Android intentionally has no equivalent native preview behavior, keep that as platform policy in the scenario instead of faking iOS preview proof with tap or context behavior.
+Long-press does not imply native preview. Use `driverAction: "longPress"` for any long-press target the selected runner can own, and let the step default to `uiContext: "app"` unless the resulting surface is outside normal app UI. For platform-owned previews or preview menus, model the input and the surface separately: long-press the target, then use `uiContext: "nativePreview"` on preview or menu assertions. If Android intentionally has no equivalent native preview behavior, keep that as platform policy in the scenario instead of faking iOS preview proof with tap or context behavior.
 
 For profile-session command transport, platform `waitMs` metadata is queue pacing. ASL preserves it in storage and deep-link command envelopes and waits before releasing the next queued command. App-owned milestones still provide the truth that a command produced the intended product state.
 

@@ -58,7 +58,9 @@ Evidence provider shape:
 
 Keep manifests honest. Do not declare a driver action until the adapter can execute it or the provider can produce the required evidence.
 
-Long-press and native-preview proof is opt-in. A scenario can require `driverAction: "longPress"` and `uiContext: "nativePreview"` for platform-owned previews or preview menus, but adapters should declare those only when they can actually perform the long press and observe or capture the native preview surface. Unsupported preview surfaces should return unsupported evidence or fail planner compatibility; do not downgrade them into tap or normal app-UI assertions.
+Long-press is a portable input action, not a native-preview shortcut. A runner or provider can declare `driverAction: "longPress"` for app UI, system UI, drag handles, selection affordances, context menus, preview surfaces, or any other supported long-press target. Declare the resulting `uiContext` separately when the action must move outside normal app UI.
+
+Native-preview proof is one composed use of that model. A scenario can require `driverAction: "longPress"` on the target and `uiContext: "nativePreview"` on the preview or menu assertion, but adapters should declare those independently and only when they can perform the long press and observe or capture the native preview surface. Unsupported preview surfaces should return unsupported evidence or fail planner compatibility; do not downgrade them into tap or normal app-UI assertions.
 
 Richer UI actions are also opt-in. Driver manifests may declare actions such as `swipe`, `drag`, `pinch`, `rotate`, `customGesture`, `typeText`, `pressKey`, `pressButton`, or `runSequence` when the backing tool supports them and the adapter can preserve clear evidence. A fixed `runSequence` is appropriate only when all steps are known before execution; if a later step depends on observing the result of an earlier step, expose separate actions and assertions instead.
 
