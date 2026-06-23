@@ -1,9 +1,11 @@
 const assert = require('node:assert/strict');
+const { execFile } = require('node:child_process');
 const fs = require('node:fs');
 const fsp = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
+const { promisify } = require('node:util');
 
 const {
   formatResult,
@@ -15,6 +17,7 @@ const {
 type TestContext = import('node:test').TestContext;
 
 const ROOT = path.join(__dirname, '..', '..', '..');
+const execFileAsync = promisify(execFile);
 
 /**
  * Reads a JSON fixture from disk.
@@ -147,7 +150,37 @@ test('init-project scaffolds templates into a consuming app layout', async (t: T
   assert.match(accessibilityProviderScript, /violations/u);
   const nativePerformanceProviderScript = fs.readFileSync(path.join(targetDir, 'scripts', 'asl-capture-native-performance-provider.mjs'), 'utf8');
   assert.match(nativePerformanceProviderScript, /writeNativePerformanceEvidence/u);
+  assert.match(nativePerformanceProviderScript, /buildNativePerformanceScaffold/u);
+  assert.match(nativePerformanceProviderScript, /Perfetto/u);
+  assert.match(nativePerformanceProviderScript, /xctrace/u);
+  assert.match(nativePerformanceProviderScript, /MetricKit/u);
   assert.match(nativePerformanceProviderScript, /diagnostic-only/u);
+  for (const platform of ['android', 'ios'] as const) {
+    const outPath = path.join(targetDir, 'artifacts', 'native-performance', `${platform}.json`);
+    await execFileAsync(process.execPath, [
+      path.join(targetDir, 'scripts', 'asl-capture-native-performance-provider.mjs'),
+      '--out',
+      outPath,
+      '--platform',
+      platform,
+      '--run-id',
+      `${platform}-run`,
+      '--scenario',
+      'checkout-submit',
+    ]);
+    const nativePerformanceEvidence = readJson(outPath);
+    assert.equal(nativePerformanceEvidence.platform, platform);
+    assert.equal(nativePerformanceEvidence.evidenceKind, 'mixed');
+    assert.equal((nativePerformanceEvidence.claimSufficiency as Record<string, unknown>).status, 'insufficient-for-claim');
+    const missingEvidence = (nativePerformanceEvidence.claimSufficiency as { missingEvidence: string[] }).missingEvidence;
+    if (platform === 'android') {
+      assert.equal(missingEvidence.some((entry) => /Perfetto/u.test(entry)), true);
+      assert.match(String(nativePerformanceEvidence.summary), /gfxinfo/u);
+    } else {
+      assert.equal(missingEvidence.some((entry) => /Instruments/u.test(entry)), true);
+      assert.match(String(nativePerformanceEvidence.summary), /MetricKit/u);
+    }
+  }
   const providerScript = fs.readFileSync(path.join(targetDir, 'scripts', 'asl-capture-profiler-provider.mjs'), 'utf8');
   assert.match(providerScript, /writeProviderEvidence/u);
   assert.match(providerScript, /memory-out/u);

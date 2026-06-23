@@ -57,6 +57,74 @@ function writeJsonArtifact(outPath, payload) {
 }
 
 /**
+ * Builds platform-specific scaffold guidance for native-performance evidence.
+ *
+ * @param {string} platform
+ * @returns {{dataClasses: string[], evidenceKind: string, frames: Record<string, unknown>, memory: Record<string, unknown>, missingEvidence: string[], summary: string}}
+ */
+function buildNativePerformanceScaffold(platform) {
+  switch (platform) {
+    case 'android':
+      return {
+        evidenceKind: 'mixed',
+        dataClasses: ['frames', 'jank', 'render', 'memory', 'native-trace'],
+        frames: {
+          gfxinfoFrameStatsCaptured: false,
+          perfettoTraceCaptured: false,
+          traceProcessorSummaryCaptured: false,
+        },
+        memory: {
+          meminfoCaptured: false,
+        },
+        missingEvidence: [
+          'Perfetto or trace-processor summary',
+          'gfxinfo or framestats summary',
+          'meminfo summary',
+          'target-bound Android package/device identity',
+        ],
+        summary: 'Replace this scaffold with Android Perfetto, trace-processor, gfxinfo/framestats, meminfo, or logcat-derived render output.',
+      };
+    case 'ios':
+      return {
+        evidenceKind: 'mixed',
+        dataClasses: ['frames', 'jank', 'render', 'memory', 'native-trace'],
+        frames: {
+          instrumentsTraceCaptured: false,
+          metricKitPayloadCaptured: false,
+          xctraceSummaryCaptured: false,
+        },
+        memory: {
+          instrumentsMemoryCaptured: false,
+        },
+        missingEvidence: [
+          'Instruments or xctrace summary',
+          'MetricKit payload where available',
+          'simctl or OS log native-performance summary',
+          'target-bound iOS bundle/simulator/device identity',
+        ],
+        summary: 'Replace this scaffold with iOS Instruments/xctrace, MetricKit, simctl log, or OS native-performance output.',
+      };
+    default:
+      return {
+        evidenceKind: 'unknown',
+        dataClasses: ['unknown'],
+        frames: {
+          platformFrameSummaryCaptured: false,
+        },
+        memory: {
+          platformMemorySummaryCaptured: false,
+        },
+        missingEvidence: [
+          'platform-native frame summary',
+          'platform-native memory summary',
+          'target-bound app/device identity',
+        ],
+        summary: 'Replace this scaffold with platform-native frame, render, memory, or trace output.',
+      };
+  }
+}
+
+/**
  * Writes deterministic native-performance evidence for a scaffolded provider command.
  *
  * @param {{outPath: string, platform: string, runId: string, scenarioId: string}} options
@@ -68,7 +136,7 @@ function writeNativePerformanceEvidence({
   runId,
   scenarioId,
 }) {
-  const evidenceKind = platform === 'ios' ? 'simctl' : platform === 'android' ? 'gfxinfo' : 'unknown';
+  const scaffold = buildNativePerformanceScaffold(platform);
   writeJsonArtifact(outPath, {
     schemaVersion: '1.0.0',
     providerId: 'example-evidence-provider',
@@ -88,8 +156,15 @@ function writeNativePerformanceEvidence({
       reason: 'Scaffold evidence is collected after the profile window and does not verify native metric comparability.',
       policy: 'Replace this scaffold with project-local native diagnostics before making performance claims.',
     },
-    dataClasses: ['frames', 'memory', 'render'],
-    evidenceKind,
+    claimSufficiency: {
+      status: 'insufficient-for-claim',
+      claim: 'Native performance release readiness.',
+      reason: 'This scaffold declares the native-performance evidence shape but does not capture comparable platform-native diagnostics.',
+      missingEvidence: scaffold.missingEvidence,
+      nextAction: scaffold.summary,
+    },
+    dataClasses: scaffold.dataClasses,
+    evidenceKind: scaffold.evidenceKind,
     lifecycle: {
       phase: 'afterCapture',
       perturbsTiming: false,
@@ -98,17 +173,9 @@ function writeNativePerformanceEvidence({
       status: 'unverified',
       reason: 'Replace this scaffold provider with a platform-native capture that verifies device and app binding.',
     },
-    frames: {
-      total: null,
-      janky: null,
-      p50Ms: null,
-      p95Ms: null,
-    },
-    memory: {
-      totalPssKb: null,
-      nativeHeapKb: null,
-    },
-    summary: 'Replace this scaffold native-performance evidence with Perfetto/gfxinfo/meminfo, Instruments, MetricKit, or equivalent project-local output.',
+    frames: scaffold.frames,
+    memory: scaffold.memory,
+    summary: scaffold.summary,
   });
 }
 
