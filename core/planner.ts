@@ -76,6 +76,7 @@ const UI_DRIVER_ACTIONS = new Set([
   'pinch',
   'rotate',
   'typeText',
+  'focus',
   'pressKey',
   'pressButton',
   'assertVisible',
@@ -1089,6 +1090,17 @@ function validateAgentDeviceAdapterOptions({
         errors,
         field: 'text',
         message: `Step \`${stepId}\` uses driverAction \`typeText\` but adapterOptions.agentDevice.text is required.`,
+        scenario,
+        stepId,
+      });
+    }
+
+    if (step.driverAction === 'focus' && (!isFiniteNumber(agentDevice.x) || !isFiniteNumber(agentDevice.y))) {
+      pushInvalidAdapterOption({
+        adapter: 'agentDevice',
+        errors,
+        field: 'x/y',
+        message: `Step \`${stepId}\` uses driverAction \`focus\` but adapterOptions.agentDevice.x/y are required.`,
         scenario,
         stepId,
       });

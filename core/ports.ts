@@ -25,6 +25,7 @@ const DRIVER_PORT = [
   'swipe',
   'pinch',
   'pressButton',
+  'focus',
   'assertVisible',
   'inspectTree',
   'screenshot',
@@ -100,6 +101,7 @@ type DriverActionName =
   | 'swipe'
   | 'pinch'
   | 'pressButton'
+  | 'focus'
   | 'assertVisible'
   | 'inspectTree'
   | 'screenshot'
@@ -177,6 +179,7 @@ type EvidenceProviderPort = {
 type DriverPort = {
   assertVisible(input: DriverActionInput): MaybePromise<DriverActionResult>;
   collectPerfSignals(input: DriverActionInput): MaybePromise<DriverActionResult>;
+  focus(input: DriverActionInput): MaybePromise<DriverActionResult>;
   inspectTree(input: DriverActionInput): MaybePromise<DriverActionResult>;
   longPress(input: DriverActionInput): MaybePromise<DriverActionResult>;
   pinch(input: DriverActionInput): MaybePromise<DriverActionResult>;
