@@ -95,6 +95,10 @@ test('classifies preserved partial provider evidence as diagnostic only', () => 
           code: 'provider_command_failed',
           name: 'provider_command_failed',
           status: 'failed',
+          metadata: {
+            nextActionCode: 'fix_provider_command',
+            nextAction: 'Inspect the provider command record and rerun after fixing the provider.',
+          },
         },
       ],
     },
@@ -108,7 +112,35 @@ test('classifies preserved partial provider evidence as diagnostic only', () => 
     'scenario health failed but partial diagnostic evidence was preserved for diagnosis',
   ]);
   assert.ok(result.recommendations.includes('use preserved partial diagnostic evidence only for diagnosis'));
-  assert.ok(result.recommendations.includes('resolve health check provider_command_failed'));
+  assert.ok(
+    result.recommendations.includes(
+      'follow next action fix_provider_command for health check provider_command_failed: Inspect the provider command record and rerun after fixing the provider.',
+    ),
+  );
+  assert.equal(result.recommendations.includes('resolve health check provider_command_failed'), false);
+});
+
+test('uses health check next-action metadata without requiring a summary string', () => {
+  const result = interpretEvidence({
+    health: {
+      healthStatus: 'failed',
+      checks: [
+        {
+          code: 'runtime_identity_mismatch',
+          status: 'failed',
+          metadata: {
+            nextActionCode: 'rerun_sidecar_with_expected_runtime_identity',
+          },
+        },
+      ],
+    },
+  });
+
+  assert.ok(
+    result.recommendations.includes(
+      'follow next action rerun_sidecar_with_expected_runtime_identity for health check runtime_identity_mismatch',
+    ),
+  );
 });
 
 test('classifies preserved partial sidecar evidence as diagnostic only', () => {
