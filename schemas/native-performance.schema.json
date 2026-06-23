@@ -324,6 +324,79 @@
         "additionalProperties": true
       }
     },
+    "diagnosticSources": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["sourceKind", "status"],
+        "properties": {
+          "sourceKind": {
+            "type": "string",
+            "enum": [
+              "perfetto",
+              "trace-processor",
+              "gfxinfo",
+              "framestats",
+              "meminfo",
+              "logcat-render",
+              "xctrace",
+              "instruments",
+              "metrickit",
+              "simctl-log",
+              "os-signpost",
+              "native-trace",
+              "diagnostic-summary",
+              "unknown"
+            ]
+          },
+          "platform": {
+            "type": "string",
+            "enum": ["android", "ios", "unknown"]
+          },
+          "status": {
+            "type": "string",
+            "enum": ["captured", "partial", "failed", "timed-out", "unsupported", "missing", "redacted", "unknown"]
+          },
+          "path": {
+            "type": "string",
+            "minLength": 1
+          },
+          "rawPath": {
+            "type": "string",
+            "minLength": 1
+          },
+          "tool": {
+            "type": "string",
+            "minLength": 1
+          },
+          "command": {
+            "type": "string",
+            "minLength": 1
+          },
+          "summary": {
+            "type": "string",
+            "minLength": 1
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1
+          },
+          "startedAt": {
+            "type": "string",
+            "minLength": 1
+          },
+          "endedAt": {
+            "type": "string",
+            "minLength": 1
+          },
+          "durationMs": {
+            "type": "number",
+            "minimum": 0
+          }
+        }
+      }
+    },
     "traces": {
       "type": "array",
       "items": {

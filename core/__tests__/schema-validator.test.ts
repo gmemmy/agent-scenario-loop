@@ -703,6 +703,83 @@ test('accepts partial native performance evidence with explicit claim insufficie
   assert.equal(result.valid, true, result.message);
 });
 
+test('accepts native performance diagnostic source inventory for Android and iOS', () => {
+  const result = validateJson({
+    schemaVersion: '1.0.0',
+    providerId: 'native-performance-provider',
+    platform: 'unknown',
+    runId: 'profile-run',
+    scenarioId: 'feed-scroll',
+    captureMode: 'afterCapture',
+    evidenceKind: 'mixed',
+    completenessStatus: 'partial',
+    comparability: {
+      status: 'diagnostic-only',
+      reason: 'Native diagnostic sources were captured outside a comparable budget lane.',
+    },
+    claimSufficiency: {
+      status: 'sufficient-for-diagnosis',
+      claim: 'Explain native frame, trace, and memory signals without making a release claim.',
+      reason: 'Platform-native diagnostics are inventoried, but the run lacks a comparable cohort.',
+      supportingEvidence: ['diagnosticSources'],
+      missingEvidence: ['comparable native-performance baseline'],
+    },
+    diagnosticSources: [
+      {
+        platform: 'android',
+        sourceKind: 'gfxinfo',
+        status: 'captured',
+        path: 'raw/providers/native-performance/gfxinfo.txt',
+        summary: 'Android frame stats captured.',
+      },
+      {
+        platform: 'android',
+        sourceKind: 'meminfo',
+        status: 'captured',
+        path: 'raw/providers/native-performance/meminfo.txt',
+        summary: 'Android memory stats captured.',
+      },
+      {
+        platform: 'ios',
+        sourceKind: 'xctrace',
+        status: 'partial',
+        rawPath: 'raw/providers/native-performance/trace.trace',
+        reason: 'Trace imported but no comparable baseline exists.',
+      },
+      {
+        platform: 'ios',
+        sourceKind: 'metrickit',
+        status: 'missing',
+        reason: 'MetricKit payload was not available for this simulator run.',
+      },
+    ],
+    summary: 'Captured platform-native diagnostic source inventory.',
+  }, SCHEMAS.nativePerformance, 'Native performance evidence artifact');
+
+  assert.equal(result.valid, true, result.message);
+});
+
+test('rejects malformed native performance diagnostic source inventory', () => {
+  const result = validateJson({
+    schemaVersion: '1.0.0',
+    providerId: 'native-performance-provider',
+    platform: 'android',
+    runId: 'profile-run',
+    scenarioId: 'feed-scroll',
+    diagnosticSources: [
+      {
+        sourceKind: 'uiautomator',
+        status: 'maybe',
+      },
+    ],
+    summary: 'Malformed diagnostic source inventory.',
+  }, SCHEMAS.nativePerformance, 'Native performance evidence artifact');
+
+  assert.equal(result.valid, false);
+  assert.ok(result.errors.some((error: ValidationIssue) => error.path === '$.diagnosticSources[0].sourceKind'));
+  assert.ok(result.errors.some((error: ValidationIssue) => error.path === '$.diagnosticSources[0].status'));
+});
+
 test('rejects native performance claim sufficiency without comparable support', () => {
   const result = validateJson({
     schemaVersion: '1.0.0',
