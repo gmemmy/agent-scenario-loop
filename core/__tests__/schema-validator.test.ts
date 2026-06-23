@@ -304,6 +304,59 @@ test('rejects invalid scenario driver actions', () => {
   assert.ok(result.errors.some((error: ValidationIssue) => error.path === '$.steps[0].driverAction'));
 });
 
+test('accepts native preview long-press scenario contracts', () => {
+  const scenario = readJson('examples/scenarios/mobile/app-startup.json');
+  scenario.steps.push(
+    {
+      id: 'long-press-link-target',
+      kind: 'gesture',
+      driverAction: 'longPress',
+      selector: {
+        kind: 'text',
+        value: 'https://example.test',
+      },
+    },
+    {
+      id: 'assert-native-preview-menu',
+      kind: 'assertUi',
+      driverAction: 'assertVisible',
+      selector: {
+        kind: 'text',
+        value: 'Open Link',
+      },
+      uiContext: 'nativePreview',
+    },
+  );
+
+  const result = validateJson(scenario, SCHEMAS.scenario, 'Scenario manifest');
+
+  assert.equal(result.valid, true, result.message);
+});
+
+test('accepts rich UI driver action scenario contracts', () => {
+  const scenario = readJson('examples/scenarios/mobile/app-startup.json');
+  const driverActions = [
+    'swipe',
+    'drag',
+    'pinch',
+    'rotate',
+    'customGesture',
+    'typeText',
+    'pressKey',
+    'pressButton',
+    'runSequence',
+  ];
+  scenario.steps.push(...driverActions.map((driverAction) => ({
+    id: `rich-${driverAction}`,
+    kind: 'gesture',
+    driverAction,
+  })));
+
+  const result = validateJson(scenario, SCHEMAS.scenario, 'Scenario manifest');
+
+  assert.equal(result.valid, true, result.message);
+});
+
 test('accepts portable scenario step selectors', () => {
   const scenario = readJson('examples/scenarios/mobile/app-startup.json');
   scenario.steps[1].selector = {
@@ -339,6 +392,39 @@ test('rejects invalid runner driver actions', () => {
 
   assert.equal(result.valid, false);
   assert.ok(result.errors.some((error: ValidationIssue) => error.path === `$.driverActions[${runner.driverActions.length - 1}]`));
+});
+
+test('accepts native preview provider capability declarations', () => {
+  const runner = readJson('examples/runners/agent-device-ios.json');
+  runner.runnerId = 'native-preview-provider';
+  runner.kind = 'evidenceProvider';
+  runner.driverActions = ['longPress', 'assertVisible'];
+  runner.uiContexts = ['nativePreview'];
+
+  const result = validateJson(runner, SCHEMAS.runnerCapabilities, 'Runner capability manifest');
+
+  assert.equal(result.valid, true, result.message);
+});
+
+test('accepts rich UI provider capability declarations', () => {
+  const runner = readJson('examples/runners/agent-device-ios.json');
+  runner.runnerId = 'rich-ui-provider';
+  runner.kind = 'evidenceProvider';
+  runner.driverActions = [
+    'swipe',
+    'drag',
+    'pinch',
+    'rotate',
+    'customGesture',
+    'typeText',
+    'pressKey',
+    'pressButton',
+    'runSequence',
+  ];
+
+  const result = validateJson(runner, SCHEMAS.runnerCapabilities, 'Runner capability manifest');
+
+  assert.equal(result.valid, true, result.message);
 });
 
 test('rejects provider commands on primary runner manifests', () => {

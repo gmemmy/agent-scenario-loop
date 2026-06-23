@@ -192,6 +192,57 @@ test('collects app UI context by default for UI driver actions', () => {
   }), ['app']);
 });
 
+test('collects app UI context by default for long press actions', () => {
+  const scenario = readJson('examples/scenarios/mobile/app-startup.json');
+  scenario.steps.push({
+    id: 'long-press-card',
+    kind: 'gesture',
+    driverAction: 'longPress',
+    selector: {
+      kind: 'text',
+      value: 'Example Card',
+    },
+  });
+
+  assert.deepEqual(collectScenarioDriverActions(scenario), {
+    optional: [],
+    required: ['longPress'],
+  });
+  assert.deepEqual(collectScenarioUiContexts(scenario), {
+    optional: [],
+    required: ['app'],
+  });
+});
+
+test('collects app UI context by default for rich UI driver actions', () => {
+  const scenario = readJson('examples/scenarios/mobile/app-startup.json');
+  const driverActions = [
+    'swipe',
+    'drag',
+    'pinch',
+    'rotate',
+    'customGesture',
+    'typeText',
+    'pressKey',
+    'pressButton',
+    'runSequence',
+  ];
+  scenario.steps.push(...driverActions.map((driverAction) => ({
+    id: `step-${driverAction}`,
+    kind: 'gesture',
+    driverAction,
+  })));
+
+  assert.deepEqual(collectScenarioDriverActions(scenario), {
+    optional: [],
+    required: [...driverActions].sort(),
+  });
+  assert.deepEqual(collectScenarioUiContexts(scenario), {
+    optional: [],
+    required: ['app'],
+  });
+});
+
 test('does not infer app UI context for non-UI driver actions', () => {
   const scenario = readJson('examples/scenarios/mobile/app-startup.json');
   scenario.steps.push({
@@ -236,6 +287,48 @@ test('fails when a required system UI context has no owner', () => {
   )));
 });
 
+test('fails when native preview context has no owner', () => {
+  const scenario = readJson('examples/scenarios/mobile/app-startup.json');
+  const runner = readJson('examples/runners/xcodebuildmcp-ios.json');
+  scenario.steps.push(
+    {
+      id: 'long-press-link-preview-target',
+      kind: 'gesture',
+      driverAction: 'longPress',
+      selector: {
+        kind: 'text',
+        value: 'https://example.test',
+      },
+    },
+    {
+      id: 'assert-native-preview-menu',
+      kind: 'assertUi',
+      driverAction: 'assertVisible',
+      selector: {
+        kind: 'text',
+        value: 'Open Link',
+      },
+      uiContext: 'nativePreview',
+    },
+  );
+
+  const result = evaluateRunnerCompatibility({ scenario, runner, platform: 'ios' });
+
+  assert.equal(result.compatible, false);
+  assert.deepEqual(
+    result.errors
+      .filter((error: PlannerIssue) => error.code === 'missing_required_driver_action')
+      .map((error: PlannerIssue) => error.driverAction),
+    ['longPress'],
+  );
+  assert.deepEqual(
+    result.errors
+      .filter((error: PlannerIssue) => error.code === 'missing_required_ui_context')
+      .map((error: PlannerIssue) => error.uiContext),
+    ['nativePreview'],
+  );
+});
+
 test('allows active providers to satisfy required system UI contexts', () => {
   const scenario = readJson('examples/scenarios/mobile/app-startup.json');
   const runner = readJson('examples/runners/xcodebuildmcp-ios.json');
@@ -274,6 +367,90 @@ test('allows active providers to satisfy required system UI contexts', () => {
   );
   assert.ok(result.matched.uiContexts.includes('systemDialog'));
   assert.deepEqual(result.matched.evidenceProviders, ['system-dialog-provider']);
+});
+
+test('allows active providers to satisfy native preview driver and UI ownership', () => {
+  const scenario = readJson('examples/scenarios/mobile/app-startup.json');
+  const runner = readJson('examples/runners/xcodebuildmcp-ios.json');
+  const provider = {
+    schemaVersion: '1.0.0',
+    runnerId: 'native-preview-provider',
+    kind: 'evidenceProvider',
+    platforms: ['ios'],
+    capabilities: ['accessibility'],
+    driverActions: ['longPress', 'assertVisible'],
+    uiContexts: ['nativePreview'],
+    artifactOutputs: ['accessibility'],
+  };
+  scenario.steps.push(
+    {
+      id: 'long-press-link-preview-target',
+      kind: 'gesture',
+      driverAction: 'longPress',
+      selector: {
+        kind: 'text',
+        value: 'https://example.test',
+      },
+    },
+    {
+      id: 'assert-native-preview-menu',
+      kind: 'assertUi',
+      driverAction: 'assertVisible',
+      selector: {
+        kind: 'text',
+        value: 'Open Link',
+      },
+      uiContext: 'nativePreview',
+    },
+  );
+
+  const result = evaluateRunnerCompatibility({
+    scenario,
+    runner,
+    evidenceProviders: [provider],
+    platform: 'ios',
+  });
+
+  assert.equal(result.compatible, true);
+  assert.deepEqual(result.errors, []);
+  assert.ok(result.matched.driverActions.includes('longPress'));
+  assert.ok(result.matched.uiContexts.includes('nativePreview'));
+  assert.deepEqual(result.matched.evidenceProviders, ['native-preview-provider']);
+});
+
+test('allows active providers to satisfy rich UI driver actions', () => {
+  const scenario = readJson('examples/scenarios/mobile/app-startup.json');
+  const runner = readJson('examples/runners/xcodebuildmcp-ios.json');
+  const driverActions = ['pinch', 'rotate', 'typeText', 'pressButton'];
+  const provider = {
+    schemaVersion: '1.0.0',
+    runnerId: 'rich-ui-provider',
+    kind: 'evidenceProvider',
+    platforms: ['ios'],
+    capabilities: ['command'],
+    driverActions,
+    uiContexts: ['app'],
+    artifactOutputs: ['logs'],
+  };
+  scenario.steps.push(...driverActions.map((driverAction) => ({
+    id: `step-${driverAction}`,
+    kind: 'gesture',
+    driverAction,
+  })));
+
+  const result = evaluateRunnerCompatibility({
+    scenario,
+    runner,
+    evidenceProviders: [provider],
+    platform: 'ios',
+  });
+
+  assert.equal(result.compatible, true);
+  assert.deepEqual(result.errors, []);
+  for (const driverAction of driverActions) {
+    assert.ok(result.matched.driverActions.includes(driverAction));
+  }
+  assert.deepEqual(result.matched.evidenceProviders, ['rich-ui-provider']);
 });
 
 test('warns when an optional UI context has no owner', () => {
@@ -567,6 +744,11 @@ test('argent runner target rejects unsupported adapter metadata before runtime',
       driverAction: 'tap',
     },
     {
+      id: 'long-press-missing',
+      kind: 'gesture',
+      driverAction: 'longPress',
+    },
+    {
       id: 'scroll-missing',
       kind: 'gesture',
       driverAction: 'scroll',
@@ -609,6 +791,7 @@ test('argent runner target rejects unsupported adapter metadata before runtime',
       })),
     [
       { adapter: 'argent', field: 'x/y', stepId: 'tap-missing' },
+      { adapter: 'argent', field: 'x/y', stepId: 'long-press-missing' },
       { adapter: 'argent', field: 'startX/startY/endX/endY', stepId: 'scroll-missing' },
       { adapter: 'argent', field: 'selector', stepId: 'assert-missing' },
       { adapter: 'argent', field: 'durationMs', stepId: 'tap-bad-duration' },
@@ -677,6 +860,18 @@ test('argent runner target accepts coordinate-backed tap and scroll metadata', (
         },
       },
     },
+    {
+      id: 'long-press-card',
+      kind: 'gesture',
+      driverAction: 'longPress',
+      adapterOptions: {
+        argent: {
+          durationMs: 800,
+          x: 0.5,
+          y: 0.4,
+        },
+      },
+    },
   );
 
   const result = evaluateRunnerCompatibility({ scenario, runner, platform: 'android' });
@@ -686,6 +881,7 @@ test('argent runner target accepts coordinate-backed tap and scroll metadata', (
     result.errors.filter((error: PlannerIssue) => error.code === 'invalid_adapter_options'),
     [],
   );
+  assert.ok(result.matched.driverActions.includes('longPress'));
 });
 
 test('treats optional step driver actions as warnings', () => {

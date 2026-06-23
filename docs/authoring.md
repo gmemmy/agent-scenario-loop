@@ -144,7 +144,11 @@ Use steps to describe intent and required adapter actions:
 - `gesture`: portable UI gesture intent
 - `assertUi`: UI assertion intent
 
-Use `driverAction` only when the scenario truly requires a concrete operation such as `tap`, `scroll`, `assertVisible`, `screenshot`, `readLogs`, or `collectPerfSignals`. The planner fails early when no active runner or provider can satisfy a required driver action.
+Use `driverAction` only when the scenario truly requires a concrete operation such as `tap`, `longPress`, `swipe`, `scroll`, `drag`, `pinch`, `rotate`, `customGesture`, `typeText`, `pressKey`, `pressButton`, `runSequence`, `assertVisible`, `screenshot`, `readLogs`, or `collectPerfSignals`. The planner fails early when no active runner or provider can satisfy a required driver action.
+
+Keep portable behavior and tool-native power separate. If a journey needs fixed multi-step input, hardware buttons, keyboard events, pinch, rotate, or custom gestures, declare that action explicitly and let planner compatibility prove the selected runner or provider owns it. Do not hide those requirements inside a generic `tap` or `scroll` step.
+
+For platform-owned previews or preview menus, model the input and the surface separately. Use `driverAction: "longPress"` for the gesture target, then use `uiContext: "nativePreview"` on preview or menu assertions. If Android intentionally has no equivalent native preview behavior, keep that as platform policy in the scenario instead of faking iOS preview proof with tap or context behavior.
 
 For profile-session command transport, platform `waitMs` metadata is queue pacing. ASL preserves it in storage and deep-link command envelopes and waits before releasing the next queued command. App-owned milestones still provide the truth that a command produced the intended product state.
 
@@ -162,7 +166,7 @@ Use `selector` to describe the intended app target without committing the scenar
 }
 ```
 
-Adapters may resolve selectors through accessibility trees, test ids, native UI inspection, or tool-specific selector engines. Android adb resolves `testId`, `resourceId`, `accessibilityId`, `accessibilityLabel`, and `text` selectors from UIAutomator bounds for tap and scroll actions. Argent gesture steps currently use normalized or pixel coordinates from `adapterOptions.argent`; it does not resolve tap or scroll targets from selectors. Coordinates belong in adapter metadata only when the selected runner cannot resolve a durable selector.
+Adapters may resolve selectors through accessibility trees, test ids, native UI inspection, or tool-specific selector engines. Android adb resolves `testId`, `resourceId`, `accessibilityId`, `accessibilityLabel`, and `text` selectors from UIAutomator bounds for tap and scroll actions. Argent gesture steps currently use normalized or pixel coordinates from `adapterOptions.argent`; it does not resolve tap, long-press, or scroll targets from selectors. Coordinates belong in adapter metadata only when the selected runner cannot resolve a durable selector.
 
 ## Runners And Providers
 

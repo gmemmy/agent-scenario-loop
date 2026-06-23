@@ -33,6 +33,7 @@ type ArgentDriver = {
   assertVisible: (options: ArgentAssertVisibleOptions) => Promise<ArgentCommandResult>;
   inspectTree: (options?: ArgentInspectTreeOptions) => Promise<ArgentCommandResult>;
   launchApp: (options?: ArgentLaunchAppOptions) => Promise<ArgentCommandResult>;
+  longPress: (options: ArgentLongPressOptions) => Promise<ArgentCommandResult>;
   openUrl: (options: ArgentOpenUrlOptions) => Promise<ArgentCommandResult>;
   screenshot: (options?: ArgentScreenshotOptions) => Promise<ArgentCommandResult>;
   scroll: (options: ArgentScrollOptions) => Promise<ArgentCommandResult>;
@@ -75,6 +76,14 @@ type ArgentInspectTreeOptions = {
 type ArgentLaunchAppOptions = {
   appId?: string;
   rawFileName?: string;
+};
+
+type ArgentLongPressOptions = {
+  durationMs?: number;
+  rawFileName?: string;
+  screenSize?: ArgentScreenSize;
+  x: number;
+  y: number;
 };
 
 type ArgentOpenUrlOptions = {
@@ -408,6 +417,34 @@ function createArgentDriver(options: ArgentDriverOptions): ArgentDriver {
       return run('launch', 'launch-app', rawFileName, appArgs(appId));
     },
 
+    async longPress({
+      durationMs = 800,
+      rawFileName = 'argent-long-press.txt',
+      screenSize,
+      x,
+      y,
+    }: ArgentLongPressOptions): Promise<ArgentCommandResult> {
+      const point = normalizeArgentPointWithOptionalScreenSize({
+        ...(screenSize ?? options.screenSize ? { screenSize: screenSize ?? options.screenSize } : {}),
+        x,
+        y,
+      });
+      const events = [
+        {
+          type: 'Down',
+          x: point.x,
+          y: point.y,
+        },
+        {
+          delayMs: durationMs,
+          type: 'Up',
+          x: point.x,
+          y: point.y,
+        },
+      ];
+      return run('longPress', 'gesture-custom', rawFileName, ['--events-json', JSON.stringify(events)]);
+    },
+
     async openUrl({
       rawFileName = 'argent-open-url.txt',
       url,
@@ -494,6 +531,7 @@ export type {
   ArgentDriverOptions,
   ArgentInspectTreeOptions,
   ArgentLaunchAppOptions,
+  ArgentLongPressOptions,
   ArgentNormalizedPoint,
   ArgentOpenUrlOptions,
   ArgentPointInput,
