@@ -90,7 +90,7 @@ An adapter should map normalized scenario steps to tool calls:
 | `waitForMilestone` | wait for app-owned truth events |
 | `captureEvidence` | collect logs, screenshots, UI trees, video, or provider output |
 
-When a normalized step has a stable built-in driver-port action, use `dispatchDriverAction` from the package root to call the active driver. It rejects unknown actions and missing driver methods explicitly, so a scenario cannot silently pass through an adapter that lacks the requested capability. The built-in swappable driver port is intentionally narrower than the full scenario vocabulary; rich actions such as `longPress`, `pinch`, `rotate`, `typeText`, or `runSequence` should be declared by a runner only after that runner maps them to bounded commands and evidence.
+When a normalized step has a stable built-in driver-port action, use `dispatchDriverAction` from the package root to call the active driver. It rejects unknown actions and missing driver methods explicitly, so a scenario cannot silently pass through an adapter that lacks the requested capability. The built-in swappable driver port is intentionally narrower than the full scenario vocabulary; rich actions such as `pinch`, `rotate`, `typeText`, or `runSequence` should be declared by a runner only after that runner maps them to bounded commands and evidence.
 
 The built-in adb and simctl adapters show the expected boundary:
 
