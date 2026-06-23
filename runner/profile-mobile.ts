@@ -4796,7 +4796,7 @@ async function runProfileMobile(args: CliArgs, options: ProfileMobileOptions): P
   });
   const verdict = buildProfileVerdict({ scenario: profileScenario, runId, health: finalHealth, metrics });
   const agentSummary = buildAgentSummaryMarkdown({ health: finalHealth, verdict, manifest });
-  const summary = buildSummaryMarkdown({ manifest, metrics });
+  const summary = buildSummaryMarkdown({ health: finalHealth, manifest, metrics, verdict });
 
   await writeJsonArtifact({
     filePath: layout.health,
