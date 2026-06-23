@@ -98,7 +98,7 @@ type AgentDeviceDriverStep = {
   captureFileName?: string;
   delayMs?: number;
   direction?: string;
-  driverAction: 'assertVisible' | 'inspectTree' | 'readLogs' | 'screenshot' | 'scroll' | 'swipe' | 'tap' | 'typeText';
+  driverAction: 'assertVisible' | 'inspectTree' | 'longPress' | 'readLogs' | 'screenshot' | 'scroll' | 'swipe' | 'tap' | 'typeText';
   durationMs?: number;
   endX?: number;
   endY?: number;
@@ -172,6 +172,7 @@ const DEFAULT_AGENT_DEVICE_REQUIRED_COMMANDS = [
   'screenshot',
   'is',
   'click',
+  'longpress',
   'scroll',
   'swipe',
   'type',
@@ -1140,7 +1141,7 @@ function resolveAgentDeviceDriverSteps(scenario: Record<string, any>): AgentDevi
   const executionPlan = buildScenarioExecutionPlan(scenario);
   return executionPlan.steps
     .filter((step: ScenarioExecutionStep) =>
-      ['assertVisible', 'inspectTree', 'readLogs', 'screenshot', 'scroll', 'swipe', 'tap', 'typeText'].includes(String(step.driverAction)),
+      ['assertVisible', 'inspectTree', 'longPress', 'readLogs', 'screenshot', 'scroll', 'swipe', 'tap', 'typeText'].includes(String(step.driverAction)),
     )
     .map((step: ScenarioExecutionStep, index: number) => {
       const agentDeviceOptions = readAgentDeviceStepOptions(step);
@@ -1151,21 +1152,26 @@ function resolveAgentDeviceDriverSteps(scenario: Record<string, any>): AgentDevi
         actionIndex,
         configured: agentDeviceOptions.captureFileName,
       });
+      const delayMs = readFiniteNumber(agentDeviceOptions.delayMs);
+      const durationMs = readFiniteNumber(agentDeviceOptions.durationMs);
+      const endX = readFiniteNumber(agentDeviceOptions.endX);
+      const endY = readFiniteNumber(agentDeviceOptions.endY);
+      const pixels = readFiniteNumber(agentDeviceOptions.pixels);
+      const startX = readFiniteNumber(agentDeviceOptions.startX);
+      const startY = readFiniteNumber(agentDeviceOptions.startY);
+      const x = readFiniteNumber(agentDeviceOptions.x);
+      const y = readFiniteNumber(agentDeviceOptions.y);
 
       return {
         driverAction: action,
         ...(typeof agentDeviceOptions.amount === 'string' ? { amount: agentDeviceOptions.amount } : {}),
         ...(captureFileName ? { captureFileName } : {}),
-        ...(typeof readFiniteNumber(agentDeviceOptions.delayMs) === 'number'
-          ? { delayMs: readFiniteNumber(agentDeviceOptions.delayMs) }
-          : {}),
+        ...(typeof delayMs === 'number' ? { delayMs } : {}),
         ...(typeof agentDeviceOptions.direction === 'string' ? { direction: agentDeviceOptions.direction } : {}),
-        ...(typeof readFiniteNumber(agentDeviceOptions.durationMs) === 'number'
-          ? { durationMs: readFiniteNumber(agentDeviceOptions.durationMs) }
-          : {}),
-        ...(typeof readFiniteNumber(agentDeviceOptions.endX) === 'number' ? { endX: readFiniteNumber(agentDeviceOptions.endX) } : {}),
-        ...(typeof readFiniteNumber(agentDeviceOptions.endY) === 'number' ? { endY: readFiniteNumber(agentDeviceOptions.endY) } : {}),
-        ...(typeof readFiniteNumber(agentDeviceOptions.pixels) === 'number' ? { pixels: readFiniteNumber(agentDeviceOptions.pixels) } : {}),
+        ...(typeof durationMs === 'number' ? { durationMs } : {}),
+        ...(typeof endX === 'number' ? { endX } : {}),
+        ...(typeof endY === 'number' ? { endY } : {}),
+        ...(typeof pixels === 'number' ? { pixels } : {}),
         rawFileName: typeof agentDeviceOptions.rawFileName === 'string' && agentDeviceOptions.rawFileName.length > 0
           ? agentDeviceOptions.rawFileName
           : defaultAgentDeviceRawFileName({ driverAction: action, index: actionIndex }),
@@ -1173,12 +1179,12 @@ function resolveAgentDeviceDriverSteps(scenario: Record<string, any>): AgentDevi
         required: step.required !== false,
         ...(isAgentDeviceSelector(step.selector) ? { selector: step.selector } : {}),
         stepId: step.id,
-        ...(typeof readFiniteNumber(agentDeviceOptions.startX) === 'number' ? { startX: readFiniteNumber(agentDeviceOptions.startX) } : {}),
-        ...(typeof readFiniteNumber(agentDeviceOptions.startY) === 'number' ? { startY: readFiniteNumber(agentDeviceOptions.startY) } : {}),
+        ...(typeof startX === 'number' ? { startX } : {}),
+        ...(typeof startY === 'number' ? { startY } : {}),
         ...(typeof agentDeviceOptions.text === 'string' ? { text: agentDeviceOptions.text } : {}),
         waitMs: readPositiveInteger(agentDeviceOptions.waitMs ?? step.timeoutMs, 0),
-        ...(typeof readFiniteNumber(agentDeviceOptions.x) === 'number' ? { x: readFiniteNumber(agentDeviceOptions.x) } : {}),
-        ...(typeof readFiniteNumber(agentDeviceOptions.y) === 'number' ? { y: readFiniteNumber(agentDeviceOptions.y) } : {}),
+        ...(typeof x === 'number' ? { x } : {}),
+        ...(typeof y === 'number' ? { y } : {}),
       };
     });
 }
@@ -1193,8 +1199,13 @@ function validateAgentDeviceDriverSteps(driverSteps: AgentDeviceDriverStep[]): s
   const errors: string[] = [];
   for (const step of driverSteps) {
     const stepLabel = step.stepId ? `step \`${step.stepId}\`` : 'unnamed step';
-    if (step.driverAction === 'tap' && !step.selector && !step.ref && (typeof step.x !== 'number' || typeof step.y !== 'number')) {
-      errors.push(`${stepLabel} uses driverAction \`tap\` but is missing a selector, adapterOptions.agentDevice.ref, or adapterOptions.agentDevice.x/y.`);
+    if (
+      (step.driverAction === 'tap' || step.driverAction === 'longPress') &&
+      !step.selector &&
+      !step.ref &&
+      (typeof step.x !== 'number' || typeof step.y !== 'number')
+    ) {
+      errors.push(`${stepLabel} uses driverAction \`${step.driverAction}\` but is missing a selector, adapterOptions.agentDevice.ref, or adapterOptions.agentDevice.x/y.`);
     }
     if (step.driverAction === 'assertVisible' && !step.selector) {
       errors.push(`${stepLabel} uses driverAction \`assertVisible\` but is missing a portable selector.`);
@@ -1286,6 +1297,16 @@ async function runAgentDeviceDriverStep({
       ...(driverStep.rawFileName ? { rawFileName: driverStep.rawFileName } : {}),
       ...(typeof driverStep.startX === 'number' ? { startX: driverStep.startX } : {}),
       ...(typeof driverStep.startY === 'number' ? { startY: driverStep.startY } : {}),
+    });
+  }
+  if (driverStep.driverAction === 'longPress') {
+    return driver.longPress({
+      ...(typeof driverStep.durationMs === 'number' ? { durationMs: driverStep.durationMs } : {}),
+      ...(driverStep.rawFileName ? { rawFileName: driverStep.rawFileName } : {}),
+      ...(driverStep.ref ? { ref: driverStep.ref } : {}),
+      ...(driverStep.selector ? { selector: driverStep.selector } : {}),
+      ...(typeof driverStep.x === 'number' ? { x: driverStep.x } : {}),
+      ...(typeof driverStep.y === 'number' ? { y: driverStep.y } : {}),
     });
   }
   if (driverStep.driverAction === 'swipe') {

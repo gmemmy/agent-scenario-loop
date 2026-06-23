@@ -92,6 +92,15 @@ type AgentDeviceSwipeOptions = {
   startY: number;
 };
 
+type AgentDeviceLongPressOptions = {
+  durationMs?: number;
+  rawFileName?: string;
+  ref?: string;
+  selector?: AgentDeviceSelector;
+  x?: number;
+  y?: number;
+};
+
 type AgentDeviceTapOptions = {
   rawFileName?: string;
   ref?: string;
@@ -111,6 +120,7 @@ type AgentDeviceDriver = {
   assertVisible: (options: AgentDeviceAssertVisibleOptions) => Promise<AgentDeviceCommandResult>;
   close: (app: string) => Promise<AgentDeviceCommandResult>;
   inspectTree: (options?: AgentDeviceInspectTreeOptions) => Promise<AgentDeviceCommandResult>;
+  longPress: (options: AgentDeviceLongPressOptions) => Promise<AgentDeviceCommandResult>;
   open: (options: AgentDeviceOpenOptions) => Promise<AgentDeviceCommandResult>;
   readLogs: (options?: AgentDeviceReadLogsOptions) => Promise<AgentDeviceCommandResult>;
   screenshot: (options: AgentDeviceScreenshotOptions) => Promise<AgentDeviceCommandResult>;
@@ -346,6 +356,27 @@ function createAgentDeviceDriver(options: AgentDeviceDriverOptions): AgentDevice
       ]);
     },
 
+    async longPress({
+      durationMs,
+      rawFileName = 'agent-device-long-press.txt',
+      ref,
+      selector,
+      x,
+      y,
+    }: AgentDeviceLongPressOptions): Promise<AgentDeviceCommandResult> {
+      const durationArg = typeof durationMs === 'number' ? [String(durationMs)] : [];
+      if (selector) {
+        return run('longPress', rawFileName, ['longpress', formatAgentDeviceSelector(selector), ...durationArg]);
+      }
+      if (ref) {
+        return run('longPress', rawFileName, ['longpress', ref.startsWith('@') ? ref : `@${ref}`, ...durationArg]);
+      }
+      if (typeof x === 'number' && typeof y === 'number') {
+        return run('longPress', rawFileName, ['longpress', String(x), String(y), ...durationArg]);
+      }
+      throw new Error('agent-device longPress requires a selector, ref, or x/y coordinates.');
+    },
+
     async tap({
       rawFileName = 'agent-device-tap.txt',
       ref,
@@ -395,6 +426,7 @@ export type {
   AgentDeviceDriver,
   AgentDeviceDriverOptions,
   AgentDeviceInspectTreeOptions,
+  AgentDeviceLongPressOptions,
   AgentDeviceOpenOptions,
   AgentDevicePlatform,
   AgentDeviceReadLogsOptions,
