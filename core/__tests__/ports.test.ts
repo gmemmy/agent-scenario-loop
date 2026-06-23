@@ -37,7 +37,7 @@ test('reports missing driver methods', () => {
 
   assert.deepEqual(
     missingPortMethods(implementation, DRIVER_PORT),
-    ['scroll', 'swipe', 'assertVisible', 'inspectTree', 'record', 'readLogs', 'collectPerfSignals'],
+    ['longPress', 'scroll', 'swipe', 'assertVisible', 'inspectTree', 'record', 'readLogs', 'collectPerfSignals'],
   );
 });
 

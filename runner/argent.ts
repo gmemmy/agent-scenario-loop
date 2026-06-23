@@ -102,7 +102,7 @@ type ArgentAvailabilityArtifactOptions = {
 type ArgentDriverStep = {
   appId?: string;
   captureFileName?: string;
-  driverAction: 'assertVisible' | 'inspectTree' | 'launch' | 'screenshot' | 'scroll' | 'swipe' | 'tap';
+  driverAction: 'assertVisible' | 'inspectTree' | 'launch' | 'longPress' | 'screenshot' | 'scroll' | 'swipe' | 'tap';
   durationMs?: number;
   endX?: number;
   endY?: number;
@@ -173,6 +173,7 @@ const DEFAULT_ARGENT_REQUIRED_TOOLS = [
   'describe',
   'screenshot',
   'gesture-tap',
+  'gesture-custom',
   'gesture-swipe',
 ];
 
@@ -543,7 +544,7 @@ function resolveArgentDriverSteps(
   return executionPlan.steps
     .filter((step: ScenarioExecutionStep) =>
       step.kind === 'launch' ||
-      ['assertVisible', 'inspectTree', 'screenshot', 'scroll', 'swipe', 'tap'].includes(String(step.driverAction)),
+      ['assertVisible', 'inspectTree', 'longPress', 'screenshot', 'scroll', 'swipe', 'tap'].includes(String(step.driverAction)),
     )
     .map((step: ScenarioExecutionStep, index: number) => {
       const argentOptions = readArgentStepOptions(step);
@@ -595,6 +596,9 @@ function validateArgentDriverSteps(driverSteps: ArgentDriverStep[], options: {ap
     }
     if (step.driverAction === 'tap' && (typeof step.x !== 'number' || typeof step.y !== 'number')) {
       errors.push(`${stepLabel} uses driverAction \`tap\` but is missing adapterOptions.argent.x/y.`);
+    }
+    if (step.driverAction === 'longPress' && (typeof step.x !== 'number' || typeof step.y !== 'number')) {
+      errors.push(`${stepLabel} uses driverAction \`longPress\` but is missing adapterOptions.argent.x/y.`);
     }
     if (step.driverAction === 'scroll' && (
       typeof step.startX !== 'number' ||
@@ -766,6 +770,15 @@ async function runArgentDriverStep({
   }
   if (driverStep.driverAction === 'tap') {
     return driver.tap({
+      rawFileName: driverStep.rawFileName,
+      ...(driverStep.screenSize ? { screenSize: driverStep.screenSize } : {}),
+      x: driverStep.x as number,
+      y: driverStep.y as number,
+    });
+  }
+  if (driverStep.driverAction === 'longPress') {
+    return driver.longPress({
+      ...(typeof driverStep.durationMs === 'number' ? { durationMs: driverStep.durationMs } : {}),
       rawFileName: driverStep.rawFileName,
       ...(driverStep.screenSize ? { screenSize: driverStep.screenSize } : {}),
       x: driverStep.x as number,

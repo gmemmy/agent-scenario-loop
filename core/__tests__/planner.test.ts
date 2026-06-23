@@ -169,9 +169,9 @@ test('fails when scenarios require undeclared rich driver actions', () => {
   const scenario = readJson('examples/scenarios/mobile/open-close-cycle.json');
   const runner = readJson('examples/runners/argent-ios.json');
   scenario.steps.push({
-    id: 'long-press-card',
+    id: 'pinch-card',
     kind: 'gesture',
-    driverAction: 'longPress',
+    driverAction: 'pinch',
   });
 
   const result = evaluateRunnerCompatibility({ scenario, runner, platform: 'ios' });
@@ -181,9 +181,9 @@ test('fails when scenarios require undeclared rich driver actions', () => {
     result.errors
       .filter((error: PlannerIssue) => error.code === 'missing_required_driver_action')
       .map((error: PlannerIssue) => error.driverAction),
-    ['longPress'],
+    ['pinch'],
   );
-  assert.equal(result.matched.driverActions.includes('longPress'), false);
+  assert.equal(result.matched.driverActions.includes('pinch'), false);
 });
 
 test('accepts scenario steps when the runner declares required driver actions', () => {
@@ -203,7 +203,7 @@ test('accepts rich driver actions only when declared by the selected runner', ()
   const scenario = readJson('examples/scenarios/mobile/open-close-cycle.json');
   const runner = readJson('examples/runners/argent-ios.json');
   runner.runnerId = 'custom-rich-gesture-runner';
-  runner.driverActions.push('longPress', 'pinch');
+  runner.driverActions.push('pinch');
   scenario.steps.push(
     {
       id: 'long-press-card',
@@ -694,6 +694,11 @@ test('argent runner target rejects unsupported adapter metadata before runtime',
       driverAction: 'tap',
     },
     {
+      id: 'long-press-missing',
+      kind: 'gesture',
+      driverAction: 'longPress',
+    },
+    {
       id: 'scroll-missing',
       kind: 'gesture',
       driverAction: 'scroll',
@@ -747,6 +752,7 @@ test('argent runner target rejects unsupported adapter metadata before runtime',
       })),
     [
       { adapter: 'argent', field: 'x/y', stepId: 'tap-missing' },
+      { adapter: 'argent', field: 'x/y', stepId: 'long-press-missing' },
       { adapter: 'argent', field: 'startX/startY/endX/endY', stepId: 'scroll-missing' },
       { adapter: 'argent', field: 'startX/startY/endX/endY', stepId: 'swipe-missing' },
       { adapter: 'argent', field: 'selector', stepId: 'assert-missing' },
@@ -803,6 +809,18 @@ test('argent runner target accepts coordinate-backed tap, scroll, and swipe meta
       },
     },
     {
+      id: 'long-press-card',
+      kind: 'gesture',
+      driverAction: 'longPress',
+      adapterOptions: {
+        argent: {
+          durationMs: 800,
+          x: 0.5,
+          y: 0.4,
+        },
+      },
+    },
+    {
       id: 'scroll-feed',
       kind: 'gesture',
       driverAction: 'scroll',
@@ -839,6 +857,7 @@ test('argent runner target accepts coordinate-backed tap, scroll, and swipe meta
     result.errors.filter((error: PlannerIssue) => error.code === 'invalid_adapter_options'),
     [],
   );
+  assert.ok(result.matched.driverActions.includes('longPress'));
 });
 
 test('treats optional step driver actions as warnings', () => {

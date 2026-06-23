@@ -618,6 +618,18 @@ test('Argent driver step expansion validates coordinate-backed metadata', () => 
         },
       },
       {
+        id: 'long-press-card',
+        kind: 'gesture',
+        driverAction: 'longPress',
+        adapterOptions: {
+          argent: {
+            durationMs: 850,
+            x: 100,
+            y: 300,
+          },
+        },
+      },
+      {
         id: 'assert-title',
         kind: 'assertUi',
         driverAction: 'assertVisible',
@@ -683,8 +695,18 @@ test('Argent driver step expansion validates coordinate-backed metadata', () => 
       y: 200,
     },
     {
+      driverAction: 'longPress',
+      durationMs: 850,
+      rawFileName: 'argent-longPress-3.txt',
+      required: true,
+      stepId: 'long-press-card',
+      waitMs: 0,
+      x: 100,
+      y: 300,
+    },
+    {
       driverAction: 'assertVisible',
-      rawFileName: 'argent-assertVisible-3.txt',
+      rawFileName: 'argent-assertVisible-4.txt',
       required: true,
       selector: {
         kind: 'text',
@@ -698,7 +720,7 @@ test('Argent driver step expansion validates coordinate-backed metadata', () => 
       durationMs: 350,
       endX: 100,
       endY: 200,
-      rawFileName: 'argent-scroll-4.txt',
+      rawFileName: 'argent-scroll-5.txt',
       required: true,
       startX: 100,
       startY: 700,
@@ -710,7 +732,7 @@ test('Argent driver step expansion validates coordinate-backed metadata', () => 
       durationMs: 175,
       endX: 300,
       endY: 400,
-      rawFileName: 'argent-swipe-5.txt',
+      rawFileName: 'argent-swipe-6.txt',
       required: true,
       startX: 100,
       startY: 200,
@@ -726,9 +748,11 @@ test('Argent driver step expansion validates coordinate-backed metadata', () => 
   assert.deepEqual(validateArgentDriverSteps(resolveArgentDriverSteps(scenario), { app: 'dev.example.app' }), []);
   assert.deepEqual(validateArgentDriverSteps([
     { driverAction: 'tap', rawFileName: 'tap.txt', required: true, stepId: 'tap-missing', waitMs: 0 },
+    { driverAction: 'longPress', rawFileName: 'long-press.txt', required: true, stepId: 'long-press-missing', waitMs: 0 },
     { driverAction: 'swipe', rawFileName: 'swipe.txt', required: true, stepId: 'swipe-missing', waitMs: 0 },
   ]), [
     'step `tap-missing` uses driverAction `tap` but is missing adapterOptions.argent.x/y.',
+    'step `long-press-missing` uses driverAction `longPress` but is missing adapterOptions.argent.x/y.',
     'step `swipe-missing` uses driverAction `swipe` but is missing adapterOptions.argent.startX/startY/endX/endY.',
   ]);
 });

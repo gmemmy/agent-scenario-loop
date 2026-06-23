@@ -353,12 +353,12 @@ function hasStartEndCoordinates(options: ManifestRecord): boolean {
 }
 
 /**
- * Returns true when a scenario step has Argent tap coordinates.
+ * Returns true when a scenario step has Argent point coordinates.
  *
  * @param {Record<string, unknown>} step
  * @returns {boolean}
  */
-function hasArgentTapTarget(step: ScenarioStep): boolean {
+function hasArgentPointTarget(step: ScenarioStep): boolean {
   const argent = asObject(asObject(step.adapterOptions).argent);
   return isFiniteNumber(argent.x) && isFiniteNumber(argent.y);
 }
@@ -1127,12 +1127,12 @@ function validateArgentAdapterOptions({
       });
     }
 
-    if (step.driverAction === 'tap' && !hasArgentTapTarget(step)) {
+    if ((step.driverAction === 'tap' || step.driverAction === 'longPress') && !hasArgentPointTarget(step)) {
       pushInvalidAdapterOption({
         adapter: 'argent',
         errors,
         field: 'x/y',
-        message: `Step \`${stepId}\` uses driverAction \`tap\` but adapterOptions.argent.x/y are required.`,
+        message: `Step \`${stepId}\` uses driverAction \`${String(step.driverAction)}\` but adapterOptions.argent.x/y are required.`,
         scenario,
         stepId,
       });

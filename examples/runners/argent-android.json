@@ -12,7 +12,7 @@
     "screenshot",
     "uiTree"
   ],
-  "driverActions": ["tap", "scroll", "swipe", "assertVisible", "inspectTree", "screenshot"],
+  "driverActions": ["tap", "longPress", "scroll", "swipe", "assertVisible", "inspectTree", "screenshot"],
   "artifactOutputs": ["logs", "signals", "screenshot", "uiTree"],
   "uiContexts": ["app"],
   "lifecycle": [
