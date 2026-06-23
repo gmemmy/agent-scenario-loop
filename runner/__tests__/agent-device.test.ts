@@ -103,6 +103,7 @@ test('agent-device availability check verifies command surface and booted platfo
           'is',
           'click',
           'scroll',
+          'swipe',
           'logs',
           'devices',
           'session list',
@@ -134,7 +135,7 @@ test('agent-device availability check preserves failed command diagnostics', asy
       stderr: args[0] === 'devices' ? 'daemon unavailable' : '',
       stdout: args[0] === 'devices'
         ? ''
-        : 'CLI to control iOS and Android devices\nopen\nsnapshot\nscreenshot\nis\nclick\nscroll\nlogs\ndevices\nsession list\n',
+        : 'CLI to control iOS and Android devices\nopen\nsnapshot\nscreenshot\nis\nclick\nscroll\nswipe\nlogs\ndevices\nsession list\n',
     }),
     requiredPlatforms: ['ios'],
   });
@@ -177,7 +178,7 @@ test('agent-device availability check fails when active sessions cannot be inspe
         command,
         exitCode: 0,
         stderr: '',
-        stdout: 'CLI to control iOS and Android devices\nopen\nsnapshot\nscreenshot\nis\nclick\nscroll\nlogs\ndevices\nsession list\n',
+        stdout: 'CLI to control iOS and Android devices\nopen\nsnapshot\nscreenshot\nis\nclick\nscroll\nswipe\nlogs\ndevices\nsession list\n',
       };
     },
   });
@@ -244,7 +245,7 @@ test('agent-device availability check writes ASL artifacts when requested', asyn
         command,
         exitCode: 0,
         stderr: '',
-        stdout: 'CLI to control iOS and Android devices\nopen\nsnapshot\nscreenshot\nis\nclick\nscroll\nlogs\ndevices\nsession list\n',
+        stdout: 'CLI to control iOS and Android devices\nopen\nsnapshot\nscreenshot\nis\nclick\nscroll\nswipe\nlogs\ndevices\nsession list\n',
       };
     },
     requiredPlatforms: ['android'],
@@ -672,6 +673,20 @@ test('agent-device driver step expansion preserves portable selectors and option
         },
       },
       {
+        id: 'swipe-card',
+        kind: 'gesture',
+        driverAction: 'swipe',
+        adapterOptions: {
+          agentDevice: {
+            durationMs: 250,
+            endX: 300,
+            endY: 400,
+            startX: 100,
+            startY: 200,
+          },
+        },
+      },
+      {
         id: 'capture-final',
         kind: 'captureEvidence',
         artifact: 'screenshot',
@@ -699,9 +714,21 @@ test('agent-device driver step expansion preserves portable selectors and option
       waitMs: 0,
     },
     {
-      captureFileName: 'agent-device-screenshot-3.png',
+      driverAction: 'swipe',
+      durationMs: 250,
+      endX: 300,
+      endY: 400,
+      rawFileName: 'agent-device-swipe-3.txt',
+      required: true,
+      startX: 100,
+      startY: 200,
+      stepId: 'swipe-card',
+      waitMs: 0,
+    },
+    {
+      captureFileName: 'agent-device-screenshot-4.png',
       driverAction: 'screenshot',
-      rawFileName: 'agent-device-screenshot-3.txt',
+      rawFileName: 'agent-device-screenshot-4.txt',
       required: true,
       stepId: 'capture-final',
       waitMs: 0,
@@ -717,7 +744,17 @@ test('agent-device driver step validation rejects missing tap targets', () => {
         required: true,
         stepId: 'tap-missing',
       },
+      {
+        driverAction: 'swipe',
+        required: true,
+        stepId: 'swipe-missing',
+        startX: 10,
+        startY: 20,
+      },
     ]),
-    ['step `tap-missing` uses driverAction `tap` but is missing a selector, adapterOptions.agentDevice.ref, or adapterOptions.agentDevice.x/y.'],
+    [
+      'step `tap-missing` uses driverAction `tap` but is missing a selector, adapterOptions.agentDevice.ref, or adapterOptions.agentDevice.x/y.',
+      'step `swipe-missing` uses driverAction `swipe` but is missing adapterOptions.agentDevice.startX/startY/endX/endY.',
+    ],
   );
 });

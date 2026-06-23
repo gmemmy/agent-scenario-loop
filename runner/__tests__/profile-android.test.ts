@@ -3161,6 +3161,7 @@ test('profile-android validates tap and scroll driver metadata', () => {
     validateAndroidAdbDriverSteps([
       { driverAction: 'tap', stepId: 'tap-card', x: 10, y: 20 },
       { driverAction: 'scroll', endX: 100, endY: 200, startX: 100, startY: 800, stepId: 'scroll-list' },
+      { driverAction: 'swipe', endX: 300, endY: 400, startX: 100, startY: 200, stepId: 'swipe-card' },
       { driverAction: 'assertVisible', selector: { kind: 'text', value: 'Example' }, stepId: 'assert-visible' },
       { driverAction: 'tap', selector: { kind: 'testId', value: 'card' }, stepId: 'tap-selector' },
       { driverAction: 'scroll', selector: { kind: 'resourceId', value: 'feed' }, stepId: 'scroll-selector' },
@@ -3171,11 +3172,13 @@ test('profile-android validates tap and scroll driver metadata', () => {
     validateAndroidAdbDriverSteps([
       { driverAction: 'tap', stepId: 'tap-card' },
       { driverAction: 'scroll', stepId: 'scroll-list', startX: 100, startY: 800 },
+      { driverAction: 'swipe', stepId: 'swipe-card', startX: 100, startY: 800 },
       { driverAction: 'assertVisible', stepId: 'assert-visible' },
     ]),
     [
       'step `tap-card` uses driverAction `tap` but is missing adapterOptions.androidAdb.x/y.',
       'step `scroll-list` uses driverAction `scroll` but is missing adapterOptions.androidAdb.startX/startY/endX/endY.',
+      'step `swipe-card` uses driverAction `swipe` but is missing adapterOptions.androidAdb.startX/startY/endX/endY.',
       'step `assert-visible` uses driverAction `assertVisible` but is missing a portable selector.',
     ],
   );

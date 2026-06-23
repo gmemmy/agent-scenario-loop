@@ -149,6 +149,9 @@ test('argent driver maps lifecycle, gestures, screenshots, and descriptions', as
     '--yes @swmansion/argent run gesture-swipe --udid SIM-123 --fromX 0.5 --fromY 0.8 --toX 0.5 --toY 0.2 --durationMs 250': {
       stdout: '{"success":true}\n',
     },
+    '--yes @swmansion/argent run gesture-swipe --udid SIM-123 --fromX 0.25 --fromY 0.3 --toX 0.75 --toY 0.8 --durationMs 175': {
+      stdout: '{"success":true}\n',
+    },
     '--yes @swmansion/argent run screenshot --udid SIM-123 --includeImageInContext false': {
       stdout: 'Saved screenshot: /tmp/argent-screen.png\n',
     },
@@ -169,6 +172,7 @@ test('argent driver maps lifecycle, gestures, screenshots, and descriptions', as
   const openUrl = await driver.openUrl({ url: 'example://profile/start' });
   const tap = await driver.tap({ x: 500, y: 500 });
   const scroll = await driver.scroll({ durationMs: 250, endX: 500, endY: 400, startX: 500, startY: 1600 });
+  const swipe = await driver.swipe({ durationMs: 175, endX: 750, endY: 1600, startX: 250, startY: 600 });
   const screenshot = await driver.screenshot();
   const tree = await driver.inspectTree();
   const visible = await driver.assertVisible({ selector: { kind: 'text', value: 'Ready' } });
@@ -177,6 +181,8 @@ test('argent driver maps lifecycle, gestures, screenshots, and descriptions', as
   assert.equal(openUrl.action, 'openUrl');
   assert.equal(tap.rawFileName, 'argent-tap.txt');
   assert.equal(scroll.action, 'scroll');
+  assert.equal(swipe.action, 'swipe');
+  assert.equal(swipe.rawFileName, 'argent-swipe.txt');
   assert.equal(screenshot.capturePath, '/tmp/argent-screen.png');
   assert.equal(tree.action, 'inspectTree');
   assert.equal(visible.exitCode, 0);

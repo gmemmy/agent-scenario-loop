@@ -493,6 +493,7 @@ test('runs portable adb driver actions and writes raw evidence', async (t: TestC
     '-s emulator-5554 shell getprop ro.build.version.sdk': { stdout: '35\n' },
     '-s emulator-5554 shell input tap 120 240': { stdout: '' },
     '-s emulator-5554 shell input swipe 500 1400 500 400 350': { stdout: '' },
+    '-s emulator-5554 shell input swipe 50 60 250 260 175': { stdout: '' },
     '-s emulator-5554 shell rm -f /sdcard/agent-scenario-loop-ui.xml; uiautomator dump /sdcard/agent-scenario-loop-ui.xml >/dev/null; cat /sdcard/agent-scenario-loop-ui.xml; status=$?; rm -f /sdcard/agent-scenario-loop-ui.xml; exit $status': {
       stdout: '<hierarchy><node text="Example" resource-id="dev.example:id/example" bounds="[10,100][210,260]" /></hierarchy>\n',
     },
@@ -520,6 +521,7 @@ test('runs portable adb driver actions and writes raw evidence', async (t: TestC
     driverSteps: [
       { driverAction: 'tap', stepId: 'tap-card', x: 120, y: 240 },
       { driverAction: 'scroll', durationMs: 350, endX: 500, endY: 400, startX: 500, startY: 1400, stepId: 'scroll-feed' },
+      { driverAction: 'swipe', durationMs: 175, endX: 250, endY: 260, startX: 50, startY: 60, stepId: 'swipe-card' },
       { driverAction: 'inspectTree', stepId: 'inspect-final' },
       {
         driverAction: 'assertVisible',
@@ -547,26 +549,30 @@ test('runs portable adb driver actions and writes raw evidence', async (t: TestC
   assert.equal(result.health.healthStatus, 'passed', JSON.stringify(result.health.checks, null, 2));
   assert.ok(fs.existsSync(path.join(outputDir, 'raw', 'adb-tap.txt')));
   assert.ok(fs.existsSync(path.join(outputDir, 'raw', 'adb-scroll-2.txt')));
-  assert.ok(fs.existsSync(path.join(outputDir, 'raw', 'adb-ui-tree-3.xml')));
-  assert.ok(fs.existsSync(path.join(outputDir, 'raw', 'adb-assert-visible-4.xml')));
-  assert.ok(fs.existsSync(path.join(outputDir, 'raw', 'adb-screenshot-5.png')));
-  assert.ok(fs.existsSync(path.join(outputDir, 'raw', 'adb-record-6.txt')));
+  assert.ok(fs.existsSync(path.join(outputDir, 'raw', 'adb-swipe-3.txt')));
+  assert.ok(fs.existsSync(path.join(outputDir, 'raw', 'adb-ui-tree-4.xml')));
+  assert.ok(fs.existsSync(path.join(outputDir, 'raw', 'adb-assert-visible-5.xml')));
+  assert.ok(fs.existsSync(path.join(outputDir, 'raw', 'adb-screenshot-6.png')));
+  assert.ok(fs.existsSync(path.join(outputDir, 'raw', 'adb-record-7.txt')));
   assert.ok(fs.existsSync(path.join(outputDir, 'raw', 'adb-logcat.txt')));
   assert.ok(fs.existsSync(path.join(outputDir, 'captures', 'adb-record-6.mp4')));
   assert.ok(calls.includes('-s emulator-5554 shell rm -f /sdcard/asl-record.mp4'));
   assertAdapterArtifactConformance(result, {
     expectedHealthStatus: 'passed',
-    rawArtifacts: ['raw/android-metadata.json', 'raw/adb-record-6.txt'],
+    rawArtifacts: ['raw/android-metadata.json', 'raw/adb-record-7.txt'],
   });
   assertMetadataCapturePathsExist(outputDir, 'raw/android-metadata.json');
   assert.deepEqual(
     (metadata.driverActions as Array<{ driverAction: string }>).map((item) => item.driverAction),
-    ['tap', 'scroll', 'inspectTree', 'assertVisible', 'screenshot', 'record', 'readLogs'],
+    ['tap', 'scroll', 'swipe', 'inspectTree', 'assertVisible', 'screenshot', 'record', 'readLogs'],
   );
-  assert.equal((metadata.driverActions as Array<{ capturePath?: string }>)[5]?.capturePath, 'captures/adb-record-6.mp4');
+  assert.equal((metadata.driverActions as Array<{ capturePath?: string }>)[6]?.capturePath, 'captures/adb-record-6.mp4');
   assert.equal((metadata.logcat as { rawPath: string }).rawPath, 'raw/adb-logcat.txt');
   assert.ok(
     (result.health.checks as Array<{ code: string }>).some((check) => check.code === 'android_tap_completed'),
+  );
+  assert.ok(
+    (result.health.checks as Array<{ code: string }>).some((check) => check.code === 'android_swipe_completed'),
   );
   assert.ok(
     (result.health.checks as Array<{ code: string }>).some((check) => check.code === 'android_inspect_tree_completed'),

@@ -114,6 +114,9 @@ test('agent-device driver maps portable driver actions', async () => {
     'swipe 100 800 100 300 250 --platform ios --udid BOOTED --json': {
       stdout: '{"success":true}\n',
     },
+    'swipe 20 30 220 330 125 --platform ios --udid BOOTED --json': {
+      stdout: '{"success":true}\n',
+    },
     'logs path --platform ios --udid BOOTED --json': {
       stdout: '/tmp/agent-device.log\n',
     },
@@ -131,7 +134,8 @@ test('agent-device driver maps portable driver actions', async () => {
   const inspectTree = await driver.inspectTree();
   const screenshot = await driver.screenshot({ outputPath: screenshotPath });
   const scroll = await driver.scroll({ pixels: 400 });
-  const swipe = await driver.scroll({ durationMs: 250, endX: 100, endY: 300, startX: 100, startY: 800 });
+  const scrollWithCoordinates = await driver.scroll({ durationMs: 250, endX: 100, endY: 300, startX: 100, startY: 800 });
+  const swipe = await driver.swipe({ durationMs: 125, endX: 220, endY: 330, startX: 20, startY: 30 });
   const logs = await driver.readLogs();
 
   assert.equal(tapSelector.action, 'tap');
@@ -140,7 +144,9 @@ test('agent-device driver maps portable driver actions', async () => {
   assert.equal(inspectTree.action, 'inspectTree');
   assert.equal(screenshot.capturePath, screenshotPath);
   assert.equal(scroll.action, 'scroll');
-  assert.equal(swipe.action, 'scroll');
+  assert.equal(scrollWithCoordinates.action, 'scroll');
+  assert.equal(swipe.action, 'swipe');
+  assert.equal(swipe.rawFileName, 'agent-device-swipe.txt');
   assert.equal(logs.rawFileName, 'agent-device-logs.txt');
 });
 

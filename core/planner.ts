@@ -338,6 +338,21 @@ function hasAgentDeviceTapTarget(step: ScenarioStep): boolean {
 }
 
 /**
+ * Returns true when adapter metadata has explicit start and end coordinates.
+ *
+ * @param {Record<string, unknown>} options
+ * @returns {boolean}
+ */
+function hasStartEndCoordinates(options: ManifestRecord): boolean {
+  return (
+    isFiniteNumber(options.startX) &&
+    isFiniteNumber(options.startY) &&
+    isFiniteNumber(options.endX) &&
+    isFiniteNumber(options.endY)
+  );
+}
+
+/**
  * Returns true when a scenario step has Argent tap coordinates.
  *
  * @param {Record<string, unknown>} step
@@ -873,6 +888,25 @@ function validateAndroidAdbAdapterOptions({
       });
     }
 
+    if (
+      step.driverAction === 'swipe' &&
+      (
+        !isFiniteNumber(androidAdb.startX) ||
+        !isFiniteNumber(androidAdb.startY) ||
+        !isFiniteNumber(androidAdb.endX) ||
+        !isFiniteNumber(androidAdb.endY)
+      )
+    ) {
+      pushInvalidAdapterOption({
+        adapter: 'androidAdb',
+        errors,
+        field: 'startX/startY/endX/endY',
+        message: `Step \`${stepId}\` uses driverAction \`swipe\` but adapterOptions.androidAdb.startX/startY/endX/endY are required.`,
+        scenario,
+        stepId,
+      });
+    }
+
     if ('durationMs' in androidAdb && !isPositiveInteger(androidAdb.durationMs)) {
       pushInvalidAdapterOption({
         adapter: 'androidAdb',
@@ -1006,6 +1040,7 @@ function validateAgentDeviceAdapterOptions({
       continue;
     }
 
+    const agentDevice = asObject(asObject(step.adapterOptions).agentDevice);
     const selector = asObject(step.selector);
     const stepId = getScenarioStepId(step, index);
     if (
@@ -1040,6 +1075,17 @@ function validateAgentDeviceAdapterOptions({
         errors,
         field: 'selector/ref/x/y',
         message: `Step \`${stepId}\` uses driverAction \`tap\` but requires a selector, adapterOptions.agentDevice.ref, or adapterOptions.agentDevice.x/y.`,
+        scenario,
+        stepId,
+      });
+    }
+
+    if (step.driverAction === 'swipe' && !hasStartEndCoordinates(agentDevice)) {
+      pushInvalidAdapterOption({
+        adapter: 'agentDevice',
+        errors,
+        field: 'startX/startY/endX/endY',
+        message: `Step \`${stepId}\` uses driverAction \`swipe\` but adapterOptions.agentDevice.startX/startY/endX/endY are required.`,
         scenario,
         stepId,
       });
@@ -1106,6 +1152,25 @@ function validateArgentAdapterOptions({
         errors,
         field: 'startX/startY/endX/endY',
         message: `Step \`${stepId}\` uses driverAction \`scroll\` but adapterOptions.argent.startX/startY/endX/endY are required.`,
+        scenario,
+        stepId,
+      });
+    }
+
+    if (
+      step.driverAction === 'swipe' &&
+      (
+        !isFiniteNumber(argent.startX) ||
+        !isFiniteNumber(argent.startY) ||
+        !isFiniteNumber(argent.endX) ||
+        !isFiniteNumber(argent.endY)
+      )
+    ) {
+      pushInvalidAdapterOption({
+        adapter: 'argent',
+        errors,
+        field: 'startX/startY/endX/endY',
+        message: `Step \`${stepId}\` uses driverAction \`swipe\` but adapterOptions.argent.startX/startY/endX/endY are required.`,
         scenario,
         stepId,
       });
