@@ -348,12 +348,12 @@ function buildProfileSessionStorageWrites({
 }
 
 /**
- * Reads Android-specific wait metadata from a normalized execution step.
+ * Reads Android-specific pre-action wait metadata from a normalized execution step.
  *
  * @param {import('../core/execution-plan').ScenarioExecutionStep} step
  * @returns {number}
  */
-function readStepWaitMs(step: ScenarioExecutionStep): number {
+function readAndroidAdbDriverWaitMs(step: ScenarioExecutionStep): number {
   const androidAdbOptions = step.adapterOptions?.androidAdb;
   if (androidAdbOptions && typeof androidAdbOptions === 'object' && !Array.isArray(androidAdbOptions)) {
     const waitMs = (androidAdbOptions as Record<string, unknown>).waitMs;
@@ -362,7 +362,81 @@ function readStepWaitMs(step: ScenarioExecutionStep): number {
     }
   }
 
+  return 0;
+}
+
+/**
+ * Reads command pacing metadata from a normalized execution step.
+ *
+ * @param {import('../core/execution-plan').ScenarioExecutionStep} step
+ * @returns {number}
+ */
+function readStepWaitMs(step: ScenarioExecutionStep): number {
+  const androidAdbWaitMs = readAndroidAdbDriverWaitMs(step);
+  if (androidAdbWaitMs > 0) {
+    return androidAdbWaitMs;
+  }
+
   return readPositiveInteger(step.timeoutMs, 0);
+}
+
+/**
+ * Reads the Android adb visibility assertion timeout from a normalized step.
+ *
+ * @param {import('../core/execution-plan').ScenarioExecutionStep} step
+ * @returns {number}
+ */
+function readAndroidAssertVisibleTimeoutMs(step: ScenarioExecutionStep): number {
+  if (step.driverAction !== 'assertVisible') {
+    return 0;
+  }
+
+  return readPositiveInteger(step.timeoutMs, 0);
+}
+
+/**
+ * Reads Android adb step wait metadata without confusing assertion polling
+ * timeout with pre-action sleep.
+ *
+ * @param {import('../core/execution-plan').ScenarioExecutionStep} step
+ * @returns {number}
+ */
+function readAndroidAdbStepWaitMs(step: ScenarioExecutionStep): number {
+  if (step.driverAction === 'assertVisible') {
+    return readAndroidAdbDriverWaitMs(step);
+  }
+
+  return readStepWaitMs(step);
+}
+
+/**
+ * Resolves the raw artifact file name for an Android adb driver step.
+ *
+ * @param {{androidAdbOptions: Record<string, unknown>, driverAction: string | undefined, readLogsIndex: number}} options
+ * @returns {string | undefined}
+ */
+function resolveAndroidAdbRawFileName({
+  androidAdbOptions,
+  driverAction,
+  readLogsIndex,
+}: {
+  androidAdbOptions: Record<string, unknown>;
+  driverAction: string | undefined;
+  readLogsIndex: number;
+}): string | undefined {
+  if (typeof androidAdbOptions.rawFileName === 'string' && androidAdbOptions.rawFileName.length > 0) {
+    return androidAdbOptions.rawFileName;
+  }
+
+  if (driverAction !== 'readLogs') {
+    return undefined;
+  }
+
+  if (readLogsIndex === 1) {
+    return 'adb-logcat.txt';
+  }
+
+  return `adb-logcat-${readLogsIndex}.txt`;
 }
 
 /**
@@ -806,13 +880,12 @@ function resolveAndroidAdbDriverSteps(scenario: Record<string, any>): AndroidAdb
       if (step.driverAction === 'readLogs') {
         readLogsIndex += 1;
       }
-      const rawFileName = typeof androidAdbOptions.rawFileName === 'string' && androidAdbOptions.rawFileName.length > 0
-        ? androidAdbOptions.rawFileName
-        : step.driverAction === 'readLogs'
-          ? readLogsIndex === 1
-            ? 'adb-logcat.txt'
-            : `adb-logcat-${readLogsIndex}.txt`
-        : undefined;
+      const rawFileName = resolveAndroidAdbRawFileName({
+        androidAdbOptions,
+        driverAction: step.driverAction,
+        readLogsIndex,
+      });
+      const waitMs = readAndroidAdbStepWaitMs(step);
 
       return {
         driverAction: step.driverAction as AndroidAdbDriverStep['driverAction'],
@@ -837,7 +910,8 @@ function resolveAndroidAdbDriverSteps(scenario: Record<string, any>): AndroidAdb
         ...(typeof androidAdbOptions.remotePath === 'string' && androidAdbOptions.remotePath.length > 0
           ? { remotePath: androidAdbOptions.remotePath }
           : {}),
-        waitMs: readStepWaitMs(step),
+        ...(step.driverAction === 'assertVisible' ? { timeoutMs: readAndroidAssertVisibleTimeoutMs(step) } : {}),
+        waitMs,
         ...(typeof readFiniteNumber(androidAdbOptions.x) === 'number' ? { x: readFiniteNumber(androidAdbOptions.x) } : {}),
         ...(typeof readFiniteNumber(androidAdbOptions.y) === 'number' ? { y: readFiniteNumber(androidAdbOptions.y) } : {}),
       };

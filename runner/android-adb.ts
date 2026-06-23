@@ -110,6 +110,7 @@ type AndroidAdbDriverStep = {
   stepId?: string;
   startX?: number;
   startY?: number;
+  timeoutMs?: number;
   waitMs?: number;
   x?: number;
   y?: number;
@@ -183,6 +184,7 @@ const ANDROID_ADB_CAPTURE_WATCHDOG_FLOOR_MS = 15000;
 const ANDROID_ADB_CAPTURE_WATCHDOG_CEILING_MS = 120000;
 const ANDROID_ADB_CAPTURE_COMMAND_OVERHEAD_MS = 3000;
 const ANDROID_PROFILE_SESSION_EARLY_POLL_MS = 1000;
+const ANDROID_ASSERT_VISIBLE_POLL_MS = 500;
 const ANDROID_PROFILE_SESSION_TERMINAL_COMMAND_STATUSES = new Set([
   'cancelled',
   'completed',
@@ -1549,6 +1551,7 @@ function deriveAndroidAdbCaptureWatchdogBudget({
     ...storageWrites.map((write) => write.waitMs),
     ...deepLinks.map((deepLink) => deepLink.waitMs),
     ...resolvedDriverSteps.map((step) => step.waitMs),
+    ...resolvedDriverSteps.map((step) => step.timeoutMs),
     ...resolvedDriverSteps.map((step) => step.durationMs),
     ...resolvedDriverSteps.map((step) => (
       typeof step.durationSeconds === 'number' ? step.durationSeconds * 1000 : undefined
@@ -2022,6 +2025,10 @@ function buildAndroidDriverActionCheck({
       driverAction: driverStep.driverAction,
       ...buildAndroidSelectorHealthMetadata(driverStep.selector),
       ...(failed ? buildAndroidDriverFailureMetadata({ driverResult, isReadLogs }) : {}),
+      ...(typeof driverResult.elapsedMs === 'number' ? { elapsedMs: driverResult.elapsedMs } : {}),
+      ...(typeof driverResult.pollCount === 'number' ? { pollCount: driverResult.pollCount } : {}),
+      ...(driverResult.timedOut ? { timedOut: true } : {}),
+      ...(typeof driverResult.timeoutMs === 'number' ? { timeoutMs: driverResult.timeoutMs } : {}),
       ...(driverStep.stepId ? { stepId: driverStep.stepId } : {}),
     },
   };
@@ -2221,9 +2228,82 @@ function buildAndroidDriverFailureMetadata({
 }
 
 /**
+ * Polls Android UIAutomator until a selector becomes visible or the declared
+ * assertion timeout expires.
+ *
+ * @param {{driver: import('./android-adb-driver').AndroidAdbDriver, driverStep: AndroidAdbDriverStep, wait: (ms: number) => Promise<void>}} options
+ * @returns {Promise<import('./android-adb-driver').AndroidAdbCommandResult>}
+ */
+async function pollAndroidAssertVisible({
+  driver,
+  driverStep,
+  wait,
+}: {
+  driver: import('./android-adb-driver').AndroidAdbDriver;
+  driverStep: AndroidAdbDriverStep;
+  wait: (ms: number) => Promise<void>;
+}): Promise<import('./android-adb-driver').AndroidAdbCommandResult> {
+  if (!driverStep.selector) {
+    return {
+      action: 'assertVisible',
+      args: [],
+      command: 'adb',
+      exitCode: 1,
+      rawFileName: driverStep.rawFileName ?? 'adb-assert-visible.xml',
+      stderr: 'assertVisible driver action requires a selector.',
+      stdout: '',
+    };
+  }
+
+  const rawFileName = driverStep.rawFileName ?? 'adb-assert-visible.xml';
+  let timeoutMs = 0;
+  if (typeof driverStep.timeoutMs === 'number' && driverStep.timeoutMs > 0) {
+    timeoutMs = driverStep.timeoutMs;
+  }
+  let elapsedMs = 0;
+  let pollCount = 1;
+  let result = await driver.assertVisible({
+    rawFileName,
+    selector: driverStep.selector,
+  });
+
+  while (result.exitCode !== 0 && elapsedMs < timeoutMs) {
+    const waitMs = Math.min(ANDROID_ASSERT_VISIBLE_POLL_MS, timeoutMs - elapsedMs);
+    await wait(waitMs);
+    elapsedMs += waitMs;
+    pollCount += 1;
+    result = await driver.assertVisible({
+      rawFileName,
+      selector: driverStep.selector,
+    });
+  }
+
+  const timedOut = result.exitCode !== 0 && timeoutMs > 0 && elapsedMs >= timeoutMs;
+  const pollResult = {
+    ...result,
+    elapsedMs,
+    pollCount,
+    ...(timeoutMs > 0 ? { timeoutMs } : {}),
+  };
+
+  if (!timedOut) {
+    return pollResult;
+  }
+
+  return {
+    ...pollResult,
+    stderr: [
+      result.stderr,
+      `assertVisible did not pass before the ${timeoutMs}ms timeout after ${pollCount} UIAutomator attempts.`,
+    ].filter(Boolean).join('\n'),
+    timedOut: true,
+  };
+}
+
+/**
  * Runs one normalized adb driver step through the Android driver adapter.
  *
- * @param {{driver: import('./android-adb-driver').AndroidAdbDriver, driverStep: AndroidAdbDriverStep, logcatLines: number}} options
+ * @param {{driver: import('./android-adb-driver').AndroidAdbDriver, driverStep: AndroidAdbDriverStep, logcatLines: number, wait?: (ms: number) => Promise<void>}} options
  * @returns {Promise<import('./android-adb-driver').AndroidAdbCommandResult>}
  */
 async function runAndroidAdbDriverStep({
@@ -2231,11 +2311,13 @@ async function runAndroidAdbDriverStep({
   driver,
   driverStep,
   logcatLines,
+  wait = delay,
 }: {
   capturesDir: string;
   driver: import('./android-adb-driver').AndroidAdbDriver;
   driverStep: AndroidAdbDriverStep;
   logcatLines: number;
+  wait?: (ms: number) => Promise<void>;
 }): Promise<import('./android-adb-driver').AndroidAdbCommandResult> {
   if (driverStep.driverAction === 'readLogs') {
     return driver.readLogs({
@@ -2251,22 +2333,7 @@ async function runAndroidAdbDriverStep({
   }
 
   if (driverStep.driverAction === 'assertVisible') {
-    if (!driverStep.selector) {
-      return {
-        action: 'assertVisible',
-        args: [],
-        command: 'adb',
-        exitCode: 1,
-        rawFileName: driverStep.rawFileName ?? 'adb-assert-visible.xml',
-        stderr: 'assertVisible driver action requires a selector.',
-        stdout: '',
-      };
-    }
-
-    return driver.assertVisible({
-      ...(typeof driverStep.rawFileName === 'string' ? { rawFileName: driverStep.rawFileName } : {}),
-      selector: driverStep.selector,
-    });
+    return pollAndroidAssertVisible({ driver, driverStep, wait });
   }
 
   if (driverStep.driverAction === 'record') {
@@ -3192,6 +3259,7 @@ async function runAndroidAdbPreflight({
           driver,
           driverStep: executableDriverStep,
           logcatLines,
+          wait,
         });
         raw[driverResult.rawFileName] = formatAndroidAdbRawOutput(driverResult);
         const codeSuffix = androidDriverActionCode(driverStep.driverAction);
@@ -3206,13 +3274,17 @@ async function runAndroidAdbPreflight({
         const actionMetadata = {
           args: driverResult.args,
           driverAction: executableDriverStep.driverAction,
+          ...(typeof driverResult.elapsedMs === 'number' ? { elapsedMs: driverResult.elapsedMs } : {}),
           exitCode: driverResult.exitCode,
           ...(driverResult.capturePath
             ? { capturePath: `captures/${path.basename(driverResult.capturePath)}` }
             : {}),
+          ...(typeof driverResult.pollCount === 'number' ? { pollCount: driverResult.pollCount } : {}),
           rawPath: `raw/${driverResult.rawFileName}`,
           ...(executableDriverStep.selector ? { selector: executableDriverStep.selector } : {}),
           ...(executableDriverStep.stepId ? { stepId: executableDriverStep.stepId } : {}),
+          ...(driverResult.timedOut ? { timedOut: true } : {}),
+          ...(typeof driverResult.timeoutMs === 'number' ? { timeoutMs: driverResult.timeoutMs } : {}),
         };
         driverActionMetadata.push(actionMetadata);
         if (executableDriverStep.driverAction === 'readLogs') {
