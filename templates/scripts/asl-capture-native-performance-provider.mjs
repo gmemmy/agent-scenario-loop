@@ -57,6 +57,23 @@ function writeJsonArtifact(outPath, payload) {
 }
 
 /**
+ * Resolves the scaffold native evidence kind for a platform.
+ *
+ * @param {string} platform
+ * @returns {string}
+ */
+function resolveEvidenceKind(platform) {
+  switch (platform) {
+    case 'android':
+      return 'gfxinfo';
+    case 'ios':
+      return 'simctl';
+    default:
+      return 'unknown';
+  }
+}
+
+/**
  * Writes deterministic native-performance evidence for a scaffolded provider command.
  *
  * @param {{outPath: string, platform: string, runId: string, scenarioId: string}} options
@@ -68,7 +85,6 @@ function writeNativePerformanceEvidence({
   runId,
   scenarioId,
 }) {
-  const evidenceKind = platform === 'ios' ? 'simctl' : platform === 'android' ? 'gfxinfo' : 'unknown';
   writeJsonArtifact(outPath, {
     schemaVersion: '1.0.0',
     providerId: 'example-evidence-provider',
@@ -89,7 +105,7 @@ function writeNativePerformanceEvidence({
       policy: 'Replace this scaffold with project-local native diagnostics before making performance claims.',
     },
     dataClasses: ['frames', 'memory', 'render'],
-    evidenceKind,
+    evidenceKind: resolveEvidenceKind(platform),
     lifecycle: {
       phase: 'afterCapture',
       perturbsTiming: false,
