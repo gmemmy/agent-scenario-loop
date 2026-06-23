@@ -157,10 +157,20 @@ type AndroidProfileSessionObservationWait = {
   completed: boolean;
   elapsedMs: number;
   expectedCommandCount: number;
+  initialObservation?: {
+    completed: boolean;
+    milestoneBackedSequences: number[];
+    observedTerminalCommands: number;
+    rawPath: string;
+    started: boolean;
+    terminalSequences: number[];
+  };
   milestoneBackedSequences: number[];
   observedTerminalCommands: number;
   pollCount: number;
   rawPath: string;
+  reconciledFromFinalLog?: boolean;
+  reconciledRawPath?: string;
   started: boolean;
   terminalSequences: number[];
 };
@@ -581,6 +591,57 @@ function buildAndroidProfileSessionObservationWait({
   };
 }
 
+function buildAndroidProfileSessionInitialObservation(
+  observation: AndroidProfileSessionObservationWait,
+): NonNullable<AndroidProfileSessionObservationWait['initialObservation']> {
+  return {
+    completed: observation.completed,
+    milestoneBackedSequences: observation.milestoneBackedSequences,
+    observedTerminalCommands: observation.observedTerminalCommands,
+    rawPath: observation.rawPath,
+    started: observation.started,
+    terminalSequences: observation.terminalSequences,
+  };
+}
+
+function buildReconciledAndroidProfileSessionObservation({
+  finalRawPath,
+  inspection,
+  observation,
+}: {
+  finalRawPath: string;
+  inspection: ReturnType<typeof inspectProfileSessionCompletion>;
+  observation: AndroidProfileSessionObservationWait;
+}): AndroidProfileSessionObservationWait {
+  return {
+    ...observation,
+    completed: true,
+    initialObservation: buildAndroidProfileSessionInitialObservation(observation),
+    milestoneBackedSequences: inspection.milestoneBackedSequences,
+    observedTerminalCommands: inspection.observedTerminalCommands,
+    reconciledFromFinalLog: true,
+    reconciledRawPath: finalRawPath,
+    started: inspection.started,
+    terminalSequences: inspection.terminalSequences,
+  };
+}
+
+function buildAndroidProfileSessionReconciliationMetadata(
+  observation: AndroidProfileSessionObservationWait,
+): Record<string, unknown> {
+  if (!observation.reconciledFromFinalLog) {
+    return {};
+  }
+
+  return {
+    initialObservedTerminalCommands: observation.initialObservation?.observedTerminalCommands ?? 0,
+    initialRawPath: observation.initialObservation?.rawPath ?? observation.rawPath,
+    initialStarted: observation.initialObservation?.started ?? false,
+    reconciledFromFinalLog: true,
+    reconciledRawPath: observation.reconciledRawPath ?? observation.rawPath,
+  };
+}
+
 /**
  * Builds the sidecar health check for profile-session start or command completion evidence.
  *
@@ -618,16 +679,20 @@ function buildAndroidProfileSessionObservationCheck({
     source: expectation.source,
     started: observation.started,
     terminalSequences: observation.terminalSequences.join(','),
+    ...buildAndroidProfileSessionReconciliationMetadata(observation),
     ...missingMetadata,
   };
 
   if (isStartOnly) {
-    const code = observation.completed
-      ? 'android_profile_session_start_observed'
-      : 'android_profile_session_start_wait_exhausted';
-    const message = observation.completed
-      ? `Observed same-run profile-session start after ${observation.elapsedMs}ms; proceeding to final logcat capture.`
-      : `Same-run profile-session start was not observed before the ${timeoutMs}ms capture window elapsed.`;
+    let code = 'android_profile_session_start_wait_exhausted';
+    let message = `Same-run profile-session start was not observed before the ${timeoutMs}ms capture window elapsed.`;
+    if (observation.reconciledFromFinalLog) {
+      code = 'android_profile_session_start_reconciled_from_final_log';
+      message = `The early start wait exhausted, but final logcat evidence in ${observation.reconciledRawPath ?? observation.rawPath} contained the same-run profile-session start.`;
+    } else if (observation.completed) {
+      code = 'android_profile_session_start_observed';
+      message = `Observed same-run profile-session start after ${observation.elapsedMs}ms; proceeding to final logcat capture.`;
+    }
     return {
       name: 'android_profile_session_start_wait',
       status: observation.completed ? 'passed' : 'warning',
@@ -655,12 +720,15 @@ function buildAndroidProfileSessionObservationCheck({
     };
   }
 
-  const code = observation.completed
-    ? 'android_profile_session_completion_observed'
-    : 'android_profile_session_completion_wait_exhausted';
-  const message = observation.completed
-    ? `Observed terminal profile-session command evidence after ${observation.elapsedMs}ms; proceeding to final logcat capture.`
-    : `Profile-session command evidence was not terminal before the ${timeoutMs}ms capture window elapsed.`;
+  let code = 'android_profile_session_completion_wait_exhausted';
+  let message = `Profile-session command evidence was not terminal before the ${timeoutMs}ms capture window elapsed.`;
+  if (observation.reconciledFromFinalLog) {
+    code = 'android_profile_session_completion_reconciled_from_final_log';
+    message = `The early completion wait exhausted, but final logcat evidence in ${observation.reconciledRawPath ?? observation.rawPath} contained terminal same-run profile-session commands.`;
+  } else if (observation.completed) {
+    code = 'android_profile_session_completion_observed';
+    message = `Observed terminal profile-session command evidence after ${observation.elapsedMs}ms; proceeding to final logcat capture.`;
+  }
   return {
     name: 'android_profile_session_completion_wait',
     status: observation.completed ? 'passed' : 'warning',
@@ -669,6 +737,113 @@ function buildAndroidProfileSessionObservationCheck({
     message,
     metadata,
   };
+}
+
+function isAndroidProfileSessionObservationWait(value: unknown): value is AndroidProfileSessionObservationWait {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return false;
+  }
+
+  const candidate = value as Record<string, unknown>;
+  return typeof candidate.completed === 'boolean' &&
+    typeof candidate.expectedCommandCount === 'number' &&
+    typeof candidate.observedTerminalCommands === 'number' &&
+    typeof candidate.rawPath === 'string' &&
+    typeof candidate.started === 'boolean' &&
+    Array.isArray(candidate.milestoneBackedSequences) &&
+    Array.isArray(candidate.terminalSequences);
+}
+
+function collectAndroidProfileSessionFinalLogCandidates(
+  raw: Record<string, string | Uint8Array>,
+): Array<{logText: string; rawPath: string}> {
+  return Object.entries(raw)
+    .filter(([fileName, content]) => (
+      classifyAndroidPreservedRawEvidence(fileName) === 'logs' &&
+      typeof content === 'string' &&
+      content.length > 0
+    ))
+    .map(([fileName, content]) => ({
+      logText: String(content),
+      rawPath: `raw/${fileName}`,
+    }));
+}
+
+function findAndroidProfileSessionObservationCheckIndex({
+  checks,
+  expectation,
+}: {
+  checks: Array<Record<string, unknown>>;
+  expectation: AndroidProfileSessionCompletionExpectation;
+}): number {
+  const checkName = expectation.expectedCommandCount === 0
+    ? 'android_profile_session_start_wait'
+    : 'android_profile_session_completion_wait';
+  return checks.findIndex((check) => check.name === checkName);
+}
+
+function shouldReconcileAndroidProfileSessionObservation({
+  expectation,
+  inspection,
+}: {
+  expectation: AndroidProfileSessionCompletionExpectation;
+  inspection: ReturnType<typeof inspectProfileSessionCompletion>;
+}): boolean {
+  if (expectation.expectedCommandCount === 0) {
+    return inspection.started;
+  }
+
+  return inspection.complete;
+}
+
+function reconcileAndroidProfileSessionObservationFromFinalLogs({
+  checks,
+  expectation,
+  metadata,
+  raw,
+}: {
+  checks: Array<Record<string, unknown>>;
+  expectation: AndroidProfileSessionCompletionExpectation | null;
+  metadata: Record<string, unknown>;
+  raw: Record<string, string | Uint8Array>;
+}): void {
+  if (!expectation) {
+    return;
+  }
+
+  const metadataKey = expectation.expectedCommandCount === 0
+    ? 'profileSessionStartWait'
+    : 'profileSessionCompletionWait';
+  const observation = metadata[metadataKey];
+  if (!isAndroidProfileSessionObservationWait(observation) || observation.completed) {
+    return;
+  }
+
+  for (const candidate of collectAndroidProfileSessionFinalLogCandidates(raw)) {
+    const inspection = inspectProfileSessionCompletion({
+      expectation,
+      logText: candidate.logText,
+    });
+    if (!shouldReconcileAndroidProfileSessionObservation({ expectation, inspection })) {
+      continue;
+    }
+
+    const reconciledObservation = buildReconciledAndroidProfileSessionObservation({
+      finalRawPath: candidate.rawPath,
+      inspection,
+      observation,
+    });
+    metadata[metadataKey] = reconciledObservation;
+    const checkIndex = findAndroidProfileSessionObservationCheckIndex({ checks, expectation });
+    if (checkIndex >= 0) {
+      checks[checkIndex] = buildAndroidProfileSessionObservationCheck({
+        expectation,
+        observation: reconciledObservation,
+        timeoutMs: observation.elapsedMs,
+      });
+    }
+    return;
+  }
 }
 
 /**
@@ -3590,6 +3765,13 @@ async function runAndroidAdbPreflight({
       },
     });
   }
+
+  reconcileAndroidProfileSessionObservationFromFinalLogs({
+    checks,
+    expectation: profileSessionCompletionExpectation,
+    metadata,
+    raw,
+  });
 
   const failedBeforePreservation = checks.some((check) => check.status === 'failed');
   const preservedSidecarEvidence = collectAndroidPreservedSidecarEvidence(raw);

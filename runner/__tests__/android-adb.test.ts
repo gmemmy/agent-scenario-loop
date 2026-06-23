@@ -438,6 +438,107 @@ test('warns when storage profile-session start is missing for no-command capture
   assert.ok(fs.existsSync(path.join(outputDir, 'raw', 'adb-profile-session-early-log-1.txt')));
 });
 
+test('reconciles Android storage completion from final logcat evidence', async (t: TestContext) => {
+  const outputDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-android-adb-completion-reconcile-'));
+  t.after(async () => {
+    await fsp.rm(outputDir, { recursive: true, force: true });
+  });
+  let logReadCount = 0;
+  const partialProfileSessionLog = [
+    '06-16 10:00:00.000 I/ReactNativeJS(123): [profile-session] kind=start scenario=feed-scroll runId=android-completion-reconcile',
+    '06-16 10:00:00.100 I/ReactNativeJS(123): [profile-session] kind=command scenario=feed-scroll runId=android-completion-reconcile sequence=1 status=completed',
+    '06-16 10:00:00.200 I/ReactNativeJS(123): [profile-session] kind=command scenario=feed-scroll runId=android-completion-reconcile sequence=2 status=delivered waitForMilestone=feed_settled',
+  ].join('\n');
+  const completeProfileSessionLog = [
+    partialProfileSessionLog,
+    '06-16 10:00:00.300 I/ReactNativeJS(123): [profile-event] event=feed_settled scenario=feed-scroll runId=android-completion-reconcile',
+    '06-16 10:00:00.400 I/ReactNativeJS(123): [profile-session] kind=command scenario=feed-scroll runId=android-completion-reconcile sequence=2 status=completed waitForMilestone=feed_settled',
+  ].join('\n');
+  const executor = async (command: string, args: string[]): Promise<CommandResult> => {
+    const key = args.join(' ');
+    if (key.includes('run-as') && key.includes('agent-scenario-loop.profile-session')) {
+      return { args, command, exitCode: 0, stderr: '', stdout: '' };
+    }
+    if (key === '-s emulator-5554 logcat -d -v time -t 10000') {
+      logReadCount += 1;
+      return {
+        args,
+        command,
+        exitCode: 0,
+        stderr: '',
+        stdout: logReadCount >= 3 ? completeProfileSessionLog : partialProfileSessionLog,
+      };
+    }
+
+    return createExecutor({
+      version: { stdout: 'Android Debug Bridge version 1.0.41\n' },
+      'devices -l': {
+        stdout: [
+          'List of devices attached',
+          'emulator-5554 device product:sdk_gphone model:Pixel_6 device:emu64',
+        ].join('\n'),
+      },
+      '-s emulator-5554 shell getprop ro.product.model': { stdout: 'Pixel 6\n' },
+      '-s emulator-5554 shell getprop ro.build.version.release': { stdout: '15\n' },
+      '-s emulator-5554 shell getprop ro.build.version.sdk': { stdout: '35\n' },
+      '-s emulator-5554 shell pm path com.example.app': { stdout: 'package:/data/app/com.example.app/base.apk\n' },
+    })(command, args);
+  };
+
+  const result = await runAndroidAdbPreflight({
+    captureLogcat: true,
+    delay: async () => {},
+    executor,
+    logcatLines: 25,
+    outputDir,
+    packageName: 'com.example.app',
+    runId: 'android-completion-reconcile',
+    storageWrites: [
+      {
+        key: 'agent-scenario-loop.profile-session.1',
+        value: JSON.stringify({
+          active: true,
+          scenario: 'feed-scroll',
+          runId: 'android-completion-reconcile',
+          startedAt: 1800000000000,
+        }),
+      },
+      {
+        key: 'agent-scenario-loop.profile-session.commands.1',
+        value: JSON.stringify([
+          {
+            command: 'scroll-feed',
+            sequence: 1,
+          },
+          {
+            command: 'scroll-feed',
+            sequence: 2,
+            waitForMilestone: 'feed_settled',
+          },
+        ]),
+      },
+    ],
+    waitMs: 1,
+  });
+  const metadata = JSON.parse(fs.readFileSync(path.join(outputDir, 'raw', 'android-metadata.json'), 'utf8'));
+  const completionCheck = (
+    result.health.checks as Array<{ code: string; metadata?: Record<string, unknown>; name: string; status: string }>
+  ).find((check) => check.name === 'android_profile_session_completion_wait');
+
+  assert.equal(result.health.healthStatus, 'passed', JSON.stringify(result.health.checks, null, 2));
+  assert.equal(completionCheck?.status, 'passed');
+  assert.equal(completionCheck?.code, 'android_profile_session_completion_reconciled_from_final_log');
+  assert.equal(completionCheck?.metadata?.initialObservedTerminalCommands, 1);
+  assert.equal(completionCheck?.metadata?.initialRawPath, 'raw/adb-profile-session-early-log-1.txt');
+  assert.equal(completionCheck?.metadata?.reconciledRawPath, 'raw/adb-logcat.txt');
+  assert.equal(metadata.profileSessionCompletionWait.completed, true);
+  assert.equal(metadata.profileSessionCompletionWait.initialObservation.observedTerminalCommands, 1);
+  assert.equal(metadata.profileSessionCompletionWait.observedTerminalCommands, 2);
+  assert.equal(metadata.profileSessionCompletionWait.reconciledFromFinalLog, true);
+  assert.equal(metadata.profileSessionCompletionWait.reconciledRawPath, 'raw/adb-logcat.txt');
+  assert.deepEqual(metadata.profileSessionCompletionWait.terminalSequences, [1, 2]);
+});
+
 test('captures bounded adb logcat evidence when requested', async (t: TestContext) => {
   const outputDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-android-adb-logcat-'));
   t.after(async () => {
