@@ -133,6 +133,9 @@ type NextActionHint = {
   nextAction: string;
   nextActionCode: string;
 };
+type IosTargetForegroundFailure = NextActionHint & {
+  failureClass?: 'dev_client_foreground_mismatch';
+};
 type SimulatorLaunchEnvironmentProbe = {
   clean: boolean;
   metadata: Record<string, unknown>;
@@ -1046,15 +1049,17 @@ function iosTargetForegroundMetadata({
   appInfoCaptured,
   applicationState,
   bundleId,
+  devClientDeepLinkOpened,
   rawFileName,
   targetForeground,
 }: {
   appInfoCaptured: boolean;
   applicationState: string | null;
   bundleId: string;
+  devClientDeepLinkOpened: boolean;
   rawFileName: string;
   targetForeground: boolean;
-}): {metadata: NextActionHint} | Record<string, never> {
+}): {metadata: IosTargetForegroundFailure} | Record<string, never> {
   if (!appInfoCaptured) {
     return {
       metadata: nextActionHint(
@@ -1069,6 +1074,18 @@ function iosTargetForegroundMetadata({
   }
 
   if (applicationState) {
+    if (devClientDeepLinkOpened) {
+      return {
+        metadata: {
+          ...nextActionHint(
+            'reload_ios_dev_client_url',
+            `The target app reported ${applicationState} after an iOS dev-client URL was opened. Inspect raw/${rawFileName}, restart Metro from the consuming app worktree if needed, reopen the dev-client URL, and rerun before trusting profile-session or screenshot evidence.`,
+          ),
+          failureClass: 'dev_client_foreground_mismatch',
+        },
+      };
+    }
+
     return {
       metadata: nextActionHint(
         'restore_ios_target_foreground',
@@ -1083,6 +1100,23 @@ function iosTargetForegroundMetadata({
       `Inspect raw/${rawFileName} and simulator UI evidence; this Xcode/simulator did not report ApplicationState.`,
     ),
   };
+}
+
+/**
+ * Reports whether a successfully opened deep link targeted an Expo dev-client URL.
+ *
+ * @param {Array<{exitCode?: unknown, label?: unknown, url?: unknown}>} results
+ * @returns {boolean}
+ */
+function hasOpenedIosDevClientDeepLink(results: Array<{exitCode?: unknown; label?: unknown; url?: unknown}>): boolean {
+  return results.some((result) => {
+    if (result.exitCode !== 0) {
+      return false;
+    }
+    const label = typeof result.label === 'string' ? result.label : '';
+    const url = typeof result.url === 'string' ? result.url : '';
+    return label === 'ios-dev-client-url' || url.includes('expo-development-client');
+  });
 }
 
 /**
@@ -1829,6 +1863,7 @@ async function runIosSimctlCapture(options: IosSimctlCaptureOptions = {}): Promi
           appInfoCaptured,
           applicationState,
           bundleId,
+          devClientDeepLinkOpened: hasOpenedIosDevClientDeepLink(deepLinkResults),
           rawFileName: appInfoResult.rawFileName,
           targetForeground,
         }),
