@@ -2114,6 +2114,11 @@ function buildPartialProviderEvidenceHealthChecks(
 
   const capturedKinds = uniqueStrings(capturedProviderDiagnostics.map((diagnostic) => diagnostic.kind));
   const capturedPaths = uniqueStrings(capturedProviderDiagnostics.map((diagnostic) => readTrimmedString(diagnostic.path)));
+  const failedRequiredKinds = uniqueStrings(
+    diagnostics
+      .filter((diagnostic) => diagnostic.required && diagnostic.status !== 'captured')
+      .map((diagnostic) => diagnostic.kind),
+  );
   return [
     {
       name: 'partial_provider_evidence_preserved',
@@ -2124,6 +2129,7 @@ function buildPartialProviderEvidenceHealthChecks(
       metadata: {
         capturedKinds: capturedKinds.join(','),
         capturedPaths: capturedPaths.join(','),
+        ...(failedRequiredKinds.length > 0 ? { failedRequiredKinds: failedRequiredKinds.join(',') } : {}),
         nextAction: 'Use preserved diagnostics for investigation only; rerun or fix missing required provider outputs before making product claims.',
         nextActionCode: 'use_partial_provider_evidence_for_diagnosis',
       },
