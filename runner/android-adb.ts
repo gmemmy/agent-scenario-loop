@@ -156,6 +156,11 @@ type NextActionHint = {
   nextAction: string;
   nextActionCode: string;
 };
+type AndroidPreservedSidecarEvidence = {
+  byteCount: number;
+  kind: 'logs' | 'profileSessionLog' | 'screenshot';
+  path: string;
+};
 
 type AndroidAppLifecycleScan = {
   crashed: boolean;
@@ -295,6 +300,104 @@ function resolveProfileSessionCompletionExpectation({
   }
 
   return null;
+}
+
+/**
+ * Returns a sidecar evidence kind for raw artifacts that are still useful when
+ * Android health fails.
+ *
+ * @param {string} fileName
+ * @returns {AndroidPreservedSidecarEvidence['kind'] | null}
+ */
+function classifyAndroidPreservedRawEvidence(fileName: string): AndroidPreservedSidecarEvidence['kind'] | null {
+  if (/^adb-profile-session-early-log-\d+\.txt$/u.test(fileName)) {
+    return 'profileSessionLog';
+  }
+
+  if (/^adb-screenshot(?:-\d+)?\.png$/u.test(fileName)) {
+    return 'screenshot';
+  }
+
+  if (/^adb-logcat(?:-\d+)?\.txt$/u.test(fileName) || fileName === 'adb-app-lifecycle-log.txt') {
+    return 'logs';
+  }
+
+  return null;
+}
+
+/**
+ * Returns the number of bytes that will be written for one raw artifact.
+ *
+ * @param {string | Uint8Array} content
+ * @returns {number}
+ */
+function rawEvidenceByteCount(content: string | Uint8Array): number {
+  if (content instanceof Uint8Array) {
+    return content.byteLength;
+  }
+
+  return Buffer.byteLength(content, 'utf8');
+}
+
+/**
+ * Collects raw sidecar artifacts that agents can still use for diagnosis after
+ * health failure.
+ *
+ * @param {Record<string, string | Uint8Array>} raw
+ * @returns {AndroidPreservedSidecarEvidence[]}
+ */
+function collectAndroidPreservedSidecarEvidence(
+  raw: Record<string, string | Uint8Array>,
+): AndroidPreservedSidecarEvidence[] {
+  const preserved: AndroidPreservedSidecarEvidence[] = [];
+  for (const [fileName, content] of Object.entries(raw)) {
+    const kind = classifyAndroidPreservedRawEvidence(fileName);
+    if (!kind) {
+      continue;
+    }
+
+    const byteCount = rawEvidenceByteCount(content);
+    if (byteCount <= 0) {
+      continue;
+    }
+
+    preserved.push({
+      byteCount,
+      kind,
+      path: `raw/${fileName}`,
+    });
+  }
+
+  return preserved;
+}
+
+/**
+ * Builds the health check that indexes preserved sidecar evidence in failed runs.
+ *
+ * @param {AndroidPreservedSidecarEvidence[]} entries
+ * @returns {Record<string, unknown>}
+ */
+function buildAndroidPreservedSidecarEvidenceCheck(
+  entries: AndroidPreservedSidecarEvidence[],
+): Record<string, unknown> {
+  const capturedKinds = Array.from(new Set(entries.map((entry) => entry.kind))).join(',');
+  const capturedPaths = entries.map((entry) => entry.path).join(',');
+  return {
+    name: 'partial_sidecar_evidence_preserved',
+    status: 'partial',
+    source: 'runner',
+    code: 'partial_sidecar_evidence_preserved',
+    message: 'Android sidecar health failed, but raw sidecar evidence was preserved for diagnosis.',
+    metadata: {
+      capturedKinds,
+      capturedPaths,
+      evidenceCount: entries.length,
+      ...nextActionHint(
+        'use_preserved_sidecar_evidence_for_diagnosis',
+        'Use preserved sidecar evidence for owner classification only; rerun before making product or performance claims.',
+      ),
+    },
+  };
 }
 
 /**
@@ -2816,16 +2919,33 @@ async function runAndroidAdbPreflight({
               wait,
             });
             raw[rawFileName] = formatAndroidAdbRawOutput(earlyCompletion.result);
+            let completionStatus: 'failed' | 'passed' | 'warning' = 'warning';
+            let completionCode = 'android_profile_session_completion_wait_exhausted';
+            let completionMessage = `Profile-session command evidence was not terminal before the ${driverStep.waitMs}ms capture window elapsed.`;
+            let completionNextAction: NextActionHint | null = nextActionHint(
+              'inspect_android_profile_session_completion',
+              `Inspect raw/${rawFileName}; the app-side profile session started but did not produce terminal command evidence for every expected command before the capture window elapsed.`,
+            );
+            if (earlyCompletion.completed) {
+              completionStatus = 'passed';
+              completionCode = 'android_profile_session_completion_observed';
+              completionMessage = `Observed terminal profile-session command evidence after ${earlyCompletion.elapsedMs}ms; proceeding to final logcat capture.`;
+              completionNextAction = null;
+            } else if (!earlyCompletion.inspection.started) {
+              completionStatus = 'failed';
+              completionCode = 'android_profile_session_start_missing';
+              completionMessage = `No matching app-side profile-session start was observed before the ${driverStep.waitMs}ms capture window elapsed.`;
+              completionNextAction = nextActionHint(
+                'inspect_android_profile_session_start',
+                `Inspect raw/${rawFileName}, confirm the app consumed the seeded profile-session storage for this run id, and rerun before trusting scenario evidence.`,
+              );
+            }
             checks.push({
               name: 'android_profile_session_completion_wait',
-              status: earlyCompletion.completed ? 'passed' : 'warning',
+              status: completionStatus,
               source: 'runner',
-              code: earlyCompletion.completed
-                ? 'android_profile_session_completion_observed'
-                : 'android_profile_session_completion_wait_exhausted',
-              message: earlyCompletion.completed
-                ? `Observed terminal profile-session command evidence after ${earlyCompletion.elapsedMs}ms; proceeding to final logcat capture.`
-                : `Profile-session command evidence was not terminal before the ${driverStep.waitMs}ms capture window elapsed.`,
+              code: completionCode,
+              message: completionMessage,
               metadata: {
                 elapsedMs: earlyCompletion.elapsedMs,
                 expectedCommandCount: profileSessionCompletionExpectation.expectedCommandCount,
@@ -2838,6 +2958,7 @@ async function runAndroidAdbPreflight({
                 source: profileSessionCompletionExpectation.source,
                 started: earlyCompletion.inspection.started,
                 terminalSequences: earlyCompletion.inspection.terminalSequences.join(','),
+                ...(completionNextAction ? completionNextAction : {}),
               },
             });
             metadata.profileSessionCompletionWait = {
@@ -3160,6 +3281,13 @@ async function runAndroidAdbPreflight({
         rawPath: `raw/${rawFileName}`,
       },
     });
+  }
+
+  const failedBeforePreservation = checks.some((check) => check.status === 'failed');
+  const preservedSidecarEvidence = collectAndroidPreservedSidecarEvidence(raw);
+  if (failedBeforePreservation && preservedSidecarEvidence.length > 0) {
+    checks.push(buildAndroidPreservedSidecarEvidenceCheck(preservedSidecarEvidence));
+    metadata.preservedSidecarEvidence = preservedSidecarEvidence;
   }
 
   const health = buildAndroidHealth({ runId, checks });

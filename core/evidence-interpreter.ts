@@ -29,13 +29,13 @@ function asEvidenceRecord(value: unknown): EvidenceRecord | null {
 }
 
 /**
- * Returns whether a provider check preserved useful diagnostic evidence while failing.
+ * Returns whether a health check preserved useful diagnostic evidence while failing.
  *
  * @param {EvidenceRecord} check
  * @returns {boolean}
  */
-function isPartialProviderEvidenceCheck(check: EvidenceRecord): boolean {
-  return check.code === 'partial_provider_evidence_preserved';
+function isPreservedDiagnosticEvidenceCheck(check: EvidenceRecord): boolean {
+  return check.code === 'partial_provider_evidence_preserved' || check.code === 'partial_sidecar_evidence_preserved';
 }
 
 /**
@@ -66,11 +66,11 @@ function resolveClaimSufficiency({
   verdict?: EvidenceRecord | null;
 }): ClaimSufficiency {
   if (health.healthStatus !== 'passed') {
-    const partialProviderEvidence = failedHealthChecks.some(isPartialProviderEvidenceCheck);
-    if (partialProviderEvidence) {
+    const preservedDiagnosticEvidence = failedHealthChecks.some(isPreservedDiagnosticEvidenceCheck);
+    if (preservedDiagnosticEvidence) {
       return {
         status: 'diagnostic-only',
-        reason: 'scenario health failed but partial provider evidence was preserved for diagnosis',
+        reason: 'scenario health failed but partial diagnostic evidence was preserved for diagnosis',
       };
     }
 
@@ -140,7 +140,7 @@ function interpretEvidence({
 
   if (claimSufficiency.status === 'diagnostic-only') {
     blockedReasons.push(claimSufficiency.reason);
-    recommendations.push('use preserved partial provider evidence only for diagnosis');
+    recommendations.push('use preserved partial diagnostic evidence only for diagnosis');
   }
 
   for (const check of failedChecks) {

@@ -102,13 +102,46 @@ test('classifies preserved partial provider evidence as diagnostic only', () => 
 
   assert.deepEqual(result.claimSufficiency, {
     status: 'diagnostic-only',
-    reason: 'scenario health failed but partial provider evidence was preserved for diagnosis',
+    reason: 'scenario health failed but partial diagnostic evidence was preserved for diagnosis',
   });
   assert.deepEqual(result.blockedReasons, [
-    'scenario health failed but partial provider evidence was preserved for diagnosis',
+    'scenario health failed but partial diagnostic evidence was preserved for diagnosis',
   ]);
-  assert.ok(result.recommendations.includes('use preserved partial provider evidence only for diagnosis'));
+  assert.ok(result.recommendations.includes('use preserved partial diagnostic evidence only for diagnosis'));
   assert.ok(result.recommendations.includes('resolve health check provider_command_failed'));
+});
+
+test('classifies preserved partial sidecar evidence as diagnostic only', () => {
+  const result = interpretEvidence({
+    health: {
+      healthStatus: 'failed',
+      checks: [
+        {
+          code: 'partial_sidecar_evidence_preserved',
+          name: 'partial_sidecar_evidence_preserved',
+          status: 'partial',
+          metadata: {
+            capturedKinds: 'profileSessionLog,logs,screenshot',
+          },
+        },
+        {
+          code: 'android_profile_session_start_missing',
+          name: 'android_profile_session_start_missing',
+          status: 'failed',
+        },
+      ],
+    },
+  });
+
+  assert.deepEqual(result.claimSufficiency, {
+    status: 'diagnostic-only',
+    reason: 'scenario health failed but partial diagnostic evidence was preserved for diagnosis',
+  });
+  assert.deepEqual(result.blockedReasons, [
+    'scenario health failed but partial diagnostic evidence was preserved for diagnosis',
+  ]);
+  assert.ok(result.recommendations.includes('use preserved partial diagnostic evidence only for diagnosis'));
+  assert.ok(result.recommendations.includes('resolve health check android_profile_session_start_missing'));
 });
 
 test('classifies unmeasurable budgets as partial claims', () => {

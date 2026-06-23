@@ -92,16 +92,21 @@ function splitMetadataList(value: unknown): string[] {
 }
 
 /**
- * Formats provider diagnostics that survived an unhealthy provider command.
+ * Formats diagnostics that survived an unhealthy provider or sidecar run.
  *
  * @param {unknown[]} checks
  * @returns {string[]}
  */
-function formatPreservedProviderEvidence(checks: unknown[]): string[] {
+function formatPreservedDiagnosticEvidence(checks: unknown[]): string[] {
   return asArray(checks)
     .filter((check) => {
       const record = check as SummaryRecord | null;
-      return !!record && typeof record === 'object' && record.code === 'partial_provider_evidence_preserved';
+      if (!record || typeof record !== 'object') {
+        return false;
+      }
+
+      return record.code === 'partial_provider_evidence_preserved' ||
+        record.code === 'partial_sidecar_evidence_preserved';
     })
     .map((check) => {
       const record = check as SummaryRecord;
@@ -123,7 +128,7 @@ function formatPreservedProviderEvidence(checks: unknown[]): string[] {
         pathText = paths.map((item) => code(item)).join(', ');
       }
 
-      const message = firstString([record.message], 'Provider command failed, but diagnostics were preserved.');
+      const message = firstString([record.message], 'Diagnostics were preserved from an unhealthy run.');
       const nextAction = formatNextAction(record).trim();
       let nextActionText = '';
       if (nextAction) {
@@ -329,9 +334,9 @@ function buildAgentSummaryMarkdown({ health, verdict, comparison = null, manifes
     lines.push('', '## warnings', '', ...formatChecks(warnings));
   }
 
-  const preservedProviderEvidence = formatPreservedProviderEvidence(healthChecks);
-  if (preservedProviderEvidence.length > 0) {
-    lines.push('', '## preserved diagnostic evidence', '', ...preservedProviderEvidence);
+  const preservedDiagnosticEvidence = formatPreservedDiagnosticEvidence(healthChecks);
+  if (preservedDiagnosticEvidence.length > 0) {
+    lines.push('', '## preserved diagnostic evidence', '', ...preservedDiagnosticEvidence);
   }
 
   const failedBudgets = formatFailedBudgets(asArray(verdict?.budgetChecks));
