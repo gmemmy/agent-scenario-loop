@@ -860,7 +860,7 @@ test('seeds profile-session AsyncStorage while preserving unrelated app keys', a
   await seedProfileSessionStorage({
     bundleId: 'dev.agent-scenario-loop.example',
     commands: [
-      { command: 'activate-target:example-card-1', id: 'open-card' },
+      { command: 'activate-target:example-card-1', dependsOnMilestones: ['surface_ready'], id: 'open-card' },
       { command: 'activate-target:close-card', id: 'close-card' },
     ],
     dataContainer,
@@ -888,6 +888,7 @@ test('seeds profile-session AsyncStorage while preserving unrelated app keys', a
       scenario: 'app-startup',
       runId: 'ios-live-startup',
       command: 'activate-target:example-card-1',
+      dependsOnMilestones: ['surface_ready'],
       timestamp: 124,
     },
     {

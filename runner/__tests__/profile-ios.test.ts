@@ -1761,9 +1761,9 @@ test('profile-ios derives simctl commands from scenario adapter metadata', () =>
   ];
   assert.deepEqual(resolveIosSimctlProfileCommands(scenario), [
     { command: 'activate-target:example-card-1', commandId: 'open-card', label: 'open-card', queueId: 'open-close-cycle', sequence: 1, waitForMilestone: 'card_opened', waitMs: 125, waitTimeoutMs: 1500 },
-    { command: 'activate-target:close-card', commandId: 'close-card', label: 'close-card', queueId: 'open-close-cycle', sequence: 2, waitMs: 225 },
+    { command: 'activate-target:close-card', commandId: 'close-card', dependsOnMilestones: ['card_opened'], label: 'close-card', queueId: 'open-close-cycle', sequence: 2, waitMs: 225 },
     { command: 'activate-target:example-card-1', commandId: 'open-card', label: 'open-card', queueId: 'open-close-cycle', sequence: 3, waitForMilestone: 'card_opened', waitMs: 125, waitTimeoutMs: 1500 },
-    { command: 'activate-target:close-card', commandId: 'close-card', label: 'close-card', queueId: 'open-close-cycle', sequence: 4, waitMs: 225 },
+    { command: 'activate-target:close-card', commandId: 'close-card', dependsOnMilestones: ['card_opened'], label: 'close-card', queueId: 'open-close-cycle', sequence: 4, waitMs: 225 },
   ]);
 });
 
@@ -1788,9 +1788,43 @@ test('profile-ios runs readiness setup commands once before repeated cycle comma
 
   assert.deepEqual(resolveIosSimctlProfileCommands(scenario), [
     { command: 'reset-surface', commandId: 'reset-surface', label: 'reset-surface', queueId: 'ready-scroll-cycle', sequence: 1, waitForMilestone: 'surface_ready', waitMs: 0, waitTimeoutMs: 120000 },
-    { command: 'scroll-by:600', commandId: 'scroll-surface', label: 'scroll-surface', queueId: 'ready-scroll-cycle', sequence: 2, waitForMilestone: 'surface_settled', waitMs: 0, waitTimeoutMs: 8000 },
-    { command: 'scroll-by:600', commandId: 'scroll-surface', label: 'scroll-surface', queueId: 'ready-scroll-cycle', sequence: 3, waitForMilestone: 'surface_settled', waitMs: 0, waitTimeoutMs: 8000 },
-    { command: 'scroll-by:600', commandId: 'scroll-surface', label: 'scroll-surface', queueId: 'ready-scroll-cycle', sequence: 4, waitForMilestone: 'surface_settled', waitMs: 0, waitTimeoutMs: 8000 },
+    { command: 'scroll-by:600', commandId: 'scroll-surface', dependsOnMilestones: ['surface_ready'], label: 'scroll-surface', queueId: 'ready-scroll-cycle', sequence: 2, waitForMilestone: 'surface_settled', waitMs: 0, waitTimeoutMs: 8000 },
+    { command: 'scroll-by:600', commandId: 'scroll-surface', dependsOnMilestones: ['surface_ready'], label: 'scroll-surface', queueId: 'ready-scroll-cycle', sequence: 3, waitForMilestone: 'surface_settled', waitMs: 0, waitTimeoutMs: 8000 },
+    { command: 'scroll-by:600', commandId: 'scroll-surface', dependsOnMilestones: ['surface_ready'], label: 'scroll-surface', queueId: 'ready-scroll-cycle', sequence: 4, waitForMilestone: 'surface_settled', waitMs: 0, waitTimeoutMs: 8000 },
+  ]);
+});
+
+test('profile-ios gates first storage body command on leading setup milestones', () => {
+  const scenario = {
+    id: 'home-feed-pagination-stress',
+    defaultIterations: 1,
+    milestones: [
+      { id: 'profile-ready', event: 'home_feed_profile_ready', phase: 'render' },
+      { id: 'first-usable', event: 'app_first_usable_screen', phase: 'render' },
+      { id: 'pagination-requested', event: 'home_feed_pagination_requested', phase: 'intent' },
+      { id: 'pagination-end', event: 'home_feed_pagination_end', phase: 'completion' },
+    ],
+    steps: [
+      { id: 'wait-profile-ready', kind: 'waitForMilestone', milestone: 'profile-ready', timeoutMs: 90000 },
+      { id: 'wait-first-usable', kind: 'waitForMilestone', milestone: 'first-usable', timeoutMs: 90000 },
+      { id: 'scroll-to-feed-end', kind: 'command', command: 'scroll-to-feed-end' },
+      { id: 'wait-pagination-requested', kind: 'waitForMilestone', milestone: 'pagination-requested', timeoutMs: 10000 },
+      { id: 'wait-pagination-end', kind: 'waitForMilestone', milestone: 'pagination-end', timeoutMs: 10000 },
+    ],
+  };
+
+  assert.deepEqual(resolveIosSimctlProfileCommands(scenario), [
+    {
+      command: 'scroll-to-feed-end',
+      commandId: 'scroll-to-feed-end',
+      dependsOnMilestones: ['home_feed_profile_ready', 'app_first_usable_screen'],
+      label: 'scroll-to-feed-end',
+      queueId: 'home-feed-pagination-stress',
+      sequence: 1,
+      waitForMilestone: 'home_feed_pagination_requested',
+      waitMs: 0,
+      waitTimeoutMs: 10000,
+    },
   ]);
 });
 
@@ -1822,11 +1856,11 @@ test('profile-ios runs leading non-measured setup commands once before repeated 
   assert.deepEqual(resolveIosSimctlProfileCommands(scenario), [
     { command: 'reset-home-surface', commandId: 'reset-home-surface', label: 'reset-home-surface', queueId: 'account-drawer-stress', sequence: 1, waitMs: 0 },
     { command: 'open-account-drawer', commandId: 'open-account-drawer', label: 'open-account-drawer', queueId: 'account-drawer-stress', sequence: 2, waitForMilestone: 'account_drawer_open_settled', waitMs: 0, waitTimeoutMs: 10000 },
-    { command: 'activate-target:account-drawer-close', commandId: 'close-account-drawer', label: 'close-account-drawer', queueId: 'account-drawer-stress', sequence: 3, waitForMilestone: 'account_drawer_close_settled', waitMs: 0, waitTimeoutMs: 10000 },
+    { command: 'activate-target:account-drawer-close', commandId: 'close-account-drawer', dependsOnMilestones: ['account_drawer_open_settled'], label: 'close-account-drawer', queueId: 'account-drawer-stress', sequence: 3, waitForMilestone: 'account_drawer_close_settled', waitMs: 0, waitTimeoutMs: 10000 },
     { command: 'open-account-drawer', commandId: 'open-account-drawer', label: 'open-account-drawer', queueId: 'account-drawer-stress', sequence: 4, waitForMilestone: 'account_drawer_open_settled', waitMs: 0, waitTimeoutMs: 10000 },
-    { command: 'activate-target:account-drawer-close', commandId: 'close-account-drawer', label: 'close-account-drawer', queueId: 'account-drawer-stress', sequence: 5, waitForMilestone: 'account_drawer_close_settled', waitMs: 0, waitTimeoutMs: 10000 },
+    { command: 'activate-target:account-drawer-close', commandId: 'close-account-drawer', dependsOnMilestones: ['account_drawer_open_settled'], label: 'close-account-drawer', queueId: 'account-drawer-stress', sequence: 5, waitForMilestone: 'account_drawer_close_settled', waitMs: 0, waitTimeoutMs: 10000 },
     { command: 'open-account-drawer', commandId: 'open-account-drawer', label: 'open-account-drawer', queueId: 'account-drawer-stress', sequence: 6, waitForMilestone: 'account_drawer_open_settled', waitMs: 0, waitTimeoutMs: 10000 },
-    { command: 'activate-target:account-drawer-close', commandId: 'close-account-drawer', label: 'close-account-drawer', queueId: 'account-drawer-stress', sequence: 7, waitForMilestone: 'account_drawer_close_settled', waitMs: 0, waitTimeoutMs: 10000 },
+    { command: 'activate-target:account-drawer-close', commandId: 'close-account-drawer', dependsOnMilestones: ['account_drawer_open_settled'], label: 'close-account-drawer', queueId: 'account-drawer-stress', sequence: 7, waitForMilestone: 'account_drawer_close_settled', waitMs: 0, waitTimeoutMs: 10000 },
   ]);
 });
 
@@ -1853,9 +1887,9 @@ test('profile-ios honors explicit cycle body step ids', () => {
   assert.deepEqual(resolveIosSimctlProfileCommands(scenario), [
     { command: 'reset-surface', commandId: 'reset-surface', label: 'reset-surface', queueId: 'explicit-body-cycle', sequence: 1, waitMs: 0 },
     { command: 'open-surface', commandId: 'open-surface', label: 'open-surface', queueId: 'explicit-body-cycle', sequence: 2, waitForMilestone: 'surface_opened', waitMs: 0, waitTimeoutMs: 1000 },
-    { command: 'close-surface', commandId: 'close-surface', label: 'close-surface', queueId: 'explicit-body-cycle', sequence: 3, waitForMilestone: 'surface_closed', waitMs: 0, waitTimeoutMs: 1000 },
+    { command: 'close-surface', commandId: 'close-surface', dependsOnMilestones: ['surface_opened'], label: 'close-surface', queueId: 'explicit-body-cycle', sequence: 3, waitForMilestone: 'surface_closed', waitMs: 0, waitTimeoutMs: 1000 },
     { command: 'open-surface', commandId: 'open-surface', label: 'open-surface', queueId: 'explicit-body-cycle', sequence: 4, waitForMilestone: 'surface_opened', waitMs: 0, waitTimeoutMs: 1000 },
-    { command: 'close-surface', commandId: 'close-surface', label: 'close-surface', queueId: 'explicit-body-cycle', sequence: 5, waitForMilestone: 'surface_closed', waitMs: 0, waitTimeoutMs: 1000 },
+    { command: 'close-surface', commandId: 'close-surface', dependsOnMilestones: ['surface_opened'], label: 'close-surface', queueId: 'explicit-body-cycle', sequence: 5, waitForMilestone: 'surface_closed', waitMs: 0, waitTimeoutMs: 1000 },
   ]);
 });
 
@@ -1906,8 +1940,8 @@ test('profile-ios applies execution-plan wait gates to simctl adapter commands',
 
   assert.deepEqual(resolveIosSimctlProfileCommands(scenario), [
     { command: 'activate-target:example-card-1', commandId: 'open first example card', label: 'open first example card', queueId: 'open-close-cycle', sequence: 1, waitForMilestone: 'card_opened', waitMs: 300, waitTimeoutMs: 1500 },
-    { command: 'activate-target:close-card', commandId: 'close example card', label: 'close example card', queueId: 'open-close-cycle', sequence: 2, waitForMilestone: 'card_dismissed', waitMs: 300, waitTimeoutMs: 1200 },
+    { command: 'activate-target:close-card', commandId: 'close example card', dependsOnMilestones: ['card_opened'], label: 'close example card', queueId: 'open-close-cycle', sequence: 2, waitForMilestone: 'card_dismissed', waitMs: 300, waitTimeoutMs: 1200 },
     { command: 'activate-target:example-card-1', commandId: 'open first example card', label: 'open first example card', queueId: 'open-close-cycle', sequence: 3, waitForMilestone: 'card_opened', waitMs: 300, waitTimeoutMs: 1500 },
-    { command: 'activate-target:close-card', commandId: 'close example card', label: 'close example card', queueId: 'open-close-cycle', sequence: 4, waitForMilestone: 'card_dismissed', waitMs: 300, waitTimeoutMs: 1200 },
+    { command: 'activate-target:close-card', commandId: 'close example card', dependsOnMilestones: ['card_opened'], label: 'close example card', queueId: 'open-close-cycle', sequence: 4, waitForMilestone: 'card_dismissed', waitMs: 300, waitTimeoutMs: 1200 },
   ]);
 });

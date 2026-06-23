@@ -1,6 +1,7 @@
 export type ProfileSessionOrderedCommand = {
   id: string;
   commandId?: string;
+  dependsOnMilestones?: string[];
   scenario?: string;
   runId?: string;
   queueId?: string;
@@ -45,6 +46,11 @@ export declare function doesProfileEventReleaseCommandGate(
 ): boolean;
 
 export declare function hasObservedProfileCommandMilestone(
+  command: ProfileSessionOrderedCommand,
+  observedEvents: readonly ProfileSessionObservedEvent[],
+): boolean;
+
+export declare function hasObservedProfileCommandDependencies(
   command: ProfileSessionOrderedCommand,
   observedEvents: readonly ProfileSessionObservedEvent[],
 ): boolean;

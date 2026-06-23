@@ -5,6 +5,7 @@ const {
   buildProfileCommandMilestoneGate,
   compareProfileCommands,
   doesProfileEventReleaseCommandGate,
+  hasObservedProfileCommandDependencies,
   hasObservedProfileCommandMilestone,
 } = require('../../profile-session-command-ordering');
 
@@ -226,4 +227,46 @@ test('profile-session command ordering keeps legacy uncorrelated milestone event
     scenario: 'startup',
     timestamp: 900,
   }), true);
+});
+
+test('profile-session command dependencies wait for setup milestones without sequence binding', () => {
+  const command = {
+    command: 'scroll-to-feed-end',
+    dependsOnMilestones: ['home_feed_profile_ready', 'app_first_usable_screen'],
+    id: 'ios-storage-command-1',
+    queueId: 'home-feed-pagination-stress',
+    runId: 'ios-pagination-run',
+    scenario: 'home-feed-pagination-stress',
+    sequence: 1,
+    timestamp: 1000,
+    waitForMilestone: 'home_feed_pagination_requested',
+  };
+
+  assert.equal(hasObservedProfileCommandDependencies(command, [
+    {
+      event: 'home_feed_profile_ready',
+      queueId: 'home-feed-pagination-stress',
+      runId: 'ios-pagination-run',
+      scenario: 'home-feed-pagination-stress',
+      timestamp: 1100,
+    },
+  ]), false);
+
+  assert.equal(hasObservedProfileCommandDependencies(command, [
+    {
+      event: 'home_feed_profile_ready',
+      queueId: 'home-feed-pagination-stress',
+      runId: 'ios-pagination-run',
+      scenario: 'home-feed-pagination-stress',
+      sequence: 99,
+      timestamp: 1100,
+    },
+    {
+      event: 'app_first_usable_screen',
+      queueId: 'home-feed-pagination-stress',
+      runId: 'ios-pagination-run',
+      scenario: 'home-feed-pagination-stress',
+      timestamp: 1200,
+    },
+  ]), true);
 });

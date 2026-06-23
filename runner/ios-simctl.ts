@@ -69,6 +69,7 @@ type IosSimctlDeepLink = {
 type IosProfileSessionStorageCommand = {
   command: string;
   commandId?: string;
+  dependsOnMilestones?: string[];
   id?: string;
   label?: string;
   queueId?: string;
@@ -668,6 +669,9 @@ async function seedProfileSessionStorage({
     runId,
     command: profileCommand.command,
     ...(typeof profileCommand.commandId === 'string' ? { commandId: profileCommand.commandId } : {}),
+    ...(Array.isArray(profileCommand.dependsOnMilestones) && profileCommand.dependsOnMilestones.length > 0
+      ? { dependsOnMilestones: profileCommand.dependsOnMilestones }
+      : {}),
     ...(typeof profileCommand.label === 'string' ? { label: profileCommand.label } : {}),
     ...(typeof profileCommand.queueId === 'string' ? { queueId: profileCommand.queueId } : {}),
     ...(typeof profileCommand.sequence === 'number' ? { sequence: profileCommand.sequence } : {}),

@@ -2,6 +2,7 @@ export {
   buildProfileCommandMilestoneGate,
   compareProfileCommands,
   doesProfileEventReleaseCommandGate,
+  hasObservedProfileCommandDependencies,
   hasObservedProfileCommandMilestone,
 } from './app/profile-session-command-ordering';
 
