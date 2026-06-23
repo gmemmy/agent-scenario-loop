@@ -146,7 +146,7 @@ test('init-project scaffolds templates into a consuming app layout', async (t: T
   assert.match(accessibilityProviderScript, /writeAccessibilityEvidence/u);
   assert.match(accessibilityProviderScript, /violations/u);
   const nativePerformanceProviderScript = fs.readFileSync(path.join(targetDir, 'scripts', 'asl-capture-native-performance-provider.mjs'), 'utf8');
-  assert.match(nativePerformanceProviderScript, /writeNativePerformanceEvidence/u);
+  assert.match(nativePerformanceProviderScript, /buildAndroidNativePerformanceEvidence/u);
   assert.match(nativePerformanceProviderScript, /diagnostic-only/u);
   assert.match(nativePerformanceProviderScript, /diagnosticSources/u);
   assert.match(nativePerformanceProviderScript, /xctrace/u);
