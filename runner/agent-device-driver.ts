@@ -69,6 +69,14 @@ type AgentDevicePinchOptions = {
   y?: number;
 };
 
+type AgentDevicePressButtonOptions = {
+  rawFileName?: string;
+  ref?: string;
+  selector?: AgentDeviceSelector;
+  x?: number;
+  y?: number;
+};
+
 type AgentDeviceReadLogsOptions = {
   rawFileName?: string;
 };
@@ -130,6 +138,7 @@ type AgentDeviceDriver = {
   longPress: (options: AgentDeviceLongPressOptions) => Promise<AgentDeviceCommandResult>;
   open: (options: AgentDeviceOpenOptions) => Promise<AgentDeviceCommandResult>;
   pinch: (options: AgentDevicePinchOptions) => Promise<AgentDeviceCommandResult>;
+  pressButton: (options: AgentDevicePressButtonOptions) => Promise<AgentDeviceCommandResult>;
   readLogs: (options?: AgentDeviceReadLogsOptions) => Promise<AgentDeviceCommandResult>;
   screenshot: (options: AgentDeviceScreenshotOptions) => Promise<AgentDeviceCommandResult>;
   scroll: (options?: AgentDeviceScrollOptions) => Promise<AgentDeviceCommandResult>;
@@ -395,6 +404,25 @@ function createAgentDeviceDriver(options: AgentDeviceDriverOptions): AgentDevice
       return run('pinch', rawFileName, ['pinch', String(scale), ...centerArgs]);
     },
 
+    async pressButton({
+      rawFileName = 'agent-device-press-button.txt',
+      ref,
+      selector,
+      x,
+      y,
+    }: AgentDevicePressButtonOptions): Promise<AgentDeviceCommandResult> {
+      if (selector) {
+        return run('pressButton', rawFileName, ['press', formatAgentDeviceSelector(selector)]);
+      }
+      if (ref) {
+        return run('pressButton', rawFileName, ['press', ref.startsWith('@') ? ref : `@${ref}`]);
+      }
+      if (typeof x === 'number' && typeof y === 'number') {
+        return run('pressButton', rawFileName, ['press', String(x), String(y)]);
+      }
+      throw new Error('agent-device pressButton requires a selector, ref, or x/y coordinates.');
+    },
+
     async tap({
       rawFileName = 'agent-device-tap.txt',
       ref,
@@ -447,6 +475,7 @@ export type {
   AgentDeviceLongPressOptions,
   AgentDeviceOpenOptions,
   AgentDevicePinchOptions,
+  AgentDevicePressButtonOptions,
   AgentDevicePlatform,
   AgentDeviceReadLogsOptions,
   AgentDeviceScreenshotOptions,

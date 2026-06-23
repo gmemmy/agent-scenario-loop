@@ -104,6 +104,7 @@ test('agent-device availability check verifies command surface and booted platfo
           'click',
           'longpress',
           'pinch',
+          'press',
           'scroll',
           'swipe',
           'type',
@@ -173,6 +174,7 @@ test('agent-device availability check does not require iOS-only pinch for Androi
           'is',
           'click',
           'longpress',
+          'press',
           'scroll',
           'swipe',
           'type',
@@ -199,7 +201,7 @@ test('agent-device availability check preserves failed command diagnostics', asy
       stderr: args[0] === 'devices' ? 'daemon unavailable' : '',
       stdout: args[0] === 'devices'
         ? ''
-        : 'CLI to control iOS and Android devices\nopen\nsnapshot\nscreenshot\nis\nclick\nlongpress\npinch\nscroll\nswipe\ntype\nlogs\ndevices\nsession list\n',
+        : 'CLI to control iOS and Android devices\nopen\nsnapshot\nscreenshot\nis\nclick\nlongpress\npinch\npress\nscroll\nswipe\ntype\nlogs\ndevices\nsession list\n',
     }),
     requiredPlatforms: ['ios'],
   });
@@ -242,7 +244,7 @@ test('agent-device availability check fails when active sessions cannot be inspe
         command,
         exitCode: 0,
         stderr: '',
-        stdout: 'CLI to control iOS and Android devices\nopen\nsnapshot\nscreenshot\nis\nclick\nlongpress\npinch\nscroll\nswipe\ntype\nlogs\ndevices\nsession list\n',
+        stdout: 'CLI to control iOS and Android devices\nopen\nsnapshot\nscreenshot\nis\nclick\nlongpress\npinch\npress\nscroll\nswipe\ntype\nlogs\ndevices\nsession list\n',
       };
     },
   });
@@ -309,7 +311,7 @@ test('agent-device availability check writes ASL artifacts when requested', asyn
         command,
         exitCode: 0,
         stderr: '',
-        stdout: 'CLI to control iOS and Android devices\nopen\nsnapshot\nscreenshot\nis\nclick\nlongpress\npinch\nscroll\nswipe\ntype\nlogs\ndevices\nsession list\n',
+        stdout: 'CLI to control iOS and Android devices\nopen\nsnapshot\nscreenshot\nis\nclick\nlongpress\npinch\npress\nscroll\nswipe\ntype\nlogs\ndevices\nsession list\n',
       };
     },
     requiredPlatforms: ['android'],
@@ -762,6 +764,17 @@ test('agent-device driver step expansion preserves portable selectors and option
         },
       },
       {
+        id: 'press-submit',
+        kind: 'gesture',
+        driverAction: 'pressButton',
+        selector: { kind: 'accessibilityLabel', value: 'Submit' },
+        adapterOptions: {
+          agentDevice: {
+            rawFileName: 'press-submit.txt',
+          },
+        },
+      },
+      {
         id: 'swipe-card',
         kind: 'gesture',
         driverAction: 'swipe',
@@ -834,11 +847,19 @@ test('agent-device driver step expansion preserves portable selectors and option
       y: 240,
     },
     {
+      driverAction: 'pressButton',
+      rawFileName: 'press-submit.txt',
+      required: true,
+      selector: { kind: 'accessibilityLabel', value: 'Submit' },
+      stepId: 'press-submit',
+      waitMs: 0,
+    },
+    {
       driverAction: 'swipe',
       durationMs: 250,
       endX: 300,
       endY: 400,
-      rawFileName: 'agent-device-swipe-5.txt',
+      rawFileName: 'agent-device-swipe-6.txt',
       required: true,
       startX: 100,
       startY: 200,
@@ -855,9 +876,9 @@ test('agent-device driver step expansion preserves portable selectors and option
       waitMs: 0,
     },
     {
-      captureFileName: 'agent-device-screenshot-7.png',
+      captureFileName: 'agent-device-screenshot-8.png',
       driverAction: 'screenshot',
-      rawFileName: 'agent-device-screenshot-7.txt',
+      rawFileName: 'agent-device-screenshot-8.txt',
       required: true,
       stepId: 'capture-final',
       waitMs: 0,
@@ -884,6 +905,11 @@ test('agent-device driver step validation rejects missing tap targets', () => {
         stepId: 'pinch-missing',
       },
       {
+        driverAction: 'pressButton',
+        required: true,
+        stepId: 'press-button-missing',
+      },
+      {
         driverAction: 'swipe',
         required: true,
         stepId: 'swipe-missing',
@@ -900,6 +926,7 @@ test('agent-device driver step validation rejects missing tap targets', () => {
       'step `tap-missing` uses driverAction `tap` but is missing a selector, adapterOptions.agentDevice.ref, or adapterOptions.agentDevice.x/y.',
       'step `long-press-missing` uses driverAction `longPress` but is missing a selector, adapterOptions.agentDevice.ref, or adapterOptions.agentDevice.x/y.',
       'step `pinch-missing` uses driverAction `pinch` but is missing adapterOptions.agentDevice.scale.',
+      'step `press-button-missing` uses driverAction `pressButton` but is missing a selector, adapterOptions.agentDevice.ref, or adapterOptions.agentDevice.x/y.',
       'step `swipe-missing` uses driverAction `swipe` but is missing adapterOptions.agentDevice.startX/startY/endX/endY.',
       'step `type-missing` uses driverAction `typeText` but is missing adapterOptions.agentDevice.text.',
     ],
