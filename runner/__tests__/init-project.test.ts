@@ -134,6 +134,8 @@ test('init-project scaffolds templates into a consuming app layout', async (t: T
   assert.match(integrationReadme, /ASL_IOS_AGENT_DEVICE_SESSION_MODE=bind/u);
   assert.match(integrationReadme, /ASL_ANDROID_AGENT_DEVICE_SESSION/u);
   assert.match(integrationReadme, /ASL_ANDROID_AGENT_DEVICE_SESSION_MODE=bind/u);
+  assert.match(integrationReadme, /scripts\/asl-capture-native-performance-provider\.mjs/u);
+  assert.match(integrationReadme, /native-performance, profiler, memory, and network evidence/u);
   assert.match(integrationReadme, /ASL_ARGENT_BIN=pnpm/u);
   assert.match(integrationReadme, /ASL_ARGENT_BIN=npx/u);
   assert.match(integrationReadme, /booted` shorthand/u);
