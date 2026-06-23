@@ -102,6 +102,9 @@ test('agent-device driver maps portable driver actions', async () => {
     'longpress label="Actions" 700 --platform ios --udid BOOTED --json': {
       stdout: '{"success":true}\n',
     },
+    'pinch 1.2 120 240 --platform ios --udid BOOTED --json': {
+      stdout: '{"success":true}\n',
+    },
     'is visible text="Ready" --platform ios --udid BOOTED --json': {
       stdout: '{"success":true}\n',
     },
@@ -137,6 +140,7 @@ test('agent-device driver maps portable driver actions', async () => {
   const tapSelector = await driver.tap({ selector: { kind: 'accessibilityLabel', value: 'Open' } });
   const tapCoordinates = await driver.tap({ x: 10, y: 20 });
   const longPress = await driver.longPress({ durationMs: 700, selector: { kind: 'accessibilityLabel', value: 'Actions' } });
+  const pinch = await driver.pinch({ scale: 1.2, x: 120, y: 240 });
   const assertVisible = await driver.assertVisible({ selector: { kind: 'text', value: 'Ready' } });
   const inspectTree = await driver.inspectTree();
   const screenshot = await driver.screenshot({ outputPath: screenshotPath });
@@ -150,6 +154,8 @@ test('agent-device driver maps portable driver actions', async () => {
   assert.equal(tapCoordinates.action, 'tap');
   assert.equal(longPress.action, 'longPress');
   assert.equal(longPress.rawFileName, 'agent-device-long-press.txt');
+  assert.equal(pinch.action, 'pinch');
+  assert.equal(pinch.rawFileName, 'agent-device-pinch.txt');
   assert.equal(assertVisible.action, 'assertVisible');
   assert.equal(inspectTree.action, 'inspectTree');
   assert.equal(screenshot.capturePath, screenshotPath);

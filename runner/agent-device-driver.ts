@@ -62,6 +62,13 @@ type AgentDeviceOpenOptions = {
   url?: string;
 };
 
+type AgentDevicePinchOptions = {
+  rawFileName?: string;
+  scale: number;
+  x?: number;
+  y?: number;
+};
+
 type AgentDeviceReadLogsOptions = {
   rawFileName?: string;
 };
@@ -122,6 +129,7 @@ type AgentDeviceDriver = {
   inspectTree: (options?: AgentDeviceInspectTreeOptions) => Promise<AgentDeviceCommandResult>;
   longPress: (options: AgentDeviceLongPressOptions) => Promise<AgentDeviceCommandResult>;
   open: (options: AgentDeviceOpenOptions) => Promise<AgentDeviceCommandResult>;
+  pinch: (options: AgentDevicePinchOptions) => Promise<AgentDeviceCommandResult>;
   readLogs: (options?: AgentDeviceReadLogsOptions) => Promise<AgentDeviceCommandResult>;
   screenshot: (options: AgentDeviceScreenshotOptions) => Promise<AgentDeviceCommandResult>;
   scroll: (options?: AgentDeviceScrollOptions) => Promise<AgentDeviceCommandResult>;
@@ -377,6 +385,16 @@ function createAgentDeviceDriver(options: AgentDeviceDriverOptions): AgentDevice
       throw new Error('agent-device longPress requires a selector, ref, or x/y coordinates.');
     },
 
+    async pinch({
+      rawFileName = 'agent-device-pinch.txt',
+      scale,
+      x,
+      y,
+    }: AgentDevicePinchOptions): Promise<AgentDeviceCommandResult> {
+      const centerArgs = typeof x === 'number' && typeof y === 'number' ? [String(x), String(y)] : [];
+      return run('pinch', rawFileName, ['pinch', String(scale), ...centerArgs]);
+    },
+
     async tap({
       rawFileName = 'agent-device-tap.txt',
       ref,
@@ -428,6 +446,7 @@ export type {
   AgentDeviceInspectTreeOptions,
   AgentDeviceLongPressOptions,
   AgentDeviceOpenOptions,
+  AgentDevicePinchOptions,
   AgentDevicePlatform,
   AgentDeviceReadLogsOptions,
   AgentDeviceScreenshotOptions,

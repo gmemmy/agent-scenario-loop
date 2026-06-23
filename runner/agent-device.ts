@@ -98,7 +98,7 @@ type AgentDeviceDriverStep = {
   captureFileName?: string;
   delayMs?: number;
   direction?: string;
-  driverAction: 'assertVisible' | 'inspectTree' | 'longPress' | 'readLogs' | 'screenshot' | 'scroll' | 'swipe' | 'tap' | 'typeText';
+  driverAction: 'assertVisible' | 'inspectTree' | 'longPress' | 'pinch' | 'readLogs' | 'screenshot' | 'scroll' | 'swipe' | 'tap' | 'typeText';
   durationMs?: number;
   endX?: number;
   endY?: number;
@@ -106,6 +106,7 @@ type AgentDeviceDriverStep = {
   rawFileName?: string;
   ref?: string;
   required?: boolean;
+  scale?: number;
   selector?: import('./agent-device-driver').AgentDeviceSelector;
   stepId?: string;
   startX?: number;
@@ -180,6 +181,8 @@ const DEFAULT_AGENT_DEVICE_REQUIRED_COMMANDS = [
   'devices',
   'session list',
 ];
+
+const AGENT_DEVICE_IOS_REQUIRED_COMMANDS = ['pinch'];
 
 /**
  * Prints CLI usage.
@@ -625,6 +628,22 @@ function hasBootedMobilePlatform(
   );
 }
 
+function resolveRequiredAgentDeviceCommands({
+  requiredCommands,
+  requiredPlatforms,
+}: {
+  requiredCommands: string[];
+  requiredPlatforms: string[];
+}): string[] {
+  const commands = new Set(requiredCommands);
+  if (requiredPlatforms.includes('ios')) {
+    for (const command of AGENT_DEVICE_IOS_REQUIRED_COMMANDS) {
+      commands.add(command);
+    }
+  }
+  return Array.from(commands);
+}
+
 /**
  * Verifies that the configured agent-device command exposes ASL-required surfaces.
  *
@@ -641,6 +660,10 @@ async function checkAgentDeviceAvailability({
   const run = executor ?? ((command, args) => execFileCommandWithTimeout(command, args, commandTimeoutMs));
   const checks: AgentDeviceAvailabilityCheck[] = [];
   const help = await run(agentDevicePath, ['--help']);
+  const resolvedRequiredCommands = resolveRequiredAgentDeviceCommands({
+    requiredCommands,
+    requiredPlatforms,
+  });
   checks.push(buildAgentDeviceAvailabilityCheck({
     code: 'agent_device_help_available',
     expectedPattern: /CLI to control iOS and Android devices/u,
@@ -648,7 +671,7 @@ async function checkAgentDeviceAvailability({
     result: help,
   }));
 
-  for (const commandName of requiredCommands) {
+  for (const commandName of resolvedRequiredCommands) {
     const commandLabel = commandName.replace(/\s+/gu, '_');
     const pattern = commandName === 'session list'
       ? /\bsession\s+list\b/u
@@ -1141,7 +1164,7 @@ function resolveAgentDeviceDriverSteps(scenario: Record<string, any>): AgentDevi
   const executionPlan = buildScenarioExecutionPlan(scenario);
   return executionPlan.steps
     .filter((step: ScenarioExecutionStep) =>
-      ['assertVisible', 'inspectTree', 'longPress', 'readLogs', 'screenshot', 'scroll', 'swipe', 'tap', 'typeText'].includes(String(step.driverAction)),
+      ['assertVisible', 'inspectTree', 'longPress', 'pinch', 'readLogs', 'screenshot', 'scroll', 'swipe', 'tap', 'typeText'].includes(String(step.driverAction)),
     )
     .map((step: ScenarioExecutionStep, index: number) => {
       const agentDeviceOptions = readAgentDeviceStepOptions(step);
@@ -1157,6 +1180,7 @@ function resolveAgentDeviceDriverSteps(scenario: Record<string, any>): AgentDevi
       const endX = readFiniteNumber(agentDeviceOptions.endX);
       const endY = readFiniteNumber(agentDeviceOptions.endY);
       const pixels = readFiniteNumber(agentDeviceOptions.pixels);
+      const scale = readFiniteNumber(agentDeviceOptions.scale);
       const startX = readFiniteNumber(agentDeviceOptions.startX);
       const startY = readFiniteNumber(agentDeviceOptions.startY);
       const x = readFiniteNumber(agentDeviceOptions.x);
@@ -1177,6 +1201,7 @@ function resolveAgentDeviceDriverSteps(scenario: Record<string, any>): AgentDevi
           : defaultAgentDeviceRawFileName({ driverAction: action, index: actionIndex }),
         ...(typeof agentDeviceOptions.ref === 'string' ? { ref: agentDeviceOptions.ref } : {}),
         required: step.required !== false,
+        ...(typeof scale === 'number' ? { scale } : {}),
         ...(isAgentDeviceSelector(step.selector) ? { selector: step.selector } : {}),
         stepId: step.id,
         ...(typeof startX === 'number' ? { startX } : {}),
@@ -1212,6 +1237,9 @@ function validateAgentDeviceDriverSteps(driverSteps: AgentDeviceDriverStep[]): s
     }
     if (step.driverAction === 'typeText' && (typeof step.text !== 'string' || step.text.length === 0)) {
       errors.push(`${stepLabel} uses driverAction \`typeText\` but is missing adapterOptions.agentDevice.text.`);
+    }
+    if (step.driverAction === 'pinch' && typeof step.scale !== 'number') {
+      errors.push(`${stepLabel} uses driverAction \`pinch\` but is missing adapterOptions.agentDevice.scale.`);
     }
     if (
       step.driverAction === 'swipe' &&
@@ -1305,6 +1333,14 @@ async function runAgentDeviceDriverStep({
       ...(driverStep.rawFileName ? { rawFileName: driverStep.rawFileName } : {}),
       ...(driverStep.ref ? { ref: driverStep.ref } : {}),
       ...(driverStep.selector ? { selector: driverStep.selector } : {}),
+      ...(typeof driverStep.x === 'number' ? { x: driverStep.x } : {}),
+      ...(typeof driverStep.y === 'number' ? { y: driverStep.y } : {}),
+    });
+  }
+  if (driverStep.driverAction === 'pinch') {
+    return driver.pinch({
+      ...(driverStep.rawFileName ? { rawFileName: driverStep.rawFileName } : {}),
+      scale: driverStep.scale as number,
       ...(typeof driverStep.x === 'number' ? { x: driverStep.x } : {}),
       ...(typeof driverStep.y === 'number' ? { y: driverStep.y } : {}),
     });
