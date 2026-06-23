@@ -323,12 +323,12 @@ function hasAgentDeviceRef(value: unknown): boolean {
 }
 
 /**
- * Returns true when a scenario step has an agent-device tap target.
+ * Returns true when a scenario step has an agent-device target.
  *
  * @param {Record<string, unknown>} step
  * @returns {boolean}
  */
-function hasAgentDeviceTapTarget(step: ScenarioStep): boolean {
+function hasAgentDeviceTarget(step: ScenarioStep): boolean {
   const agentDevice = asObject(asObject(step.adapterOptions).agentDevice);
   return (
     hasPortableSelector(step) ||
@@ -1046,7 +1046,7 @@ function validateAgentDeviceAdapterOptions({
     if (
       typeof selector.match === 'string' &&
       selector.match !== 'exact' &&
-      ['assertVisible', 'tap'].includes(String(step.driverAction))
+      ['assertVisible', 'longPress', 'tap'].includes(String(step.driverAction))
     ) {
       pushInvalidAdapterOption({
         adapter: 'agentDevice',
@@ -1069,12 +1069,12 @@ function validateAgentDeviceAdapterOptions({
       });
     }
 
-    if (step.driverAction === 'tap' && !hasAgentDeviceTapTarget(step)) {
+    if ((step.driverAction === 'tap' || step.driverAction === 'longPress') && !hasAgentDeviceTarget(step)) {
       pushInvalidAdapterOption({
         adapter: 'agentDevice',
         errors,
         field: 'selector/ref/x/y',
-        message: `Step \`${stepId}\` uses driverAction \`tap\` but requires a selector, adapterOptions.agentDevice.ref, or adapterOptions.agentDevice.x/y.`,
+        message: `Step \`${stepId}\` uses driverAction \`${step.driverAction}\` but requires a selector, adapterOptions.agentDevice.ref, or adapterOptions.agentDevice.x/y.`,
         scenario,
         stepId,
       });

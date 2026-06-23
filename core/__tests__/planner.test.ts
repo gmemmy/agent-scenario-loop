@@ -501,14 +501,21 @@ test('agent-device runner target satisfies portable driver-action scenarios', ()
   assert.ok(result.matched.artifacts.includes('uiTree'));
 });
 
-test('agent-device runner target rejects tap steps without an executable target', () => {
+test('agent-device runner target rejects tap and longPress steps without an executable target', () => {
   const scenario = readJson('examples/scenarios/mobile/app-startup.json');
   const runner = readJson('examples/runners/agent-device-ios.json');
-  scenario.steps.push({
-    id: 'tap-missing',
-    kind: 'gesture',
-    driverAction: 'tap',
-  });
+  scenario.steps.push(
+    {
+      id: 'tap-missing',
+      kind: 'gesture',
+      driverAction: 'tap',
+    },
+    {
+      id: 'long-press-missing',
+      kind: 'gesture',
+      driverAction: 'longPress',
+    },
+  );
 
   const result = evaluateRunnerCompatibility({ scenario, runner, platform: 'ios' });
 
@@ -521,7 +528,10 @@ test('agent-device runner target rejects tap steps without an executable target'
         field: error.field,
         stepId: error.stepId,
       })),
-    [{ adapter: 'agentDevice', field: 'selector/ref/x/y', stepId: 'tap-missing' }],
+    [
+      { adapter: 'agentDevice', field: 'selector/ref/x/y', stepId: 'tap-missing' },
+      { adapter: 'agentDevice', field: 'selector/ref/x/y', stepId: 'long-press-missing' },
+    ],
   );
 });
 
@@ -549,7 +559,7 @@ test('agent-device runner target rejects typeText steps without text', () => {
   );
 });
 
-test('agent-device runner target accepts coordinate-backed tap and swipe metadata', () => {
+test('agent-device runner target accepts coordinate-backed tap, longPress, and swipe metadata', () => {
   const scenario = readJson('examples/scenarios/mobile/app-startup.json');
   const runner = readJson('examples/runners/agent-device-ios.json');
   scenario.steps.push(
@@ -571,6 +581,17 @@ test('agent-device runner target accepts coordinate-backed tap and swipe metadat
         agentDevice: {
           x: 12,
           y: 34,
+        },
+      },
+    },
+    {
+      id: 'long-press-ref',
+      kind: 'gesture',
+      driverAction: 'longPress',
+      adapterOptions: {
+        agentDevice: {
+          durationMs: 700,
+          ref: 'node-2',
         },
       },
     },
@@ -665,16 +686,28 @@ test('agent-device runner target rejects assertVisible without a selector', () =
 test('agent-device runner target rejects non-exact selector matches before runtime', () => {
   const scenario = readJson('examples/scenarios/mobile/app-startup.json');
   const runner = readJson('examples/runners/agent-device-ios.json');
-  scenario.steps.push({
-    id: 'tap-contains',
-    kind: 'gesture',
-    driverAction: 'tap',
-    selector: {
-      kind: 'text',
-      match: 'contains',
-      value: 'Ready',
+  scenario.steps.push(
+    {
+      id: 'tap-contains',
+      kind: 'gesture',
+      driverAction: 'tap',
+      selector: {
+        kind: 'text',
+        match: 'contains',
+        value: 'Ready',
+      },
     },
-  });
+    {
+      id: 'long-press-contains',
+      kind: 'gesture',
+      driverAction: 'longPress',
+      selector: {
+        kind: 'text',
+        match: 'contains',
+        value: 'Actions',
+      },
+    },
+  );
 
   const result = evaluateRunnerCompatibility({ scenario, runner, platform: 'ios' });
 
@@ -687,7 +720,10 @@ test('agent-device runner target rejects non-exact selector matches before runti
         field: error.field,
         stepId: error.stepId,
       })),
-    [{ adapter: 'agentDevice', field: 'selector.match', stepId: 'tap-contains' }],
+    [
+      { adapter: 'agentDevice', field: 'selector.match', stepId: 'tap-contains' },
+      { adapter: 'agentDevice', field: 'selector.match', stepId: 'long-press-contains' },
+    ],
   );
 });
 

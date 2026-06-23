@@ -102,6 +102,7 @@ test('agent-device availability check verifies command surface and booted platfo
           'screenshot',
           'is',
           'click',
+          'longpress',
           'scroll',
           'swipe',
           'type',
@@ -136,7 +137,7 @@ test('agent-device availability check preserves failed command diagnostics', asy
       stderr: args[0] === 'devices' ? 'daemon unavailable' : '',
       stdout: args[0] === 'devices'
         ? ''
-        : 'CLI to control iOS and Android devices\nopen\nsnapshot\nscreenshot\nis\nclick\nscroll\nswipe\ntype\nlogs\ndevices\nsession list\n',
+        : 'CLI to control iOS and Android devices\nopen\nsnapshot\nscreenshot\nis\nclick\nlongpress\nscroll\nswipe\ntype\nlogs\ndevices\nsession list\n',
     }),
     requiredPlatforms: ['ios'],
   });
@@ -179,7 +180,7 @@ test('agent-device availability check fails when active sessions cannot be inspe
         command,
         exitCode: 0,
         stderr: '',
-        stdout: 'CLI to control iOS and Android devices\nopen\nsnapshot\nscreenshot\nis\nclick\nscroll\nswipe\ntype\nlogs\ndevices\nsession list\n',
+        stdout: 'CLI to control iOS and Android devices\nopen\nsnapshot\nscreenshot\nis\nclick\nlongpress\nscroll\nswipe\ntype\nlogs\ndevices\nsession list\n',
       };
     },
   });
@@ -246,7 +247,7 @@ test('agent-device availability check writes ASL artifacts when requested', asyn
         command,
         exitCode: 0,
         stderr: '',
-        stdout: 'CLI to control iOS and Android devices\nopen\nsnapshot\nscreenshot\nis\nclick\nscroll\nswipe\ntype\nlogs\ndevices\nsession list\n',
+        stdout: 'CLI to control iOS and Android devices\nopen\nsnapshot\nscreenshot\nis\nclick\nlongpress\nscroll\nswipe\ntype\nlogs\ndevices\nsession list\n',
       };
     },
     requiredPlatforms: ['android'],
@@ -674,6 +675,18 @@ test('agent-device driver step expansion preserves portable selectors and option
         },
       },
       {
+        id: 'long-press-menu',
+        kind: 'gesture',
+        driverAction: 'longPress',
+        adapterOptions: {
+          agentDevice: {
+            durationMs: 700,
+            ref: 'menu-button',
+            rawFileName: 'long-press-menu.txt',
+          },
+        },
+      },
+      {
         id: 'swipe-card',
         kind: 'gesture',
         driverAction: 'swipe',
@@ -727,11 +740,20 @@ test('agent-device driver step expansion preserves portable selectors and option
       waitMs: 0,
     },
     {
+      driverAction: 'longPress',
+      durationMs: 700,
+      rawFileName: 'long-press-menu.txt',
+      ref: 'menu-button',
+      required: true,
+      stepId: 'long-press-menu',
+      waitMs: 0,
+    },
+    {
       driverAction: 'swipe',
       durationMs: 250,
       endX: 300,
       endY: 400,
-      rawFileName: 'agent-device-swipe-3.txt',
+      rawFileName: 'agent-device-swipe-4.txt',
       required: true,
       startX: 100,
       startY: 200,
@@ -748,9 +770,9 @@ test('agent-device driver step expansion preserves portable selectors and option
       waitMs: 0,
     },
     {
-      captureFileName: 'agent-device-screenshot-5.png',
+      captureFileName: 'agent-device-screenshot-6.png',
       driverAction: 'screenshot',
-      rawFileName: 'agent-device-screenshot-5.txt',
+      rawFileName: 'agent-device-screenshot-6.txt',
       required: true,
       stepId: 'capture-final',
       waitMs: 0,
@@ -767,6 +789,11 @@ test('agent-device driver step validation rejects missing tap targets', () => {
         stepId: 'tap-missing',
       },
       {
+        driverAction: 'longPress',
+        required: true,
+        stepId: 'long-press-missing',
+      },
+      {
         driverAction: 'swipe',
         required: true,
         stepId: 'swipe-missing',
@@ -781,6 +808,7 @@ test('agent-device driver step validation rejects missing tap targets', () => {
     ]),
     [
       'step `tap-missing` uses driverAction `tap` but is missing a selector, adapterOptions.agentDevice.ref, or adapterOptions.agentDevice.x/y.',
+      'step `long-press-missing` uses driverAction `longPress` but is missing a selector, adapterOptions.agentDevice.ref, or adapterOptions.agentDevice.x/y.',
       'step `swipe-missing` uses driverAction `swipe` but is missing adapterOptions.agentDevice.startX/startY/endX/endY.',
       'step `type-missing` uses driverAction `typeText` but is missing adapterOptions.agentDevice.text.',
     ],
