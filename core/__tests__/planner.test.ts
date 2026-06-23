@@ -165,6 +165,27 @@ test('fails when scenario steps require unsupported driver actions', () => {
   assert.equal(result.errors[0].driverAction, 'collectPerfSignals');
 });
 
+test('fails when scenarios require undeclared rich driver actions', () => {
+  const scenario = readJson('examples/scenarios/mobile/open-close-cycle.json');
+  const runner = readJson('examples/runners/argent-ios.json');
+  scenario.steps.push({
+    id: 'long-press-card',
+    kind: 'gesture',
+    driverAction: 'longPress',
+  });
+
+  const result = evaluateRunnerCompatibility({ scenario, runner, platform: 'ios' });
+
+  assert.equal(result.compatible, false);
+  assert.deepEqual(
+    result.errors
+      .filter((error: PlannerIssue) => error.code === 'missing_required_driver_action')
+      .map((error: PlannerIssue) => error.driverAction),
+    ['longPress'],
+  );
+  assert.equal(result.matched.driverActions.includes('longPress'), false);
+});
+
 test('accepts scenario steps when the runner declares required driver actions', () => {
   const scenario = readJson('examples/scenarios/mobile/scroll-settle.json');
   const runner = readJson('examples/runners/xcodebuildmcp-ios.json');
@@ -175,6 +196,41 @@ test('accepts scenario steps when the runner declares required driver actions', 
   assert.equal(result.compatible, true);
   assert.deepEqual(result.errors, []);
   assert.ok(result.matched.driverActions.includes('scroll'));
+  assert.ok(result.matched.uiContexts.includes('app'));
+});
+
+test('accepts rich driver actions only when declared by the selected runner', () => {
+  const scenario = readJson('examples/scenarios/mobile/open-close-cycle.json');
+  const runner = readJson('examples/runners/argent-ios.json');
+  runner.runnerId = 'custom-rich-gesture-runner';
+  runner.driverActions.push('longPress', 'pinch');
+  scenario.steps.push(
+    {
+      id: 'long-press-card',
+      kind: 'gesture',
+      driverAction: 'longPress',
+    },
+    {
+      id: 'pinch-content',
+      kind: 'gesture',
+      driverAction: 'pinch',
+      required: false,
+    },
+  );
+
+  const result = evaluateRunnerCompatibility({ scenario, runner, platform: 'ios' });
+
+  assert.equal(result.compatible, true);
+  assert.deepEqual(
+    result.errors.filter((error: PlannerIssue) => error.code === 'missing_required_driver_action'),
+    [],
+  );
+  assert.deepEqual(
+    result.warnings.filter((warning: PlannerIssue) => warning.code === 'missing_optional_driver_action'),
+    [],
+  );
+  assert.ok(result.matched.driverActions.includes('longPress'));
+  assert.ok(result.matched.driverActions.includes('pinch'));
   assert.ok(result.matched.uiContexts.includes('app'));
 });
 
@@ -196,6 +252,28 @@ test('collects app UI context by default for UI driver actions', () => {
     evidenceProviders: [],
     effectivePlatforms: ['ios'],
   }), ['app']);
+});
+
+test('collects app UI context by default for rich UI driver actions', () => {
+  const scenario = readJson('examples/scenarios/mobile/app-startup.json');
+  scenario.steps.push(
+    {
+      id: 'long-press-target',
+      kind: 'gesture',
+      driverAction: 'longPress',
+    },
+    {
+      id: 'type-query',
+      kind: 'gesture',
+      driverAction: 'typeText',
+      required: false,
+    },
+  );
+
+  assert.deepEqual(collectScenarioUiContexts(scenario), {
+    optional: ['app'],
+    required: ['app'],
+  });
 });
 
 test('does not infer app UI context for non-UI driver actions', () => {

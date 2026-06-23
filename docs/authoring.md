@@ -144,7 +144,11 @@ Use steps to describe intent and required adapter actions:
 - `gesture`: portable UI gesture intent
 - `assertUi`: UI assertion intent
 
-Use `driverAction` only when the scenario truly requires a concrete operation such as `tap`, `scroll`, `assertVisible`, `screenshot`, `readLogs`, or `collectPerfSignals`. The planner fails early when no active runner or provider can satisfy a required driver action.
+Use `driverAction` only when the scenario truly requires a concrete operation such as `tap`, `longPress`, `scroll`, `swipe`, `drag`, `pinch`, `rotate`, `typeText`, `pressKey`, `pressButton`, `assertVisible`, `screenshot`, `readLogs`, `collectPerfSignals`, `customGesture`, or `runSequence`. The planner fails early when no active runner or provider can satisfy a required driver action.
+
+Input actions and observable surfaces are separate. `longPress` is a held press, not a native-preview assertion. `nativePreview` is one possible platform-owned outcome of an input action, not a synonym for that input. `pinch` is a zoom gesture, not proof that zoom occurred. `typeText` is keyboard input, not proof that the field accepted it. Pair input actions with app-owned milestones, `assertVisible`, UI context declarations, screenshots, or provider evidence before treating the run as product truth.
+
+Use `customGesture` only for a named adapter-owned gesture whose full inputs are declared in `adapterOptions` and whose runner transcript records the resolved command, target binding, timeout, stdout/stderr, and unsupported/failed reason. Use `runSequence` only for a static list of known actions that can run without observing intermediate UI state; if step two depends on what step one reveals, model the steps separately with an assertion or milestone between them.
 
 For profile-session command transport, platform `waitMs` metadata is queue pacing. ASL preserves it in storage and deep-link command envelopes and waits before releasing the next queued command. App-owned milestones still provide the truth that a command produced the intended product state.
 
@@ -162,7 +166,7 @@ Use `selector` to describe the intended app target without committing the scenar
 }
 ```
 
-Adapters may resolve selectors through accessibility trees, test ids, native UI inspection, or tool-specific selector engines. Android adb resolves `testId`, `resourceId`, `accessibilityId`, `accessibilityLabel`, and `text` selectors from UIAutomator bounds for tap and scroll actions. Argent gesture steps currently use normalized or pixel coordinates from `adapterOptions.argent`; it does not resolve tap or scroll targets from selectors. Coordinates belong in adapter metadata only when the selected runner cannot resolve a durable selector.
+Adapters may resolve selectors through accessibility trees, test ids, native UI inspection, or tool-specific selector engines. Android adb resolves `testId`, `resourceId`, `accessibilityId`, `accessibilityLabel`, and `text` selectors from UIAutomator bounds for tap and scroll actions. Argent gesture steps currently use normalized or pixel coordinates from `adapterOptions.argent`; it does not resolve tap or scroll targets from selectors. Coordinates belong in adapter metadata only when the selected runner cannot resolve a durable selector. If a tool exposes richer gestures than the bundled adapter declares, model them as unsupported until the adapter records command arguments, stdout/stderr, target binding, and failure class for that action.
 
 ## Runners And Providers
 

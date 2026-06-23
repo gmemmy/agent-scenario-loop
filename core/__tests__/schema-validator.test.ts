@@ -304,6 +304,22 @@ test('rejects invalid scenario driver actions', () => {
   assert.ok(result.errors.some((error: ValidationIssue) => error.path === '$.steps[0].driverAction'));
 });
 
+test('accepts rich portable scenario driver actions', () => {
+  const scenario = readJson('examples/scenarios/mobile/app-startup.json');
+  scenario.steps.push(
+    { id: 'long-press-link', kind: 'gesture', driverAction: 'longPress' },
+    { id: 'pinch-map', kind: 'gesture', driverAction: 'pinch' },
+    { id: 'type-search', kind: 'gesture', driverAction: 'typeText' },
+    { id: 'press-enter', kind: 'gesture', driverAction: 'pressKey' },
+    { id: 'custom-two-finger', kind: 'gesture', driverAction: 'customGesture' },
+    { id: 'bounded-sequence', kind: 'gesture', driverAction: 'runSequence' },
+  );
+
+  const result = validateJson(scenario, SCHEMAS.scenario, 'Scenario manifest');
+
+  assert.equal(result.valid, true, result.message);
+});
+
 test('accepts portable scenario step selectors', () => {
   const scenario = readJson('examples/scenarios/mobile/app-startup.json');
   scenario.steps[1].selector = {
@@ -339,6 +355,16 @@ test('rejects invalid runner driver actions', () => {
 
   assert.equal(result.valid, false);
   assert.ok(result.errors.some((error: ValidationIssue) => error.path === `$.driverActions[${runner.driverActions.length - 1}]`));
+});
+
+test('accepts rich portable runner driver actions', () => {
+  const runner = readJson('examples/runners/argent-ios.json');
+  runner.runnerId = 'rich-gesture-runner';
+  runner.driverActions.push('longPress', 'swipe', 'drag', 'pinch', 'rotate', 'typeText', 'pressButton');
+
+  const result = validateJson(runner, SCHEMAS.runnerCapabilities, 'Runner capability manifest');
+
+  assert.equal(result.valid, true, result.message);
 });
 
 test('rejects provider commands on primary runner manifests', () => {
