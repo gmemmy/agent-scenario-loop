@@ -153,6 +153,17 @@ type AndroidProfileSessionCompletionExpectation = {
   scenario: string;
   source: 'deeplink' | 'storage';
 };
+type AndroidProfileSessionObservationWait = {
+  completed: boolean;
+  elapsedMs: number;
+  expectedCommandCount: number;
+  milestoneBackedSequences: number[];
+  observedTerminalCommands: number;
+  pollCount: number;
+  rawPath: string;
+  started: boolean;
+  terminalSequences: number[];
+};
 type NextActionHint = {
   nextAction: string;
   nextActionCode: string;
@@ -273,12 +284,12 @@ function resolveProfileSessionCompletionExpectation({
     !Array.isArray(safeJsonParse(write.value))
   ));
   const commandWrite = storageWrites.find((write) => readStoredProfileCommandCount(write.value) > 0);
-  if (sessionWrite && commandWrite) {
+  if (sessionWrite) {
     const runId = readProfileSessionScalar(sessionWrite.value, 'runId');
     const scenario = readProfileSessionScalar(sessionWrite.value, 'scenario');
     if (runId && scenario) {
       return {
-        expectedCommandCount: readStoredProfileCommandCount(commandWrite.value),
+        expectedCommandCount: commandWrite ? readStoredProfileCommandCount(commandWrite.value) : 0,
         runId,
         scenario,
         source: 'storage',
@@ -288,7 +299,7 @@ function resolveProfileSessionCompletionExpectation({
 
   const startLink = deepLinks.find((deepLink) => deepLink.url.includes('/profile-session/start'));
   const commandLinks = deepLinks.filter((deepLink) => deepLink.url.includes('/profile-session/command'));
-  if (startLink && commandLinks.length > 0) {
+  if (startLink) {
     try {
       const parsed = new URL(startLink.url);
       const runId = parsed.searchParams.get('runId');
@@ -539,6 +550,126 @@ function inspectProfileSessionCompletion({
   };
 }
 const ANDROID_READY_LOG_POLL_MS = 1000;
+
+/**
+ * Builds public health-check metadata for a profile-session observation wait.
+ *
+ * @param {{expectation: AndroidProfileSessionCompletionExpectation, inspection: ReturnType<typeof inspectProfileSessionCompletion>, rawPath: string, wait: {completed: boolean, elapsedMs: number, pollCount: number}}} options
+ * @returns {AndroidProfileSessionObservationWait}
+ */
+function buildAndroidProfileSessionObservationWait({
+  expectation,
+  inspection,
+  rawPath,
+  wait,
+}: {
+  expectation: AndroidProfileSessionCompletionExpectation;
+  inspection: ReturnType<typeof inspectProfileSessionCompletion>;
+  rawPath: string;
+  wait: {completed: boolean; elapsedMs: number; pollCount: number};
+}): AndroidProfileSessionObservationWait {
+  return {
+    completed: wait.completed,
+    elapsedMs: wait.elapsedMs,
+    expectedCommandCount: expectation.expectedCommandCount,
+    milestoneBackedSequences: inspection.milestoneBackedSequences,
+    observedTerminalCommands: inspection.observedTerminalCommands,
+    pollCount: wait.pollCount,
+    rawPath,
+    started: inspection.started,
+    terminalSequences: inspection.terminalSequences,
+  };
+}
+
+/**
+ * Builds the sidecar health check for profile-session start or command completion evidence.
+ *
+ * @param {{expectation: AndroidProfileSessionCompletionExpectation, observation: AndroidProfileSessionObservationWait, timeoutMs: number}} options
+ * @returns {Record<string, unknown>}
+ */
+function buildAndroidProfileSessionObservationCheck({
+  expectation,
+  observation,
+  timeoutMs,
+}: {
+  expectation: AndroidProfileSessionCompletionExpectation;
+  observation: AndroidProfileSessionObservationWait;
+  timeoutMs: number;
+}): Record<string, unknown> {
+  const isStartOnly = expectation.expectedCommandCount === 0;
+  const missingNextActionCode = isStartOnly
+    ? 'inspect_android_profile_session_start'
+    : 'inspect_android_profile_session_completion';
+  const missingNextAction = isStartOnly
+    ? `Inspect ${observation.rawPath} and app startup logs to confirm the storage-backed profile-session seed was processed by the app.`
+    : `Inspect ${observation.rawPath}, command queue storage, and app truth events to determine why profile-session commands did not reach terminal status.`;
+  const missingMetadata = observation.completed
+    ? {}
+    : nextActionHint(missingNextActionCode, missingNextAction);
+  const metadata = {
+    elapsedMs: observation.elapsedMs,
+    expectedCommandCount: observation.expectedCommandCount,
+    milestoneBackedSequences: observation.milestoneBackedSequences.join(','),
+    observedTerminalCommands: observation.observedTerminalCommands,
+    pollCount: observation.pollCount,
+    rawPath: observation.rawPath,
+    runId: expectation.runId,
+    scenario: expectation.scenario,
+    source: expectation.source,
+    started: observation.started,
+    terminalSequences: observation.terminalSequences.join(','),
+    ...missingMetadata,
+  };
+
+  if (isStartOnly) {
+    const code = observation.completed
+      ? 'android_profile_session_start_observed'
+      : 'android_profile_session_start_wait_exhausted';
+    const message = observation.completed
+      ? `Observed same-run profile-session start after ${observation.elapsedMs}ms; proceeding to final logcat capture.`
+      : `Same-run profile-session start was not observed before the ${timeoutMs}ms capture window elapsed.`;
+    return {
+      name: 'android_profile_session_start_wait',
+      status: observation.completed ? 'passed' : 'warning',
+      source: 'runner',
+      code,
+      message,
+      metadata,
+    };
+  }
+
+  if (!observation.started) {
+    return {
+      name: 'android_profile_session_completion_wait',
+      status: 'failed',
+      source: 'runner',
+      code: 'android_profile_session_start_missing',
+      message: `No matching app-side profile-session start was observed before the ${timeoutMs}ms capture window elapsed.`,
+      metadata: {
+        ...metadata,
+        ...nextActionHint(
+          'inspect_android_profile_session_start',
+          `Inspect ${observation.rawPath}, confirm the app consumed the seeded profile-session storage for this run id, and rerun before trusting scenario evidence.`,
+        ),
+      },
+    };
+  }
+
+  const code = observation.completed
+    ? 'android_profile_session_completion_observed'
+    : 'android_profile_session_completion_wait_exhausted';
+  const message = observation.completed
+    ? `Observed terminal profile-session command evidence after ${observation.elapsedMs}ms; proceeding to final logcat capture.`
+    : `Profile-session command evidence was not terminal before the ${timeoutMs}ms capture window elapsed.`;
+  return {
+    name: 'android_profile_session_completion_wait',
+    status: observation.completed ? 'passed' : 'warning',
+    source: 'runner',
+    code,
+    message,
+    metadata,
+  };
+}
 
 /**
  * Prints CLI usage to stderr.
@@ -3152,60 +3283,28 @@ async function runAndroidAdbPreflight({
               timeoutMs: driverStep.waitMs,
               wait,
             });
-            raw[rawFileName] = formatAndroidAdbRawOutput(earlyCompletion.result);
-            let completionStatus: 'failed' | 'passed' | 'warning' = 'warning';
-            let completionCode = 'android_profile_session_completion_wait_exhausted';
-            let completionMessage = `Profile-session command evidence was not terminal before the ${driverStep.waitMs}ms capture window elapsed.`;
-            let completionNextAction: NextActionHint | null = nextActionHint(
-              'inspect_android_profile_session_completion',
-              `Inspect raw/${rawFileName}; the app-side profile session started but did not produce terminal command evidence for every expected command before the capture window elapsed.`,
-            );
-            if (earlyCompletion.completed) {
-              completionStatus = 'passed';
-              completionCode = 'android_profile_session_completion_observed';
-              completionMessage = `Observed terminal profile-session command evidence after ${earlyCompletion.elapsedMs}ms; proceeding to final logcat capture.`;
-              completionNextAction = null;
-            } else if (!earlyCompletion.inspection.started) {
-              completionStatus = 'failed';
-              completionCode = 'android_profile_session_start_missing';
-              completionMessage = `No matching app-side profile-session start was observed before the ${driverStep.waitMs}ms capture window elapsed.`;
-              completionNextAction = nextActionHint(
-                'inspect_android_profile_session_start',
-                `Inspect raw/${rawFileName}, confirm the app consumed the seeded profile-session storage for this run id, and rerun before trusting scenario evidence.`,
-              );
-            }
-            checks.push({
-              name: 'android_profile_session_completion_wait',
-              status: completionStatus,
-              source: 'runner',
-              code: completionCode,
-              message: completionMessage,
-              metadata: {
+            const rawPath = `raw/${rawFileName}`;
+            const observation = buildAndroidProfileSessionObservationWait({
+              expectation: profileSessionCompletionExpectation,
+              inspection: earlyCompletion.inspection,
+              rawPath,
+              wait: {
+                completed: earlyCompletion.completed,
                 elapsedMs: earlyCompletion.elapsedMs,
-                expectedCommandCount: profileSessionCompletionExpectation.expectedCommandCount,
-                milestoneBackedSequences: earlyCompletion.inspection.milestoneBackedSequences.join(','),
-                observedTerminalCommands: earlyCompletion.inspection.observedTerminalCommands,
                 pollCount: earlyCompletion.pollCount,
-                rawPath: `raw/${rawFileName}`,
-                runId: profileSessionCompletionExpectation.runId,
-                scenario: profileSessionCompletionExpectation.scenario,
-                source: profileSessionCompletionExpectation.source,
-                started: earlyCompletion.inspection.started,
-                terminalSequences: earlyCompletion.inspection.terminalSequences.join(','),
-                ...(completionNextAction ? completionNextAction : {}),
               },
             });
-            metadata.profileSessionCompletionWait = {
-              completed: earlyCompletion.completed,
-              elapsedMs: earlyCompletion.elapsedMs,
-              expectedCommandCount: profileSessionCompletionExpectation.expectedCommandCount,
-              milestoneBackedSequences: earlyCompletion.inspection.milestoneBackedSequences,
-              observedTerminalCommands: earlyCompletion.inspection.observedTerminalCommands,
-              pollCount: earlyCompletion.pollCount,
-              rawPath: `raw/${rawFileName}`,
-              started: earlyCompletion.inspection.started,
-              terminalSequences: earlyCompletion.inspection.terminalSequences,
-            };
+            raw[rawFileName] = formatAndroidAdbRawOutput(earlyCompletion.result);
+            checks.push(buildAndroidProfileSessionObservationCheck({
+              expectation: profileSessionCompletionExpectation,
+              observation,
+              timeoutMs: driverStep.waitMs,
+            }));
+            if (profileSessionCompletionExpectation.expectedCommandCount === 0) {
+              metadata.profileSessionStartWait = observation;
+            } else {
+              metadata.profileSessionCompletionWait = observation;
+            }
           } else {
             await wait(driverStep.waitMs);
           }

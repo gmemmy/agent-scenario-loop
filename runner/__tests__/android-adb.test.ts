@@ -306,6 +306,138 @@ test('writes Android AsyncStorage values through package-scoped RKStorage', asyn
   );
 });
 
+test('records storage profile-session start observation for no-command captures', async (t: TestContext) => {
+  const outputDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-android-adb-storage-start-observed-'));
+  t.after(async () => {
+    await fsp.rm(outputDir, { recursive: true, force: true });
+  });
+  const executor = async (command: string, args: string[]): Promise<CommandResult> => {
+    const key = args.join(' ');
+    if (key.includes('run-as') && key.includes('agent-scenario-loop.profile-session.1')) {
+      return { args, command, exitCode: 0, stderr: '', stdout: '' };
+    }
+
+    return createExecutor({
+      version: { stdout: 'Android Debug Bridge version 1.0.41\n' },
+      'devices -l': {
+        stdout: [
+          'List of devices attached',
+          'emulator-5554 device product:sdk_gphone model:Pixel_6 device:emu64',
+        ].join('\n'),
+      },
+      '-s emulator-5554 shell getprop ro.product.model': { stdout: 'Pixel 6\n' },
+      '-s emulator-5554 shell getprop ro.build.version.release': { stdout: '15\n' },
+      '-s emulator-5554 shell getprop ro.build.version.sdk': { stdout: '35\n' },
+      '-s emulator-5554 shell pm path com.example.app': { stdout: 'package:/data/app/com.example.app/base.apk\n' },
+      '-s emulator-5554 logcat -d -v time -t 10000': {
+        stdout: [
+          '06-16 10:00:00.000 I/ReactNativeJS(123): [profile-session] kind=start scenario=app-startup runId=android-storage-start',
+        ].join('\n'),
+      },
+    })(command, args);
+  };
+
+  const result = await runAndroidAdbPreflight({
+    captureLogcat: true,
+    executor,
+    logcatLines: 25,
+    outputDir,
+    packageName: 'com.example.app',
+    runId: 'android-storage-start',
+    storageWrites: [{
+      key: 'agent-scenario-loop.profile-session.1',
+      label: 'profile-session-start',
+      value: JSON.stringify({
+        active: true,
+        scenario: 'app-startup',
+        runId: 'android-storage-start',
+        startedAt: 1800000000000,
+      }),
+    }],
+    waitMs: 250,
+  });
+  const metadata = JSON.parse(fs.readFileSync(path.join(outputDir, 'raw', 'android-metadata.json'), 'utf8'));
+  const startCheck = (result.health.checks as Array<{ code: string; metadata?: Record<string, unknown>; name: string }>)
+    .find((check) => check.name === 'android_profile_session_start_wait');
+
+  assert.equal(result.health.healthStatus, 'passed', JSON.stringify(result.health.checks, null, 2));
+  assert.equal(startCheck?.code, 'android_profile_session_start_observed');
+  assert.equal(startCheck?.metadata?.expectedCommandCount, 0);
+  assert.equal(startCheck?.metadata?.started, true);
+  assert.equal(startCheck?.metadata?.rawPath, 'raw/adb-profile-session-early-log-1.txt');
+  assert.equal(metadata.profileSessionCompletionExpectation.expectedCommandCount, 0);
+  assert.equal(metadata.profileSessionStartWait.completed, true);
+  assert.equal(metadata.profileSessionStartWait.rawPath, 'raw/adb-profile-session-early-log-1.txt');
+  assert.ok(fs.existsSync(path.join(outputDir, 'raw', 'adb-profile-session-early-log-1.txt')));
+});
+
+test('warns when storage profile-session start is missing for no-command captures', async (t: TestContext) => {
+  const outputDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-android-adb-storage-start-missing-'));
+  t.after(async () => {
+    await fsp.rm(outputDir, { recursive: true, force: true });
+  });
+  const waits: number[] = [];
+  const executor = async (command: string, args: string[]): Promise<CommandResult> => {
+    const key = args.join(' ');
+    if (key.includes('run-as') && key.includes('agent-scenario-loop.profile-session.1')) {
+      return { args, command, exitCode: 0, stderr: '', stdout: '' };
+    }
+
+    return createExecutor({
+      version: { stdout: 'Android Debug Bridge version 1.0.41\n' },
+      'devices -l': {
+        stdout: [
+          'List of devices attached',
+          'emulator-5554 device product:sdk_gphone model:Pixel_6 device:emu64',
+        ].join('\n'),
+      },
+      '-s emulator-5554 shell getprop ro.product.model': { stdout: 'Pixel 6\n' },
+      '-s emulator-5554 shell getprop ro.build.version.release': { stdout: '15\n' },
+      '-s emulator-5554 shell getprop ro.build.version.sdk': { stdout: '35\n' },
+      '-s emulator-5554 shell pm path com.example.app': { stdout: 'package:/data/app/com.example.app/base.apk\n' },
+      '-s emulator-5554 logcat -d -v time -t 10000': {
+        stdout: '06-16 10:00:00.000 I/ReactNativeJS(123): Running "main"\n',
+      },
+    })(command, args);
+  };
+
+  const result = await runAndroidAdbPreflight({
+    captureLogcat: true,
+    delay: async (ms: number) => {
+      waits.push(ms);
+    },
+    executor,
+    logcatLines: 25,
+    outputDir,
+    packageName: 'com.example.app',
+    runId: 'android-storage-start-missing',
+    storageWrites: [{
+      key: 'agent-scenario-loop.profile-session.1',
+      label: 'profile-session-start',
+      value: JSON.stringify({
+        active: true,
+        scenario: 'app-startup',
+        runId: 'android-storage-start-missing',
+        startedAt: 1800000000000,
+      }),
+    }],
+    waitMs: 1,
+  });
+  const metadata = JSON.parse(fs.readFileSync(path.join(outputDir, 'raw', 'android-metadata.json'), 'utf8'));
+  const startCheck = (result.health.checks as Array<{ code: string; metadata?: Record<string, unknown>; name: string; status: string }>)
+    .find((check) => check.name === 'android_profile_session_start_wait');
+
+  assert.equal(result.health.healthStatus, 'passed', JSON.stringify(result.health.checks, null, 2));
+  assert.deepEqual(waits, [1]);
+  assert.equal(startCheck?.status, 'warning');
+  assert.equal(startCheck?.code, 'android_profile_session_start_wait_exhausted');
+  assert.equal(startCheck?.metadata?.nextActionCode, 'inspect_android_profile_session_start');
+  assert.equal(startCheck?.metadata?.started, false);
+  assert.equal(metadata.profileSessionStartWait.completed, false);
+  assert.equal(metadata.profileSessionStartWait.started, false);
+  assert.ok(fs.existsSync(path.join(outputDir, 'raw', 'adb-profile-session-early-log-1.txt')));
+});
+
 test('captures bounded adb logcat evidence when requested', async (t: TestContext) => {
   const outputDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-android-adb-logcat-'));
   t.after(async () => {
