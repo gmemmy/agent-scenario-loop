@@ -35,6 +35,7 @@ type IosProfileOptions = {
 type IosSimctlProfileCommand = {
   command: string;
   commandId?: string;
+  dependsOnMilestones?: string[];
   label?: string;
   queueId?: string;
   sequence?: number;
@@ -405,15 +406,22 @@ function resolveExecutionPlanProfileCommands(scenario: Record<string, any>): Ios
   const executionPlan = buildScenarioExecutionPlan(scenario);
   const repeat = readPositiveInteger(scenario.defaultIterations, readPositiveInteger(scenario.cycles?.iterations, 1));
   const commands: IosSimctlProfileCommand[] = [];
+  const dependencies: string[] = [];
   for (const [index, step] of executionPlan.steps.entries()) {
+    if (step.portMethod === 'waitForTruthEvent' && typeof step.milestone === 'string') {
+      dependencies.push(resolveMilestoneEventName(scenario, step.milestone));
+      continue;
+    }
     if (step.portMethod !== 'executeStep' || typeof step.command !== 'string') {
       continue;
     }
 
     const nextStep = executionPlan.steps[index + 1];
+    const commandDependencies = dependencies.length > 0 ? Array.from(new Set(dependencies)) : [];
     commands.push({
       command: step.command as string,
       commandId: step.id,
+      ...(commandDependencies.length > 0 ? { dependsOnMilestones: commandDependencies } : {}),
       label: step.id,
       queueId: scenario.id ?? scenario.name,
       waitMs: readStepWaitMs(step),
@@ -628,6 +636,9 @@ function applyExecutionPlanCommandGates(
 
     return {
       ...command,
+      ...(Array.isArray(planCommand.dependsOnMilestones) && planCommand.dependsOnMilestones.length > 0
+        ? { dependsOnMilestones: planCommand.dependsOnMilestones }
+        : {}),
       waitForMilestone: planCommand.waitForMilestone,
       ...(typeof command.waitTimeoutMs === 'number'
         ? {}
@@ -927,6 +938,9 @@ async function runProfileIos(
                 commands: profileSessionCommands.map((profileCommand, index) => ({
                   command: profileCommand.command,
                   ...(typeof profileCommand.commandId === 'string' ? { commandId: profileCommand.commandId } : {}),
+                  ...(Array.isArray(profileCommand.dependsOnMilestones) && profileCommand.dependsOnMilestones.length > 0
+                    ? { dependsOnMilestones: profileCommand.dependsOnMilestones }
+                    : {}),
                   id: `ios-storage-command-${index + 1}`,
                   ...(typeof profileCommand.label === 'string' ? { label: profileCommand.label } : {}),
                   ...(typeof profileCommand.queueId === 'string' ? { queueId: profileCommand.queueId } : {}),

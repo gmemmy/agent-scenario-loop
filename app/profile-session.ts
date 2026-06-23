@@ -6,6 +6,7 @@ import {
   buildProfileCommandMilestoneGate,
   compareProfileCommands,
   doesProfileEventReleaseCommandGate,
+  hasObservedProfileCommandDependencies,
   hasObservedProfileCommandMilestone,
   type ProfileCommandMilestoneGate as BaseProfileCommandMilestoneGate,
 } from './profile-session-command-ordering';
@@ -21,6 +22,7 @@ export type ProfileSessionState = {
 export type ProfileSessionCommand = {
   id: string;
   commandId?: string;
+  dependsOnMilestones?: string[];
   scenario?: string;
   runId?: string;
   command: string;
@@ -82,6 +84,7 @@ type StoredProfileSessionEntry = {
   stoppedAt?: number;
   command?: string;
   commandId?: string;
+  dependsOnMilestones?: string[];
   id?: string;
   queueId?: string;
   reason?: string;
@@ -396,6 +399,14 @@ function logProfileSession(kind: 'start' | 'stop' | 'command', payload: Record<s
       entry.commandId = payload.commandId;
     } else if (typeof payload.id === 'string') {
       entry.commandId = payload.id;
+    }
+    if (Array.isArray(payload.dependsOnMilestones)) {
+      const dependsOnMilestones = payload.dependsOnMilestones.filter((milestone) => (
+        typeof milestone === 'string' && milestone.length > 0
+      ));
+      if (dependsOnMilestones.length > 0) {
+        entry.dependsOnMilestones = dependsOnMilestones;
+      }
     }
     if (typeof payload.queueId === 'string') {
       entry.queueId = payload.queueId;
@@ -720,11 +731,17 @@ function processSequencedProfileCommands() {
   }
 
   while (sequencedProfileCommands.length > 0) {
-    const command = sequencedProfileCommands.shift();
+    const command = sequencedProfileCommands[0];
     if (!command || hasProcessedProfileCommandId(command)) {
+      sequencedProfileCommands.shift();
       continue;
     }
 
+    if (!hasObservedProfileCommandDependencies(command, observedProfileEvents)) {
+      return;
+    }
+
+    sequencedProfileCommands.shift();
     markProfileCommandIdProcessed(command);
     const nextGate = hasObservedProfileCommandMilestone(command, observedProfileEvents)
       ? null
@@ -918,6 +935,7 @@ export function emitProfileEvent(event: string, metadata?: ProfileEventMetadata)
   }
   appendStoredProfileEvent(eventPayload);
   releaseProfileCommandMilestoneGate(eventPayload);
+  scheduleProfileCommandProcessing();
 }
 
 /**

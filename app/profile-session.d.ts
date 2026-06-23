@@ -8,6 +8,7 @@ export type ProfileSessionState = {
 export type ProfileSessionCommand = {
   id: string;
   commandId?: string;
+  dependsOnMilestones?: string[];
   scenario?: string;
   runId?: string;
   command: string;

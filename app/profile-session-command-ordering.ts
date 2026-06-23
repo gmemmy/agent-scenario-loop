@@ -1,6 +1,7 @@
 export type ProfileSessionOrderedCommand = {
   id: string;
   commandId?: string;
+  dependsOnMilestones?: string[];
   scenario?: string;
   runId?: string;
   queueId?: string;
@@ -106,5 +107,43 @@ export function hasObservedProfileCommandMilestone(
   return observedEvents.some((eventPayload) => (
     eventPayload.event === command.waitForMilestone &&
     doesProfileEventMatchCommandScope(command, eventPayload)
+  ));
+}
+
+function readProfileCommandDependencies(command: ProfileSessionOrderedCommand): string[] {
+  if (!Array.isArray(command.dependsOnMilestones)) {
+    return [];
+  }
+
+  return command.dependsOnMilestones.filter((milestone) => (
+    typeof milestone === 'string' && milestone.length > 0
+  ));
+}
+
+function doesProfileEventMatchCommandDependency(
+  command: ProfileSessionOrderedCommand,
+  eventPayload: ProfileSessionObservedEvent,
+): boolean {
+  return (
+    optionalStringScopeMatches(command.runId, eventPayload.runId) &&
+    optionalStringScopeMatches(command.scenario, eventPayload.scenario) &&
+    optionalStringScopeMatches(command.queueId, eventPayload.queueId)
+  );
+}
+
+export function hasObservedProfileCommandDependencies(
+  command: ProfileSessionOrderedCommand,
+  observedEvents: readonly ProfileSessionObservedEvent[],
+): boolean {
+  const dependencies = readProfileCommandDependencies(command);
+  if (dependencies.length === 0) {
+    return true;
+  }
+
+  return dependencies.every((milestone) => (
+    observedEvents.some((eventPayload) => (
+      eventPayload.event === milestone &&
+      doesProfileEventMatchCommandDependency(command, eventPayload)
+    ))
   ));
 }

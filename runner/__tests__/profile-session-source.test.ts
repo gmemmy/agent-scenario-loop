@@ -39,6 +39,7 @@ test('profile-session helper keeps storage-backed command control safeguards', (
   );
   assert.match(source, /entry\.commandId = payload\.commandId;/u);
   assert.match(source, /else if \(typeof payload\.id === 'string'\)/u);
+  assert.match(source, /entry\.dependsOnMilestones = dependsOnMilestones;/u);
   assert.match(source, /entry\.queueId = payload\.queueId;/u);
   assert.match(source, /entry\.sequence = payload\.sequence;/u);
   assert.match(source, /entry\.waitForMilestone = payload\.waitForMilestone;/u);
@@ -66,13 +67,17 @@ test('profile-session helper keeps storage-backed command control safeguards', (
   assert.match(source, /let profileCommandProcessingTimeoutId: ReturnType<typeof setTimeout> \| null = null;/u);
   assert.match(source, /let profileCommandProcessingAvailableAt = 0;/u);
   assert.match(source, /from '\.\/profile-session-command-ordering';/u);
+  assert.match(source, /hasObservedProfileCommandDependencies\(command, observedProfileEvents\)/u);
   assert.match(source, /sequencedProfileCommands\.sort\(compareProfileCommands\);/u);
   assert.match(source, /function processSequencedProfileCommands/u);
   assert.match(source, /profileCommandMilestoneGate = nextGate;/u);
   assert.match(orderingSource, /typeof command\.sequence === 'number' && command\.sequence > 1/u);
+  assert.match(orderingSource, /export function hasObservedProfileCommandDependencies/u);
+  assert.match(orderingSource, /doesProfileEventMatchCommandDependency/u);
   assert.match(source, /hasObservedProfileCommandMilestone\(command, observedProfileEvents\)/u);
   assert.match(source, /observedProfileEvents\.push\(eventPayload\);/u);
   assert.match(declarationSource, /export const PROFILE_SESSION_HELPER_VERSION: '1\.0\.0';/u);
+  assert.match(declarationSource, /dependsOnMilestones\?: string\[\];/u);
   assert.match(source, /observedProfileEvents\.length = 0;/u);
   assert.doesNotMatch(source, /command\.timestamp < activeSession\.startedAt/u);
   assert.match(source, /runId\?: string;/u);
