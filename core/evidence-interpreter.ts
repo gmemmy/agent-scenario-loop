@@ -49,6 +49,55 @@ function isUnmeasurableBudgetCheck(check: EvidenceRecord): boolean {
 }
 
 /**
+ * Reads a non-empty string property from an evidence record.
+ *
+ * @param {EvidenceRecord | null | undefined} record
+ * @param {string} key
+ * @returns {string | null}
+ */
+function readStringProperty(record: EvidenceRecord | null | undefined, key: string): string | null {
+  const value = record?.[key];
+  return typeof value === 'string' && value.length > 0 ? value : null;
+}
+
+/**
+ * Returns health check metadata when it is a plain record.
+ *
+ * @param {EvidenceRecord} check
+ * @returns {EvidenceRecord | null}
+ */
+function readHealthCheckMetadata(check: EvidenceRecord): EvidenceRecord | null {
+  return asEvidenceRecord(check.metadata);
+}
+
+/**
+ * Builds an agent-readable follow-up recommendation for a failed health check.
+ *
+ * @param {EvidenceRecord} check
+ * @returns {string}
+ */
+function formatFailedHealthCheckRecommendation(check: EvidenceRecord): string {
+  const name = readStringProperty(check, 'name') ?? readStringProperty(check, 'code') ?? 'unknown_check';
+  const metadata = readHealthCheckMetadata(check);
+  const nextAction = readStringProperty(metadata, 'nextAction');
+  const nextActionCode = readStringProperty(metadata, 'nextActionCode');
+
+  if (nextActionCode && nextAction) {
+    return `follow next action ${nextActionCode} for health check ${name}: ${nextAction}`;
+  }
+
+  if (nextActionCode) {
+    return `follow next action ${nextActionCode} for health check ${name}`;
+  }
+
+  if (nextAction) {
+    return `follow next action for health check ${name}: ${nextAction}`;
+  }
+
+  return `resolve health check ${name}`;
+}
+
+/**
  * Classifies whether the artifact can support a product claim.
  *
  * @param {{failedHealthChecks: EvidenceRecord[], health: EvidenceRecord, unmeasurableBudgetChecks: EvidenceRecord[], verdict?: EvidenceRecord | null}} options
@@ -144,8 +193,7 @@ function interpretEvidence({
   }
 
   for (const check of failedChecks) {
-    const name = typeof check.name === 'string' ? check.name : check.code;
-    recommendations.push(`resolve health check ${name ?? 'unknown_check'}`);
+    recommendations.push(formatFailedHealthCheckRecommendation(check));
   }
 
   if (timingTrusted) {
