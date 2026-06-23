@@ -568,6 +568,151 @@ test('classifies Android UIAutomator contention as runner environment health', a
   );
 });
 
+test('polls Android visibility assertions until the selector appears', async (t: TestContext) => {
+  const outputDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-android-assert-visible-poll-'));
+  t.after(async () => {
+    await fsp.rm(outputDir, { recursive: true, force: true });
+  });
+  const uiAutomatorDumpKey = '-s emulator-5554 shell rm -f /sdcard/agent-scenario-loop-ui.xml; uiautomator dump /sdcard/agent-scenario-loop-ui.xml >/dev/null; cat /sdcard/agent-scenario-loop-ui.xml; status=$?; rm -f /sdcard/agent-scenario-loop-ui.xml; exit $status';
+  let uiDumpAttempts = 0;
+  const executor = async (command: string, args: string[]): Promise<CommandResult> => {
+    const key = args.join(' ');
+    if (key === uiAutomatorDumpKey) {
+      uiDumpAttempts += 1;
+      const stdout = uiDumpAttempts < 3
+        ? '<hierarchy><node text="Loading" bounds="[0,0][100,100]" /></hierarchy>'
+        : '<hierarchy><node text="Ready" bounds="[0,0][100,100]" /></hierarchy>';
+      return { args, command, exitCode: 0, stderr: '', stdout };
+    }
+    const response = createExecutor({
+      version: { stdout: 'Android Debug Bridge version 1.0.41\n' },
+      'devices -l': {
+        stdout: [
+          'List of devices attached',
+          'emulator-5554 device product:sdk_gphone model:Pixel_6 device:emu64',
+        ].join('\n'),
+      },
+      '-s emulator-5554 shell getprop ro.product.model': { stdout: 'Pixel 6\n' },
+      '-s emulator-5554 shell getprop ro.build.version.release': { stdout: '15\n' },
+      '-s emulator-5554 shell getprop ro.build.version.sdk': { stdout: '35\n' },
+    });
+    return response(command, args);
+  };
+  const waits: number[] = [];
+
+  const result = await runAndroidAdbPreflight({
+    delay: async (ms: number) => {
+      waits.push(ms);
+    },
+    driverSteps: [
+      {
+        driverAction: 'assertVisible',
+        selector: { kind: 'text', value: 'Ready' },
+        stepId: 'assert-ready',
+        timeoutMs: 1200,
+      },
+    ],
+    executor,
+    outputDir,
+    runId: 'android-assert-visible-poll',
+  });
+
+  const metadata = JSON.parse(fs.readFileSync(path.join(outputDir, 'raw', 'android-metadata.json'), 'utf8'));
+  const assertVisibleCheck = (result.health.checks as Array<{ metadata?: Record<string, unknown>; name: string }>)
+    .find((item) => item.name === 'android_assert_visible');
+
+  assert.equal(result.health.healthStatus, 'passed', JSON.stringify(result.health.checks, null, 2));
+  assert.equal(uiDumpAttempts, 3);
+  assert.deepEqual(waits, [500, 500]);
+  assert.deepEqual((metadata.driverActions as Array<Record<string, unknown>>)[0], {
+    args: ['-s', 'emulator-5554', 'shell', 'rm -f /sdcard/agent-scenario-loop-ui.xml; uiautomator dump /sdcard/agent-scenario-loop-ui.xml >/dev/null; cat /sdcard/agent-scenario-loop-ui.xml; status=$?; rm -f /sdcard/agent-scenario-loop-ui.xml; exit $status'],
+    driverAction: 'assertVisible',
+    elapsedMs: 1000,
+    exitCode: 0,
+    pollCount: 3,
+    rawPath: 'raw/adb-assert-visible.xml',
+    selector: { kind: 'text', value: 'Ready' },
+    stepId: 'assert-ready',
+    timeoutMs: 1200,
+  });
+  assert.equal(assertVisibleCheck?.metadata?.pollCount, 3);
+  assert.equal(assertVisibleCheck?.metadata?.timeoutMs, 1200);
+  assert.equal(assertVisibleCheck?.metadata?.elapsedMs, 1000);
+  assert.match(fs.readFileSync(path.join(outputDir, 'raw', 'adb-assert-visible.xml'), 'utf8'), /Ready/u);
+});
+
+test('times out Android visibility assertion polling with preserved metadata', async (t: TestContext) => {
+  const outputDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-android-assert-visible-timeout-'));
+  t.after(async () => {
+    await fsp.rm(outputDir, { recursive: true, force: true });
+  });
+  const uiAutomatorDumpKey = '-s emulator-5554 shell rm -f /sdcard/agent-scenario-loop-ui.xml; uiautomator dump /sdcard/agent-scenario-loop-ui.xml >/dev/null; cat /sdcard/agent-scenario-loop-ui.xml; status=$?; rm -f /sdcard/agent-scenario-loop-ui.xml; exit $status';
+  let uiDumpAttempts = 0;
+  const executor = async (command: string, args: string[]): Promise<CommandResult> => {
+    const key = args.join(' ');
+    if (key === uiAutomatorDumpKey) {
+      uiDumpAttempts += 1;
+      return {
+        args,
+        command,
+        exitCode: 0,
+        stderr: '',
+        stdout: '<hierarchy><node text="Loading" bounds="[0,0][100,100]" /></hierarchy>',
+      };
+    }
+    const response = createExecutor({
+      version: { stdout: 'Android Debug Bridge version 1.0.41\n' },
+      'devices -l': {
+        stdout: [
+          'List of devices attached',
+          'emulator-5554 device product:sdk_gphone model:Pixel_6 device:emu64',
+        ].join('\n'),
+      },
+      '-s emulator-5554 shell getprop ro.product.model': { stdout: 'Pixel 6\n' },
+      '-s emulator-5554 shell getprop ro.build.version.release': { stdout: '15\n' },
+      '-s emulator-5554 shell getprop ro.build.version.sdk': { stdout: '35\n' },
+    });
+    return response(command, args);
+  };
+  const waits: number[] = [];
+
+  const result = await runAndroidAdbPreflight({
+    delay: async (ms: number) => {
+      waits.push(ms);
+    },
+    driverSteps: [
+      {
+        driverAction: 'assertVisible',
+        selector: { kind: 'text', value: 'Ready' },
+        stepId: 'assert-ready',
+        timeoutMs: 750,
+      },
+    ],
+    executor,
+    outputDir,
+    runId: 'android-assert-visible-timeout',
+  });
+
+  const metadata = JSON.parse(fs.readFileSync(path.join(outputDir, 'raw', 'android-metadata.json'), 'utf8'));
+  const assertVisibleCheck = (result.health.checks as Array<{ metadata?: Record<string, unknown>; name: string }>)
+    .find((item) => item.name === 'android_assert_visible');
+  const actionMetadata = (metadata.driverActions as Array<Record<string, unknown>>)[0];
+
+  assert.equal(result.health.healthStatus, 'failed');
+  assert.equal(uiDumpAttempts, 3);
+  assert.deepEqual(waits, [500, 250]);
+  assert.equal(actionMetadata?.elapsedMs, 750);
+  assert.equal(actionMetadata?.pollCount, 3);
+  assert.equal(actionMetadata?.timedOut, true);
+  assert.equal(actionMetadata?.timeoutMs, 750);
+  assert.equal(assertVisibleCheck?.metadata?.timedOut, true);
+  assert.equal(assertVisibleCheck?.metadata?.pollCount, 3);
+  assert.match(
+    fs.readFileSync(path.join(outputDir, 'raw', 'adb-assert-visible.xml'), 'utf8'),
+    /assertVisible did not pass before the 750ms timeout/u,
+  );
+});
+
 test('classifies missing Android profile-session start while preserving sidecar evidence', async (t: TestContext) => {
   const outputDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-android-preserved-sidecar-'));
   t.after(async () => {

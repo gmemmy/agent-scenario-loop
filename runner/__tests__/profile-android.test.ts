@@ -3962,7 +3962,13 @@ test('profile-android derives portable adb driver actions from scenario metadata
         id: 'assert-final',
         kind: 'assertUi',
         driverAction: 'assertVisible',
+        adapterOptions: {
+          androidAdb: {
+            waitMs: 125,
+          },
+        },
         selector: { kind: 'text', value: 'Example' },
+        timeoutMs: 1500,
       },
       {
         id: 'capture-final',
@@ -4019,7 +4025,8 @@ test('profile-android derives portable adb driver actions from scenario metadata
       required: true,
       selector: { kind: 'text', value: 'Example' },
       stepId: 'assert-final',
-      waitMs: 0,
+      timeoutMs: 1500,
+      waitMs: 125,
     },
     {
       driverAction: 'screenshot',

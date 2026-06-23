@@ -6,11 +6,15 @@ type AndroidAdbCommandResult = {
   args: string[];
   capturePath?: string;
   command: string;
+  elapsedMs?: number;
   exitCode: number;
+  pollCount?: number;
   rawFileName: string;
   stderr: string;
   stdout: string;
   stdoutBuffer?: Uint8Array;
+  timedOut?: boolean;
+  timeoutMs?: number;
 };
 
 type AndroidAdbDriver = {
