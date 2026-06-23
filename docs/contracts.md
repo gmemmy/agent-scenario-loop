@@ -107,6 +107,8 @@ Native-performance evidence is separate from profiler evidence. It covers platfo
 
 The root package exports `buildAndroidNativePerformanceEvidence()` for project-local Android providers that already captured `dumpsys gfxinfo` and `dumpsys meminfo` text. It turns those raw summaries into schema-valid `nativePerformance` evidence with parsed frame, jank, render, and memory fields, target-binding metadata when supplied, raw attachments when supplied, and conservative `diagnostic-only` comparability. The helper is normalization, not capture: adb, Perfetto, trace-processor, and artifact lifecycle remain provider-owned until a later runner lane makes them first-class capture mechanics.
 
+Provider `targetBinding` is a claim boundary, not decoration. Use `verified` only when the provider proved the requested device/app target, `unverified` when it lacks target proof, `ambiguous` when more than one runtime could own the evidence, and `mismatch` when the observed target differs from the requested target. Profiler and native-performance JSON can include `candidateTargets` with expected and observed app/device/source entries so agents can see exactly why evidence is diagnostic-only.
+
 ## Public artifact layout
 
 Every run should produce a stable artifact folder.

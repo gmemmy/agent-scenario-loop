@@ -513,6 +513,53 @@ test('rejects comparable profiler evidence without verified claim support', () =
   assert.ok(result.errors.some((error: ValidationIssue) => error.path === '$.targetBinding.status'));
 });
 
+test('accepts profiler target binding candidates for ambiguous provider sessions', () => {
+  const result = validateJson({
+    schemaVersion: '1.0.0',
+    providerId: 'react-profiler-provider',
+    platform: 'ios',
+    runId: 'profile-run',
+    scenarioId: 'startup',
+    captureMode: 'session',
+    profileKind: 'cpu-summary',
+    completenessStatus: 'partial',
+    targetBinding: {
+      status: 'ambiguous',
+      source: 'debugger-status',
+      reason: 'Debugger status reported multiple attached runtimes.',
+      candidateTargets: [
+        {
+          platform: 'ios',
+          deviceId: 'A692ED28-893E-453F-8866-C69331AE757F',
+          deviceName: 'iPhone 17 Pro Max',
+          appId: 'dev.agent-scenario-loop.example.ios',
+          source: 'requested-target',
+          bindingStatus: 'expected',
+        },
+        {
+          platform: 'android',
+          deviceId: 'emulator-5554',
+          deviceName: 'sdk_gphone64_arm64',
+          appId: 'dev.agent-scenario-loop.example.android',
+          source: 'debugger-status',
+          evidencePath: 'raw/providers/react-profiler/debugger-status.json',
+          bindingStatus: 'conflicting',
+          reason: 'Provider status was bound to the active Android debugger runtime.',
+        },
+      ],
+    },
+    comparability: {
+      status: 'captured-not-comparable',
+      reason: 'Target binding was ambiguous; use the profile only to diagnose provider binding.',
+    },
+    metrics: {
+      sampleCount: 1457,
+    },
+  }, SCHEMAS.profiler, 'Profiler evidence artifact');
+
+  assert.equal(result.valid, true, result.message);
+});
+
 test('accepts comparable profiler evidence with verified claim support', () => {
   const result = validateJson({
     schemaVersion: '1.0.0',
@@ -544,6 +591,66 @@ test('accepts comparable profiler evidence with verified claim support', () => {
   }, SCHEMAS.profiler, 'Profiler evidence artifact');
 
   assert.equal(result.valid, true, result.message);
+});
+
+test('rejects invalid profiler target binding candidates', () => {
+  const result = validateJson({
+    schemaVersion: '1.0.0',
+    providerId: 'react-profiler-provider',
+    platform: 'ios',
+    runId: 'profile-run',
+    scenarioId: 'startup',
+    targetBinding: {
+      status: 'ambiguous',
+      candidateTargets: [
+        {
+          platform: 'web',
+          bindingStatus: 'selected',
+        },
+      ],
+    },
+    summary: 'Invalid candidate target metadata.',
+  }, SCHEMAS.profiler, 'Profiler evidence artifact');
+
+  assert.equal(result.valid, false);
+  assert.ok(result.errors.some((error: ValidationIssue) => error.path === '$.targetBinding.candidateTargets[0].platform'));
+  assert.ok(result.errors.some((error: ValidationIssue) => error.path === '$.targetBinding.candidateTargets[0].bindingStatus'));
+});
+
+test('rejects ambiguous profiler target binding without candidates', () => {
+  const result = validateJson({
+    schemaVersion: '1.0.0',
+    providerId: 'react-profiler-provider',
+    platform: 'ios',
+    runId: 'profile-run',
+    scenarioId: 'startup',
+    targetBinding: {
+      status: 'ambiguous',
+      reason: 'Provider reported multiple possible runtime sessions.',
+    },
+    summary: 'Missing candidate target metadata.',
+  }, SCHEMAS.profiler, 'Profiler evidence artifact');
+
+  assert.equal(result.valid, false);
+  assert.ok(result.errors.some((error: ValidationIssue) => error.path === '$.targetBinding.candidateTargets'));
+});
+
+test('rejects empty profiler target binding candidates', () => {
+  const result = validateJson({
+    schemaVersion: '1.0.0',
+    providerId: 'react-profiler-provider',
+    platform: 'ios',
+    runId: 'profile-run',
+    scenarioId: 'startup',
+    targetBinding: {
+      status: 'ambiguous',
+      candidateTargets: [{}],
+    },
+    summary: 'Empty candidate target metadata.',
+  }, SCHEMAS.profiler, 'Profiler evidence artifact');
+
+  assert.equal(result.valid, false);
+  assert.ok(result.errors.some((error: ValidationIssue) => error.path === '$.targetBinding.candidateTargets[0]'));
 });
 
 test('validates native performance evidence envelopes', () => {
@@ -602,6 +709,62 @@ test('validates native performance evidence envelopes', () => {
       },
     ],
     summary: 'Captured Android native frame and memory diagnostics.',
+  }, SCHEMAS.nativePerformance, 'Native performance evidence artifact');
+
+  assert.equal(result.valid, true, result.message);
+});
+
+test('accepts native performance target binding candidates for mismatched diagnostics', () => {
+  const result = validateJson({
+    schemaVersion: '1.0.0',
+    providerId: 'native-performance-provider',
+    platform: 'android',
+    runId: 'profile-run',
+    scenarioId: 'video-handoff',
+    captureMode: 'afterCapture',
+    evidenceKind: 'mixed',
+    dataClasses: ['frames', 'memory'],
+    completenessStatus: 'partial',
+    targetBinding: {
+      status: 'mismatch',
+      source: 'provider-session-status',
+      reason: 'Native diagnostics were captured from a provider session that did not match the requested app.',
+      candidateTargets: [
+        {
+          platform: 'android',
+          deviceId: 'emulator-5554',
+          appId: 'dev.agent-scenario-loop.expected',
+          source: 'runner-request',
+          bindingStatus: 'expected',
+        },
+        {
+          platform: 'android',
+          deviceId: 'emulator-5554',
+          appId: 'dev.agent-scenario-loop.other',
+          source: 'provider-session-status',
+          evidencePath: 'raw/providers/native-performance/session-status.json',
+          bindingStatus: 'observed',
+        },
+      ],
+    },
+    comparability: {
+      status: 'captured-not-comparable',
+      reason: 'Target app mismatch prevents native-performance comparison.',
+    },
+    claimSufficiency: {
+      status: 'insufficient-for-claim',
+      claim: 'Native performance release readiness.',
+      reason: 'Useful frame and memory outputs were preserved, but target binding did not match the requested app.',
+      supportingEvidence: ['frames', 'memory'],
+      missingEvidence: ['verified target binding'],
+      nextAction: 'Fix provider target binding and rerun before making a product claim.',
+    },
+    frames: {
+      droppedFramePercent: 10.6,
+    },
+    memory: {
+      totalPssKb: 1264994,
+    },
   }, SCHEMAS.nativePerformance, 'Native performance evidence artifact');
 
   assert.equal(result.valid, true, result.message);

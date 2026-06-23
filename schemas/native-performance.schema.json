@@ -329,6 +329,21 @@
       "type": "object",
       "additionalProperties": true,
       "required": ["status"],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "enum": ["ambiguous", "mismatch"]
+              }
+            },
+            "required": ["status"]
+          },
+          "then": {
+            "required": ["candidateTargets"]
+          }
+        }
+      ],
       "properties": {
         "status": {
           "type": "string",
@@ -345,6 +360,56 @@
         "source": {
           "type": "string",
           "minLength": 1
+        },
+        "candidateTargets": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": true,
+            "required": ["bindingStatus"],
+            "anyOf": [
+              { "required": ["deviceId"] },
+              { "required": ["appId"] },
+              { "required": ["source"] },
+              { "required": ["evidencePath"] },
+              { "required": ["reason"] }
+            ],
+            "properties": {
+              "platform": {
+                "type": "string",
+                "enum": ["android", "ios", "unknown"]
+              },
+              "deviceId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "deviceName": {
+                "type": "string",
+                "minLength": 1
+              },
+              "appId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "source": {
+                "type": "string",
+                "minLength": 1
+              },
+              "evidencePath": {
+                "type": "string",
+                "minLength": 1
+              },
+              "bindingStatus": {
+                "type": "string",
+                "enum": ["expected", "observed", "conflicting", "unverified", "unknown"]
+              },
+              "reason": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
         },
         "reason": {
           "type": "string",
