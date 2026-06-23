@@ -602,20 +602,23 @@ test('Android example live proof writes failed aggregate before skipping request
   assert.equal(aggregate.profiles.length, 3);
   assert.equal(aggregate.profiles.some((profile: { healthStatus: string }) => profile.healthStatus === 'failed'), true);
   assert.deepEqual(
-    aggregate.skippedInteractionProofs.map((proof: { label: string; nextAction: { code: string }; runnerId: string }) => ({
+    aggregate.skippedInteractionProofs.map((proof: { label: string; nextAction: { code: string; owner: string }; runnerId: string }) => ({
       label: proof.label,
       nextActionCode: proof.nextAction.code,
+      nextActionOwner: proof.nextAction.owner,
       runnerId: proof.runnerId,
     })),
     [
       {
         label: 'startup-ui',
         nextActionCode: 'fix_profile_gate',
+        nextActionOwner: 'asl_runner',
         runnerId: 'agent-device',
       },
       {
         label: 'startup-ui-argent',
         nextActionCode: 'fix_profile_gate',
+        nextActionOwner: 'asl_runner',
         runnerId: 'argent',
       },
     ],

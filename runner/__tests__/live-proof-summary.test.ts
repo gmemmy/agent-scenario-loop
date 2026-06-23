@@ -72,15 +72,39 @@ test('counts live proof comparison outcomes', () => {
 });
 
 test('maps aggregate live proof statuses to next actions', () => {
-  assert.equal(buildLiveProofNextAction('unchanged', 'failed').code, 'inspect_failed_run');
-  assert.equal(buildLiveProofNextAction('regressed').code, 'inspect_regressions');
-  assert.equal(buildLiveProofNextAction('baseline_missing').code, 'establish_baseline');
-  assert.equal(buildLiveProofNextAction('inconclusive').code, 'inspect_inconclusive');
-  assert.equal(buildLiveProofNextAction('low_confidence').code, 'inspect_low_confidence');
-  assert.equal(buildLiveProofNextAction('mixed').code, 'inspect_mixed');
-  assert.equal(buildLiveProofNextAction('improved').code, 'inspect_summary');
-  assert.equal(buildLiveProofNextAction('unchanged').code, 'inspect_summary');
-  assert.equal(buildLiveProofNextAction('not_compared').code, 'inspect_summary');
+  assert.deepEqual(buildLiveProofNextAction('unchanged', 'failed'), {
+    code: 'inspect_failed_run',
+    owner: 'asl_runner',
+    summary: 'One or more live proof gates failed; inspect failed profile or interaction summaries before making optimization claims.',
+  });
+  assert.deepEqual(buildLiveProofNextAction('regressed'), {
+    code: 'inspect_regressions',
+    owner: 'product_optimization',
+    summary: 'One or more scenario comparisons regressed; inspect comparison summaries before claiming improvement.',
+  });
+  assert.deepEqual(buildLiveProofNextAction('baseline_missing'), {
+    code: 'establish_baseline',
+    owner: 'scenario_contract',
+    summary: 'No trusted prior run was available; keep this proof as a baseline before making before/after claims.',
+  });
+  assert.deepEqual(buildLiveProofNextAction('inconclusive'), {
+    code: 'inspect_inconclusive',
+    owner: 'scenario_contract',
+    summary: 'Some comparisons are inconclusive or incomplete; inspect scenario health and missing baseline details.',
+  });
+  assert.deepEqual(buildLiveProofNextAction('low_confidence'), {
+    code: 'inspect_low_confidence',
+    owner: 'scenario_contract',
+    summary: 'Some comparisons show low-confidence timing movement; repeat or multi-sample proof is required before treating it as a regression.',
+  });
+  assert.deepEqual(buildLiveProofNextAction('mixed'), {
+    code: 'inspect_mixed',
+    owner: 'product_optimization',
+    summary: 'Some timing metrics improved while others worsened; inspect comparison details before claiming improvement or regression.',
+  });
+  assert.equal(buildLiveProofNextAction('improved').owner, 'product_optimization');
+  assert.equal(buildLiveProofNextAction('unchanged').owner, 'product_optimization');
+  assert.equal(buildLiveProofNextAction('not_compared').owner, 'product_optimization');
 });
 
 test('derives failed aggregate status from failed profile gates and skipped sidecars', () => {
@@ -176,6 +200,7 @@ test('writes failed aggregate proofs with skipped interaction proof pointers', a
         label: 'interaction-argent',
         nextAction: {
           code: 'fix_profile_gate',
+          owner: 'asl_runner',
           summary: 'Inspect the profile first.',
         },
         reason: 'Profile verdict failed.',
@@ -188,10 +213,16 @@ test('writes failed aggregate proofs with skipped interaction proof pointers', a
 
   const artifact = JSON.parse(fs.readFileSync(result.liveProofPath, 'utf8'));
   assert.equal(artifact.status, 'failed');
-  assert.equal(artifact.nextAction.code, 'inspect_failed_run');
+  assert.deepEqual(artifact.nextAction, {
+    code: 'inspect_failed_run',
+    owner: 'asl_runner',
+    summary: 'One or more live proof gates failed; inspect failed profile or interaction summaries before making optimization claims.',
+  });
   assert.equal(artifact.summary, 'ios live proof failed with 1 failed profile run(s) without comparison results; skipped 1 interaction proof(s).');
   assert.equal(artifact.skippedInteractionProofs[0].runnerId, 'argent');
-  assert.match(fs.readFileSync(result.summaryPath, 'utf8'), /## Skipped Interaction Proofs/u);
+  const summary = fs.readFileSync(result.summaryPath, 'utf8');
+  assert.match(summary, /Next action: asl_runner\/inspect_failed_run/u);
+  assert.match(summary, /## Skipped Interaction Proofs/u);
 });
 
 test('writes optional interaction proof pointers into aggregate live proof artifacts', async (t: TestContext) => {
@@ -308,6 +339,7 @@ test('writes optional interaction proof pointers into aggregate live proof artif
               name: 'argent_screenshot',
               nextAction: {
                 code: 'inspect_argent_driver_action',
+                owner: 'provider_tooling',
                 summary: 'Inspect raw screenshot output.',
               },
             },
@@ -318,9 +350,9 @@ test('writes optional interaction proof pointers into aggregate live proof artif
     ],
   );
   const summary = fs.readFileSync(result.summaryPath, 'utf8');
+  assert.match(summary, /Next action: product_optimization\/inspect_summary/u);
   assert.match(summary, /## Interaction Proofs/u);
   assert.match(summary, /screenshots=1/u);
   assert.match(summary, /warnings=1/u);
-  assert.match(summary, /warning argent_screenshot: argent_screenshot_failed - Argent driver action screenshot failed\./u);
-  assert.match(summary, /Next action: inspect_argent_driver_action - Inspect raw screenshot output\./u);
+  assert.match(summary, /warning argent_screenshot: argent_screenshot_failed - Argent driver action screenshot failed\. Next action: provider_tooling\/inspect_argent_driver_action - Inspect raw screenshot output\./u);
 });

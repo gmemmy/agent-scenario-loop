@@ -32,6 +32,7 @@ type LiveProofSkippedInteractionProofPointer = {
   label: string;
   nextAction: {
     code: string;
+    owner?: LiveProofNextActionOwner;
     summary: string;
   };
   reason: string;
@@ -50,6 +51,7 @@ type LiveProofInteractionProofWarning = {
   name: string;
   nextAction?: {
     code: string;
+    owner?: LiveProofNextActionOwner;
     summary: string;
   };
 };
@@ -131,8 +133,18 @@ type LiveProofComparisonCounts = {
 
 type LiveProofNextAction = {
   code: 'establish_baseline' | 'inspect_failed_run' | 'inspect_inconclusive' | 'inspect_low_confidence' | 'inspect_mixed' | 'inspect_regressions' | 'inspect_summary';
+  owner: LiveProofNextActionOwner;
   summary: string;
 };
+
+type LiveProofNextActionOwner = (
+  'app_truth' |
+  'asl_runner' |
+  'product_optimization' |
+  'provider_tooling' |
+  'runtime_environment' |
+  'scenario_contract'
+);
 
 type LiveProofSummaryResult = {
   liveProofDir: string;
@@ -211,6 +223,7 @@ function readInteractionProofWarnings(runDir: string): LiveProofInteractionProof
   try {
     const health = JSON.parse(fs.readFileSync(healthPath, 'utf8')) as Record<string, unknown>;
     const checks = Array.isArray(health.checks) ? health.checks : [];
+    const warningNextActionOwner: LiveProofNextActionOwner = 'provider_tooling';
     const warnings = checks
       .filter((check): check is Record<string, unknown> => (
         check &&
@@ -230,6 +243,7 @@ function readInteractionProofWarnings(runDir: string): LiveProofInteractionProof
             ? {
               nextAction: {
                 code: typeof metadata.nextActionCode === 'string' ? metadata.nextActionCode : 'inspect_interaction_warning',
+                owner: warningNextActionOwner,
                 summary: typeof metadata.nextAction === 'string' ? metadata.nextAction : 'Inspect the interaction proof warning.',
               },
             }
@@ -393,6 +407,7 @@ function buildLiveProofComparisonCounts(
  * Builds the next action an agent should take after reading the batch proof.
  *
  * @param {LiveProofComparisonStatus} comparisonStatus
+ * @param {'failed' | 'passed'} [status]
  * @returns {LiveProofNextAction}
  */
 function buildLiveProofNextAction(
@@ -402,6 +417,7 @@ function buildLiveProofNextAction(
   if (status === 'failed') {
     return {
       code: 'inspect_failed_run',
+      owner: 'asl_runner',
       summary: 'One or more live proof gates failed; inspect failed profile or interaction summaries before making optimization claims.',
     };
   }
@@ -409,6 +425,7 @@ function buildLiveProofNextAction(
   if (comparisonStatus === 'regressed') {
     return {
       code: 'inspect_regressions',
+      owner: 'product_optimization',
       summary: 'One or more scenario comparisons regressed; inspect comparison summaries before claiming improvement.',
     };
   }
@@ -416,6 +433,7 @@ function buildLiveProofNextAction(
   if (comparisonStatus === 'baseline_missing') {
     return {
       code: 'establish_baseline',
+      owner: 'scenario_contract',
       summary: 'No trusted prior run was available; keep this proof as a baseline before making before/after claims.',
     };
   }
@@ -423,6 +441,7 @@ function buildLiveProofNextAction(
   if (comparisonStatus === 'inconclusive') {
     return {
       code: 'inspect_inconclusive',
+      owner: 'scenario_contract',
       summary: 'Some comparisons are inconclusive or incomplete; inspect scenario health and missing baseline details.',
     };
   }
@@ -430,6 +449,7 @@ function buildLiveProofNextAction(
   if (comparisonStatus === 'low_confidence') {
     return {
       code: 'inspect_low_confidence',
+      owner: 'scenario_contract',
       summary: 'Some comparisons show low-confidence timing movement; repeat or multi-sample proof is required before treating it as a regression.',
     };
   }
@@ -437,12 +457,14 @@ function buildLiveProofNextAction(
   if (comparisonStatus === 'mixed') {
     return {
       code: 'inspect_mixed',
+      owner: 'product_optimization',
       summary: 'Some timing metrics improved while others worsened; inspect comparison details before claiming improvement or regression.',
     };
   }
 
   return {
     code: 'inspect_summary',
+    owner: 'product_optimization',
     summary: 'Scenario health passed; inspect the live-proof summary and linked evidence before reporting the result.',
   };
 }
@@ -553,10 +575,18 @@ function formatInteractionProofWarnings(proof: LiveProofInteractionProofPointer)
 function formatInteractionProofWarningDetails(proof: LiveProofInteractionProofPointer): string[] {
   return (proof.warnings?.checks ?? []).map((warning) => {
     const nextAction = warning.nextAction
-      ? ` Next action: ${warning.nextAction.code} - ${warning.nextAction.summary}`
+      ? ` Next action: ${formatLiveProofNextAction(warning.nextAction)}`
       : '';
     return `  - warning ${warning.name}: ${warning.code} - ${warning.message}${nextAction}`;
   });
+}
+
+function formatLiveProofNextAction(action: {
+  code: string;
+  owner?: LiveProofNextActionOwner;
+  summary: string;
+}): string {
+  return `${action.owner ?? 'unknown'}/${action.code} - ${action.summary}`;
 }
 
 /**
@@ -573,7 +603,7 @@ function buildLiveProofMarkdown(artifact: LiveProofArtifact): string {
     `Run: ${artifact.runId}`,
     `Comparison status: ${artifact.comparisonStatus}`,
     `Comparison counts: better=${artifact.comparisonCounts.better} worse=${artifact.comparisonCounts.worse} unchanged=${artifact.comparisonCounts.unchanged} mixed=${artifact.comparisonCounts.mixed} inconclusive=${artifact.comparisonCounts.inconclusive} low_confidence=${artifact.comparisonCounts.low_confidence} skipped=${artifact.comparisonCounts.skipped}`,
-    `Next action: ${artifact.nextAction.code} - ${artifact.nextAction.summary}`,
+    `Next action: ${formatLiveProofNextAction(artifact.nextAction)}`,
     `Summary: ${artifact.summary}`,
     '',
     '## Preflight',
@@ -605,7 +635,7 @@ function buildLiveProofMarkdown(artifact: LiveProofArtifact): string {
       '## Skipped Interaction Proofs',
       '',
       ...artifact.skippedInteractionProofs.map((proof) => (
-        `- ${proof.label} (${proof.runnerId}/${proof.scenarioId}/${proof.runId}): ${proof.reason} Next action: ${proof.nextAction.code} - ${proof.nextAction.summary}`
+        `- ${proof.label} (${proof.runnerId}/${proof.scenarioId}/${proof.runId}): ${proof.reason} Next action: ${formatLiveProofNextAction(proof.nextAction)}`
       )),
     );
   }

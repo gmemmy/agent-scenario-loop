@@ -28,6 +28,184 @@ const {
 } = require('../live-proof');
 
 type TestContext = import('node:test').TestContext;
+type TestNextActionCode = (
+  'establish_baseline' |
+  'inspect_failed_run' |
+  'inspect_inconclusive' |
+  'inspect_low_confidence' |
+  'inspect_mixed' |
+  'inspect_regressions' |
+  'inspect_summary'
+);
+type TestNextActionOwner = (
+  'asl_runner' |
+  'product_optimization' |
+  'scenario_contract'
+);
+type TestComparisonPointerStatus = 'low_confidence' | 'mixed' | 'unchanged' | 'worse';
+type TestComparisonStatus = 'low_confidence' | 'mixed' | 'regressed' | 'unchanged';
+
+function buildComparisonPointerStatus(
+  comparisonStatus: TestComparisonStatus,
+): TestComparisonPointerStatus {
+  switch (comparisonStatus) {
+    case 'regressed':
+      return 'worse';
+    case 'mixed':
+      return 'mixed';
+    case 'low_confidence':
+      return 'low_confidence';
+    case 'unchanged':
+      return 'unchanged';
+  }
+}
+
+function buildComparisonMetricCounts(
+  comparisonStatus: TestComparisonStatus,
+): Record<'better' | 'inconclusive' | 'low_confidence' | 'unchanged' | 'worse', number> {
+  switch (comparisonStatus) {
+    case 'mixed':
+      return {
+        better: 1,
+        inconclusive: 0,
+        low_confidence: 0,
+        unchanged: 0,
+        worse: 1,
+      };
+    case 'regressed':
+      return {
+        better: 0,
+        inconclusive: 0,
+        low_confidence: 0,
+        unchanged: 0,
+        worse: 1,
+      };
+    case 'low_confidence':
+      return {
+        better: 0,
+        inconclusive: 0,
+        low_confidence: 1,
+        unchanged: 0,
+        worse: 0,
+      };
+    case 'unchanged':
+      return {
+        better: 0,
+        inconclusive: 0,
+        low_confidence: 0,
+        unchanged: 1,
+        worse: 0,
+      };
+  }
+}
+
+function buildNotableMetrics(comparisonStatus: TestComparisonStatus): Array<Record<string, number | string>> {
+  switch (comparisonStatus) {
+    case 'mixed':
+      return [
+        {
+          baseline: 420,
+          current: 398,
+          delta: -22,
+          name: 'cycle p50',
+          status: 'better',
+          unit: 'ms',
+        },
+        {
+          baseline: 10,
+          current: 16,
+          delta: 6,
+          name: 'close p50',
+          status: 'worse',
+          unit: 'ms',
+        },
+      ];
+    case 'regressed':
+      return [
+        {
+          baseline: 400,
+          current: 426,
+          delta: 26,
+          name: 'cycle p95',
+          status: 'worse',
+          unit: 'ms',
+        },
+      ];
+    case 'low_confidence':
+      return [
+        {
+          baseline: 960,
+          current: 1211,
+          delta: 251,
+          name: 'cycle p95',
+          status: 'low_confidence',
+          unit: 'ms',
+        },
+      ];
+    case 'unchanged':
+      return [];
+  }
+}
+
+function buildComparisonCounts(
+  comparisonStatus: TestComparisonStatus,
+): Record<'better' | 'inconclusive' | 'low_confidence' | 'mixed' | 'skipped' | 'unchanged' | 'worse', number> {
+  const counts = {
+    better: 0,
+    inconclusive: 0,
+    low_confidence: 0,
+    mixed: 0,
+    skipped: 0,
+    unchanged: 0,
+    worse: 0,
+  };
+
+  switch (comparisonStatus) {
+    case 'regressed':
+      return { ...counts, worse: 1 };
+    case 'mixed':
+      return { ...counts, mixed: 1 };
+    case 'low_confidence':
+      return { ...counts, low_confidence: 1 };
+    case 'unchanged':
+      return { ...counts, unchanged: 1 };
+  }
+}
+
+function buildProofNextActionCode(
+  comparisonStatus: TestComparisonStatus,
+  status: 'failed' | 'passed',
+): TestNextActionCode {
+  if (status === 'failed') {
+    return 'inspect_failed_run';
+  }
+
+  switch (comparisonStatus) {
+    case 'regressed':
+      return 'inspect_regressions';
+    case 'mixed':
+      return 'inspect_mixed';
+    case 'low_confidence':
+      return 'inspect_low_confidence';
+    case 'unchanged':
+      return 'inspect_summary';
+  }
+}
+
+function buildProofNextActionOwner(actionCode: TestNextActionCode): TestNextActionOwner {
+  switch (actionCode) {
+    case 'inspect_failed_run':
+      return 'asl_runner';
+    case 'inspect_regressions':
+    case 'inspect_mixed':
+    case 'inspect_summary':
+      return 'product_optimization';
+    case 'establish_baseline':
+    case 'inspect_inconclusive':
+    case 'inspect_low_confidence':
+      return 'scenario_contract';
+  }
+}
 
 /**
  * Builds a minimal valid live-proof artifact for CLI tests.
@@ -38,17 +216,12 @@ type TestContext = import('node:test').TestContext;
  * @returns {Record<string, unknown>}
  */
 function buildProof(
-  comparisonStatus: 'low_confidence' | 'mixed' | 'regressed' | 'unchanged',
+  comparisonStatus: TestComparisonStatus,
   status: 'failed' | 'passed' = 'passed',
   platform: 'android' | 'ios' = 'android',
 ): Record<string, unknown> {
-  const comparisonPointerStatus = comparisonStatus === 'regressed'
-    ? 'worse'
-    : comparisonStatus === 'mixed'
-      ? 'mixed'
-      : comparisonStatus === 'low_confidence'
-        ? 'low_confidence'
-      : 'unchanged';
+  const nextActionCode = buildProofNextActionCode(comparisonStatus, status);
+  const comparisonPointerStatus = buildComparisonPointerStatus(comparisonStatus);
   return {
     schemaVersion: '1.0.0',
     platform,
@@ -94,6 +267,7 @@ function buildProof(
               name: 'argent_screenshot',
               nextAction: {
                 code: 'inspect_argent_driver_action',
+                owner: 'provider_tooling',
                 summary: 'Inspect raw screenshot output.',
               },
             },
@@ -113,108 +287,16 @@ function buildProof(
         summaryPath: `artifacts/example-mobile-app/${platform}/comparisons/app-startup/${platform}-live-startup/agent-summary.md`,
         reason: null,
         metricSummary: {
-          counts: {
-            better: comparisonStatus === 'mixed' ? 1 : 0,
-            worse: comparisonStatus === 'regressed' || comparisonStatus === 'mixed' ? 1 : 0,
-            unchanged: comparisonStatus === 'unchanged' ? 1 : 0,
-            inconclusive: 0,
-            low_confidence: comparisonStatus === 'low_confidence' ? 1 : 0,
-          },
-          notableMetrics: comparisonStatus === 'mixed'
-            ? [
-                {
-                  baseline: 420,
-                  current: 398,
-                  delta: -22,
-                  name: 'cycle p50',
-                  status: 'better',
-                  unit: 'ms',
-                },
-                {
-                  baseline: 10,
-                  current: 16,
-                  delta: 6,
-                  name: 'close p50',
-                  status: 'worse',
-                  unit: 'ms',
-                },
-              ]
-            : comparisonStatus === 'regressed'
-              ? [
-                  {
-                    baseline: 400,
-                    current: 426,
-                    delta: 26,
-                    name: 'cycle p95',
-                    status: 'worse',
-                    unit: 'ms',
-                  },
-                ]
-              : comparisonStatus === 'low_confidence'
-                ? [
-                    {
-                      baseline: 960,
-                      current: 1211,
-                      delta: 251,
-                      name: 'cycle p95',
-                      status: 'low_confidence',
-                      unit: 'ms',
-                    },
-                  ]
-              : [],
+          counts: buildComparisonMetricCounts(comparisonStatus),
+          notableMetrics: buildNotableMetrics(comparisonStatus),
         },
       },
     ],
-    comparisonCounts: comparisonStatus === 'regressed'
-      ? {
-          better: 0,
-          inconclusive: 0,
-          low_confidence: 0,
-          mixed: 0,
-          skipped: 0,
-          unchanged: 0,
-          worse: 1,
-        }
-      : comparisonStatus === 'mixed'
-        ? {
-            better: 0,
-            inconclusive: 0,
-            low_confidence: 0,
-            mixed: 1,
-            skipped: 0,
-            unchanged: 0,
-            worse: 0,
-          }
-        : comparisonStatus === 'low_confidence'
-          ? {
-              better: 0,
-              inconclusive: 0,
-              low_confidence: 1,
-              mixed: 0,
-              skipped: 0,
-              unchanged: 0,
-              worse: 0,
-            }
-          : {
-            better: 0,
-            inconclusive: 0,
-            low_confidence: 0,
-            mixed: 0,
-            skipped: 0,
-            unchanged: 1,
-            worse: 0,
-          },
+    comparisonCounts: buildComparisonCounts(comparisonStatus),
     comparisonStatus,
     nextAction: {
-      code: status === 'failed'
-        ? 'inspect_failed_run'
-        : comparisonStatus === 'regressed'
-        ? 'inspect_regressions'
-        : comparisonStatus === 'mixed'
-          ? 'inspect_mixed'
-          : comparisonStatus === 'low_confidence'
-            ? 'inspect_low_confidence'
-          : 'inspect_summary',
+      code: nextActionCode,
+      owner: buildProofNextActionOwner(nextActionCode),
       summary: 'Inspect linked evidence.',
     },
     summary: `${platform} live proof ${status}/${comparisonStatus}.`,
@@ -406,6 +488,33 @@ test('rejects live-proof artifacts with inconsistent next action', async (t: Tes
   );
 });
 
+test('rejects live-proof artifacts with inconsistent next action owner when present', async (t: TestContext) => {
+  const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-live-proof-action-owner-'));
+  t.after(async () => {
+    await fsp.rm(tempDir, { recursive: true, force: true });
+  });
+  const proof = buildProof('unchanged');
+  (proof.nextAction as Record<string, string>).owner = 'provider_tooling';
+  const proofPath = writeProof(tempDir, proof);
+
+  assert.throws(
+    () => readLiveProof(proofPath),
+    /nextAction\.owner expected product_optimization for inspect_summary but found provider_tooling/u,
+  );
+});
+
+test('keeps legacy live-proof artifacts valid when next action owner is absent', async (t: TestContext) => {
+  const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-live-proof-legacy-action-owner-'));
+  t.after(async () => {
+    await fsp.rm(tempDir, { recursive: true, force: true });
+  });
+  const proof = buildProof('unchanged');
+  delete (proof.nextAction as Record<string, string>).owner;
+  const proofPath = writeProof(tempDir, proof);
+
+  assert.equal(readLiveProof(proofPath).nextAction.owner, undefined);
+});
+
 test('validates local live-proof artifact pointers when requested', async (t: TestContext) => {
   const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-live-proof-pointers-'));
   t.after(async () => {
@@ -482,6 +591,7 @@ test('does not require skipped comparison artifact pointers', async (t: TestCont
   };
   proof.comparisonStatus = 'baseline_missing';
   (proof.nextAction as Record<string, string>).code = 'establish_baseline';
+  (proof.nextAction as Record<string, string>).owner = 'scenario_contract';
   await materializeLiveProofPointers(tempDir, proof);
   const proofPath = writeProof(tempDir, proof);
 
@@ -555,6 +665,11 @@ test('builds a durable live-proof-set artifact for Android and iOS proofs', asyn
   const markdown = formatLiveProofSetArtifactMarkdown(artifact);
 
   assert.equal(artifact.status, 'passed');
+  assert.deepEqual(artifact.nextAction, {
+    code: 'inspect_summary',
+    owner: 'product_optimization',
+    summary: 'Platform proof set is complete; inspect linked artifacts for detail.',
+  });
   assert.equal(artifact.proofCount, 2);
   assert.deepEqual(artifact.presentPlatforms, ['android', 'ios']);
   assert.deepEqual(artifact.missingPlatforms, []);
@@ -569,6 +684,7 @@ test('builds a durable live-proof-set artifact for Android and iOS proofs', asyn
           name: 'argent_screenshot',
           nextAction: {
             code: 'inspect_argent_driver_action',
+            owner: 'provider_tooling',
             summary: 'Inspect raw screenshot output.',
           },
         },
@@ -581,8 +697,7 @@ test('builds a durable live-proof-set artifact for Android and iOS proofs', asyn
   ]);
   assert.match(markdown, /Status: passed/u);
   assert.match(markdown, /- android android-live-proof: status=passed comparison=unchanged/u);
-  assert.match(markdown, /warning android\/startup-ui \(agent-device\/app-startup\/agent-device-startup\): argent_screenshot argent_screenshot_failed - Argent driver action screenshot failed\./u);
-  assert.match(markdown, /Next action: inspect_argent_driver_action - Inspect raw screenshot output\./u);
+  assert.match(markdown, /warning android\/startup-ui \(agent-device\/app-startup\/agent-device-startup\): argent_screenshot argent_screenshot_failed - Argent driver action screenshot failed\. Next action: provider_tooling\/inspect_argent_driver_action - Inspect raw screenshot output\./u);
   assert.match(markdown, /- ios ios-live-proof: status=passed comparison=unchanged/u);
 });
 
@@ -604,7 +719,11 @@ test('builds a failed live-proof-set artifact when a required platform is missin
   assert.equal(artifact.status, 'failed');
   assert.deepEqual(artifact.missingPlatforms, ['ios']);
   assert.deepEqual(artifact.failureReasons, ['Missing required platform proof: ios.']);
-  assert.equal(artifact.nextAction.code, 'collect_missing_platform_proofs');
+  assert.deepEqual(artifact.nextAction, {
+    code: 'collect_missing_platform_proofs',
+    owner: 'runtime_environment',
+    summary: 'Run the missing platform proof(s): ios.',
+  });
 });
 
 test('writes live-proof-set artifact and agent summary', async (t: TestContext) => {
@@ -646,6 +765,7 @@ test('accepts failed live-proof artifacts with skipped interaction proofs', asyn
       label: 'interaction-argent',
       nextAction: {
         code: 'fix_profile_gate',
+        owner: 'asl_runner',
         summary: 'Inspect profile verdict.',
       },
       reason: 'Profile verdict failed.',
@@ -659,8 +779,8 @@ test('accepts failed live-proof artifacts with skipped interaction proofs', asyn
   const output = formatLiveProof(readLiveProof(proofPath));
   assert.match(output, /Status: failed/u);
   assert.match(output, /Skipped interaction proofs: 1/u);
-  assert.match(output, /interaction-argent \(argent\/app-startup\/app-startup-android-argent\): Profile verdict failed\. next=fix_profile_gate/u);
-  assert.match(output, /Next action: inspect_failed_run/u);
+  assert.match(output, /interaction-argent \(argent\/app-startup\/app-startup-android-argent\): Profile verdict failed\. next=asl_runner\/fix_profile_gate/u);
+  assert.match(output, /Next action: asl_runner\/inspect_failed_run/u);
 });
 
 test('reads, validates, and formats live-proof artifacts', async (t: TestContext) => {
@@ -678,11 +798,10 @@ test('reads, validates, and formats live-proof artifacts', async (t: TestContext
   assert.match(output, /Preflight: android-live-preflight health=passed verdict=not_evaluated/u);
   assert.match(output, /startup \(app-startup\/android-live-startup\): health=passed verdict=passed/u);
   assert.match(output, /startup-ui \(agent-device\/app-startup\/agent-device-startup\): health=passed verdict=not_evaluated screenshots=1 warnings=1/u);
-  assert.match(output, /warning argent_screenshot: argent_screenshot_failed - Argent driver action screenshot failed\./u);
-  assert.match(output, /next=inspect_argent_driver_action - Inspect raw screenshot output\./u);
+  assert.match(output, /warning argent_screenshot: argent_screenshot_failed - Argent driver action screenshot failed\. next=provider_tooling\/inspect_argent_driver_action - Inspect raw screenshot output\./u);
   assert.match(output, /Comparison counts: better=0 worse=0 unchanged=1 mixed=0 inconclusive=0 low_confidence=0 skipped=0/u);
   assert.match(output, /startup \(app-startup\/android-live-startup\): unchanged \(metrics better=0 worse=0 unchanged=1 inconclusive=0 low_confidence=0\)/u);
-  assert.match(output, /Next action: inspect_summary/u);
+  assert.match(output, /Next action: product_optimization\/inspect_summary/u);
   assert.equal(shouldFailOnRegression({ failOnRegression: true, proof }), false);
 });
 
