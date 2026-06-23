@@ -117,6 +117,9 @@ test('agent-device driver maps portable driver actions', async () => {
     'swipe 20 30 220 330 125 --platform ios --udid BOOTED --json': {
       stdout: '{"success":true}\n',
     },
+    'type hello --delay-ms 25 --platform ios --udid BOOTED --json': {
+      stdout: '{"success":true}\n',
+    },
     'logs path --platform ios --udid BOOTED --json': {
       stdout: '/tmp/agent-device.log\n',
     },
@@ -136,6 +139,7 @@ test('agent-device driver maps portable driver actions', async () => {
   const scroll = await driver.scroll({ pixels: 400 });
   const scrollWithCoordinates = await driver.scroll({ durationMs: 250, endX: 100, endY: 300, startX: 100, startY: 800 });
   const swipe = await driver.swipe({ durationMs: 125, endX: 220, endY: 330, startX: 20, startY: 30 });
+  const typeText = await driver.typeText({ delayMs: 25, text: 'hello' });
   const logs = await driver.readLogs();
 
   assert.equal(tapSelector.action, 'tap');
@@ -147,6 +151,8 @@ test('agent-device driver maps portable driver actions', async () => {
   assert.equal(scrollWithCoordinates.action, 'scroll');
   assert.equal(swipe.action, 'swipe');
   assert.equal(swipe.rawFileName, 'agent-device-swipe.txt');
+  assert.equal(typeText.action, 'typeText');
+  assert.equal(typeText.rawFileName, 'agent-device-type-text.txt');
   assert.equal(logs.rawFileName, 'agent-device-logs.txt');
 });
 
