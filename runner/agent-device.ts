@@ -98,7 +98,7 @@ type AgentDeviceDriverStep = {
   captureFileName?: string;
   delayMs?: number;
   direction?: string;
-  driverAction: 'assertVisible' | 'inspectTree' | 'longPress' | 'pinch' | 'readLogs' | 'screenshot' | 'scroll' | 'swipe' | 'tap' | 'typeText';
+  driverAction: 'assertVisible' | 'inspectTree' | 'longPress' | 'pinch' | 'pressButton' | 'readLogs' | 'screenshot' | 'scroll' | 'swipe' | 'tap' | 'typeText';
   durationMs?: number;
   endX?: number;
   endY?: number;
@@ -174,6 +174,7 @@ const DEFAULT_AGENT_DEVICE_REQUIRED_COMMANDS = [
   'is',
   'click',
   'longpress',
+  'press',
   'scroll',
   'swipe',
   'type',
@@ -1164,7 +1165,7 @@ function resolveAgentDeviceDriverSteps(scenario: Record<string, any>): AgentDevi
   const executionPlan = buildScenarioExecutionPlan(scenario);
   return executionPlan.steps
     .filter((step: ScenarioExecutionStep) =>
-      ['assertVisible', 'inspectTree', 'longPress', 'pinch', 'readLogs', 'screenshot', 'scroll', 'swipe', 'tap', 'typeText'].includes(String(step.driverAction)),
+      ['assertVisible', 'inspectTree', 'longPress', 'pinch', 'pressButton', 'readLogs', 'screenshot', 'scroll', 'swipe', 'tap', 'typeText'].includes(String(step.driverAction)),
     )
     .map((step: ScenarioExecutionStep, index: number) => {
       const agentDeviceOptions = readAgentDeviceStepOptions(step);
@@ -1225,7 +1226,7 @@ function validateAgentDeviceDriverSteps(driverSteps: AgentDeviceDriverStep[]): s
   for (const step of driverSteps) {
     const stepLabel = step.stepId ? `step \`${step.stepId}\`` : 'unnamed step';
     if (
-      (step.driverAction === 'tap' || step.driverAction === 'longPress') &&
+      (step.driverAction === 'tap' || step.driverAction === 'longPress' || step.driverAction === 'pressButton') &&
       !step.selector &&
       !step.ref &&
       (typeof step.x !== 'number' || typeof step.y !== 'number')
@@ -1341,6 +1342,15 @@ async function runAgentDeviceDriverStep({
     return driver.pinch({
       ...(driverStep.rawFileName ? { rawFileName: driverStep.rawFileName } : {}),
       scale: driverStep.scale as number,
+      ...(typeof driverStep.x === 'number' ? { x: driverStep.x } : {}),
+      ...(typeof driverStep.y === 'number' ? { y: driverStep.y } : {}),
+    });
+  }
+  if (driverStep.driverAction === 'pressButton') {
+    return driver.pressButton({
+      ...(driverStep.rawFileName ? { rawFileName: driverStep.rawFileName } : {}),
+      ...(driverStep.ref ? { ref: driverStep.ref } : {}),
+      ...(driverStep.selector ? { selector: driverStep.selector } : {}),
       ...(typeof driverStep.x === 'number' ? { x: driverStep.x } : {}),
       ...(typeof driverStep.y === 'number' ? { y: driverStep.y } : {}),
     });

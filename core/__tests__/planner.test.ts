@@ -583,7 +583,31 @@ test('agent-device runner target rejects pinch steps without scale', () => {
   );
 });
 
-test('agent-device runner target accepts tap, longPress, pinch, typeText, and swipe metadata', () => {
+test('agent-device runner target rejects pressButton steps without an executable target', () => {
+  const scenario = readJson('examples/scenarios/mobile/app-startup.json');
+  const runner = readJson('examples/runners/agent-device-ios.json');
+  scenario.steps.push({
+    id: 'press-submit',
+    kind: 'gesture',
+    driverAction: 'pressButton',
+  });
+
+  const result = evaluateRunnerCompatibility({ scenario, runner, platform: 'ios' });
+
+  assert.equal(result.compatible, false);
+  assert.deepEqual(
+    result.errors
+      .filter((error: PlannerIssue) => error.code === 'invalid_adapter_options')
+      .map((error: PlannerIssue) => ({
+        adapter: error.adapter,
+        field: error.field,
+        stepId: error.stepId,
+      })),
+    [{ adapter: 'agentDevice', field: 'selector/ref/x/y', stepId: 'press-submit' }],
+  );
+});
+
+test('agent-device runner target accepts tap, longPress, pinch, pressButton, typeText, and swipe metadata', () => {
   const scenario = readJson('examples/scenarios/mobile/app-startup.json');
   const runner = readJson('examples/runners/agent-device-ios.json');
   scenario.steps.push(
@@ -629,6 +653,15 @@ test('agent-device runner target accepts tap, longPress, pinch, typeText, and sw
           x: 120,
           y: 240,
         },
+      },
+    },
+    {
+      id: 'press-submit',
+      kind: 'gesture',
+      driverAction: 'pressButton',
+      selector: {
+        kind: 'accessibilityLabel',
+        value: 'Submit',
       },
     },
     {

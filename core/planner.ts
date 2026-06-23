@@ -1046,7 +1046,7 @@ function validateAgentDeviceAdapterOptions({
     if (
       typeof selector.match === 'string' &&
       selector.match !== 'exact' &&
-      ['assertVisible', 'longPress', 'tap'].includes(String(step.driverAction))
+      ['assertVisible', 'longPress', 'pressButton', 'tap'].includes(String(step.driverAction))
     ) {
       pushInvalidAdapterOption({
         adapter: 'agentDevice',
@@ -1069,7 +1069,10 @@ function validateAgentDeviceAdapterOptions({
       });
     }
 
-    if ((step.driverAction === 'tap' || step.driverAction === 'longPress') && !hasAgentDeviceTarget(step)) {
+    if (
+      (step.driverAction === 'tap' || step.driverAction === 'longPress' || step.driverAction === 'pressButton') &&
+      !hasAgentDeviceTarget(step)
+    ) {
       pushInvalidAdapterOption({
         adapter: 'agentDevice',
         errors,

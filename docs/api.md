@@ -48,7 +48,7 @@ Runner subpaths are public when a consuming project needs to compose a workflow 
 | `agent-scenario-loop/runner/agent-device` | agent-device capture runner that executes scenario-declared portable driver actions and writes ASL health, verdict, raw, and capture artifacts |
 | `agent-scenario-loop/runner/android-adb` | Android adb readiness, launch, profile-session control, driver actions, and logcat capture |
 | `agent-scenario-loop/runner/android-adb-driver` | adb-backed `tap`, `scroll`, `assertVisible`, `inspectTree`, `screenshot`, and `readLogs` driver adapter |
-| `agent-scenario-loop/runner/agent-device-driver` | agent-device-backed portable action adapter for `tap`, `scroll`, `assertVisible`, `inspectTree`, `screenshot`, `readLogs`, app open/close, and alert helpers |
+| `agent-scenario-loop/runner/agent-device-driver` | agent-device-backed portable action adapter for `tap`, `longPress`, `typeText`, `scroll`, `swipe`, `pressButton`, iOS `pinch`, `assertVisible`, `inspectTree`, `screenshot`, `readLogs`, app open/close, and alert helpers |
 | `agent-scenario-loop/runner/argent` | Argent capture runner that executes launch and coordinate-backed portable driver actions, then writes ASL health, verdict, raw, and capture artifacts |
 | `agent-scenario-loop/runner/argent-driver` | Argent-backed optional adapter for launch, URL open, normalized gestures, screenshot requests, and UI descriptions without bundling Argent |
 | `agent-scenario-loop/runner/check-plan` | scenario/runner/provider compatibility artifact generation |

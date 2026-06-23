@@ -37,7 +37,7 @@ test('reports missing driver methods', () => {
 
   assert.deepEqual(
     missingPortMethods(implementation, DRIVER_PORT),
-    ['longPress', 'typeText', 'scroll', 'swipe', 'pinch', 'assertVisible', 'inspectTree', 'record', 'readLogs', 'collectPerfSignals'],
+    ['longPress', 'typeText', 'scroll', 'swipe', 'pinch', 'pressButton', 'assertVisible', 'inspectTree', 'record', 'readLogs', 'collectPerfSignals'],
   );
 });
 
@@ -70,6 +70,7 @@ test('dispatches normalized driver actions to a swappable driver', async () => {
   assert.equal(isDriverActionName('tap'), true);
   assert.equal(isDriverActionName('swipe'), true);
   assert.equal(isDriverActionName('pinch'), true);
+  assert.equal(isDriverActionName('pressButton'), true);
   assert.equal(isDriverActionName('unknown'), false);
 
   const result = await dispatchDriverAction({
@@ -97,11 +98,11 @@ test('rejects unknown or missing driver actions', async () => {
       dispatchDriverAction({
         driver: {},
         input: {
-          action: 'pinch',
+          action: 'pressButton',
           platform: 'ios',
         },
       }),
-    /Driver is missing action `pinch`/u,
+    /Driver is missing action `pressButton`/u,
   );
 
   await assert.rejects(
