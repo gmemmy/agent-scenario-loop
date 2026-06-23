@@ -1480,6 +1480,126 @@ test('summarizes repeated milestone-only completions without treating empty dura
   assert.match(summary, /- Completed cycles: 6\/6/u);
 });
 
+test('summary health gate overrides completed iteration accounting', () => {
+  const metrics = buildMetricsFromProfileEvents({
+    scenario: 'command-gated-cycle',
+    runId: 'command-gated-cycle-android',
+    expectedIterations: 3,
+    cycleEventNames: {
+      milestone: 'surface_settled',
+    },
+    milestoneEventsPerIteration: 3,
+    events: [
+      { event: 'surface_settled', atMs: 100 },
+      { event: 'surface_settled', atMs: 200 },
+      { event: 'surface_settled', atMs: 300 },
+      { event: 'surface_settled', atMs: 400 },
+      { event: 'surface_settled', atMs: 500 },
+      { event: 'surface_settled', atMs: 600 },
+      { event: 'surface_settled', atMs: 700 },
+      { event: 'surface_settled', atMs: 800 },
+      { event: 'surface_settled', atMs: 900 },
+    ],
+  });
+  const summary = buildSummaryMarkdown({
+    health: {
+      healthStatus: 'failed',
+    },
+    metrics,
+    manifest: {
+      artifacts: sampleManifestArtifacts(),
+      attempt: {
+        attemptId: 'command-gated-cycle-android',
+        attemptNumber: 1,
+        maxAttempts: 1,
+        terminalState: 'passed',
+      },
+      bundleId: 'com.example.app',
+      interactionDriver: 'android-adb',
+      platform: 'android',
+      runId: 'command-gated-cycle-android',
+      scenario: 'command-gated-cycle',
+      simulator: {
+        name: 'Pixel',
+        udid: 'emulator-5554',
+      },
+      status: 'passed',
+    },
+    verdict: {
+      verdictStatus: 'inconclusive',
+    },
+  });
+  const lines = summary.split('\n');
+
+  assert.equal(metrics.status, 'passed');
+  assert.deepEqual(metrics.incompleteIterations, []);
+  assert.equal(lines.includes('- Status: passed'), false);
+  assert.equal(lines.includes('- Terminal state: passed'), false);
+  assert.ok(lines.includes('- Status: failed (health failed; manifest status passed)'));
+  assert.ok(lines.includes('- Health: failed'));
+  assert.ok(lines.includes('- Verdict: inconclusive'));
+  assert.ok(lines.includes('- Manifest status: passed'));
+  assert.ok(lines.includes('- Terminal state: unhealthy (attempt terminal state passed)'));
+  assert.ok(lines.includes('- Attempt terminal state: passed'));
+  assert.ok(lines.includes('- Completed cycles: 3/3'));
+});
+
+test('summary partial health surfaces partial status before manifest status', () => {
+  const metrics = buildMetricsFromProfileEvents({
+    scenario: 'command-gated-cycle',
+    runId: 'command-gated-cycle-android',
+    expectedIterations: 2,
+    cycleEventNames: {
+      milestone: 'surface_settled',
+    },
+    milestoneEventsPerIteration: 2,
+    events: [
+      { event: 'surface_settled', atMs: 100 },
+      { event: 'surface_settled', atMs: 200 },
+      { event: 'surface_settled', atMs: 300 },
+      { event: 'surface_settled', atMs: 400 },
+    ],
+  });
+  const summary = buildSummaryMarkdown({
+    health: {
+      healthStatus: 'partial',
+    },
+    metrics,
+    manifest: {
+      artifacts: sampleManifestArtifacts(),
+      attempt: {
+        attemptId: 'command-gated-cycle-android',
+        attemptNumber: 1,
+        maxAttempts: 1,
+        terminalState: 'passed',
+      },
+      bundleId: 'com.example.app',
+      interactionDriver: 'android-adb',
+      platform: 'android',
+      runId: 'command-gated-cycle-android',
+      scenario: 'command-gated-cycle',
+      simulator: {
+        name: 'Pixel',
+        udid: 'emulator-5554',
+      },
+      status: 'passed',
+    },
+    verdict: {
+      verdictStatus: 'inconclusive',
+    },
+  });
+  const lines = summary.split('\n');
+
+  assert.equal(metrics.status, 'passed');
+  assert.ok(lines.includes('- Status: partial (health partial; manifest status passed)'));
+  assert.ok(lines.includes('- Health: partial'));
+  assert.ok(lines.includes('- Verdict: inconclusive'));
+  assert.ok(lines.includes('- Manifest status: passed'));
+  assert.ok(lines.includes('- Terminal state: partial (attempt terminal state passed)'));
+  assert.ok(lines.includes('- Attempt terminal state: passed'));
+  assert.ok(lines.includes('- Completed cycles: 2/2'));
+});
+
 test('counts multi-command milestone-only cycles without explicit iteration payloads', () => {
   const metrics = buildMetricsFromProfileEvents({
     scenario: 'home-feed-scope-switch-stress',

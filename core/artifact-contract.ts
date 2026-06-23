@@ -49,6 +49,10 @@ type BudgetCheck = {
   code?: string;
   notes?: string;
 };
+type SummaryRunStatus = {
+  note?: string;
+  status: string;
+};
 
 const UNKNOWN_LIFECYCLE_ASSERTION = Object.freeze({
   value: 'unknown',
@@ -2024,17 +2028,132 @@ function buildManifest({
 }
 
 /**
- * Builds the human-readable profile summary.
+ * Reads a string field from an artifact-like object.
  *
- * @param {{manifest: Record<string, unknown>, metrics: Record<string, unknown>}} options
+ * @param {unknown} record
+ * @param {string} key
+ * @param {string} fallback
  * @returns {string}
  */
-function buildSummaryMarkdown({ manifest, metrics }: { manifest: ArtifactRecord; metrics: ArtifactRecord }): string {
+function readArtifactString(record: unknown, key: string, fallback: string): string {
+  if (!record || typeof record !== 'object') {
+    return fallback;
+  }
+
+  const value = (record as ArtifactRecord)[key];
+  return typeof value === 'string' && value.length > 0 ? value : fallback;
+}
+
+/**
+ * Derives the profile summary status from health before manifest status.
+ *
+ * @param {{healthStatus: string, manifestStatus: string}} options
+ * @returns {SummaryRunStatus}
+ */
+function resolveSummaryStatus({
+  healthStatus,
+  manifestStatus,
+}: {
+  healthStatus: string;
+  manifestStatus: string;
+}): SummaryRunStatus {
+  if (healthStatus === 'failed') {
+    return {
+      note: `health failed; manifest status ${manifestStatus}`,
+      status: 'failed',
+    };
+  }
+
+  if (healthStatus === 'partial') {
+    return {
+      note: `health partial; manifest status ${manifestStatus}`,
+      status: 'partial',
+    };
+  }
+
+  if (healthStatus === 'passed') {
+    return {
+      status: manifestStatus,
+    };
+  }
+
+  return {
+    note: 'health status unavailable',
+    status: manifestStatus,
+  };
+}
+
+/**
+ * Derives the profile summary terminal state from health before attempt state.
+ *
+ * @param {{attemptTerminalState: string, healthStatus: string}} options
+ * @returns {SummaryRunStatus}
+ */
+function resolveSummaryTerminalState({
+  attemptTerminalState,
+  healthStatus,
+}: {
+  attemptTerminalState: string;
+  healthStatus: string;
+}): SummaryRunStatus {
+  if (healthStatus === 'failed') {
+    return {
+      note: `attempt terminal state ${attemptTerminalState}`,
+      status: 'unhealthy',
+    };
+  }
+
+  if (healthStatus === 'partial') {
+    return {
+      note: `attempt terminal state ${attemptTerminalState}`,
+      status: 'partial',
+    };
+  }
+
+  return {
+    status: attemptTerminalState,
+  };
+}
+
+/**
+ * Formats a status with its optional explanation.
+ *
+ * @param {SummaryRunStatus} status
+ * @returns {string}
+ */
+function formatSummaryStatus(status: SummaryRunStatus): string {
+  if (typeof status.note === 'string' && status.note.length > 0) {
+    return `${status.status} (${status.note})`;
+  }
+
+  return status.status;
+}
+
+/**
+ * Builds the human-readable profile summary.
+ *
+ * @param {{health?: Record<string, unknown> | null, manifest: Record<string, unknown>, metrics: Record<string, unknown>, verdict?: Record<string, unknown> | null}} options
+ * @returns {string}
+ */
+function buildSummaryMarkdown({
+  health = null,
+  manifest,
+  metrics,
+  verdict = null,
+}: {
+  health?: ArtifactRecord | null;
+  manifest: ArtifactRecord;
+  metrics: ArtifactRecord;
+  verdict?: ArtifactRecord | null;
+}): string {
   const runtimeLabel = manifest.platform === 'android' ? 'Device' : 'Simulator';
   const iterationSummary = buildIterationSummary(metrics);
   const completedCycles = typeof iterationSummary?.completed === 'number'
     ? iterationSummary.completed
     : metrics.durationsMs.length;
+  const healthStatus = readArtifactString(health, 'healthStatus', 'unknown');
+  const verdictStatus = readArtifactString(verdict, 'verdictStatus', 'unknown');
+  const manifestStatus = readArtifactString(manifest, 'status', 'unknown');
   const signalLines = [
     `- JS: ${
       manifest.artifacts.signals.js.length > 0
@@ -2075,10 +2194,17 @@ function buildSummaryMarkdown({ manifest, metrics }: { manifest: ArtifactRecord;
       })
     : ['- none'];
   const attempt = manifest.attempt && typeof manifest.attempt === 'object' ? manifest.attempt : {};
+  const attemptTerminalState = readArtifactString(attempt, 'terminalState', manifestStatus);
+  const summaryStatus = resolveSummaryStatus({ healthStatus, manifestStatus });
+  const summaryTerminalState = resolveSummaryTerminalState({
+    attemptTerminalState,
+    healthStatus,
+  });
   const attemptLines = [
     `- Attempt ID: \`${attempt.attemptId ?? manifest.runId}\``,
     `- Attempt number: ${attempt.attemptNumber ?? 1}/${attempt.maxAttempts ?? 1}`,
-    `- Terminal state: ${attempt.terminalState ?? manifest.status}`,
+    `- Terminal state: ${formatSummaryStatus(summaryTerminalState)}`,
+    `- Attempt terminal state: ${attemptTerminalState}`,
     ...(typeof attempt.retryOfAttemptId === 'string'
       ? [`- Retry of: \`${attempt.retryOfAttemptId}\``]
       : []),
@@ -2091,7 +2217,10 @@ function buildSummaryMarkdown({ manifest, metrics }: { manifest: ArtifactRecord;
   const lines = [
     `# ${String(manifest.platform || 'ios').toUpperCase()} profile run: ${manifest.scenario}`,
     '',
-    `- Status: ${manifest.status}`,
+    `- Status: ${formatSummaryStatus(summaryStatus)}`,
+    `- Health: ${healthStatus}`,
+    `- Verdict: ${verdictStatus}`,
+    `- Manifest status: ${manifestStatus}`,
     `- Run ID: \`${manifest.runId}\``,
     `- Interaction driver: \`${manifest.interactionDriver}\``,
     ...(typeof manifest.comparisonLane === 'string'
