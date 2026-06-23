@@ -694,6 +694,64 @@ test('fails iOS capture when launched target app is not foreground after capture
   );
 });
 
+test('classifies iOS dev-client foreground mismatch after opening dev-client URL', async (t: TestContext) => {
+  const outputDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-ios-simctl-dev-client-foreground-'));
+  t.after(async () => {
+    await fsp.rm(outputDir, { recursive: true, force: true });
+  });
+  const devClientUrl = 'asl-example://expo-development-client/?url=http%3A%2F%2Flocalhost%3A8097';
+  const executor = createExecutor({
+    'simctl list devices': {
+      stdout: [
+        '== Devices ==',
+        '-- iOS 26.3 --',
+        '    iPhone 17 Pro Max (A692ED28-893E-453F-8866-C69331AE757F) (Booted)',
+      ].join('\n'),
+    },
+    'simctl get_app_container A692ED28-893E-453F-8866-C69331AE757F dev.agent-scenario-loop.example app': {
+      stdout: '/tmp/ASLExampleMobile.app\n',
+    },
+    'simctl launch A692ED28-893E-453F-8866-C69331AE757F dev.agent-scenario-loop.example': {
+      stdout: 'dev.agent-scenario-loop.example: 1234\n',
+    },
+    [`simctl openurl A692ED28-893E-453F-8866-C69331AE757F ${devClientUrl}`]: {
+      stdout: '',
+    },
+    'simctl spawn A692ED28-893E-453F-8866-C69331AE757F log show --style compact --last 1m --predicate eventMessage CONTAINS "dev.agent-scenario-loop.example" AND eventMessage CONTAINS "1234"': {
+      stdout: 'Timestamp Ty Process[PID:TID]\n',
+    },
+    'simctl appinfo A692ED28-893E-453F-8866-C69331AE757F dev.agent-scenario-loop.example': {
+      stdout: '{"ApplicationState":"BackgroundRunning","Bundle":"dev.agent-scenario-loop.example"}\n',
+    },
+    'simctl spawn A692ED28-893E-453F-8866-C69331AE757F log show --style compact --last 1m --predicate eventMessage CONTAINS "[profile-event]" OR eventMessage CONTAINS "[profile-session]"': {
+      stdout: 'Timestamp Ty Process[PID:TID]\n',
+    },
+  });
+
+  const result = await runIosSimctlCapture({
+    bundleId: 'dev.agent-scenario-loop.example',
+    deepLinks: [
+      {
+        label: 'ios-dev-client-url',
+        url: devClientUrl,
+      },
+    ],
+    executor,
+    launch: true,
+    logLast: '1m',
+    outputDir,
+    runId: 'ios-dev-client-backgrounded',
+  });
+
+  const foregroundCheck = (
+    result.health.checks as Array<{ code: string; metadata?: { failureClass?: string; nextActionCode?: string } }>
+  ).find((check) => check.code === 'ios_target_app_backgrounded');
+
+  assert.equal(result.health.healthStatus, 'failed');
+  assert.equal(foregroundCheck?.metadata?.failureClass, 'dev_client_foreground_mismatch');
+  assert.equal(foregroundCheck?.metadata?.nextActionCode, 'reload_ios_dev_client_url');
+});
+
 test('blocks lifecycle mutation when simulator launch environment is contaminated', async (t: TestContext) => {
   const outputDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-ios-simctl-launch-env-'));
   t.after(async () => {
