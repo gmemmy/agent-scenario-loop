@@ -20,7 +20,7 @@ The example app also carries the same project-local files a consuming app gets f
 
 - `src/devtools/profile-session.ts`: local app helper entrypoint used by the screen
 - `runner-manifests/primary-runner.json`: portable iOS and Android runner capability manifest
-- `runner-manifests/evidence-provider.json`: optional accessibility, profiler, memory, and network provider manifest
+- `runner-manifests/evidence-provider.json`: optional accessibility, native-performance, profiler, memory, and network provider manifest
 - `scenarios/mobile/app-startup.json`: portable startup scenario used for project validation
 - `scenarios/mobile/open-close-cycle.json`: portable repeated interaction scenario profiled on both iOS and Android
 - `scenarios/mobile/scroll-settle.json`: portable feed scroll scenario profiled on both iOS and Android
@@ -103,6 +103,7 @@ If a selected Xcode beta cannot run the current Expo/RN toolchain cleanly, point
 - `asl/package-scripts.json`: consumer-facing package-script snippets, including portable agent-device and Argent interaction proof commands
 - `runner-manifests/*.json`: project-local runner and provider capability manifests
 - `scripts/asl-capture-accessibility-provider.mjs`: deterministic accessibility provider command used by provider-profile scripts
+- `scripts/asl-capture-native-performance-provider.mjs`: deterministic native-performance provider command used by provider-profile scripts
 - `scripts/asl-capture-profiler-provider.mjs`: deterministic profiler, memory, and network provider command used by provider-profile scripts
 - `scenarios/mobile/app-startup.json`: portable consumer-validation scenario
 - `scenarios/mobile/open-close-cycle.json`: portable open-close scenario backed by committed iOS and Android fixture logs
@@ -138,7 +139,7 @@ pnpm asl:argent:android
 ASL_ARGENT_BIN=/path/to/argent pnpm asl:argent:android
 ```
 
-The `*:provider` scripts execute `runner-manifests/evidence-provider.json`, which runs the deterministic provider scripts and inventories generated accessibility, profiler, memory, and network evidence in `manifest.artifacts.evidenceAttachments`.
+The `*:provider` scripts execute `runner-manifests/evidence-provider.json`, which runs the deterministic provider scripts and inventories generated accessibility, native-performance, profiler, memory, and network evidence in `manifest.artifacts.evidenceAttachments`. The example native-performance output is diagnostic-only fixture evidence; it proves the provider contract, not product performance.
 
 For repeated local runs, put machine-specific runner values in an ignored `.asl.local.env` file at the example app or repo root instead of repeating inline environment variables. ASL CLIs load the nearest `.asl.local.env` without overriding already-exported values:
 
