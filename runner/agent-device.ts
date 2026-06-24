@@ -98,7 +98,7 @@ type AgentDeviceDriverStep = {
   captureFileName?: string;
   delayMs?: number;
   direction?: string;
-  driverAction: 'assertVisible' | 'inspectTree' | 'longPress' | 'pinch' | 'pressButton' | 'readLogs' | 'screenshot' | 'scroll' | 'swipe' | 'tap' | 'typeText';
+  driverAction: 'assertVisible' | 'focus' | 'inspectTree' | 'longPress' | 'pinch' | 'pressButton' | 'readLogs' | 'screenshot' | 'scroll' | 'swipe' | 'tap' | 'typeText';
   durationMs?: number;
   endX?: number;
   endY?: number;
@@ -173,6 +173,7 @@ const DEFAULT_AGENT_DEVICE_REQUIRED_COMMANDS = [
   'screenshot',
   'is',
   'click',
+  'focus',
   'longpress',
   'press',
   'scroll',
@@ -1165,7 +1166,7 @@ function resolveAgentDeviceDriverSteps(scenario: Record<string, any>): AgentDevi
   const executionPlan = buildScenarioExecutionPlan(scenario);
   return executionPlan.steps
     .filter((step: ScenarioExecutionStep) =>
-      ['assertVisible', 'inspectTree', 'longPress', 'pinch', 'pressButton', 'readLogs', 'screenshot', 'scroll', 'swipe', 'tap', 'typeText'].includes(String(step.driverAction)),
+      ['assertVisible', 'focus', 'inspectTree', 'longPress', 'pinch', 'pressButton', 'readLogs', 'screenshot', 'scroll', 'swipe', 'tap', 'typeText'].includes(String(step.driverAction)),
     )
     .map((step: ScenarioExecutionStep, index: number) => {
       const agentDeviceOptions = readAgentDeviceStepOptions(step);
@@ -1238,6 +1239,9 @@ function validateAgentDeviceDriverSteps(driverSteps: AgentDeviceDriverStep[]): s
     }
     if (step.driverAction === 'typeText' && (typeof step.text !== 'string' || step.text.length === 0)) {
       errors.push(`${stepLabel} uses driverAction \`typeText\` but is missing adapterOptions.agentDevice.text.`);
+    }
+    if (step.driverAction === 'focus' && (typeof step.x !== 'number' || typeof step.y !== 'number')) {
+      errors.push(`${stepLabel} uses driverAction \`focus\` but is missing adapterOptions.agentDevice.x/y.`);
     }
     if (step.driverAction === 'pinch' && typeof step.scale !== 'number') {
       errors.push(`${stepLabel} uses driverAction \`pinch\` but is missing adapterOptions.agentDevice.scale.`);
@@ -1344,6 +1348,13 @@ async function runAgentDeviceDriverStep({
       scale: driverStep.scale as number,
       ...(typeof driverStep.x === 'number' ? { x: driverStep.x } : {}),
       ...(typeof driverStep.y === 'number' ? { y: driverStep.y } : {}),
+    });
+  }
+  if (driverStep.driverAction === 'focus') {
+    return driver.focus({
+      ...(driverStep.rawFileName ? { rawFileName: driverStep.rawFileName } : {}),
+      x: driverStep.x as number,
+      y: driverStep.y as number,
     });
   }
   if (driverStep.driverAction === 'pressButton') {

@@ -559,6 +559,30 @@ test('agent-device runner target rejects typeText steps without text', () => {
   );
 });
 
+test('agent-device runner target rejects focus steps without coordinates', () => {
+  const scenario = readJson('examples/scenarios/mobile/app-startup.json');
+  const runner = readJson('examples/runners/agent-device-ios.json');
+  scenario.steps.push({
+    id: 'focus-search',
+    kind: 'gesture',
+    driverAction: 'focus',
+  });
+
+  const result = evaluateRunnerCompatibility({ scenario, runner, platform: 'ios' });
+
+  assert.equal(result.compatible, false);
+  assert.deepEqual(
+    result.errors
+      .filter((error: PlannerIssue) => error.code === 'invalid_adapter_options')
+      .map((error: PlannerIssue) => ({
+        adapter: error.adapter,
+        field: error.field,
+        stepId: error.stepId,
+      })),
+    [{ adapter: 'agentDevice', field: 'x/y', stepId: 'focus-search' }],
+  );
+});
+
 test('agent-device runner target rejects pinch steps without scale', () => {
   const scenario = readJson('examples/scenarios/mobile/app-startup.json');
   const runner = readJson('examples/runners/agent-device-ios.json');
@@ -607,7 +631,7 @@ test('agent-device runner target rejects pressButton steps without an executable
   );
 });
 
-test('agent-device runner target accepts tap, longPress, pinch, pressButton, typeText, and swipe metadata', () => {
+test('agent-device runner target accepts tap, longPress, focus, pinch, pressButton, typeText, and swipe metadata', () => {
   const scenario = readJson('examples/scenarios/mobile/app-startup.json');
   const runner = readJson('examples/runners/agent-device-ios.json');
   scenario.steps.push(
@@ -640,6 +664,17 @@ test('agent-device runner target accepts tap, longPress, pinch, pressButton, typ
         agentDevice: {
           durationMs: 700,
           ref: 'node-2',
+        },
+      },
+    },
+    {
+      id: 'focus-search',
+      kind: 'gesture',
+      driverAction: 'focus',
+      adapterOptions: {
+        agentDevice: {
+          x: 44,
+          y: 88,
         },
       },
     },

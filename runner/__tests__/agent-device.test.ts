@@ -102,6 +102,7 @@ test('agent-device availability check verifies command surface and booted platfo
           'screenshot',
           'is',
           'click',
+          'focus',
           'longpress',
           'pinch',
           'press',
@@ -173,6 +174,7 @@ test('agent-device availability check does not require iOS-only pinch for Androi
           'screenshot',
           'is',
           'click',
+          'focus',
           'longpress',
           'press',
           'scroll',
@@ -201,7 +203,7 @@ test('agent-device availability check preserves failed command diagnostics', asy
       stderr: args[0] === 'devices' ? 'daemon unavailable' : '',
       stdout: args[0] === 'devices'
         ? ''
-        : 'CLI to control iOS and Android devices\nopen\nsnapshot\nscreenshot\nis\nclick\nlongpress\npinch\npress\nscroll\nswipe\ntype\nlogs\ndevices\nsession list\n',
+        : 'CLI to control iOS and Android devices\nopen\nsnapshot\nscreenshot\nis\nclick\nfocus\nlongpress\npinch\npress\nscroll\nswipe\ntype\nlogs\ndevices\nsession list\n',
     }),
     requiredPlatforms: ['ios'],
   });
@@ -244,7 +246,7 @@ test('agent-device availability check fails when active sessions cannot be inspe
         command,
         exitCode: 0,
         stderr: '',
-        stdout: 'CLI to control iOS and Android devices\nopen\nsnapshot\nscreenshot\nis\nclick\nlongpress\npinch\npress\nscroll\nswipe\ntype\nlogs\ndevices\nsession list\n',
+        stdout: 'CLI to control iOS and Android devices\nopen\nsnapshot\nscreenshot\nis\nclick\nfocus\nlongpress\npinch\npress\nscroll\nswipe\ntype\nlogs\ndevices\nsession list\n',
       };
     },
   });
@@ -311,7 +313,7 @@ test('agent-device availability check writes ASL artifacts when requested', asyn
         command,
         exitCode: 0,
         stderr: '',
-        stdout: 'CLI to control iOS and Android devices\nopen\nsnapshot\nscreenshot\nis\nclick\nlongpress\npinch\npress\nscroll\nswipe\ntype\nlogs\ndevices\nsession list\n',
+        stdout: 'CLI to control iOS and Android devices\nopen\nsnapshot\nscreenshot\nis\nclick\nfocus\nlongpress\npinch\npress\nscroll\nswipe\ntype\nlogs\ndevices\nsession list\n',
       };
     },
     requiredPlatforms: ['android'],
@@ -355,6 +357,18 @@ test('agent-device capture executes scenario driver actions and writes artifacts
         kind: 'gesture',
         driverAction: 'tap',
         selector: { kind: 'accessibilityLabel', value: 'Open' },
+      },
+      {
+        id: 'focus-search',
+        kind: 'gesture',
+        driverAction: 'focus',
+        adapterOptions: {
+          agentDevice: {
+            rawFileName: 'focus-search.txt',
+            x: 120,
+            y: 240,
+          },
+        },
       },
       {
         id: 'assert-ready',
@@ -406,6 +420,7 @@ test('agent-device capture executes scenario driver actions and writes artifacts
     'session list --json',
     'open dev.example.app --platform ios --target mobile --udid BOOTED --json',
     'click label="Open" --platform ios --target mobile --udid BOOTED --json',
+    'focus 120 240 --platform ios --target mobile --udid BOOTED --json',
     'is visible text="Ready" --platform ios --target mobile --udid BOOTED --json',
     `screenshot ${path.join(tempDir, 'captures', 'final.png')} --platform ios --target mobile --udid BOOTED --json`,
   ]);
@@ -417,7 +432,7 @@ test('agent-device capture executes scenario driver actions and writes artifacts
   assert.equal(fs.existsSync(path.join(tempDir, 'captures', 'final.png')), true);
   assertAdapterArtifactConformance(result, {
     expectedHealthStatus: 'passed',
-    rawArtifacts: ['raw/agent-device-metadata.json', 'raw/final-screenshot.txt'],
+    rawArtifacts: ['raw/agent-device-metadata.json', 'raw/final-screenshot.txt', 'raw/focus-search.txt'],
   });
   assertReportedCaptureArtifactsExist(result);
   assertMetadataCapturePathsExist(tempDir, 'raw/agent-device-metadata.json');
@@ -801,6 +816,18 @@ test('agent-device driver step expansion preserves portable selectors and option
         },
       },
       {
+        id: 'focus-search',
+        kind: 'gesture',
+        driverAction: 'focus',
+        adapterOptions: {
+          agentDevice: {
+            rawFileName: 'focus-search.txt',
+            x: 120,
+            y: 240,
+          },
+        },
+      },
+      {
         id: 'capture-final',
         kind: 'captureEvidence',
         artifact: 'screenshot',
@@ -876,9 +903,18 @@ test('agent-device driver step expansion preserves portable selectors and option
       waitMs: 0,
     },
     {
-      captureFileName: 'agent-device-screenshot-8.png',
+      driverAction: 'focus',
+      rawFileName: 'focus-search.txt',
+      required: true,
+      stepId: 'focus-search',
+      waitMs: 0,
+      x: 120,
+      y: 240,
+    },
+    {
+      captureFileName: 'agent-device-screenshot-9.png',
       driverAction: 'screenshot',
-      rawFileName: 'agent-device-screenshot-8.txt',
+      rawFileName: 'agent-device-screenshot-9.txt',
       required: true,
       stepId: 'capture-final',
       waitMs: 0,
@@ -905,6 +941,11 @@ test('agent-device driver step validation rejects missing tap targets', () => {
         stepId: 'pinch-missing',
       },
       {
+        driverAction: 'focus',
+        required: true,
+        stepId: 'focus-missing',
+      },
+      {
         driverAction: 'pressButton',
         required: true,
         stepId: 'press-button-missing',
@@ -926,6 +967,7 @@ test('agent-device driver step validation rejects missing tap targets', () => {
       'step `tap-missing` uses driverAction `tap` but is missing a selector, adapterOptions.agentDevice.ref, or adapterOptions.agentDevice.x/y.',
       'step `long-press-missing` uses driverAction `longPress` but is missing a selector, adapterOptions.agentDevice.ref, or adapterOptions.agentDevice.x/y.',
       'step `pinch-missing` uses driverAction `pinch` but is missing adapterOptions.agentDevice.scale.',
+      'step `focus-missing` uses driverAction `focus` but is missing adapterOptions.agentDevice.x/y.',
       'step `press-button-missing` uses driverAction `pressButton` but is missing a selector, adapterOptions.agentDevice.ref, or adapterOptions.agentDevice.x/y.',
       'step `swipe-missing` uses driverAction `swipe` but is missing adapterOptions.agentDevice.startX/startY/endX/endY.',
       'step `type-missing` uses driverAction `typeText` but is missing adapterOptions.agentDevice.text.',

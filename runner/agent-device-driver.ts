@@ -69,6 +69,12 @@ type AgentDevicePinchOptions = {
   y?: number;
 };
 
+type AgentDeviceFocusOptions = {
+  rawFileName?: string;
+  x: number;
+  y: number;
+};
+
 type AgentDevicePressButtonOptions = {
   rawFileName?: string;
   ref?: string;
@@ -134,6 +140,7 @@ type AgentDeviceDriver = {
   alert: (options?: AgentDeviceAlertOptions) => Promise<AgentDeviceCommandResult>;
   assertVisible: (options: AgentDeviceAssertVisibleOptions) => Promise<AgentDeviceCommandResult>;
   close: (app: string) => Promise<AgentDeviceCommandResult>;
+  focus: (options: AgentDeviceFocusOptions) => Promise<AgentDeviceCommandResult>;
   inspectTree: (options?: AgentDeviceInspectTreeOptions) => Promise<AgentDeviceCommandResult>;
   longPress: (options: AgentDeviceLongPressOptions) => Promise<AgentDeviceCommandResult>;
   open: (options: AgentDeviceOpenOptions) => Promise<AgentDeviceCommandResult>;
@@ -404,6 +411,14 @@ function createAgentDeviceDriver(options: AgentDeviceDriverOptions): AgentDevice
       return run('pinch', rawFileName, ['pinch', String(scale), ...centerArgs]);
     },
 
+    async focus({
+      rawFileName = 'agent-device-focus.txt',
+      x,
+      y,
+    }: AgentDeviceFocusOptions): Promise<AgentDeviceCommandResult> {
+      return run('focus', rawFileName, ['focus', String(x), String(y)]);
+    },
+
     async pressButton({
       rawFileName = 'agent-device-press-button.txt',
       ref,
@@ -471,6 +486,7 @@ export type {
   AgentDeviceCommandResult,
   AgentDeviceDriver,
   AgentDeviceDriverOptions,
+  AgentDeviceFocusOptions,
   AgentDeviceInspectTreeOptions,
   AgentDeviceLongPressOptions,
   AgentDeviceOpenOptions,

@@ -380,6 +380,7 @@
         "pinch",
         "rotate",
         "typeText",
+        "focus",
         "pressKey",
         "pressButton",
         "assertVisible",
