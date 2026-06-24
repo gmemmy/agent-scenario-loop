@@ -261,6 +261,20 @@ test('Argent capture executes scenario driver actions and writes artifacts', asy
         },
       },
       {
+        id: 'drag-card',
+        kind: 'gesture',
+        driverAction: 'drag',
+        adapterOptions: {
+          argent: {
+            durationMs: 450,
+            endX: 750,
+            endY: 640,
+            startX: 250,
+            startY: 320,
+          },
+        },
+      },
+      {
         id: 'assert-ready',
         kind: 'assertUi',
         driverAction: 'assertVisible',
@@ -318,6 +332,7 @@ test('Argent capture executes scenario driver actions and writes artifacts', asy
   assert.deepEqual(calls, [
     '--yes @swmansion/argent run launch-app --udid SIM-123 --bundleId dev.example.app',
     '--yes @swmansion/argent run gesture-tap --udid SIM-123 --x 0.5 --y 0.5',
+    '--yes @swmansion/argent run gesture-custom --udid SIM-123 --events-json [{"type":"Down","x":0.25,"y":0.4},{"delayMs":450,"type":"Move","x":0.75,"y":0.8},{"type":"Up","x":0.75,"y":0.8}]',
     '--yes @swmansion/argent run describe --udid SIM-123 --bundleId dev.example.app',
     '--yes @swmansion/argent run screenshot --udid SIM-123 --includeImageInContext false',
   ]);
@@ -326,6 +341,7 @@ test('Argent capture executes scenario driver actions and writes artifacts', asy
   assert.equal(readJson(path.join(tempDir, 'verdict.json')).verdictStatus, 'not_evaluated');
   assert.equal(readJson(path.join(tempDir, 'raw', 'argent-metadata.json')).platform, 'ios');
   assert.equal(fs.existsSync(path.join(tempDir, 'raw', 'argent-launch-1.txt')), true);
+  assert.equal(fs.existsSync(path.join(tempDir, 'raw', 'argent-drag-3.txt')), true);
   assert.equal(fs.existsSync(path.join(tempDir, 'raw', 'final-screenshot.txt')), true);
   assert.equal(fs.existsSync(path.join(tempDir, 'captures', 'final.png')), true);
   assertAdapterArtifactConformance(result, {
@@ -630,6 +646,20 @@ test('Argent driver step expansion validates coordinate-backed metadata', () => 
         },
       },
       {
+        id: 'drag-card',
+        kind: 'gesture',
+        driverAction: 'drag',
+        adapterOptions: {
+          argent: {
+            durationMs: 475,
+            endX: 300,
+            endY: 500,
+            startX: 100,
+            startY: 300,
+          },
+        },
+      },
+      {
         id: 'assert-title',
         kind: 'assertUi',
         driverAction: 'assertVisible',
@@ -705,8 +735,20 @@ test('Argent driver step expansion validates coordinate-backed metadata', () => 
       y: 300,
     },
     {
+      driverAction: 'drag',
+      durationMs: 475,
+      endX: 300,
+      endY: 500,
+      rawFileName: 'argent-drag-4.txt',
+      required: true,
+      startX: 100,
+      startY: 300,
+      stepId: 'drag-card',
+      waitMs: 0,
+    },
+    {
       driverAction: 'assertVisible',
-      rawFileName: 'argent-assertVisible-4.txt',
+      rawFileName: 'argent-assertVisible-5.txt',
       required: true,
       selector: {
         kind: 'text',
@@ -720,7 +762,7 @@ test('Argent driver step expansion validates coordinate-backed metadata', () => 
       durationMs: 350,
       endX: 100,
       endY: 200,
-      rawFileName: 'argent-scroll-5.txt',
+      rawFileName: 'argent-scroll-6.txt',
       required: true,
       startX: 100,
       startY: 700,
@@ -732,7 +774,7 @@ test('Argent driver step expansion validates coordinate-backed metadata', () => 
       durationMs: 175,
       endX: 300,
       endY: 400,
-      rawFileName: 'argent-swipe-6.txt',
+      rawFileName: 'argent-swipe-7.txt',
       required: true,
       startX: 100,
       startY: 200,
@@ -749,10 +791,12 @@ test('Argent driver step expansion validates coordinate-backed metadata', () => 
   assert.deepEqual(validateArgentDriverSteps([
     { driverAction: 'tap', rawFileName: 'tap.txt', required: true, stepId: 'tap-missing', waitMs: 0 },
     { driverAction: 'longPress', rawFileName: 'long-press.txt', required: true, stepId: 'long-press-missing', waitMs: 0 },
+    { driverAction: 'drag', rawFileName: 'drag.txt', required: true, stepId: 'drag-missing', waitMs: 0 },
     { driverAction: 'swipe', rawFileName: 'swipe.txt', required: true, stepId: 'swipe-missing', waitMs: 0 },
   ]), [
     'step `tap-missing` uses driverAction `tap` but is missing adapterOptions.argent.x/y.',
     'step `long-press-missing` uses driverAction `longPress` but is missing adapterOptions.argent.x/y.',
+    'step `drag-missing` uses driverAction `drag` but is missing adapterOptions.argent.startX/startY/endX/endY.',
     'step `swipe-missing` uses driverAction `swipe` but is missing adapterOptions.argent.startX/startY/endX/endY.',
   ]);
 });
