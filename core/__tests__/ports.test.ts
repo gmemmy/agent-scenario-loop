@@ -37,7 +37,7 @@ test('reports missing driver methods', () => {
 
   assert.deepEqual(
     missingPortMethods(implementation, DRIVER_PORT),
-    ['longPress', 'typeText', 'scroll', 'swipe', 'pinch', 'pressButton', 'focus', 'assertVisible', 'inspectTree', 'record', 'readLogs', 'collectPerfSignals'],
+    ['longPress', 'typeText', 'scroll', 'swipe', 'pinch', 'rotate', 'pressButton', 'focus', 'assertVisible', 'inspectTree', 'record', 'readLogs', 'collectPerfSignals'],
   );
 });
 
@@ -70,6 +70,7 @@ test('dispatches normalized driver actions to a swappable driver', async () => {
   assert.equal(isDriverActionName('tap'), true);
   assert.equal(isDriverActionName('swipe'), true);
   assert.equal(isDriverActionName('pinch'), true);
+  assert.equal(isDriverActionName('rotate'), true);
   assert.equal(isDriverActionName('pressButton'), true);
   assert.equal(isDriverActionName('focus'), true);
   assert.equal(isDriverActionName('unknown'), false);

@@ -111,6 +111,9 @@ test('agent-device driver maps portable driver actions', async () => {
     'press label="Submit" --platform ios --udid BOOTED --json': {
       stdout: '{"success":true}\n',
     },
+    'rotate landscape-left --platform ios --udid BOOTED --json': {
+      stdout: '{"success":true}\n',
+    },
     'is visible text="Ready" --platform ios --udid BOOTED --json': {
       stdout: '{"success":true}\n',
     },
@@ -149,6 +152,7 @@ test('agent-device driver maps portable driver actions', async () => {
   const pinch = await driver.pinch({ scale: 1.2, x: 120, y: 240 });
   const focus = await driver.focus({ x: 120, y: 240 });
   const pressButton = await driver.pressButton({ selector: { kind: 'accessibilityLabel', value: 'Submit' } });
+  const rotate = await driver.rotate({ orientation: 'landscape-left' });
   const assertVisible = await driver.assertVisible({ selector: { kind: 'text', value: 'Ready' } });
   const inspectTree = await driver.inspectTree();
   const screenshot = await driver.screenshot({ outputPath: screenshotPath });
@@ -168,6 +172,8 @@ test('agent-device driver maps portable driver actions', async () => {
   assert.equal(focus.rawFileName, 'agent-device-focus.txt');
   assert.equal(pressButton.action, 'pressButton');
   assert.equal(pressButton.rawFileName, 'agent-device-press-button.txt');
+  assert.equal(rotate.action, 'rotate');
+  assert.equal(rotate.rawFileName, 'agent-device-rotate.txt');
   assert.equal(assertVisible.action, 'assertVisible');
   assert.equal(inspectTree.action, 'inspectTree');
   assert.equal(screenshot.capturePath, screenshotPath);

@@ -631,7 +631,7 @@ test('agent-device runner target rejects pressButton steps without an executable
   );
 });
 
-test('agent-device runner target accepts tap, longPress, focus, pinch, pressButton, typeText, and swipe metadata', () => {
+test('agent-device runner target accepts tap, longPress, focus, pinch, rotate, pressButton, typeText, and swipe metadata', () => {
   const scenario = readJson('examples/scenarios/mobile/app-startup.json');
   const runner = readJson('examples/runners/agent-device-ios.json');
   scenario.steps.push(
@@ -700,6 +700,16 @@ test('agent-device runner target accepts tap, longPress, focus, pinch, pressButt
       },
     },
     {
+      id: 'rotate-landscape',
+      kind: 'gesture',
+      driverAction: 'rotate',
+      adapterOptions: {
+        agentDevice: {
+          orientation: 'landscape-left',
+        },
+      },
+    },
+    {
       id: 'swipe-card',
       kind: 'gesture',
       driverAction: 'swipe',
@@ -730,6 +740,30 @@ test('agent-device runner target accepts tap, longPress, focus, pinch, pressButt
   assert.deepEqual(
     result.errors.filter((error: PlannerIssue) => error.code === 'invalid_adapter_options'),
     [],
+  );
+});
+
+test('agent-device runner target rejects rotate without orientation', () => {
+  const scenario = readJson('examples/scenarios/mobile/app-startup.json');
+  const runner = readJson('examples/runners/agent-device-android.json');
+  scenario.steps.push({
+    id: 'rotate-device',
+    kind: 'gesture',
+    driverAction: 'rotate',
+  });
+
+  const result = evaluateRunnerCompatibility({ scenario, runner, platform: 'android' });
+
+  assert.equal(result.compatible, false);
+  assert.deepEqual(
+    result.errors
+      .filter((error: PlannerIssue) => error.code === 'invalid_adapter_options')
+      .map((error: PlannerIssue) => ({
+        adapter: error.adapter,
+        field: error.field,
+        stepId: error.stepId,
+      })),
+    [{ adapter: 'agentDevice', field: 'orientation', stepId: 'rotate-device' }],
   );
 });
 

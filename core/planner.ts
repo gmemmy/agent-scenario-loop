@@ -354,6 +354,21 @@ function hasStartEndCoordinates(options: ManifestRecord): boolean {
 }
 
 /**
+ * Returns true when a value is one of the agent-device orientation tokens.
+ *
+ * @param {unknown} value
+ * @returns {boolean}
+ */
+function isAgentDeviceOrientation(value: unknown): boolean {
+  return value === 'portrait' ||
+    value === 'portrait-upside-down' ||
+    value === 'landscape-left' ||
+    value === 'landscape-right';
+}
+
+const AGENT_DEVICE_ORIENTATION_DESCRIPTION = 'portrait, portrait-upside-down, landscape-left, or landscape-right';
+
+/**
  * Returns true when a scenario step has Argent point coordinates.
  *
  * @param {Record<string, unknown>} step
@@ -1112,6 +1127,17 @@ function validateAgentDeviceAdapterOptions({
         errors,
         field: 'scale',
         message: `Step \`${stepId}\` uses driverAction \`pinch\` but adapterOptions.agentDevice.scale is required.`,
+        scenario,
+        stepId,
+      });
+    }
+
+    if (step.driverAction === 'rotate' && !isAgentDeviceOrientation(agentDevice.orientation)) {
+      pushInvalidAdapterOption({
+        adapter: 'agentDevice',
+        errors,
+        field: 'orientation',
+        message: `Step \`${stepId}\` uses driverAction \`rotate\` but adapterOptions.agentDevice.orientation must be ${AGENT_DEVICE_ORIENTATION_DESCRIPTION}.`,
         scenario,
         stepId,
       });

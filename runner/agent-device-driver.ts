@@ -87,6 +87,13 @@ type AgentDeviceReadLogsOptions = {
   rawFileName?: string;
 };
 
+type AgentDeviceOrientation = 'landscape-left' | 'landscape-right' | 'portrait' | 'portrait-upside-down';
+
+type AgentDeviceRotateOptions = {
+  orientation: AgentDeviceOrientation;
+  rawFileName?: string;
+};
+
 type AgentDeviceScreenshotOptions = {
   outputPath: string;
   rawFileName?: string;
@@ -147,6 +154,7 @@ type AgentDeviceDriver = {
   pinch: (options: AgentDevicePinchOptions) => Promise<AgentDeviceCommandResult>;
   pressButton: (options: AgentDevicePressButtonOptions) => Promise<AgentDeviceCommandResult>;
   readLogs: (options?: AgentDeviceReadLogsOptions) => Promise<AgentDeviceCommandResult>;
+  rotate: (options: AgentDeviceRotateOptions) => Promise<AgentDeviceCommandResult>;
   screenshot: (options: AgentDeviceScreenshotOptions) => Promise<AgentDeviceCommandResult>;
   scroll: (options?: AgentDeviceScrollOptions) => Promise<AgentDeviceCommandResult>;
   swipe: (options: AgentDeviceSwipeOptions) => Promise<AgentDeviceCommandResult>;
@@ -324,6 +332,13 @@ function createAgentDeviceDriver(options: AgentDeviceDriverOptions): AgentDevice
       return run('readLogs', rawFileName, ['logs', 'path']);
     },
 
+    async rotate({
+      orientation,
+      rawFileName = 'agent-device-rotate.txt',
+    }: AgentDeviceRotateOptions): Promise<AgentDeviceCommandResult> {
+      return run('rotate', rawFileName, ['rotate', orientation]);
+    },
+
     async screenshot({
       outputPath,
       rawFileName = 'agent-device-screenshot.txt',
@@ -490,10 +505,12 @@ export type {
   AgentDeviceInspectTreeOptions,
   AgentDeviceLongPressOptions,
   AgentDeviceOpenOptions,
+  AgentDeviceOrientation,
   AgentDevicePinchOptions,
   AgentDevicePressButtonOptions,
   AgentDevicePlatform,
   AgentDeviceReadLogsOptions,
+  AgentDeviceRotateOptions,
   AgentDeviceScreenshotOptions,
   AgentDeviceScrollOptions,
   AgentDeviceSelector,
