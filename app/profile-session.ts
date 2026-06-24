@@ -101,6 +101,7 @@ type StoredProfileSignals = Record<ProfileSignalKind, Record<string, unknown>>;
 type ProfileCommandMilestoneGate = BaseProfileCommandMilestoneGate & {
   timeoutId?: ReturnType<typeof setTimeout>;
 };
+type ProfileCommandClearStoragePolicy = 'preserve-storage' | 'remove-storage';
 
 export const PROFILE_SESSION_HELPER_VERSION = '1.0.0';
 
@@ -247,11 +248,14 @@ function resetStoredProfileArtifacts() {
   });
 }
 
-function clearPendingProfileCommands() {
+function clearPendingProfileCommands(storagePolicy: ProfileCommandClearStoragePolicy = 'remove-storage') {
   pendingProfileCommands.length = 0;
   sequencedProfileCommands.length = 0;
   clearProfileCommandMilestoneGate();
   clearProfileCommandProcessingSchedule();
+  if (storagePolicy === 'preserve-storage') {
+    return;
+  }
   queueProfileStorageMutation(async () => {
     await AsyncStorage.removeItem(PROFILE_COMMAND_STORAGE_KEY);
   });
@@ -541,6 +545,9 @@ function getProfileCommandSignature(command: ProfileSessionCommand): string {
   return [
     command.scenario ?? '',
     command.runId ?? '',
+    command.queueId ?? '',
+    command.commandId ?? command.id,
+    typeof command.sequence === 'number' ? String(command.sequence) : '',
     command.command,
   ].join('|');
 }
@@ -803,8 +810,11 @@ function flushPendingProfileCommands(listener: (command: ProfileSessionCommand) 
   }
 }
 
-function startProfileSessionInternal(nextState: ProfileSessionState) {
-  clearPendingProfileCommands();
+function startProfileSessionInternal(
+  nextState: ProfileSessionState,
+  options?: { commandStoragePolicy?: ProfileCommandClearStoragePolicy },
+) {
+  clearPendingProfileCommands(options?.commandStoragePolicy ?? 'remove-storage');
   clearProfileCommandDedupe();
   resetStoredProfileArtifacts();
   setProfileSessionState(nextState);
@@ -1048,13 +1058,16 @@ export function useProfileSessionBootstrap(): void {
             profileSessionState.runId !== storedSession.runId);
 
         if (shouldStartFromStorage) {
-          startProfileSessionInternal({
-            active: true,
-            scenario: storedSession.scenario,
-            runId: storedSession.runId,
-            startedAt:
-              typeof storedSession.startedAt === 'number' ? storedSession.startedAt : Date.now(),
-          });
+          startProfileSessionInternal(
+            {
+              active: true,
+              scenario: storedSession.scenario,
+              runId: storedSession.runId,
+              startedAt:
+                typeof storedSession.startedAt === 'number' ? storedSession.startedAt : Date.now(),
+            },
+            { commandStoragePolicy: 'preserve-storage' },
+          );
         }
       } else if (profileSessionState.active) {
         stopProfileSessionInternal();

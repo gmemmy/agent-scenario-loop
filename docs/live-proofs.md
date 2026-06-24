@@ -142,6 +142,19 @@ When a scenario requests a screenshot, pass supported simulator screenshot optio
 
 For profile-session capture on Android or iOS, omitting `--wait-ms` lets ASL derive the final evidence window from scenario execution waits and cycle count. On iOS, command-backed profile sessions use the expanded command queue, including setup commands, repeated cycle body commands, command pacing `waitMs`, milestone-gate `waitTimeoutMs`, and a conservative buffer. Explicit `--wait-ms` remains authoritative when a consuming app has a known startup or logging delay that the scenario cannot express.
 
+On Android storage-backed runs, the adb sidecar may record an early
+`profileSessionCompletionWait` timeout before the final profile artifact has
+parsed all same-run app-owned profile-session records. When final profile
+evidence proves the command queue reached terminal status, profile health adds
+`android_profile_session_sidecar_observation` with
+`android_profile_session_completion_reconciled_from_profile_evidence`. When the
+trusted final profile saw every expected same-run command delivered but not
+terminal before the early sidecar wait exhausted, the code is
+`android_profile_session_delivery_reconciled_from_profile_evidence`. Treat the
+profile health, verdict, metrics, and causal timeline as the interpretation
+surface while preserving the sidecar wait metadata as early-capture diagnostic
+context.
+
 Scenario command targets live in `adapterOptions.iosSimctl.commands`, while the app handles them through `registerProfileCommandTargetHandler`. The iOS proof does not depend on unified logs carrying JavaScript console output; it depends on app-owned stored profile events.
 
 Attach independently produced provider evidence with `--signal <js|memory|network>:<path>` or `--capture <screenshot|video|uiTree>:<path>` so profile commands copy those files into stable run folders and inventory them in `manifest.artifacts.evidenceAttachments`.

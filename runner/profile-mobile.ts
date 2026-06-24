@@ -148,6 +148,25 @@ type RuntimeTarget = {
   name: string;
   udid: string;
 };
+type ProfileSessionCompletionSummary = {
+  complete: boolean;
+  deliveredSequences: number[];
+  deliveryComplete: boolean;
+  observedDeliveredCommands: number;
+  milestoneBackedSequences: number[];
+  observedTerminalCommands: number;
+  started: boolean;
+  terminalSequences: number[];
+};
+type AndroidProfileSessionSidecarObservation = {
+  completed: boolean;
+  expectedCommandCount: number;
+  milestoneBackedSequences: number[];
+  observedTerminalCommands: number;
+  rawPath: string;
+  started: boolean;
+  terminalSequences: number[];
+};
 /**
  * Resolves the consumer repo git revision for manifest provenance.
  *
@@ -193,6 +212,14 @@ type ProviderCommand = {
   phase: 'prepare' | 'startWindow' | 'capture' | 'stopWindow' | 'afterCapture' | 'postRun' | 'finalize';
 };
 const SUPPORTED_PROVIDER_COMMAND_PHASES = new Set<ProviderCommand['phase']>(['capture', 'afterCapture', 'postRun']);
+const PROFILE_SESSION_TERMINAL_COMMAND_STATUSES = new Set([
+  'cancelled',
+  'completed',
+  'failed',
+  'skipped',
+  'timeout',
+  'timed-out',
+]);
 type ProviderManifest = {
   kind?: string;
   platforms?: string[];
@@ -2405,10 +2432,162 @@ function profileCommandSequenceFailureMessage(firstSkippedReason: string | undef
   return 'One or more profile-session commands were skipped before the scenario completed.';
 }
 
+function readNumberArray(value: unknown): number[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.filter((entry: unknown): entry is number => Number.isInteger(entry));
+}
+
+function readAndroidProfileSessionSidecarObservation(args: CliArgs): AndroidProfileSessionSidecarObservation | null {
+  if (typeof args['adb-artifacts'] !== 'string') {
+    return null;
+  }
+
+  const metadata = readOptionalJsonObject(path.resolve(args['adb-artifacts'], 'raw', 'android-metadata.json'));
+  const observation = readRecordValue(metadata?.profileSessionCompletionWait);
+  if (!observation) {
+    return null;
+  }
+
+  const completed = observation.completed;
+  const expectedCommandCount = observation.expectedCommandCount;
+  const observedTerminalCommands = observation.observedTerminalCommands;
+  const rawPath = observation.rawPath;
+  const started = observation.started;
+  if (
+    typeof completed !== 'boolean' ||
+    typeof expectedCommandCount !== 'number' ||
+    expectedCommandCount <= 0 ||
+    typeof observedTerminalCommands !== 'number' ||
+    typeof rawPath !== 'string' ||
+    typeof started !== 'boolean'
+  ) {
+    return null;
+  }
+
+  return {
+    completed,
+    expectedCommandCount,
+    milestoneBackedSequences: readNumberArray(observation.milestoneBackedSequences),
+    observedTerminalCommands,
+    rawPath,
+    started,
+    terminalSequences: readNumberArray(observation.terminalSequences),
+  };
+}
+
+function summarizeProfileSessionCompletion(
+  sessionEntries: Record<string, any>[],
+  expectedCommandCount: number,
+): ProfileSessionCompletionSummary {
+  const deliveredSequences = new Set<number>();
+  const terminalSequences = new Set<number>();
+  const milestoneBackedSequences = new Set<number>();
+  let started = false;
+
+  for (const entry of sessionEntries) {
+    if (entry?.kind === 'start') {
+      started = true;
+      continue;
+    }
+
+    if (entry?.kind !== 'command') {
+      continue;
+    }
+
+    const sequence = entry.sequence;
+    const status = entry.status;
+    if (!Number.isInteger(sequence) || sequence <= 0 || sequence > expectedCommandCount || typeof status !== 'string') {
+      continue;
+    }
+
+    const commandReachedApp = status === 'delivered' || PROFILE_SESSION_TERMINAL_COMMAND_STATUSES.has(status);
+    if (commandReachedApp) {
+      deliveredSequences.add(sequence);
+      if (typeof entry.waitForMilestone === 'string' && entry.waitForMilestone.length > 0) {
+        milestoneBackedSequences.add(sequence);
+      }
+    }
+    if (!PROFILE_SESSION_TERMINAL_COMMAND_STATUSES.has(status)) {
+      continue;
+    }
+    terminalSequences.add(sequence);
+  }
+
+  return {
+    complete: started && terminalSequences.size >= expectedCommandCount,
+    deliveredSequences: Array.from(deliveredSequences).sort((left, right) => left - right),
+    deliveryComplete: started && deliveredSequences.size >= expectedCommandCount,
+    milestoneBackedSequences: Array.from(milestoneBackedSequences).sort((left, right) => left - right),
+    observedDeliveredCommands: deliveredSequences.size,
+    observedTerminalCommands: terminalSequences.size,
+    started,
+    terminalSequences: Array.from(terminalSequences).sort((left, right) => left - right),
+  };
+}
+
+function buildAndroidProfileSessionSidecarObservationChecks({
+  args,
+  sessionEntries,
+}: {
+  args: CliArgs;
+  sessionEntries: Record<string, any>[];
+}): Record<string, unknown>[] {
+  const sidecarObservation = readAndroidProfileSessionSidecarObservation(args);
+  if (!sidecarObservation || sidecarObservation.completed) {
+    return [];
+  }
+
+  const profileObservation = summarizeProfileSessionCompletion(
+    sessionEntries,
+    sidecarObservation.expectedCommandCount,
+  );
+  if (!profileObservation.complete && !profileObservation.deliveryComplete) {
+    return [];
+  }
+
+  let evidenceCode = 'android_profile_session_delivery_reconciled_from_profile_evidence';
+  let evidenceMessage =
+    'Final profile-session evidence contained delivered same-run command records after the Android sidecar completion wait exhausted.';
+  if (profileObservation.complete) {
+    evidenceCode = 'android_profile_session_completion_reconciled_from_profile_evidence';
+    evidenceMessage =
+      'Final profile-session evidence contained terminal same-run command records after the Android sidecar completion wait exhausted.';
+  }
+
+  return [
+    {
+      name: 'android_profile_session_sidecar_observation',
+      status: 'passed',
+      source: 'runner',
+      code: evidenceCode,
+      message: evidenceMessage,
+      metadata: {
+        expectedCommandCount: sidecarObservation.expectedCommandCount,
+        nextAction: 'Use the final profile health, verdict, metrics, and causal timeline for product interpretation; keep the sidecar wait metadata as early-capture diagnostic context.',
+        nextActionCode: 'prefer_final_profile_evidence',
+        profileDeliveredSequences: profileObservation.deliveredSequences.join(','),
+        profileMilestoneBackedSequences: profileObservation.milestoneBackedSequences.join(','),
+        profileObservedDeliveredCommands: profileObservation.observedDeliveredCommands,
+        profileObservedTerminalCommands: profileObservation.observedTerminalCommands,
+        profileStarted: profileObservation.started,
+        profileTerminalSequences: profileObservation.terminalSequences.join(','),
+        sidecarMilestoneBackedSequences: sidecarObservation.milestoneBackedSequences.join(','),
+        sidecarObservedTerminalCommands: sidecarObservation.observedTerminalCommands,
+        sidecarRawPath: sidecarObservation.rawPath,
+        sidecarStarted: sidecarObservation.started,
+        sidecarTerminalSequences: sidecarObservation.terminalSequences.join(','),
+      },
+    },
+  ];
+}
+
 /**
  * Builds scenario health from profile metrics.
  *
- * @param {{scenario: Record<string, unknown>, runId: string, metrics: Record<string, unknown>, diagnostics?: DiagnosticInventoryEntry[], providerFailures?: ProviderCommandFailure[], profileEventCount?: number, profileSessionEntryCount?: number, commandTransport?: string, helperVersion?: ProfileHelperVersionCheck | null, runtimeIdentity?: RuntimeIdentityVerification | null, sessionEntries?: Record<string, unknown>[], sessionFreshness?: ProfileSessionFreshness | null, sessionFreshnessRequired?: boolean}} options
+ * @param {{scenario: Record<string, unknown>, runId: string, metrics: Record<string, unknown>, diagnostics?: DiagnosticInventoryEntry[], providerFailures?: ProviderCommandFailure[], profileEventCount?: number, profileSessionEntryCount?: number, commandTransport?: string, helperVersion?: ProfileHelperVersionCheck | null, runtimeIdentity?: RuntimeIdentityVerification | null, sessionEntries?: Record<string, unknown>[], sessionFreshness?: ProfileSessionFreshness | null, sessionFreshnessRequired?: boolean, sidecarObservationChecks?: Record<string, unknown>[]}} options
  * @returns {Record<string, unknown>}
  */
 function buildProfileHealth({
@@ -2426,6 +2605,7 @@ function buildProfileHealth({
   sessionEntries = [],
   sessionFreshness = null,
   sessionFreshnessRequired = false,
+  sidecarObservationChecks = [],
 }: {
   scenario: Record<string, any>;
   runId: string;
@@ -2441,6 +2621,7 @@ function buildProfileHealth({
   sessionEntries?: Record<string, any>[];
   sessionFreshness?: ProfileSessionFreshness | null;
   sessionFreshnessRequired?: boolean;
+  sidecarObservationChecks?: Record<string, unknown>[];
 }): Record<string, unknown> {
   const passed = metrics.status === 'passed';
   const metadata: Record<string, string | number | boolean | null> = {
@@ -2550,6 +2731,9 @@ function buildProfileHealth({
   const runtimeIdentityChecksPassed = runtimeIdentityChecks.every((check) => check.status !== 'failed');
   const sessionFreshnessChecks = buildProfileSessionFreshnessHealthChecks(sessionFreshness, sessionFreshnessRequired);
   const sessionFreshnessChecksPassed = sessionFreshnessChecks.every((check) => check.status !== 'failed');
+  const sidecarObservationChecksPassed = sidecarObservationChecks.every((check: Record<string, any>) => (
+    check.status !== 'failed'
+  ));
   const healthPassed = passed &&
     commandChecksPassed &&
     diagnosticChecksPassed &&
@@ -2557,7 +2741,8 @@ function buildProfileHealth({
     providerFailureChecksPassed &&
     helperVersionChecksPassed &&
     runtimeIdentityChecksPassed &&
-    sessionFreshnessChecksPassed;
+    sessionFreshnessChecksPassed &&
+    sidecarObservationChecksPassed;
 
   return assertValidJson(
     {
@@ -2579,6 +2764,7 @@ function buildProfileHealth({
         },
         ...evidenceIdentityChecks,
         ...sessionFreshnessChecks,
+        ...sidecarObservationChecks,
         ...commandChecks,
         ...providerFailureChecks,
         ...partialProviderEvidenceChecks,
@@ -4647,6 +4833,9 @@ async function runProfileMobile(args: CliArgs, options: ProfileMobileOptions): P
     config,
     platform: options.platform,
   });
+  const sidecarObservationChecks = options.platform === 'android'
+    ? buildAndroidProfileSessionSidecarObservationChecks({ args, sessionEntries })
+    : [];
 
   const metrics = buildMetricsFromProfileEvents({
     scenario: scenarioName,
@@ -4781,6 +4970,7 @@ async function runProfileMobile(args: CliArgs, options: ProfileMobileOptions): P
     sessionEntries,
     sessionFreshness,
     sessionFreshnessRequired: options.platform === 'android' && typeof args['adb-artifacts'] === 'string',
+    sidecarObservationChecks,
   });
   const finalHealth = appendProviderCommandFailuresToHealth({
     failures: providerExecution.failures,
@@ -4888,6 +5078,7 @@ async function runProfileCli({
 }
 
 export {
+  buildAndroidProfileSessionSidecarObservationChecks,
   buildProfileHealth,
   buildProviderCommandFailureHealth,
   buildProfileVerdict,
