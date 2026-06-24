@@ -9,9 +9,11 @@ const { execFileSync } = require('node:child_process');
 type RunOptions = {
   cwd: string;
   env: NodeJS.ProcessEnv;
+  timeoutMs?: number;
 };
 
 const DEFAULT_COMMAND_TIMEOUT_MS = 180_000;
+const NESTED_GATE_TIMEOUT_MULTIPLIER = 5;
 
 /**
  * Writes a stable release-gate phase marker before a child command runs.
@@ -58,6 +60,18 @@ function resolveCommandTimeoutMs(env: NodeJS.ProcessEnv): number {
 }
 
 /**
+ * Resolves the aggregate timeout for nested package gates. Those scripts run
+ * several bounded child commands, so the parent wrapper must be wider than a
+ * single command timeout.
+ *
+ * @param {NodeJS.ProcessEnv} env
+ * @returns {number}
+ */
+function resolveNestedGateTimeoutMs(env: NodeJS.ProcessEnv): number {
+  return resolveCommandTimeoutMs(env) * NESTED_GATE_TIMEOUT_MULTIPLIER;
+}
+
+/**
  * Runs a release command with inherited output.
  *
  * @param {string} command
@@ -70,7 +84,7 @@ function run(command: string, args: string[], options: RunOptions): void {
     cwd: options.cwd,
     env: options.env,
     stdio: 'inherit',
-    timeout: resolveCommandTimeoutMs(options.env),
+    timeout: options.timeoutMs ?? resolveCommandTimeoutMs(options.env),
   });
 }
 
@@ -90,7 +104,7 @@ function packReleasePackage({
   packDir: string;
 }): string {
   fs.mkdirSync(packDir, { recursive: true });
-  const packOutput = execFileSync('npm', ['pack', '--pack-destination', packDir], {
+  const packOutput = execFileSync('npm', ['pack', '--ignore-scripts', '--pack-destination', packDir], {
     cwd: packageRoot,
     encoding: 'utf8',
     env,
@@ -121,6 +135,10 @@ function main(): void {
     announcePhase('release-readiness');
     run(process.execPath, [path.join(repoRoot, 'dist', 'scripts', 'release-readiness.js')], { cwd: repoRoot, env });
 
+    announcePhase('release-clean');
+    run('pnpm', ['clean'], { cwd: repoRoot, env });
+    announcePhase('release-build');
+    run('pnpm', ['build'], { cwd: repoRoot, env });
     announcePhase('pack');
     const tarballPath = packReleasePackage({
       env,
@@ -133,9 +151,17 @@ function main(): void {
     };
 
     announcePhase('package-smoke');
-    run(process.execPath, [path.join(repoRoot, 'dist', 'scripts', 'package-smoke.js')], { cwd: repoRoot, env: gateEnv });
+    run(process.execPath, [path.join(repoRoot, 'dist', 'scripts', 'package-smoke.js')], {
+      cwd: repoRoot,
+      env: gateEnv,
+      timeoutMs: resolveNestedGateTimeoutMs(gateEnv),
+    });
     announcePhase('consumer-rehearsal');
-    run(process.execPath, [path.join(repoRoot, 'dist', 'scripts', 'consumer-rehearsal.js')], { cwd: repoRoot, env: gateEnv });
+    run(process.execPath, [path.join(repoRoot, 'dist', 'scripts', 'consumer-rehearsal.js')], {
+      cwd: repoRoot,
+      env: gateEnv,
+      timeoutMs: resolveNestedGateTimeoutMs(gateEnv),
+    });
     process.stdout.write(`release check passed: ${tarballPath}\n`);
     fs.rmSync(tempRoot, { recursive: true, force: true });
   } catch (error) {
@@ -153,5 +179,6 @@ export {
   main,
   packReleasePackage,
   resolveCommandTimeoutMs,
+  resolveNestedGateTimeoutMs,
   run,
 };
