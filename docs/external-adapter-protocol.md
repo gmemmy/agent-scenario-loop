@@ -79,7 +79,7 @@ Response body:
   "acceptedProtocolVersion": "1.0",
   "platforms": ["android", "ios"],
   "capabilities": ["prepare", "launch", "command", "truthEvent", "evidence", "cancel", "stop", "finalize"],
-  "driverActions": ["tap", "assertVisible"],
+  "driverActions": ["tap", "longPress", "pinch", "pressKey", "assertVisible", "customGesture", "runSequence"],
   "artifactOutputs": ["logs", "screenshot", "truth-events"],
   "clockDomains": ["host-monotonic", "device-log"]
 }
@@ -106,10 +106,10 @@ or:
   "failure": {
     "category": "unsupported",
     "code": "unsupported_action",
-    "message": "driverAction `pinch` is not supported",
+    "message": "driverAction `hover` is not supported",
     "retryable": false,
     "details": {
-      "driverAction": "pinch"
+      "driverAction": "hover"
     }
   }
 }
