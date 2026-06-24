@@ -169,9 +169,9 @@ test('fails when scenarios require undeclared rich driver actions', () => {
   const scenario = readJson('examples/scenarios/mobile/open-close-cycle.json');
   const runner = readJson('examples/runners/argent-ios.json');
   scenario.steps.push({
-    id: 'pinch-card',
+    id: 'static-sequence',
     kind: 'gesture',
-    driverAction: 'pinch',
+    driverAction: 'runSequence',
   });
 
   const result = evaluateRunnerCompatibility({ scenario, runner, platform: 'ios' });
@@ -181,9 +181,9 @@ test('fails when scenarios require undeclared rich driver actions', () => {
     result.errors
       .filter((error: PlannerIssue) => error.code === 'missing_required_driver_action')
       .map((error: PlannerIssue) => error.driverAction),
-    ['pinch'],
+    ['runSequence'],
   );
-  assert.equal(result.matched.driverActions.includes('pinch'), false);
+  assert.equal(result.matched.driverActions.includes('runSequence'), false);
 });
 
 test('accepts scenario steps when the runner declares required driver actions', () => {
@@ -203,7 +203,7 @@ test('accepts rich driver actions only when declared by the selected runner', ()
   const scenario = readJson('examples/scenarios/mobile/open-close-cycle.json');
   const runner = readJson('examples/runners/argent-ios.json');
   runner.runnerId = 'custom-rich-gesture-runner';
-  runner.driverActions.push('pinch');
+  runner.driverActions.push('runSequence');
   scenario.steps.push(
     {
       id: 'long-press-card',
@@ -211,9 +211,9 @@ test('accepts rich driver actions only when declared by the selected runner', ()
       driverAction: 'longPress',
     },
     {
-      id: 'pinch-content',
+      id: 'static-sequence',
       kind: 'gesture',
-      driverAction: 'pinch',
+      driverAction: 'runSequence',
       required: false,
     },
   );
@@ -932,7 +932,7 @@ test('argent runner target accepts portable visibility selector match modes', ()
   assert.deepEqual(result.errors, []);
 });
 
-test('argent runner target accepts coordinate-backed tap, drag, scroll, and swipe metadata', () => {
+test('argent runner target accepts coordinate-backed tap and rich gesture metadata', () => {
   const scenario = readJson('examples/scenarios/mobile/app-startup.json');
   const runner = readJson('examples/runners/argent-android.json');
   scenario.steps.push(
@@ -988,6 +988,36 @@ test('argent runner target accepts coordinate-backed tap, drag, scroll, and swip
       },
     },
     {
+      id: 'pinch-map',
+      kind: 'gesture',
+      driverAction: 'pinch',
+      adapterOptions: {
+        argent: {
+          centerX: 0.5,
+          centerY: 0.5,
+          startDistance: 0.2,
+          endDistance: 0.6,
+          angle: 15,
+          durationMs: 400,
+        },
+      },
+    },
+    {
+      id: 'rotate-map',
+      kind: 'gesture',
+      driverAction: 'rotate',
+      adapterOptions: {
+        argent: {
+          centerX: 0.5,
+          centerY: 0.5,
+          radius: 0.2,
+          startAngle: 0,
+          endAngle: 90,
+          durationMs: 500,
+        },
+      },
+    },
+    {
       id: 'swipe-card',
       kind: 'gesture',
       driverAction: 'swipe',
@@ -1012,16 +1042,30 @@ test('argent runner target accepts coordinate-backed tap, drag, scroll, and swip
   );
   assert.ok(result.matched.driverActions.includes('longPress'));
   assert.ok(result.matched.driverActions.includes('drag'));
+  assert.ok(result.matched.driverActions.includes('pinch'));
+  assert.ok(result.matched.driverActions.includes('rotate'));
 });
 
-test('argent runner target rejects drag without coordinate metadata', () => {
+test('argent runner target rejects rich gestures without required metadata', () => {
   const scenario = readJson('examples/scenarios/mobile/app-startup.json');
   const runner = readJson('examples/runners/argent-android.json');
-  scenario.steps.push({
-    id: 'drag-card',
-    kind: 'gesture',
-    driverAction: 'drag',
-  });
+  scenario.steps.push(
+    {
+      id: 'drag-card',
+      kind: 'gesture',
+      driverAction: 'drag',
+    },
+    {
+      id: 'pinch-map',
+      kind: 'gesture',
+      driverAction: 'pinch',
+    },
+    {
+      id: 'rotate-map',
+      kind: 'gesture',
+      driverAction: 'rotate',
+    },
+  );
 
   const result = evaluateRunnerCompatibility({ scenario, runner, platform: 'android' });
 
@@ -1036,6 +1080,8 @@ test('argent runner target rejects drag without coordinate metadata', () => {
       })),
     [
       { adapter: 'argent', field: 'startX/startY/endX/endY', stepId: 'drag-card' },
+      { adapter: 'argent', field: 'centerX/centerY/startDistance/endDistance', stepId: 'pinch-map' },
+      { adapter: 'argent', field: 'centerX/centerY/radius/startAngle/endAngle', stepId: 'rotate-map' },
     ],
   );
 });

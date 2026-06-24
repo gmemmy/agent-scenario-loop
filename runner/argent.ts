@@ -100,16 +100,24 @@ type ArgentAvailabilityArtifactOptions = {
 };
 
 type ArgentDriverStep = {
+  angle?: number;
   appId?: string;
   captureFileName?: string;
-  driverAction: 'assertVisible' | 'drag' | 'inspectTree' | 'launch' | 'longPress' | 'screenshot' | 'scroll' | 'swipe' | 'tap';
+  centerX?: number;
+  centerY?: number;
+  driverAction: 'assertVisible' | 'drag' | 'inspectTree' | 'launch' | 'longPress' | 'pinch' | 'rotate' | 'screenshot' | 'scroll' | 'swipe' | 'tap';
   durationMs?: number;
+  endAngle?: number;
+  endDistance?: number;
   endX?: number;
   endY?: number;
+  radius?: number;
   rawFileName: string;
   required: boolean;
   screenSize?: import('./argent-driver').ArgentScreenSize;
   selector?: import('./argent-driver').ArgentSelector;
+  startAngle?: number;
+  startDistance?: number;
   startX?: number;
   startY?: number;
   stepId: string;
@@ -181,6 +189,37 @@ function hasArgentStartEndCoordinates(step: ArgentDriverStep): boolean {
 }
 
 /**
+ * Returns true when an Argent pinch step has the tool-native gesture metadata.
+ *
+ * @param {ArgentDriverStep} step
+ * @returns {boolean}
+ */
+function hasArgentPinchMetadata(step: ArgentDriverStep): boolean {
+  return (
+    typeof step.centerX === 'number' &&
+    typeof step.centerY === 'number' &&
+    typeof step.startDistance === 'number' &&
+    typeof step.endDistance === 'number'
+  );
+}
+
+/**
+ * Returns true when an Argent rotate step has the tool-native gesture metadata.
+ *
+ * @param {ArgentDriverStep} step
+ * @returns {boolean}
+ */
+function hasArgentRotateMetadata(step: ArgentDriverStep): boolean {
+  return (
+    typeof step.centerX === 'number' &&
+    typeof step.centerY === 'number' &&
+    typeof step.radius === 'number' &&
+    typeof step.startAngle === 'number' &&
+    typeof step.endAngle === 'number'
+  );
+}
+
+/**
  * Returns true when an Argent driver action requires explicit start and end coordinates.
  *
  * @param {ArgentDriverStep['driverAction']} driverAction
@@ -199,6 +238,8 @@ const DEFAULT_ARGENT_REQUIRED_TOOLS = [
   'screenshot',
   'gesture-tap',
   'gesture-custom',
+  'gesture-pinch',
+  'gesture-rotate',
   'gesture-swipe',
 ];
 
@@ -569,7 +610,7 @@ function resolveArgentDriverSteps(
   return executionPlan.steps
     .filter((step: ScenarioExecutionStep) =>
       step.kind === 'launch' ||
-      ['assertVisible', 'drag', 'inspectTree', 'longPress', 'screenshot', 'scroll', 'swipe', 'tap'].includes(String(step.driverAction)),
+      ['assertVisible', 'drag', 'inspectTree', 'longPress', 'pinch', 'rotate', 'screenshot', 'scroll', 'swipe', 'tap'].includes(String(step.driverAction)),
     )
     .map((step: ScenarioExecutionStep, index: number) => {
       const argentOptions = readArgentStepOptions(step);
@@ -578,13 +619,19 @@ function resolveArgentDriverSteps(
 
       return {
         driverAction: action,
+        ...(typeof readFiniteNumber(argentOptions.angle) === 'number' ? { angle: readFiniteNumber(argentOptions.angle) } : {}),
         ...(typeof argentOptions.appId === 'string' ? { appId: argentOptions.appId } : {}),
         ...(typeof argentOptions.captureFileName === 'string' ? { captureFileName: argentOptions.captureFileName } : {}),
+        ...(typeof readFiniteNumber(argentOptions.centerX) === 'number' ? { centerX: readFiniteNumber(argentOptions.centerX) } : {}),
+        ...(typeof readFiniteNumber(argentOptions.centerY) === 'number' ? { centerY: readFiniteNumber(argentOptions.centerY) } : {}),
         ...(typeof readFiniteNumber(argentOptions.durationMs) === 'number'
           ? { durationMs: readFiniteNumber(argentOptions.durationMs) }
           : {}),
+        ...(typeof readFiniteNumber(argentOptions.endAngle) === 'number' ? { endAngle: readFiniteNumber(argentOptions.endAngle) } : {}),
+        ...(typeof readFiniteNumber(argentOptions.endDistance) === 'number' ? { endDistance: readFiniteNumber(argentOptions.endDistance) } : {}),
         ...(typeof readFiniteNumber(argentOptions.endX) === 'number' ? { endX: readFiniteNumber(argentOptions.endX) } : {}),
         ...(typeof readFiniteNumber(argentOptions.endY) === 'number' ? { endY: readFiniteNumber(argentOptions.endY) } : {}),
+        ...(typeof readFiniteNumber(argentOptions.radius) === 'number' ? { radius: readFiniteNumber(argentOptions.radius) } : {}),
         rawFileName: typeof argentOptions.rawFileName === 'string' && argentOptions.rawFileName.length > 0
           ? argentOptions.rawFileName
           : defaultArgentRawFileName({ driverAction: action, index: actionIndex }),
@@ -595,6 +642,8 @@ function resolveArgentDriverSteps(
           : isArgentSelector(step.selector)
             ? { selector: step.selector }
             : {}),
+        ...(typeof readFiniteNumber(argentOptions.startAngle) === 'number' ? { startAngle: readFiniteNumber(argentOptions.startAngle) } : {}),
+        ...(typeof readFiniteNumber(argentOptions.startDistance) === 'number' ? { startDistance: readFiniteNumber(argentOptions.startDistance) } : {}),
         ...(typeof readFiniteNumber(argentOptions.startX) === 'number' ? { startX: readFiniteNumber(argentOptions.startX) } : {}),
         ...(typeof readFiniteNumber(argentOptions.startY) === 'number' ? { startY: readFiniteNumber(argentOptions.startY) } : {}),
         stepId: step.id,
@@ -627,6 +676,12 @@ function validateArgentDriverSteps(driverSteps: ArgentDriverStep[], options: {ap
     }
     if (isArgentStartEndAction(step.driverAction) && !hasArgentStartEndCoordinates(step)) {
       errors.push(`${stepLabel} uses driverAction \`${step.driverAction}\` but is missing adapterOptions.argent.startX/startY/endX/endY.`);
+    }
+    if (step.driverAction === 'pinch' && !hasArgentPinchMetadata(step)) {
+      errors.push(`${stepLabel} uses driverAction \`pinch\` but is missing adapterOptions.argent.centerX/centerY/startDistance/endDistance.`);
+    }
+    if (step.driverAction === 'rotate' && !hasArgentRotateMetadata(step)) {
+      errors.push(`${stepLabel} uses driverAction \`rotate\` but is missing adapterOptions.argent.centerX/centerY/radius/startAngle/endAngle.`);
     }
     if (step.driverAction === 'assertVisible' && !step.selector) {
       errors.push(`${stepLabel} uses driverAction \`assertVisible\` but is missing a portable selector.`);
@@ -778,6 +833,30 @@ async function runArgentDriverStep({
       ...(driverStep.screenSize ? { screenSize: driverStep.screenSize } : {}),
       startX: driverStep.startX as number,
       startY: driverStep.startY as number,
+    });
+  }
+  if (driverStep.driverAction === 'pinch') {
+    return driver.pinch({
+      ...(typeof driverStep.angle === 'number' ? { angle: driverStep.angle } : {}),
+      centerX: driverStep.centerX as number,
+      centerY: driverStep.centerY as number,
+      ...(typeof driverStep.durationMs === 'number' ? { durationMs: driverStep.durationMs } : {}),
+      endDistance: driverStep.endDistance as number,
+      rawFileName: driverStep.rawFileName,
+      ...(driverStep.screenSize ? { screenSize: driverStep.screenSize } : {}),
+      startDistance: driverStep.startDistance as number,
+    });
+  }
+  if (driverStep.driverAction === 'rotate') {
+    return driver.rotate({
+      centerX: driverStep.centerX as number,
+      centerY: driverStep.centerY as number,
+      ...(typeof driverStep.durationMs === 'number' ? { durationMs: driverStep.durationMs } : {}),
+      endAngle: driverStep.endAngle as number,
+      radius: driverStep.radius as number,
+      rawFileName: driverStep.rawFileName,
+      ...(driverStep.screenSize ? { screenSize: driverStep.screenSize } : {}),
+      startAngle: driverStep.startAngle as number,
     });
   }
   if (driverStep.driverAction === 'swipe') {

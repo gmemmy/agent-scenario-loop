@@ -36,6 +36,8 @@ type ArgentDriver = {
   launchApp: (options?: ArgentLaunchAppOptions) => Promise<ArgentCommandResult>;
   longPress: (options: ArgentLongPressOptions) => Promise<ArgentCommandResult>;
   openUrl: (options: ArgentOpenUrlOptions) => Promise<ArgentCommandResult>;
+  pinch: (options: ArgentPinchOptions) => Promise<ArgentCommandResult>;
+  rotate: (options: ArgentRotateOptions) => Promise<ArgentCommandResult>;
   screenshot: (options?: ArgentScreenshotOptions) => Promise<ArgentCommandResult>;
   scroll: (options: ArgentScrollOptions) => Promise<ArgentCommandResult>;
   swipe: (options: ArgentSwipeOptions) => Promise<ArgentCommandResult>;
@@ -101,6 +103,28 @@ type ArgentLongPressOptions = {
 type ArgentOpenUrlOptions = {
   rawFileName?: string;
   url: string;
+};
+
+type ArgentPinchOptions = {
+  angle?: number;
+  centerX: number;
+  centerY: number;
+  durationMs?: number;
+  endDistance: number;
+  rawFileName?: string;
+  screenSize?: ArgentScreenSize;
+  startDistance: number;
+};
+
+type ArgentRotateOptions = {
+  centerX: number;
+  centerY: number;
+  durationMs?: number;
+  endAngle: number;
+  radius: number;
+  rawFileName?: string;
+  screenSize?: ArgentScreenSize;
+  startAngle: number;
 };
 
 type ArgentScreenshotOptions = {
@@ -514,6 +538,65 @@ function createArgentDriver(options: ArgentDriverOptions): ArgentDriver {
       return run('openUrl', 'open-url', rawFileName, ['--url', url]);
     },
 
+    async pinch({
+      angle,
+      centerX,
+      centerY,
+      durationMs,
+      endDistance,
+      rawFileName = 'argent-pinch.txt',
+      screenSize,
+      startDistance,
+    }: ArgentPinchOptions): Promise<ArgentCommandResult> {
+      const center = normalizeArgentPointWithOptionalScreenSize({
+        ...(screenSize ?? options.screenSize ? { screenSize: screenSize ?? options.screenSize } : {}),
+        x: centerX,
+        y: centerY,
+      });
+      return run('pinch', 'gesture-pinch', rawFileName, [
+        '--centerX',
+        String(center.x),
+        '--centerY',
+        String(center.y),
+        '--startDistance',
+        String(startDistance),
+        '--endDistance',
+        String(endDistance),
+        ...(typeof angle === 'number' ? ['--angle', String(angle)] : []),
+        ...(typeof durationMs === 'number' ? ['--durationMs', String(durationMs)] : []),
+      ]);
+    },
+
+    async rotate({
+      centerX,
+      centerY,
+      durationMs,
+      endAngle,
+      radius,
+      rawFileName = 'argent-rotate.txt',
+      screenSize,
+      startAngle,
+    }: ArgentRotateOptions): Promise<ArgentCommandResult> {
+      const center = normalizeArgentPointWithOptionalScreenSize({
+        ...(screenSize ?? options.screenSize ? { screenSize: screenSize ?? options.screenSize } : {}),
+        x: centerX,
+        y: centerY,
+      });
+      return run('rotate', 'gesture-rotate', rawFileName, [
+        '--centerX',
+        String(center.x),
+        '--centerY',
+        String(center.y),
+        '--radius',
+        String(radius),
+        '--startAngle',
+        String(startAngle),
+        '--endAngle',
+        String(endAngle),
+        ...(typeof durationMs === 'number' ? ['--durationMs', String(durationMs)] : []),
+      ]);
+    },
+
     async screenshot({
       rawFileName = 'argent-screenshot.txt',
     }: ArgentScreenshotOptions = {}): Promise<ArgentCommandResult> {
@@ -630,7 +713,9 @@ export type {
   ArgentLongPressOptions,
   ArgentNormalizedPoint,
   ArgentOpenUrlOptions,
+  ArgentPinchOptions,
   ArgentPointInput,
+  ArgentRotateOptions,
   ArgentScreenshotOptions,
   ArgentScreenSize,
   ArgentScrollOptions,

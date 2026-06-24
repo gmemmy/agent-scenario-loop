@@ -363,6 +363,37 @@ function isArgentStartEndAction(driverAction: unknown): boolean {
 }
 
 /**
+ * Returns true when Argent pinch metadata has the required gesture fields.
+ *
+ * @param {Record<string, unknown>} options
+ * @returns {boolean}
+ */
+function hasArgentPinchMetadata(options: ManifestRecord): boolean {
+  return (
+    isFiniteNumber(options.centerX) &&
+    isFiniteNumber(options.centerY) &&
+    isFiniteNumber(options.startDistance) &&
+    isFiniteNumber(options.endDistance)
+  );
+}
+
+/**
+ * Returns true when Argent rotate metadata has the required gesture fields.
+ *
+ * @param {Record<string, unknown>} options
+ * @returns {boolean}
+ */
+function hasArgentRotateMetadata(options: ManifestRecord): boolean {
+  return (
+    isFiniteNumber(options.centerX) &&
+    isFiniteNumber(options.centerY) &&
+    isFiniteNumber(options.radius) &&
+    isFiniteNumber(options.startAngle) &&
+    isFiniteNumber(options.endAngle)
+  );
+}
+
+/**
  * Returns true when a scenario step has Argent point coordinates.
  *
  * @param {Record<string, unknown>} step
@@ -1179,6 +1210,28 @@ function validateArgentAdapterOptions({
         errors,
         field: 'startX/startY/endX/endY',
         message: `Step \`${stepId}\` uses driverAction \`${String(step.driverAction)}\` but adapterOptions.argent.startX/startY/endX/endY are required.`,
+        scenario,
+        stepId,
+      });
+    }
+
+    if (step.driverAction === 'pinch' && !hasArgentPinchMetadata(argent)) {
+      pushInvalidAdapterOption({
+        adapter: 'argent',
+        errors,
+        field: 'centerX/centerY/startDistance/endDistance',
+        message: `Step \`${stepId}\` uses driverAction \`pinch\` but adapterOptions.argent.centerX/centerY/startDistance/endDistance are required.`,
+        scenario,
+        stepId,
+      });
+    }
+
+    if (step.driverAction === 'rotate' && !hasArgentRotateMetadata(argent)) {
+      pushInvalidAdapterOption({
+        adapter: 'argent',
+        errors,
+        field: 'centerX/centerY/radius/startAngle/endAngle',
+        message: `Step \`${stepId}\` uses driverAction \`rotate\` but adapterOptions.argent.centerX/centerY/radius/startAngle/endAngle are required.`,
         scenario,
         stepId,
       });

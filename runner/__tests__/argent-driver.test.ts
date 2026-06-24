@@ -152,6 +152,12 @@ test('argent driver maps lifecycle, gestures, screenshots, and descriptions', as
     '--yes @swmansion/argent run gesture-custom --udid SIM-123 --events-json [{"type":"Down","x":0.1,"y":0.2},{"delayMs":600,"type":"Move","x":0.8,"y":0.9},{"type":"Up","x":0.8,"y":0.9}]': {
       stdout: '{"events":3}\n',
     },
+    '--yes @swmansion/argent run gesture-pinch --udid SIM-123 --centerX 0.5 --centerY 0.4 --startDistance 0.2 --endDistance 0.6 --angle 15 --durationMs 400': {
+      stdout: '{"pinched":true}\n',
+    },
+    '--yes @swmansion/argent run gesture-rotate --udid SIM-123 --centerX 0.5 --centerY 0.4 --radius 0.25 --startAngle 0 --endAngle 90 --durationMs 500': {
+      stdout: '{"rotated":true}\n',
+    },
     '--yes @swmansion/argent run gesture-swipe --udid SIM-123 --fromX 0.5 --fromY 0.8 --toX 0.5 --toY 0.2 --durationMs 250': {
       stdout: '{"success":true}\n',
     },
@@ -179,6 +185,8 @@ test('argent driver maps lifecycle, gestures, screenshots, and descriptions', as
   const tap = await driver.tap({ x: 500, y: 500 });
   const longPress = await driver.longPress({ durationMs: 900, x: 500, y: 500 });
   const drag = await driver.drag({ durationMs: 600, endX: 800, endY: 1800, startX: 100, startY: 400 });
+  const pinch = await driver.pinch({ angle: 15, centerX: 500, centerY: 800, durationMs: 400, endDistance: 0.6, startDistance: 0.2 });
+  const rotate = await driver.rotate({ centerX: 500, centerY: 800, durationMs: 500, endAngle: 90, radius: 0.25, startAngle: 0 });
   const scroll = await driver.scroll({ durationMs: 250, endX: 500, endY: 400, startX: 500, startY: 1600 });
   const swipe = await driver.swipe({ durationMs: 175, endX: 750, endY: 1600, startX: 250, startY: 600 });
   const screenshot = await driver.screenshot();
@@ -191,6 +199,8 @@ test('argent driver maps lifecycle, gestures, screenshots, and descriptions', as
   assert.equal(longPress.action, 'longPress');
   assert.equal(drag.action, 'drag');
   assert.equal(drag.rawFileName, 'argent-drag.txt');
+  assert.equal(pinch.action, 'pinch');
+  assert.equal(rotate.action, 'rotate');
   assert.equal(scroll.action, 'scroll');
   assert.equal(swipe.action, 'swipe');
   assert.equal(swipe.rawFileName, 'argent-swipe.txt');
