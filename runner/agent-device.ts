@@ -98,10 +98,11 @@ type AgentDeviceDriverStep = {
   captureFileName?: string;
   delayMs?: number;
   direction?: string;
-  driverAction: 'assertVisible' | 'fill' | 'focus' | 'inspectTree' | 'longPress' | 'pinch' | 'pressButton' | 'readLogs' | 'rotate' | 'screenshot' | 'scroll' | 'swipe' | 'tap' | 'typeText';
+  driverAction: 'assertVisible' | 'fill' | 'focus' | 'inspectTree' | 'longPress' | 'pinch' | 'pressButton' | 'pressKey' | 'readLogs' | 'rotate' | 'screenshot' | 'scroll' | 'swipe' | 'tap' | 'typeText';
   durationMs?: number;
   endX?: number;
   endY?: number;
+  key?: import('./agent-device-driver').AgentDevicePressKey;
   pixels?: number;
   rawFileName?: string;
   ref?: string;
@@ -173,9 +174,13 @@ const DEFAULT_AGENT_DEVICE_REQUIRED_COMMANDS = [
   'snapshot',
   'screenshot',
   'is',
+  'back',
   'click',
   'fill',
   'focus',
+  'home',
+  'app-switcher',
+  'keyboard',
   'longpress',
   'press',
   'rotate',
@@ -188,6 +193,15 @@ const DEFAULT_AGENT_DEVICE_REQUIRED_COMMANDS = [
 ];
 
 const AGENT_DEVICE_IOS_REQUIRED_COMMANDS = ['pinch'];
+
+const AGENT_DEVICE_PRESS_KEYS = new Set([
+  'appBack',
+  'appSwitcher',
+  'back',
+  'home',
+  'keyboardDismiss',
+  'systemBack',
+]);
 
 /**
  * Prints CLI usage.
@@ -1119,6 +1133,16 @@ function isAgentDeviceOrientation(value: unknown): value is import('./agent-devi
 const AGENT_DEVICE_ORIENTATION_DESCRIPTION = 'portrait, portrait-upside-down, landscape-left, or landscape-right';
 
 /**
+ * Returns true when a key maps to an agent-device system/key command.
+ *
+ * @param {unknown} value
+ * @returns {value is import('./agent-device-driver').AgentDevicePressKey}
+ */
+function isAgentDevicePressKey(value: unknown): value is import('./agent-device-driver').AgentDevicePressKey {
+  return typeof value === 'string' && AGENT_DEVICE_PRESS_KEYS.has(value);
+}
+
+/**
  * Returns the default raw file name for one agent-device action.
  *
  * @param {{driverAction: AgentDeviceDriverStep['driverAction'], index: number}} options
@@ -1184,7 +1208,7 @@ function resolveAgentDeviceDriverSteps(scenario: Record<string, any>): AgentDevi
   const executionPlan = buildScenarioExecutionPlan(scenario);
   return executionPlan.steps
     .filter((step: ScenarioExecutionStep) =>
-      ['assertVisible', 'fill', 'focus', 'inspectTree', 'longPress', 'pinch', 'pressButton', 'readLogs', 'rotate', 'screenshot', 'scroll', 'swipe', 'tap', 'typeText'].includes(String(step.driverAction)),
+      ['assertVisible', 'fill', 'focus', 'inspectTree', 'longPress', 'pinch', 'pressButton', 'pressKey', 'readLogs', 'rotate', 'screenshot', 'scroll', 'swipe', 'tap', 'typeText'].includes(String(step.driverAction)),
     )
     .map((step: ScenarioExecutionStep, index: number) => {
       const agentDeviceOptions = readAgentDeviceStepOptions(step);
@@ -1215,6 +1239,7 @@ function resolveAgentDeviceDriverSteps(scenario: Record<string, any>): AgentDevi
         ...(typeof durationMs === 'number' ? { durationMs } : {}),
         ...(typeof endX === 'number' ? { endX } : {}),
         ...(typeof endY === 'number' ? { endY } : {}),
+        ...(isAgentDevicePressKey(agentDeviceOptions.key) ? { key: agentDeviceOptions.key } : {}),
         ...(typeof pixels === 'number' ? { pixels } : {}),
         ...(isAgentDeviceOrientation(agentDeviceOptions.orientation) ? { orientation: agentDeviceOptions.orientation } : {}),
         rawFileName: typeof agentDeviceOptions.rawFileName === 'string' && agentDeviceOptions.rawFileName.length > 0
@@ -1267,6 +1292,9 @@ function validateAgentDeviceDriverSteps(driverSteps: AgentDeviceDriverStep[]): s
     }
     if (step.driverAction === 'rotate' && !step.orientation) {
       errors.push(`${stepLabel} uses driverAction \`rotate\` but adapterOptions.agentDevice.orientation must be ${AGENT_DEVICE_ORIENTATION_DESCRIPTION}.`);
+    }
+    if (step.driverAction === 'pressKey' && !step.key) {
+      errors.push(`${stepLabel} uses driverAction \`pressKey\` but is missing supported adapterOptions.agentDevice.key.`);
     }
     if (
       step.driverAction === 'swipe' &&
@@ -1394,6 +1422,12 @@ async function runAgentDeviceDriverStep({
       ...(driverStep.rawFileName ? { rawFileName: driverStep.rawFileName } : {}),
       x: driverStep.x as number,
       y: driverStep.y as number,
+    });
+  }
+  if (driverStep.driverAction === 'pressKey') {
+    return driver.pressKey({
+      key: driverStep.key as import('./agent-device-driver').AgentDevicePressKey,
+      ...(driverStep.rawFileName ? { rawFileName: driverStep.rawFileName } : {}),
     });
   }
   if (driverStep.driverAction === 'pressButton') {

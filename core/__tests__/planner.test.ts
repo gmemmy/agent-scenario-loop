@@ -631,7 +631,7 @@ test('agent-device runner target rejects pressButton steps without an executable
   );
 });
 
-test('agent-device runner target accepts tap, longPress, focus, pinch, rotate, pressButton, fill, typeText, and swipe metadata', () => {
+test('agent-device runner target accepts tap, longPress, focus, pinch, rotate, pressButton, pressKey, fill, typeText, and swipe metadata', () => {
   const scenario = readJson('examples/scenarios/mobile/app-startup.json');
   const runner = readJson('examples/runners/agent-device-ios.json');
   scenario.steps.push(
@@ -706,6 +706,16 @@ test('agent-device runner target accepts tap, longPress, focus, pinch, rotate, p
       adapterOptions: {
         agentDevice: {
           orientation: 'landscape-left',
+        },
+      },
+    },
+    {
+      id: 'press-system-back',
+      kind: 'gesture',
+      driverAction: 'pressKey',
+      adapterOptions: {
+        agentDevice: {
+          key: 'systemBack',
         },
       },
     },
@@ -820,6 +830,45 @@ test('agent-device runner target rejects fill without target or text', () => {
     [
       { adapter: 'agentDevice', field: 'selector/ref/x/y', stepId: 'fill-missing-target' },
       { adapter: 'agentDevice', field: 'text', stepId: 'fill-missing-text' },
+    ],
+  );
+});
+
+test('agent-device runner target rejects pressKey without a supported key', () => {
+  const scenario = readJson('examples/scenarios/mobile/app-startup.json');
+  const runner = readJson('examples/runners/agent-device-ios.json');
+  scenario.steps.push(
+    {
+      id: 'press-key-missing',
+      kind: 'gesture',
+      driverAction: 'pressKey',
+    },
+    {
+      id: 'press-key-unsupported',
+      kind: 'gesture',
+      driverAction: 'pressKey',
+      adapterOptions: {
+        agentDevice: {
+          key: 'escape',
+        },
+      },
+    },
+  );
+
+  const result = evaluateRunnerCompatibility({ scenario, runner, platform: 'ios' });
+
+  assert.equal(result.compatible, false);
+  assert.deepEqual(
+    result.errors
+      .filter((error: PlannerIssue) => error.code === 'invalid_adapter_options')
+      .map((error: PlannerIssue) => ({
+        adapter: error.adapter,
+        field: error.field,
+        stepId: error.stepId,
+      })),
+    [
+      { adapter: 'agentDevice', field: 'key', stepId: 'press-key-missing' },
+      { adapter: 'agentDevice', field: 'key', stepId: 'press-key-unsupported' },
     ],
   );
 });
