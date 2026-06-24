@@ -379,6 +379,16 @@ function isAgentDeviceOrientation(value: unknown): boolean {
 const AGENT_DEVICE_ORIENTATION_DESCRIPTION = 'portrait, portrait-upside-down, landscape-left, or landscape-right';
 
 /**
+ * Returns true when an Argent action requires explicit start and end coordinates.
+ *
+ * @param {unknown} driverAction
+ * @returns {boolean}
+ */
+function isArgentStartEndAction(driverAction: unknown): boolean {
+  return driverAction === 'drag' || driverAction === 'scroll' || driverAction === 'swipe';
+}
+
+/**
  * Returns true when a scenario step has Argent point coordinates.
  *
  * @param {Record<string, unknown>} step
@@ -1222,39 +1232,12 @@ function validateArgentAdapterOptions({
       });
     }
 
-    if (
-      step.driverAction === 'scroll' &&
-      (
-        !isFiniteNumber(argent.startX) ||
-        !isFiniteNumber(argent.startY) ||
-        !isFiniteNumber(argent.endX) ||
-        !isFiniteNumber(argent.endY)
-      )
-    ) {
+    if (isArgentStartEndAction(step.driverAction) && !hasStartEndCoordinates(argent)) {
       pushInvalidAdapterOption({
         adapter: 'argent',
         errors,
         field: 'startX/startY/endX/endY',
-        message: `Step \`${stepId}\` uses driverAction \`scroll\` but adapterOptions.argent.startX/startY/endX/endY are required.`,
-        scenario,
-        stepId,
-      });
-    }
-
-    if (
-      step.driverAction === 'swipe' &&
-      (
-        !isFiniteNumber(argent.startX) ||
-        !isFiniteNumber(argent.startY) ||
-        !isFiniteNumber(argent.endX) ||
-        !isFiniteNumber(argent.endY)
-      )
-    ) {
-      pushInvalidAdapterOption({
-        adapter: 'argent',
-        errors,
-        field: 'startX/startY/endX/endY',
-        message: `Step \`${stepId}\` uses driverAction \`swipe\` but adapterOptions.argent.startX/startY/endX/endY are required.`,
+        message: `Step \`${stepId}\` uses driverAction \`${String(step.driverAction)}\` but adapterOptions.argent.startX/startY/endX/endY are required.`,
         scenario,
         stepId,
       });

@@ -31,6 +31,7 @@ type ArgentDriverOptions = {
 
 type ArgentDriver = {
   assertVisible: (options: ArgentAssertVisibleOptions) => Promise<ArgentCommandResult>;
+  drag: (options: ArgentDragOptions) => Promise<ArgentCommandResult>;
   inspectTree: (options?: ArgentInspectTreeOptions) => Promise<ArgentCommandResult>;
   launchApp: (options?: ArgentLaunchAppOptions) => Promise<ArgentCommandResult>;
   longPress: (options: ArgentLongPressOptions) => Promise<ArgentCommandResult>;
@@ -67,6 +68,16 @@ type ArgentAssertVisibleOptions = {
   appId?: string;
   rawFileName?: string;
   selector: ArgentSelector;
+};
+
+type ArgentDragOptions = {
+  durationMs?: number;
+  endX: number;
+  endY: number;
+  rawFileName?: string;
+  screenSize?: ArgentScreenSize;
+  startX: number;
+  startY: number;
 };
 
 type ArgentInspectTreeOptions = {
@@ -414,6 +425,46 @@ function createArgentDriver(options: ArgentDriverOptions): ArgentDriver {
       };
     },
 
+    async drag({
+      durationMs = 300,
+      endX,
+      endY,
+      rawFileName = 'argent-drag.txt',
+      screenSize,
+      startX,
+      startY,
+    }: ArgentDragOptions): Promise<ArgentCommandResult> {
+      const from = normalizeArgentPointWithOptionalScreenSize({
+        ...(screenSize ?? options.screenSize ? { screenSize: screenSize ?? options.screenSize } : {}),
+        x: startX,
+        y: startY,
+      });
+      const to = normalizeArgentPointWithOptionalScreenSize({
+        ...(screenSize ?? options.screenSize ? { screenSize: screenSize ?? options.screenSize } : {}),
+        x: endX,
+        y: endY,
+      });
+      const events = [
+        {
+          type: 'Down',
+          x: from.x,
+          y: from.y,
+        },
+        {
+          delayMs: durationMs,
+          type: 'Move',
+          x: to.x,
+          y: to.y,
+        },
+        {
+          type: 'Up',
+          x: to.x,
+          y: to.y,
+        },
+      ];
+      return run('drag', 'gesture-custom', rawFileName, ['--events-json', JSON.stringify(events)]);
+    },
+
     async inspectTree({
       appId,
       rawFileName = 'argent-describe.txt',
@@ -571,6 +622,7 @@ export type {
   ArgentAssertVisibleOptions,
   ArgentCommandExecutor,
   ArgentCommandResult,
+  ArgentDragOptions,
   ArgentDriver,
   ArgentDriverOptions,
   ArgentInspectTreeOptions,
