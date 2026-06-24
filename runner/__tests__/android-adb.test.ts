@@ -2154,6 +2154,7 @@ test('writes failed artifact set when adb executor never resolves after output s
       'raw/adb-version.txt',
       'raw/adb-devices.txt',
       'raw/adb-runner-watchdog-timeout.txt',
+      'raw/adb-runner-watchdog-logcat.txt',
       'raw/android-metadata.json',
     ],
   });
@@ -2169,7 +2170,52 @@ test('writes failed artifact set when adb executor never resolves after output s
   assert.match(summary, /Next action `inspect_android_adb_runner_timeout`/u);
   assert.equal(metadata.runnerFailure.rawPath, 'raw/adb-runner-watchdog-timeout.txt');
   assert.equal(metadata.runnerFailure.watchdog.timeoutMs, 50);
+  assert.equal(metadata.runnerFailure.watchdogLogcat.rawPath, 'raw/adb-runner-watchdog-logcat.txt');
   assert.ok(metadata.runnerFailure.collectedRawArtifacts.includes('raw/adb-devices.txt'));
+  assert.ok(metadata.runnerFailure.collectedRawArtifacts.includes('raw/adb-runner-watchdog-logcat.txt'));
+});
+
+test('cancels pending adb capture sleeps after watchdog publication', async (t: TestContext) => {
+  const outputDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-android-adb-watchdog-sleep-'));
+  t.after(async () => {
+    await fsp.rm(outputDir, { recursive: true, force: true });
+  });
+  const executor = createExecutor({
+    version: { stdout: 'Android Debug Bridge version 1.0.41\n' },
+    'devices -l': {
+      stdout: [
+        'List of devices attached',
+        'emulator-5554 device product:sdk_gphone model:Pixel_6 device:emu64',
+      ].join('\n'),
+    },
+    '-s emulator-5554 shell getprop ro.product.model': { stdout: 'Pixel 6\n' },
+    '-s emulator-5554 shell getprop ro.build.version.release': { stdout: '14\n' },
+    '-s emulator-5554 shell getprop ro.build.version.sdk': { stdout: '35\n' },
+    '-s emulator-5554 logcat -d -v time -t 1000': {
+      stdout: '[profile-session] kind=start scenario=watchdog runId=android-adb-watchdog-sleep\n',
+    },
+  });
+
+  const startedAt = Date.now();
+  const result = await runAndroidAdbPreflight({
+    captureLogcat: true,
+    captureWatchdogMs: 50,
+    driverSteps: [{
+      driverAction: 'readLogs',
+      rawFileName: 'adb-logcat.txt',
+      waitMs: 5000,
+    }],
+    executor,
+    outputDir,
+    runId: 'android-adb-watchdog-sleep',
+  });
+  const elapsedMs = Date.now() - startedAt;
+  const metadata = JSON.parse(fs.readFileSync(path.join(outputDir, 'raw', 'android-metadata.json'), 'utf8'));
+
+  assert.equal(result.health.healthStatus, 'failed');
+  assert.equal(metadata.runnerFailure.rawPath, 'raw/adb-runner-watchdog-timeout.txt');
+  assert.equal(metadata.runnerFailure.watchdogLogcat.rawPath, 'raw/adb-runner-watchdog-logcat.txt');
+  assert.ok(elapsedMs < 1000, `watchdog publication took ${elapsedMs}ms`);
 });
 
 test('fails logcat capture when no online Android device is connected', async (t: TestContext) => {
