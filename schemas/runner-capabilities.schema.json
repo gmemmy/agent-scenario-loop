@@ -151,6 +151,7 @@
         "drag",
         "pinch",
         "rotate",
+        "rotateGesture",
         "typeText",
         "focus",
         "fill",
