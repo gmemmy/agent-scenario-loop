@@ -3717,11 +3717,12 @@ function resolveAndroidAdbScreenshotDependency({
     if (record.driverAction !== 'screenshot') {
       continue;
     }
-    const sidecarRelativePath = typeof record.capturePath === 'string'
-      ? record.capturePath
-      : typeof record.rawPath === 'string'
-      ? record.rawPath
-      : null;
+    let sidecarRelativePath: string | null = null;
+    if (typeof record.capturePath === 'string') {
+      sidecarRelativePath = record.capturePath;
+    } else if (typeof record.rawPath === 'string') {
+      sidecarRelativePath = record.rawPath;
+    }
     if (!sidecarRelativePath || path.isAbsolute(sidecarRelativePath)) {
       continue;
     }
@@ -4078,9 +4079,10 @@ function resolveRuntimeIdentityVerification({
 
   const observedAppIds = resolveObservedRuntimeAppIds({ metadata: sidecarMetadata.metadata, platform });
   const observedTargetId = resolveObservedRuntimeTargetId({ metadata: sidecarMetadata.metadata, platform });
-  const mismatchedAppId = expectedAppId
-    ? observedAppIds.find((observedAppId) => observedAppId !== expectedAppId.value) ?? null
-    : null;
+  let mismatchedAppId: string | null = null;
+  if (expectedAppId) {
+    mismatchedAppId = observedAppIds.find((observedAppId) => observedAppId !== expectedAppId.value) ?? null;
+  }
   if (expectedAppId && mismatchedAppId) {
     return buildRuntimeIdentityVerification({
       expectedAppId,

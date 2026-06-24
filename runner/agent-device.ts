@@ -325,10 +325,16 @@ function execFileCommand(command: string, args: string[]): Promise<CommandResult
 function execFileCommandWithTimeout(command: string, args: string[], timeoutMs = 60_000): Promise<CommandResult> {
   return new Promise((resolve) => {
     execFile(command, args, { timeout: timeoutMs }, (error: ExecFileError | null, stdout: string, stderr: string) => {
+      let exitCode = 0;
+      if (error && typeof error.code === 'number') {
+        exitCode = error.code;
+      } else if (error) {
+        exitCode = 1;
+      }
       resolve({
         command,
         args,
-        exitCode: error && typeof error.code === 'number' ? error.code : error ? 1 : 0,
+        exitCode,
         stderr: [
           stderr,
           error?.killed || error?.signal === 'SIGTERM' ? `agent-device command timed out after ${timeoutMs}ms.` : '',
@@ -1480,6 +1486,54 @@ function agentDeviceDriverActionCode(driverAction: AgentDeviceDriverStep['driver
 }
 
 /**
+ * Derives the health status for one agent-device driver action.
+ *
+ * @param {{failed: boolean, required: boolean}} options
+ * @returns {'failed' | 'passed' | 'warning'}
+ */
+function agentDeviceDriverActionStatus({
+  failed,
+  required,
+}: {
+  failed: boolean;
+  required: boolean;
+}): 'failed' | 'passed' | 'warning' {
+  if (!failed) {
+    return 'passed';
+  }
+
+  if (required) {
+    return 'failed';
+  }
+
+  return 'warning';
+}
+
+/**
+ * Describes how agent-device selected the target for this capture.
+ *
+ * @param {{sessionName: string | null, sessionOwnsTarget: boolean}} options
+ * @returns {'direct' | 'session' | 'session_bind'}
+ */
+function agentDeviceTargetSelectionMode({
+  sessionName,
+  sessionOwnsTarget,
+}: {
+  sessionName: string | null;
+  sessionOwnsTarget: boolean;
+}): 'direct' | 'session' | 'session_bind' {
+  if (sessionOwnsTarget) {
+    return 'session';
+  }
+
+  if (sessionName) {
+    return 'session_bind';
+  }
+
+  return 'direct';
+}
+
+/**
  * Runs scenario-declared portable actions through agent-device and writes artifacts.
  *
  * @param {AgentDeviceCaptureOptions} options
@@ -1518,7 +1572,10 @@ async function runAgentDeviceCapture({
   };
   const checks: Record<string, unknown>[] = [];
   const driverActionMetadata: Record<string, unknown>[] = [];
-  const resolvedDriverSteps = driverSteps ?? (scenario ? resolveAgentDeviceDriverSteps(scenario) : []);
+  let resolvedDriverSteps = driverSteps ?? [];
+  if (!driverSteps && scenario) {
+    resolvedDriverSteps = resolveAgentDeviceDriverSteps(scenario);
+  }
   const driverStepErrors = validateAgentDeviceDriverSteps(resolvedDriverSteps);
   if (driverStepErrors.length > 0) {
     throw new Error(`Invalid agent-device driver step metadata: ${driverStepErrors.join(' ')}`);
@@ -1575,7 +1632,7 @@ async function runAgentDeviceCapture({
     sessionSelectionMode,
     sessionMode: normalizedSessionMode,
     target,
-    targetSelectionMode: sessionOwnsTarget ? 'session' : sessionName ? 'session_bind' : 'direct',
+    targetSelectionMode: agentDeviceTargetSelectionMode({ sessionName, sessionOwnsTarget }),
   };
 
   if (open) {
@@ -1654,9 +1711,10 @@ async function runAgentDeviceCapture({
     const failed = driverResult.exitCode !== 0;
     const errorMetadata = failed ? readAgentDeviceErrorMetadata(driverResult) : {};
     const codeSuffix = agentDeviceDriverActionCode(driverStep.driverAction);
+    const required = driverStep.required !== false;
     checks.push({
       name: `agent_device_${codeSuffix}`,
-      status: failed && driverStep.required === false ? 'warning' : failed ? 'failed' : 'passed',
+      status: agentDeviceDriverActionStatus({ failed, required }),
       source: 'runner',
       code: driverResult.exitCode === 0 ? `agent_device_${codeSuffix}_completed` : `agent_device_${codeSuffix}_failed`,
       message: driverResult.exitCode === 0
