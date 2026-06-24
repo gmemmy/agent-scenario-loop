@@ -138,6 +138,17 @@ The command writes a separate simctl capture folder under the selected output ro
 
 Profile manifests only list sidecar paths that were copied into the profile run or deliberately referenced as external sidecar evidence. If a simctl or adb capture folder is the real evidence source, `manifest.artifacts.diagnostics` records the diagnostic status plus `sidecarRoot`/`evidenceDependency` instead of inventing profile-root files such as `raw/device.log`, `captures/run.mp4`, or `captures/ui-tree.json`. Rehydrated runs may record `evidenceDependency.root: "sidecar"` with paths relative to `sidecarRoot`, so agents do not have to reason from long `../../` paths alone.
 
+Android adb capture health can fail even when the sidecar preserved a usable
+`raw/adb-logcat.txt`. In that case the Android profile runner still publishes
+final profile artifacts from the preserved log and records
+`android_adb_sidecar_health` as a warning in `health.json`. If the adb command
+hit the configured output buffer, the warning code is
+`android_adb_sidecar_output_limit_profile_published` and the sidecar driver
+metadata records `outputLimitExceeded` plus `maxBufferBytes`. Treat the final
+profile health, verdict, metrics, and causal timeline as the interpretation
+surface, and treat the failed sidecar checks as diagnostic context for the next
+capture.
+
 When a scenario requests a screenshot, pass supported simulator screenshot options through the iOS capture command with `--screenshot-type`, `--screenshot-display`, or `--screenshot-mask`; ASL records the chosen options in capture metadata and the resulting path in `manifest.artifacts.captures.screenshots`.
 
 For profile-session capture on Android or iOS, omitting `--wait-ms` lets ASL derive the final evidence window from scenario execution waits and cycle count. On iOS, command-backed profile sessions use the expanded command queue, including setup commands, repeated cycle body commands, command pacing `waitMs`, milestone-gate `waitTimeoutMs`, and a conservative buffer. Explicit `--wait-ms` remains authoritative when a consuming app has a known startup or logging delay that the scenario cannot express.
