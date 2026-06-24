@@ -33,11 +33,11 @@ The root package is for stable, runner-neutral behavior:
 - comparison artifacts
 - aggregate live-proof artifacts
 - schema validation
-- Android native-performance evidence normalization from provider-captured `gfxinfo` and `meminfo` text
+- Android native-performance evidence normalization from provider-captured `gfxinfo`, `meminfo`, and trace-processor summaries
 
 Use `dispatchDriverAction()` when a runner has already normalized a scenario step and needs to call the active stable built-in `DriverPort` implementation without binding to adb, simctl, agent-device, Argent, or another concrete tool. The scenario schema may name richer actions before the shared port supports them; runners that declare those actions must map them through their own bounded adapter path until the public `DriverPort` contract explicitly expands.
 
-Use `buildAndroidNativePerformanceEvidence()` inside project-local provider scripts after they capture Android `dumpsys gfxinfo` and `dumpsys meminfo` output. The helper parses headline frame, jank, render, and memory fields into a schema-valid `nativePerformance` envelope while keeping comparability `diagnostic-only` until a separate baseline policy proves the run is comparable.
+Use `buildAndroidNativePerformanceEvidence()` inside project-local provider scripts after they capture Android `dumpsys gfxinfo`, `dumpsys meminfo`, or a structured trace-processor summary. The helper parses headline frame, jank, render, memory, CPU, scheduling, and trace-window fields into a schema-valid `nativePerformance` envelope while keeping comparability `diagnostic-only` until a separate baseline policy proves the run is comparable. Raw Perfetto traces and trace-processor outputs should be attached through the `attachments` option; the helper records them as diagnostic sources without claiming release comparability.
 
 ## Runner Subpaths
 
