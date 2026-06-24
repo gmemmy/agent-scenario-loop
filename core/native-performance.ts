@@ -86,6 +86,59 @@ type AndroidTraceProcessorSummary = {
   traces: JsonRecord;
 };
 
+type IosNativePerformanceSummaryInput = {
+  averageFrameMs?: number;
+  batteryImpact?: number;
+  cpuMs?: number;
+  durationMs?: number;
+  frameCount?: number;
+  hitchCount?: number;
+  jankyFrameCount?: number;
+  mainThreadCpuMs?: number;
+  memoryPeakBytes?: number;
+  p50FrameMs?: number;
+  p90FrameMs?: number;
+  p95FrameMs?: number;
+  p99FrameMs?: number;
+  physicalFootprintBytes?: number;
+  residentSizeBytes?: number;
+  threadSchedulingDelayMs?: number;
+  thermalState?: string;
+  traceId?: string;
+  windowEndMs?: number;
+  windowStartMs?: number;
+  worstFrameMs?: number;
+};
+
+type IosNativePerformanceEvidenceInput = {
+  appId?: string;
+  attachments?: NativePerformanceAttachment[];
+  bundleId?: string;
+  capturedAt?: string;
+  deviceId?: string;
+  instrumentsSummary?: IosNativePerformanceSummaryInput;
+  metricKitSummary?: IosNativePerformanceSummaryInput;
+  providerId: string;
+  runId: string;
+  scenarioId: string;
+  simctlSummary?: IosNativePerformanceSummaryInput;
+  xctraceSummary?: IosNativePerformanceSummaryInput;
+};
+
+type IosNativePerformanceSummary = {
+  frames: JsonRecord;
+  memory: JsonRecord;
+  metrics: JsonRecord;
+  traces: JsonRecord;
+};
+
+type IosNativePerformanceSourceSummary = {
+  sourceId: 'instruments' | 'metrickit' | 'simctl' | 'xctrace';
+  summary: IosNativePerformanceSummary;
+};
+
+type IosNativePerformanceEvidenceSource = IosNativePerformanceSourceSummary['sourceId'] | 'native-trace';
+
 /**
  * Reads an integer token that may contain thousands separators.
  *
@@ -565,6 +618,484 @@ function buildAndroidToolCommand(commands: string[]): string {
 }
 
 /**
+ * Normalizes one provider-owned iOS native-performance summary into ASL evidence surfaces.
+ *
+ * @param {IosNativePerformanceSummaryInput | undefined} input
+ * @returns {IosNativePerformanceSummary}
+ */
+function normalizeIosNativePerformanceSummary(input: IosNativePerformanceSummaryInput | undefined): IosNativePerformanceSummary {
+  if (!input || typeof input !== 'object') {
+    return {
+      frames: {},
+      memory: {},
+      metrics: {},
+      traces: {},
+    };
+  }
+
+  const source = input as JsonRecord;
+  const frames: JsonRecord = {};
+  const memory: JsonRecord = {};
+  const metrics: JsonRecord = {};
+  const traces: JsonRecord = {};
+
+  setDefined(frames, 'totalFrameCount', readFiniteNumber(source, 'frameCount'));
+  setDefined(frames, 'jankyFrameCount', readFiniteNumber(source, 'jankyFrameCount'));
+  setDefined(frames, 'hitchCount', readFiniteNumber(source, 'hitchCount'));
+  setDefined(frames, 'averageFrameMs', readFiniteNumber(source, 'averageFrameMs'));
+  setDefined(frames, 'worstFrameMs', readFiniteNumber(source, 'worstFrameMs'));
+  setDefined(frames, 'p50FrameMs', readFiniteNumber(source, 'p50FrameMs'));
+  setDefined(frames, 'p90FrameMs', readFiniteNumber(source, 'p90FrameMs'));
+  setDefined(frames, 'p95FrameMs', readFiniteNumber(source, 'p95FrameMs'));
+  setDefined(frames, 'p99FrameMs', readFiniteNumber(source, 'p99FrameMs'));
+
+  setDefined(memory, 'residentSizeBytes', readFiniteNumber(source, 'residentSizeBytes'));
+  setDefined(memory, 'physicalFootprintBytes', readFiniteNumber(source, 'physicalFootprintBytes'));
+  setDefined(memory, 'memoryPeakBytes', readFiniteNumber(source, 'memoryPeakBytes'));
+
+  setDefined(metrics, 'cpuMs', readFiniteNumber(source, 'cpuMs'));
+  setDefined(metrics, 'mainThreadCpuMs', readFiniteNumber(source, 'mainThreadCpuMs'));
+  setDefined(metrics, 'threadSchedulingDelayMs', readFiniteNumber(source, 'threadSchedulingDelayMs'));
+  setDefined(metrics, 'batteryImpact', readFiniteNumber(source, 'batteryImpact'));
+  setDefined(metrics, 'thermalState', readNonEmptyString(source, 'thermalState'));
+
+  setDefined(traces, 'traceId', readNonEmptyString(source, 'traceId'));
+  setDefined(traces, 'durationMs', readFiniteNumber(source, 'durationMs'));
+  setDefined(traces, 'windowStartMs', readFiniteNumber(source, 'windowStartMs'));
+  setDefined(traces, 'windowEndMs', readFiniteNumber(source, 'windowEndMs'));
+
+  return {
+    frames,
+    memory,
+    metrics,
+    traces,
+  };
+}
+
+/**
+ * Returns true when a normalized iOS summary carries any evidence.
+ *
+ * @param {IosNativePerformanceSummary} summary
+ * @returns {boolean}
+ */
+function hasIosNativePerformanceSummary(summary: IosNativePerformanceSummary): boolean {
+  return hasFields(summary.frames) || hasFields(summary.memory) || hasFields(summary.metrics) || hasFields(summary.traces);
+}
+
+/**
+ * Shallowly merges normalized iOS source summaries into one native-performance surface set.
+ *
+ * @param {IosNativePerformanceSourceSummary[]} summaries
+ * @returns {IosNativePerformanceSummary}
+ */
+function mergeIosNativePerformanceSummaries(summaries: IosNativePerformanceSourceSummary[]): IosNativePerformanceSummary {
+  const merged: IosNativePerformanceSummary = {
+    frames: {},
+    memory: {},
+    metrics: {},
+    traces: {},
+  };
+
+  for (const entry of summaries) {
+    Object.assign(merged.frames, entry.summary.frames);
+    Object.assign(merged.memory, entry.summary.memory);
+    Object.assign(merged.metrics, entry.summary.metrics);
+    Object.assign(merged.traces, entry.summary.traces);
+  }
+
+  return merged;
+}
+
+/**
+ * Builds the provider-owned iOS summary inventory in stable source order.
+ *
+ * @param {IosNativePerformanceEvidenceInput} input
+ * @returns {IosNativePerformanceSourceSummary[]}
+ */
+function buildIosSourceSummaries(input: IosNativePerformanceEvidenceInput): IosNativePerformanceSourceSummary[] {
+  return [
+    {
+      sourceId: 'instruments',
+      summary: normalizeIosNativePerformanceSummary(input.instrumentsSummary),
+    },
+    {
+      sourceId: 'xctrace',
+      summary: normalizeIosNativePerformanceSummary(input.xctraceSummary),
+    },
+    {
+      sourceId: 'metrickit',
+      summary: normalizeIosNativePerformanceSummary(input.metricKitSummary),
+    },
+    {
+      sourceId: 'simctl',
+      summary: normalizeIosNativePerformanceSummary(input.simctlSummary),
+    },
+  ];
+}
+
+/**
+ * Builds the iOS native-performance data class vocabulary from normalized summaries.
+ *
+ * @param {IosNativePerformanceSummary} summary
+ * @returns {string[]}
+ */
+function buildIosDataClasses(summary: IosNativePerformanceSummary): string[] {
+  const dataClasses = new Set<string>();
+  if (hasFields(summary.frames)) {
+    dataClasses.add('frames');
+    dataClasses.add('jank');
+    dataClasses.add('render');
+  }
+  if (hasFields(summary.memory)) {
+    dataClasses.add('memory');
+  }
+  if (hasFields(summary.metrics)) {
+    if ('cpuMs' in summary.metrics || 'mainThreadCpuMs' in summary.metrics) {
+      dataClasses.add('cpu');
+    }
+    if ('threadSchedulingDelayMs' in summary.metrics) {
+      dataClasses.add('thread-scheduling');
+    }
+    if ('thermalState' in summary.metrics) {
+      dataClasses.add('thermal');
+    }
+    if ('batteryImpact' in summary.metrics) {
+      dataClasses.add('battery');
+    }
+  }
+  if (hasFields(summary.traces)) {
+    dataClasses.add('native-trace');
+  }
+  if (dataClasses.size === 0) {
+    dataClasses.add('unknown');
+  }
+  return Array.from(dataClasses);
+}
+
+/**
+ * Adds raw native trace coverage to iOS data classes without leaving unknown beside known evidence.
+ *
+ * @param {string[]} dataClasses
+ * @param {boolean} nativeTraceCaptured
+ * @returns {string[]}
+ */
+function buildIosDataClassesWithNativeTrace(dataClasses: string[], nativeTraceCaptured: boolean): string[] {
+  if (!nativeTraceCaptured) {
+    return dataClasses;
+  }
+
+  const normalized = new Set(dataClasses.filter((dataClass) => dataClass !== 'unknown'));
+  normalized.add('native-trace');
+  return Array.from(normalized);
+}
+
+/**
+ * Resolves the native-performance evidence kind for provider-owned iOS sources.
+ *
+ * @param {IosNativePerformanceSourceSummary[]} summaries
+ * @param {boolean} nativeTraceCaptured
+ * @returns {'instruments' | 'metrickit' | 'mixed' | 'native-trace' | 'simctl' | 'unknown'}
+ */
+function resolveIosEvidenceKind(
+  summaries: IosNativePerformanceSourceSummary[],
+  nativeTraceCaptured: boolean,
+): 'instruments' | 'metrickit' | 'mixed' | 'native-trace' | 'simctl' | 'unknown' {
+  const capturedSources: IosNativePerformanceEvidenceSource[] = summaries
+    .filter((entry) => hasIosNativePerformanceSummary(entry.summary))
+    .map((entry) => entry.sourceId);
+  if (nativeTraceCaptured) {
+    capturedSources.push('native-trace');
+  }
+  const uniqueSources = new Set(capturedSources);
+  if (uniqueSources.size > 1) {
+    return 'mixed';
+  }
+  const [sourceId] = Array.from(uniqueSources);
+  if (sourceId === 'instruments' || sourceId === 'metrickit' || sourceId === 'simctl' || sourceId === 'native-trace') {
+    return sourceId;
+  }
+  if (sourceId === 'xctrace') {
+    return 'native-trace';
+  }
+  return 'unknown';
+}
+
+/**
+ * Builds the iOS native-performance source inventory.
+ *
+ * @param {{attachments?: NativePerformanceAttachment[], summaries: IosNativePerformanceSourceSummary[]}} options
+ * @returns {Record<string, unknown>[]}
+ */
+function buildIosDiagnosticSources({
+  attachments,
+  summaries,
+}: {
+  attachments: NativePerformanceAttachment[] | undefined;
+  summaries: IosNativePerformanceSourceSummary[];
+}): JsonRecord[] {
+  const summaryBySource = new Map(summaries.map((entry) => [entry.sourceId, entry.summary]));
+  const instrumentsPath = findFirstAttachmentPath(attachments, ['raw-instruments', 'instruments-trace', 'instruments-summary']);
+  const xctracePath = findFirstAttachmentPath(attachments, ['raw-xctrace', 'xctrace-export', 'xctrace-summary']);
+  const metricKitPath = findFirstAttachmentPath(attachments, ['raw-metrickit', 'metrickit-payload', 'metrickit-summary']);
+  const simctlPath = findFirstAttachmentPath(attachments, ['raw-simctl', 'simctl-log', 'simctl-summary']);
+  const nativeTracePath = findFirstAttachmentPath(attachments, ['raw-native-trace', 'native-trace']);
+
+  return [
+    buildIosDiagnosticSource({
+      dataClasses: ['frames', 'jank', 'cpu', 'memory', 'native-trace'],
+      nextAction: 'Capture an Instruments trace or exported summary for iOS native-performance evidence.',
+      path: instrumentsPath,
+      sourceId: 'instruments',
+      summary: summaryBySource.get('instruments'),
+      toolName: 'Instruments',
+    }),
+    buildIosDiagnosticSource({
+      dataClasses: ['cpu', 'thread-scheduling', 'memory', 'native-trace'],
+      nextAction: 'Run a bounded xctrace capture/export and attach raw trace references plus structured metrics.',
+      path: xctracePath,
+      sourceId: 'xctrace',
+      summary: summaryBySource.get('xctrace'),
+      toolName: 'xctrace',
+    }),
+    buildIosDiagnosticSource({
+      dataClasses: ['frames', 'jank', 'cpu', 'memory', 'thermal', 'battery'],
+      nextAction: 'Ingest MetricKit payloads only when app, build, run identity, and time window are bound.',
+      path: metricKitPath,
+      sourceId: 'metrickit',
+      summary: summaryBySource.get('metrickit'),
+      toolName: 'MetricKit',
+    }),
+    buildIosDiagnosticSource({
+      dataClasses: ['render', 'memory', 'cpu'],
+      nextAction: 'Use simctl-derived logs or process state as diagnostic evidence, not comparable native performance by itself.',
+      path: simctlPath,
+      sourceId: 'simctl',
+      summary: summaryBySource.get('simctl'),
+      toolName: 'xcrun simctl',
+    }),
+    buildIosDiagnosticSource({
+      dataClasses: ['native-trace'],
+      nextAction: 'Attach structured native-trace summaries before making performance claims from raw traces.',
+      path: nativeTracePath,
+      sourceId: 'native-trace',
+      summary: undefined,
+      toolName: 'iOS native trace',
+    }),
+  ];
+}
+
+/**
+ * Builds one iOS native diagnostic source inventory entry.
+ *
+ * @param {{dataClasses: string[], nextAction: string, path?: string, sourceId: string, summary?: IosNativePerformanceSummary, toolName: string}} source
+ * @returns {Record<string, unknown>}
+ */
+function buildIosDiagnosticSource(source: {
+  dataClasses: string[];
+  nextAction: string;
+  path?: string | undefined;
+  sourceId: string;
+  summary?: IosNativePerformanceSummary | undefined;
+  toolName: string;
+}): JsonRecord {
+  const summaryCaptured = source.summary ? hasIosNativePerformanceSummary(source.summary) : false;
+  const captured = summaryCaptured || Boolean(source.path);
+  const reason = captured
+    ? `Provider supplied ${source.sourceId} iOS native-performance evidence.`
+    : `No ${source.sourceId} iOS native-performance evidence was supplied.`;
+
+  return buildAndroidDiagnosticSource({
+    dataClasses: source.dataClasses,
+    nextAction: source.nextAction,
+    path: source.path,
+    reason,
+    sourceId: source.sourceId,
+    status: captured ? 'captured' : 'unverified',
+    tool: {
+      name: source.toolName,
+    },
+  });
+}
+
+/**
+ * Describes the concrete iOS native diagnostic commands reflected by the evidence.
+ *
+ * @param {string[]} commands
+ * @returns {string}
+ */
+function buildIosToolCommand(commands: string[]): string {
+  if (commands.length === 0) {
+    return 'ios native diagnostics';
+  }
+
+  return commands.join(' / ');
+}
+
+/**
+ * Lists the iOS evidence surfaces that can support diagnostic-only claims.
+ *
+ * @param {IosNativePerformanceSourceSummary[]} summaries
+ * @param {string | undefined} nativeTracePath
+ * @returns {string[]}
+ */
+function buildIosSupportingEvidence(summaries: IosNativePerformanceSourceSummary[], nativeTracePath: string | undefined): string[] {
+  const supportingEvidence = summaries
+    .filter((entry) => hasIosNativePerformanceSummary(entry.summary))
+    .map((entry) => `${entry.sourceId} summary`);
+  if (nativeTracePath) {
+    supportingEvidence.push('native trace attachment');
+  }
+  return supportingEvidence;
+}
+
+/**
+ * Lists the concrete iOS diagnostic commands reflected by parsed summaries.
+ *
+ * @param {IosNativePerformanceSourceSummary[]} summaries
+ * @returns {string[]}
+ */
+function buildIosToolCommands(summaries: IosNativePerformanceSourceSummary[]): string[] {
+  return summaries
+    .filter((entry) => hasIosNativePerformanceSummary(entry.summary))
+    .map((entry) => {
+      if (entry.sourceId === 'metrickit') {
+        return 'MetricKit';
+      }
+      if (entry.sourceId === 'simctl') {
+        return 'xcrun simctl';
+      }
+      return entry.sourceId;
+    });
+}
+
+/**
+ * Builds provider-owned iOS target binding metadata.
+ *
+ * @param {IosNativePerformanceEvidenceInput} input
+ * @returns {JsonRecord}
+ */
+function buildIosTargetBinding(input: IosNativePerformanceEvidenceInput): JsonRecord {
+  const targetBinding: JsonRecord = {};
+  const appId = input.appId ?? input.bundleId;
+  if (appId && input.deviceId) {
+    targetBinding.status = 'verified';
+    targetBinding.reason = 'Provider supplied both iOS bundle id and device id for this evidence envelope.';
+  } else {
+    targetBinding.status = 'unverified';
+    targetBinding.reason = 'Provider did not supply both iOS bundle id and device id.';
+  }
+  setDefined(targetBinding, 'appId', appId);
+  setDefined(targetBinding, 'bundleId', input.bundleId);
+  setDefined(targetBinding, 'deviceId', input.deviceId);
+  targetBinding.source = 'provider';
+  return targetBinding;
+}
+
+/**
+ * Builds the claim gate for iOS native-performance evidence.
+ *
+ * @param {string[]} supportingEvidence
+ * @returns {JsonRecord}
+ */
+function buildIosClaimSufficiency(supportingEvidence: string[]): JsonRecord {
+  const claimSufficiency: JsonRecord = {
+    claim: 'ios-native-performance',
+    nextAction: 'Use provider-captured raw artifacts and rerun a comparable native-performance lane before making release claims.',
+  };
+  if (supportingEvidence.length > 0) {
+    claimSufficiency.status = 'sufficient-for-diagnosis';
+    claimSufficiency.reason = 'iOS native diagnostics are useful for diagnosis but are not budget-comparable.';
+    claimSufficiency.supportingEvidence = supportingEvidence;
+    return claimSufficiency;
+  }
+
+  claimSufficiency.status = 'insufficient-for-claim';
+  claimSufficiency.reason = 'No iOS native diagnostic summary fields or raw native trace attachments were supplied.';
+  claimSufficiency.missingEvidence = ['iOS native diagnostic summary or native trace attachment'];
+  return claimSufficiency;
+}
+
+/**
+ * Summarizes iOS native-performance evidence without making a product claim.
+ *
+ * @param {string[]} supportingEvidence
+ * @returns {string}
+ */
+function summarizeIosNativePerformanceEvidence(supportingEvidence: string[]): string {
+  if (supportingEvidence.length === 0) {
+    return 'No iOS native-performance summary fields were parsed from provider input.';
+  }
+
+  return `Normalized ${supportingEvidence.join(' and ')} as diagnostic-only native-performance evidence.`;
+}
+
+/**
+ * Builds a product-neutral, schema-valid iOS native-performance evidence envelope.
+ *
+ * @param {IosNativePerformanceEvidenceInput} input
+ * @returns {Record<string, unknown>}
+ */
+function buildIosNativePerformanceEvidence(input: IosNativePerformanceEvidenceInput): JsonRecord {
+  const sourceSummaries = buildIosSourceSummaries(input);
+  const summary = mergeIosNativePerformanceSummaries(sourceSummaries);
+  const nativeTracePath = findFirstAttachmentPath(input.attachments, ['raw-native-trace', 'native-trace']);
+  const diagnosticSources = buildIosDiagnosticSources({ attachments: input.attachments, summaries: sourceSummaries });
+  const dataClasses = buildIosDataClassesWithNativeTrace(buildIosDataClasses(summary), Boolean(nativeTracePath));
+  const supportingEvidence = buildIosSupportingEvidence(sourceSummaries, nativeTracePath);
+  const toolCommands = buildIosToolCommands(sourceSummaries);
+  const hasDiagnosticEvidence = supportingEvidence.length > 0;
+
+  const evidence: JsonRecord = {
+    schemaVersion: '1.0.0',
+    providerId: input.providerId,
+    platform: 'ios',
+    runId: input.runId,
+    scenarioId: input.scenarioId,
+    tool: {
+      name: 'ios-platform-diagnostics',
+      command: buildIosToolCommand(toolCommands),
+    },
+    capturedAt: input.capturedAt ?? new Date(0).toISOString(),
+    captureMode: 'afterCapture',
+    clockDomain: 'host',
+    completenessStatus: hasDiagnosticEvidence ? 'partial' : 'unknown',
+    comparability: {
+      status: 'diagnostic-only',
+      reason: 'iOS native diagnostics were normalized for investigation, not collected under a comparable ASL native-performance baseline.',
+      policy: 'Use this evidence to classify native/render/memory pressure; require a complete comparable lane before release performance claims.',
+    },
+    dataClasses,
+    diagnosticSources,
+    evidenceKind: resolveIosEvidenceKind(sourceSummaries, Boolean(nativeTracePath)),
+    lifecycle: {
+      phase: 'afterCapture',
+      perturbsTiming: false,
+    },
+    targetBinding: buildIosTargetBinding(input),
+    claimSufficiency: buildIosClaimSufficiency(supportingEvidence),
+    summary: summarizeIosNativePerformanceEvidence(supportingEvidence),
+  };
+
+  if (hasFields(summary.frames)) {
+    evidence.frames = summary.frames;
+  }
+  if (hasFields(summary.memory)) {
+    evidence.memory = summary.memory;
+  }
+  if (hasFields(summary.metrics)) {
+    evidence.metrics = summary.metrics;
+  }
+  if (hasFields(summary.traces)) {
+    evidence.traces = [summary.traces];
+  }
+  if (input.attachments && input.attachments.length > 0) {
+    evidence.attachments = input.attachments;
+  }
+
+  return assertValidJson(evidence, SCHEMAS.nativePerformance, 'Native performance evidence artifact') as JsonRecord;
+}
+
+/**
  * Builds a product-neutral, schema-valid Android native-performance evidence envelope.
  *
  * @param {AndroidNativePerformanceEvidenceInput} input
@@ -679,6 +1210,7 @@ function buildAndroidNativePerformanceEvidence(input: AndroidNativePerformanceEv
 
 export {
   buildAndroidNativePerformanceEvidence,
+  buildIosNativePerformanceEvidence,
   parseAndroidGfxinfoSummary,
   parseAndroidMeminfoSummary,
 };
@@ -688,5 +1220,7 @@ export type {
   AndroidMeminfoSummary,
   AndroidNativePerformanceEvidenceInput,
   AndroidTraceProcessorSummaryInput,
+  IosNativePerformanceEvidenceInput,
+  IosNativePerformanceSummaryInput,
   NativePerformanceAttachment,
 };

@@ -475,6 +475,7 @@ test('example mobile app provider manifest writes stable evidence attachments', 
     ) as {
       claimSufficiency?: { status?: string };
       comparability?: { status?: string };
+      dataClasses?: string[];
       diagnosticSources?: Array<{ path?: string; sourceId?: string; status?: string }>;
       providerId?: string;
     };
@@ -508,6 +509,7 @@ test('example mobile app provider manifest writes stable evidence attachments', 
       );
     } else {
       assert.equal(nativePerformanceEvidence.claimSufficiency?.status, 'insufficient-for-claim');
+      assert.deepEqual(nativePerformanceEvidence.dataClasses, ['unknown']);
       assert.deepEqual(
         nativePerformanceEvidence.diagnosticSources?.map((source) => ({
           sourceId: source.sourceId,
@@ -528,6 +530,10 @@ test('example mobile app provider manifest writes stable evidence attachments', 
           },
           {
             sourceId: 'simctl',
+            status: 'unverified',
+          },
+          {
+            sourceId: 'native-trace',
             status: 'unverified',
           },
         ],
