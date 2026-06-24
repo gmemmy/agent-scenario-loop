@@ -33,6 +33,9 @@ test('profile-session helper keeps storage-backed command control safeguards', (
   assert.match(source, /export const PROFILE_SESSION_HELPER_VERSION = '1\.0\.0';/u);
   assert.match(source, /const PROFILE_COMMAND_DUPLICATE_WINDOW_MS = 750;/u);
   assert.match(source, /reason: 'duplicate-command-window'/u);
+  assert.match(source, /command\.queueId \?\? ''/u);
+  assert.match(source, /command\.commandId \?\? command\.id/u);
+  assert.match(source, /typeof command\.sequence === 'number' \? String\(command\.sequence\) : ''/u);
   assert.match(
     source,
     /if \(command\.source === 'storage'\) \{\s+return false;\s+\}/u,
@@ -97,6 +100,10 @@ test('profile-session helper keeps storage-backed command control safeguards', (
   assert.match(source, /function startProfileCommandMilestoneTimeout/u);
   assert.match(source, /reason: 'wait-for-milestone-timeout'/u);
   assert.match(source, /clearProfileCommandMilestoneGate\(\);/u);
+  assert.match(source, /type ProfileCommandClearStoragePolicy = 'preserve-storage' \| 'remove-storage';/u);
+  assert.match(source, /clearPendingProfileCommands\(storagePolicy: ProfileCommandClearStoragePolicy = 'remove-storage'\)/u);
+  assert.match(source, /if \(storagePolicy === 'preserve-storage'\) \{\s+return;\s+\}/u);
+  assert.match(source, /\{ commandStoragePolicy: 'preserve-storage' \}/u);
 });
 
 test('runner default profile-session storage keys match the app helper contract', () => {

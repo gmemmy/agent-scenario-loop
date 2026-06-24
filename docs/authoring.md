@@ -152,6 +152,8 @@ Use `customGesture` only for a named adapter-owned gesture whose full inputs are
 
 For profile-session command transport, platform `waitMs` metadata is queue pacing. ASL preserves it in storage and deep-link command envelopes and waits before releasing the next queued command. App-owned milestones still provide the truth that a command produced the intended product state.
 
+For deep-link profile-session transport, the app helper suppresses exact duplicate commands that arrive inside the short native handoff window. The duplicate key includes scenario, run id, queue id, command id or command envelope id, sequence, and command text, so repeated scenario-cycle commands with distinct sequence or command identity remain valid commands. Unsequenced repeated commands should use storage transport or explicit command ids when the scenario expects multiple deliveries of the same semantic command.
+
 Use `selector` to describe the intended app target without committing the scenario to one driver. Supported selector kinds are `testId`, `accessibilityId`, `accessibilityLabel`, `text`, `resourceId`, and `xpath`.
 
 ```json
