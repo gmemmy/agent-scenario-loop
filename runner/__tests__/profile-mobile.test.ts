@@ -253,7 +253,9 @@ test('profile health records when final profile evidence reconciles an exhausted
       expectedCommandCount: 3,
       nextAction: 'Use the final profile health, verdict, metrics, and causal timeline for product interpretation; keep the sidecar wait metadata as early-capture diagnostic context.',
       nextActionCode: 'prefer_final_profile_evidence',
+      profileDeliveredSequences: '1,2,3',
       profileMilestoneBackedSequences: '1,3',
+      profileObservedDeliveredCommands: 3,
       profileObservedTerminalCommands: 3,
       profileStarted: true,
       profileTerminalSequences: '1,2,3',
@@ -262,6 +264,98 @@ test('profile health records when final profile evidence reconciles an exhausted
       sidecarRawPath: 'raw/adb-profile-session-early-log-3.txt',
       sidecarStarted: true,
       sidecarTerminalSequences: '1',
+    },
+  });
+});
+
+test('profile health records when final profile delivery reconciles an exhausted Android sidecar wait', async (t: TestContext) => {
+  const sidecarRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-mobile-adb-sidecar-delivery-'));
+  t.after(async () => {
+    await fsp.rm(sidecarRoot, { recursive: true, force: true });
+  });
+  await fsp.mkdir(path.join(sidecarRoot, 'raw'), { recursive: true });
+  await fsp.writeFile(
+    path.join(sidecarRoot, 'raw', 'android-metadata.json'),
+    `${JSON.stringify({
+      profileSessionCompletionWait: {
+        completed: false,
+        elapsedMs: 120000,
+        expectedCommandCount: 4,
+        milestoneBackedSequences: [1, 2, 3],
+        observedTerminalCommands: 3,
+        pollCount: 120,
+        rawPath: 'raw/adb-profile-session-early-log-2.txt',
+        started: true,
+        terminalSequences: [1, 2, 3],
+      },
+    }, null, 2)}\n`,
+    'utf8',
+  );
+
+  const sessionEntries = [
+    {
+      kind: 'start',
+      scenario: 'mobile-command-cycle',
+      runId: 'mobile-command-cycle-run',
+    },
+    ...[1, 2, 3, 4].map((sequence) => ({
+      kind: 'command',
+      scenario: 'mobile-command-cycle',
+      runId: 'mobile-command-cycle-run',
+      commandId: 'scroll-to-target',
+      sequence,
+      status: 'delivered',
+      waitForMilestone: 'target_ready',
+    })),
+  ];
+  const sidecarObservationChecks = buildAndroidProfileSessionSidecarObservationChecks({
+    args: {
+      'adb-artifacts': sidecarRoot,
+    },
+    sessionEntries,
+  });
+  const health = buildProfileHealth({
+    scenario: {
+      name: 'mobile-command-cycle',
+      flowId: 'mobile-command-cycle',
+    },
+    runId: 'mobile-command-cycle-run',
+    metrics: {
+      failures: 0,
+      status: 'passed',
+      timeouts: 0,
+    },
+    commandTransport: 'profile-session-storage',
+    profileEventCount: 20,
+    profileSessionEntryCount: 9,
+    sidecarObservationChecks,
+  });
+
+  const reconciliationCheck = health.checks.find((check: Record<string, unknown>) => (
+    check.name === 'android_profile_session_sidecar_observation'
+  ));
+  assert.equal(health.healthStatus, 'passed');
+  assert.deepEqual(reconciliationCheck, {
+    name: 'android_profile_session_sidecar_observation',
+    status: 'passed',
+    source: 'runner',
+    code: 'android_profile_session_delivery_reconciled_from_profile_evidence',
+    message: 'Final profile-session evidence contained delivered same-run command records after the Android sidecar completion wait exhausted.',
+    metadata: {
+      expectedCommandCount: 4,
+      nextAction: 'Use the final profile health, verdict, metrics, and causal timeline for product interpretation; keep the sidecar wait metadata as early-capture diagnostic context.',
+      nextActionCode: 'prefer_final_profile_evidence',
+      profileDeliveredSequences: '1,2,3,4',
+      profileMilestoneBackedSequences: '1,2,3,4',
+      profileObservedDeliveredCommands: 4,
+      profileObservedTerminalCommands: 0,
+      profileStarted: true,
+      profileTerminalSequences: '',
+      sidecarMilestoneBackedSequences: '1,2,3',
+      sidecarObservedTerminalCommands: 3,
+      sidecarRawPath: 'raw/adb-profile-session-early-log-2.txt',
+      sidecarStarted: true,
+      sidecarTerminalSequences: '1,2,3',
     },
   });
 });

@@ -147,8 +147,11 @@ On Android storage-backed runs, the adb sidecar may record an early
 parsed all same-run app-owned profile-session records. When final profile
 evidence proves the command queue reached terminal status, profile health adds
 `android_profile_session_sidecar_observation` with
-`android_profile_session_completion_reconciled_from_profile_evidence`. Treat
-the profile health, verdict, metrics, and causal timeline as the interpretation
+`android_profile_session_completion_reconciled_from_profile_evidence`. When the
+trusted final profile saw every expected same-run command delivered but not
+terminal before the early sidecar wait exhausted, the code is
+`android_profile_session_delivery_reconciled_from_profile_evidence`. Treat the
+profile health, verdict, metrics, and causal timeline as the interpretation
 surface while preserving the sidecar wait metadata as early-capture diagnostic
 context.
 

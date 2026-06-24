@@ -150,6 +150,9 @@ type RuntimeTarget = {
 };
 type ProfileSessionCompletionSummary = {
   complete: boolean;
+  deliveredSequences: number[];
+  deliveryComplete: boolean;
+  observedDeliveredCommands: number;
   milestoneBackedSequences: number[];
   observedTerminalCommands: number;
   started: boolean;
@@ -2479,6 +2482,7 @@ function summarizeProfileSessionCompletion(
   sessionEntries: Record<string, any>[],
   expectedCommandCount: number,
 ): ProfileSessionCompletionSummary {
+  const deliveredSequences = new Set<number>();
   const terminalSequences = new Set<number>();
   const milestoneBackedSequences = new Set<number>();
   let started = false;
@@ -2495,25 +2499,29 @@ function summarizeProfileSessionCompletion(
 
     const sequence = entry.sequence;
     const status = entry.status;
-    if (
-      !Number.isInteger(sequence) ||
-      sequence <= 0 ||
-      sequence > expectedCommandCount ||
-      typeof status !== 'string' ||
-      !PROFILE_SESSION_TERMINAL_COMMAND_STATUSES.has(status)
-    ) {
+    if (!Number.isInteger(sequence) || sequence <= 0 || sequence > expectedCommandCount || typeof status !== 'string') {
       continue;
     }
 
-    terminalSequences.add(sequence);
-    if (typeof entry.waitForMilestone === 'string' && entry.waitForMilestone.length > 0) {
-      milestoneBackedSequences.add(sequence);
+    const commandReachedApp = status === 'delivered' || PROFILE_SESSION_TERMINAL_COMMAND_STATUSES.has(status);
+    if (commandReachedApp) {
+      deliveredSequences.add(sequence);
+      if (typeof entry.waitForMilestone === 'string' && entry.waitForMilestone.length > 0) {
+        milestoneBackedSequences.add(sequence);
+      }
     }
+    if (!PROFILE_SESSION_TERMINAL_COMMAND_STATUSES.has(status)) {
+      continue;
+    }
+    terminalSequences.add(sequence);
   }
 
   return {
     complete: started && terminalSequences.size >= expectedCommandCount,
+    deliveredSequences: Array.from(deliveredSequences).sort((left, right) => left - right),
+    deliveryComplete: started && deliveredSequences.size >= expectedCommandCount,
     milestoneBackedSequences: Array.from(milestoneBackedSequences).sort((left, right) => left - right),
+    observedDeliveredCommands: deliveredSequences.size,
     observedTerminalCommands: terminalSequences.size,
     started,
     terminalSequences: Array.from(terminalSequences).sort((left, right) => left - right),
@@ -2536,8 +2544,17 @@ function buildAndroidProfileSessionSidecarObservationChecks({
     sessionEntries,
     sidecarObservation.expectedCommandCount,
   );
-  if (!profileObservation.complete) {
+  if (!profileObservation.complete && !profileObservation.deliveryComplete) {
     return [];
+  }
+
+  let evidenceCode = 'android_profile_session_delivery_reconciled_from_profile_evidence';
+  let evidenceMessage =
+    'Final profile-session evidence contained delivered same-run command records after the Android sidecar completion wait exhausted.';
+  if (profileObservation.complete) {
+    evidenceCode = 'android_profile_session_completion_reconciled_from_profile_evidence';
+    evidenceMessage =
+      'Final profile-session evidence contained terminal same-run command records after the Android sidecar completion wait exhausted.';
   }
 
   return [
@@ -2545,14 +2562,15 @@ function buildAndroidProfileSessionSidecarObservationChecks({
       name: 'android_profile_session_sidecar_observation',
       status: 'passed',
       source: 'runner',
-      code: 'android_profile_session_completion_reconciled_from_profile_evidence',
-      message:
-        'Final profile-session evidence contained terminal same-run command records after the Android sidecar completion wait exhausted.',
+      code: evidenceCode,
+      message: evidenceMessage,
       metadata: {
         expectedCommandCount: sidecarObservation.expectedCommandCount,
         nextAction: 'Use the final profile health, verdict, metrics, and causal timeline for product interpretation; keep the sidecar wait metadata as early-capture diagnostic context.',
         nextActionCode: 'prefer_final_profile_evidence',
+        profileDeliveredSequences: profileObservation.deliveredSequences.join(','),
         profileMilestoneBackedSequences: profileObservation.milestoneBackedSequences.join(','),
+        profileObservedDeliveredCommands: profileObservation.observedDeliveredCommands,
         profileObservedTerminalCommands: profileObservation.observedTerminalCommands,
         profileStarted: profileObservation.started,
         profileTerminalSequences: profileObservation.terminalSequences.join(','),
