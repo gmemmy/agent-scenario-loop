@@ -256,11 +256,21 @@ test('profile-ios preserves captured provider evidence when another required out
     ),
   );
   assert.ok(
-    (health.checks as Array<{ code: string; metadata?: { capturedKinds?: string; failedRequiredKinds?: string; nextActionCode?: string } }>).some(
+    (health.checks as Array<{ code: string; metadata?: {
+      capturedKinds?: string;
+      claimSufficiency?: string;
+      blockingRequiredKinds?: string;
+      diagnosticOnlyKinds?: string;
+      failedRequiredKinds?: string;
+      nextActionCode?: string;
+    } }>).some(
       (check) => (
         check.code === 'partial_provider_evidence_preserved' &&
         check.metadata?.capturedKinds?.split(',').includes('nativePerformance') &&
         check.metadata?.failedRequiredKinds?.split(',').includes('accessibility') &&
+        check.metadata?.claimSufficiency === 'insufficient-for-claim' &&
+        check.metadata?.diagnosticOnlyKinds?.split(',').includes('nativePerformance') &&
+        check.metadata?.blockingRequiredKinds?.split(',').includes('accessibility') &&
         check.metadata?.nextActionCode === 'use_partial_provider_evidence_for_diagnosis'
       ),
     ),
@@ -280,6 +290,7 @@ test('profile-ios preserves captured provider evidence when another required out
   assert.match(agentSummary, /## preserved diagnostic evidence/u);
   assert.match(agentSummary, /Captured .*`nativePerformance`/u);
   assert.match(agentSummary, /Missing required `accessibility`/u);
+  assert.match(agentSummary, /Claim sufficiency: `insufficient-for-claim`/u);
   assert.match(agentSummary, /Next action `use_partial_provider_evidence_for_diagnosis`/u);
 });
 

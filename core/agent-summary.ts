@@ -148,6 +148,11 @@ function formatPreservedDiagnosticEvidence(checks: unknown[]): string[] {
         const failedText = failedRequiredKinds.map((kind) => code(kind)).join(', ');
         failedRequiredText = ` Missing required ${failedText}.`;
       }
+      const claimSufficiency = firstString([metadataRecord.claimSufficiency], '');
+      let claimSufficiencyText = '';
+      if (claimSufficiency) {
+        claimSufficiencyText = ` Claim sufficiency: ${code(claimSufficiency)}.`;
+      }
 
       const message = firstString([record.message], 'Diagnostics were preserved from an unhealthy run.');
       const nextAction = formatNextAction(record).trim();
@@ -156,7 +161,7 @@ function formatPreservedDiagnosticEvidence(checks: unknown[]): string[] {
         nextActionText = ` ${nextAction}`;
       }
 
-      return `- Captured ${kindText} at ${pathText}.${failedRequiredText} ${message}${nextActionText}`;
+      return `- Captured ${kindText} at ${pathText}.${failedRequiredText}${claimSufficiencyText} ${message}${nextActionText}`;
     });
 }
 
