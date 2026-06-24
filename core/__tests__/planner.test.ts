@@ -932,7 +932,7 @@ test('argent runner target accepts portable visibility selector match modes', ()
   assert.deepEqual(result.errors, []);
 });
 
-test('argent runner target accepts coordinate-backed tap, scroll, and swipe metadata', () => {
+test('argent runner target accepts coordinate-backed tap, drag, scroll, and swipe metadata', () => {
   const scenario = readJson('examples/scenarios/mobile/app-startup.json');
   const runner = readJson('examples/runners/argent-android.json');
   scenario.steps.push(
@@ -974,6 +974,20 @@ test('argent runner target accepts coordinate-backed tap, scroll, and swipe meta
       },
     },
     {
+      id: 'drag-card',
+      kind: 'gesture',
+      driverAction: 'drag',
+      adapterOptions: {
+        argent: {
+          startX: 0.2,
+          startY: 0.3,
+          endX: 0.7,
+          endY: 0.8,
+          durationMs: 450,
+        },
+      },
+    },
+    {
       id: 'swipe-card',
       kind: 'gesture',
       driverAction: 'swipe',
@@ -997,6 +1011,33 @@ test('argent runner target accepts coordinate-backed tap, scroll, and swipe meta
     [],
   );
   assert.ok(result.matched.driverActions.includes('longPress'));
+  assert.ok(result.matched.driverActions.includes('drag'));
+});
+
+test('argent runner target rejects drag without coordinate metadata', () => {
+  const scenario = readJson('examples/scenarios/mobile/app-startup.json');
+  const runner = readJson('examples/runners/argent-android.json');
+  scenario.steps.push({
+    id: 'drag-card',
+    kind: 'gesture',
+    driverAction: 'drag',
+  });
+
+  const result = evaluateRunnerCompatibility({ scenario, runner, platform: 'android' });
+
+  assert.equal(result.compatible, false);
+  assert.deepEqual(
+    result.errors
+      .filter((error: PlannerIssue) => error.code === 'invalid_adapter_options')
+      .map((error: PlannerIssue) => ({
+        adapter: error.adapter,
+        field: error.field,
+        stepId: error.stepId,
+      })),
+    [
+      { adapter: 'argent', field: 'startX/startY/endX/endY', stepId: 'drag-card' },
+    ],
+  );
 });
 
 test('treats optional step driver actions as warnings', () => {

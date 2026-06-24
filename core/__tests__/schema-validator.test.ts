@@ -360,7 +360,7 @@ test('rejects invalid runner driver actions', () => {
 test('accepts rich portable runner driver actions', () => {
   const runner = readJson('examples/runners/argent-ios.json');
   runner.runnerId = 'rich-gesture-runner';
-  runner.driverActions.push('drag', 'pinch', 'rotate', 'typeText', 'pressButton');
+  runner.driverActions.push('pinch', 'rotate', 'typeText', 'pressButton');
 
   const result = validateJson(runner, SCHEMAS.runnerCapabilities, 'Runner capability manifest');
 

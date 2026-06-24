@@ -102,7 +102,7 @@ type ArgentAvailabilityArtifactOptions = {
 type ArgentDriverStep = {
   appId?: string;
   captureFileName?: string;
-  driverAction: 'assertVisible' | 'inspectTree' | 'launch' | 'longPress' | 'screenshot' | 'scroll' | 'swipe' | 'tap';
+  driverAction: 'assertVisible' | 'drag' | 'inspectTree' | 'launch' | 'longPress' | 'screenshot' | 'scroll' | 'swipe' | 'tap';
   durationMs?: number;
   endX?: number;
   endY?: number;
@@ -164,6 +164,31 @@ type IosSimctlScreenshotFallbackResult = {
   rawFileName: string;
   result: CommandResult;
 };
+
+/**
+ * Returns true when an Argent driver step has explicit start and end coordinates.
+ *
+ * @param {ArgentDriverStep} step
+ * @returns {boolean}
+ */
+function hasArgentStartEndCoordinates(step: ArgentDriverStep): boolean {
+  return (
+    typeof step.startX === 'number' &&
+    typeof step.startY === 'number' &&
+    typeof step.endX === 'number' &&
+    typeof step.endY === 'number'
+  );
+}
+
+/**
+ * Returns true when an Argent driver action requires explicit start and end coordinates.
+ *
+ * @param {ArgentDriverStep['driverAction']} driverAction
+ * @returns {boolean}
+ */
+function isArgentStartEndAction(driverAction: ArgentDriverStep['driverAction']): boolean {
+  return driverAction === 'drag' || driverAction === 'scroll' || driverAction === 'swipe';
+}
 
 const DASH_VALUE_KEYS = new Set(['app-flag', 'base-args', 'device-flag']);
 const DEFAULT_ARGENT_BASE_ARGS = ['run'];
@@ -544,7 +569,7 @@ function resolveArgentDriverSteps(
   return executionPlan.steps
     .filter((step: ScenarioExecutionStep) =>
       step.kind === 'launch' ||
-      ['assertVisible', 'inspectTree', 'longPress', 'screenshot', 'scroll', 'swipe', 'tap'].includes(String(step.driverAction)),
+      ['assertVisible', 'drag', 'inspectTree', 'longPress', 'screenshot', 'scroll', 'swipe', 'tap'].includes(String(step.driverAction)),
     )
     .map((step: ScenarioExecutionStep, index: number) => {
       const argentOptions = readArgentStepOptions(step);
@@ -600,21 +625,8 @@ function validateArgentDriverSteps(driverSteps: ArgentDriverStep[], options: {ap
     if (step.driverAction === 'longPress' && (typeof step.x !== 'number' || typeof step.y !== 'number')) {
       errors.push(`${stepLabel} uses driverAction \`longPress\` but is missing adapterOptions.argent.x/y.`);
     }
-    if (step.driverAction === 'scroll' && (
-      typeof step.startX !== 'number' ||
-      typeof step.startY !== 'number' ||
-      typeof step.endX !== 'number' ||
-      typeof step.endY !== 'number'
-    )) {
-      errors.push(`${stepLabel} uses driverAction \`scroll\` but is missing adapterOptions.argent.startX/startY/endX/endY.`);
-    }
-    if (step.driverAction === 'swipe' && (
-      typeof step.startX !== 'number' ||
-      typeof step.startY !== 'number' ||
-      typeof step.endX !== 'number' ||
-      typeof step.endY !== 'number'
-    )) {
-      errors.push(`${stepLabel} uses driverAction \`swipe\` but is missing adapterOptions.argent.startX/startY/endX/endY.`);
+    if (isArgentStartEndAction(step.driverAction) && !hasArgentStartEndCoordinates(step)) {
+      errors.push(`${stepLabel} uses driverAction \`${step.driverAction}\` but is missing adapterOptions.argent.startX/startY/endX/endY.`);
     }
     if (step.driverAction === 'assertVisible' && !step.selector) {
       errors.push(`${stepLabel} uses driverAction \`assertVisible\` but is missing a portable selector.`);
@@ -748,6 +760,17 @@ async function runArgentDriverStep({
   }
   if (driverStep.driverAction === 'scroll') {
     return driver.scroll({
+      ...(typeof driverStep.durationMs === 'number' ? { durationMs: driverStep.durationMs } : {}),
+      endX: driverStep.endX as number,
+      endY: driverStep.endY as number,
+      rawFileName: driverStep.rawFileName,
+      ...(driverStep.screenSize ? { screenSize: driverStep.screenSize } : {}),
+      startX: driverStep.startX as number,
+      startY: driverStep.startY as number,
+    });
+  }
+  if (driverStep.driverAction === 'drag') {
+    return driver.drag({
       ...(typeof driverStep.durationMs === 'number' ? { durationMs: driverStep.durationMs } : {}),
       endX: driverStep.endX as number,
       endY: driverStep.endY as number,

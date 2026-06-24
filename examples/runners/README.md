@@ -35,7 +35,7 @@ They do not mean the package bundles every named tool. A fixture describes what 
 - Keep `driverActions` about concrete operations the adapter can perform.
 - Keep `uiContexts` about the surface the adapter can own; do not use `app` proof for system dialogs, share sheets, external browsers, WebViews, pickers, notifications, or another app unless the manifest explicitly declares that context.
 - Do not add a capability or driver action until a runner or provider can produce the corresponding evidence.
-- Rich scenario actions such as `drag`, `pinch`, `rotate`, `pressKey`, `pressButton`, `customGesture`, and `runSequence` are valid vocabulary but not automatically supported by these fixtures. `longPress`, `typeText`, `swipe`, `pressButton`, and `pinch` are declared only by adapter fixtures that map them to bounded command transcripts.
+- Rich scenario actions such as `drag`, `pinch`, `rotate`, `pressKey`, `pressButton`, `customGesture`, and `runSequence` are valid vocabulary but not automatically supported by these fixtures. `longPress`, `drag`, `typeText`, `swipe`, `pressButton`, and `pinch` are declared only by adapter fixtures that map them to bounded command transcripts.
 - Keep `providerCommands` on evidence-provider manifests; primary runners should own lifecycle orchestration, not provider command wrappers. Prefer `phase: "afterCapture"` for diagnostics that inspect an already captured adb/simctl sidecar.
 - When a tool writes files independently, attach them through `--signal`, `--capture`, or a `providerCommands` manifest so the run keeps stable artifact paths.
 - Treat these manifests as starting contracts; consuming apps can narrow them to match the exact adapter they install.

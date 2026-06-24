@@ -149,6 +149,9 @@ test('argent driver maps lifecycle, gestures, screenshots, and descriptions', as
     '--yes @swmansion/argent run gesture-custom --udid SIM-123 --events-json [{"type":"Down","x":0.5,"y":0.25},{"delayMs":900,"type":"Up","x":0.5,"y":0.25}]': {
       stdout: '{"events":2}\n',
     },
+    '--yes @swmansion/argent run gesture-custom --udid SIM-123 --events-json [{"type":"Down","x":0.1,"y":0.2},{"delayMs":600,"type":"Move","x":0.8,"y":0.9},{"type":"Up","x":0.8,"y":0.9}]': {
+      stdout: '{"events":3}\n',
+    },
     '--yes @swmansion/argent run gesture-swipe --udid SIM-123 --fromX 0.5 --fromY 0.8 --toX 0.5 --toY 0.2 --durationMs 250': {
       stdout: '{"success":true}\n',
     },
@@ -175,6 +178,7 @@ test('argent driver maps lifecycle, gestures, screenshots, and descriptions', as
   const openUrl = await driver.openUrl({ url: 'example://profile/start' });
   const tap = await driver.tap({ x: 500, y: 500 });
   const longPress = await driver.longPress({ durationMs: 900, x: 500, y: 500 });
+  const drag = await driver.drag({ durationMs: 600, endX: 800, endY: 1800, startX: 100, startY: 400 });
   const scroll = await driver.scroll({ durationMs: 250, endX: 500, endY: 400, startX: 500, startY: 1600 });
   const swipe = await driver.swipe({ durationMs: 175, endX: 750, endY: 1600, startX: 250, startY: 600 });
   const screenshot = await driver.screenshot();
@@ -185,6 +189,8 @@ test('argent driver maps lifecycle, gestures, screenshots, and descriptions', as
   assert.equal(openUrl.action, 'openUrl');
   assert.equal(tap.rawFileName, 'argent-tap.txt');
   assert.equal(longPress.action, 'longPress');
+  assert.equal(drag.action, 'drag');
+  assert.equal(drag.rawFileName, 'argent-drag.txt');
   assert.equal(scroll.action, 'scroll');
   assert.equal(swipe.action, 'swipe');
   assert.equal(swipe.rawFileName, 'argent-swipe.txt');
