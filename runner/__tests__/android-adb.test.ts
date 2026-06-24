@@ -1785,6 +1785,96 @@ test('classifies Android dev-client reload limbo before profile-session control'
   assert.ok(!calls.some((call) => call.includes('profile-session/command')));
 });
 
+test('classifies Android dev-client host mismatch before profile-session control', async (t: TestContext) => {
+  const outputDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-android-startup-host-mismatch-'));
+  t.after(async () => {
+    await fsp.rm(outputDir, { recursive: true, force: true });
+  });
+  const calls: string[] = [];
+  const executor = async (command: string, args: string[]): Promise<CommandResult> => {
+    const key = args.join(' ');
+    calls.push(key);
+    const responses: Record<string, Partial<CommandResult>> = {
+      version: { stdout: 'Android Debug Bridge version 1.0.41\n' },
+      'devices -l': {
+        stdout: [
+          'List of devices attached',
+          'emulator-5554 device product:sdk_gphone model:Pixel_6 device:emu64',
+        ].join('\n'),
+      },
+      '-s emulator-5554 shell getprop ro.product.model': { stdout: 'Pixel 6\n' },
+      '-s emulator-5554 shell getprop ro.build.version.release': { stdout: '15\n' },
+      '-s emulator-5554 shell getprop ro.build.version.sdk': { stdout: '35\n' },
+      '-s emulator-5554 shell pm path dev.agentscenarioloop.example': {
+        stdout: 'package:/data/app/dev.agentscenarioloop.example/base.apk\n',
+      },
+      "-s emulator-5554 shell am start -a 'android.intent.action.VIEW' -d 'asl-example://expo-development-client/?url=http%3A%2F%2F10.0.2.2%3A8097' -p 'dev.agentscenarioloop.example'": {
+        stdout: 'Starting: Intent { act=android.intent.action.VIEW }\n',
+      },
+      '-s emulator-5554 logcat -d -v time -t 25': {
+        stdout: [
+          '06-16 10:00:00.100 E/ReactNativeJS(123): Couldn\'t connect to "ws://localhost:8097/message?role=client"',
+          '06-16 10:00:00.200 E/ReactNativeJS(123): Development server websocket failed',
+        ].join('\n'),
+      },
+    };
+    const response = responses[key] ?? { exitCode: 1, stderr: `unexpected command: ${key}` };
+    return {
+      command,
+      args,
+      exitCode: response.exitCode ?? 0,
+      stderr: response.stderr ?? '',
+      stdout: response.stdout ?? '',
+    };
+  };
+
+  const result = await runAndroidAdbPreflight({
+    deepLinks: [
+      {
+        label: 'profile-session-command',
+        url: 'asl-example://profile-session/command?scenario=app-startup&runId=android-live&command=activate-target%3Aexample-card-1',
+        waitMs: 125,
+      },
+    ],
+    delay: async () => {},
+    executor,
+    logcatLines: 25,
+    outputDir,
+    packageName: 'dev.agentscenarioloop.example',
+    runId: 'android-live',
+    startupDeepLinks: [
+      {
+        label: 'android-dev-client-url',
+        readyLogPattern: 'Running "main"',
+        readyLogTimeoutMs: 1,
+        url: 'asl-example://expo-development-client/?url=http%3A%2F%2F10.0.2.2%3A8097',
+      },
+    ],
+    storageWrites: [
+      {
+        key: 'agent-scenario-loop.profile-session.1',
+        label: 'profile-session-start',
+        value: '{"active":true}',
+      },
+    ],
+  });
+
+  const readinessCheck = (result.health.checks as Array<{ code: string; metadata?: Record<string, string> }>).find(
+    (check) => check.code === 'android_startup_deep_link_not_ready',
+  );
+
+  assert.equal(result.health.healthStatus, 'failed');
+  assert.equal(readinessCheck?.metadata?.failureClass, 'dev_client_host_mismatch');
+  assert.equal(readinessCheck?.metadata?.evidencePattern, 'android-dev-client-loopback-websocket');
+  assert.equal(readinessCheck?.metadata?.nextActionCode, 'fix_android_dev_client_metro_host');
+  assert.ok(
+    readinessCheck?.metadata?.nextAction?.includes('Android-reachable Metro host'),
+    'next action explains that the Metro host must resolve from the device',
+  );
+  assert.ok(!calls.some((call) => call.includes('run-as')));
+  assert.ok(!calls.some((call) => call.includes('profile-session/command')));
+});
+
 test('fails health when no online adb device is connected', async (t: TestContext) => {
   const outputDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-android-adb-missing-'));
   t.after(async () => {

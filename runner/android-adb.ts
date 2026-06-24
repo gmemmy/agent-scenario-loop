@@ -188,7 +188,7 @@ type AndroidPreservedSidecarEvidence = {
 
 type AndroidStartupReadinessFailure = NextActionHint & {
   evidencePattern?: string;
-  failureClass: 'dev_client_reload_limbo' | 'readiness_log_missing';
+  failureClass: 'dev_client_host_mismatch' | 'dev_client_reload_limbo' | 'readiness_log_missing';
 };
 
 type AndroidAppLifecycleScan = {
@@ -1530,25 +1530,84 @@ function countAndroidReadyLogMatches({
 
 const ANDROID_DEV_CLIENT_RELOAD_LIMBO_PATTERNS: Array<{ label: string; pattern: RegExp }> = [
   { label: 'expo-loading-bundle', pattern: /\b(Loading|Downloading|Bundling) (JavaScript )?bundle\b/iu },
-  { label: 'metro-connectivity', pattern: /\b(Could not connect to development server|Unable to load script)\b/iu },
+  { label: 'metro-connectivity', pattern: /\b(Could not connect to development server|Couldn't connect to|Unable to load script)\b/iu },
   { label: 'metro-bundle-error', pattern: /\b(Failed to load bundle|Error loading bundle|Development server returned response error)\b/iu },
   { label: 'missing-bundle-url', pattern: /\bNo bundle URL present\b/iu },
 ];
 
 /**
+ * Reads the host portion of an Expo dev-client nested Metro URL.
+ *
+ * @param {string | undefined} startupUrl
+ * @returns {string | null}
+ */
+function readAndroidDevClientMetroHost(startupUrl: string | undefined): string | null {
+  if (!startupUrl) {
+    return null;
+  }
+
+  try {
+    const url = new URL(startupUrl);
+    const nested = url.searchParams.get('url');
+    if (!nested) {
+      return null;
+    }
+
+    return new URL(nested).hostname;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Returns true when logs show the app tried to connect to host loopback while
+ * ASL launched the Android dev client with a non-loopback Metro host.
+ *
+ * @param {{logText: string, startupUrl?: string}} options
+ * @returns {boolean}
+ */
+function hasAndroidDevClientHostMismatch({
+  logText,
+  startupUrl,
+}: {
+  logText: string;
+  startupUrl?: string | undefined;
+}): boolean {
+  const expectedMetroHost = readAndroidDevClientMetroHost(startupUrl);
+  if (!expectedMetroHost || expectedMetroHost === 'localhost' || expectedMetroHost === '127.0.0.1') {
+    return false;
+  }
+
+  return /\bws:\/\/(?:localhost|127\.0\.0\.1):\d+\/message\b/iu.test(logText);
+}
+
+/**
  * Classifies an Android startup readiness timeout for agent next-action routing.
  *
- * @param {{logText: string, rawFileName: string}} options
+ * @param {{logText: string, rawFileName: string, startupUrl?: string}} options
  * @returns {AndroidStartupReadinessFailure}
  */
 function classifyAndroidStartupReadinessFailure({
   logText,
   rawFileName,
+  startupUrl,
 }: {
   logText: string;
   rawFileName: string;
+  startupUrl?: string | undefined;
 }): AndroidStartupReadinessFailure {
   const readyLogPath = `raw/${rawFileName}`;
+  if (hasAndroidDevClientHostMismatch({ logText, startupUrl })) {
+    return {
+      ...nextActionHint(
+        'fix_android_dev_client_metro_host',
+        `Inspect ${readyLogPath}, confirm the Android dev-client bundle URL resolves from the selected device, reopen the dev-client URL with an Android-reachable Metro host, then rerun before delivering profile-session control.`,
+      ),
+      evidencePattern: 'android-dev-client-loopback-websocket',
+      failureClass: 'dev_client_host_mismatch',
+    };
+  }
+
   for (const candidate of ANDROID_DEV_CLIENT_RELOAD_LIMBO_PATTERNS) {
     if (candidate.pattern.test(logText)) {
       return {
@@ -3390,6 +3449,7 @@ async function runAndroidAdbPreflight({
           const readinessFailure = classifyAndroidStartupReadinessFailure({
             logText: `${readyLog.result.stdout}\n${readyLog.result.stderr}`,
             rawFileName,
+            startupUrl: deepLink.url,
           });
           checks.push({
             name: 'android_startup_deep_link_ready',
