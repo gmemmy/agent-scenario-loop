@@ -477,7 +477,10 @@ test('example mobile app provider manifest writes stable evidence attachments', 
       comparability?: { status?: string };
       dataClasses?: string[];
       diagnosticSources?: Array<{ path?: string; sourceId?: string; status?: string }>;
+      frames?: Record<string, unknown>;
+      metrics?: Record<string, unknown>;
       providerId?: string;
+      targetBinding?: { status?: string };
     };
 
     assert.equal(commandRecord.exitCode, 0);
@@ -508,8 +511,21 @@ test('example mobile app provider manifest writes stable evidence attachments', 
         ],
       );
     } else {
-      assert.equal(nativePerformanceEvidence.claimSufficiency?.status, 'insufficient-for-claim');
-      assert.deepEqual(nativePerformanceEvidence.dataClasses, ['unknown']);
+      assert.equal(nativePerformanceEvidence.claimSufficiency?.status, 'sufficient-for-diagnosis');
+      assert.equal(nativePerformanceEvidence.targetBinding?.status, 'verified');
+      assert.deepEqual(nativePerformanceEvidence.dataClasses, ['frames', 'jank', 'render', 'memory', 'cpu', 'thread-scheduling', 'thermal', 'battery', 'native-trace']);
+      assert.deepEqual(nativePerformanceEvidence.frames, {
+        hitchCount: 2,
+        jankyFrameCount: 4,
+        p95FrameMs: 24,
+      });
+      assert.deepEqual(nativePerformanceEvidence.metrics, {
+        batteryImpact: 1,
+        cpuMs: 180,
+        mainThreadCpuMs: 110,
+        thermalState: 'nominal',
+        threadSchedulingDelayMs: 8,
+      });
       assert.deepEqual(
         nativePerformanceEvidence.diagnosticSources?.map((source) => ({
           sourceId: source.sourceId,
@@ -522,11 +538,11 @@ test('example mobile app provider manifest writes stable evidence attachments', 
           },
           {
             sourceId: 'xctrace',
-            status: 'unverified',
+            status: 'captured',
           },
           {
             sourceId: 'metrickit',
-            status: 'unverified',
+            status: 'captured',
           },
           {
             sourceId: 'simctl',
