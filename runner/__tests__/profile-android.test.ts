@@ -2364,7 +2364,9 @@ test('profile-android writes provider liveness artifacts when an evidence provid
   const runDir = stdout.trim();
   const health = readJson(path.join(runDir, 'health.json'));
   const verdict = readJson(path.join(runDir, 'verdict.json'));
-  const summary = fs.readFileSync(path.join(runDir, 'agent-summary.md'), 'utf8');
+  const agentSummary = fs.readFileSync(path.join(runDir, 'agent-summary.md'), 'utf8');
+  const profileSummary = fs.readFileSync(path.join(runDir, 'summary.md'), 'utf8');
+  const profileSummaryHeader = profileSummary.split('\n## ', 1)[0] ?? profileSummary;
   const commandRecordPath = path.join(runDir, 'raw', 'provider-commands', 'hanging-provider-capture-accessibility.json');
   const stdoutPath = path.join(runDir, 'raw', 'provider-commands', 'hanging-provider-capture-accessibility.stdout.txt');
   const stderrPath = path.join(runDir, 'raw', 'provider-commands', 'hanging-provider-capture-accessibility.stderr.txt');
@@ -2382,8 +2384,13 @@ test('profile-android writes provider liveness artifacts when an evidence provid
       (check) => check.code === 'provider_liveness_timeout' && check.metadata?.nextActionCode === 'fix_provider_liveness',
     ),
   );
-  assert.match(summary, /Do not optimize from this run/u);
-  assert.match(summary, /Next action `fix_provider_liveness`/u);
+  assert.doesNotMatch(profileSummaryHeader, /^- Status: passed$/m);
+  assert.doesNotMatch(profileSummary, /^- Terminal state: passed$/m);
+  assert.match(profileSummary, /^- Status: failed/m);
+  assert.match(profileSummary, /^- Health: failed/m);
+  assert.match(profileSummary, /^- Verdict: inconclusive/m);
+  assert.match(agentSummary, /Do not optimize from this run/u);
+  assert.match(agentSummary, /Next action `fix_provider_liveness`/u);
 });
 
 test('profile-android reads logcat from adb artifact folders', async (t: TestContext) => {
@@ -2498,6 +2505,9 @@ test('profile-android fails health when adb sidecar package mismatches expected 
   const metrics = readJson(path.join(runDir, 'metrics.json')) as Record<string, any>;
   const health = readJson(path.join(runDir, 'health.json')) as Record<string, any>;
   const verdict = readJson(path.join(runDir, 'verdict.json')) as Record<string, any>;
+  const agentSummary = fs.readFileSync(path.join(runDir, 'agent-summary.md'), 'utf8');
+  const profileSummary = fs.readFileSync(path.join(runDir, 'summary.md'), 'utf8');
+  const profileSummaryHeader = profileSummary.split('\n## ', 1)[0] ?? profileSummary;
   const identityCheck = (health.checks as Array<{ code: string; metadata?: Record<string, unknown>; status: string }>).find(
     (check) => check.code === 'runtime_identity_mismatch',
   );
@@ -2511,6 +2521,12 @@ test('profile-android fails health when adb sidecar package mismatches expected 
   assert.equal(identityCheck?.metadata?.observedAppId, 'dev.other.example');
   assert.equal(identityCheck?.metadata?.sidecarMetadataPath, 'raw/android-metadata.json');
   assert.equal(identityCheck?.metadata?.nextActionCode, 'rerun_sidecar_with_expected_runtime_identity');
+  assert.doesNotMatch(profileSummaryHeader, /^- Status: passed$/m);
+  assert.doesNotMatch(profileSummary, /^- Terminal state: passed$/m);
+  assert.match(profileSummary, /- Status: failed \(health failed; manifest status passed\)/u);
+  assert.match(profileSummary, /- Terminal state: unhealthy \(attempt terminal state passed\)/u);
+  assert.match(agentSummary, /Do not optimize from this run/u);
+  assert.match(agentSummary, /Next action `rerun_sidecar_with_expected_runtime_identity`/u);
 });
 
 test('profile-android fails health when storage session seed is newer than app session start', async (t: TestContext) => {
