@@ -1795,6 +1795,9 @@ type AndroidAdbCaptureWatchdogError = Error & {
   code: 'android_adb_runner_liveness_timeout';
   watchdog: AndroidAdbCaptureWatchdogBudget;
 };
+type AndroidAdbCaptureCancelledError = Error & {
+  code: 'android_adb_capture_cancelled';
+};
 
 /**
  * Sums only positive integer-ish durations.
@@ -1973,6 +1976,13 @@ function createAndroidAdbCaptureWatchdogError(
   });
 }
 
+function createAndroidAdbCaptureCancelledError(): AndroidAdbCaptureCancelledError {
+  const error = new Error('Android adb capture body stopped after the whole-capture watchdog fired.');
+  return Object.assign(error, {
+    code: 'android_adb_capture_cancelled' as const,
+  });
+}
+
 /**
  * Checks whether an error came from the capture watchdog.
  *
@@ -1982,6 +1992,65 @@ function createAndroidAdbCaptureWatchdogError(
 function isAndroidAdbCaptureWatchdogError(error: unknown): error is AndroidAdbCaptureWatchdogError {
   return error instanceof Error &&
     (error as Partial<AndroidAdbCaptureWatchdogError>).code === 'android_adb_runner_liveness_timeout';
+}
+
+function isAndroidAdbCaptureCancelledError(error: unknown): error is AndroidAdbCaptureCancelledError {
+  return error instanceof Error &&
+    (error as Partial<AndroidAdbCaptureCancelledError>).code === 'android_adb_capture_cancelled';
+}
+
+function throwIfAndroidAdbCaptureAborted(signal: AbortSignal): void {
+  if (signal.aborted) {
+    throw createAndroidAdbCaptureCancelledError();
+  }
+}
+
+function waitWithNativeAndroidCaptureTimer(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal.aborted) {
+      reject(createAndroidAdbCaptureCancelledError());
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      signal.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    const onAbort = (): void => {
+      clearTimeout(timer);
+      reject(createAndroidAdbCaptureCancelledError());
+    };
+    signal.addEventListener('abort', onAbort, { once: true });
+  });
+}
+
+async function waitWithAndroidAdbCaptureAbort({
+  ms,
+  signal,
+  wait,
+}: {
+  ms: number;
+  signal: AbortSignal;
+  wait: (ms: number) => Promise<void>;
+}): Promise<void> {
+  throwIfAndroidAdbCaptureAborted(signal);
+  if (wait === delay) {
+    await waitWithNativeAndroidCaptureTimer(ms, signal);
+    throwIfAndroidAdbCaptureAborted(signal);
+    return;
+  }
+
+  await Promise.race([
+    wait(ms),
+    new Promise<never>((_resolve, reject) => {
+      if (signal.aborted) {
+        reject(createAndroidAdbCaptureCancelledError());
+        return;
+      }
+      signal.addEventListener('abort', () => reject(createAndroidAdbCaptureCancelledError()), { once: true });
+    }),
+  ]);
+  throwIfAndroidAdbCaptureAborted(signal);
 }
 
 /**
@@ -1994,15 +2063,27 @@ async function runAndroidAdbCaptureBodyWithWatchdog({
   body,
   watchdog,
 }: {
-  body: () => Promise<void>;
+  body: (signal: AbortSignal) => Promise<void>;
   watchdog: AndroidAdbCaptureWatchdogBudget;
 }): Promise<void> {
   let timer: ReturnType<typeof setTimeout> | null = null;
+  let watchdogError: AndroidAdbCaptureWatchdogError | null = null;
+  const abortController = new AbortController();
+  const bodyPromise = body(abortController.signal).catch((error: unknown) => {
+    if (watchdogError && isAndroidAdbCaptureCancelledError(error)) {
+      throw watchdogError;
+    }
+    throw error;
+  });
   try {
     await Promise.race([
-      body(),
+      bodyPromise,
       new Promise<never>((_resolve, reject) => {
-        timer = setTimeout(() => reject(createAndroidAdbCaptureWatchdogError(watchdog)), watchdog.timeoutMs);
+        timer = setTimeout(() => {
+          watchdogError = createAndroidAdbCaptureWatchdogError(watchdog);
+          reject(watchdogError);
+          abortController.abort();
+        }, watchdog.timeoutMs);
       }),
     ]);
   } finally {
@@ -2059,6 +2140,38 @@ async function writeAndroidAdbArtifacts({
     filePath: layout.agentSummary,
     content: agentSummary,
   });
+}
+
+async function collectAndroidAdbWatchdogLogcat({
+  adbPath,
+  device,
+  executor,
+  logcatLines,
+}: {
+  adbPath: string;
+  device: AndroidDevice | null;
+  executor: CommandExecutor;
+  logcatLines: number;
+}): Promise<{
+  rawFileName: string;
+  result: CommandResult;
+} | null> {
+  if (!device || device.state !== 'device') {
+    return null;
+  }
+
+  const rawFileName = 'adb-runner-watchdog-logcat.txt';
+  const result = await executor(adbPath, [
+    '-s',
+    device.serial,
+    'logcat',
+    '-d',
+    '-v',
+    'time',
+    '-t',
+    String(Math.max(logcatLines, 1000)),
+  ]);
+  return { rawFileName, result };
 }
 
 /**
@@ -2878,8 +2991,16 @@ async function runAndroidAdbPreflight({
     metadata.profileSessionCompletionExpectation = profileSessionCompletionExpectation;
   }
 
-  const runCaptureBody = async (): Promise<void> => {
+  const runCaptureBody = async (captureSignal: AbortSignal): Promise<void> => {
+    const captureWait = (ms: number): Promise<void> => waitWithAndroidAdbCaptureAbort({
+      ms,
+      signal: captureSignal,
+      wait,
+    });
+
+    throwIfAndroidAdbCaptureAborted(captureSignal);
     const version = await executor(adbPath, ['version']);
+    throwIfAndroidAdbCaptureAborted(captureSignal);
     const adbAvailable = version.exitCode === 0;
     raw['adb-version.txt'] = [version.stdout, version.stderr].filter(Boolean).join('\n');
     checks.push({
@@ -2907,6 +3028,7 @@ async function runAndroidAdbPreflight({
           stderr: 'adb unavailable',
           stdout: '',
         };
+    throwIfAndroidAdbCaptureAborted(captureSignal);
     raw['adb-devices.txt'] = [devicesOutput.stdout, devicesOutput.stderr].filter(Boolean).join('\n');
     const devices = parseAdbDevices(devicesOutput.stdout);
     metadata.devices = devices;
@@ -3156,7 +3278,7 @@ async function runAndroidAdbPreflight({
             rawPath: `raw/${launchResult.rawFileName}`,
           };
           if (launchPassed && launchWaitMs > 0) {
-            await wait(launchWaitMs);
+            await captureWait(launchWaitMs);
             checks.push({
               name: 'android_launch_waited',
               status: 'passed',
@@ -3240,7 +3362,7 @@ async function runAndroidAdbPreflight({
         });
 
         if (deepLink.waitMs && deepLink.waitMs > 0) {
-          await wait(deepLink.waitMs);
+          await captureWait(deepLink.waitMs);
           checks.push({
             name: 'android_startup_deep_link_waited',
             status: 'passed',
@@ -3259,7 +3381,7 @@ async function runAndroidAdbPreflight({
             quietMs: deepLink.readyLogQuietMs ?? 0,
             rawFileName,
             timeoutMs: deepLink.readyLogTimeoutMs ?? 60000,
-            wait,
+            wait: captureWait,
           });
           if (!readyLog.ready) {
             startupReady = false;
@@ -3397,7 +3519,7 @@ async function runAndroidAdbPreflight({
         });
 
         if (write.waitMs && write.waitMs > 0) {
-          await wait(write.waitMs);
+          await captureWait(write.waitMs);
           checks.push({
             name: 'android_async_storage_waited',
             status: 'passed',
@@ -3451,7 +3573,7 @@ async function runAndroidAdbPreflight({
         });
 
         if (deepLink.waitMs && deepLink.waitMs > 0) {
-          await wait(deepLink.waitMs);
+          await captureWait(deepLink.waitMs);
           checks.push({
             name: 'android_deep_link_waited',
             status: 'passed',
@@ -3526,7 +3648,7 @@ async function runAndroidAdbPreflight({
               logcatLines: profileSessionLogcatLines,
               rawFileName,
               timeoutMs: driverStep.waitMs,
-              wait,
+              wait: captureWait,
             });
             const rawPath = `raw/${rawFileName}`;
             const observation = buildAndroidProfileSessionObservationWait({
@@ -3551,7 +3673,7 @@ async function runAndroidAdbPreflight({
               metadata.profileSessionCompletionWait = observation;
             }
           } else {
-            await wait(driverStep.waitMs);
+            await captureWait(driverStep.waitMs);
           }
           checks.push({
             name: 'android_capture_window_waited',
@@ -3603,7 +3725,7 @@ async function runAndroidAdbPreflight({
           driver,
           driverStep: executableDriverStep,
           logcatLines,
-          wait,
+          wait: captureWait,
         });
         raw[driverResult.rawFileName] = formatAndroidAdbRawOutput(driverResult);
         const codeSuffix = androidDriverActionCode(driverStep.driverAction);
@@ -3772,6 +3894,17 @@ async function runAndroidAdbPreflight({
     });
   } catch (error: unknown) {
     const timedOut = isAndroidAdbCaptureWatchdogError(error);
+    const watchdogLogcat = timedOut
+      ? await collectAndroidAdbWatchdogLogcat({
+          adbPath,
+          device,
+          executor,
+          logcatLines,
+        })
+      : null;
+    if (watchdogLogcat) {
+      raw[watchdogLogcat.rawFileName] = formatAndroidCommandRawOutput(watchdogLogcat.result);
+    }
     const failure = {
       ...normalizeAndroidRunnerFailure(error),
       ...(timedOut
@@ -3783,11 +3916,24 @@ async function runAndroidAdbPreflight({
     };
     const rawFileName = timedOut ? 'adb-runner-watchdog-timeout.txt' : 'adb-runner-failure.txt';
     raw[rawFileName] = formatAndroidRunnerFailureRaw(failure);
-    metadata.runnerFailure = {
+    const runnerFailureMetadata: Record<string, unknown> = {
       ...failure,
       rawPath: `raw/${rawFileName}`,
       collectedRawArtifacts: Object.keys(raw).map((fileName) => `raw/${fileName}`),
     };
+    if (watchdogLogcat) {
+      runnerFailureMetadata.watchdogLogcat = {
+        exitCode: watchdogLogcat.result.exitCode,
+        rawPath: `raw/${watchdogLogcat.rawFileName}`,
+      };
+    }
+    metadata.runnerFailure = runnerFailureMetadata;
+    let nextActionCode = 'inspect_android_adb_runner_failure';
+    let nextAction = `Inspect raw/${rawFileName} and raw/android-metadata.json to determine which adb or runner step stopped before finalization, then rerun with a bounded command timeout if the host command stalled.`;
+    if (timedOut) {
+      nextActionCode = 'inspect_android_adb_runner_timeout';
+      nextAction = `Inspect raw/${rawFileName}, raw/android-metadata.json, raw/adb-runner-watchdog-logcat.txt when present, and the last collected raw adb artifact to identify the command or declared wait that exceeded the whole-capture watchdog.`;
+    }
     checks.push({
       name: 'android_adb_capture_liveness',
       status: 'failed',
@@ -3797,12 +3943,7 @@ async function runAndroidAdbPreflight({
         ? `Android adb capture did not complete before the ${captureWatchdog.timeoutMs}ms watchdog deadline.`
         : 'Android adb capture stopped before normal artifact finalization.',
       metadata: {
-        ...nextActionHint(
-          timedOut ? 'inspect_android_adb_runner_timeout' : 'inspect_android_adb_runner_failure',
-          timedOut
-            ? `Inspect raw/${rawFileName}, raw/android-metadata.json, and the last collected raw adb artifact to identify the command or declared wait that exceeded the whole-capture watchdog.`
-            : `Inspect raw/${rawFileName} and raw/android-metadata.json to determine which adb or runner step stopped before finalization, then rerun with a bounded command timeout if the host command stalled.`,
-        ),
+        ...nextActionHint(nextActionCode, nextAction),
         rawPath: `raw/${rawFileName}`,
       },
     });
