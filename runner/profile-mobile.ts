@@ -3048,22 +3048,17 @@ function buildProfileVerdict({
   const healthPassed = health.healthStatus === 'passed';
   const budgetEvaluation = metrics.budgetEvaluation;
   const budgetChecks = buildVerdictBudgetChecks(budgetEvaluation);
-  const budgetStatus = typeof budgetEvaluation?.status === 'string'
-    ? budgetEvaluation.status
-    : budgetEvaluation
-      ? budgetEvaluation.pass
-        ? 'passed'
-        : 'failed'
-      : 'not_evaluated';
-  const verdictStatus = !healthPassed
-    ? 'inconclusive'
-    : budgetEvaluation
-      ? budgetStatus === 'passed'
-        ? 'passed'
-        : budgetStatus === 'partial'
-          ? 'inconclusive'
-          : 'failed'
-      : 'not_evaluated';
+  const budgetStatus = resolveProfileBudgetStatus(budgetEvaluation);
+  const verdictStatus = resolveProfileVerdictStatus({
+    budgetEvaluation,
+    budgetStatus,
+    healthPassed,
+  });
+  const summary = resolveProfileVerdictSummary({
+    budgetEvaluation,
+    budgetStatus,
+    healthPassed,
+  });
 
   return assertValidJson(
     {
@@ -3074,17 +3069,97 @@ function buildProfileVerdict({
       healthStatus: health.healthStatus,
       verdictStatus,
       ...(budgetChecks.length > 0 ? { budgetChecks } : {}),
-      summary: !healthPassed
-        ? 'Scenario health did not pass; do not compare or optimize from this run.'
-        : budgetEvaluation
-          ? budgetStatus === 'partial'
-            ? 'Profile budgets were partially evaluated; unmeasurable checks are not product-performance failures.'
-            : `Profile budgets ${budgetStatus === 'passed' ? 'passed' : 'failed'}.`
-          : 'Scenario health passed; no profile budgets were configured.',
+      summary,
     },
     SCHEMAS.verdict,
     'Verdict artifact',
   ) as Record<string, unknown>;
+}
+
+/**
+ * Resolves the normalized budget status used by profile verdicts.
+ *
+ * @param {Record<string, any> | undefined} budgetEvaluation
+ * @returns {string}
+ */
+function resolveProfileBudgetStatus(budgetEvaluation: Record<string, any> | undefined): string {
+  if (!budgetEvaluation) {
+    return 'not_evaluated';
+  }
+
+  if (typeof budgetEvaluation.status === 'string') {
+    return budgetEvaluation.status;
+  }
+
+  if (budgetEvaluation.pass === true) {
+    return 'passed';
+  }
+
+  return 'failed';
+}
+
+/**
+ * Resolves the top-level profile verdict status from health and budget state.
+ *
+ * @param {{budgetEvaluation: Record<string, any> | undefined, budgetStatus: string, healthPassed: boolean}} options
+ * @returns {string}
+ */
+function resolveProfileVerdictStatus({
+  budgetEvaluation,
+  budgetStatus,
+  healthPassed,
+}: {
+  budgetEvaluation: Record<string, any> | undefined;
+  budgetStatus: string;
+  healthPassed: boolean;
+}): string {
+  if (!healthPassed) {
+    return 'inconclusive';
+  }
+
+  if (!budgetEvaluation) {
+    return 'not_evaluated';
+  }
+
+  switch (budgetStatus) {
+    case 'passed':
+      return 'passed';
+    case 'partial':
+      return 'inconclusive';
+    default:
+      return 'failed';
+  }
+}
+
+/**
+ * Resolves the public verdict summary from health and budget state.
+ *
+ * @param {{budgetEvaluation: Record<string, any> | undefined, budgetStatus: string, healthPassed: boolean}} options
+ * @returns {string}
+ */
+function resolveProfileVerdictSummary({
+  budgetEvaluation,
+  budgetStatus,
+  healthPassed,
+}: {
+  budgetEvaluation: Record<string, any> | undefined;
+  budgetStatus: string;
+  healthPassed: boolean;
+}): string {
+  if (!healthPassed) {
+    return 'Scenario health did not pass; do not compare or optimize from this run.';
+  }
+
+  if (!budgetEvaluation) {
+    return 'Scenario health passed; no profile budgets were configured.';
+  }
+
+  if (budgetStatus === 'partial') {
+    return 'Profile budgets were partially evaluated; unmeasurable checks are not product-performance failures.';
+  }
+
+  const budgetResult = budgetStatus === 'passed' ? 'passed' : 'failed';
+  return `Profile budgets ${budgetResult}.`;
 }
 
 /**
@@ -5159,6 +5234,9 @@ export {
   buildProfileVerdict,
   buildVerdictBudgetChecks,
   parseArgs,
+  resolveProfileBudgetStatus,
+  resolveProfileVerdictStatus,
+  resolveProfileVerdictSummary,
   buildEvidenceAttachmentManifest,
   readScalarArg,
   resolveAppId,

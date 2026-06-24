@@ -7,8 +7,79 @@ const test = require('node:test');
 const {
   buildAndroidProfileSessionSidecarObservationChecks,
   buildProfileHealth,
+  resolveProfileBudgetStatus,
+  resolveProfileVerdictStatus,
+  resolveProfileVerdictSummary,
 } = require('../profile-mobile');
 type TestContext = import('node:test').TestContext;
+
+test('profile verdict policy keeps health and budget interpretation explicit', () => {
+  const cases = [
+    {
+      name: 'failed health',
+      budgetEvaluation: { pass: true },
+      healthPassed: false,
+      expectedBudgetStatus: 'passed',
+      expectedVerdictStatus: 'inconclusive',
+      expectedSummary: 'Scenario health did not pass; do not compare or optimize from this run.',
+    },
+    {
+      name: 'no budgets',
+      budgetEvaluation: undefined,
+      healthPassed: true,
+      expectedBudgetStatus: 'not_evaluated',
+      expectedVerdictStatus: 'not_evaluated',
+      expectedSummary: 'Scenario health passed; no profile budgets were configured.',
+    },
+    {
+      name: 'partial budgets',
+      budgetEvaluation: { status: 'partial' },
+      healthPassed: true,
+      expectedBudgetStatus: 'partial',
+      expectedVerdictStatus: 'inconclusive',
+      expectedSummary: 'Profile budgets were partially evaluated; unmeasurable checks are not product-performance failures.',
+    },
+    {
+      name: 'passed budgets',
+      budgetEvaluation: { status: 'passed' },
+      healthPassed: true,
+      expectedBudgetStatus: 'passed',
+      expectedVerdictStatus: 'passed',
+      expectedSummary: 'Profile budgets passed.',
+    },
+    {
+      name: 'failed budgets',
+      budgetEvaluation: { pass: false },
+      healthPassed: true,
+      expectedBudgetStatus: 'failed',
+      expectedVerdictStatus: 'failed',
+      expectedSummary: 'Profile budgets failed.',
+    },
+  ];
+
+  for (const testCase of cases) {
+    const budgetStatus = resolveProfileBudgetStatus(testCase.budgetEvaluation);
+    assert.equal(budgetStatus, testCase.expectedBudgetStatus, testCase.name);
+    assert.equal(
+      resolveProfileVerdictStatus({
+        budgetEvaluation: testCase.budgetEvaluation,
+        budgetStatus,
+        healthPassed: testCase.healthPassed,
+      }),
+      testCase.expectedVerdictStatus,
+      testCase.name,
+    );
+    assert.equal(
+      resolveProfileVerdictSummary({
+        budgetEvaluation: testCase.budgetEvaluation,
+        budgetStatus,
+        healthPassed: testCase.healthPassed,
+      }),
+      testCase.expectedSummary,
+      testCase.name,
+    );
+  }
+});
 
 test('profile health surfaces command gate timeouts explicitly', () => {
   const health = buildProfileHealth({
