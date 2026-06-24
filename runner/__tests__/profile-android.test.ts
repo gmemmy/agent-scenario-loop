@@ -1769,7 +1769,7 @@ test('profile-android executes declared evidence provider commands', async (t: T
       redactionPolicy: {
         authority: 'provider-declared',
         reason: 'The artifact producer declared that sensitive content was redacted before ASL copied it.',
-        sensitivity: 'unknown',
+        sensitivity: 'declared-non-sensitive',
         status: 'redacted',
       },
       redactionStatus: 'redacted',
