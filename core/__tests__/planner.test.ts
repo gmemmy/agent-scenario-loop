@@ -432,6 +432,87 @@ test('accepts Android adb tap metadata when a portable selector is present', () 
   );
 });
 
+test('accepts Android adb longPress selector and pressKey metadata', () => {
+  const scenario = readJson('examples/scenarios/mobile/app-startup.json');
+  const runner = readJson('examples/runners/adb-android.json');
+  scenario.steps.push(
+    {
+      id: 'long-press-card',
+      kind: 'gesture',
+      driverAction: 'longPress',
+      selector: {
+        kind: 'testId',
+        value: 'example-card-1',
+      },
+    },
+    {
+      id: 'press-system-back',
+      kind: 'gesture',
+      driverAction: 'pressKey',
+      adapterOptions: {
+        androidAdb: {
+          key: 'systemBack',
+        },
+      },
+    },
+  );
+
+  const result = evaluateRunnerCompatibility({ scenario, runner, platform: 'android' });
+
+  assert.equal(result.compatible, true);
+  assert.ok(result.matched.driverActions.includes('longPress'));
+  assert.ok(result.matched.driverActions.includes('pressKey'));
+  assert.deepEqual(
+    result.errors.filter((error: PlannerIssue) => error.code === 'invalid_adapter_options'),
+    [],
+  );
+});
+
+test('fails when Android adb longPress or pressKey metadata is missing', () => {
+  const scenario = readJson('examples/scenarios/mobile/app-startup.json');
+  const runner = readJson('examples/runners/adb-android.json');
+  scenario.steps.push(
+    {
+      id: 'long-press-card',
+      kind: 'gesture',
+      driverAction: 'longPress',
+    },
+    {
+      id: 'press-key-missing',
+      kind: 'gesture',
+      driverAction: 'pressKey',
+    },
+    {
+      id: 'press-key-unsupported',
+      kind: 'gesture',
+      driverAction: 'pressKey',
+      adapterOptions: {
+        androidAdb: {
+          key: 'escape',
+        },
+      },
+    },
+  );
+
+  const result = evaluateRunnerCompatibility({ scenario, runner, platform: 'android' });
+
+  assert.equal(result.compatible, false);
+  assert.deepEqual(
+    result.errors
+      .filter((error: PlannerIssue) => error.code === 'invalid_adapter_options')
+      .map((error: PlannerIssue) => ({
+        adapter: error.adapter,
+        field: error.field,
+        stepId: error.stepId,
+      })),
+    [
+      { adapter: 'androidAdb', field: 'x/y', stepId: 'long-press-card' },
+      { adapter: 'androidAdb', field: 'key', stepId: 'press-key-missing' },
+      { adapter: 'androidAdb', field: 'key', stepId: 'press-key-unsupported' },
+    ],
+  );
+});
+
 test('fails when Android adb assertVisible is missing a selector', () => {
   const scenario = readJson('examples/scenarios/mobile/app-startup.json');
   const runner = readJson('examples/runners/adb-android.json');
@@ -1549,7 +1630,7 @@ test('collects provider driver actions only from active providers', () => {
       evidenceProviders: [inactiveProvider, androidProvider],
       effectivePlatforms: ['android'],
     }),
-    ['assertVisible', 'collectPerfSignals', 'inspectTree', 'readLogs', 'record', 'screenshot', 'scroll', 'swipe', 'tap'],
+    ['assertVisible', 'collectPerfSignals', 'inspectTree', 'longPress', 'pressKey', 'readLogs', 'record', 'screenshot', 'scroll', 'swipe', 'tap'],
   );
 });
 

@@ -19,6 +19,7 @@ const {
   runProfileMobile,
   usage,
 } = require('./profile-mobile');
+const { isAndroidAdbPressKey } = require('../core/android-adb-press-keys') as typeof import('../core/android-adb-press-keys');
 const { buildScenarioExecutionPlan } = require('../core/execution-plan');
 const { PROFILE_SESSION_STORAGE_KEYS } = require('../profile-session-storage');
 const { runAgentDeviceCapture } = require('./agent-device');
@@ -77,7 +78,7 @@ const ANDROID_PROFILE_RUNNER_CAPABILITIES = {
   kind: 'primary',
   platforms: ['android'],
   capabilities: ['launch', 'sessionControl', 'command', 'logCapture', 'artifactWrite'],
-  driverActions: ['tap', 'scroll', 'swipe', 'assertVisible', 'inspectTree', 'screenshot', 'record', 'readLogs'],
+  driverActions: ['tap', 'longPress', 'pressKey', 'scroll', 'swipe', 'assertVisible', 'inspectTree', 'screenshot', 'record', 'readLogs'],
   artifactOutputs: ['logs', 'signals', 'screenshot', 'video', 'uiTree'],
   uiContexts: ['app'],
   lifecycle: ['prepare', 'launch', 'startSession', 'executeStep', 'waitForTruthEvent', 'captureEvidence', 'stopSession', 'finalize'],
@@ -873,7 +874,7 @@ function resolveAndroidAdbDriverSteps(scenario: Record<string, any>): AndroidAdb
   let readLogsIndex = 0;
   return executionPlan.steps
     .filter((step: ScenarioExecutionStep) =>
-      ['assertVisible', 'inspectTree', 'readLogs', 'record', 'screenshot', 'scroll', 'swipe', 'tap'].includes(String(step.driverAction)),
+      ['assertVisible', 'inspectTree', 'longPress', 'pressKey', 'readLogs', 'record', 'screenshot', 'scroll', 'swipe', 'tap'].includes(String(step.driverAction)),
     )
     .map((step: ScenarioExecutionStep) => {
       const androidAdbOptions = readAndroidAdbStepOptions(step);
@@ -896,6 +897,9 @@ function resolveAndroidAdbDriverSteps(scenario: Record<string, any>): AndroidAdb
           ? { durationSeconds: readFiniteNumber(androidAdbOptions.durationSeconds) }
           : {}),
         ...(step.driverAction === 'readLogs' ? { lines: readPositiveInteger(androidAdbOptions.logcatLines, 1000) } : {}),
+        ...(typeof androidAdbOptions.key === 'string' && androidAdbOptions.key.length > 0
+          ? { key: androidAdbOptions.key }
+          : {}),
         ...(typeof rawFileName === 'string' ? { rawFileName } : {}),
         required: step.required,
         ...(isAndroidSelector(step.selector) ? { selector: step.selector } : {}),
@@ -945,8 +949,17 @@ function validateAndroidAdbDriverSteps(driverSteps: AndroidAdbDriverStep[]): str
   const errors: string[] = [];
   for (const step of driverSteps) {
     const stepLabel = step.stepId ? `step \`${step.stepId}\`` : 'unnamed step';
-    if (step.driverAction === 'tap' && !step.selector && (typeof step.x !== 'number' || typeof step.y !== 'number')) {
-      errors.push(`${stepLabel} uses driverAction \`tap\` but is missing adapterOptions.androidAdb.x/y.`);
+    if (
+      (step.driverAction === 'tap' || step.driverAction === 'longPress') &&
+      !step.selector &&
+      (typeof step.x !== 'number' || typeof step.y !== 'number')
+    ) {
+      errors.push(`${stepLabel} uses driverAction \`${step.driverAction}\` but is missing adapterOptions.androidAdb.x/y.`);
+    }
+    if (step.driverAction === 'pressKey' && !isAndroidAdbPressKey(step.key)) {
+      errors.push(
+        `${stepLabel} uses driverAction \`pressKey\` but is missing supported adapterOptions.androidAdb.key.`,
+      );
     }
     if (step.driverAction === 'assertVisible' && !step.selector) {
       errors.push(`${stepLabel} uses driverAction \`assertVisible\` but is missing a portable selector.`);

@@ -22,7 +22,9 @@ type AndroidAdbDriver = {
   clearLogs: () => Promise<AndroidAdbCommandResult>;
   inspectTree: (options?: AndroidAdbInspectTreeOptions) => Promise<AndroidAdbCommandResult>;
   launchPackage: (packageName: string) => Promise<AndroidAdbCommandResult>;
+  longPress: (options: AndroidAdbLongPressOptions) => Promise<AndroidAdbCommandResult>;
   openDeepLink: (options: AndroidAdbDeepLinkOptions) => Promise<AndroidAdbCommandResult>;
+  pressKey: (options: AndroidAdbPressKeyOptions) => Promise<AndroidAdbCommandResult>;
   readLogs: (options?: AndroidAdbReadLogsOptions) => Promise<AndroidAdbCommandResult>;
   record: (options: AndroidAdbRecordOptions) => Promise<AndroidAdbCommandResult>;
   screenshot: (options?: AndroidAdbScreenshotOptions) => Promise<AndroidAdbCommandResult>;
@@ -112,6 +114,20 @@ type AndroidAdbTapOptions = {
   y: number;
 };
 
+type AndroidAdbLongPressOptions = {
+  durationMs?: number;
+  rawFileName?: string;
+  x: number;
+  y: number;
+};
+
+type AndroidAdbPressKey = import('../core/android-adb-press-keys').AndroidAdbPressKey;
+
+type AndroidAdbPressKeyOptions = {
+  key: AndroidAdbPressKey;
+  rawFileName?: string;
+};
+
 type AndroidSelector = {
   kind: string;
   match?: string;
@@ -163,6 +179,30 @@ function buildUiAutomatorDumpCommand(): string {
     `rm -f ${UI_AUTOMATOR_DUMP_PATH}`,
     'exit $status',
   ].join('; ');
+}
+
+/**
+ * Maps ASL's portable key names to Android keyevent names.
+ *
+ * @param {AndroidAdbPressKey} key
+ * @returns {string}
+ */
+function androidKeyEventForPortableKey(key: AndroidAdbPressKey): string {
+  switch (key) {
+    case 'appBack':
+    case 'back':
+    case 'keyboardDismiss':
+    case 'systemBack':
+      return 'KEYCODE_BACK';
+    case 'appSwitcher':
+      return 'KEYCODE_APP_SWITCH';
+    case 'home':
+      return 'KEYCODE_HOME';
+    default: {
+      const exhaustive: never = key;
+      throw new Error(`Unsupported Android adb pressKey \`${String(exhaustive)}\`.`);
+    }
+  }
 }
 
 /**
@@ -535,6 +575,42 @@ function createAndroidAdbDriver({
       return buildDriverResult({ action: 'openDeepLink', rawFileName, result });
     },
 
+    async longPress({
+      durationMs = 700,
+      rawFileName = 'adb-longPress.txt',
+      x,
+      y,
+    }: AndroidAdbLongPressOptions): Promise<AndroidAdbCommandResult> {
+      const result = await executor(adbPath, [
+        '-s',
+        deviceSerial,
+        'shell',
+        'input',
+        'swipe',
+        String(x),
+        String(y),
+        String(x),
+        String(y),
+        String(durationMs),
+      ]);
+      return buildDriverResult({ action: 'longPress', rawFileName, result });
+    },
+
+    async pressKey({
+      key,
+      rawFileName = 'adb-pressKey.txt',
+    }: AndroidAdbPressKeyOptions): Promise<AndroidAdbCommandResult> {
+      const result = await executor(adbPath, [
+        '-s',
+        deviceSerial,
+        'shell',
+        'input',
+        'keyevent',
+        androidKeyEventForPortableKey(key),
+      ]);
+      return buildDriverResult({ action: 'pressKey', rawFileName, result });
+    },
+
     async readLogs({
       lines = 1000,
       rawFileName = 'adb-logcat.txt',
@@ -687,6 +763,9 @@ export type {
   AndroidAdbDriverOptions,
   AndroidAdbAssertVisibleOptions,
   AndroidAdbInspectTreeOptions,
+  AndroidAdbLongPressOptions,
+  AndroidAdbPressKey,
+  AndroidAdbPressKeyOptions,
   AndroidAdbReadLogsOptions,
   AndroidAdbRecordOptions,
   AndroidAdbScreenshotOptions,

@@ -36,7 +36,7 @@ Primary runner shape:
   "kind": "primary",
   "platforms": ["android"],
   "capabilities": ["launch", "sessionControl", "command", "logCapture", "artifactWrite"],
-  "driverActions": ["tap", "scroll", "assertVisible", "readLogs"],
+  "driverActions": ["tap", "longPress", "pressKey", "scroll", "assertVisible", "readLogs"],
   "artifactOutputs": ["logs", "signals"],
   "lifecycle": ["prepare", "launch", "startSession", "executeStep", "waitForTruthEvent", "captureEvidence", "stopSession", "finalize"]
 }
