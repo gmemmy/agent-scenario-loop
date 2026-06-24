@@ -24,6 +24,7 @@ const DRIVER_PORT = [
   'scroll',
   'swipe',
   'pinch',
+  'rotate',
   'pressButton',
   'focus',
   'assertVisible',
@@ -100,6 +101,7 @@ type DriverActionName =
   | 'scroll'
   | 'swipe'
   | 'pinch'
+  | 'rotate'
   | 'pressButton'
   | 'focus'
   | 'assertVisible'
@@ -186,6 +188,7 @@ type DriverPort = {
   pressButton(input: DriverActionInput): MaybePromise<DriverActionResult>;
   readLogs(input: DriverActionInput): MaybePromise<DriverActionResult>;
   record(input: DriverActionInput): MaybePromise<DriverActionResult>;
+  rotate(input: DriverActionInput): MaybePromise<DriverActionResult>;
   screenshot(input: DriverActionInput): MaybePromise<DriverActionResult>;
   scroll(input: DriverActionInput): MaybePromise<DriverActionResult>;
   swipe(input: DriverActionInput): MaybePromise<DriverActionResult>;

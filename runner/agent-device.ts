@@ -98,7 +98,7 @@ type AgentDeviceDriverStep = {
   captureFileName?: string;
   delayMs?: number;
   direction?: string;
-  driverAction: 'assertVisible' | 'focus' | 'inspectTree' | 'longPress' | 'pinch' | 'pressButton' | 'readLogs' | 'screenshot' | 'scroll' | 'swipe' | 'tap' | 'typeText';
+  driverAction: 'assertVisible' | 'focus' | 'inspectTree' | 'longPress' | 'pinch' | 'pressButton' | 'readLogs' | 'rotate' | 'screenshot' | 'scroll' | 'swipe' | 'tap' | 'typeText';
   durationMs?: number;
   endX?: number;
   endY?: number;
@@ -106,6 +106,7 @@ type AgentDeviceDriverStep = {
   rawFileName?: string;
   ref?: string;
   required?: boolean;
+  orientation?: import('./agent-device-driver').AgentDeviceOrientation;
   scale?: number;
   selector?: import('./agent-device-driver').AgentDeviceSelector;
   stepId?: string;
@@ -176,6 +177,7 @@ const DEFAULT_AGENT_DEVICE_REQUIRED_COMMANDS = [
   'focus',
   'longpress',
   'press',
+  'rotate',
   'scroll',
   'swipe',
   'type',
@@ -1101,6 +1103,21 @@ function isAgentDeviceSelector(value: unknown): value is import('./agent-device-
 }
 
 /**
+ * Returns true when a value is an agent-device orientation token.
+ *
+ * @param {unknown} value
+ * @returns {value is import('./agent-device-driver').AgentDeviceOrientation}
+ */
+function isAgentDeviceOrientation(value: unknown): value is import('./agent-device-driver').AgentDeviceOrientation {
+  return value === 'portrait' ||
+    value === 'portrait-upside-down' ||
+    value === 'landscape-left' ||
+    value === 'landscape-right';
+}
+
+const AGENT_DEVICE_ORIENTATION_DESCRIPTION = 'portrait, portrait-upside-down, landscape-left, or landscape-right';
+
+/**
  * Returns the default raw file name for one agent-device action.
  *
  * @param {{driverAction: AgentDeviceDriverStep['driverAction'], index: number}} options
@@ -1166,7 +1183,7 @@ function resolveAgentDeviceDriverSteps(scenario: Record<string, any>): AgentDevi
   const executionPlan = buildScenarioExecutionPlan(scenario);
   return executionPlan.steps
     .filter((step: ScenarioExecutionStep) =>
-      ['assertVisible', 'focus', 'inspectTree', 'longPress', 'pinch', 'pressButton', 'readLogs', 'screenshot', 'scroll', 'swipe', 'tap', 'typeText'].includes(String(step.driverAction)),
+      ['assertVisible', 'focus', 'inspectTree', 'longPress', 'pinch', 'pressButton', 'readLogs', 'rotate', 'screenshot', 'scroll', 'swipe', 'tap', 'typeText'].includes(String(step.driverAction)),
     )
     .map((step: ScenarioExecutionStep, index: number) => {
       const agentDeviceOptions = readAgentDeviceStepOptions(step);
@@ -1198,6 +1215,7 @@ function resolveAgentDeviceDriverSteps(scenario: Record<string, any>): AgentDevi
         ...(typeof endX === 'number' ? { endX } : {}),
         ...(typeof endY === 'number' ? { endY } : {}),
         ...(typeof pixels === 'number' ? { pixels } : {}),
+        ...(isAgentDeviceOrientation(agentDeviceOptions.orientation) ? { orientation: agentDeviceOptions.orientation } : {}),
         rawFileName: typeof agentDeviceOptions.rawFileName === 'string' && agentDeviceOptions.rawFileName.length > 0
           ? agentDeviceOptions.rawFileName
           : defaultAgentDeviceRawFileName({ driverAction: action, index: actionIndex }),
@@ -1245,6 +1263,9 @@ function validateAgentDeviceDriverSteps(driverSteps: AgentDeviceDriverStep[]): s
     }
     if (step.driverAction === 'pinch' && typeof step.scale !== 'number') {
       errors.push(`${stepLabel} uses driverAction \`pinch\` but is missing adapterOptions.agentDevice.scale.`);
+    }
+    if (step.driverAction === 'rotate' && !step.orientation) {
+      errors.push(`${stepLabel} uses driverAction \`rotate\` but adapterOptions.agentDevice.orientation must be ${AGENT_DEVICE_ORIENTATION_DESCRIPTION}.`);
     }
     if (
       step.driverAction === 'swipe' &&
@@ -1316,6 +1337,12 @@ async function runAgentDeviceDriverStep({
   if (driverStep.driverAction === 'screenshot') {
     return driver.screenshot({
       outputPath: path.join(capturesDir, driverStep.captureFileName ?? 'agent-device-screenshot.png'),
+      ...(driverStep.rawFileName ? { rawFileName: driverStep.rawFileName } : {}),
+    });
+  }
+  if (driverStep.driverAction === 'rotate' && driverStep.orientation) {
+    return driver.rotate({
+      orientation: driverStep.orientation,
       ...(driverStep.rawFileName ? { rawFileName: driverStep.rawFileName } : {}),
     });
   }
