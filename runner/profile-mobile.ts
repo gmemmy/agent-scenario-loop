@@ -76,6 +76,15 @@ type EvidenceChannel = 'capture' | 'provider' | 'signal';
 type EvidenceKind = CaptureEvidenceKind | ProviderEvidenceKind | SignalEvidenceKind;
 type DiagnosticStatus = 'captured' | 'not_requested' | 'not_supported' | 'unavailable' | 'failed' | 'skipped' | 'missing';
 type DiagnosticKind = EvidenceKind | 'logs';
+type DiagnosticAvailability =
+  | 'captured'
+  | 'captured-diagnostic-only'
+  | 'environment-blocked'
+  | 'not-requested'
+  | 'provider-blocked'
+  | 'requested-missing'
+  | 'required-missing'
+  | 'unsupported';
 type EvidenceRedactionStatus = 'not-redacted' | 'redacted' | 'unknown';
 type EvidenceRedactionAuthority = 'asl-default' | 'operator-declared' | 'provider-declared';
 type EvidenceSensitivity = 'declared-non-sensitive' | 'may-contain-sensitive-data' | 'unknown';
@@ -91,7 +100,7 @@ function isEvidenceRedactionStatus(value: string): value is EvidenceRedactionSta
   return EVIDENCE_REDACTION_STATUSES.has(value);
 }
 type DiagnosticInventoryEntry = {
-  availability?: 'captured' | 'not-requested' | 'requested-missing' | 'required-missing';
+  availability?: DiagnosticAvailability;
   kind: DiagnosticKind;
   status: DiagnosticStatus;
   required: boolean;
@@ -275,7 +284,7 @@ type ProviderOutputStatus = {
   providerId: string;
   reason?: string;
   required: boolean;
-  status: 'captured' | 'missing';
+  status: 'captured' | 'missing' | 'unsupported';
 };
 type ProviderCommandExecution = {
   failures: ProviderCommandFailure[];
@@ -989,6 +998,21 @@ async function executeProviderCommands({
       ...(typeof provider.version === 'string' ? { version: provider.version } : {}),
     });
     if (Array.isArray(provider.platforms) && !provider.platforms.includes(platform)) {
+      for (const providerCommand of provider.providerCommands ?? []) {
+        for (const output of providerCommand.outputs ?? []) {
+          outputStatuses.push({
+            channel: output.channel,
+            commandId: providerCommand.id,
+            kind: output.kind,
+            path: output.path,
+            phase: providerCommand.phase,
+            providerId,
+            reason: `Evidence provider ${providerId} does not support selected platform "${platform}".`,
+            required: output.required === true,
+            status: 'unsupported',
+          });
+        }
+      }
       failures.push({
         commandId: 'platform-compatibility',
         code: 'provider_platform_unsupported',
@@ -1027,6 +1051,19 @@ async function executeProviderCommands({
       const stdoutPath = path.join(commandRecordDir, stdoutFileName);
       const stderrPath = path.join(commandRecordDir, stderrFileName);
       if (!SUPPORTED_PROVIDER_COMMAND_PHASES.has(providerCommand.phase)) {
+        for (const output of providerCommand.outputs ?? []) {
+          outputStatuses.push({
+            channel: output.channel,
+            commandId: providerCommand.id,
+            kind: output.kind,
+            path: output.path,
+            phase: providerCommand.phase,
+            providerId,
+            reason: `Provider command ${providerId}/${providerCommand.id} uses unsupported lifecycle phase "${providerCommand.phase}".`,
+            required: output.required === true,
+            status: 'unsupported',
+          });
+        }
         await fsp.writeFile(
           commandRecordPath,
           `${JSON.stringify({
@@ -1743,10 +1780,12 @@ function resolveDiagnosticRequest({
  * @returns {DiagnosticInventoryEntry}
  */
 function buildDiagnosticEntry(
-  entry: DiagnosticInventoryEntry & { requested?: boolean },
+  entry: DiagnosticInventoryEntry & { diagnosticOnly?: boolean; requested?: boolean },
 ): DiagnosticInventoryEntry {
-  const { requested = true, ...diagnostic } = entry;
+  const { diagnosticOnly = false, requested = true, ...diagnostic } = entry;
   const availability = resolveDiagnosticAvailability({
+    diagnosticOnly,
+    ...(diagnostic.provider ? { provider: diagnostic.provider } : {}),
     required: diagnostic.required,
     requested,
     status: diagnostic.status,
@@ -1767,16 +1806,35 @@ function buildDiagnosticEntry(
 }
 
 function resolveDiagnosticAvailability({
+  diagnosticOnly,
+  provider,
   required,
   requested,
   status,
 }: {
+  diagnosticOnly: boolean;
+  provider?: string;
   required: boolean;
   requested: boolean;
   status: DiagnosticStatus;
-}): NonNullable<DiagnosticInventoryEntry['availability']> {
+}): DiagnosticAvailability {
   if (status === 'captured') {
+    if (diagnosticOnly) {
+      return 'captured-diagnostic-only';
+    }
     return 'captured';
+  }
+
+  if (status === 'not_supported') {
+    return 'unsupported';
+  }
+
+  if (status === 'failed') {
+    return provider ? 'provider-blocked' : 'environment-blocked';
+  }
+
+  if (status === 'skipped') {
+    return 'environment-blocked';
   }
 
   if (required) {
@@ -1810,6 +1868,9 @@ function resolveProviderDiagnosticStatus(
   }
 
   if (missingProviderOutput) {
+    if (missingProviderOutput.status === 'unsupported') {
+      return 'not_supported';
+    }
     return 'failed';
   }
 
@@ -1849,6 +1910,9 @@ function resolveProviderBackedDiagnosticStatus(
   }
 
   if (missingProviderOutput) {
+    if (missingProviderOutput.status === 'unsupported') {
+      return 'not_supported';
+    }
     return 'failed';
   }
 
@@ -1942,7 +2006,7 @@ function resolveSignalDiagnosticProvider(
 /**
  * Builds the product-neutral diagnostic inventory for a profile run.
  *
- * @param {{args: CliArgs, attachedEvidence: AttachedEvidence, eventLogPath: string | null, platform: ProfilePlatform, profileSessionEntriesPath: string | null, providerOutputStatuses?: ProviderOutputStatus[], runDir: string, scenario: Record<string, unknown>}} options
+ * @param {{args: CliArgs, attachedEvidence: AttachedEvidence, eventLogPath: string | null, platform: ProfilePlatform, profileSessionEntriesPath: string | null, providerFailures?: ProviderCommandFailure[], providerOutputStatuses?: ProviderOutputStatus[], runDir: string, scenario: Record<string, unknown>}} options
  * @returns {DiagnosticInventoryEntry[]}
  */
 function buildDiagnosticInventory({
@@ -1951,6 +2015,7 @@ function buildDiagnosticInventory({
   eventLogPath,
   platform,
   profileSessionEntriesPath,
+  providerFailures = [],
   providerOutputStatuses = [],
   runDir,
   scenario,
@@ -1960,6 +2025,7 @@ function buildDiagnosticInventory({
   eventLogPath: string | null;
   platform: ProfilePlatform;
   profileSessionEntriesPath: string | null;
+  providerFailures?: ProviderCommandFailure[];
   providerOutputStatuses?: ProviderOutputStatus[];
   runDir: string;
   scenario: Record<string, any>;
@@ -1978,13 +2044,17 @@ function buildDiagnosticInventory({
         .map((output) => output.kind),
     ],
   );
-  const missingProviderOutputByKind = new Map<DiagnosticKind, ProviderOutputStatus>();
+  const failedProviderIds = new Set(
+    providerFailures.map((failure) => failure.providerId).filter((providerId) => providerId.length > 0),
+  );
+  const providerOutputByKind = new Map<DiagnosticKind, ProviderOutputStatus>();
+  const providerDeclaredDiagnostics = new Set(providerOutputStatuses.map((output) => output.kind));
   for (const output of providerOutputStatuses) {
-    if (output.status !== 'missing' || !output.required) {
+    if (output.status === 'captured') {
       continue;
     }
-    if (!missingProviderOutputByKind.has(output.kind)) {
-      missingProviderOutputByKind.set(output.kind, output);
+    if (!providerOutputByKind.has(output.kind)) {
+      providerOutputByKind.set(output.kind, output);
     }
   }
   const sidecarRoot = typeof args['adb-artifacts'] === 'string'
@@ -2037,8 +2107,12 @@ function buildDiagnosticInventory({
     entries.push(buildDiagnosticEntry({
       kind,
       ...entry,
+      diagnosticOnly: typeof entry.provider === 'string' && failedProviderIds.has(entry.provider),
       required: request.required || requiredProviderDiagnostics.has(kind) || Boolean(entry.required),
-      requested: request.requested || requiredProviderDiagnostics.has(kind) || Boolean(entry.requested),
+      requested: request.requested ||
+        providerDeclaredDiagnostics.has(kind) ||
+        requiredProviderDiagnostics.has(kind) ||
+        Boolean(entry.requested),
     }));
   };
 
@@ -2134,7 +2208,7 @@ function buildDiagnosticInventory({
           nextAction: 'Use --capture screenshot:<path> or a runner/provider that produces screenshots.',
         }),
   });
-  const missingUiTreeProviderOutput = missingProviderOutputByKind.get('uiTree');
+  const missingUiTreeProviderOutput = providerOutputByKind.get('uiTree');
   const uiTreeCaptured = Boolean(attachedEvidence.captures.uiTree);
   const uiTreeReason = resolveCaptureDiagnosticReason('uiTree', uiTreeCaptured, missingUiTreeProviderOutput);
   pushDiagnostic('uiTree', {
@@ -2143,7 +2217,7 @@ function buildDiagnosticInventory({
     ...(attachedEvidence.captures.uiTree ? { path: attachedEvidence.captures.uiTree } : {}),
     ...uiTreeReason,
   });
-  const missingVideoProviderOutput = missingProviderOutputByKind.get('video');
+  const missingVideoProviderOutput = providerOutputByKind.get('video');
   const videoCaptured = Boolean(attachedEvidence.captures.video);
   const videoReason = resolveCaptureDiagnosticReason('video', videoCaptured, missingVideoProviderOutput);
   pushDiagnostic('video', {
@@ -2153,7 +2227,7 @@ function buildDiagnosticInventory({
     ...videoReason,
   });
   for (const kind of ['memory', 'network'] as const) {
-    const missingProviderOutput = missingProviderOutputByKind.get(kind);
+    const missingProviderOutput = providerOutputByKind.get(kind);
     const captured = attachedEvidence.signals[kind].length > 0;
     const reason = resolveSignalDiagnosticReason(kind, captured, missingProviderOutput);
     const provider = resolveSignalDiagnosticProvider(attachedEvidence.signalSources, kind, missingProviderOutput);
@@ -2166,7 +2240,7 @@ function buildDiagnosticInventory({
   }
   for (const kind of ['accessibility', 'nativePerformance', 'profiler'] as const) {
     const attachment = attachedEvidence.attachments.find((item) => item.kind === kind);
-    const missingProviderOutput = missingProviderOutputByKind.get(kind);
+    const missingProviderOutput = providerOutputByKind.get(kind);
     const provider = resolveProviderDiagnosticProvider(attachment, missingProviderOutput);
     const status = resolveProviderDiagnosticStatus(attachment, missingProviderOutput);
     const reason = resolveProviderDiagnosticReason(kind, attachment, missingProviderOutput);
@@ -2200,6 +2274,7 @@ function buildRequiredDiagnosticHealthChecks(diagnostics: DiagnosticInventoryEnt
       code: 'required_diagnostic_not_captured',
       message: diagnostic.reason ?? `Required ${diagnostic.kind} diagnostic was not captured.`,
       metadata: {
+        ...(diagnostic.availability ? { availability: diagnostic.availability } : {}),
         kind: diagnostic.kind,
         status: diagnostic.status,
         ...(diagnostic.name ? { name: diagnostic.name } : {}),
@@ -2880,44 +2955,6 @@ function buildProfileHealth({
         ...helperVersionChecks,
         ...runtimeIdentityChecks,
         ...diagnosticChecks,
-      ],
-    },
-    SCHEMAS.health,
-    'Health artifact',
-  ) as Record<string, unknown>;
-}
-
-/**
- * Adds provider command failures to otherwise finalized profile health.
- *
- * @param {{failures: ProviderCommandFailure[], health: Record<string, unknown>, runId: string, scenario: Record<string, unknown>}} options
- * @returns {Record<string, unknown>}
- */
-function appendProviderCommandFailuresToHealth({
-  failures,
-  health,
-  runId,
-  scenario,
-}: {
-  failures: ProviderCommandFailure[];
-  health: Record<string, any>;
-  runId: string;
-  scenario: Record<string, any>;
-}): Record<string, unknown> {
-  if (failures.length === 0) {
-    return health;
-  }
-
-  const providerHealth = buildProviderCommandFailureHealth({ failures, runId, scenario });
-  const existingChecks = Array.isArray(health.checks) ? health.checks : [];
-  const providerChecks = Array.isArray(providerHealth.checks) ? providerHealth.checks : [];
-  return assertValidJson(
-    {
-      ...health,
-      healthStatus: 'failed',
-      checks: [
-        ...existingChecks,
-        ...providerChecks,
       ],
     },
     SCHEMAS.health,
@@ -5073,6 +5110,7 @@ async function runProfileMobile(args: CliArgs, options: ProfileMobileOptions): P
       eventLogPath,
       platform: options.platform,
       profileSessionEntriesPath,
+      providerFailures: providerExecution.failures,
       providerOutputStatuses: providerExecution.outputStatuses,
       runDir,
       scenario: profileScenario,
@@ -5157,12 +5195,7 @@ async function runProfileMobile(args: CliArgs, options: ProfileMobileOptions): P
     sidecarObservationChecks,
     additionalRunnerChecks: options.additionalRunnerChecks ?? [],
   });
-  const finalHealth = appendProviderCommandFailuresToHealth({
-    failures: providerExecution.failures,
-    health,
-    runId,
-    scenario: profileScenario,
-  });
+  const finalHealth = health;
   const budgetVerdict = buildBudgetVerdict({
     flowId: scenario.flowId ?? scenarioName,
     runId,
