@@ -3,6 +3,7 @@ const test = require('node:test');
 
 const {
   buildAndroidNativePerformanceEvidence,
+  buildIosNativePerformanceEvidence,
   parseAndroidGfxinfoSummary,
   parseAndroidMeminfoSummary,
 } = require('../native-performance');
@@ -313,4 +314,185 @@ test('keeps Android native-performance evidence untrusted when summaries are mis
   assert.equal('frames' in evidence, false);
   assert.equal('memory' in evidence, false);
   assert.equal(evidence.tool.command, 'android native diagnostics');
+});
+
+test('builds diagnostic-only iOS native-performance evidence from provider summaries', () => {
+  const evidence = buildIosNativePerformanceEvidence({
+    attachments: [
+      {
+        kind: 'xctrace-summary',
+        path: 'raw/providers/native/xctrace-summary.json',
+      },
+      {
+        kind: 'metrickit-summary',
+        path: 'raw/providers/native/metrickit-summary.json',
+      },
+    ],
+    bundleId: 'com.example.app',
+    capturedAt: '2026-06-23T00:00:00.000Z',
+    deviceId: 'SIM-123',
+    metricKitSummary: {
+      batteryImpact: 2,
+      hitchCount: 4,
+      jankyFrameCount: 8,
+      p95FrameMs: 32,
+      physicalFootprintBytes: 90000000,
+      thermalState: 'nominal',
+    },
+    providerId: 'native-provider',
+    runId: 'run-ios',
+    scenarioId: 'feed-scroll',
+    xctraceSummary: {
+      cpuMs: 455.25,
+      durationMs: 12000,
+      mainThreadCpuMs: 300.5,
+      memoryPeakBytes: 120000000,
+      threadSchedulingDelayMs: 14,
+      traceId: 'ios-feed-trace',
+      windowEndMs: 12000,
+      windowStartMs: 0,
+    },
+  });
+
+  assert.equal(evidence.schemaVersion, '1.0.0');
+  assert.equal(evidence.platform, 'ios');
+  assert.equal(evidence.evidenceKind, 'mixed');
+  assert.equal(evidence.completenessStatus, 'partial');
+  assert.deepEqual(evidence.dataClasses, ['frames', 'jank', 'render', 'memory', 'cpu', 'thread-scheduling', 'thermal', 'battery', 'native-trace']);
+  assert.equal(evidence.comparability.status, 'diagnostic-only');
+  assert.equal(evidence.claimSufficiency.status, 'sufficient-for-diagnosis');
+  assert.equal(evidence.targetBinding.status, 'verified');
+  assert.equal(evidence.tool.command, 'xctrace / MetricKit');
+  assert.deepEqual(
+    evidence.diagnosticSources.map((source: { path?: string; sourceId: string; status: string }) => ({
+      path: source.path,
+      sourceId: source.sourceId,
+      status: source.status,
+    })),
+    [
+      {
+        path: undefined,
+        sourceId: 'instruments',
+        status: 'unverified',
+      },
+      {
+        path: 'raw/providers/native/xctrace-summary.json',
+        sourceId: 'xctrace',
+        status: 'captured',
+      },
+      {
+        path: 'raw/providers/native/metrickit-summary.json',
+        sourceId: 'metrickit',
+        status: 'captured',
+      },
+      {
+        path: undefined,
+        sourceId: 'simctl',
+        status: 'unverified',
+      },
+      {
+        path: undefined,
+        sourceId: 'native-trace',
+        status: 'unverified',
+      },
+    ],
+  );
+  assert.deepEqual(evidence.frames, {
+    hitchCount: 4,
+    jankyFrameCount: 8,
+    p95FrameMs: 32,
+  });
+  assert.deepEqual(evidence.memory, {
+    memoryPeakBytes: 120000000,
+    physicalFootprintBytes: 90000000,
+  });
+  assert.deepEqual(evidence.metrics, {
+    batteryImpact: 2,
+    cpuMs: 455.25,
+    mainThreadCpuMs: 300.5,
+    thermalState: 'nominal',
+    threadSchedulingDelayMs: 14,
+  });
+  assert.deepEqual(evidence.traces, [
+    {
+      durationMs: 12000,
+      traceId: 'ios-feed-trace',
+      windowEndMs: 12000,
+      windowStartMs: 0,
+    },
+  ]);
+});
+
+test('builds iOS native-performance evidence from a raw native trace attachment', () => {
+  const evidence = buildIosNativePerformanceEvidence({
+    attachments: [
+      {
+        kind: 'raw-native-trace',
+        path: 'raw/providers/native/feed.trace',
+      },
+    ],
+    providerId: 'native-provider',
+    runId: 'run-ios-trace',
+    scenarioId: 'feed-scroll',
+  });
+
+  assert.equal(evidence.evidenceKind, 'native-trace');
+  assert.equal(evidence.completenessStatus, 'partial');
+  assert.deepEqual(evidence.dataClasses, ['native-trace']);
+  assert.equal(evidence.claimSufficiency.status, 'sufficient-for-diagnosis');
+  assert.equal(evidence.targetBinding.status, 'unverified');
+  assert.deepEqual(
+    evidence.diagnosticSources.map((source: { path?: string; sourceId: string; status: string }) => ({
+      path: source.path,
+      sourceId: source.sourceId,
+      status: source.status,
+    })),
+    [
+      {
+        path: undefined,
+        sourceId: 'instruments',
+        status: 'unverified',
+      },
+      {
+        path: undefined,
+        sourceId: 'xctrace',
+        status: 'unverified',
+      },
+      {
+        path: undefined,
+        sourceId: 'metrickit',
+        status: 'unverified',
+      },
+      {
+        path: undefined,
+        sourceId: 'simctl',
+        status: 'unverified',
+      },
+      {
+        path: 'raw/providers/native/feed.trace',
+        sourceId: 'native-trace',
+        status: 'captured',
+      },
+    ],
+  );
+  assert.equal(evidence.tool.command, 'ios native diagnostics');
+  assert.equal('frames' in evidence, false);
+  assert.equal('memory' in evidence, false);
+});
+
+test('keeps iOS native-performance evidence untrusted when summaries are missing', () => {
+  const evidence = buildIosNativePerformanceEvidence({
+    providerId: 'native-provider',
+    runId: 'run-ios-empty',
+    scenarioId: 'feed-scroll',
+  });
+
+  assert.equal(evidence.evidenceKind, 'unknown');
+  assert.equal(evidence.completenessStatus, 'unknown');
+  assert.deepEqual(evidence.dataClasses, ['unknown']);
+  assert.equal(evidence.claimSufficiency.status, 'insufficient-for-claim');
+  assert.equal(evidence.targetBinding.status, 'unverified');
+  assert.equal(evidence.tool.command, 'ios native diagnostics');
+  assert.equal('frames' in evidence, false);
+  assert.equal('memory' in evidence, false);
 });

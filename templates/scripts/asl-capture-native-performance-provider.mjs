@@ -5,7 +5,7 @@ import { createRequire } from 'node:module';
 import path from 'node:path';
 
 const require = createRequire(import.meta.url);
-const { buildAndroidNativePerformanceEvidence } = require('agent-scenario-loop');
+const { buildAndroidNativePerformanceEvidence, buildIosNativePerformanceEvidence } = require('agent-scenario-loop');
 
 /**
  * Parses simple `--key value` CLI arguments.
@@ -283,6 +283,19 @@ function main() {
       deviceId: typeof args.device === 'string' ? args.device : undefined,
       gfxinfoText: readOptionalText(args, 'gfxinfo'),
       meminfoText: readOptionalText(args, 'meminfo'),
+      providerId: 'example-evidence-provider',
+      runId,
+      scenarioId,
+    }));
+    return;
+  }
+
+  if (platform === 'ios') {
+    // Intentionally pass no summaries: list source lanes, but keep top-level dataClasses unknown until real counters exist.
+    writeJsonArtifact(outPath, buildIosNativePerformanceEvidence({
+      appId: typeof args.app === 'string' ? args.app : undefined,
+      bundleId: typeof args.bundle === 'string' ? args.bundle : undefined,
+      deviceId: typeof args.device === 'string' ? args.device : undefined,
       providerId: 'example-evidence-provider',
       runId,
       scenarioId,
