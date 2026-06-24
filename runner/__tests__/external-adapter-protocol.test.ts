@@ -110,6 +110,38 @@ function assertArtifactReference(artifact: Record<string, any>): void {
   assert.equal('base64' in artifact, false, 'artifact references must not embed base64 evidence');
 }
 
+function helloRequest(): Record<string, unknown> {
+  return {
+    protocolVersion: '1.0',
+    seq: 1,
+    operationId: 'op-hello',
+    kind: 'request',
+    type: 'hello',
+    deadline: '2026-06-19T12:00:01.000Z',
+    body: {
+      host: {
+        name: 'agent-scenario-loop',
+        version: '0.1.x',
+      },
+      platform: 'ios',
+    },
+  };
+}
+
+function executeActionRequest(seq: number, operationId: string, body: Record<string, unknown>): Record<string, unknown> {
+  return {
+    protocolVersion: '1.0',
+    seq,
+    operationId,
+    kind: 'request',
+    type: 'executeAction',
+    runId: 'run-001',
+    attemptId: 'attempt-001',
+    deadline: `2026-06-19T12:00:0${seq}.000Z`,
+    body,
+  };
+}
+
 test('external adapter fixture matches the golden success protocol transcript', async () => {
   const transcript = await readTranscript('golden-success.jsonl');
   assertValidTranscript(transcript, 'golden-success.jsonl');
@@ -135,6 +167,76 @@ test('external adapter fixture reports artifact references with integrity metada
   actual.forEach(assertNoEmbeddedEvidenceBytes);
 });
 
+test('external adapter fixture declares and executes rich primitive actions', async () => {
+  const hostMessages: Record<string, unknown>[] = [
+    helloRequest(),
+    executeActionRequest(2, 'op-long-press', {
+        driverAction: 'longPress',
+        durationMs: 800,
+        selector: {
+          kind: 'accessibilityLabel',
+          value: 'Actions',
+        },
+    }),
+    executeActionRequest(3, 'op-pinch', {
+        driverAction: 'pinch',
+        scale: 1.2,
+        x: 120,
+        y: 240,
+    }),
+    executeActionRequest(4, 'op-press-key', {
+        driverAction: 'pressKey',
+        key: 'systemBack',
+    }),
+    executeActionRequest(5, 'op-custom-gesture', {
+        driverAction: 'customGesture',
+        gestureName: 'two-finger-scrub',
+        fingers: 2,
+        points: [
+          { x: 80, y: 200 },
+          { x: 180, y: 200 },
+        ],
+    }),
+    executeActionRequest(6, 'op-run-sequence', {
+        driverAction: 'runSequence',
+        actions: [
+          { driverAction: 'tap', selector: { kind: 'text', value: 'Open' } },
+          { driverAction: 'pressKey', key: 'systemBack' },
+        ],
+    }),
+  ];
+
+  const actual = await runFixture(hostMessages);
+  assertValidMessages(actual, 'fixture rich primitive stdout');
+
+  const helloResult = findResultByType(actual, 'hello');
+  assert.deepEqual(helloResult.driverActions, [
+    'tap',
+    'longPress',
+    'pinch',
+    'pressKey',
+    'assertVisible',
+    'customGesture',
+    'runSequence',
+  ]);
+
+  const actionResults = actual
+    .filter((message) => message.type === 'executeAction')
+    .map((message) => (message as Record<string, any>).body?.result);
+
+  assert.deepEqual(actionResults.map((result) => result.driverAction), [
+    'longPress',
+    'pinch',
+    'pressKey',
+    'customGesture',
+    'runSequence',
+  ]);
+  for (const result of actionResults) {
+    assert.equal(result.status, 'completed');
+    assertArtifactReference(result.raw);
+  }
+});
+
 test('external adapter fixture returns structured failures for unsupported actions', async () => {
   const transcript = await readTranscript('golden-failure.jsonl');
   assertValidTranscript(transcript, 'golden-failure.jsonl');
@@ -149,10 +251,10 @@ test('external adapter fixture returns structured failures for unsupported actio
     failure: {
       category: 'unsupported',
       code: 'unsupported_action',
-      message: 'driverAction `pinch` is not supported',
+      message: 'driverAction `hover` is not supported',
       retryable: false,
       details: {
-        driverAction: 'pinch',
+        driverAction: 'hover',
       },
     },
   });
@@ -368,7 +470,7 @@ test('external adapter schema rejects malformed failure bodies', () => {
         ok: false,
         failure: {
           code: 'unsupported_action',
-          message: 'driverAction `pinch` is not supported',
+          message: 'driverAction `hover` is not supported',
         },
       },
     },

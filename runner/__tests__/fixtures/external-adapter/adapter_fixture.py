@@ -21,6 +21,15 @@ CAPABILITIES = [
     "stop",
     "finalize",
 ]
+DRIVER_ACTIONS = [
+    "tap",
+    "longPress",
+    "pinch",
+    "pressKey",
+    "assertVisible",
+    "customGesture",
+    "runSequence",
+]
 
 seq = 1
 state = {
@@ -137,7 +146,7 @@ def handle_hello(request):
         "acceptedProtocolVersion": "1.0",
         "platforms": ["android", "ios"],
         "capabilities": CAPABILITIES,
-        "driverActions": ["tap", "assertVisible"],
+        "driverActions": DRIVER_ACTIONS,
         "artifactOutputs": ["logs", "screenshot", "truth-events"],
         "clockDomains": ["host-monotonic", "device-log"],
     })
@@ -184,7 +193,7 @@ def handle_execute_action(request):
         return
     body = request.get("body", {})
     action = body.get("driverAction")
-    if action not in ["tap", "assertVisible"]:
+    if action not in DRIVER_ACTIONS:
         fail(
             request,
             "unsupported_action",
