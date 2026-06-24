@@ -85,6 +85,7 @@ type EvidenceRedactionPolicy = {
   status: EvidenceRedactionStatus;
 };
 type DiagnosticInventoryEntry = {
+  availability?: 'captured' | 'not-requested' | 'requested-missing' | 'required-missing';
   kind: DiagnosticKind;
   status: DiagnosticStatus;
   required: boolean;
@@ -1709,15 +1710,48 @@ function buildDiagnosticEntry(
   entry: DiagnosticInventoryEntry & { requested?: boolean },
 ): DiagnosticInventoryEntry {
   const { requested = true, ...diagnostic } = entry;
+  const availability = resolveDiagnosticAvailability({
+    required: diagnostic.required,
+    requested,
+    status: diagnostic.status,
+  });
   if (diagnostic.status === 'captured' || requested || diagnostic.required) {
-    return diagnostic;
+    return {
+      ...diagnostic,
+      availability,
+    };
   }
 
   return {
     ...diagnostic,
+    availability,
     status: 'not_requested',
     reason: diagnostic.reason ?? 'Scenario did not request this optional diagnostic surface.',
   };
+}
+
+function resolveDiagnosticAvailability({
+  required,
+  requested,
+  status,
+}: {
+  required: boolean;
+  requested: boolean;
+  status: DiagnosticStatus;
+}): NonNullable<DiagnosticInventoryEntry['availability']> {
+  if (status === 'captured') {
+    return 'captured';
+  }
+
+  if (required) {
+    return 'required-missing';
+  }
+
+  if (requested) {
+    return 'requested-missing';
+  }
+
+  return 'not-requested';
 }
 
 function resolveProviderDiagnosticProvider(
