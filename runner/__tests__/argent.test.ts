@@ -275,6 +275,36 @@ test('Argent capture executes scenario driver actions and writes artifacts', asy
         },
       },
       {
+        id: 'pinch-map',
+        kind: 'gesture',
+        driverAction: 'pinch',
+        adapterOptions: {
+          argent: {
+            angle: 15,
+            centerX: 500,
+            centerY: 400,
+            durationMs: 400,
+            endDistance: 0.6,
+            startDistance: 0.2,
+          },
+        },
+      },
+      {
+        id: 'rotate-map',
+        kind: 'gesture',
+        driverAction: 'rotateGesture',
+        adapterOptions: {
+          argent: {
+            centerX: 500,
+            centerY: 400,
+            durationMs: 500,
+            endAngle: 90,
+            radius: 0.25,
+            startAngle: 0,
+          },
+        },
+      },
+      {
         id: 'assert-ready',
         kind: 'assertUi',
         driverAction: 'assertVisible',
@@ -333,6 +363,8 @@ test('Argent capture executes scenario driver actions and writes artifacts', asy
     '--yes @swmansion/argent run launch-app --udid SIM-123 --bundleId dev.example.app',
     '--yes @swmansion/argent run gesture-tap --udid SIM-123 --x 0.5 --y 0.5',
     '--yes @swmansion/argent run gesture-custom --udid SIM-123 --events-json [{"type":"Down","x":0.25,"y":0.4},{"delayMs":450,"type":"Move","x":0.75,"y":0.8},{"type":"Up","x":0.75,"y":0.8}]',
+    '--yes @swmansion/argent run gesture-pinch --udid SIM-123 --centerX 0.5 --centerY 0.5 --startDistance 0.2 --endDistance 0.6 --angle 15 --durationMs 400',
+    '--yes @swmansion/argent run gesture-rotate --udid SIM-123 --centerX 0.5 --centerY 0.5 --radius 0.25 --startAngle 0 --endAngle 90 --durationMs 500',
     '--yes @swmansion/argent run describe --udid SIM-123 --bundleId dev.example.app',
     '--yes @swmansion/argent run screenshot --udid SIM-123 --includeImageInContext false',
   ]);
@@ -342,6 +374,8 @@ test('Argent capture executes scenario driver actions and writes artifacts', asy
   assert.equal(readJson(path.join(tempDir, 'raw', 'argent-metadata.json')).platform, 'ios');
   assert.equal(fs.existsSync(path.join(tempDir, 'raw', 'argent-launch-1.txt')), true);
   assert.equal(fs.existsSync(path.join(tempDir, 'raw', 'argent-drag-3.txt')), true);
+  assert.equal(fs.existsSync(path.join(tempDir, 'raw', 'argent-pinch-4.txt')), true);
+  assert.equal(fs.existsSync(path.join(tempDir, 'raw', 'argent-rotateGesture-5.txt')), true);
   assert.equal(fs.existsSync(path.join(tempDir, 'raw', 'final-screenshot.txt')), true);
   assert.equal(fs.existsSync(path.join(tempDir, 'captures', 'final.png')), true);
   assertAdapterArtifactConformance(result, {
@@ -660,6 +694,36 @@ test('Argent driver step expansion validates coordinate-backed metadata', () => 
         },
       },
       {
+        id: 'pinch-map',
+        kind: 'gesture',
+        driverAction: 'pinch',
+        adapterOptions: {
+          argent: {
+            angle: 15,
+            centerX: 200,
+            centerY: 300,
+            durationMs: 400,
+            endDistance: 0.6,
+            startDistance: 0.2,
+          },
+        },
+      },
+      {
+        id: 'rotate-map',
+        kind: 'gesture',
+        driverAction: 'rotateGesture',
+        adapterOptions: {
+          argent: {
+            centerX: 200,
+            centerY: 300,
+            durationMs: 500,
+            endAngle: 90,
+            radius: 0.25,
+            startAngle: 0,
+          },
+        },
+      },
+      {
         id: 'assert-title',
         kind: 'assertUi',
         driverAction: 'assertVisible',
@@ -747,8 +811,34 @@ test('Argent driver step expansion validates coordinate-backed metadata', () => 
       waitMs: 0,
     },
     {
+      angle: 15,
+      centerX: 200,
+      centerY: 300,
+      driverAction: 'pinch',
+      durationMs: 400,
+      endDistance: 0.6,
+      rawFileName: 'argent-pinch-5.txt',
+      required: true,
+      startDistance: 0.2,
+      stepId: 'pinch-map',
+      waitMs: 0,
+    },
+    {
+      centerX: 200,
+      centerY: 300,
+      driverAction: 'rotateGesture',
+      durationMs: 500,
+      endAngle: 90,
+      radius: 0.25,
+      rawFileName: 'argent-rotateGesture-6.txt',
+      required: true,
+      startAngle: 0,
+      stepId: 'rotate-map',
+      waitMs: 0,
+    },
+    {
       driverAction: 'assertVisible',
-      rawFileName: 'argent-assertVisible-5.txt',
+      rawFileName: 'argent-assertVisible-7.txt',
       required: true,
       selector: {
         kind: 'text',
@@ -762,7 +852,7 @@ test('Argent driver step expansion validates coordinate-backed metadata', () => 
       durationMs: 350,
       endX: 100,
       endY: 200,
-      rawFileName: 'argent-scroll-6.txt',
+      rawFileName: 'argent-scroll-8.txt',
       required: true,
       startX: 100,
       startY: 700,
@@ -774,7 +864,7 @@ test('Argent driver step expansion validates coordinate-backed metadata', () => 
       durationMs: 175,
       endX: 300,
       endY: 400,
-      rawFileName: 'argent-swipe-7.txt',
+      rawFileName: 'argent-swipe-9.txt',
       required: true,
       startX: 100,
       startY: 200,
@@ -792,11 +882,15 @@ test('Argent driver step expansion validates coordinate-backed metadata', () => 
     { driverAction: 'tap', rawFileName: 'tap.txt', required: true, stepId: 'tap-missing', waitMs: 0 },
     { driverAction: 'longPress', rawFileName: 'long-press.txt', required: true, stepId: 'long-press-missing', waitMs: 0 },
     { driverAction: 'drag', rawFileName: 'drag.txt', required: true, stepId: 'drag-missing', waitMs: 0 },
+    { driverAction: 'pinch', rawFileName: 'pinch.txt', required: true, stepId: 'pinch-missing', waitMs: 0 },
+    { driverAction: 'rotateGesture', rawFileName: 'rotate.txt', required: true, stepId: 'rotate-missing', waitMs: 0 },
     { driverAction: 'swipe', rawFileName: 'swipe.txt', required: true, stepId: 'swipe-missing', waitMs: 0 },
   ]), [
     'step `tap-missing` uses driverAction `tap` but is missing adapterOptions.argent.x/y.',
     'step `long-press-missing` uses driverAction `longPress` but is missing adapterOptions.argent.x/y.',
     'step `drag-missing` uses driverAction `drag` but is missing adapterOptions.argent.startX/startY/endX/endY.',
+    'step `pinch-missing` uses driverAction `pinch` but is missing adapterOptions.argent.centerX/centerY/startDistance/endDistance.',
+    'step `rotate-missing` uses driverAction `rotateGesture` but is missing adapterOptions.argent.centerX/centerY/radius/startAngle/endAngle.',
     'step `swipe-missing` uses driverAction `swipe` but is missing adapterOptions.argent.startX/startY/endX/endY.',
   ]);
 });

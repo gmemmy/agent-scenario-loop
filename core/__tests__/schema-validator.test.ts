@@ -361,7 +361,7 @@ test('rejects invalid runner driver actions', () => {
 test('accepts rich portable runner driver actions', () => {
   const runner = readJson('examples/runners/argent-ios.json');
   runner.runnerId = 'rich-gesture-runner';
-  for (const action of ['drag', 'pinch', 'rotate', 'typeText', 'fill', 'focus', 'pressKey', 'pressButton']) {
+  for (const action of ['drag', 'pinch', 'rotate', 'rotateGesture', 'typeText', 'fill', 'focus', 'pressKey', 'pressButton']) {
     if (!runner.driverActions.includes(action)) {
       runner.driverActions.push(action);
     }

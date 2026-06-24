@@ -75,6 +75,7 @@ const UI_DRIVER_ACTIONS = new Set([
   'drag',
   'pinch',
   'rotate',
+  'rotateGesture',
   'typeText',
   'focus',
   'fill',
@@ -386,6 +387,37 @@ const AGENT_DEVICE_ORIENTATION_DESCRIPTION = 'portrait, portrait-upside-down, la
  */
 function isArgentStartEndAction(driverAction: unknown): boolean {
   return driverAction === 'drag' || driverAction === 'scroll' || driverAction === 'swipe';
+}
+
+/**
+ * Returns true when Argent pinch metadata has the required gesture fields.
+ *
+ * @param {Record<string, unknown>} options
+ * @returns {boolean}
+ */
+function hasArgentPinchMetadata(options: ManifestRecord): boolean {
+  return (
+    isFiniteNumber(options.centerX) &&
+    isFiniteNumber(options.centerY) &&
+    isFiniteNumber(options.startDistance) &&
+    isFiniteNumber(options.endDistance)
+  );
+}
+
+/**
+ * Returns true when Argent rotate gesture metadata has the required fields.
+ *
+ * @param {Record<string, unknown>} options
+ * @returns {boolean}
+ */
+function hasArgentRotateGestureMetadata(options: ManifestRecord): boolean {
+  return (
+    isFiniteNumber(options.centerX) &&
+    isFiniteNumber(options.centerY) &&
+    isFiniteNumber(options.radius) &&
+    isFiniteNumber(options.startAngle) &&
+    isFiniteNumber(options.endAngle)
+  );
 }
 
 /**
@@ -1238,6 +1270,28 @@ function validateArgentAdapterOptions({
         errors,
         field: 'startX/startY/endX/endY',
         message: `Step \`${stepId}\` uses driverAction \`${String(step.driverAction)}\` but adapterOptions.argent.startX/startY/endX/endY are required.`,
+        scenario,
+        stepId,
+      });
+    }
+
+    if (step.driverAction === 'pinch' && !hasArgentPinchMetadata(argent)) {
+      pushInvalidAdapterOption({
+        adapter: 'argent',
+        errors,
+        field: 'centerX/centerY/startDistance/endDistance',
+        message: `Step \`${stepId}\` uses driverAction \`pinch\` but adapterOptions.argent.centerX/centerY/startDistance/endDistance are required.`,
+        scenario,
+        stepId,
+      });
+    }
+
+    if (step.driverAction === 'rotateGesture' && !hasArgentRotateGestureMetadata(argent)) {
+      pushInvalidAdapterOption({
+        adapter: 'argent',
+        errors,
+        field: 'centerX/centerY/radius/startAngle/endAngle',
+        message: `Step \`${stepId}\` uses driverAction \`rotateGesture\` but adapterOptions.argent.centerX/centerY/radius/startAngle/endAngle are required.`,
         scenario,
         stepId,
       });
