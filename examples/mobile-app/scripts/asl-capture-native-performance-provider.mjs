@@ -113,18 +113,50 @@ function buildAndroidFixtureText() {
 }
 
 /**
- * Builds deterministic iOS scaffold evidence for package rehearsal.
+ * Builds deterministic iOS native diagnostic summaries for package rehearsal.
+ *
+ * @returns {{metricKitSummary: Record<string, number | string>, xctraceSummary: Record<string, number | string>}}
+ */
+function buildIosFixtureSummaries() {
+  return {
+    metricKitSummary: {
+      batteryImpact: 1,
+      hitchCount: 2,
+      jankyFrameCount: 4,
+      p95FrameMs: 24,
+      physicalFootprintBytes: 92000000,
+      thermalState: 'nominal',
+    },
+    xctraceSummary: {
+      cpuMs: 180,
+      durationMs: 12000,
+      mainThreadCpuMs: 110,
+      threadSchedulingDelayMs: 8,
+      traceId: 'example-ios-native-trace',
+      windowEndMs: 12000,
+      windowStartMs: 0,
+    },
+  };
+}
+
+/**
+ * Builds deterministic iOS native-performance evidence for package rehearsal.
  *
  * @param {{runId: string, scenarioId: string}} options
  * @returns {Record<string, unknown>}
  */
 function buildIosScaffoldEvidence({ runId, scenarioId }) {
-  // Intentionally pass no summaries: list source lanes, but keep top-level dataClasses unknown until real counters exist.
+  const { metricKitSummary, xctraceSummary } = buildIosFixtureSummaries();
   return buildIosNativePerformanceEvidence({
+    appId: 'dev.agentscenarioloop.example',
+    bundleId: 'dev.agentscenarioloop.example',
     capturedAt: new Date(0).toISOString(),
+    deviceId: 'example-simulator',
+    metricKitSummary,
     providerId: PROVIDER_ID,
     scenarioId,
     runId,
+    xctraceSummary,
   });
 }
 
