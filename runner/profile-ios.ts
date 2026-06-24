@@ -744,19 +744,41 @@ function summarizeFailedIosChecks(health: Record<string, unknown>): string {
  * @param {Record<string, unknown>} health
  * @returns {string}
  */
+function formatFailedAgentDeviceCheck(check: Record<string, unknown>): string {
+  if (typeof check.message === 'string') {
+    return check.message;
+  }
+  if (typeof check.code === 'string') {
+    return check.code;
+  }
+  return 'unknown failure';
+}
+
 function summarizeFailedAgentDeviceChecks(health: Record<string, unknown>): string {
   const checks = Array.isArray(health.checks) ? health.checks : [];
   const failedChecks = checks
     .filter((check: Record<string, unknown>) => check?.status === 'failed')
-    .map((check: Record<string, unknown>) => (
-      typeof check.message === 'string'
-        ? check.message
-        : typeof check.code === 'string'
-          ? check.code
-          : 'unknown failure'
-    ));
+    .map((check: Record<string, unknown>) => formatFailedAgentDeviceCheck(check));
 
   return failedChecks.length > 0 ? ` Failed checks: ${failedChecks.join(' ')}` : '';
+}
+
+function buildCaptureAppendArgs(captureArg: import('./profile-mobile').CliArgs['capture']): import('./profile-mobile').CliArgs {
+  const captureArgs: import('./profile-mobile').CliArgs = {};
+  if (captureArg !== undefined) {
+    captureArgs.capture = captureArg;
+  }
+  return captureArgs;
+}
+
+function assignCaptureArg(
+  args: import('./profile-mobile').CliArgs,
+  captureArg: import('./profile-mobile').CliArgs['capture'],
+): import('./profile-mobile').CliArgs {
+  if (captureArg === undefined) {
+    return args;
+  }
+  return { ...args, capture: captureArg };
 }
 
 /**
@@ -775,12 +797,12 @@ function appendAgentDeviceCaptureArgs({
   let captureArg = args.capture;
   for (const screenshot of capture.captures.screenshots) {
     captureArg = appendCaptureArg({
-      args: captureArg === undefined ? {} : { capture: captureArg },
+      args: buildCaptureAppendArgs(captureArg),
       value: `screenshot:${path.join(capture.runDir, screenshot)}`,
     });
   }
 
-  return captureArg === undefined ? args : { ...args, capture: captureArg };
+  return assignCaptureArg(args, captureArg);
 }
 
 /**
@@ -1006,13 +1028,13 @@ async function runProfileIos(
     ...args,
     'run-id': runId,
     ...(simctlCapture ? { 'simctl-artifacts': simctlCapture.runDir } : {}),
-    ...(simctlCapture?.captures.screenshot
-      ? { capture: appendCaptureArg({
-          args,
-          value: `screenshot:${path.join(simctlCapture.runDir, simctlCapture.captures.screenshot)}`,
-        }) }
-      : {}),
   };
+  if (simctlCapture?.captures.screenshot) {
+    baseProfileArgs.capture = appendCaptureArg({
+      args,
+      value: `screenshot:${path.join(simctlCapture.runDir, simctlCapture.captures.screenshot)}`,
+    });
+  }
   if (simctlCapture) {
     delete baseProfileArgs.events;
   }
