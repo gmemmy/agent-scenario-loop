@@ -310,6 +310,7 @@ test('accepts rich portable scenario driver actions', () => {
     { id: 'long-press-link', kind: 'gesture', driverAction: 'longPress' },
     { id: 'pinch-map', kind: 'gesture', driverAction: 'pinch' },
     { id: 'type-search', kind: 'gesture', driverAction: 'typeText' },
+    { id: 'fill-search', kind: 'gesture', driverAction: 'fill' },
     { id: 'press-enter', kind: 'gesture', driverAction: 'pressKey' },
     { id: 'custom-two-finger', kind: 'gesture', driverAction: 'customGesture' },
     { id: 'bounded-sequence', kind: 'gesture', driverAction: 'runSequence' },
@@ -360,7 +361,7 @@ test('rejects invalid runner driver actions', () => {
 test('accepts rich portable runner driver actions', () => {
   const runner = readJson('examples/runners/argent-ios.json');
   runner.runnerId = 'rich-gesture-runner';
-  runner.driverActions.push('drag', 'pinch', 'rotate', 'typeText', 'focus', 'pressButton');
+  runner.driverActions.push('drag', 'pinch', 'rotate', 'typeText', 'fill', 'focus', 'pressButton');
 
   const result = validateJson(runner, SCHEMAS.runnerCapabilities, 'Runner capability manifest');
 

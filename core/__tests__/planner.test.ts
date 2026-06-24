@@ -631,7 +631,7 @@ test('agent-device runner target rejects pressButton steps without an executable
   );
 });
 
-test('agent-device runner target accepts tap, longPress, focus, pinch, rotate, pressButton, typeText, and swipe metadata', () => {
+test('agent-device runner target accepts tap, longPress, focus, pinch, rotate, pressButton, fill, typeText, and swipe metadata', () => {
   const scenario = readJson('examples/scenarios/mobile/app-startup.json');
   const runner = readJson('examples/runners/agent-device-ios.json');
   scenario.steps.push(
@@ -710,6 +710,20 @@ test('agent-device runner target accepts tap, longPress, focus, pinch, rotate, p
       },
     },
     {
+      id: 'fill-search',
+      kind: 'gesture',
+      driverAction: 'fill',
+      selector: {
+        kind: 'accessibilityLabel',
+        value: 'Search',
+      },
+      adapterOptions: {
+        agentDevice: {
+          text: 'search term',
+        },
+      },
+    },
+    {
       id: 'swipe-card',
       kind: 'gesture',
       driverAction: 'swipe',
@@ -764,6 +778,49 @@ test('agent-device runner target rejects rotate without orientation', () => {
         stepId: error.stepId,
       })),
     [{ adapter: 'agentDevice', field: 'orientation', stepId: 'rotate-device' }],
+  );
+});
+
+test('agent-device runner target rejects fill without target or text', () => {
+  const scenario = readJson('examples/scenarios/mobile/app-startup.json');
+  const runner = readJson('examples/runners/agent-device-ios.json');
+  scenario.steps.push(
+    {
+      id: 'fill-missing-target',
+      kind: 'gesture',
+      driverAction: 'fill',
+      adapterOptions: {
+        agentDevice: {
+          text: 'search term',
+        },
+      },
+    },
+    {
+      id: 'fill-missing-text',
+      kind: 'gesture',
+      driverAction: 'fill',
+      selector: {
+        kind: 'accessibilityLabel',
+        value: 'Search',
+      },
+    },
+  );
+
+  const result = evaluateRunnerCompatibility({ scenario, runner, platform: 'ios' });
+
+  assert.equal(result.compatible, false);
+  assert.deepEqual(
+    result.errors
+      .filter((error: PlannerIssue) => error.code === 'invalid_adapter_options')
+      .map((error: PlannerIssue) => ({
+        adapter: error.adapter,
+        field: error.field,
+        stepId: error.stepId,
+      })),
+    [
+      { adapter: 'agentDevice', field: 'selector/ref/x/y', stepId: 'fill-missing-target' },
+      { adapter: 'agentDevice', field: 'text', stepId: 'fill-missing-text' },
+    ],
   );
 });
 

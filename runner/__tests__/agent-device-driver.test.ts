@@ -102,6 +102,9 @@ test('agent-device driver maps portable driver actions', async () => {
     'longpress label="Actions" 700 --platform ios --udid BOOTED --json': {
       stdout: '{"success":true}\n',
     },
+    'fill label="Search" hello --delay-ms 25 --platform ios --udid BOOTED --json': {
+      stdout: '{"success":true}\n',
+    },
     'pinch 1.2 120 240 --platform ios --udid BOOTED --json': {
       stdout: '{"success":true}\n',
     },
@@ -149,6 +152,7 @@ test('agent-device driver maps portable driver actions', async () => {
   const tapSelector = await driver.tap({ selector: { kind: 'accessibilityLabel', value: 'Open' } });
   const tapCoordinates = await driver.tap({ x: 10, y: 20 });
   const longPress = await driver.longPress({ durationMs: 700, selector: { kind: 'accessibilityLabel', value: 'Actions' } });
+  const fill = await driver.fill({ delayMs: 25, selector: { kind: 'accessibilityLabel', value: 'Search' }, text: 'hello' });
   const pinch = await driver.pinch({ scale: 1.2, x: 120, y: 240 });
   const focus = await driver.focus({ x: 120, y: 240 });
   const pressButton = await driver.pressButton({ selector: { kind: 'accessibilityLabel', value: 'Submit' } });
@@ -166,6 +170,8 @@ test('agent-device driver maps portable driver actions', async () => {
   assert.equal(tapCoordinates.action, 'tap');
   assert.equal(longPress.action, 'longPress');
   assert.equal(longPress.rawFileName, 'agent-device-long-press.txt');
+  assert.equal(fill.action, 'fill');
+  assert.equal(fill.rawFileName, 'agent-device-fill.txt');
   assert.equal(pinch.action, 'pinch');
   assert.equal(pinch.rawFileName, 'agent-device-pinch.txt');
   assert.equal(focus.action, 'focus');

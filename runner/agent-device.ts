@@ -98,7 +98,7 @@ type AgentDeviceDriverStep = {
   captureFileName?: string;
   delayMs?: number;
   direction?: string;
-  driverAction: 'assertVisible' | 'focus' | 'inspectTree' | 'longPress' | 'pinch' | 'pressButton' | 'readLogs' | 'rotate' | 'screenshot' | 'scroll' | 'swipe' | 'tap' | 'typeText';
+  driverAction: 'assertVisible' | 'fill' | 'focus' | 'inspectTree' | 'longPress' | 'pinch' | 'pressButton' | 'readLogs' | 'rotate' | 'screenshot' | 'scroll' | 'swipe' | 'tap' | 'typeText';
   durationMs?: number;
   endX?: number;
   endY?: number;
@@ -174,6 +174,7 @@ const DEFAULT_AGENT_DEVICE_REQUIRED_COMMANDS = [
   'screenshot',
   'is',
   'click',
+  'fill',
   'focus',
   'longpress',
   'press',
@@ -1183,7 +1184,7 @@ function resolveAgentDeviceDriverSteps(scenario: Record<string, any>): AgentDevi
   const executionPlan = buildScenarioExecutionPlan(scenario);
   return executionPlan.steps
     .filter((step: ScenarioExecutionStep) =>
-      ['assertVisible', 'focus', 'inspectTree', 'longPress', 'pinch', 'pressButton', 'readLogs', 'rotate', 'screenshot', 'scroll', 'swipe', 'tap', 'typeText'].includes(String(step.driverAction)),
+      ['assertVisible', 'fill', 'focus', 'inspectTree', 'longPress', 'pinch', 'pressButton', 'readLogs', 'rotate', 'screenshot', 'scroll', 'swipe', 'tap', 'typeText'].includes(String(step.driverAction)),
     )
     .map((step: ScenarioExecutionStep, index: number) => {
       const agentDeviceOptions = readAgentDeviceStepOptions(step);
@@ -1245,7 +1246,7 @@ function validateAgentDeviceDriverSteps(driverSteps: AgentDeviceDriverStep[]): s
   for (const step of driverSteps) {
     const stepLabel = step.stepId ? `step \`${step.stepId}\`` : 'unnamed step';
     if (
-      (step.driverAction === 'tap' || step.driverAction === 'longPress' || step.driverAction === 'pressButton') &&
+      (step.driverAction === 'tap' || step.driverAction === 'fill' || step.driverAction === 'longPress' || step.driverAction === 'pressButton') &&
       !step.selector &&
       !step.ref &&
       (typeof step.x !== 'number' || typeof step.y !== 'number')
@@ -1255,8 +1256,8 @@ function validateAgentDeviceDriverSteps(driverSteps: AgentDeviceDriverStep[]): s
     if (step.driverAction === 'assertVisible' && !step.selector) {
       errors.push(`${stepLabel} uses driverAction \`assertVisible\` but is missing a portable selector.`);
     }
-    if (step.driverAction === 'typeText' && (typeof step.text !== 'string' || step.text.length === 0)) {
-      errors.push(`${stepLabel} uses driverAction \`typeText\` but is missing adapterOptions.agentDevice.text.`);
+    if ((step.driverAction === 'typeText' || step.driverAction === 'fill') && (typeof step.text !== 'string' || step.text.length === 0)) {
+      errors.push(`${stepLabel} uses driverAction \`${step.driverAction}\` but is missing adapterOptions.agentDevice.text.`);
     }
     if (step.driverAction === 'focus' && (typeof step.x !== 'number' || typeof step.y !== 'number')) {
       errors.push(`${stepLabel} uses driverAction \`focus\` but is missing adapterOptions.agentDevice.x/y.`);
@@ -1365,6 +1366,17 @@ async function runAgentDeviceDriverStep({
       ...(driverStep.rawFileName ? { rawFileName: driverStep.rawFileName } : {}),
       ...(driverStep.ref ? { ref: driverStep.ref } : {}),
       ...(driverStep.selector ? { selector: driverStep.selector } : {}),
+      ...(typeof driverStep.x === 'number' ? { x: driverStep.x } : {}),
+      ...(typeof driverStep.y === 'number' ? { y: driverStep.y } : {}),
+    });
+  }
+  if (driverStep.driverAction === 'fill') {
+    return driver.fill({
+      ...(typeof driverStep.delayMs === 'number' ? { delayMs: driverStep.delayMs } : {}),
+      ...(driverStep.rawFileName ? { rawFileName: driverStep.rawFileName } : {}),
+      ...(driverStep.ref ? { ref: driverStep.ref } : {}),
+      ...(driverStep.selector ? { selector: driverStep.selector } : {}),
+      text: driverStep.text as string,
       ...(typeof driverStep.x === 'number' ? { x: driverStep.x } : {}),
       ...(typeof driverStep.y === 'number' ? { y: driverStep.y } : {}),
     });

@@ -381,6 +381,7 @@
         "rotate",
         "typeText",
         "focus",
+        "fill",
         "pressKey",
         "pressButton",
         "assertVisible",
