@@ -79,12 +79,17 @@ type DiagnosticKind = EvidenceKind | 'logs';
 type EvidenceRedactionStatus = 'not-redacted' | 'redacted' | 'unknown';
 type EvidenceRedactionAuthority = 'asl-default' | 'operator-declared' | 'provider-declared';
 type EvidenceSensitivity = 'declared-non-sensitive' | 'may-contain-sensitive-data' | 'unknown';
+const EVIDENCE_REDACTION_STATUSES = new Set<string>(['not-redacted', 'redacted', 'unknown']);
 type EvidenceRedactionPolicy = {
   authority: EvidenceRedactionAuthority;
   reason: string;
   sensitivity: EvidenceSensitivity;
   status: EvidenceRedactionStatus;
 };
+
+function isEvidenceRedactionStatus(value: string): value is EvidenceRedactionStatus {
+  return EVIDENCE_REDACTION_STATUSES.has(value);
+}
 type DiagnosticInventoryEntry = {
   availability?: 'captured' | 'not-requested' | 'requested-missing' | 'required-missing';
   kind: DiagnosticKind;
@@ -378,8 +383,8 @@ function usage({
     `Reads scenario metadata plus profile-event evidence and writes the artifact layout for one ${platform} profile run.`,
     'Use --comparison-lane <id> to keep latest-trusted baselines inside a stable proof lane.',
     'Use repeated --provider <manifest> to execute declared evidence-provider commands before artifact writing.',
-    'Use repeated --signal <js|memory|network>:<path> to attach provider signal artifacts.',
-    'Use repeated --capture <screenshot|video|uiTree>:<path> to attach named capture artifacts.',
+    'Use repeated --signal <js|memory|network>[@redacted|@not-redacted|@unknown]:<path> to attach signal artifacts.',
+    'Use repeated --capture <screenshot|video|uiTree>[@redacted|@not-redacted|@unknown]:<path> to attach named capture artifacts.',
   ];
   if (platform === 'android') {
     lines.push('Use --adb-artifacts <dir> to read raw/adb-logcat.txt from a prior asl-android-adb capture.');
@@ -501,10 +506,10 @@ function isEnabled(value: CliArgValue | undefined): boolean {
 }
 
 /**
- * Parses a `kind:path` evidence attachment value.
+ * Parses a `kind[@redactionStatus]:path` evidence attachment value.
  *
  * @param {{argName: string, allowedKinds: Set<string>, value: string}} options
- * @returns {{kind: string, sourcePath: string}}
+ * @returns {{kind: string, redactionAuthority?: EvidenceRedactionAuthority, redactionStatus?: EvidenceRedactionStatus, sourcePath: string}}
  */
 function parseEvidenceArg({
   allowedKinds,
@@ -514,19 +519,33 @@ function parseEvidenceArg({
   allowedKinds: Set<string>;
   argName: string;
   value: string;
-}): { kind: string; sourcePath: string } {
+}): {
+  kind: string;
+  redactionAuthority?: EvidenceRedactionAuthority;
+  redactionStatus?: EvidenceRedactionStatus;
+  sourcePath: string;
+} {
   const separatorIndex = value.indexOf(':');
   if (separatorIndex <= 0 || separatorIndex === value.length - 1) {
-    throw new Error(`--${argName} must use <kind>:<path>.`);
+    throw new Error(`--${argName} must use <kind>[@redacted|@not-redacted|@unknown]:<path>.`);
   }
 
-  const kind = value.slice(0, separatorIndex);
+  const kindSegment = value.slice(0, separatorIndex);
+  const redactionSeparatorIndex = kindSegment.indexOf('@');
+  const kind = redactionSeparatorIndex === -1 ? kindSegment : kindSegment.slice(0, redactionSeparatorIndex);
+  const redactionStatus = redactionSeparatorIndex === -1 ? undefined : kindSegment.slice(redactionSeparatorIndex + 1);
   if (!allowedKinds.has(kind)) {
     throw new Error(`Unsupported --${argName} kind "${kind}".`);
+  }
+  if (redactionStatus !== undefined && !isEvidenceRedactionStatus(redactionStatus)) {
+    throw new Error(
+      `Unsupported --${argName} redaction status "${redactionStatus}". Use redacted, not-redacted, or unknown.`,
+    );
   }
 
   return {
     kind,
+    ...(redactionStatus !== undefined ? { redactionAuthority: 'operator-declared', redactionStatus } : {}),
     sourcePath: path.resolve(value.slice(separatorIndex + 1)),
   };
 }
@@ -1287,7 +1306,12 @@ async function resolveAttachedEvidence({
       allowedKinds: SIGNAL_EVIDENCE_KINDS,
       argName: 'signal',
       value,
-    }) as { kind: SignalEvidenceKind; sourcePath: string };
+    }) as {
+      kind: SignalEvidenceKind;
+      redactionAuthority?: EvidenceRedactionAuthority;
+      redactionStatus?: EvidenceRedactionStatus;
+      sourcePath: string;
+    };
     const fileName = path.basename(parsed.sourcePath);
     const manifestPath = `signals/${parsed.kind}/${fileName}`;
     await addAttachmentInput({
@@ -1295,6 +1319,8 @@ async function resolveAttachedEvidence({
       destinationPath: path.join(layout.signals[parsed.kind], fileName),
       kind: parsed.kind,
       manifestPath,
+      ...(parsed.redactionAuthority ? { redactionAuthority: parsed.redactionAuthority } : {}),
+      ...(parsed.redactionStatus ? { redactionStatus: parsed.redactionStatus } : {}),
       sourcePath: parsed.sourcePath,
     });
   }
@@ -1304,7 +1330,12 @@ async function resolveAttachedEvidence({
       allowedKinds: CAPTURE_EVIDENCE_KINDS,
       argName: 'capture',
       value,
-    }) as { kind: CaptureEvidenceKind; sourcePath: string };
+    }) as {
+      kind: CaptureEvidenceKind;
+      redactionAuthority?: EvidenceRedactionAuthority;
+      redactionStatus?: EvidenceRedactionStatus;
+      sourcePath: string;
+    };
     const fileName = path.basename(parsed.sourcePath);
     const manifestPath = `captures/${fileName}`;
     if (parsed.kind === 'screenshot') {
@@ -1313,6 +1344,8 @@ async function resolveAttachedEvidence({
         destinationPath: path.join(layout.captures, fileName),
         kind: parsed.kind,
         manifestPath,
+        ...(parsed.redactionAuthority ? { redactionAuthority: parsed.redactionAuthority } : {}),
+        ...(parsed.redactionStatus ? { redactionStatus: parsed.redactionStatus } : {}),
         sourcePath: parsed.sourcePath,
       });
       continue;
@@ -1327,6 +1360,8 @@ async function resolveAttachedEvidence({
       destinationPath: path.join(layout.captures, fileName),
       kind: parsed.kind,
       manifestPath,
+      ...(parsed.redactionAuthority ? { redactionAuthority: parsed.redactionAuthority } : {}),
+      ...(parsed.redactionStatus ? { redactionStatus: parsed.redactionStatus } : {}),
       sourcePath: parsed.sourcePath,
     });
   }
