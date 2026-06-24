@@ -215,6 +215,10 @@ problem-first:
 
 - Use Conventional Commits for ASL commits.
 - Keep changes scoped to the owning contract, runner, schema, doc, or example.
+- Treat pull request descriptions and comments as public package communication:
+  summarize package behavior, contract impact, and validation commands only.
+  Do not include local worker commands, host paths, temporary tarball paths,
+  sandbox/escalation details, consuming-app setup, or adopter-specific notes.
 - Do not publish, tag, or push release artifacts from local confidence alone.
 - Do not revert or overwrite unrelated dirty work. At the time this guidance was
   added, unrelated edits may exist in this repo; inspect before editing shared
