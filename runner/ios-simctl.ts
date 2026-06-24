@@ -1637,22 +1637,24 @@ async function runIosSimctlCapture(options: IosSimctlCaptureOptions = {}): Promi
           && (entry as { exitCode?: unknown }).exitCode === 0
       ));
       const launchEnvironmentCleanEnough = launchEnvironment.clean || !launchEnvironmentNeedsCleanState;
+      let launchEnvironmentStatus: 'failed' | 'passed' | 'warning' = 'warning';
+      let launchEnvironmentCode = 'ios_simulator_launch_environment_unavailable';
+      let launchEnvironmentMessage = 'Could not inspect simulator launch environment.';
+      if (launchEnvironmentProbeAvailable && launchEnvironmentCleanEnough) {
+        launchEnvironmentStatus = 'passed';
+        launchEnvironmentCode = 'ios_simulator_launch_environment_clean';
+        launchEnvironmentMessage = 'Simulator launch environment has no known hidden runner injection for this capture mode.';
+      } else if (launchEnvironmentProbeAvailable) {
+        launchEnvironmentStatus = 'failed';
+        launchEnvironmentCode = 'ios_simulator_launch_environment_contaminated';
+        launchEnvironmentMessage = 'Simulator launch environment contains hidden runner injection that can contaminate simctl proof.';
+      }
       checks.push({
         name: 'ios_simulator_launch_environment_clean',
-        status: launchEnvironmentProbeAvailable
-          ? launchEnvironmentCleanEnough ? 'passed' : 'failed'
-          : 'warning',
+        status: launchEnvironmentStatus,
         source: 'runner',
-        code: launchEnvironmentProbeAvailable
-          ? launchEnvironmentCleanEnough
-            ? 'ios_simulator_launch_environment_clean'
-            : 'ios_simulator_launch_environment_contaminated'
-          : 'ios_simulator_launch_environment_unavailable',
-        message: launchEnvironmentProbeAvailable
-          ? launchEnvironmentCleanEnough
-            ? 'Simulator launch environment has no known hidden runner injection for this capture mode.'
-            : 'Simulator launch environment contains hidden runner injection that can contaminate simctl proof.'
-          : 'Could not inspect simulator launch environment.',
+        code: launchEnvironmentCode,
+        message: launchEnvironmentMessage,
         ...(launchEnvironmentProbeAvailable && !launchEnvironmentCleanEnough
           ? {
               metadata: nextActionHint(
