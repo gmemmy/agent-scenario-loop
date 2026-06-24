@@ -2130,10 +2130,13 @@ function buildPartialProviderEvidenceHealthChecks(
     return [];
   }
 
+  const failedProviderIds = new Set(
+    failures.map((failure) => failure.providerId).filter((providerId) => providerId.length > 0),
+  );
   const capturedProviderDiagnostics = diagnostics.filter((diagnostic) => (
     diagnostic.status === 'captured' &&
     typeof diagnostic.provider === 'string' &&
-    diagnostic.provider.length > 0
+    failedProviderIds.has(diagnostic.provider)
   ));
   if (capturedProviderDiagnostics.length === 0) {
     return [];
@@ -2146,6 +2149,7 @@ function buildPartialProviderEvidenceHealthChecks(
       .filter((diagnostic) => diagnostic.required && diagnostic.status !== 'captured')
       .map((diagnostic) => diagnostic.kind),
   );
+  const claimSufficiency = failedRequiredKinds.length > 0 ? 'insufficient-for-claim' : 'sufficient-for-diagnosis';
   return [
     {
       name: 'partial_provider_evidence_preserved',
@@ -2156,6 +2160,9 @@ function buildPartialProviderEvidenceHealthChecks(
       metadata: {
         capturedKinds: capturedKinds.join(','),
         capturedPaths: capturedPaths.join(','),
+        claimSufficiency,
+        diagnosticOnlyKinds: capturedKinds.join(','),
+        ...(failedRequiredKinds.length > 0 ? { blockingRequiredKinds: failedRequiredKinds.join(',') } : {}),
         ...(failedRequiredKinds.length > 0 ? { failedRequiredKinds: failedRequiredKinds.join(',') } : {}),
         nextAction: 'Use preserved diagnostics for investigation only; rerun or fix missing required provider outputs before making product claims.',
         nextActionCode: 'use_partial_provider_evidence_for_diagnosis',

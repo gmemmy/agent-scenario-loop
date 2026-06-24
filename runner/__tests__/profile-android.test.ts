@@ -344,6 +344,191 @@ test('profile-android treats optional diagnostic capabilities as requested inven
   assert.match(videoDiagnostic.nextAction, /capture provider/u);
 });
 
+test('profile-android classifies preserved native provider evidence as diagnostic-only when accessibility fails', async (t: TestContext) => {
+  const artifactRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-android-provider-partial-'));
+  const providerRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-android-provider-partial-'));
+  t.after(async () => {
+    await fsp.rm(artifactRoot, { recursive: true, force: true });
+    await fsp.rm(providerRoot, { recursive: true, force: true });
+  });
+
+  const providerScript = path.join(providerRoot, 'partial-provider.js');
+  await fsp.writeFile(
+    providerScript,
+    [
+      "const fs = require('node:fs');",
+      "const path = require('node:path');",
+      "const nativePerformancePath = process.argv[2];",
+      "const profilerPath = process.argv[3];",
+      'fs.mkdirSync(path.dirname(nativePerformancePath), { recursive: true });',
+      'fs.mkdirSync(path.dirname(profilerPath), { recursive: true });',
+      "fs.writeFileSync(nativePerformancePath, JSON.stringify({",
+      "  schemaVersion: '1.0.0',",
+      "  providerId: 'partial-android-native-provider',",
+      "  platform: 'android',",
+      "  runId: 'android-example-startup',",
+      "  scenarioId: 'app-startup',",
+      "  tool: { name: 'adb', command: 'dumpsys gfxinfo' },",
+      "  captureMode: 'afterCapture',",
+      "  evidenceKind: 'mixed',",
+      "  dataClasses: ['frames', 'memory'],",
+      "  completenessStatus: 'partial',",
+      "  targetBinding: { status: 'verified', deviceId: 'emulator-5554', appId: 'dev.agent-scenario-loop.example' },",
+      "  comparability: { status: 'diagnostic-only', reason: 'Provider command failed after preserving Android native evidence.' },",
+      "  claimSufficiency: {",
+      "    status: 'insufficient-for-claim',",
+      "    claim: 'android-native-performance',",
+      "    reason: 'Accessibility evidence failed, so native diagnostics remain diagnosis-only.',",
+      "    supportingEvidence: ['frames', 'memory'],",
+      "    missingEvidence: ['accessibility'],",
+      "    nextAction: 'Fix missing provider surfaces before making a release claim.'",
+      "  },",
+      "  frames: { total: 7574, droppedFramePercent: 10.6 },",
+      "  memory: { totalPssKb: 1264994 },",
+      "  summary: 'Captured partial Android native diagnostics.'",
+      "}) + '\\n');",
+      "fs.writeFileSync(profilerPath, JSON.stringify({",
+      "  schemaVersion: '1.0.0',",
+      "  providerId: 'partial-android-native-provider',",
+      "  platform: 'android',",
+      "  runId: 'android-example-startup',",
+      "  scenarioId: 'app-startup',",
+      "  tool: { name: 'agent-device perf' },",
+      "  captureMode: 'afterCapture',",
+      "  profileKind: 'diagnostic-summary',",
+      "  dataClasses: ['frames', 'memory'],",
+      "  completenessStatus: 'partial',",
+      "  comparability: { status: 'diagnostic-only', reason: 'Provider command failed after profiler capture.' },",
+      "  metrics: { droppedFramePercent: 10.6, totalPssKb: 1264994 },",
+      "  summary: 'Captured profiler diagnostics before accessibility failed.'",
+      "}) + '\\n');",
+      "process.stderr.write('ui hierarchy dump timed out waiting for idle\\n');",
+      'process.exit(7);',
+    ].join('\n'),
+    'utf8',
+  );
+
+  const providerManifestPath = path.join(providerRoot, 'provider.json');
+  await fsp.writeFile(
+    providerManifestPath,
+    `${JSON.stringify({
+      schemaVersion: '1.0.0',
+      runnerId: 'partial-android-native-provider',
+      kind: 'evidenceProvider',
+      platforms: ['android'],
+      capabilities: ['accessibility', 'nativePerformance', 'profiler'],
+      artifactOutputs: ['accessibility', 'nativePerformance', 'profiler'],
+      lifecycle: ['capture'],
+      providerCommands: [
+        {
+          id: 'capture-native-before-accessibility-timeout',
+          phase: 'capture',
+          command: process.execPath,
+          args: [
+            providerScript,
+            '{providerDir}/native-performance.json',
+            '{providerDir}/profiler.json',
+          ],
+          outputs: [
+            {
+              channel: 'provider',
+              kind: 'nativePerformance',
+              path: '{providerDir}/native-performance.json',
+              required: true,
+            },
+            {
+              channel: 'provider',
+              kind: 'profiler',
+              path: '{providerDir}/profiler.json',
+              required: true,
+            },
+            {
+              channel: 'provider',
+              kind: 'accessibility',
+              path: '{providerDir}/accessibility.json',
+              required: true,
+            },
+          ],
+        },
+      ],
+    }, null, 2)}\n`,
+    'utf8',
+  );
+
+  const { stdout } = await execFileAsync(process.execPath, [
+    PROFILE_ANDROID,
+    '--config',
+    fixturePath('examples/mobile-app/asl.config.json'),
+    '--scenario',
+    fixturePath('examples/mobile-app/scenarios/android/app-startup.json'),
+    '--events',
+    fixturePath('examples/mobile-app/event-logs/android-app-startup.log'),
+    '--provider',
+    providerManifestPath,
+    '--out',
+    artifactRoot,
+    '--run-id',
+    'android-example-startup',
+  ]);
+
+  const runDir = stdout.trim();
+  const manifest = readJson(path.join(runDir, 'manifest.json')) as Record<string, any>;
+  const metrics = readJson(path.join(runDir, 'metrics.json')) as Record<string, any>;
+  const health = readJson(path.join(runDir, 'health.json')) as Record<string, any>;
+  const verdict = readJson(path.join(runDir, 'verdict.json')) as Record<string, any>;
+  const agentSummary = fs.readFileSync(path.join(runDir, 'agent-summary.md'), 'utf8');
+  const profileSummary = fs.readFileSync(path.join(runDir, 'summary.md'), 'utf8');
+  const commandRecord = readJson(
+    path.join(runDir, 'raw', 'provider-commands', 'partial-android-native-provider-capture-native-before-accessibility-timeout.json'),
+  );
+  const diagnostics = (manifest.artifacts as { diagnostics: Array<Record<string, unknown>> }).diagnostics;
+  const attachments = (manifest.artifacts as { evidenceAttachments: Array<Record<string, unknown>> }).evidenceAttachments;
+  const nativePerformanceDiagnostic = diagnostics.find((entry) => entry.kind === 'nativePerformance');
+  const profilerDiagnostic = diagnostics.find((entry) => entry.kind === 'profiler');
+  const accessibilityDiagnostic = diagnostics.find((entry) => entry.kind === 'accessibility');
+  const partialEvidenceCheck = (health.checks as Array<Record<string, any>>).find(
+    (check) => check.code === 'partial_provider_evidence_preserved',
+  );
+
+  assert.equal(fs.existsSync(path.join(runDir, 'raw', 'providers', 'partial-android-native-provider', 'native-performance.json')), true);
+  assert.equal(fs.existsSync(path.join(runDir, 'raw', 'providers', 'partial-android-native-provider', 'profiler.json')), true);
+  assert.equal(metrics.status, 'passed');
+  assert.equal(health.healthStatus, 'failed');
+  assert.equal(verdict.verdictStatus, 'inconclusive');
+  assert.equal(commandRecord.exitCode, 7);
+  assert.equal(nativePerformanceDiagnostic?.status, 'captured');
+  assert.equal(nativePerformanceDiagnostic?.required, true);
+  assert.equal(profilerDiagnostic?.status, 'captured');
+  assert.equal(profilerDiagnostic?.required, true);
+  assert.equal(accessibilityDiagnostic?.status, 'failed');
+  assert.equal(accessibilityDiagnostic?.required, true);
+  assert.deepEqual(attachments.map((attachment) => attachment.kind).sort(), ['nativePerformance', 'profiler']);
+  assert.ok(
+    (health.checks as Array<{ code: string; metadata?: { providerId?: string } }>).some(
+      (check) => check.code === 'provider_command_failed' && check.metadata?.providerId === 'partial-android-native-provider',
+    ),
+  );
+  assert.equal(partialEvidenceCheck?.metadata?.claimSufficiency, 'insufficient-for-claim');
+  assert.deepEqual(partialEvidenceCheck?.metadata?.capturedKinds.split(',').sort(), ['nativePerformance', 'profiler']);
+  assert.deepEqual(partialEvidenceCheck?.metadata?.failedRequiredKinds.split(','), ['accessibility']);
+  assert.deepEqual(partialEvidenceCheck?.metadata?.diagnosticOnlyKinds.split(',').sort(), ['nativePerformance', 'profiler']);
+  assert.deepEqual(partialEvidenceCheck?.metadata?.blockingRequiredKinds.split(','), ['accessibility']);
+  assert.equal(partialEvidenceCheck?.metadata?.nextActionCode, 'use_partial_provider_evidence_for_diagnosis');
+  assert.ok(
+    (health.checks as Array<{ code: string; metadata?: { kind?: string } }>).some(
+      (check) => check.code === 'required_diagnostic_not_captured' && check.metadata?.kind === 'accessibility',
+    ),
+  );
+  assert.match(profileSummary, /^- Status: failed/m);
+  assert.match(profileSummary, /^- Health: failed/m);
+  assert.match(profileSummary, /^- Verdict: inconclusive/m);
+  assert.match(agentSummary, /Do not optimize from this run/u);
+  assert.match(agentSummary, /Owner: `provider_tooling`/u);
+  assert.match(agentSummary, /Captured .*`nativePerformance`.*`profiler`/u);
+  assert.match(agentSummary, /Missing required `accessibility`/u);
+  assert.match(agentSummary, /Claim sufficiency: `insufficient-for-claim`/u);
+});
+
 test('profile-android profiles public scenario ids and milestone budgets', async (t: TestContext) => {
   const tempRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-android-public-scenario-'));
   t.after(async () => {
