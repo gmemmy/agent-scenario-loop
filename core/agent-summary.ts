@@ -280,6 +280,27 @@ function nextActionOwnerRank(owner: NextActionOwner): number {
 }
 
 /**
+ * Picks the health checks that should own next-action classification.
+ *
+ * Failed checks are the blocker. Warnings remain visible in the summary, but
+ * they should not outrank a concrete failed provider, runtime, or app-truth
+ * check when health is already failed.
+ *
+ * @param {SummaryRecord[]} checks
+ * @returns {SummaryRecord[]}
+ */
+function selectNextActionHealthChecks(checks: SummaryRecord[]): SummaryRecord[] {
+  const failedChecks = checks.filter(
+    (record) => firstString([record.status], 'unknown') === 'failed',
+  );
+  if (failedChecks.length > 0) {
+    return failedChecks;
+  }
+
+  return checks;
+}
+
+/**
  * Picks the most actionable owner from health and budget evidence.
  *
  * @param {{healthStatus: string, healthChecks: unknown[], verdictStatus: string, budgetChecks: unknown[]}} options
@@ -301,9 +322,10 @@ function resolveNextActionSummary({
     .filter((record) => firstString([record.status], 'unknown') !== 'passed');
 
   if (healthStatus !== 'passed' && activeHealthChecks.length > 0) {
-    const owners = activeHealthChecks.map((record) => classifyCheckOwner(record));
+    const ownerSourceChecks = selectNextActionHealthChecks(activeHealthChecks);
+    const owners = ownerSourceChecks.map((record) => classifyCheckOwner(record));
     const owner = owners.sort((left, right) => nextActionOwnerRank(left) - nextActionOwnerRank(right))[0] ?? 'asl_runner';
-    const ownerRecords = activeHealthChecks.filter((record) => classifyCheckOwner(record) === owner);
+    const ownerRecords = ownerSourceChecks.filter((record) => classifyCheckOwner(record) === owner);
     return nextActionSummaryForOwner(owner, ownerRecords);
   }
 

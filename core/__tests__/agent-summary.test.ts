@@ -263,6 +263,17 @@ test('indexes preserved provider diagnostics separately from product claims', ()
           source: 'evidence',
           message: 'Required accessibility diagnostic was not captured.',
         },
+        {
+          name: 'profile_session_helper_version',
+          code: 'profile_session_helper_version_missing',
+          status: 'warning',
+          source: 'runner',
+          message: 'Profile evidence did not include app helper version metadata.',
+          metadata: {
+            nextActionCode: 'emit_profile_session_helper_version',
+            nextAction: 'Use an app-side profile-session helper that emits helperVersion metadata.',
+          },
+        },
       ],
     },
     verdict: {
@@ -282,6 +293,40 @@ test('indexes preserved provider diagnostics separately from product claims', ()
   assert.match(summary, /Next action `use_partial_provider_evidence_for_diagnosis`/u);
   assert.match(summary, /## failed checks/u);
   assert.match(summary, /`required_accessibility_diagnostic`: failed/u);
+  assert.match(summary, /## warnings/u);
+  assert.match(summary, /`profile_session_helper_version`: warning/u);
+});
+
+test('uses warning owners when no failed health checks exist', () => {
+  const summary = buildAgentSummaryMarkdown({
+    health: {
+      scenarioId: 'app-startup',
+      runId: 'run-warning-only',
+      healthStatus: 'failed',
+      checks: [
+        {
+          name: 'profile_session_helper_version',
+          code: 'profile_session_helper_version_missing',
+          status: 'warning',
+          source: 'runner',
+          message: 'Profile evidence did not include app helper version metadata.',
+          metadata: {
+            nextActionCode: 'emit_profile_session_helper_version',
+            nextAction: 'Use an app-side profile-session helper that emits helperVersion metadata.',
+          },
+        },
+      ],
+    },
+    verdict: {
+      scenarioId: 'app-startup',
+      runId: 'run-warning-only',
+      verdictStatus: 'inconclusive',
+      budgetChecks: [],
+    },
+  });
+
+  assert.match(summary, /Owner: `asl_runner`/u);
+  assert.match(summary, /`profile_session_helper_version`: warning/u);
 });
 
 test('classifies runtime identity failures as runtime environment work', () => {
