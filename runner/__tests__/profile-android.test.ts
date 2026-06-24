@@ -511,10 +511,13 @@ test('profile-android classifies preserved native provider evidence as diagnosti
   assert.equal(verdict.verdictStatus, 'inconclusive');
   assert.equal(commandRecord.exitCode, 7);
   assert.equal(nativePerformanceDiagnostic?.status, 'captured');
+  assert.equal(nativePerformanceDiagnostic?.availability, 'captured-diagnostic-only');
   assert.equal(nativePerformanceDiagnostic?.required, true);
   assert.equal(profilerDiagnostic?.status, 'captured');
+  assert.equal(profilerDiagnostic?.availability, 'captured-diagnostic-only');
   assert.equal(profilerDiagnostic?.required, true);
   assert.equal(accessibilityDiagnostic?.status, 'failed');
+  assert.equal(accessibilityDiagnostic?.availability, 'provider-blocked');
   assert.equal(accessibilityDiagnostic?.required, true);
   assert.deepEqual(attachments.map((attachment) => attachment.kind).sort(), ['nativePerformance', 'profiler']);
   assert.ok(
@@ -2174,16 +2177,27 @@ test('profile-android rejects providers that do not support the selected platfor
 
   const runDir = stdout.trim();
   const health = readJson(path.join(runDir, 'health.json'));
+  const manifest = readJson(path.join(runDir, 'manifest.json'));
   const summary = fs.readFileSync(path.join(runDir, 'agent-summary.md'), 'utf8');
+  const diagnostics = (manifest.artifacts as { diagnostics: Array<Record<string, unknown>> }).diagnostics;
+  const accessibilityDiagnostic = diagnostics.find((entry) => entry.kind === 'accessibility');
 
   assert.equal(fs.existsSync(markerPath), false);
   assert.equal(health.healthStatus, 'failed');
-  assert.deepEqual(
-    (health.checks as Array<{ code: string; metadata?: { nextActionCode?: string; providerId?: string } }>).map((check) => ({
+  assert.equal(accessibilityDiagnostic?.status, 'not_supported');
+  assert.equal(accessibilityDiagnostic?.availability, 'unsupported');
+  assert.equal(accessibilityDiagnostic?.provider, 'ios-only-provider');
+  const providerCompatibilityChecks = (
+    health.checks as Array<{ code: string; metadata?: { nextActionCode?: string; providerId?: string } }>
+  )
+    .filter((check) => check.code === 'provider_platform_unsupported')
+    .map((check) => ({
       code: check.code,
       nextActionCode: check.metadata?.nextActionCode,
       providerId: check.metadata?.providerId,
-    })),
+    }));
+  assert.deepEqual(
+    providerCompatibilityChecks,
     [
       {
         code: 'provider_platform_unsupported',
@@ -2252,14 +2266,20 @@ test('profile-android fails health for unsupported provider lifecycle phases', a
 
   const runDir = stdout.trim();
   const health = readJson(path.join(runDir, 'health.json'));
+  const manifest = readJson(path.join(runDir, 'manifest.json'));
   const verdict = readJson(path.join(runDir, 'verdict.json'));
   const summary = fs.readFileSync(path.join(runDir, 'agent-summary.md'), 'utf8');
   const commandRecord = readJson(path.join(runDir, 'raw', 'provider-commands', 'window-provider-start-profiler.json'));
+  const diagnostics = (manifest.artifacts as { diagnostics: Array<Record<string, unknown>> }).diagnostics;
+  const profilerDiagnostic = diagnostics.find((entry) => entry.kind === 'profiler');
 
   assert.equal(fs.existsSync(markerPath), false);
   assert.equal(health.healthStatus, 'failed');
   assert.equal(verdict.verdictStatus, 'inconclusive');
   assert.equal(commandRecord.status, 'unsupported');
+  assert.equal(profilerDiagnostic?.status, 'not_supported');
+  assert.equal(profilerDiagnostic?.availability, 'unsupported');
+  assert.equal(profilerDiagnostic?.provider, 'window-provider');
   assert.equal(commandRecord.phase, 'startWindow');
   assert.deepEqual(commandRecord.supportedPhases, ['capture', 'afterCapture', 'postRun']);
   assert.ok(
@@ -2476,13 +2496,15 @@ test('profile-android preserves captured provider evidence when another required
   assert.equal(verdict.verdictStatus, 'inconclusive');
   assert.equal(commandRecord.exitCode, 7);
   assert.equal(nativePerformanceDiagnostic?.status, 'captured');
+  assert.equal(nativePerformanceDiagnostic?.availability, 'captured-diagnostic-only');
   assert.equal(nativePerformanceDiagnostic?.required, true);
   assert.equal(nativePerformanceDiagnostic?.path, 'raw/providers/partial-native-provider/native-performance.json');
   assert.equal(memoryDiagnostic?.status, 'captured');
+  assert.equal(memoryDiagnostic?.availability, 'captured-diagnostic-only');
   assert.equal(memoryDiagnostic?.provider, 'partial-native-provider');
   assert.equal(memoryDiagnostic?.path, 'signals/memory/memory.json');
   assert.equal(accessibilityDiagnostic?.status, 'failed');
-  assert.equal(accessibilityDiagnostic?.availability, 'required-missing');
+  assert.equal(accessibilityDiagnostic?.availability, 'provider-blocked');
   assert.equal(accessibilityDiagnostic?.required, true);
   assert.equal(accessibilityDiagnostic?.provider, 'partial-native-provider');
   assert.deepEqual(attachments.map((attachment) => attachment.kind), ['nativePerformance', 'memory']);

@@ -434,7 +434,16 @@
               },
               "availability": {
                 "type": "string",
-                "enum": ["captured", "required-missing", "requested-missing", "not-requested"]
+                "enum": [
+                  "captured",
+                  "captured-diagnostic-only",
+                  "environment-blocked",
+                  "not-requested",
+                  "provider-blocked",
+                  "requested-missing",
+                  "required-missing",
+                  "unsupported"
+                ]
               },
               "required": {
                 "type": "boolean"

@@ -1466,9 +1466,19 @@ function main(): void {
     });
     const unsupportedProviderRunDir = unsupportedProviderProfileOutput.trim();
     const unsupportedProviderHealth = JSON.parse(fs.readFileSync(path.join(unsupportedProviderRunDir, 'health.json'), 'utf8'));
+    const unsupportedProviderManifest = JSON.parse(fs.readFileSync(path.join(unsupportedProviderRunDir, 'manifest.json'), 'utf8'));
     const unsupportedProviderSummary = fs.readFileSync(path.join(unsupportedProviderRunDir, 'agent-summary.md'), 'utf8');
+    const unsupportedProviderAccessibility = unsupportedProviderManifest.artifacts.diagnostics.find(
+      (diagnostic: { kind?: string }) => diagnostic.kind === 'accessibility',
+    ) as { availability?: string; provider?: string; status?: string } | undefined;
+    if (!unsupportedProviderAccessibility) {
+      throw new Error('unsupported provider profile should inventory the declared accessibility diagnostic');
+    }
     assert.equal(fs.existsSync(unsupportedProviderMarkerPath), false);
     assert.equal(unsupportedProviderHealth.healthStatus, 'failed');
+    assert.equal(unsupportedProviderAccessibility.status, 'not_supported');
+    assert.equal(unsupportedProviderAccessibility.availability, 'unsupported');
+    assert.equal(unsupportedProviderAccessibility.provider, 'smoke-ios-only-provider');
     assert.equal(
       unsupportedProviderHealth.checks.some((check: { code: string; metadata?: { nextActionCode?: string; providerId?: string } }) =>
         check.code === 'provider_platform_unsupported' &&

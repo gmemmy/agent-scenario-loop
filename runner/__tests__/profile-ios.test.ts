@@ -244,9 +244,11 @@ test('profile-ios preserves captured provider evidence when another required out
   assert.equal(verdict.verdictStatus, 'inconclusive');
   assert.equal(commandRecord.exitCode, 7);
   assert.equal(nativePerformanceDiagnostic?.status, 'captured');
+  assert.equal(nativePerformanceDiagnostic?.availability, 'captured-diagnostic-only');
   assert.equal(nativePerformanceDiagnostic?.required, true);
   assert.equal(nativePerformanceDiagnostic?.path, 'raw/providers/partial-ios-native-provider/native-performance.json');
   assert.equal(accessibilityDiagnostic?.status, 'failed');
+  assert.equal(accessibilityDiagnostic?.availability, 'provider-blocked');
   assert.equal(accessibilityDiagnostic?.required, true);
   assert.equal(accessibilityDiagnostic?.provider, 'partial-ios-native-provider');
   assert.deepEqual(attachments.map((attachment) => attachment.kind), ['nativePerformance']);
