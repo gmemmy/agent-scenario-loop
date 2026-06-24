@@ -432,6 +432,10 @@
                 "type": "string",
                 "enum": ["captured", "not_requested", "not_supported", "unavailable", "failed", "skipped", "missing"]
               },
+              "availability": {
+                "type": "string",
+                "enum": ["captured", "required-missing", "requested-missing", "not-requested"]
+              },
               "required": {
                 "type": "boolean"
               },
