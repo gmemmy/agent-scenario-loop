@@ -67,6 +67,11 @@ type RunnerManifest = ManifestRecord & {
   uiContexts?: unknown[];
   artifactOutputs?: unknown[];
 };
+const {
+  ANDROID_ADB_PRESS_KEY_SET,
+  formatAndroidAdbPressKeys,
+} = require('./android-adb-press-keys') as typeof import('./android-adb-press-keys');
+
 const UI_DRIVER_ACTIONS = new Set([
   'tap',
   'longPress',
@@ -922,7 +927,7 @@ function validateAndroidAdbAdapterOptions({
     }
 
     if (
-      step.driverAction === 'tap' &&
+      (step.driverAction === 'tap' || step.driverAction === 'longPress') &&
       !hasPortableSelector(step) &&
       (!isFiniteNumber(androidAdb.x) || !isFiniteNumber(androidAdb.y))
     ) {
@@ -930,7 +935,18 @@ function validateAndroidAdbAdapterOptions({
         adapter: 'androidAdb',
         errors,
         field: 'x/y',
-        message: `Step \`${stepId}\` uses driverAction \`tap\` but adapterOptions.androidAdb.x/y are required.`,
+        message: `Step \`${stepId}\` uses driverAction \`${step.driverAction}\` but adapterOptions.androidAdb.x/y are required.`,
+        scenario,
+        stepId,
+      });
+    }
+
+    if (step.driverAction === 'pressKey' && !ANDROID_ADB_PRESS_KEY_SET.has(String(androidAdb.key))) {
+      pushInvalidAdapterOption({
+        adapter: 'androidAdb',
+        errors,
+        field: 'key',
+        message: `Step \`${stepId}\` uses driverAction \`pressKey\` but adapterOptions.androidAdb.key must be one of: ${formatAndroidAdbPressKeys()}.`,
         scenario,
         stepId,
       });

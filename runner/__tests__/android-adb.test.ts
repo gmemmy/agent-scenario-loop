@@ -593,6 +593,8 @@ test('runs portable adb driver actions and writes raw evidence', async (t: TestC
     '-s emulator-5554 shell getprop ro.build.version.release': { stdout: '15\n' },
     '-s emulator-5554 shell getprop ro.build.version.sdk': { stdout: '35\n' },
     '-s emulator-5554 shell input tap 120 240': { stdout: '' },
+    '-s emulator-5554 shell input swipe 120 240 120 240 900': { stdout: '' },
+    '-s emulator-5554 shell input keyevent KEYCODE_BACK': { stdout: '' },
     '-s emulator-5554 shell input swipe 500 1400 500 400 350': { stdout: '' },
     '-s emulator-5554 shell input swipe 50 60 250 260 175': { stdout: '' },
     '-s emulator-5554 shell rm -f /sdcard/agent-scenario-loop-ui.xml; uiautomator dump /sdcard/agent-scenario-loop-ui.xml >/dev/null; cat /sdcard/agent-scenario-loop-ui.xml; status=$?; rm -f /sdcard/agent-scenario-loop-ui.xml; exit $status': {
@@ -621,6 +623,8 @@ test('runs portable adb driver actions and writes raw evidence', async (t: TestC
   const result = await runAndroidAdbPreflight({
     driverSteps: [
       { driverAction: 'tap', stepId: 'tap-card', x: 120, y: 240 },
+      { driverAction: 'longPress', durationMs: 900, stepId: 'long-press-card', x: 120, y: 240 },
+      { driverAction: 'pressKey', key: 'systemBack', stepId: 'press-system-back' },
       { driverAction: 'scroll', durationMs: 350, endX: 500, endY: 400, startX: 500, startY: 1400, stepId: 'scroll-feed' },
       { driverAction: 'swipe', durationMs: 175, endX: 250, endY: 260, startX: 50, startY: 60, stepId: 'swipe-card' },
       { driverAction: 'inspectTree', stepId: 'inspect-final' },
@@ -649,28 +653,36 @@ test('runs portable adb driver actions and writes raw evidence', async (t: TestC
 
   assert.equal(result.health.healthStatus, 'passed', JSON.stringify(result.health.checks, null, 2));
   assert.ok(fs.existsSync(path.join(outputDir, 'raw', 'adb-tap.txt')));
-  assert.ok(fs.existsSync(path.join(outputDir, 'raw', 'adb-scroll-2.txt')));
-  assert.ok(fs.existsSync(path.join(outputDir, 'raw', 'adb-swipe-3.txt')));
-  assert.ok(fs.existsSync(path.join(outputDir, 'raw', 'adb-ui-tree-4.xml')));
-  assert.ok(fs.existsSync(path.join(outputDir, 'raw', 'adb-assert-visible-5.xml')));
-  assert.ok(fs.existsSync(path.join(outputDir, 'raw', 'adb-screenshot-6.png')));
-  assert.ok(fs.existsSync(path.join(outputDir, 'raw', 'adb-record-7.txt')));
+  assert.ok(fs.existsSync(path.join(outputDir, 'raw', 'adb-longPress-2.txt')));
+  assert.ok(fs.existsSync(path.join(outputDir, 'raw', 'adb-pressKey-3.txt')));
+  assert.ok(fs.existsSync(path.join(outputDir, 'raw', 'adb-scroll-4.txt')));
+  assert.ok(fs.existsSync(path.join(outputDir, 'raw', 'adb-swipe-5.txt')));
+  assert.ok(fs.existsSync(path.join(outputDir, 'raw', 'adb-ui-tree-6.xml')));
+  assert.ok(fs.existsSync(path.join(outputDir, 'raw', 'adb-assert-visible-7.xml')));
+  assert.ok(fs.existsSync(path.join(outputDir, 'raw', 'adb-screenshot-8.png')));
+  assert.ok(fs.existsSync(path.join(outputDir, 'raw', 'adb-record-9.txt')));
   assert.ok(fs.existsSync(path.join(outputDir, 'raw', 'adb-logcat.txt')));
   assert.ok(fs.existsSync(path.join(outputDir, 'captures', 'adb-record-6.mp4')));
   assert.ok(calls.includes('-s emulator-5554 shell rm -f /sdcard/asl-record.mp4'));
   assertAdapterArtifactConformance(result, {
     expectedHealthStatus: 'passed',
-    rawArtifacts: ['raw/android-metadata.json', 'raw/adb-record-7.txt'],
+    rawArtifacts: ['raw/android-metadata.json', 'raw/adb-record-9.txt'],
   });
   assertMetadataCapturePathsExist(outputDir, 'raw/android-metadata.json');
   assert.deepEqual(
     (metadata.driverActions as Array<{ driverAction: string }>).map((item) => item.driverAction),
-    ['tap', 'scroll', 'swipe', 'inspectTree', 'assertVisible', 'screenshot', 'record', 'readLogs'],
+    ['tap', 'longPress', 'pressKey', 'scroll', 'swipe', 'inspectTree', 'assertVisible', 'screenshot', 'record', 'readLogs'],
   );
-  assert.equal((metadata.driverActions as Array<{ capturePath?: string }>)[6]?.capturePath, 'captures/adb-record-6.mp4');
+  assert.equal((metadata.driverActions as Array<{ capturePath?: string }>)[8]?.capturePath, 'captures/adb-record-6.mp4');
   assert.equal((metadata.logcat as { rawPath: string }).rawPath, 'raw/adb-logcat.txt');
   assert.ok(
     (result.health.checks as Array<{ code: string }>).some((check) => check.code === 'android_tap_completed'),
+  );
+  assert.ok(
+    (result.health.checks as Array<{ code: string }>).some((check) => check.code === 'android_long_press_completed'),
+  );
+  assert.ok(
+    (result.health.checks as Array<{ code: string }>).some((check) => check.code === 'android_press_key_completed'),
   );
   assert.ok(
     (result.health.checks as Array<{ code: string }>).some((check) => check.code === 'android_swipe_completed'),
@@ -1106,7 +1118,7 @@ test('classifies missing Android profile-session start while preserving sidecar 
   assert.match(summary, /Next action `use_preserved_sidecar_evidence_for_diagnosis`/u);
 });
 
-test('resolves portable selectors into adb tap and scroll coordinates', async (t: TestContext) => {
+test('resolves portable selectors into adb tap, longPress, and scroll coordinates', async (t: TestContext) => {
   const outputDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-android-adb-selector-actions-'));
   t.after(async () => {
     await fsp.rm(outputDir, { recursive: true, force: true });
@@ -1136,6 +1148,7 @@ test('resolves portable selectors into adb tap and scroll coordinates', async (t
         stdout: uiTreeXml,
       },
       '-s emulator-5554 shell input tap 110 180': { stdout: '' },
+      '-s emulator-5554 shell input swipe 110 180 110 180 800': { stdout: '' },
       '-s emulator-5554 shell input swipe 300 880 300 520 300': { stdout: '' },
     };
     const response = responses[key] ?? { exitCode: 1, stderr: `unexpected command: ${key}` };
@@ -1156,6 +1169,12 @@ test('resolves portable selectors into adb tap and scroll coordinates', async (t
         stepId: 'tap-open-card',
       },
       {
+        driverAction: 'longPress',
+        durationMs: 800,
+        selector: { kind: 'text', value: 'Open' },
+        stepId: 'long-press-open-card',
+      },
+      {
         driverAction: 'scroll',
         selector: { kind: 'resourceId', value: 'dev.example:id/feed' },
         stepId: 'scroll-feed',
@@ -1170,6 +1189,7 @@ test('resolves portable selectors into adb tap and scroll coordinates', async (t
 
   assert.equal(result.health.healthStatus, 'passed', JSON.stringify(result.health.checks, null, 2));
   assert.ok(calls.includes('-s emulator-5554 shell input tap 110 180'));
+  assert.ok(calls.includes('-s emulator-5554 shell input swipe 110 180 110 180 800'));
   assert.ok(calls.includes('-s emulator-5554 shell input swipe 300 880 300 520 300'));
   assert.ok(fs.existsSync(path.join(outputDir, 'raw', 'adb-selector-tree-1.xml')));
   assert.deepEqual(
@@ -1179,6 +1199,7 @@ test('resolves portable selectors into adb tap and scroll coordinates', async (t
     })),
     [
       { status: 'passed', stepId: 'tap-open-card' },
+      { status: 'passed', stepId: 'long-press-open-card' },
       { status: 'passed', stepId: 'scroll-feed' },
     ],
   );

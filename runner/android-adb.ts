@@ -7,6 +7,7 @@ const path = require('node:path');
 
 const { buildAgentSummaryMarkdown } = require('../core/agent-summary');
 const { createArtifactLayout } = require('../core/artifact-layout');
+const { isAndroidAdbPressKey } = require('../core/android-adb-press-keys') as typeof import('../core/android-adb-press-keys');
 const { writeJsonArtifact, writeTextArtifact } = require('../core/artifact-writer');
 const { SCHEMAS, assertValidJson } = require('../core/schema-validator');
 const { hasHelpFlag, writeUsage } = require('./cli');
@@ -97,11 +98,12 @@ type AndroidAsyncStorageWrite = {
 
 type AndroidAdbDriverStep = {
   captureFileName?: string;
-  driverAction: 'assertVisible' | 'inspectTree' | 'readLogs' | 'record' | 'screenshot' | 'scroll' | 'swipe' | 'tap';
+  driverAction: 'assertVisible' | 'inspectTree' | 'longPress' | 'pressKey' | 'readLogs' | 'record' | 'screenshot' | 'scroll' | 'swipe' | 'tap';
   durationMs?: number;
   durationSeconds?: number;
   endX?: number;
   endY?: number;
+  key?: string;
   lines?: number;
   rawFileName?: string;
   remotePath?: string;
@@ -2415,7 +2417,7 @@ function needsAndroidSelectorResolution(driverStep: AndroidAdbDriverStep): boole
     return false;
   }
 
-  if (driverStep.driverAction === 'tap') {
+  if (driverStep.driverAction === 'tap' || driverStep.driverAction === 'longPress') {
     return typeof driverStep.x !== 'number' || typeof driverStep.y !== 'number';
   }
 
@@ -2428,7 +2430,7 @@ function needsAndroidSelectorResolution(driverStep: AndroidAdbDriverStep): boole
 }
 
 /**
- * Applies a resolved selector to one tap or scroll driver step.
+ * Applies a resolved selector to one coordinate-backed driver step.
  *
  * @param {{driverStep: AndroidAdbDriverStep, resolution: import('./android-adb-driver').AndroidSelectorResolution}} options
  * @returns {AndroidAdbDriverStep}
@@ -2440,7 +2442,7 @@ function applyAndroidSelectorResolution({
   driverStep: AndroidAdbDriverStep;
   resolution: import('./android-adb-driver').AndroidSelectorResolution;
 }): AndroidAdbDriverStep {
-  if (driverStep.driverAction === 'tap') {
+  if (driverStep.driverAction === 'tap' || driverStep.driverAction === 'longPress') {
     return {
       ...driverStep,
       x: driverStep.x ?? resolution.centerX,
@@ -2711,6 +2713,46 @@ async function runAndroidAdbDriverStep({
       ...(typeof driverStep.rawFileName === 'string' ? { rawFileName: driverStep.rawFileName } : {}),
       startX: driverStep.startX,
       startY: driverStep.startY,
+    });
+  }
+
+  if (driverStep.driverAction === 'longPress') {
+    if (typeof driverStep.x !== 'number' || typeof driverStep.y !== 'number') {
+      return {
+        action: 'longPress',
+        args: [],
+        command: 'adb',
+        exitCode: 1,
+        rawFileName: driverStep.rawFileName ?? 'adb-longPress.txt',
+        stderr: 'longPress driver action requires x and y.',
+        stdout: '',
+      };
+    }
+
+    return driver.longPress({
+      ...(typeof driverStep.durationMs === 'number' ? { durationMs: driverStep.durationMs } : {}),
+      ...(typeof driverStep.rawFileName === 'string' ? { rawFileName: driverStep.rawFileName } : {}),
+      x: driverStep.x,
+      y: driverStep.y,
+    });
+  }
+
+  if (driverStep.driverAction === 'pressKey') {
+    if (!isAndroidAdbPressKey(driverStep.key)) {
+      return {
+        action: 'pressKey',
+        args: [],
+        command: 'adb',
+        exitCode: 1,
+        rawFileName: driverStep.rawFileName ?? 'adb-pressKey.txt',
+        stderr: 'pressKey driver action requires a supported key.',
+        stdout: '',
+      };
+    }
+
+    return driver.pressKey({
+      key: driverStep.key,
+      ...(typeof driverStep.rawFileName === 'string' ? { rawFileName: driverStep.rawFileName } : {}),
     });
   }
 

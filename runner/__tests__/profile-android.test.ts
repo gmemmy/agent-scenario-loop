@@ -3172,10 +3172,12 @@ test('profile-android rejects adb tap metadata before capture starts', async (t:
   assert.deepEqual(calls, []);
 });
 
-test('profile-android validates tap and scroll driver metadata', () => {
+test('profile-android validates adb primitive driver metadata', () => {
   assert.deepEqual(
     validateAndroidAdbDriverSteps([
       { driverAction: 'tap', stepId: 'tap-card', x: 10, y: 20 },
+      { driverAction: 'longPress', selector: { kind: 'testId', value: 'card-menu' }, stepId: 'long-press-card' },
+      { driverAction: 'pressKey', key: 'systemBack', stepId: 'press-system-back' },
       { driverAction: 'scroll', endX: 100, endY: 200, startX: 100, startY: 800, stepId: 'scroll-list' },
       { driverAction: 'swipe', endX: 300, endY: 400, startX: 100, startY: 200, stepId: 'swipe-card' },
       { driverAction: 'assertVisible', selector: { kind: 'text', value: 'Example' }, stepId: 'assert-visible' },
@@ -3187,12 +3189,16 @@ test('profile-android validates tap and scroll driver metadata', () => {
   assert.deepEqual(
     validateAndroidAdbDriverSteps([
       { driverAction: 'tap', stepId: 'tap-card' },
+      { driverAction: 'longPress', stepId: 'long-press-card' },
+      { driverAction: 'pressKey', key: 'escape', stepId: 'press-key-unsupported' },
       { driverAction: 'scroll', stepId: 'scroll-list', startX: 100, startY: 800 },
       { driverAction: 'swipe', stepId: 'swipe-card', startX: 100, startY: 800 },
       { driverAction: 'assertVisible', stepId: 'assert-visible' },
     ]),
     [
       'step `tap-card` uses driverAction `tap` but is missing adapterOptions.androidAdb.x/y.',
+      'step `long-press-card` uses driverAction `longPress` but is missing adapterOptions.androidAdb.x/y.',
+      'step `press-key-unsupported` uses driverAction `pressKey` but is missing supported adapterOptions.androidAdb.key.',
       'step `scroll-list` uses driverAction `scroll` but is missing adapterOptions.androidAdb.startX/startY/endX/endY.',
       'step `swipe-card` uses driverAction `swipe` but is missing adapterOptions.androidAdb.startX/startY/endX/endY.',
       'step `assert-visible` uses driverAction `assertVisible` but is missing a portable selector.',
@@ -3212,6 +3218,30 @@ test('profile-android preserves portable selectors in adb driver steps', () => {
         value: 'example-card-1',
       },
     },
+    {
+      id: 'long-press-card',
+      kind: 'gesture',
+      driverAction: 'longPress',
+      adapterOptions: {
+        androidAdb: {
+          durationMs: 900,
+        },
+      },
+      selector: {
+        kind: 'text',
+        value: 'Open menu',
+      },
+    },
+    {
+      id: 'press-system-back',
+      kind: 'gesture',
+      driverAction: 'pressKey',
+      adapterOptions: {
+        androidAdb: {
+          key: 'systemBack',
+        },
+      },
+    },
   ];
 
   assert.deepEqual(resolveAndroidAdbDriverSteps(scenario), [
@@ -3223,6 +3253,24 @@ test('profile-android preserves portable selectors in adb driver steps', () => {
         value: 'example-card-1',
       },
       stepId: 'tap-card',
+      waitMs: 0,
+    },
+    {
+      driverAction: 'longPress',
+      durationMs: 900,
+      required: true,
+      selector: {
+        kind: 'text',
+        value: 'Open menu',
+      },
+      stepId: 'long-press-card',
+      waitMs: 0,
+    },
+    {
+      driverAction: 'pressKey',
+      key: 'systemBack',
+      required: true,
+      stepId: 'press-system-back',
       waitMs: 0,
     },
   ]);

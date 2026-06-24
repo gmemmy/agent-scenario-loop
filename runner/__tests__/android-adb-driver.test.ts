@@ -110,6 +110,8 @@ test('Android adb driver performs portable UI and capture actions', async () => 
     const videoPath = path.join(tempRoot, 'adb-record.mp4');
     const fallbackExecutor = createExecutor({
       '-s emulator-5554 shell input tap 120 240': { stdout: '' },
+      '-s emulator-5554 shell input swipe 120 240 120 240 900': { stdout: '' },
+      '-s emulator-5554 shell input keyevent KEYCODE_BACK': { stdout: '' },
       '-s emulator-5554 shell input swipe 500 1400 500 400 350': { stdout: '' },
       '-s emulator-5554 shell input swipe 50 60 250 260 175': { stdout: '' },
       '-s emulator-5554 shell rm -f /sdcard/agent-scenario-loop-ui.xml; uiautomator dump /sdcard/agent-scenario-loop-ui.xml >/dev/null; cat /sdcard/agent-scenario-loop-ui.xml; status=$?; rm -f /sdcard/agent-scenario-loop-ui.xml; exit $status': {
@@ -141,6 +143,8 @@ test('Android adb driver performs portable UI and capture actions', async () => 
     });
 
     const tap = await driver.tap({ x: 120, y: 240 });
+    const longPress = await driver.longPress({ durationMs: 900, x: 120, y: 240 });
+    const pressKey = await driver.pressKey({ key: 'systemBack' });
     const scroll = await driver.scroll({ durationMs: 350, endX: 500, endY: 400, startX: 500, startY: 1400 });
     const swipe = await driver.swipe({ durationMs: 175, endX: 250, endY: 260, startX: 50, startY: 60 });
     const tree = await driver.inspectTree();
@@ -156,6 +160,10 @@ test('Android adb driver performs portable UI and capture actions', async () => 
 
     assert.equal(tap.action, 'tap');
     assert.equal(tap.rawFileName, 'adb-tap.txt');
+    assert.equal(longPress.action, 'longPress');
+    assert.equal(longPress.rawFileName, 'adb-longPress.txt');
+    assert.equal(pressKey.action, 'pressKey');
+    assert.equal(pressKey.rawFileName, 'adb-pressKey.txt');
     assert.equal(scroll.action, 'scroll');
     assert.equal(scroll.rawFileName, 'adb-scroll.txt');
     assert.equal(swipe.action, 'swipe');
