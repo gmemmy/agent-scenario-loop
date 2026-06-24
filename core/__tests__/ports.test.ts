@@ -37,7 +37,7 @@ test('reports missing driver methods', () => {
 
   assert.deepEqual(
     missingPortMethods(implementation, DRIVER_PORT),
-    ['longPress', 'typeText', 'fill', 'scroll', 'swipe', 'pinch', 'rotate', 'pressButton', 'focus', 'assertVisible', 'inspectTree', 'record', 'readLogs', 'collectPerfSignals'],
+    ['longPress', 'typeText', 'fill', 'scroll', 'swipe', 'pinch', 'rotate', 'pressKey', 'pressButton', 'focus', 'assertVisible', 'inspectTree', 'record', 'readLogs', 'collectPerfSignals'],
   );
 });
 
@@ -65,6 +65,15 @@ test('dispatches normalized driver actions to a swappable driver', async () => {
         },
       };
     },
+    async pressKey(input: { action: string; platform: string }) {
+      return {
+        status: 'passed',
+        value: {
+          action: input.action,
+          platform: input.platform,
+        },
+      };
+    },
   };
 
   assert.equal(isDriverActionName('tap'), true);
@@ -72,6 +81,7 @@ test('dispatches normalized driver actions to a swappable driver', async () => {
   assert.equal(isDriverActionName('pinch'), true);
   assert.equal(isDriverActionName('rotate'), true);
   assert.equal(isDriverActionName('fill'), true);
+  assert.equal(isDriverActionName('pressKey'), true);
   assert.equal(isDriverActionName('pressButton'), true);
   assert.equal(isDriverActionName('focus'), true);
   assert.equal(isDriverActionName('unknown'), false);
@@ -91,6 +101,22 @@ test('dispatches normalized driver actions to a swappable driver', async () => {
       action: 'tap',
       platform: 'android',
       selector: { kind: 'testId', value: 'open-card' },
+    },
+  });
+
+  const pressKeyResult = await dispatchDriverAction({
+    driver,
+    input: {
+      action: 'pressKey',
+      platform: 'ios',
+    },
+  });
+
+  assert.deepEqual(pressKeyResult, {
+    status: 'passed',
+    value: {
+      action: 'pressKey',
+      platform: 'ios',
     },
   });
 });

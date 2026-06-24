@@ -111,6 +111,12 @@ test('agent-device driver maps portable driver actions', async () => {
     'focus 120 240 --platform ios --udid BOOTED --json': {
       stdout: '{"success":true}\n',
     },
+    'back --system --platform ios --udid BOOTED --json': {
+      stdout: '{"success":true}\n',
+    },
+    'keyboard dismiss --platform ios --udid BOOTED --json': {
+      stdout: '{"success":true}\n',
+    },
     'press label="Submit" --platform ios --udid BOOTED --json': {
       stdout: '{"success":true}\n',
     },
@@ -155,6 +161,8 @@ test('agent-device driver maps portable driver actions', async () => {
   const fill = await driver.fill({ delayMs: 25, selector: { kind: 'accessibilityLabel', value: 'Search' }, text: 'hello' });
   const pinch = await driver.pinch({ scale: 1.2, x: 120, y: 240 });
   const focus = await driver.focus({ x: 120, y: 240 });
+  const pressKey = await driver.pressKey({ key: 'systemBack' });
+  const keyboardDismiss = await driver.pressKey({ key: 'keyboardDismiss', rawFileName: 'agent-device-keyboard-dismiss.txt' });
   const pressButton = await driver.pressButton({ selector: { kind: 'accessibilityLabel', value: 'Submit' } });
   const rotate = await driver.rotate({ orientation: 'landscape-left' });
   const assertVisible = await driver.assertVisible({ selector: { kind: 'text', value: 'Ready' } });
@@ -176,6 +184,10 @@ test('agent-device driver maps portable driver actions', async () => {
   assert.equal(pinch.rawFileName, 'agent-device-pinch.txt');
   assert.equal(focus.action, 'focus');
   assert.equal(focus.rawFileName, 'agent-device-focus.txt');
+  assert.equal(pressKey.action, 'pressKey');
+  assert.equal(pressKey.rawFileName, 'agent-device-press-key.txt');
+  assert.equal(keyboardDismiss.action, 'pressKey');
+  assert.equal(keyboardDismiss.rawFileName, 'agent-device-keyboard-dismiss.txt');
   assert.equal(pressButton.action, 'pressButton');
   assert.equal(pressButton.rawFileName, 'agent-device-press-button.txt');
   assert.equal(rotate.action, 'rotate');

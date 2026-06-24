@@ -85,6 +85,13 @@ type AgentDeviceFocusOptions = {
   y: number;
 };
 
+type AgentDevicePressKey = 'appBack' | 'appSwitcher' | 'back' | 'home' | 'keyboardDismiss' | 'systemBack';
+
+type AgentDevicePressKeyOptions = {
+  key: AgentDevicePressKey;
+  rawFileName?: string;
+};
+
 type AgentDevicePressButtonOptions = {
   rawFileName?: string;
   ref?: string;
@@ -163,6 +170,7 @@ type AgentDeviceDriver = {
   longPress: (options: AgentDeviceLongPressOptions) => Promise<AgentDeviceCommandResult>;
   open: (options: AgentDeviceOpenOptions) => Promise<AgentDeviceCommandResult>;
   pinch: (options: AgentDevicePinchOptions) => Promise<AgentDeviceCommandResult>;
+  pressKey: (options: AgentDevicePressKeyOptions) => Promise<AgentDeviceCommandResult>;
   pressButton: (options: AgentDevicePressButtonOptions) => Promise<AgentDeviceCommandResult>;
   readLogs: (options?: AgentDeviceReadLogsOptions) => Promise<AgentDeviceCommandResult>;
   rotate: (options: AgentDeviceRotateOptions) => Promise<AgentDeviceCommandResult>;
@@ -467,6 +475,30 @@ function createAgentDeviceDriver(options: AgentDeviceDriverOptions): AgentDevice
       return run('focus', rawFileName, ['focus', String(x), String(y)]);
     },
 
+    async pressKey({
+      key,
+      rawFileName = 'agent-device-press-key.txt',
+    }: AgentDevicePressKeyOptions): Promise<AgentDeviceCommandResult> {
+      switch (key) {
+        case 'appBack':
+          return run('pressKey', rawFileName, ['back', '--in-app']);
+        case 'appSwitcher':
+          return run('pressKey', rawFileName, ['app-switcher']);
+        case 'back':
+          return run('pressKey', rawFileName, ['back']);
+        case 'home':
+          return run('pressKey', rawFileName, ['home']);
+        case 'keyboardDismiss':
+          return run('pressKey', rawFileName, ['keyboard', 'dismiss']);
+        case 'systemBack':
+          return run('pressKey', rawFileName, ['back', '--system']);
+        default: {
+          const exhaustive: never = key;
+          throw new Error(`Unsupported agent-device pressKey \`${String(exhaustive)}\`.`);
+        }
+      }
+    },
+
     async pressButton({
       rawFileName = 'agent-device-press-button.txt',
       ref,
@@ -542,6 +574,8 @@ export type {
   AgentDeviceOrientation,
   AgentDevicePinchOptions,
   AgentDevicePressButtonOptions,
+  AgentDevicePressKey,
+  AgentDevicePressKeyOptions,
   AgentDevicePlatform,
   AgentDeviceReadLogsOptions,
   AgentDeviceRotateOptions,

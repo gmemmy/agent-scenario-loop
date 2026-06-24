@@ -88,6 +88,15 @@ const UI_DRIVER_ACTIONS = new Set([
   'runSequence',
 ]);
 
+const AGENT_DEVICE_PRESS_KEYS = new Set([
+  'appBack',
+  'appSwitcher',
+  'back',
+  'home',
+  'keyboardDismiss',
+  'systemBack',
+]);
+
 /**
  * Returns `value` when it is already an array; otherwise returns an empty array.
  *
@@ -1139,6 +1148,17 @@ function validateAgentDeviceAdapterOptions({
         errors,
         field: 'orientation',
         message: `Step \`${stepId}\` uses driverAction \`rotate\` but adapterOptions.agentDevice.orientation must be ${AGENT_DEVICE_ORIENTATION_DESCRIPTION}.`,
+        scenario,
+        stepId,
+      });
+    }
+
+    if (step.driverAction === 'pressKey' && !AGENT_DEVICE_PRESS_KEYS.has(String(agentDevice.key))) {
+      pushInvalidAdapterOption({
+        adapter: 'agentDevice',
+        errors,
+        field: 'key',
+        message: `Step \`${stepId}\` uses driverAction \`pressKey\` but adapterOptions.agentDevice.key must be one of: ${Array.from(AGENT_DEVICE_PRESS_KEYS).join(', ')}.`,
         scenario,
         stepId,
       });

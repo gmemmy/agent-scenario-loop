@@ -26,6 +26,7 @@ const DRIVER_PORT = [
   'swipe',
   'pinch',
   'rotate',
+  'pressKey',
   'pressButton',
   'focus',
   'assertVisible',
@@ -104,6 +105,7 @@ type DriverActionName =
   | 'swipe'
   | 'pinch'
   | 'rotate'
+  | 'pressKey'
   | 'pressButton'
   | 'focus'
   | 'assertVisible'
@@ -188,6 +190,7 @@ type DriverPort = {
   inspectTree(input: DriverActionInput): MaybePromise<DriverActionResult>;
   longPress(input: DriverActionInput): MaybePromise<DriverActionResult>;
   pinch(input: DriverActionInput): MaybePromise<DriverActionResult>;
+  pressKey(input: DriverActionInput): MaybePromise<DriverActionResult>;
   pressButton(input: DriverActionInput): MaybePromise<DriverActionResult>;
   readLogs(input: DriverActionInput): MaybePromise<DriverActionResult>;
   record(input: DriverActionInput): MaybePromise<DriverActionResult>;
