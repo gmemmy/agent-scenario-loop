@@ -63,10 +63,67 @@ type NativePerformanceDiagnosticSourceOverride = {
   };
 };
 
+type NativePerformanceClaimSufficiencyStatus =
+  | 'insufficient-for-claim'
+  | 'sufficient-for-comparison'
+  | 'sufficient-for-diagnosis'
+  | 'unknown';
+
+type NativePerformanceClaimSufficiencyOverride = {
+  claim?: string;
+  missingEvidence?: string[];
+  nextAction?: string;
+  reason?: string;
+  status: NativePerformanceClaimSufficiencyStatus;
+  supportingEvidence?: string[];
+};
+
+type NativePerformanceComparabilityStatus =
+  | 'captured-not-comparable'
+  | 'comparable'
+  | 'diagnostic-only'
+  | 'incomplete'
+  | 'low-confidence'
+  | 'unknown';
+
+type NativePerformanceComparabilityOverride = {
+  policy?: string;
+  reason?: string;
+  status: NativePerformanceComparabilityStatus;
+};
+
+type NativePerformanceCompletenessStatus = 'complete' | 'failed' | 'partial' | 'truncated' | 'unknown';
+
+type NativePerformanceTargetBindingStatus = 'ambiguous' | 'mismatch' | 'unknown' | 'unverified' | 'verified';
+
+type NativePerformanceTargetCandidate = {
+  appId?: string;
+  bindingStatus: 'conflicting' | 'expected' | 'observed' | 'unknown' | 'unverified';
+  deviceId?: string;
+  deviceName?: string;
+  evidencePath?: string;
+  platform?: 'android' | 'ios' | 'unknown';
+  reason?: string;
+  source?: string;
+};
+
+type NativePerformanceTargetBindingOverride = {
+  appId?: string;
+  bundleId?: string;
+  candidateTargets?: NativePerformanceTargetCandidate[];
+  deviceId?: string;
+  reason?: string;
+  source?: string;
+  status: NativePerformanceTargetBindingStatus;
+};
+
 type AndroidNativePerformanceEvidenceInput = {
   appId?: string;
   attachments?: NativePerformanceAttachment[];
   capturedAt?: string;
+  claimSufficiency?: NativePerformanceClaimSufficiencyOverride;
+  comparability?: NativePerformanceComparabilityOverride;
+  completenessStatus?: NativePerformanceCompletenessStatus;
   deviceId?: string;
   diagnosticSources?: NativePerformanceDiagnosticSourceOverride[];
   gfxinfoText?: string;
@@ -74,6 +131,7 @@ type AndroidNativePerformanceEvidenceInput = {
   providerId: string;
   runId: string;
   scenarioId: string;
+  targetBinding?: NativePerformanceTargetBindingOverride;
   traceProcessorSummary?: AndroidTraceProcessorSummaryInput;
 };
 
@@ -158,6 +216,9 @@ type IosNativePerformanceEvidenceInput = {
   attachments?: NativePerformanceAttachment[];
   bundleId?: string;
   capturedAt?: string;
+  claimSufficiency?: NativePerformanceClaimSufficiencyOverride;
+  comparability?: NativePerformanceComparabilityOverride;
+  completenessStatus?: NativePerformanceCompletenessStatus;
   deviceId?: string;
   diagnosticSources?: NativePerformanceDiagnosticSourceOverride[];
   instrumentsSummary?: IosNativePerformanceSummaryInput;
@@ -166,6 +227,7 @@ type IosNativePerformanceEvidenceInput = {
   runId: string;
   scenarioId: string;
   simctlSummary?: IosNativePerformanceSummaryInput;
+  targetBinding?: NativePerformanceTargetBindingOverride;
   xctraceSummary?: IosNativePerformanceSummaryInput;
 };
 
@@ -552,6 +614,106 @@ function isNonEmptyString(value: unknown): value is string {
 }
 
 /**
+ * Copies a provider-owned string list only when it carries values.
+ *
+ * @param {string[] | undefined} values
+ * @returns {string[] | undefined}
+ */
+function copyStringList(values: string[] | undefined): string[] | undefined {
+  if (!Array.isArray(values)) {
+    return undefined;
+  }
+
+  const copied = values.filter(isNonEmptyString);
+  if (copied.length === 0) {
+    return undefined;
+  }
+
+  return copied;
+}
+
+/**
+ * Applies an explicit provider claim-sufficiency classification to the helper default.
+ *
+ * @param {Record<string, unknown>} defaultClaimSufficiency
+ * @param {NativePerformanceClaimSufficiencyOverride | undefined} override
+ * @returns {Record<string, unknown>}
+ */
+function applyClaimSufficiencyOverride(
+  defaultClaimSufficiency: JsonRecord,
+  override: NativePerformanceClaimSufficiencyOverride | undefined,
+): JsonRecord {
+  if (!override) {
+    return defaultClaimSufficiency;
+  }
+
+  const claimSufficiency: JsonRecord = {
+    ...defaultClaimSufficiency,
+    status: override.status,
+  };
+  setDefined(claimSufficiency, 'claim', override.claim);
+  setDefined(claimSufficiency, 'reason', override.reason);
+  setDefined(claimSufficiency, 'nextAction', override.nextAction);
+  setDefined(claimSufficiency, 'missingEvidence', copyStringList(override.missingEvidence));
+  setDefined(claimSufficiency, 'supportingEvidence', copyStringList(override.supportingEvidence));
+  return claimSufficiency;
+}
+
+/**
+ * Applies provider-owned comparability metadata to the helper default.
+ *
+ * @param {Record<string, unknown>} defaultComparability
+ * @param {NativePerformanceComparabilityOverride | undefined} override
+ * @returns {Record<string, unknown>}
+ */
+function applyComparabilityOverride(
+  defaultComparability: JsonRecord,
+  override: NativePerformanceComparabilityOverride | undefined,
+): JsonRecord {
+  if (!override) {
+    return defaultComparability;
+  }
+
+  const comparability: JsonRecord = {
+    ...defaultComparability,
+    status: override.status,
+  };
+  setDefined(comparability, 'reason', override.reason);
+  setDefined(comparability, 'policy', override.policy);
+  return comparability;
+}
+
+/**
+ * Applies provider-owned target binding metadata to the helper default.
+ *
+ * @param {Record<string, unknown>} defaultTargetBinding
+ * @param {NativePerformanceTargetBindingOverride | undefined} override
+ * @returns {Record<string, unknown>}
+ */
+function applyTargetBindingOverride(
+  defaultTargetBinding: JsonRecord,
+  override: NativePerformanceTargetBindingOverride | undefined,
+): JsonRecord {
+  if (!override) {
+    return defaultTargetBinding;
+  }
+
+  const targetBinding: JsonRecord = {
+    ...defaultTargetBinding,
+    status: override.status,
+  };
+  setDefined(targetBinding, 'appId', override.appId);
+  setDefined(targetBinding, 'bundleId', override.bundleId);
+  setDefined(targetBinding, 'deviceId', override.deviceId);
+  setDefined(targetBinding, 'source', override.source);
+  setDefined(targetBinding, 'reason', override.reason);
+  if (Array.isArray(override.candidateTargets) && override.candidateTargets.length > 0) {
+    targetBinding.candidateTargets = override.candidateTargets.map((candidate) => ({ ...candidate }));
+  }
+  return targetBinding;
+}
+
+/**
  * Merges provider-owned native source status overrides into the generated source inventory.
  *
  * @param {Record<string, unknown>[]} sources
@@ -729,6 +891,86 @@ function buildAndroidToolCommand(commands: string[]): string {
   }
 
   return commands.join(' / ');
+}
+
+/**
+ * Builds provider-owned Android target binding metadata.
+ *
+ * @param {AndroidNativePerformanceEvidenceInput} input
+ * @returns {Record<string, unknown>}
+ */
+function buildAndroidTargetBinding(input: AndroidNativePerformanceEvidenceInput): JsonRecord {
+  const targetBinding: JsonRecord = {};
+  if (input.appId && input.deviceId) {
+    targetBinding.status = 'verified';
+    targetBinding.reason = 'Provider supplied both Android package id and device id for this evidence envelope.';
+  } else {
+    targetBinding.status = 'unverified';
+    targetBinding.reason = 'Provider did not supply both Android package id and device id.';
+  }
+  setDefined(targetBinding, 'appId', input.appId);
+  setDefined(targetBinding, 'deviceId', input.deviceId);
+  targetBinding.source = 'provider';
+  return applyTargetBindingOverride(targetBinding, input.targetBinding);
+}
+
+/**
+ * Builds the default Android comparability classification.
+ *
+ * @param {NativePerformanceComparabilityOverride | undefined} override
+ * @returns {Record<string, unknown>}
+ */
+function buildAndroidComparability(override: NativePerformanceComparabilityOverride | undefined): JsonRecord {
+  return applyComparabilityOverride(
+    {
+      status: 'diagnostic-only',
+      reason: 'Android native diagnostics were normalized for investigation, not collected under a comparable ASL native-performance baseline.',
+      policy: 'Use this evidence to classify native/render/memory pressure; require a complete comparable lane before release performance claims.',
+    },
+    override,
+  );
+}
+
+/**
+ * Builds the claim gate for Android native-performance evidence.
+ *
+ * @param {string[]} supportingEvidence
+ * @param {NativePerformanceClaimSufficiencyOverride | undefined} override
+ * @returns {Record<string, unknown>}
+ */
+function buildAndroidClaimSufficiency(
+  supportingEvidence: string[],
+  override: NativePerformanceClaimSufficiencyOverride | undefined,
+): JsonRecord {
+  const claimSufficiency: JsonRecord = {
+    claim: 'android-native-performance',
+    nextAction: 'Use provider-captured raw artifacts and rerun a comparable native-performance lane before making release claims.',
+  };
+  if (supportingEvidence.length > 0) {
+    claimSufficiency.status = 'sufficient-for-diagnosis';
+    claimSufficiency.reason = 'Parsed Android native diagnostics are useful for diagnosis but are not budget-comparable.';
+    claimSufficiency.supportingEvidence = supportingEvidence;
+    return applyClaimSufficiencyOverride(claimSufficiency, override);
+  }
+
+  claimSufficiency.status = 'insufficient-for-claim';
+  claimSufficiency.reason = 'No Android native diagnostic summary fields were parsed.';
+  claimSufficiency.missingEvidence = ['gfxinfo or meminfo summary fields'];
+  return applyClaimSufficiencyOverride(claimSufficiency, override);
+}
+
+/**
+ * Summarizes Android native-performance evidence without making a product claim.
+ *
+ * @param {string[]} supportingEvidence
+ * @returns {string}
+ */
+function summarizeAndroidNativePerformanceEvidence(supportingEvidence: string[]): string {
+  if (supportingEvidence.length === 0) {
+    return 'No Android native-performance summary fields were parsed from provider input.';
+  }
+
+  return `Normalized ${supportingEvidence.join(' and ')} as diagnostic-only native-performance evidence.`;
 }
 
 /**
@@ -1105,16 +1347,37 @@ function buildIosTargetBinding(input: IosNativePerformanceEvidenceInput): JsonRe
   setDefined(targetBinding, 'bundleId', input.bundleId);
   setDefined(targetBinding, 'deviceId', input.deviceId);
   targetBinding.source = 'provider';
-  return targetBinding;
+  return applyTargetBindingOverride(targetBinding, input.targetBinding);
+}
+
+/**
+ * Builds the default iOS comparability classification.
+ *
+ * @param {NativePerformanceComparabilityOverride | undefined} override
+ * @returns {Record<string, unknown>}
+ */
+function buildIosComparability(override: NativePerformanceComparabilityOverride | undefined): JsonRecord {
+  return applyComparabilityOverride(
+    {
+      status: 'diagnostic-only',
+      reason: 'iOS native diagnostics were normalized for investigation, not collected under a comparable ASL native-performance baseline.',
+      policy: 'Use this evidence to classify native/render/memory pressure; require a complete comparable lane before release performance claims.',
+    },
+    override,
+  );
 }
 
 /**
  * Builds the claim gate for iOS native-performance evidence.
  *
  * @param {string[]} supportingEvidence
+ * @param {NativePerformanceClaimSufficiencyOverride | undefined} override
  * @returns {JsonRecord}
  */
-function buildIosClaimSufficiency(supportingEvidence: string[]): JsonRecord {
+function buildIosClaimSufficiency(
+  supportingEvidence: string[],
+  override: NativePerformanceClaimSufficiencyOverride | undefined,
+): JsonRecord {
   const claimSufficiency: JsonRecord = {
     claim: 'ios-native-performance',
     nextAction: 'Use provider-captured raw artifacts and rerun a comparable native-performance lane before making release claims.',
@@ -1123,13 +1386,13 @@ function buildIosClaimSufficiency(supportingEvidence: string[]): JsonRecord {
     claimSufficiency.status = 'sufficient-for-diagnosis';
     claimSufficiency.reason = 'iOS native diagnostics are useful for diagnosis but are not budget-comparable.';
     claimSufficiency.supportingEvidence = supportingEvidence;
-    return claimSufficiency;
+    return applyClaimSufficiencyOverride(claimSufficiency, override);
   }
 
   claimSufficiency.status = 'insufficient-for-claim';
   claimSufficiency.reason = 'No iOS native diagnostic summary fields or raw native trace attachments were supplied.';
   claimSufficiency.missingEvidence = ['iOS native diagnostic summary or native trace attachment'];
-  return claimSufficiency;
+  return applyClaimSufficiencyOverride(claimSufficiency, override);
 }
 
 /**
@@ -1179,12 +1442,8 @@ function buildIosNativePerformanceEvidence(input: IosNativePerformanceEvidenceIn
     capturedAt: input.capturedAt ?? new Date(0).toISOString(),
     captureMode: 'afterCapture',
     clockDomain: 'host',
-    completenessStatus: hasDiagnosticEvidence ? 'partial' : 'unknown',
-    comparability: {
-      status: 'diagnostic-only',
-      reason: 'iOS native diagnostics were normalized for investigation, not collected under a comparable ASL native-performance baseline.',
-      policy: 'Use this evidence to classify native/render/memory pressure; require a complete comparable lane before release performance claims.',
-    },
+    completenessStatus: input.completenessStatus ?? (hasDiagnosticEvidence ? 'partial' : 'unknown'),
+    comparability: buildIosComparability(input.comparability),
     dataClasses,
     diagnosticSources,
     evidenceKind: resolveIosEvidenceKind(sourceSummaries, Boolean(nativeTracePath)),
@@ -1193,7 +1452,7 @@ function buildIosNativePerformanceEvidence(input: IosNativePerformanceEvidenceIn
       perturbsTiming: false,
     },
     targetBinding: buildIosTargetBinding(input),
-    claimSufficiency: buildIosClaimSufficiency(supportingEvidence),
+    claimSufficiency: buildIosClaimSufficiency(supportingEvidence, input.claimSufficiency),
     summary: summarizeIosNativePerformanceEvidence(supportingEvidence),
   };
 
@@ -1257,18 +1516,6 @@ function buildAndroidNativePerformanceEvidence(input: AndroidNativePerformanceEv
     toolCommands.push('trace_processor_shell');
   }
 
-  const targetBinding: JsonRecord = {};
-  if (input.appId && input.deviceId) {
-    targetBinding.status = 'verified';
-    targetBinding.reason = 'Provider supplied both Android package id and device id for this evidence envelope.';
-  } else {
-    targetBinding.status = 'unverified';
-    targetBinding.reason = 'Provider did not supply both Android package id and device id.';
-  }
-  setDefined(targetBinding, 'appId', input.appId);
-  setDefined(targetBinding, 'deviceId', input.deviceId);
-  targetBinding.source = 'provider';
-
   const evidence: JsonRecord = {
     schemaVersion: '1.0.0',
     providerId: input.providerId,
@@ -1282,12 +1529,8 @@ function buildAndroidNativePerformanceEvidence(input: AndroidNativePerformanceEv
     capturedAt: input.capturedAt ?? new Date(0).toISOString(),
     captureMode: 'afterCapture',
     clockDomain: 'host',
-    completenessStatus: supportingEvidence.length > 0 ? 'partial' : 'unknown',
-    comparability: {
-      status: 'diagnostic-only',
-      reason: 'Android native diagnostics were normalized for investigation, not collected under a comparable ASL native-performance baseline.',
-      policy: 'Use this evidence to classify native/render/memory pressure; require a complete comparable lane before release performance claims.',
-    },
+    completenessStatus: input.completenessStatus ?? (supportingEvidence.length > 0 ? 'partial' : 'unknown'),
+    comparability: buildAndroidComparability(input.comparability),
     dataClasses,
     diagnosticSources,
     evidenceKind,
@@ -1295,19 +1538,9 @@ function buildAndroidNativePerformanceEvidence(input: AndroidNativePerformanceEv
       phase: 'afterCapture',
       perturbsTiming: false,
     },
-    targetBinding,
-    claimSufficiency: {
-      status: supportingEvidence.length > 0 ? 'sufficient-for-diagnosis' : 'insufficient-for-claim',
-      claim: 'android-native-performance',
-      reason: supportingEvidence.length > 0
-        ? 'Parsed Android native diagnostics are useful for diagnosis but are not budget-comparable.'
-        : 'No Android native diagnostic summary fields were parsed.',
-      nextAction: 'Use provider-captured raw artifacts and rerun a comparable native-performance lane before making release claims.',
-      ...(supportingEvidence.length > 0 ? { supportingEvidence } : { missingEvidence: ['gfxinfo or meminfo summary fields'] }),
-    },
-    summary: supportingEvidence.length > 0
-      ? `Normalized ${supportingEvidence.join(' and ')} as diagnostic-only native-performance evidence.`
-      : 'No Android native-performance summary fields were parsed from provider input.',
+    targetBinding: buildAndroidTargetBinding(input),
+    claimSufficiency: buildAndroidClaimSufficiency(supportingEvidence, input.claimSufficiency),
+    summary: summarizeAndroidNativePerformanceEvidence(supportingEvidence),
   };
 
   if (hasFields(frames)) {
@@ -1350,7 +1583,15 @@ export type {
   IosNativePerformanceEvidenceInput,
   IosNativePerformanceSummaryInput,
   NativePerformanceAttachment,
+  NativePerformanceClaimSufficiencyOverride,
+  NativePerformanceClaimSufficiencyStatus,
+  NativePerformanceComparabilityOverride,
+  NativePerformanceComparabilityStatus,
+  NativePerformanceCompletenessStatus,
   NativePerformanceDiagnosticSourceId,
   NativePerformanceDiagnosticSourceOverride,
   NativePerformanceDiagnosticSourceStatus,
+  NativePerformanceTargetBindingOverride,
+  NativePerformanceTargetBindingStatus,
+  NativePerformanceTargetCandidate,
 };
