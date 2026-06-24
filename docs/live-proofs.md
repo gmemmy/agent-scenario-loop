@@ -168,7 +168,7 @@ context.
 
 Scenario command targets live in `adapterOptions.iosSimctl.commands`, while the app handles them through `registerProfileCommandTargetHandler`. The iOS proof does not depend on unified logs carrying JavaScript console output; it depends on app-owned stored profile events.
 
-Attach independently produced provider evidence with `--signal <js|memory|network>:<path>` or `--capture <screenshot|video|uiTree>:<path>` so profile commands copy those files into stable run folders and inventory them in `manifest.artifacts.evidenceAttachments`.
+Attach independently produced provider evidence with `--signal <js|memory|network>[@redacted|@not-redacted|@unknown]:<path>` or `--capture <screenshot|video|uiTree>[@redacted|@not-redacted|@unknown]:<path>` so profile commands copy those files into stable run folders and inventory them in `manifest.artifacts.evidenceAttachments`. Omit the redaction suffix unless the operator owns that privacy declaration.
 
 ## Generic Mobile Proof
 
