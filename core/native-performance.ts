@@ -9,15 +9,57 @@ type NativePerformanceAttachment = {
   sizeBytes?: number;
 };
 
+type NativePerformanceDiagnosticSourceStatus =
+  | 'available-unproven'
+  | 'captured'
+  | 'failed'
+  | 'not-requested'
+  | 'partial'
+  | 'timeout'
+  | 'unknown'
+  | 'unsupported'
+  | 'unverified';
+
+type NativePerformanceDiagnosticSourceId =
+  | 'custom'
+  | 'diagnostic-summary'
+  | 'framestats'
+  | 'gfxinfo'
+  | 'instruments'
+  | 'logcat-render'
+  | 'meminfo'
+  | 'metrickit'
+  | 'native-trace'
+  | 'perfetto'
+  | 'simctl'
+  | 'trace-processor'
+  | 'xctrace';
+
 type NativePerformanceDiagnosticSource = {
   dataClasses: string[];
-  nextAction: string;
+  nextAction?: string;
   path?: string | undefined;
-  reason: string;
-  sourceId: string;
-  status: 'captured' | 'partial' | 'unverified';
-  tool: {
+  reason?: string;
+  sourceId: NativePerformanceDiagnosticSourceId;
+  status: NativePerformanceDiagnosticSourceStatus;
+  tool?: {
     name: string;
+    command?: string;
+    version?: string;
+  };
+};
+
+type NativePerformanceDiagnosticSourceOverride = {
+  dataClasses?: string[];
+  nextAction?: string;
+  path?: string;
+  reason?: string;
+  sourceId: NativePerformanceDiagnosticSourceId;
+  status: NativePerformanceDiagnosticSourceStatus;
+  tool?: {
+    command?: string;
+    name: string;
+    version?: string;
   };
 };
 
@@ -26,6 +68,7 @@ type AndroidNativePerformanceEvidenceInput = {
   attachments?: NativePerformanceAttachment[];
   capturedAt?: string;
   deviceId?: string;
+  diagnosticSources?: NativePerformanceDiagnosticSourceOverride[];
   gfxinfoText?: string;
   meminfoText?: string;
   providerId: string;
@@ -116,6 +159,7 @@ type IosNativePerformanceEvidenceInput = {
   bundleId?: string;
   capturedAt?: string;
   deviceId?: string;
+  diagnosticSources?: NativePerformanceDiagnosticSourceOverride[];
   instrumentsSummary?: IosNativePerformanceSummaryInput;
   metricKitSummary?: IosNativePerformanceSummaryInput;
   providerId: string;
@@ -488,13 +532,80 @@ function buildAndroidDiagnosticSource(source: NativePerformanceDiagnosticSource)
   const artifact: JsonRecord = {
     sourceId: source.sourceId,
     status: source.status,
-    tool: source.tool,
     dataClasses: source.dataClasses,
-    reason: source.reason,
-    nextAction: source.nextAction,
   };
+  setDefined(artifact, 'tool', source.tool);
   setDefined(artifact, 'path', source.path);
+  setDefined(artifact, 'reason', source.reason);
+  setDefined(artifact, 'nextAction', source.nextAction);
   return artifact;
+}
+
+/**
+ * Returns true for a non-empty string.
+ *
+ * @param {unknown} value
+ * @returns {value is string}
+ */
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.trim().length > 0;
+}
+
+/**
+ * Merges provider-owned native source status overrides into the generated source inventory.
+ *
+ * @param {Record<string, unknown>[]} sources
+ * @param {NativePerformanceDiagnosticSourceOverride[] | undefined} overrides
+ * @returns {Record<string, unknown>[]}
+ */
+function applyDiagnosticSourceOverrides(
+  sources: JsonRecord[],
+  overrides: NativePerformanceDiagnosticSourceOverride[] | undefined,
+): JsonRecord[] {
+  if (!overrides || overrides.length === 0) {
+    return sources;
+  }
+
+  const sourceMap = new Map<string, JsonRecord>();
+  const sourceOrder: string[] = [];
+  for (const source of sources) {
+    const sourceId = source.sourceId;
+    if (!isNonEmptyString(sourceId) || sourceMap.has(sourceId)) {
+      continue;
+    }
+    sourceMap.set(sourceId, { ...source });
+    sourceOrder.push(sourceId);
+  }
+
+  for (const override of overrides) {
+    const sourceId = override.sourceId;
+    const existingSource = sourceMap.get(sourceId);
+    const mergedSource: JsonRecord = existingSource ? { ...existingSource } : { sourceId };
+    mergedSource.status = override.status;
+
+    if (Array.isArray(override.dataClasses) && override.dataClasses.length > 0) {
+      mergedSource.dataClasses = override.dataClasses;
+    }
+    if (override.tool) {
+      mergedSource.tool = override.tool;
+    }
+    if (isNonEmptyString(override.path)) {
+      mergedSource.path = override.path;
+    }
+    if (isNonEmptyString(override.reason)) {
+      mergedSource.reason = override.reason;
+    }
+    if (isNonEmptyString(override.nextAction)) {
+      mergedSource.nextAction = override.nextAction;
+    }
+
+    if (!sourceMap.has(sourceId)) {
+      sourceOrder.push(sourceId);
+    }
+    sourceMap.set(sourceId, mergedSource);
+  }
+
+  return sourceOrder.map((sourceId) => sourceMap.get(sourceId)).filter((source): source is JsonRecord => Boolean(source));
 }
 
 /**
@@ -505,11 +616,13 @@ function buildAndroidDiagnosticSource(source: NativePerformanceDiagnosticSource)
  */
 function buildAndroidDiagnosticSources({
   attachments,
+  diagnosticSources,
   frames,
   memory,
   traceProcessor,
 }: {
   attachments: NativePerformanceAttachment[] | undefined;
+  diagnosticSources: NativePerformanceDiagnosticSourceOverride[] | undefined;
   frames: JsonRecord;
   memory: JsonRecord;
   traceProcessor: AndroidTraceProcessorSummary;
@@ -519,7 +632,7 @@ function buildAndroidDiagnosticSources({
   const traceProcessorCaptured = hasTraceProcessorSummary(traceProcessor);
   const perfettoPath = findFirstAttachmentPath(attachments, ['raw-perfetto', 'perfetto-trace', 'raw-native-trace']);
   const traceProcessorPath = findFirstAttachmentPath(attachments, ['trace-processor-summary', 'raw-trace-processor']);
-  return [
+  const sources = [
     buildAndroidDiagnosticSource({
       dataClasses: ['frames', 'jank', 'render'],
       nextAction: gfxinfoCaptured
@@ -601,6 +714,7 @@ function buildAndroidDiagnosticSources({
       },
     }),
   ];
+  return applyDiagnosticSourceOverrides(sources, diagnosticSources);
 }
 
 /**
@@ -828,9 +942,11 @@ function resolveIosEvidenceKind(
  */
 function buildIosDiagnosticSources({
   attachments,
+  diagnosticSources,
   summaries,
 }: {
   attachments: NativePerformanceAttachment[] | undefined;
+  diagnosticSources: NativePerformanceDiagnosticSourceOverride[] | undefined;
   summaries: IosNativePerformanceSourceSummary[];
 }): JsonRecord[] {
   const summaryBySource = new Map(summaries.map((entry) => [entry.sourceId, entry.summary]));
@@ -840,7 +956,7 @@ function buildIosDiagnosticSources({
   const simctlPath = findFirstAttachmentPath(attachments, ['raw-simctl', 'simctl-log', 'simctl-summary']);
   const nativeTracePath = findFirstAttachmentPath(attachments, ['raw-native-trace', 'native-trace']);
 
-  return [
+  const sources = [
     buildIosDiagnosticSource({
       dataClasses: ['frames', 'jank', 'cpu', 'memory', 'native-trace'],
       nextAction: 'Capture an Instruments trace or exported summary for iOS native-performance evidence.',
@@ -882,19 +998,20 @@ function buildIosDiagnosticSources({
       toolName: 'iOS native trace',
     }),
   ];
+  return applyDiagnosticSourceOverrides(sources, diagnosticSources);
 }
 
 /**
  * Builds one iOS native diagnostic source inventory entry.
  *
- * @param {{dataClasses: string[], nextAction: string, path?: string, sourceId: string, summary?: IosNativePerformanceSummary, toolName: string}} source
+ * @param {{dataClasses: string[], nextAction: string, path?: string, sourceId: IosNativePerformanceEvidenceSource, summary?: IosNativePerformanceSummary, toolName: string}} source
  * @returns {Record<string, unknown>}
  */
 function buildIosDiagnosticSource(source: {
   dataClasses: string[];
   nextAction: string;
   path?: string | undefined;
-  sourceId: string;
+  sourceId: IosNativePerformanceEvidenceSource;
   summary?: IosNativePerformanceSummary | undefined;
   toolName: string;
 }): JsonRecord {
@@ -1039,7 +1156,11 @@ function buildIosNativePerformanceEvidence(input: IosNativePerformanceEvidenceIn
   const sourceSummaries = buildIosSourceSummaries(input);
   const summary = mergeIosNativePerformanceSummaries(sourceSummaries);
   const nativeTracePath = findFirstAttachmentPath(input.attachments, ['raw-native-trace', 'native-trace']);
-  const diagnosticSources = buildIosDiagnosticSources({ attachments: input.attachments, summaries: sourceSummaries });
+  const diagnosticSources = buildIosDiagnosticSources({
+    attachments: input.attachments,
+    diagnosticSources: input.diagnosticSources,
+    summaries: sourceSummaries,
+  });
   const dataClasses = buildIosDataClassesWithNativeTrace(buildIosDataClasses(summary), Boolean(nativeTracePath));
   const supportingEvidence = buildIosSupportingEvidence(sourceSummaries, nativeTracePath);
   const toolCommands = buildIosToolCommands(sourceSummaries);
@@ -1108,7 +1229,13 @@ function buildAndroidNativePerformanceEvidence(input: AndroidNativePerformanceEv
   const traceProcessorCaptured = hasTraceProcessorSummary(traceProcessor);
   const evidenceKind = resolveAndroidEvidenceKind({ frames, memory, traceProcessor });
   const dataClasses = buildAndroidDataClasses({ frames, memory, traceProcessor });
-  const diagnosticSources = buildAndroidDiagnosticSources({ attachments: input.attachments, frames, memory, traceProcessor });
+  const diagnosticSources = buildAndroidDiagnosticSources({
+    attachments: input.attachments,
+    diagnosticSources: input.diagnosticSources,
+    frames,
+    memory,
+    traceProcessor,
+  });
   const supportingEvidence: string[] = [];
   if (hasFields(frames)) {
     supportingEvidence.push('android gfxinfo frame summary');
@@ -1223,4 +1350,7 @@ export type {
   IosNativePerformanceEvidenceInput,
   IosNativePerformanceSummaryInput,
   NativePerformanceAttachment,
+  NativePerformanceDiagnosticSourceId,
+  NativePerformanceDiagnosticSourceOverride,
+  NativePerformanceDiagnosticSourceStatus,
 };

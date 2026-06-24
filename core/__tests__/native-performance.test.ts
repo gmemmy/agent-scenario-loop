@@ -316,6 +316,81 @@ test('keeps Android native-performance evidence untrusted when summaries are mis
   assert.equal(evidence.tool.command, 'android native diagnostics');
 });
 
+test('preserves Android provider-owned native diagnostic source statuses', () => {
+  const evidence = buildAndroidNativePerformanceEvidence({
+    diagnosticSources: [
+      {
+        sourceId: 'gfxinfo',
+        status: 'timeout',
+        path: 'raw/providers/native/gfxinfo-timeout.txt',
+        reason: 'The provider could not collect gfxinfo before its bounded timeout.',
+        nextAction: 'Retry gfxinfo after stabilizing the target app or mark Android frame evidence unavailable.',
+      },
+      {
+        sourceId: 'perfetto',
+        status: 'not-requested',
+        reason: 'Perfetto was intentionally skipped for this lightweight diagnostic pass.',
+      },
+      {
+        sourceId: 'custom',
+        status: 'available-unproven',
+        tool: {
+          name: 'project-local-render-probe',
+          command: 'render-probe --summary',
+        },
+        dataClasses: ['render'],
+        reason: 'The project-local render probe exists, but this run did not bind its output to the target app.',
+      },
+    ],
+    providerId: 'native-provider',
+    runId: 'run-android-source-status',
+    scenarioId: 'feed-scroll',
+  });
+
+  assert.equal(evidence.claimSufficiency.status, 'insufficient-for-claim');
+  assert.deepEqual(
+    evidence.diagnosticSources
+      .filter((source: { sourceId: string }) => ['custom', 'gfxinfo', 'perfetto'].includes(source.sourceId))
+      .map((source: { dataClasses?: string[]; path?: string; sourceId: string; status: string; tool?: { command?: string; name?: string } }) => ({
+        dataClasses: source.dataClasses,
+        path: source.path,
+        sourceId: source.sourceId,
+        status: source.status,
+        tool: source.tool,
+      })),
+    [
+      {
+        dataClasses: ['frames', 'jank', 'render'],
+        path: 'raw/providers/native/gfxinfo-timeout.txt',
+        sourceId: 'gfxinfo',
+        status: 'timeout',
+        tool: {
+          name: 'adb dumpsys gfxinfo',
+        },
+      },
+      {
+        dataClasses: ['frames', 'jank', 'cpu', 'thread-scheduling', 'native-trace'],
+        path: undefined,
+        sourceId: 'perfetto',
+        status: 'not-requested',
+        tool: {
+          name: 'perfetto',
+        },
+      },
+      {
+        dataClasses: ['render'],
+        path: undefined,
+        sourceId: 'custom',
+        status: 'available-unproven',
+        tool: {
+          command: 'render-probe --summary',
+          name: 'project-local-render-probe',
+        },
+      },
+    ],
+  );
+});
+
 test('builds diagnostic-only iOS native-performance evidence from provider summaries', () => {
   const evidence = buildIosNativePerformanceEvidence({
     attachments: [
@@ -495,4 +570,63 @@ test('keeps iOS native-performance evidence untrusted when summaries are missing
   assert.equal(evidence.tool.command, 'ios native diagnostics');
   assert.equal('frames' in evidence, false);
   assert.equal('memory' in evidence, false);
+});
+
+test('preserves iOS provider-owned native diagnostic source statuses', () => {
+  const evidence = buildIosNativePerformanceEvidence({
+    diagnosticSources: [
+      {
+        sourceId: 'instruments',
+        status: 'unsupported',
+        reason: 'The selected host cannot run Instruments in this environment.',
+        nextAction: 'Use xctrace export or move this proof to a host with Instruments support.',
+      },
+      {
+        sourceId: 'xctrace',
+        status: 'failed',
+        path: 'raw/providers/native/xctrace-error.txt',
+        reason: 'xctrace failed before writing an export.',
+      },
+      {
+        sourceId: 'native-trace',
+        status: 'not-requested',
+        reason: 'Raw native trace capture was intentionally skipped for this pass.',
+      },
+    ],
+    providerId: 'native-provider',
+    runId: 'run-ios-source-status',
+    scenarioId: 'feed-scroll',
+  });
+
+  assert.equal(evidence.claimSufficiency.status, 'insufficient-for-claim');
+  assert.deepEqual(
+    evidence.diagnosticSources
+      .filter((source: { sourceId: string }) => ['instruments', 'native-trace', 'xctrace'].includes(source.sourceId))
+      .map((source: { path?: string; reason?: string; sourceId: string; status: string }) => ({
+        path: source.path,
+        reason: source.reason,
+        sourceId: source.sourceId,
+        status: source.status,
+      })),
+    [
+      {
+        path: undefined,
+        reason: 'The selected host cannot run Instruments in this environment.',
+        sourceId: 'instruments',
+        status: 'unsupported',
+      },
+      {
+        path: 'raw/providers/native/xctrace-error.txt',
+        reason: 'xctrace failed before writing an export.',
+        sourceId: 'xctrace',
+        status: 'failed',
+      },
+      {
+        path: undefined,
+        reason: 'Raw native trace capture was intentionally skipped for this pass.',
+        sourceId: 'native-trace',
+        status: 'not-requested',
+      },
+    ],
+  );
 });
