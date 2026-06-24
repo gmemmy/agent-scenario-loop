@@ -77,6 +77,7 @@ const UI_DRIVER_ACTIONS = new Set([
   'rotate',
   'typeText',
   'focus',
+  'fill',
   'pressKey',
   'pressButton',
   'assertVisible',
@@ -1062,7 +1063,7 @@ function validateAgentDeviceAdapterOptions({
     if (
       typeof selector.match === 'string' &&
       selector.match !== 'exact' &&
-      ['assertVisible', 'longPress', 'pressButton', 'tap'].includes(String(step.driverAction))
+      ['assertVisible', 'fill', 'longPress', 'pressButton', 'tap'].includes(String(step.driverAction))
     ) {
       pushInvalidAdapterOption({
         adapter: 'agentDevice',
@@ -1086,7 +1087,7 @@ function validateAgentDeviceAdapterOptions({
     }
 
     if (
-      (step.driverAction === 'tap' || step.driverAction === 'longPress' || step.driverAction === 'pressButton') &&
+      (step.driverAction === 'tap' || step.driverAction === 'fill' || step.driverAction === 'longPress' || step.driverAction === 'pressButton') &&
       !hasAgentDeviceTarget(step)
     ) {
       pushInvalidAdapterOption({
@@ -1099,12 +1100,12 @@ function validateAgentDeviceAdapterOptions({
       });
     }
 
-    if (step.driverAction === 'typeText' && (typeof agentDevice.text !== 'string' || agentDevice.text.length === 0)) {
+    if ((step.driverAction === 'typeText' || step.driverAction === 'fill') && (typeof agentDevice.text !== 'string' || agentDevice.text.length === 0)) {
       pushInvalidAdapterOption({
         adapter: 'agentDevice',
         errors,
         field: 'text',
-        message: `Step \`${stepId}\` uses driverAction \`typeText\` but adapterOptions.agentDevice.text is required.`,
+        message: `Step \`${stepId}\` uses driverAction \`${step.driverAction}\` but adapterOptions.agentDevice.text is required.`,
         scenario,
         stepId,
       });

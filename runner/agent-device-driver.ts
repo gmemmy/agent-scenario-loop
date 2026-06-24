@@ -51,6 +51,16 @@ type AgentDeviceAssertVisibleOptions = {
   selector: AgentDeviceSelector;
 };
 
+type AgentDeviceFillOptions = {
+  delayMs?: number;
+  rawFileName?: string;
+  ref?: string;
+  selector?: AgentDeviceSelector;
+  text: string;
+  x?: number;
+  y?: number;
+};
+
 type AgentDeviceInspectTreeOptions = {
   interactive?: boolean;
   rawFileName?: string;
@@ -147,6 +157,7 @@ type AgentDeviceDriver = {
   alert: (options?: AgentDeviceAlertOptions) => Promise<AgentDeviceCommandResult>;
   assertVisible: (options: AgentDeviceAssertVisibleOptions) => Promise<AgentDeviceCommandResult>;
   close: (app: string) => Promise<AgentDeviceCommandResult>;
+  fill: (options: AgentDeviceFillOptions) => Promise<AgentDeviceCommandResult>;
   focus: (options: AgentDeviceFocusOptions) => Promise<AgentDeviceCommandResult>;
   inspectTree: (options?: AgentDeviceInspectTreeOptions) => Promise<AgentDeviceCommandResult>;
   longPress: (options: AgentDeviceLongPressOptions) => Promise<AgentDeviceCommandResult>;
@@ -309,6 +320,28 @@ function createAgentDeviceDriver(options: AgentDeviceDriverOptions): AgentDevice
 
     async close(app: string): Promise<AgentDeviceCommandResult> {
       return run('close', 'agent-device-close.txt', ['close', app]);
+    },
+
+    async fill({
+      delayMs,
+      rawFileName = 'agent-device-fill.txt',
+      ref,
+      selector,
+      text,
+      x,
+      y,
+    }: AgentDeviceFillOptions): Promise<AgentDeviceCommandResult> {
+      const delayArgs = typeof delayMs === 'number' ? ['--delay-ms', String(delayMs)] : [];
+      if (selector) {
+        return run('fill', rawFileName, ['fill', formatAgentDeviceSelector(selector), text, ...delayArgs]);
+      }
+      if (ref) {
+        return run('fill', rawFileName, ['fill', ref.startsWith('@') ? ref : `@${ref}`, text, ...delayArgs]);
+      }
+      if (typeof x === 'number' && typeof y === 'number') {
+        return run('fill', rawFileName, ['fill', String(x), String(y), text, ...delayArgs]);
+      }
+      throw new Error('agent-device fill requires a selector, ref, or x/y coordinates.');
     },
 
     async inspectTree({
@@ -501,6 +534,7 @@ export type {
   AgentDeviceCommandResult,
   AgentDeviceDriver,
   AgentDeviceDriverOptions,
+  AgentDeviceFillOptions,
   AgentDeviceFocusOptions,
   AgentDeviceInspectTreeOptions,
   AgentDeviceLongPressOptions,
