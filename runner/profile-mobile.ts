@@ -59,6 +59,7 @@ type CompatibilityPreflightOptions = {
 };
 type ProfilePlatform = 'android' | 'ios';
 type ProfileMobileOptions = {
+  additionalRunnerChecks?: Record<string, unknown>[];
   commandTransport?: string;
   comparisonLane?: string;
   defaultDriver: string;
@@ -2653,13 +2654,14 @@ function buildAndroidProfileSessionSidecarObservationChecks({
 /**
  * Builds scenario health from profile metrics.
  *
- * @param {{scenario: Record<string, unknown>, runId: string, metrics: Record<string, unknown>, diagnostics?: DiagnosticInventoryEntry[], providerFailures?: ProviderCommandFailure[], profileEventCount?: number, profileSessionEntryCount?: number, commandTransport?: string, helperVersion?: ProfileHelperVersionCheck | null, runtimeIdentity?: RuntimeIdentityVerification | null, sessionEntries?: Record<string, unknown>[], sessionFreshness?: ProfileSessionFreshness | null, sessionFreshnessRequired?: boolean, sidecarObservationChecks?: Record<string, unknown>[]}} options
+ * @param {{scenario: Record<string, unknown>, runId: string, metrics: Record<string, unknown>, additionalRunnerChecks?: Record<string, unknown>[], diagnostics?: DiagnosticInventoryEntry[], providerFailures?: ProviderCommandFailure[], profileEventCount?: number, profileSessionEntryCount?: number, commandTransport?: string, helperVersion?: ProfileHelperVersionCheck | null, runtimeIdentity?: RuntimeIdentityVerification | null, sessionEntries?: Record<string, unknown>[], sessionFreshness?: ProfileSessionFreshness | null, sessionFreshnessRequired?: boolean, sidecarObservationChecks?: Record<string, unknown>[]}} options
  * @returns {Record<string, unknown>}
  */
 function buildProfileHealth({
   scenario,
   runId,
   metrics,
+  additionalRunnerChecks = [],
   diagnostics = [],
   providerFailures = [],
   profileEventCount,
@@ -2676,6 +2678,7 @@ function buildProfileHealth({
   scenario: Record<string, any>;
   runId: string;
   metrics: Record<string, any>;
+  additionalRunnerChecks?: Record<string, unknown>[];
   diagnostics?: DiagnosticInventoryEntry[];
   providerFailures?: ProviderCommandFailure[];
   profileEventCount?: number;
@@ -2800,7 +2803,11 @@ function buildProfileHealth({
   const sidecarObservationChecksPassed = sidecarObservationChecks.every((check: Record<string, any>) => (
     check.status !== 'failed'
   ));
+  const additionalRunnerChecksPassed = additionalRunnerChecks.every((check: Record<string, any>) => (
+    check.status !== 'failed'
+  ));
   const healthPassed = passed &&
+    additionalRunnerChecksPassed &&
     commandChecksPassed &&
     diagnosticChecksPassed &&
     evidenceIdentityChecksPassed &&
@@ -2828,6 +2835,7 @@ function buildProfileHealth({
             : 'Profile events did not complete every expected iteration.',
           metadata,
         },
+        ...additionalRunnerChecks,
         ...evidenceIdentityChecks,
         ...sessionFreshnessChecks,
         ...sidecarObservationChecks,
@@ -5037,6 +5045,7 @@ async function runProfileMobile(args: CliArgs, options: ProfileMobileOptions): P
     sessionFreshness,
     sessionFreshnessRequired: options.platform === 'android' && typeof args['adb-artifacts'] === 'string',
     sidecarObservationChecks,
+    additionalRunnerChecks: options.additionalRunnerChecks ?? [],
   });
   const finalHealth = appendProviderCommandFailuresToHealth({
     failures: providerExecution.failures,

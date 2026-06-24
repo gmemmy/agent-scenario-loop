@@ -47,6 +47,7 @@ type AndroidAdbProfileCommand = {
 type AndroidAdbDriverStep = import('./android-adb').AndroidAdbDriverStep;
 type AndroidAsyncStorageWrite = import('./android-adb').AndroidAsyncStorageWrite;
 type ScenarioExecutionStep = import('../core/execution-plan').ScenarioExecutionStep;
+type AndroidAdbProfileResult = Awaited<ReturnType<typeof runAndroidAdbPreflight>>;
 
 const PROFILE_SESSION_CAPTURE_BOOTSTRAP_MS = 1000;
 const PROFILE_SESSION_STORAGE_CAPTURE_BOOTSTRAP_MS = 15000;
@@ -175,6 +176,127 @@ function resolveAdbCaptureOutputDir({
   }
 
   return path.resolve('artifacts/android-adb-captures', runId);
+}
+
+function readAndroidRawArtifactByteCount({
+  capture,
+  rawPath,
+}: {
+  capture: AndroidAdbProfileResult;
+  rawPath: string;
+}): number | null {
+  const captureRoot = path.resolve(capture.runDir);
+  const filePath = path.resolve(captureRoot, rawPath);
+  const relativePath = path.relative(captureRoot, filePath);
+  if (relativePath.startsWith('..') || path.isAbsolute(relativePath)) {
+    return null;
+  }
+  if (!fs.existsSync(filePath)) {
+    return null;
+  }
+
+  return fs.statSync(filePath).size;
+}
+
+function canPublishProfileFromDegradedAdbCapture(capture: AndroidAdbProfileResult): boolean {
+  const logByteCount = readAndroidRawArtifactByteCount({
+    capture,
+    rawPath: 'raw/adb-logcat.txt',
+  });
+
+  return typeof logByteCount === 'number' && logByteCount > 0;
+}
+
+function readAndroidHealthChecks(capture: AndroidAdbProfileResult): Array<Record<string, any>> {
+  return Array.isArray(capture.health.checks)
+    ? capture.health.checks.filter((check: unknown): check is Record<string, any> => (
+        Boolean(check) && typeof check === 'object' && !Array.isArray(check)
+      ))
+    : [];
+}
+
+function collectAndroidOutputLimitedRawPaths(capture: AndroidAdbProfileResult): string[] {
+  const driverActions = Array.isArray(capture.metadata.driverActions) ? capture.metadata.driverActions : [];
+  const rawPaths: string[] = [];
+  for (const entry of driverActions) {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+      continue;
+    }
+    const record = entry as Record<string, unknown>;
+    if (record.outputLimitExceeded === true && typeof record.rawPath === 'string') {
+      rawPaths.push(record.rawPath);
+    }
+  }
+  return rawPaths;
+}
+
+function collectAndroidLegacyOutputCapRawPaths(capture: AndroidAdbProfileResult): string[] {
+  const candidateRawPaths = [
+    'raw/adb-logcat.txt',
+    'raw/adb-screenshot.png',
+    'raw/adb-screenshot-2.png',
+    'raw/adb-screenshot-3.png',
+  ];
+  return candidateRawPaths.filter((rawPath) => {
+    const byteCount = readAndroidRawArtifactByteCount({ capture, rawPath });
+    return byteCount === 1048576 || byteCount === 1048577;
+  });
+}
+
+function resolveDegradedAdbCaptureProfileCode(outputLimitedRawPaths: string[]): string {
+  if (outputLimitedRawPaths.length > 0) {
+    return 'android_adb_sidecar_output_limit_profile_published';
+  }
+
+  return 'android_adb_sidecar_health_failed_profile_published';
+}
+
+function buildDegradedAdbCaptureProfileChecks(capture: AndroidAdbProfileResult): Record<string, unknown>[] {
+  if (capture.health.healthStatus === 'passed') {
+    return [];
+  }
+
+  const checks = readAndroidHealthChecks(capture);
+  const failedChecks = checks.filter((check) => check.status === 'failed');
+  const failedCheckCodes = failedChecks
+    .map((check) => typeof check.code === 'string' ? check.code : null)
+    .filter((code): code is string => Boolean(code));
+  const failedCheckNames = failedChecks
+    .map((check) => typeof check.name === 'string' ? check.name : null)
+    .filter((name): name is string => Boolean(name));
+  const logByteCount = readAndroidRawArtifactByteCount({
+    capture,
+    rawPath: 'raw/adb-logcat.txt',
+  });
+  const outputLimitedRawPaths = collectAndroidOutputLimitedRawPaths(capture);
+  const legacyOutputCapRawPaths = collectAndroidLegacyOutputCapRawPaths(capture);
+
+  return [
+    {
+      name: 'android_adb_sidecar_health',
+      status: 'warning',
+      source: 'runner',
+      code: resolveDegradedAdbCaptureProfileCode(outputLimitedRawPaths),
+      message: 'Android adb sidecar health failed, but a usable raw log was preserved and final profile artifacts were published from that evidence.',
+      metadata: {
+        adbHealthStatus: capture.health.healthStatus,
+        failedCheckCodes: failedCheckCodes.join(','),
+        failedCheckNames: failedCheckNames.join(','),
+        logByteCount: logByteCount ?? null,
+        logRawPath: 'raw/adb-logcat.txt',
+        nextAction: 'Use final profile health, verdict, metrics, and causal timeline for interpretation; keep the adb sidecar failure as diagnostic context and rerun sidecar capture if raw evidence is incomplete.',
+        nextActionCode: 'prefer_final_profile_evidence_with_sidecar_diagnostics',
+        ...(outputLimitedRawPaths.length > 0 ? { outputLimitedRawPaths: outputLimitedRawPaths.join(',') } : {}),
+        ...(legacyOutputCapRawPaths.length > 0
+          ? {
+              possibleOutputCapRawPaths: legacyOutputCapRawPaths.join(','),
+              possibleOutputCapBytes: 1048576,
+            }
+          : {}),
+        sidecarRoot: 'adb-artifacts',
+      },
+    },
+  ];
 }
 
 /**
@@ -1307,9 +1429,11 @@ async function runProfileAndroid(
     : null;
 
   if (adbCapture && adbCapture.health.healthStatus !== 'passed') {
-    throw new Error(
-      `Android adb capture failed; inspect ${adbCapture.runDir}/agent-summary.md.${summarizeFailedAndroidChecks(adbCapture.health)}`,
-    );
+    if (!canPublishProfileFromDegradedAdbCapture(adbCapture)) {
+      throw new Error(
+        `Android adb capture failed; inspect ${adbCapture.runDir}/agent-summary.md.${summarizeFailedAndroidChecks(adbCapture.health)}`,
+      );
+    }
   }
 
   const agentDeviceCapture = agentDeviceCaptureEnabled
@@ -1374,6 +1498,7 @@ async function runProfileAndroid(
           : 'adb-capture',
     ...(options.comparisonLane ? { comparisonLane: options.comparisonLane } : {}),
     defaultDriver: 'adb-logcat',
+    additionalRunnerChecks: adbCapture ? buildDegradedAdbCaptureProfileChecks(adbCapture) : [],
     environmentPostconditions: {
       appState: {
         value: 'foreground',

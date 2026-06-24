@@ -27,9 +27,14 @@ type ExecOutput = {
 type CommandResult = {
   command: string;
   args: string[];
+  errorCode?: number | string;
+  errorMessage?: string;
   exitCode: number;
+  maxBufferBytes?: number;
+  outputLimitExceeded?: boolean;
   stderr: string;
   stdout: string;
+  stdoutBuffer?: Uint8Array;
 };
 type ExecFailure = Error & ExecOutput;
 type TestContext = import('node:test').TestContext;
@@ -136,9 +141,14 @@ function createExecutor(responses: Record<string, Partial<CommandResult>>) {
     return {
       command,
       args,
+      ...(response.errorCode !== undefined ? { errorCode: response.errorCode } : {}),
+      ...(response.errorMessage ? { errorMessage: response.errorMessage } : {}),
       exitCode: response.exitCode ?? 0,
+      ...(typeof response.maxBufferBytes === 'number' ? { maxBufferBytes: response.maxBufferBytes } : {}),
+      ...(response.outputLimitExceeded ? { outputLimitExceeded: true } : {}),
       stderr: response.stderr ?? '',
       stdout: response.stdout ?? '',
+      ...(response.stdoutBuffer ? { stdoutBuffer: response.stdoutBuffer } : {}),
     };
   };
 }
@@ -3074,6 +3084,75 @@ test('profile-android can capture adb logs and profile them in one run', async (
   assert.equal((manifest.artifacts as { raw: { interactionLog: string } }).raw.interactionLog, 'raw/adb-logcat.txt');
   assert.equal(manifest.interactionDriver, 'adb-logcat');
   assert.equal((causalRun.scenario as { driver: string }).driver, 'adb-logcat');
+  assert.ok(fs.existsSync(path.join(result.runDir, 'raw', 'adb-logcat.txt')));
+});
+
+test('profile-android publishes profile artifacts from degraded adb sidecar logs', async (t: TestContext) => {
+  const tempRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-android-degraded-adb-'));
+  t.after(async () => {
+    await fsp.rm(tempRoot, { recursive: true, force: true });
+  });
+  const adbCaptureRoot = path.join(tempRoot, 'adb-capture');
+  const profileRoot = path.join(tempRoot, 'profile');
+  const executor = createExecutor({
+    version: { stdout: 'Android Debug Bridge version 1.0.41\n' },
+    'devices -l': {
+      stdout: [
+        'List of devices attached',
+        'emulator-5554 device product:sdk_gphone model:Pixel_6 device:emu64',
+      ].join('\n'),
+    },
+    '-s emulator-5554 shell getprop ro.product.model': { stdout: 'Pixel 6\n' },
+    '-s emulator-5554 shell getprop ro.build.version.release': { stdout: '15\n' },
+    '-s emulator-5554 shell getprop ro.build.version.sdk': { stdout: '35\n' },
+    '-s emulator-5554 shell pm path dev.agentscenarioloop.example': {
+      stdout: 'package:/data/app/dev.agentscenarioloop.example/base.apk\n',
+    },
+    '-s emulator-5554 logcat -d -v time -t 1000': {
+      errorCode: 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER',
+      errorMessage: 'stdout maxBuffer length exceeded',
+      exitCode: 1,
+      maxBufferBytes: 1048576,
+      outputLimitExceeded: true,
+      stderr: 'adb command output exceeded the 1048576 byte buffer limit.',
+      stdout: fs
+        .readFileSync(fixturePath('examples/mobile-app/event-logs/android-app-startup.log'), 'utf8')
+        .replace(/android-example-startup/gu, 'android-degraded-sidecar-startup'),
+    },
+  });
+
+  const result = await runProfileAndroid({
+    'adb-capture': true,
+    'adb-out': adbCaptureRoot,
+    config: fixturePath('examples/mobile-app/asl.config.json'),
+    out: profileRoot,
+    'run-id': 'android-degraded-sidecar-startup',
+    scenario: fixturePath('examples/mobile-app/scenarios/android/app-startup.json'),
+  }, {
+    executor,
+  });
+
+  const runDir = path.join(profileRoot, 'app-startup', 'android-degraded-sidecar-startup');
+  const health = readJson(path.join(result.runDir, 'health.json'));
+  const verdict = readJson(path.join(result.runDir, 'verdict.json'));
+  const adbHealth = readJson(path.join(adbCaptureRoot, 'health.json'));
+  const adbMetadata = readJson(path.join(adbCaptureRoot, 'raw', 'android-metadata.json'));
+  const degradedCheck = (health.checks as Array<{ code: string; metadata?: Record<string, unknown>; status: string }>).find(
+    (check) => check.code === 'android_adb_sidecar_output_limit_profile_published',
+  );
+  const adbLogcatCheck = (adbHealth.checks as Array<{ code: string; metadata?: Record<string, unknown>; status: string }>).find(
+    (check) => check.code === 'android_logcat_failed',
+  );
+
+  assert.equal(result.runDir, runDir);
+  assert.equal(adbHealth.healthStatus, 'failed');
+  assert.equal(health.healthStatus, 'passed');
+  assert.equal(verdict.verdictStatus, 'passed');
+  assert.equal(degradedCheck?.status, 'warning');
+  assert.equal(degradedCheck?.metadata?.nextActionCode, 'prefer_final_profile_evidence_with_sidecar_diagnostics');
+  assert.equal(degradedCheck?.metadata?.outputLimitedRawPaths, 'raw/adb-logcat.txt');
+  assert.equal(adbLogcatCheck?.metadata?.outputLimitExceeded, true);
+  assert.equal((adbMetadata.logcat as { outputLimitExceeded?: boolean }).outputLimitExceeded, true);
   assert.ok(fs.existsSync(path.join(result.runDir, 'raw', 'adb-logcat.txt')));
 });
 

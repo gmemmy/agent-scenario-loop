@@ -6,8 +6,12 @@ type AndroidAdbCommandResult = {
   args: string[];
   capturePath?: string;
   command: string;
+  errorCode?: number | string;
+  errorMessage?: string;
   elapsedMs?: number;
   exitCode: number;
+  maxBufferBytes?: number;
+  outputLimitExceeded?: boolean;
   pollCount?: number;
   rawFileName: string;
   stderr: string;
@@ -49,11 +53,15 @@ type AndroidAdbDriverOptions = {
 type AndroidAdbCommandExecutor = (
   command: string,
   args: string[],
-  options?: { encoding?: 'buffer' | 'utf8' },
+  options?: { encoding?: 'buffer' | 'utf8'; maxBuffer?: number },
 ) => Promise<{
   args: string[];
   command: string;
+  errorCode?: number | string;
+  errorMessage?: string;
   exitCode: number;
+  maxBufferBytes?: number;
+  outputLimitExceeded?: boolean;
   stderr: string;
   stdout: string;
   stdoutBuffer?: Uint8Array;
@@ -224,7 +232,11 @@ function buildDriverResult({
     action,
     args: result.args,
     command: result.command,
+    ...(result.errorCode !== undefined ? { errorCode: result.errorCode } : {}),
+    ...(result.errorMessage ? { errorMessage: result.errorMessage } : {}),
     exitCode: result.exitCode,
+    ...(typeof result.maxBufferBytes === 'number' ? { maxBufferBytes: result.maxBufferBytes } : {}),
+    ...(result.outputLimitExceeded ? { outputLimitExceeded: true } : {}),
     rawFileName,
     stderr: result.stderr,
     stdout: result.stdout,

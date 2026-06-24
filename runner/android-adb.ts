@@ -47,18 +47,23 @@ type CliArgs = {
 type CommandResult = {
   command: string;
   args: string[];
+  errorCode?: number | string;
+  errorMessage?: string;
   exitCode: number;
+  maxBufferBytes?: number;
+  outputLimitExceeded?: boolean;
   stderr: string;
   stdout: string;
   stdoutBuffer?: Uint8Array;
 };
 type CommandExecutorOptions = {
   encoding?: 'buffer' | 'utf8';
+  maxBuffer?: number;
 };
 
 type CommandExecutor = (command: string, args: string[], options?: CommandExecutorOptions) => Promise<CommandResult>;
 type ExecFileError = Error & {
-  code?: number;
+  code?: number | string;
   killed?: boolean;
   signal?: string | null;
 };
@@ -217,6 +222,7 @@ const ANDROID_PROFILE_SESSION_TERMINAL_COMMAND_STATUSES = new Set([
   'timed-out',
 ]);
 const ANDROID_PROFILE_SESSION_LOGCAT_LINES_MIN = 10000;
+const DEFAULT_ADB_COMMAND_MAX_BUFFER_BYTES = 16 * 1024 * 1024;
 const ANDROID_ADB_CAPTURE_COMMAND_OVERHEAD_CEILING_MS = 45000;
 
 /**
@@ -948,6 +954,14 @@ function resolveExecFileExitCode(error: ExecFileError | null): number {
   return 1;
 }
 
+function isExecFileOutputLimitExceeded(error: ExecFileError | null): boolean {
+  if (!error) {
+    return false;
+  }
+
+  return /maxbuffer|stdout maxbuffer|stderr maxbuffer/iu.test(error.message);
+}
+
 function resolveStdoutBuffer(
   stdout: string | Buffer,
   options: CommandExecutorOptions,
@@ -982,19 +996,34 @@ function execFileCommandWithTimeout(
   options: CommandExecutorOptions = {},
 ): Promise<CommandResult> {
   return new Promise((resolve) => {
-    execFile(command, args, { encoding: options.encoding === 'buffer' ? 'buffer' : 'utf8', timeout: timeoutMs }, (
+    const maxBuffer = options.maxBuffer ?? DEFAULT_ADB_COMMAND_MAX_BUFFER_BYTES;
+    execFile(command, args, {
+      encoding: options.encoding === 'buffer' ? 'buffer' : 'utf8',
+      maxBuffer,
+      timeout: timeoutMs,
+    }, (
       error: ExecFileError | null,
       stdout: string | Buffer,
       stderr: string | Buffer,
     ) => {
       const timedOut = Boolean(error?.killed || error?.signal === 'SIGTERM');
+      const outputLimitExceeded = isExecFileOutputLimitExceeded(error);
       const stdoutText = Buffer.isBuffer(stdout) ? stdout.toString('utf8') : stdout;
       const stderrText = Buffer.isBuffer(stderr) ? stderr.toString('utf8') : stderr;
       resolve({
         command,
         args,
+        ...(error?.code !== undefined ? { errorCode: error.code } : {}),
+        ...(error ? { errorMessage: error.message } : {}),
         exitCode: resolveExecFileExitCode(error),
-        stderr: [stderrText, timedOut ? `adb command timed out after ${timeoutMs}ms.` : ''].filter(Boolean).join('\n'),
+        maxBufferBytes: maxBuffer,
+        ...(outputLimitExceeded ? { outputLimitExceeded } : {}),
+        stderr: [
+          stderrText,
+          outputLimitExceeded ? `adb command output exceeded the ${maxBuffer} byte buffer limit.` : '',
+          timedOut ? `adb command timed out after ${timeoutMs}ms.` : '',
+          error && !outputLimitExceeded && !timedOut ? error.message : '',
+        ].filter(Boolean).join('\n'),
         stdout: stdoutText,
         ...resolveStdoutBuffer(stdout, options),
       });
@@ -2506,6 +2535,10 @@ function buildAndroidDriverActionCheck({
       ...buildAndroidSelectorHealthMetadata(driverStep.selector),
       ...(failed ? buildAndroidDriverFailureMetadata({ driverResult, isReadLogs }) : {}),
       ...(typeof driverResult.elapsedMs === 'number' ? { elapsedMs: driverResult.elapsedMs } : {}),
+      ...(driverResult.errorCode !== undefined ? { errorCode: driverResult.errorCode } : {}),
+      ...(driverResult.errorMessage ? { errorMessage: driverResult.errorMessage } : {}),
+      ...(typeof driverResult.maxBufferBytes === 'number' ? { maxBufferBytes: driverResult.maxBufferBytes } : {}),
+      ...(driverResult.outputLimitExceeded ? { outputLimitExceeded: true } : {}),
       ...(typeof driverResult.pollCount === 'number' ? { pollCount: driverResult.pollCount } : {}),
       ...(driverResult.timedOut ? { timedOut: true } : {}),
       ...(typeof driverResult.timeoutMs === 'number' ? { timeoutMs: driverResult.timeoutMs } : {}),
@@ -2690,6 +2723,18 @@ function buildAndroidDriverFailureMetadata({
   const diagnostic = `${driverResult.stderr}\n${driverResult.stdout}`;
   const uiAutomationBusy = /uiautomationservice|uiautomator|already registered|\/sdcard\/agent-scenario-loop-ui\.xml|killed/iu
     .test(diagnostic);
+  if (driverResult.outputLimitExceeded) {
+    return {
+      ...nextActionHint(
+        'increase_or_narrow_android_driver_output',
+        `The adb driver output exceeded the configured buffer. Narrow the requested output, increase the adb command output limit, or use a bounded artifact before making claims from raw/${driverResult.rawFileName}.`,
+      ),
+      ...(failurePreview ? { failurePreview } : {}),
+      ...(typeof driverResult.maxBufferBytes === 'number'
+        ? { maxBufferBytes: String(driverResult.maxBufferBytes) }
+        : {}),
+    };
+  }
   const metadata = uiAutomationBusy
     ? nextActionHint(
       'reset_android_uiautomator',
@@ -3801,7 +3846,11 @@ async function runAndroidAdbPreflight({
           args: driverResult.args,
           driverAction: executableDriverStep.driverAction,
           ...(typeof driverResult.elapsedMs === 'number' ? { elapsedMs: driverResult.elapsedMs } : {}),
+          ...(driverResult.errorCode !== undefined ? { errorCode: driverResult.errorCode } : {}),
+          ...(driverResult.errorMessage ? { errorMessage: driverResult.errorMessage } : {}),
           exitCode: driverResult.exitCode,
+          ...(typeof driverResult.maxBufferBytes === 'number' ? { maxBufferBytes: driverResult.maxBufferBytes } : {}),
+          ...(driverResult.outputLimitExceeded ? { outputLimitExceeded: true } : {}),
           ...(driverResult.capturePath
             ? { capturePath: `captures/${path.basename(driverResult.capturePath)}` }
             : {}),
