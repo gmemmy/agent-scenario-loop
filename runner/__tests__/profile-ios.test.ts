@@ -226,21 +226,35 @@ test('profile-ios preserves captured provider evidence when another required out
   const runDir = stdout.trim();
   const nativePerformancePath = path.join(runDir, 'raw', 'providers', 'partial-ios-native-provider', 'native-performance.json');
   const manifest = readJson(path.join(runDir, 'manifest.json'));
+  const metrics = readJson(path.join(runDir, 'metrics.json')) as Record<string, any>;
   const health = readJson(path.join(runDir, 'health.json')) as Record<string, any>;
   const verdict = readJson(path.join(runDir, 'verdict.json')) as Record<string, any>;
+  const agentSummary = fs.readFileSync(path.join(runDir, 'agent-summary.md'), 'utf8');
+  const profileSummary = fs.readFileSync(path.join(runDir, 'summary.md'), 'utf8');
+  const profileSummaryHeader = profileSummary.split('\n## ', 1)[0] ?? profileSummary;
   const commandRecord = readJson(path.join(runDir, 'raw', 'provider-commands', 'partial-ios-native-provider-capture-required-diagnostics.json'));
   const diagnostics = (manifest.artifacts as { diagnostics: Array<Record<string, unknown>> }).diagnostics;
+  const attachments = (manifest.artifacts as { evidenceAttachments: Array<Record<string, unknown>> }).evidenceAttachments;
   const nativePerformanceDiagnostic = diagnostics.find((entry) => entry.kind === 'nativePerformance');
   const accessibilityDiagnostic = diagnostics.find((entry) => entry.kind === 'accessibility');
 
   assert.equal(fs.existsSync(nativePerformancePath), true);
+  assert.equal(metrics.status, 'passed');
   assert.equal(health.healthStatus, 'failed');
   assert.equal(verdict.verdictStatus, 'inconclusive');
   assert.equal(commandRecord.exitCode, 7);
   assert.equal(nativePerformanceDiagnostic?.status, 'captured');
+  assert.equal(nativePerformanceDiagnostic?.required, true);
   assert.equal(nativePerformanceDiagnostic?.path, 'raw/providers/partial-ios-native-provider/native-performance.json');
   assert.equal(accessibilityDiagnostic?.status, 'failed');
+  assert.equal(accessibilityDiagnostic?.required, true);
   assert.equal(accessibilityDiagnostic?.provider, 'partial-ios-native-provider');
+  assert.deepEqual(attachments.map((attachment) => attachment.kind), ['nativePerformance']);
+  assert.ok(
+    (health.checks as Array<{ code: string; metadata?: { nextActionCode?: string; providerId?: string } }>).some(
+      (check) => check.code === 'provider_command_failed' && check.metadata?.providerId === 'partial-ios-native-provider',
+    ),
+  );
   assert.ok(
     (health.checks as Array<{ code: string; metadata?: { capturedKinds?: string; failedRequiredKinds?: string; nextActionCode?: string } }>).some(
       (check) => (
@@ -251,6 +265,22 @@ test('profile-ios preserves captured provider evidence when another required out
       ),
     ),
   );
+  assert.ok(
+    (health.checks as Array<{ code: string; metadata?: { kind?: string; nextActionCode?: string; providerId?: string } }>).some(
+      (check) => check.code === 'required_diagnostic_not_captured' && check.metadata?.kind === 'accessibility',
+    ),
+  );
+  assert.doesNotMatch(profileSummaryHeader, /^- Status: passed$/m);
+  assert.doesNotMatch(profileSummary, /^- Terminal state: passed$/m);
+  assert.match(profileSummary, /^- Status: failed/m);
+  assert.match(profileSummary, /^- Health: failed/m);
+  assert.match(profileSummary, /^- Verdict: inconclusive/m);
+  assert.match(agentSummary, /Do not optimize from this run/u);
+  assert.match(agentSummary, /Owner: `provider_tooling`/u);
+  assert.match(agentSummary, /## preserved diagnostic evidence/u);
+  assert.match(agentSummary, /Captured .*`nativePerformance`/u);
+  assert.match(agentSummary, /Missing required `accessibility`/u);
+  assert.match(agentSummary, /Next action `use_partial_provider_evidence_for_diagnosis`/u);
 });
 
 test('profile-ios profiles public scenario ids and milestone budgets', async (t: TestContext) => {
