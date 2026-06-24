@@ -1,5 +1,6 @@
 export {
   emitProfileEvent,
+  PROFILE_SESSION_STORAGE_KEYS,
   registerProfileCommandTargetHandler,
   storeProfileSignal,
   useProfileSession,

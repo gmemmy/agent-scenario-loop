@@ -104,6 +104,7 @@ type ProjectValidationResult = {
 
 const REQUIRED_APP_HELPER_EXPORTS = [
   'emitProfileEvent',
+  'PROFILE_SESSION_STORAGE_KEYS',
   'registerProfileCommandTargetHandler',
   'useProfileSessionBootstrap',
 ];
