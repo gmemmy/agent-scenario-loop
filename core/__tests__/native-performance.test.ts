@@ -391,6 +391,120 @@ test('preserves Android provider-owned native diagnostic source statuses', () =>
   );
 });
 
+test('preserves Android provider-owned claim sufficiency and target ambiguity', () => {
+  const evidence = buildAndroidNativePerformanceEvidence({
+    appId: 'com.example.app',
+    claimSufficiency: {
+      status: 'insufficient-for-claim',
+      claim: 'android-native-frame-budget',
+      reason: 'Frame and memory diagnostics survived, but accessibility and comparable trace evidence were unavailable.',
+      nextAction: 'Rerun with the required accessibility and trace outputs before product comparison.',
+      missingEvidence: ['accessibility snapshot', 'comparable trace window'],
+      supportingEvidence: ['gfxinfo summary', 'meminfo summary'],
+    },
+    comparability: {
+      status: 'captured-not-comparable',
+      reason: 'Capture was collected after the active loop and cannot be compared to product budgets.',
+      policy: 'Use as diagnostic evidence only.',
+    },
+    deviceId: 'emulator-5554',
+    gfxinfoText: `
+      Total frames rendered: 100
+      Janky frames: 10 (10.00%)
+    `,
+    meminfoText: `
+      TOTAL PSS: 250000 KB
+    `,
+    providerId: 'native-provider',
+    runId: 'run-android-claim-override',
+    scenarioId: 'feed-scroll',
+    targetBinding: {
+      status: 'ambiguous',
+      reason: 'Two app runtimes were visible during capture.',
+      source: 'provider',
+      candidateTargets: [
+        {
+          appId: 'com.example.app',
+          bindingStatus: 'expected',
+          deviceId: 'emulator-5554',
+          platform: 'android',
+          source: 'runner',
+        },
+        {
+          appId: 'com.example.app.debug',
+          bindingStatus: 'observed',
+          deviceId: 'emulator-5554',
+          platform: 'android',
+          reason: 'Provider observed the debug runtime in the native trace metadata.',
+        },
+      ],
+    },
+  });
+
+  assert.equal(evidence.claimSufficiency.status, 'insufficient-for-claim');
+  assert.equal(evidence.claimSufficiency.claim, 'android-native-frame-budget');
+  assert.deepEqual(evidence.claimSufficiency.missingEvidence, ['accessibility snapshot', 'comparable trace window']);
+  assert.deepEqual(evidence.claimSufficiency.supportingEvidence, ['gfxinfo summary', 'meminfo summary']);
+  assert.equal(evidence.comparability.status, 'captured-not-comparable');
+  assert.equal(evidence.targetBinding.status, 'ambiguous');
+  assert.equal(evidence.targetBinding.candidateTargets.length, 2);
+});
+
+test('rejects Android comparison sufficiency without comparable complete verified evidence', () => {
+  assert.throws(
+    () =>
+      buildAndroidNativePerformanceEvidence({
+        claimSufficiency: {
+          status: 'sufficient-for-comparison',
+          claim: 'android-native-frame-budget',
+          reason: 'Provider attempted to mark the evidence comparable.',
+        },
+        gfxinfoText: `
+          Total frames rendered: 100
+          Janky frames: 1 (1.00%)
+        `,
+        providerId: 'native-provider',
+        runId: 'run-android-overclaim',
+        scenarioId: 'feed-scroll',
+      }),
+    /Native performance evidence artifact failed schema validation/,
+  );
+});
+
+test('accepts Android comparison sufficiency when completeness, comparability, and target binding are verified', () => {
+  const evidence = buildAndroidNativePerformanceEvidence({
+    appId: 'com.example.app',
+    claimSufficiency: {
+      status: 'sufficient-for-comparison',
+      claim: 'android-native-frame-budget',
+      reason: 'Provider captured a complete comparable trace against the verified target.',
+      supportingEvidence: ['complete trace-processor summary'],
+    },
+    comparability: {
+      status: 'comparable',
+      reason: 'The provider used the release-gated baseline capture policy.',
+      policy: 'release-native-baseline-v1',
+    },
+    completenessStatus: 'complete',
+    deviceId: 'emulator-5554',
+    providerId: 'native-provider',
+    runId: 'run-android-comparable',
+    scenarioId: 'feed-scroll',
+    traceProcessorSummary: {
+      durationMs: 12000,
+      frameCount: 100,
+      jankyFrameCount: 1,
+      p95FrameMs: 18,
+      traceId: 'trace-1',
+    },
+  });
+
+  assert.equal(evidence.claimSufficiency.status, 'sufficient-for-comparison');
+  assert.equal(evidence.comparability.status, 'comparable');
+  assert.equal(evidence.completenessStatus, 'complete');
+  assert.equal(evidence.targetBinding.status, 'verified');
+});
+
 test('builds diagnostic-only iOS native-performance evidence from provider summaries', () => {
   const evidence = buildIosNativePerformanceEvidence({
     attachments: [
@@ -629,4 +743,61 @@ test('preserves iOS provider-owned native diagnostic source statuses', () => {
       },
     ],
   );
+});
+
+test('preserves iOS provider-owned claim sufficiency and mismatch binding', () => {
+  const evidence = buildIosNativePerformanceEvidence({
+    appId: 'com.example.ios.dev',
+    bundleId: 'com.example.ios.dev',
+    claimSufficiency: {
+      status: 'insufficient-for-claim',
+      claim: 'ios-native-hitch-budget',
+      reason: 'xctrace metrics survived, but target binding observed a different bundle.',
+      nextAction: 'Rerun after binding the provider to the selected simulator and app bundle.',
+      missingEvidence: ['verified target binding'],
+      supportingEvidence: ['xctrace summary'],
+    },
+    comparability: {
+      status: 'low-confidence',
+      reason: 'The trace was captured while another runtime was connected.',
+      policy: 'diagnostic-only',
+    },
+    deviceId: 'SIM-123',
+    providerId: 'native-provider',
+    runId: 'run-ios-claim-override',
+    scenarioId: 'feed-scroll',
+    targetBinding: {
+      status: 'mismatch',
+      reason: 'Provider metadata named a different bundle than the selected scenario target.',
+      source: 'provider',
+      candidateTargets: [
+        {
+          appId: 'com.example.ios.dev',
+          bindingStatus: 'expected',
+          deviceId: 'SIM-123',
+          platform: 'ios',
+          source: 'runner',
+        },
+        {
+          appId: 'com.example.ios.other',
+          bindingStatus: 'observed',
+          deviceId: 'SIM-123',
+          platform: 'ios',
+          reason: 'Observed in provider trace metadata.',
+        },
+      ],
+    },
+    xctraceSummary: {
+      durationMs: 12000,
+      p95FrameMs: 28,
+      traceId: 'ios-trace-1',
+    },
+  });
+
+  assert.equal(evidence.claimSufficiency.status, 'insufficient-for-claim');
+  assert.deepEqual(evidence.claimSufficiency.missingEvidence, ['verified target binding']);
+  assert.deepEqual(evidence.claimSufficiency.supportingEvidence, ['xctrace summary']);
+  assert.equal(evidence.comparability.status, 'low-confidence');
+  assert.equal(evidence.targetBinding.status, 'mismatch');
+  assert.equal(evidence.targetBinding.candidateTargets.length, 2);
 });
