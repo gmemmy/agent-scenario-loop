@@ -24,8 +24,10 @@ const DRIVER_PORT = [
   'fill',
   'scroll',
   'swipe',
+  'drag',
   'pinch',
   'rotate',
+  'rotateGesture',
   'pressKey',
   'pressButton',
   'focus',
@@ -35,6 +37,8 @@ const DRIVER_PORT = [
   'record',
   'readLogs',
   'collectPerfSignals',
+  'customGesture',
+  'runSequence',
 ];
 
 const ARTIFACT_WRITER_PORT = [
@@ -103,8 +107,10 @@ type DriverActionName =
   | 'fill'
   | 'scroll'
   | 'swipe'
+  | 'drag'
   | 'pinch'
   | 'rotate'
+  | 'rotateGesture'
   | 'pressKey'
   | 'pressButton'
   | 'focus'
@@ -113,7 +119,9 @@ type DriverActionName =
   | 'screenshot'
   | 'record'
   | 'readLogs'
-  | 'collectPerfSignals';
+  | 'collectPerfSignals'
+  | 'customGesture'
+  | 'runSequence';
 
 type DriverActionInput = {
   action: string;
@@ -185,6 +193,8 @@ type EvidenceProviderPort = {
 type DriverPort = {
   assertVisible(input: DriverActionInput): MaybePromise<DriverActionResult>;
   collectPerfSignals(input: DriverActionInput): MaybePromise<DriverActionResult>;
+  customGesture(input: DriverActionInput): MaybePromise<DriverActionResult>;
+  drag(input: DriverActionInput): MaybePromise<DriverActionResult>;
   fill(input: DriverActionInput): MaybePromise<DriverActionResult>;
   focus(input: DriverActionInput): MaybePromise<DriverActionResult>;
   inspectTree(input: DriverActionInput): MaybePromise<DriverActionResult>;
@@ -195,6 +205,8 @@ type DriverPort = {
   readLogs(input: DriverActionInput): MaybePromise<DriverActionResult>;
   record(input: DriverActionInput): MaybePromise<DriverActionResult>;
   rotate(input: DriverActionInput): MaybePromise<DriverActionResult>;
+  rotateGesture(input: DriverActionInput): MaybePromise<DriverActionResult>;
+  runSequence(input: DriverActionInput): MaybePromise<DriverActionResult>;
   screenshot(input: DriverActionInput): MaybePromise<DriverActionResult>;
   scroll(input: DriverActionInput): MaybePromise<DriverActionResult>;
   swipe(input: DriverActionInput): MaybePromise<DriverActionResult>;

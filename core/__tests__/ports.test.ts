@@ -37,7 +37,7 @@ test('reports missing driver methods', () => {
 
   assert.deepEqual(
     missingPortMethods(implementation, DRIVER_PORT),
-    ['longPress', 'typeText', 'fill', 'scroll', 'swipe', 'pinch', 'rotate', 'pressKey', 'pressButton', 'focus', 'assertVisible', 'inspectTree', 'record', 'readLogs', 'collectPerfSignals'],
+    ['longPress', 'typeText', 'fill', 'scroll', 'swipe', 'drag', 'pinch', 'rotate', 'rotateGesture', 'pressKey', 'pressButton', 'focus', 'assertVisible', 'inspectTree', 'record', 'readLogs', 'collectPerfSignals', 'customGesture', 'runSequence'],
   );
 });
 
@@ -74,16 +74,38 @@ test('dispatches normalized driver actions to a swappable driver', async () => {
         },
       };
     },
+    async drag(input: { action: string; platform: string }) {
+      return {
+        status: 'passed',
+        value: {
+          action: input.action,
+          platform: input.platform,
+        },
+      };
+    },
+    async runSequence(input: { action: string; platform: string }) {
+      return {
+        status: 'passed',
+        value: {
+          action: input.action,
+          platform: input.platform,
+        },
+      };
+    },
   };
 
   assert.equal(isDriverActionName('tap'), true);
   assert.equal(isDriverActionName('swipe'), true);
+  assert.equal(isDriverActionName('drag'), true);
   assert.equal(isDriverActionName('pinch'), true);
   assert.equal(isDriverActionName('rotate'), true);
+  assert.equal(isDriverActionName('rotateGesture'), true);
   assert.equal(isDriverActionName('fill'), true);
   assert.equal(isDriverActionName('pressKey'), true);
   assert.equal(isDriverActionName('pressButton'), true);
   assert.equal(isDriverActionName('focus'), true);
+  assert.equal(isDriverActionName('customGesture'), true);
+  assert.equal(isDriverActionName('runSequence'), true);
   assert.equal(isDriverActionName('unknown'), false);
 
   const result = await dispatchDriverAction({
@@ -117,6 +139,38 @@ test('dispatches normalized driver actions to a swappable driver', async () => {
     value: {
       action: 'pressKey',
       platform: 'ios',
+    },
+  });
+
+  const dragResult = await dispatchDriverAction({
+    driver,
+    input: {
+      action: 'drag',
+      platform: 'ios',
+    },
+  });
+
+  assert.deepEqual(dragResult, {
+    status: 'passed',
+    value: {
+      action: 'drag',
+      platform: 'ios',
+    },
+  });
+
+  const runSequenceResult = await dispatchDriverAction({
+    driver,
+    input: {
+      action: 'runSequence',
+      platform: 'android',
+    },
+  });
+
+  assert.deepEqual(runSequenceResult, {
+    status: 'passed',
+    value: {
+      action: 'runSequence',
+      platform: 'android',
     },
   });
 });
