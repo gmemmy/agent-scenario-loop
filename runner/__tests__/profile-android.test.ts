@@ -2354,7 +2354,9 @@ test('profile-android preserves captured provider evidence when another required
       "const fs = require('node:fs');",
       "const path = require('node:path');",
       "const nativePerformancePath = process.argv[2];",
+      "const memoryPath = process.argv[3];",
       'fs.mkdirSync(path.dirname(nativePerformancePath), { recursive: true });',
+      'fs.mkdirSync(path.dirname(memoryPath), { recursive: true });',
       "fs.writeFileSync(nativePerformancePath, JSON.stringify({",
       "  schemaVersion: '1.0.0',",
       "  providerId: 'partial-native-provider',",
@@ -2370,6 +2372,7 @@ test('profile-android preserves captured provider evidence when another required
       "  comparability: { status: 'diagnostic-only', reason: 'Provider command failed after preserving native performance evidence.' },",
       "  frames: { totalFrameCount: 42, droppedFrameCount: 3 }",
       "}) + '\\n');",
+      "fs.writeFileSync(memoryPath, JSON.stringify({ totalPssKb: 1264994, nativeHeapKb: 899204 }) + '\\n');",
       "process.stderr.write('accessibility snapshot timed out\\n');",
       'process.exit(7);',
     ].join('\n'),
@@ -2394,6 +2397,7 @@ test('profile-android preserves captured provider evidence when another required
           args: [
             providerScript,
             '{providerDir}/native-performance.json',
+            '{providerDir}/memory.json',
           ],
           outputs: [
             {
@@ -2401,6 +2405,11 @@ test('profile-android preserves captured provider evidence when another required
               kind: 'nativePerformance',
               path: '{providerDir}/native-performance.json',
               required: true,
+            },
+            {
+              channel: 'signal',
+              kind: 'memory',
+              path: '{providerDir}/memory.json',
             },
             {
               channel: 'provider',
@@ -2441,6 +2450,7 @@ test('profile-android preserves captured provider evidence when another required
   const diagnostics = (manifest.artifacts as { diagnostics: Array<Record<string, unknown>> }).diagnostics;
   const attachments = (manifest.artifacts as { evidenceAttachments: Array<Record<string, unknown>> }).evidenceAttachments;
   const nativePerformanceDiagnostic = diagnostics.find((entry) => entry.kind === 'nativePerformance');
+  const memoryDiagnostic = diagnostics.find((entry) => entry.kind === 'memory');
   const accessibilityDiagnostic = diagnostics.find((entry) => entry.kind === 'accessibility');
 
   assert.equal(fs.existsSync(nativePerformancePath), true);
@@ -2451,20 +2461,25 @@ test('profile-android preserves captured provider evidence when another required
   assert.equal(nativePerformanceDiagnostic?.status, 'captured');
   assert.equal(nativePerformanceDiagnostic?.required, true);
   assert.equal(nativePerformanceDiagnostic?.path, 'raw/providers/partial-native-provider/native-performance.json');
+  assert.equal(memoryDiagnostic?.status, 'captured');
+  assert.equal(memoryDiagnostic?.provider, 'partial-native-provider');
+  assert.equal(memoryDiagnostic?.path, 'signals/memory/memory.json');
   assert.equal(accessibilityDiagnostic?.status, 'failed');
   assert.equal(accessibilityDiagnostic?.required, true);
   assert.equal(accessibilityDiagnostic?.provider, 'partial-native-provider');
-  assert.deepEqual(attachments.map((attachment) => attachment.kind), ['nativePerformance']);
+  assert.deepEqual(attachments.map((attachment) => attachment.kind), ['nativePerformance', 'memory']);
   assert.ok(
     (health.checks as Array<{ code: string; metadata?: { kind?: string; nextActionCode?: string; providerId?: string } }>).some(
       (check) => check.code === 'provider_command_failed' && check.metadata?.providerId === 'partial-native-provider',
     ),
   );
   assert.ok(
-    (health.checks as Array<{ code: string; metadata?: { capturedKinds?: string; failedRequiredKinds?: string; nextActionCode?: string } }>).some(
+    (health.checks as Array<{ code: string; metadata?: { capturedKinds?: string; diagnosticOnlyKinds?: string; failedRequiredKinds?: string; nextActionCode?: string } }>).some(
       (check) => (
         check.code === 'partial_provider_evidence_preserved' &&
         check.metadata?.capturedKinds?.split(',').includes('nativePerformance') &&
+        check.metadata?.capturedKinds?.split(',').includes('memory') &&
+        check.metadata?.diagnosticOnlyKinds?.split(',').includes('memory') &&
         check.metadata?.failedRequiredKinds?.split(',').includes('accessibility') &&
         check.metadata?.nextActionCode === 'use_partial_provider_evidence_for_diagnosis'
       ),

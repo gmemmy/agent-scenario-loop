@@ -143,6 +143,7 @@ type AttachedEvidence = {
   };
   copies: EvidenceAttachment[];
   signals: Record<SignalEvidenceKind, string[]>;
+  signalSources: Record<SignalEvidenceKind, Array<{ path: string; providerId?: string }>>;
 };
 type RuntimeTarget = {
   name: string;
@@ -1192,6 +1193,11 @@ async function resolveAttachedEvidence({
       memory: [],
       network: [],
     },
+    signalSources: {
+      js: [],
+      memory: [],
+      network: [],
+    },
   };
   const destinationPaths = new Set<string>();
 
@@ -1248,7 +1254,12 @@ async function resolveAttachedEvidence({
         throw new Error(`Signal evidence kind "${input.kind}" is not supported.`);
       }
 
-      attached.signals[input.kind as SignalEvidenceKind].push(input.manifestPath);
+      const signalKind = input.kind as SignalEvidenceKind;
+      attached.signals[signalKind].push(input.manifestPath);
+      attached.signalSources[signalKind].push({
+        path: input.manifestPath,
+        ...(input.providerId ? { providerId: input.providerId } : {}),
+      });
     } else if (input.channel === 'capture') {
       if (input.kind === 'screenshot') {
         attached.captures.screenshots.push(input.manifestPath);
@@ -1845,6 +1856,19 @@ function resolveSignalDiagnosticReason(
   };
 }
 
+function resolveSignalDiagnosticProvider(
+  signalSources: AttachedEvidence['signalSources'],
+  kind: 'memory' | 'network',
+  missingProviderOutput: ProviderOutputStatus | undefined,
+): string | undefined {
+  const providerId = signalSources[kind].find((source) => typeof source.providerId === 'string')?.providerId;
+  if (providerId) {
+    return providerId;
+  }
+
+  return missingProviderOutput?.providerId;
+}
+
 /**
  * Builds the product-neutral diagnostic inventory for a profile run.
  *
@@ -2062,8 +2086,9 @@ function buildDiagnosticInventory({
     const missingProviderOutput = missingProviderOutputByKind.get(kind);
     const captured = attachedEvidence.signals[kind].length > 0;
     const reason = resolveSignalDiagnosticReason(kind, captured, missingProviderOutput);
+    const provider = resolveSignalDiagnosticProvider(attachedEvidence.signalSources, kind, missingProviderOutput);
     pushDiagnostic(kind, {
-      ...(missingProviderOutput ? { provider: missingProviderOutput.providerId } : {}),
+      ...(provider ? { provider } : {}),
       status: resolveProviderBackedDiagnosticStatus(captured, missingProviderOutput),
       ...(attachedEvidence.signals[kind][0] ? { path: attachedEvidence.signals[kind][0] } : {}),
       ...reason,
