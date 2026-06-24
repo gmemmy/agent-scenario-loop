@@ -136,6 +136,7 @@ test('builds diagnostic-only Android native-performance evidence from platform s
       },
     ],
   );
+  assert.equal(evidence.tool.command, 'dumpsys gfxinfo / dumpsys meminfo');
   assert.deepEqual(evidence.frames, {
     janky: 12,
     jankyPercent: 12,
@@ -156,6 +157,109 @@ test('builds diagnostic-only Android native-performance evidence from platform s
     {
       kind: 'raw-meminfo',
       path: 'raw/providers/native/meminfo.txt',
+    },
+  ]);
+});
+
+test('builds Android native-performance evidence from trace-processor summaries', () => {
+  const evidence = buildAndroidNativePerformanceEvidence({
+    appId: 'com.example.app',
+    attachments: [
+      {
+        kind: 'raw-perfetto',
+        path: 'raw/providers/native/feed-scroll.perfetto-trace',
+      },
+      {
+        kind: 'trace-processor-summary',
+        path: 'raw/providers/native/trace-processor-summary.json',
+      },
+    ],
+    capturedAt: '2026-06-23T00:00:00.000Z',
+    deviceId: 'emulator-5554',
+    providerId: 'native-provider',
+    runId: 'run-trace',
+    scenarioId: 'feed-scroll',
+    traceProcessorSummary: {
+      cpuMs: 321.5,
+      durationMs: 20000,
+      frameCount: 7574,
+      jankyFrameCount: 805,
+      mainThreadCpuMs: 201.25,
+      missedDeadlineFrameCount: 119,
+      p95FrameMs: 113,
+      renderThreadCpuMs: 88.75,
+      threadSchedulingDelayMs: 42,
+      traceId: 'feed-scroll-trace',
+      windowEndMs: 20000,
+      windowStartMs: 0,
+      worstFrameMs: 587.6,
+    },
+  });
+
+  assert.equal(evidence.evidenceKind, 'trace-processor');
+  assert.equal(evidence.completenessStatus, 'partial');
+  assert.deepEqual(evidence.dataClasses, ['frames', 'jank', 'render', 'cpu', 'thread-scheduling', 'native-trace']);
+  assert.equal(evidence.comparability.status, 'diagnostic-only');
+  assert.equal(evidence.claimSufficiency.status, 'sufficient-for-diagnosis');
+  assert.deepEqual(
+    evidence.diagnosticSources.map((source: { path?: string; sourceId: string; status: string }) => ({
+      path: source.path,
+      sourceId: source.sourceId,
+      status: source.status,
+    })),
+    [
+      {
+        path: undefined,
+        sourceId: 'gfxinfo',
+        status: 'unverified',
+      },
+      {
+        path: undefined,
+        sourceId: 'framestats',
+        status: 'unverified',
+      },
+      {
+        path: undefined,
+        sourceId: 'meminfo',
+        status: 'unverified',
+      },
+      {
+        path: 'raw/providers/native/feed-scroll.perfetto-trace',
+        sourceId: 'perfetto',
+        status: 'captured',
+      },
+      {
+        path: 'raw/providers/native/trace-processor-summary.json',
+        sourceId: 'trace-processor',
+        status: 'captured',
+      },
+      {
+        path: undefined,
+        sourceId: 'logcat-render',
+        status: 'unverified',
+      },
+    ],
+  );
+  assert.equal(evidence.tool.command, 'trace_processor_shell');
+  assert.deepEqual(evidence.frames, {
+    jankyFrameCount: 805,
+    missedDeadlineFrameCount: 119,
+    p95FrameMs: 113,
+    totalFrameCount: 7574,
+    worstFrameMs: 587.6,
+  });
+  assert.deepEqual(evidence.metrics, {
+    cpuMs: 321.5,
+    mainThreadCpuMs: 201.25,
+    renderThreadCpuMs: 88.75,
+    threadSchedulingDelayMs: 42,
+  });
+  assert.deepEqual(evidence.traces, [
+    {
+      durationMs: 20000,
+      traceId: 'feed-scroll-trace',
+      windowEndMs: 20000,
+      windowStartMs: 0,
     },
   ]);
 });
@@ -208,4 +312,5 @@ test('keeps Android native-performance evidence untrusted when summaries are mis
   );
   assert.equal('frames' in evidence, false);
   assert.equal('memory' in evidence, false);
+  assert.equal(evidence.tool.command, 'android native diagnostics');
 });
