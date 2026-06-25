@@ -144,10 +144,12 @@ final profile artifacts from the preserved log and records
 `android_adb_sidecar_health` as a warning in `health.json`. If the adb command
 hit the configured output buffer, the warning code is
 `android_adb_sidecar_output_limit_profile_published` and the sidecar driver
-metadata records `outputLimitExceeded` plus `maxBufferBytes`. Treat the final
-profile health, verdict, metrics, and causal timeline as the interpretation
-surface, and treat the failed sidecar checks as diagnostic context for the next
-capture.
+metadata records `outputLimitExceeded` plus `maxBufferBytes`. When a legacy or
+external sidecar preserves exact buffer-sized raw files without that explicit
+driver flag, the profile warning records `possibleOutputCapRawPaths` instead.
+Treat the final profile health, verdict, metrics, and causal timeline as the
+interpretation surface, and treat the failed sidecar checks as diagnostic
+context for the next capture.
 
 When a scenario requests a screenshot, pass supported simulator screenshot options through the iOS capture command with `--screenshot-type`, `--screenshot-display`, or `--screenshot-mask`; ASL records the chosen options in capture metadata and the resulting path in `manifest.artifacts.captures.screenshots`.
 

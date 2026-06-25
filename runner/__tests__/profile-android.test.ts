@@ -129,6 +129,19 @@ function sha256File(filePath: string): string {
 }
 
 /**
+ * Pads ASCII fixture text to one exact byte length for raw artifact boundary tests.
+ *
+ * @param {string} value
+ * @param {number} targetBytes
+ * @returns {string}
+ */
+function padAsciiToByteLength(value: string, targetBytes: number): string {
+  const currentBytes = Buffer.byteLength(value, 'utf8');
+  assert.ok(currentBytes <= targetBytes, `fixture already exceeds ${targetBytes} bytes`);
+  return `${value}${'#'.repeat(targetBytes - currentBytes)}`;
+}
+
+/**
  * Creates a fake adb executor from argument-keyed responses.
  *
  * @param {Record<string, Partial<CommandResult>>} responses
@@ -3159,7 +3172,12 @@ test('profile-android publishes profile artifacts from degraded adb sidecar logs
   const verdict = readJson(path.join(result.runDir, 'verdict.json'));
   const adbHealth = readJson(path.join(adbCaptureRoot, 'health.json'));
   const adbMetadata = readJson(path.join(adbCaptureRoot, 'raw', 'android-metadata.json'));
-  const degradedCheck = (health.checks as Array<{ code: string; metadata?: Record<string, unknown>; status: string }>).find(
+  const degradedCheck = (health.checks as Array<{
+    code: string;
+    metadata?: Record<string, unknown>;
+    name: string;
+    status: string;
+  }>).find(
     (check) => check.code === 'android_adb_sidecar_output_limit_profile_published',
   );
   const adbLogcatCheck = (adbHealth.checks as Array<{ code: string; metadata?: Record<string, unknown>; status: string }>).find(
@@ -3176,6 +3194,72 @@ test('profile-android publishes profile artifacts from degraded adb sidecar logs
   assert.equal(adbLogcatCheck?.metadata?.outputLimitExceeded, true);
   assert.equal((adbMetadata.logcat as { outputLimitExceeded?: boolean }).outputLimitExceeded, true);
   assert.ok(fs.existsSync(path.join(result.runDir, 'raw', 'adb-logcat.txt')));
+});
+
+test('profile-android surfaces possible legacy output caps from degraded adb sidecar logs', async (t: TestContext) => {
+  const tempRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-android-legacy-output-cap-'));
+  t.after(async () => {
+    await fsp.rm(tempRoot, { recursive: true, force: true });
+  });
+  const adbCaptureRoot = path.join(tempRoot, 'adb-capture');
+  const profileRoot = path.join(tempRoot, 'profile');
+  const logcatStderr = 'adb logcat returned a nonzero status after writing buffered output.';
+  const rawLog = padAsciiToByteLength(
+    fs
+      .readFileSync(fixturePath('examples/mobile-app/event-logs/android-app-startup.log'), 'utf8')
+      .replace(/android-example-startup/gu, 'android-legacy-output-cap-startup'),
+    1048577 - Buffer.byteLength(`\n${logcatStderr}\n`, 'utf8'),
+  );
+  const executor = createExecutor({
+    version: { stdout: 'Android Debug Bridge version 1.0.41\n' },
+    'devices -l': {
+      stdout: [
+        'List of devices attached',
+        'emulator-5554 device product:sdk_gphone model:Pixel_6 device:emu64',
+      ].join('\n'),
+    },
+    '-s emulator-5554 shell getprop ro.product.model': { stdout: 'Pixel 6\n' },
+    '-s emulator-5554 shell getprop ro.build.version.release': { stdout: '15\n' },
+    '-s emulator-5554 shell getprop ro.build.version.sdk': { stdout: '35\n' },
+    '-s emulator-5554 shell pm path dev.agentscenarioloop.example': {
+      stdout: 'package:/data/app/dev.agentscenarioloop.example/base.apk\n',
+    },
+    '-s emulator-5554 logcat -d -v time -t 1000': {
+      exitCode: 1,
+      stderr: logcatStderr,
+      stdout: rawLog,
+    },
+  });
+
+  const result = await runProfileAndroid({
+    'adb-capture': true,
+    'adb-out': adbCaptureRoot,
+    config: fixturePath('examples/mobile-app/asl.config.json'),
+    out: profileRoot,
+    'run-id': 'android-legacy-output-cap-startup',
+    scenario: fixturePath('examples/mobile-app/scenarios/android/app-startup.json'),
+  }, {
+    executor,
+  });
+
+  const health = readJson(path.join(result.runDir, 'health.json'));
+  const verdict = readJson(path.join(result.runDir, 'verdict.json'));
+  const degradedCheck = (health.checks as Array<{
+    code: string;
+    metadata?: Record<string, unknown>;
+    name: string;
+    status: string;
+  }>).find(
+    (check) => check.name === 'android_adb_sidecar_health',
+  );
+
+  assert.equal(health.healthStatus, 'passed');
+  assert.equal(verdict.verdictStatus, 'passed');
+  assert.equal(degradedCheck?.status, 'warning');
+  assert.equal(degradedCheck?.code, 'android_adb_sidecar_health_failed_profile_published');
+  assert.equal(degradedCheck?.metadata?.possibleOutputCapRawPaths, 'raw/adb-logcat.txt');
+  assert.equal(degradedCheck?.metadata?.possibleOutputCapBytes, 1048576);
+  assert.equal(degradedCheck?.metadata?.nextActionCode, 'prefer_final_profile_evidence_with_sidecar_diagnostics');
 });
 
 test('profile-android fails compatibility before live capture when required evidence is impossible', async (t: TestContext) => {
