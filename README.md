@@ -37,6 +37,37 @@ Agent Scenario Loop keeps four things separate:
 
 The scenario is the asset. Runners can change. Instrumentation can change. The app behavior remains.
 
+## What Can It Orchestrate?
+
+ASL is useful when a team needs a repeatable answer to "did this app journey work, and can we trust the evidence?"
+
+Common workloads include:
+
+- mobile startup, resume, navigation, scrolling, sheet, drawer, media, checkout, auth, network recovery, and upload flows
+- regression checks that compare a current run with the latest trusted run
+- provider-backed diagnostics such as screenshots, logs, memory, network, accessibility, profiler, or native performance summaries
+- CI or release gates that should fail when runtime setup, app events, diagnostics, or budgets are not trustworthy
+- agent handoffs where the next operator needs artifact paths and a clear owner for the next action
+
+ASL works through files and commands. Scenario JSON goes in, runner and provider evidence comes out, and the result is captured as health, verdict, metrics, manifest, and summary artifacts. Agents, CI jobs, scripts, and humans can all operate against that same contract.
+
+## A First Useful Case Study
+
+A small first adoption does not need every runner or provider. Start with one journey:
+
+1. Pick one user-visible behavior, such as app startup or opening a detail view.
+2. Write a scenario file that names the expected steps and the app event that proves the journey completed.
+3. Add the lightweight app helper and emit that app event from the real app code.
+4. Run the scenario with the available runner, or use fixture logs while wiring the first integration.
+5. Inspect the artifacts:
+   - `health.json` says whether the run was trustworthy enough to interpret.
+   - `verdict.json` says whether the run supports a pass, failure, or inconclusive result.
+   - `metrics.json` contains measured samples when the scenario produced them.
+   - `manifest.json` inventories the evidence that was actually captured.
+   - `agent-summary.md` points an agent or human to the next action.
+
+Once that single journey is reliable, add budgets, comparisons, provider diagnostics, and more platforms one at a time. A failed run is still useful when it clearly says whether the next fix belongs to device setup, the app event contract, a provider, the scenario, or product performance.
+
 ## What A Run Should Prove
 
 A useful ASL run should leave enough evidence for an agent or human to answer five questions without relying on terminal memory:
