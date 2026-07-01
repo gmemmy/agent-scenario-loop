@@ -344,7 +344,84 @@ test('writes failed artifact set when iOS simctl executor never resolves after o
   assert.match(summary, /Next action `inspect_ios_simctl_runner_timeout`/u);
   assert.equal(metadata.runnerFailure.rawPath, 'raw/ios-simctl-runner-watchdog-timeout.txt');
   assert.equal(metadata.runnerFailure.watchdog.timeoutMs, 50);
+  assert.equal(metadata.runnerFailure.currentPhase.name, 'listing_simulators');
   assert.ok(metadata.runnerFailure.collectedRawArtifacts.includes('raw/ios-simctl-capture-started.json'));
+});
+
+test('classifies missing iOS profile-session start after storage seed and dev-client open', async (t: TestContext) => {
+  const outputDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-ios-simctl-profile-start-missing-'));
+  const dataContainer = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-ios-simctl-profile-start-data-'));
+  t.after(async () => {
+    await fsp.rm(outputDir, { recursive: true, force: true });
+    await fsp.rm(dataContainer, { recursive: true, force: true });
+  });
+  const executor = createExecutor({
+    'simctl list devices': {
+      stdout: [
+        '== Devices ==',
+        '-- iOS 26.3 --',
+        '    iPhone 17 Pro Max (A692ED28-893E-453F-8866-C69331AE757F) (Booted)',
+      ].join('\n'),
+    },
+    'simctl spawn A692ED28-893E-453F-8866-C69331AE757F launchctl getenv DYLD_INSERT_LIBRARIES': {
+      stdout: '',
+    },
+    'simctl spawn A692ED28-893E-453F-8866-C69331AE757F launchctl getenv NATIVE_DEVTOOLS_IOS_CDP_SOCKET': {
+      stdout: '',
+    },
+    'simctl get_app_container A692ED28-893E-453F-8866-C69331AE757F dev.agent-scenario-loop.example app': {
+      stdout: '/tmp/ASLExampleMobile.app\n',
+    },
+    'simctl get_app_container A692ED28-893E-453F-8866-C69331AE757F dev.agent-scenario-loop.example data': {
+      stdout: `${dataContainer}\n`,
+    },
+    'simctl terminate A692ED28-893E-453F-8866-C69331AE757F dev.agent-scenario-loop.example': {
+      stdout: '',
+    },
+    'simctl openurl A692ED28-893E-453F-8866-C69331AE757F asl-example://expo-development-client/?url=http%3A%2F%2Flocalhost%3A8097': {
+      stdout: '',
+    },
+    'simctl spawn A692ED28-893E-453F-8866-C69331AE757F log show --style compact --last 2m --predicate eventMessage CONTAINS "[profile-event]" OR eventMessage CONTAINS "[profile-session]"': {
+      stdout: 'Timestamp Ty Process[PID:TID]\n',
+    },
+  });
+
+  const result = await runIosSimctlCapture({
+    bundleId: 'dev.agent-scenario-loop.example',
+    collectProfileStorage: true,
+    deepLinks: [
+      {
+        label: 'ios-dev-client-url',
+        url: 'asl-example://expo-development-client/?url=http%3A%2F%2Flocalhost%3A8097',
+      },
+    ],
+    executor,
+    outputDir,
+    profileSessionStorage: {
+      commands: [
+        {
+          command: 'open-drawer',
+          sequence: 1,
+        },
+      ],
+      runId: 'ios-profile-start-missing',
+      scenario: 'account-drawer',
+    },
+    runId: 'ios-profile-start-missing',
+    terminateBeforeLaunch: true,
+  });
+  const metadata = JSON.parse(fs.readFileSync(path.join(outputDir, 'raw', 'ios-metadata.json'), 'utf8'));
+
+  assert.equal(result.health.healthStatus, 'passed');
+  assert.ok(
+    (result.health.checks as Array<{ code: string; metadata?: { nextActionCode?: string } }>).some(
+      (check) => check.code === 'ios_profile_session_start_missing'
+        && check.metadata?.nextActionCode === 'fix_ios_dev_client_bundle_or_command_channel',
+    ),
+  );
+  assert.equal(metadata.profileSessionStartObservation.observed, false);
+  assert.equal(metadata.profileSessionStartObservation.runId, 'ios-profile-start-missing');
+  assert.equal(metadata.currentPhase.name, 'finalizing_artifacts');
 });
 
 test('times out hung iOS simctl subprocesses with diagnostic stderr', async () => {

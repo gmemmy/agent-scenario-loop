@@ -160,6 +160,16 @@ type IosSimctlCaptureWatchdogError = Error & {
   code: 'ios_simctl_runner_liveness_timeout';
   watchdog: IosSimctlCaptureWatchdogBudget;
 };
+type IosSimctlCapturePhase = {
+  details?: Record<string, unknown>;
+  name: string;
+  startedAt: string;
+};
+type ProfileSessionStartObservation = {
+  eventCount: number;
+  observed: boolean;
+  sessionEntryCount: number;
+};
 
 const DEFAULT_PROFILE_STORAGE_KEYS: ProfileStorageKeys = {
   command: PROFILE_SESSION_STORAGE_KEYS.command,
@@ -941,6 +951,63 @@ function formatStoredProfileEventLog(events: Record<string, unknown>[]): string 
     .join('\n');
 }
 
+function filterProfileRecordsForRun(
+  records: unknown,
+  runId: string,
+): Record<string, unknown>[] {
+  if (!Array.isArray(records)) {
+    return [];
+  }
+
+  return records.filter((record): record is Record<string, unknown> => (
+    Boolean(record) &&
+    typeof record === 'object' &&
+    !Array.isArray(record) &&
+    (record as Record<string, unknown>).runId === runId
+  ));
+}
+
+function hasProfileSessionStart(entries: Record<string, unknown>[]): boolean {
+  return entries.some((entry) => (
+    entry.kind === 'start' ||
+    entry.type === 'start' ||
+    entry.status === 'started' ||
+    entry.event === 'profile_session_started'
+  ));
+}
+
+function observeStoredProfileSessionStart({
+  bundleId,
+  dataContainer,
+  profileStorageKeys,
+  runId,
+}: {
+  bundleId: string;
+  dataContainer: string;
+  profileStorageKeys: ProfileStorageKeys;
+  runId: string;
+}): ProfileSessionStartObservation {
+  const storedEvents = readProfileStorageJson({
+    bundleId,
+    dataContainer,
+    fallback: [],
+    key: profileStorageKeys.event,
+  });
+  const storedEntries = readProfileStorageJson({
+    bundleId,
+    dataContainer,
+    fallback: [],
+    key: profileStorageKeys.sessionEntries,
+  });
+  const events = filterProfileRecordsForRun(storedEvents, runId);
+  const sessionEntries = filterProfileRecordsForRun(storedEntries, runId);
+  return {
+    eventCount: events.length,
+    observed: hasProfileSessionStart(sessionEntries) || events.length > 0,
+    sessionEntryCount: sessionEntries.length,
+  };
+}
+
 function resolveExecFileExitCode(error: ExecFileError | null): number {
   if (!error) {
     return 0;
@@ -1483,6 +1550,18 @@ async function runIosSimctlCapture(options: IosSimctlCaptureOptions = {}): Promi
   const checks: Record<string, unknown>[] = [];
   const deepLinkResults: Record<string, unknown>[] = [];
   let simulator: IosSimulator | null = null;
+  let currentPhase: IosSimctlCapturePhase = {
+    name: 'initializing',
+    startedAt: new Date().toISOString(),
+  };
+  const setCurrentPhase = (name: string, details?: Record<string, unknown>): void => {
+    currentPhase = {
+      ...(details ? { details } : {}),
+      name,
+      startedAt: new Date().toISOString(),
+    };
+    metadata.currentPhase = currentPhase;
+  };
   const captureStartedRawFileName = 'ios-simctl-capture-started.json';
   const captureStartedAt = new Date();
   const captureWatchdog = deriveIosSimctlCaptureWatchdogBudget({
@@ -1574,7 +1653,9 @@ async function runIosSimctlCapture(options: IosSimctlCaptureOptions = {}): Promi
     waitMs,
     xcrunPath,
   };
+  metadata.currentPhase = currentPhase;
   const runCaptureBody = async (): Promise<void> => {
+    setCurrentPhase('listing_simulators', { device: selectedDevice });
     const devicesOutput = await executor(xcrunPath, ['simctl', 'list', 'devices']);
     const simctlAvailable = devicesOutput.exitCode === 0;
     raw['ios-simctl-devices.txt'] = [devicesOutput.stdout, devicesOutput.stderr].filter(Boolean).join('\n');
@@ -1619,6 +1700,7 @@ async function runIosSimctlCapture(options: IosSimctlCaptureOptions = {}): Promi
     });
 
     if (simulator && simulator.state === 'Booted') {
+      setCurrentPhase('checking_launch_environment', { device: simulator.udid });
       const launchEnvironmentNeedsCleanState = mutatesSimulatorLifecycle({
         deepLinks,
         launch,
@@ -1675,6 +1757,7 @@ async function runIosSimctlCapture(options: IosSimctlCaptureOptions = {}): Promi
       let launchedAppPid: string | null = null;
       const lifecycleMutationBlocked = launchEnvironmentProbeAvailable && !launchEnvironmentCleanEnough;
       if (bundleId) {
+        setCurrentPhase('checking_app_installation', { bundleId, device: simulator.udid });
         const appContainer = await executor(xcrunPath, ['simctl', 'get_app_container', simulator.udid, bundleId, 'app']);
         raw['ios-app-container.txt'] = [appContainer.stdout, appContainer.stderr].filter(Boolean).join('\n');
         const appInstalled = appContainer.exitCode === 0 && appContainer.stdout.trim().length > 0;
@@ -1756,6 +1839,7 @@ async function runIosSimctlCapture(options: IosSimctlCaptureOptions = {}): Promi
         }
 
         if (collectProfileStorage || profileSessionStorage) {
+          setCurrentPhase('resolving_app_data_container', { bundleId, device: simulator.udid });
           const dataContainer = await executor(xcrunPath, [
             'simctl',
             'get_app_container',
@@ -1804,6 +1888,7 @@ async function runIosSimctlCapture(options: IosSimctlCaptureOptions = {}): Promi
             ),
           });
         } else {
+          setCurrentPhase('terminating_app', { bundleId, device: simulator.udid });
           const terminateResult = await driver.terminateBundle(bundleId);
           raw[terminateResult.rawFileName] = formatIosSimctlRawOutput(terminateResult);
           const terminateOutput = `${terminateResult.stdout}\n${terminateResult.stderr}`;
@@ -1848,6 +1933,11 @@ async function runIosSimctlCapture(options: IosSimctlCaptureOptions = {}): Promi
             ),
           });
         } else {
+          setCurrentPhase('seeding_profile_session_storage', {
+            commandCount: Array.isArray(profileSessionStorage.commands) ? profileSessionStorage.commands.length : 0,
+            runId: profileSessionStorage.runId,
+            scenario: profileSessionStorage.scenario,
+          });
           const seeded = await seedProfileSessionStorage({
             bundleId,
             ...(Array.isArray(profileSessionStorage.commands)
@@ -1893,6 +1983,7 @@ async function runIosSimctlCapture(options: IosSimctlCaptureOptions = {}): Promi
             ),
           });
         } else {
+          setCurrentPhase('launching_app', { bundleId, device: simulator.udid });
           const launchResult = await driver.launchBundle(bundleId);
           const launchPassed = launchResult.exitCode === 0;
           launchedAppPid = launchPassed ? parseSimctlLaunchPid(launchResult.stdout) : null;
@@ -1922,6 +2013,10 @@ async function runIosSimctlCapture(options: IosSimctlCaptureOptions = {}): Promi
       }
 
       for (const [index, deepLink] of (hasInstalledConflictingBundle || lifecycleMutationBlocked ? [] : deepLinks).entries()) {
+        setCurrentPhase('opening_deep_link', {
+          label: deepLink.label ?? index + 1,
+          url: deepLink.url,
+        });
         const rawFileName = `ios-deep-link-${index + 1}.txt`;
         const deepLinkResult = await driver.openDeepLink({ rawFileName, url: deepLink.url });
         const deepLinkOpened = deepLinkResult.exitCode === 0;
@@ -1953,6 +2048,10 @@ async function runIosSimctlCapture(options: IosSimctlCaptureOptions = {}): Promi
         });
 
         if (deepLink.waitMs && deepLink.waitMs > 0) {
+          setCurrentPhase('waiting_after_deep_link', {
+            label: deepLink.label ?? index + 1,
+            waitMs: deepLink.waitMs,
+          });
           await wait(deepLink.waitMs);
           checks.push({
             name: 'ios_deep_link_waited',
@@ -1964,6 +2063,7 @@ async function runIosSimctlCapture(options: IosSimctlCaptureOptions = {}): Promi
         }
       }
       if (waitMs > 0) {
+        setCurrentPhase('waiting_for_capture_window', { waitMs });
         await wait(waitMs);
         checks.push({
           name: 'ios_capture_window_waited',
@@ -1975,6 +2075,7 @@ async function runIosSimctlCapture(options: IosSimctlCaptureOptions = {}): Promi
       }
 
       if (launch && bundleId && !hasInstalledConflictingBundle) {
+        setCurrentPhase('capturing_app_lifecycle', { bundleId, logLast });
         const appLifecycleLog = await executor(xcrunPath, [
           'simctl',
           'spawn',
@@ -2105,6 +2206,7 @@ async function runIosSimctlCapture(options: IosSimctlCaptureOptions = {}): Promi
       }
 
       if (screenshot) {
+        setCurrentPhase('capturing_screenshot', { bundleId, device: simulator.udid });
         await fsp.mkdir(layout.captures, { recursive: true });
         const screenshotFileName = screenshotCaptureFileName(screenshotType);
         const screenshotPath = path.join(layout.captures, screenshotFileName);
@@ -2147,6 +2249,7 @@ async function runIosSimctlCapture(options: IosSimctlCaptureOptions = {}): Promi
         };
       }
 
+      setCurrentPhase('capturing_logs', { logLast });
       const log = await driver.readLogs({ last: logLast });
       const logsCaptured = log.exitCode === 0;
       raw[log.rawFileName] = formatIosSimctlRawOutput(log);
@@ -2186,6 +2289,10 @@ async function runIosSimctlCapture(options: IosSimctlCaptureOptions = {}): Promi
           });
         } else {
           try {
+            setCurrentPhase('collecting_profile_storage', {
+              runId: profileSessionStorage?.runId ?? null,
+              scenario: profileSessionStorage?.scenario ?? null,
+            });
             const storedEvents = readProfileStorageJson({
               bundleId,
               dataContainer: dataContainerPath,
@@ -2201,6 +2308,9 @@ async function runIosSimctlCapture(options: IosSimctlCaptureOptions = {}): Promi
             const events = Array.isArray(storedEvents)
               ? storedEvents.filter((event): event is Record<string, unknown> => Boolean(event) && typeof event === 'object' && !Array.isArray(event))
               : [];
+            const sessionEntries = Array.isArray(storedEntries)
+              ? storedEntries.filter((entry): entry is Record<string, unknown> => Boolean(entry) && typeof entry === 'object' && !Array.isArray(entry))
+              : [];
             raw['ios-profile-events.json'] = JSON.stringify(events, null, 2);
             raw['ios-profile-events.log'] = formatStoredProfileEventLog(events);
             raw['ios-profile-session-entries.json'] = JSON.stringify(storedEntries, null, 2);
@@ -2215,8 +2325,42 @@ async function runIosSimctlCapture(options: IosSimctlCaptureOptions = {}): Promi
               eventCount: events.length,
               eventsRawPath: 'raw/ios-profile-events.json',
               logRawPath: 'raw/ios-profile-events.log',
+              sessionEntryCount: sessionEntries.length,
               sessionEntriesRawPath: 'raw/ios-profile-session-entries.json',
             };
+            if (profileSessionStorage) {
+              const startObservation = observeStoredProfileSessionStart({
+                bundleId,
+                dataContainer: dataContainerPath,
+                profileStorageKeys,
+                runId: profileSessionStorage.runId,
+              });
+              const startObserved = startObservation.observed;
+              checks.push({
+                name: 'ios_profile_session_start_observed',
+                status: startObserved ? 'passed' : 'warning',
+                source: 'runner',
+                code: startObserved
+                  ? 'ios_profile_session_start_observed'
+                  : 'ios_profile_session_start_missing',
+                message: startObserved
+                  ? `Observed same-run iOS profile-session app evidence for ${profileSessionStorage.scenario}/${profileSessionStorage.runId}.`
+                  : `No same-run iOS profile-session app evidence was observed for ${profileSessionStorage.scenario}/${profileSessionStorage.runId}.`,
+                ...(!startObserved
+                  ? {
+                      metadata: nextActionHint(
+                        'fix_ios_dev_client_bundle_or_command_channel',
+                        'Confirm the iOS development client loaded the intended app bundle and that the app can start the scenario command channel before rerunning.',
+                      ),
+                    }
+                  : {}),
+              });
+              metadata.profileSessionStartObservation = {
+                ...startObservation,
+                runId: profileSessionStorage.runId,
+                scenario: profileSessionStorage.scenario,
+              };
+            }
           } catch (error) {
             raw['ios-profile-storage-error.txt'] = error instanceof Error ? error.message : String(error);
             checks.push({
@@ -2233,6 +2377,7 @@ async function runIosSimctlCapture(options: IosSimctlCaptureOptions = {}): Promi
           }
         }
       }
+      setCurrentPhase('finalizing_artifacts', { rawArtifactCount: Object.keys(raw).length });
     } else if (launch || terminateBeforeLaunch || profileSessionStorage || collectProfileStorage || deepLinks.length > 0) {
       checks.push({
         name: 'ios_capture_window_started',
@@ -2271,12 +2416,13 @@ async function runIosSimctlCapture(options: IosSimctlCaptureOptions = {}): Promi
       livenessCode = 'ios_simctl_runner_liveness_timeout';
       livenessMessage = `iOS simctl capture did not complete before the ${captureWatchdog.timeoutMs}ms watchdog deadline.`;
       nextActionCode = 'inspect_ios_simctl_runner_timeout';
-      nextAction = `Inspect raw/${rawFileName}, raw/ios-metadata.json, and the last collected raw simctl artifact to identify the command or declared wait that exceeded the whole-capture watchdog.`;
+      nextAction = `Inspect raw/${rawFileName}, raw/ios-metadata.json, and currentPhase to identify the command, wait, or profile-session expectation that exceeded the whole-capture watchdog.`;
     }
 
     raw[rawFileName] = formatIosRunnerFailureRaw(failure);
     metadata.runnerFailure = {
       ...failure,
+      currentPhase,
       rawPath: `raw/${rawFileName}`,
       collectedRawArtifacts: Object.keys(raw).map((fileName) => `raw/${fileName}`),
     };
