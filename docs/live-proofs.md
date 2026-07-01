@@ -290,6 +290,8 @@ If the runner opened an iOS dev-client URL but `simctl appinfo` reports that the
 
 The default iOS live proof transport seeds profile-session control into simulator app storage. Use `--ios-profile-session-transport deeplink` when the app should receive profile-session start and command control through app URLs instead.
 
+For storage-backed iOS live proofs, ASL waits briefly for same-run app evidence after seeding storage and opening the dev-client URL. Tune that readiness boundary with `--ios-profile-session-start-wait-ms` or `ASL_IOS_PROFILE_SESSION_START_WAIT_MS` when a consuming app needs a longer first-bundle startup window. If the wait exhausts, inspect the sidecar `ios_profile_session_start_wait` check before treating the run as product evidence.
+
 When an iOS app exits during the capture window, inspect `raw/ios-app-lifecycle-log.txt` first. If the host wrote a matching DiagnosticReports crash file in time, ASL also attaches it as `raw/ios-host-diagnostic-report-<bundle>.ips` and records the bounded search in `raw/ios-host-diagnostic-report-search.txt`.
 
 Read [Example Mobile App: iOS Capture](../examples/mobile-app/README.md#ios-capture) for prebuild, Xcode selection, simulator permissions, stored profile events, and individual scenario commands.

@@ -138,6 +138,34 @@ function writeCurrentSessionEvents(dataContainer: string): void {
   fs.writeFileSync(manifestPath, JSON.stringify(manifest), 'utf8');
 }
 
+/**
+ * Writes only session-start evidence for the currently seeded session.
+ *
+ * @param {string} dataContainer
+ * @returns {void}
+ */
+function writeCurrentSessionStart(dataContainer: string): void {
+  const storageDir = resolveAsyncStorageDirectory({
+    bundleId: BUNDLE_ID,
+    dataContainer,
+  });
+  const manifestPath = path.join(storageDir, 'manifest.json');
+  if (!fs.existsSync(manifestPath)) {
+    return;
+  }
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+  const session = JSON.parse(manifest['agent-scenario-loop.profile-session.1']);
+  manifest['agent-scenario-loop.profile-session-entries.1'] = JSON.stringify([
+    {
+      kind: 'start',
+      runId: session.runId,
+      scenario: session.scenario,
+      timestamp: 123,
+    },
+  ]);
+  fs.writeFileSync(manifestPath, JSON.stringify(manifest), 'utf8');
+}
+
 test('runs the packaged iOS example live proof with a fake simctl executor', async (t: TestContext) => {
   const outputDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-example-ios-live-'));
   const previousDevice = process.env.ASL_EXAMPLE_IOS_UDID;
@@ -199,6 +227,7 @@ test('runs the packaged iOS example live proof with a fake simctl executor', asy
       return { command, args, exitCode: 0, stderr: '', stdout: '' };
     }
     if (key === `simctl launch ${DEVICE_ID} ${BUNDLE_ID}`) {
+      writeCurrentSessionStart(dataContainer);
       return { command, args, exitCode: 0, stderr: '', stdout: `${BUNDLE_ID}: 1234\n` };
     }
     if (key.startsWith(`simctl openurl ${DEVICE_ID} asl-example://expo-development-client/`)) {
@@ -523,6 +552,7 @@ test('iOS example live proof writes failed aggregate before skipping requested s
       return { command, args, exitCode: 0, stderr: '', stdout: '' };
     }
     if (key === `simctl launch ${DEVICE_ID} ${BUNDLE_ID}`) {
+      writeCurrentSessionStart(dataContainer);
       return { command, args, exitCode: 0, stderr: '', stdout: `${BUNDLE_ID}: 1234\n` };
     }
     if (key.startsWith(`simctl io ${DEVICE_ID} screenshot `)) {
