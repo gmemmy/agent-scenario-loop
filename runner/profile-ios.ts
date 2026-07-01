@@ -872,6 +872,10 @@ async function runProfileIos(
     'ASL_IOS_PROFILE_SESSION_ENTRIES_STORAGE_KEY',
     'ASL_EXAMPLE_IOS_PROFILE_SESSION_ENTRIES_STORAGE_KEY',
   ]) ?? DEFAULT_IOS_PROFILE_SESSION_ENTRIES_STORAGE_KEY;
+  const profileSessionStartWaitMs = readStringArgOrEnv(args['ios-profile-session-start-wait-ms'], [
+    'ASL_IOS_PROFILE_SESSION_START_WAIT_MS',
+    'ASL_EXAMPLE_IOS_PROFILE_SESSION_START_WAIT_MS',
+  ]);
   const iosDevClientUrl = readStringArgOrEnv(args['ios-dev-client-url'], [
     'ASL_IOS_DEV_CLIENT_URL',
     'ASL_EXAMPLE_IOS_DEV_CLIENT_URL',
@@ -974,6 +978,9 @@ async function runProfileIos(
                 runId,
                 scenario: scenarioName,
               },
+              ...(profileSessionStartWaitMs
+                ? { profileSessionStartWaitMs: readPositiveInteger(profileSessionStartWaitMs, 10000) }
+                : {}),
               terminateBeforeLaunch: true,
             }
           : {

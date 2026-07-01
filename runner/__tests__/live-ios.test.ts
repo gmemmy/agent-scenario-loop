@@ -118,6 +118,7 @@ test('generic iOS live proof captures profile evidence before sidecar proofs', a
       return { command, args, exitCode: 0, stderr: '', stdout: '' };
     }
     if (key === `simctl launch ${DEVICE_ID} ${BUNDLE_ID}`) {
+      writeCurrentSessionEvents(dataContainer);
       return { command, args, exitCode: 0, stderr: '', stdout: `${BUNDLE_ID}: 1234\n` };
     }
     if (key.startsWith(`simctl openurl ${DEVICE_ID} asl-example://expo-development-client/`)) {

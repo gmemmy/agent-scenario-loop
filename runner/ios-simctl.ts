@@ -30,6 +30,7 @@ type CliArgs = {
   'profile-event-storage-key'?: string | boolean;
   out?: string | boolean;
   'profile-session-entries-storage-key'?: string | boolean;
+  'profile-session-start-wait-ms'?: string | boolean;
   'profile-session-storage'?: string | boolean;
   'profile-session-storage-key'?: string | boolean;
   'profile-signal-storage-key'?: string | boolean;
@@ -107,6 +108,7 @@ type IosSimctlCaptureOptions = {
   logLast?: string;
   outputDir?: string;
   profileSessionStorage?: IosProfileSessionStorageSeed | null;
+  profileSessionStartWaitMs?: number;
   profileStorageKeys?: Partial<ProfileStorageKeys>;
   runId?: string;
   screenshot?: boolean;
@@ -170,6 +172,17 @@ type ProfileSessionStartObservation = {
   observed: boolean;
   sessionEntryCount: number;
 };
+type ProfileSessionStartWait = ProfileSessionStartObservation & {
+  completed: boolean;
+  elapsedMs: number;
+  pollCount: number;
+  timeoutMs: number;
+};
+type ProfileSessionStartWaitCheckInput = {
+  runId: string;
+  scenario: string;
+  startWait: ProfileSessionStartWait;
+};
 
 const DEFAULT_PROFILE_STORAGE_KEYS: ProfileStorageKeys = {
   command: PROFILE_SESSION_STORAGE_KEYS.command,
@@ -184,6 +197,8 @@ const IOS_SIMCTL_CAPTURE_WATCHDOG_FLOOR_MS = 15000;
 const IOS_SIMCTL_CAPTURE_WATCHDOG_CEILING_MS = 120000;
 const IOS_SIMCTL_CAPTURE_COMMAND_OVERHEAD_MS = 3000;
 const IOS_SIMCTL_CAPTURE_COMMAND_OVERHEAD_CEILING_MS = 45000;
+const DEFAULT_IOS_PROFILE_SESSION_START_WAIT_MS = 10000;
+const IOS_PROFILE_SESSION_START_POLL_MS = 250;
 const SCREENSHOT_EXTENSIONS = new Set(['bmp', 'gif', 'jpeg', 'png', 'tiff']);
 const SIMULATOR_LAUNCH_ENV_KEYS = [
   'DYLD_INSERT_LIBRARIES',
@@ -344,6 +359,7 @@ function usage(output: { write: (message: string) => unknown } = process.stderr)
     'Use --screenshot to save a simulator screenshot into captures/ios-screenshot.png.',
     'Use --screenshot-type, --screenshot-display, or --screenshot-mask to pass supported simctl screenshot options.',
     'Use --profile-session-storage <scenario> with --bundle <id> to seed the app profile session before launch.',
+    'Use --profile-session-start-wait-ms <ms> to bound how long storage-backed captures wait for same-run app evidence after launch/deep-link setup.',
     'Use --profile-session-storage-key, --profile-command-storage-key, --profile-event-storage-key, --profile-signal-storage-key, and --profile-session-entries-storage-key to target app-owned AsyncStorage keys.',
     'Use --collect-profile-storage with --bundle <id> to collect stored profile events after the capture window.',
     'Use --command-timeout-ms <ms> to bound each xcrun/simctl subprocess; the default is 60000.',
@@ -449,6 +465,7 @@ function deriveIosSimctlCaptureWatchdogBudget({
   deepLinks = [],
   launch = false,
   profileSessionStorage = null,
+  profileSessionStartWaitMs = 0,
   screenshot = false,
   terminateBeforeLaunch = false,
   waitMs = 0,
@@ -468,6 +485,7 @@ function deriveIosSimctlCaptureWatchdogBudget({
 
   const declaredWaitMs = sumPositiveDurations([
     waitMs,
+    profileSessionStorage ? profileSessionStartWaitMs : 0,
     ...deepLinks.map((deepLink) => deepLink.waitMs),
   ]);
   const commandUnits = 4 +
@@ -1008,6 +1026,83 @@ function observeStoredProfileSessionStart({
   };
 }
 
+async function waitForStoredProfileSessionStart({
+  bundleId,
+  dataContainer,
+  profileStorageKeys,
+  runId,
+  timeoutMs,
+  wait,
+}: {
+  bundleId: string;
+  dataContainer: string;
+  profileStorageKeys: ProfileStorageKeys;
+  runId: string;
+  timeoutMs: number;
+  wait: (ms: number) => Promise<void>;
+}): Promise<ProfileSessionStartWait> {
+  const startedAt = Date.now();
+  let pollCount = 0;
+  let latest = observeStoredProfileSessionStart({
+    bundleId,
+    dataContainer,
+    profileStorageKeys,
+    runId,
+  });
+
+  while (!latest.observed && Date.now() - startedAt < timeoutMs) {
+    pollCount += 1;
+    const remainingMs = timeoutMs - (Date.now() - startedAt);
+    if (remainingMs <= 0) {
+      break;
+    }
+    await wait(Math.min(IOS_PROFILE_SESSION_START_POLL_MS, remainingMs));
+    latest = observeStoredProfileSessionStart({
+      bundleId,
+      dataContainer,
+      profileStorageKeys,
+      runId,
+    });
+  }
+
+  const elapsedMs = Date.now() - startedAt;
+  return {
+    ...latest,
+    completed: latest.observed,
+    elapsedMs,
+    pollCount,
+    timeoutMs,
+  };
+}
+
+function buildProfileSessionStartWaitCheck({
+  runId,
+  scenario,
+  startWait,
+}: ProfileSessionStartWaitCheckInput): Record<string, unknown> {
+  if (startWait.completed) {
+    return {
+      name: 'ios_profile_session_start_wait',
+      status: 'passed',
+      source: 'runner',
+      code: 'ios_profile_session_start_observed',
+      message: `Observed same-run iOS profile-session app evidence for ${scenario}/${runId}.`,
+    };
+  }
+
+  return {
+    name: 'ios_profile_session_start_wait',
+    status: 'failed',
+    source: 'runner',
+    code: 'ios_profile_session_start_wait_exhausted',
+    message: `No same-run iOS profile-session app evidence appeared within ${startWait.timeoutMs}ms for ${scenario}/${runId}.`,
+    metadata: nextActionHint(
+      'fix_ios_dev_client_bundle_or_command_channel',
+      'Confirm the iOS development client loaded the intended app bundle and that the app can start the scenario command channel before rerunning.',
+    ),
+  };
+}
+
 function resolveExecFileExitCode(error: ExecFileError | null): number {
   if (!error) {
     return 0;
@@ -1523,6 +1618,7 @@ async function runIosSimctlCapture(options: IosSimctlCaptureOptions = {}): Promi
     logLast = '2m',
     outputDir = path.resolve('artifacts/ios-simctl-capture'),
     profileSessionStorage = null,
+    profileSessionStartWaitMs = profileSessionStorage ? DEFAULT_IOS_PROFILE_SESSION_START_WAIT_MS : 0,
     profileStorageKeys: profileStorageKeyOverrides,
     runId = createRunId(),
     screenshot = false,
@@ -1549,6 +1645,7 @@ async function runIosSimctlCapture(options: IosSimctlCaptureOptions = {}): Promi
   };
   const checks: Record<string, unknown>[] = [];
   const deepLinkResults: Record<string, unknown>[] = [];
+  let profileSessionStartReady = true;
   let simulator: IosSimulator | null = null;
   let currentPhase: IosSimctlCapturePhase = {
     name: 'initializing',
@@ -1573,6 +1670,7 @@ async function runIosSimctlCapture(options: IosSimctlCaptureOptions = {}): Promi
     deepLinks,
     launch,
     profileSessionStorage,
+    profileSessionStartWaitMs,
     screenshot,
     terminateBeforeLaunch,
     waitMs,
@@ -1644,6 +1742,7 @@ async function runIosSimctlCapture(options: IosSimctlCaptureOptions = {}): Promi
           runId: profileSessionStorage.runId,
           scenario: profileSessionStorage.scenario,
           startedAt: profileSessionStorage.startedAt ?? null,
+          startWaitMs: profileSessionStartWaitMs,
         }
       : null,
     screenshot,
@@ -2062,7 +2161,35 @@ async function runIosSimctlCapture(options: IosSimctlCaptureOptions = {}): Promi
           });
         }
       }
-      if (waitMs > 0) {
+      if (profileSessionStorage && bundleId && dataContainerPath && profileSessionStartWaitMs > 0) {
+        setCurrentPhase('waiting_for_profile_session_start', {
+          runId: profileSessionStorage.runId,
+          scenario: profileSessionStorage.scenario,
+          timeoutMs: profileSessionStartWaitMs,
+        });
+        const startWait = await waitForStoredProfileSessionStart({
+          bundleId,
+          dataContainer: dataContainerPath,
+          profileStorageKeys,
+          runId: profileSessionStorage.runId,
+          timeoutMs: profileSessionStartWaitMs,
+          wait,
+        });
+        raw['ios-profile-session-start-wait.json'] = JSON.stringify(startWait, null, 2);
+        metadata.profileSessionStartWait = {
+          ...startWait,
+          rawPath: 'raw/ios-profile-session-start-wait.json',
+          runId: profileSessionStorage.runId,
+          scenario: profileSessionStorage.scenario,
+        };
+        checks.push(buildProfileSessionStartWaitCheck({
+          runId: profileSessionStorage.runId,
+          scenario: profileSessionStorage.scenario,
+          startWait,
+        }));
+        profileSessionStartReady = startWait.completed;
+      }
+      if (waitMs > 0 && profileSessionStartReady) {
         setCurrentPhase('waiting_for_capture_window', { waitMs });
         await wait(waitMs);
         checks.push({
@@ -2493,6 +2620,10 @@ async function main(): Promise<void> {
   const args = parseArgs(argv);
   const runId = typeof args['run-id'] === 'string' ? args['run-id'] : createRunId();
   const profileSessionStorageEnabled = typeof args['profile-session-storage'] === 'string';
+  const profileSessionStartWaitMs = parsePositiveInteger(
+    args['profile-session-start-wait-ms'],
+    DEFAULT_IOS_PROFILE_SESSION_START_WAIT_MS,
+  );
   const profileStorageKeys = resolveProfileStorageKeys({
     ...(typeof args['profile-command-storage-key'] === 'string' ? { command: args['profile-command-storage-key'] } : {}),
     ...(typeof args['profile-event-storage-key'] === 'string' ? { event: args['profile-event-storage-key'] } : {}),
@@ -2520,6 +2651,7 @@ async function main(): Promise<void> {
             runId,
             scenario: args['profile-session-storage'],
           },
+          profileSessionStartWaitMs,
         }
       : {}),
     runId,

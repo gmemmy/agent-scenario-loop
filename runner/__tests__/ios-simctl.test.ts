@@ -267,13 +267,14 @@ test('derives bounded iOS simctl capture watchdog from declared waits', () => {
       runId: 'ios-watchdog',
       scenario: 'open-close-cycle',
     },
+    profileSessionStartWaitMs: 10000,
     screenshot: true,
     terminateBeforeLaunch: true,
     waitMs: 1000,
   });
 
   assert.equal(watchdog.source, 'derived');
-  assert.equal(watchdog.declaredWaitMs, 1250);
+  assert.equal(watchdog.declaredWaitMs, 11250);
   assert.equal(watchdog.perCommandOverheadMs, 3000);
   assert.equal(watchdog.commandBudgetMs <= 45000, true);
   assert.equal(watchdog.timeoutMs < 120000, true);
@@ -385,6 +386,7 @@ test('classifies missing iOS profile-session start after storage seed and dev-cl
       stdout: 'Timestamp Ty Process[PID:TID]\n',
     },
   });
+  const waits: number[] = [];
 
   const result = await runIosSimctlCapture({
     bundleId: 'dev.agent-scenario-loop.example',
@@ -407,18 +409,29 @@ test('classifies missing iOS profile-session start after storage seed and dev-cl
       runId: 'ios-profile-start-missing',
       scenario: 'account-drawer',
     },
+    delay: async (ms: number) => {
+      waits.push(ms);
+      await new Promise((resolve) => setTimeout(resolve, ms));
+    },
+    profileSessionStartWaitMs: 5,
     runId: 'ios-profile-start-missing',
     terminateBeforeLaunch: true,
+    waitMs: 1000,
   });
   const metadata = JSON.parse(fs.readFileSync(path.join(outputDir, 'raw', 'ios-metadata.json'), 'utf8'));
+  const startWait = JSON.parse(fs.readFileSync(path.join(outputDir, 'raw', 'ios-profile-session-start-wait.json'), 'utf8'));
 
-  assert.equal(result.health.healthStatus, 'passed');
+  assert.equal(result.health.healthStatus, 'failed');
   assert.ok(
     (result.health.checks as Array<{ code: string; metadata?: { nextActionCode?: string } }>).some(
-      (check) => check.code === 'ios_profile_session_start_missing'
+      (check) => check.code === 'ios_profile_session_start_wait_exhausted'
         && check.metadata?.nextActionCode === 'fix_ios_dev_client_bundle_or_command_channel',
     ),
   );
+  assert.ok(!waits.includes(1000));
+  assert.equal(startWait.completed, false);
+  assert.equal(metadata.profileSessionStartWait.completed, false);
+  assert.equal(metadata.profileSessionStartWait.rawPath, 'raw/ios-profile-session-start-wait.json');
   assert.equal(metadata.profileSessionStartObservation.observed, false);
   assert.equal(metadata.profileSessionStartObservation.runId, 'ios-profile-start-missing');
   assert.equal(metadata.currentPhase.name, 'finalizing_artifacts');
