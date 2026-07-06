@@ -481,6 +481,7 @@ test('example mobile app provider manifest writes stable evidence attachments', 
       metrics?: Record<string, unknown>;
       providerId?: string;
       targetBinding?: { status?: string };
+      traces?: Array<Record<string, unknown>>;
     };
 
     assert.equal(commandRecord.exitCode, 0);
@@ -512,8 +513,26 @@ test('example mobile app provider manifest writes stable evidence attachments', 
             path: 'raw/providers/example-mobile-app-evidence-provider/native-performance-meminfo.txt',
             sourceId: 'meminfo',
           },
+          {
+            path: 'raw/providers/example-mobile-app-evidence-provider/native-performance-trace-processor-summary.json',
+            sourceId: 'trace-processor',
+          },
         ],
       );
+      assert.deepEqual(nativePerformanceEvidence.metrics, {
+        cpuMs: 320,
+        mainThreadCpuMs: 210,
+        renderThreadCpuMs: 90,
+        threadSchedulingDelayMs: 7,
+      });
+      assert.deepEqual(nativePerformanceEvidence.traces, [
+        {
+          durationMs: 12000,
+          traceId: 'example-android-perfetto',
+          windowEndMs: 12000,
+          windowStartMs: 0,
+        },
+      ]);
     } else {
       assert.equal(nativePerformanceEvidence.claimSufficiency?.status, 'sufficient-for-diagnosis');
       assert.equal(nativePerformanceEvidence.targetBinding?.status, 'verified');
