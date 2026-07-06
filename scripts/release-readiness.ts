@@ -411,6 +411,10 @@ function assertReleaseScripts(packageJson: Record<string, unknown>): void {
     scripts['release:check'],
     'pnpm build && node dist/scripts/release-check.js',
   );
+  assert.equal(
+    scripts['release:publish'],
+    'pnpm build && node dist/scripts/release-publish.js',
+  );
   assert.equal(scripts['package:smoke'], 'pnpm build && node dist/scripts/package-smoke.js');
   assert.equal(scripts['consumer:rehearse'], 'pnpm build && node dist/scripts/consumer-rehearsal.js');
   assert.equal(
@@ -451,6 +455,8 @@ function assertDownstreamProofGuidance(repoRoot: string): void {
 function assertGithubReleaseWorkflow(repoRoot: string): void {
   const workflowPath = path.join(repoRoot, '.github', 'workflows', 'github-release.yml');
   const workflow = fs.readFileSync(workflowPath, 'utf8');
+  const publishScriptPath = path.join(repoRoot, 'scripts', 'release-publish.ts');
+  const publishScript = fs.readFileSync(publishScriptPath, 'utf8');
   assert.match(workflow, /tags:\n\s+- 'v\*\.\*\.\*'/u);
   assert.match(workflow, /contents: write/u);
   assert.match(workflow, /VERSION="\$\{GITHUB_REF_NAME#v\}"/u);
@@ -459,6 +465,10 @@ function assertGithubReleaseWorkflow(repoRoot: string): void {
   assert.match(workflow, /gh release create "\$GITHUB_REF_NAME"/u);
   assert.match(workflow, /--generate-notes/u);
   assert.match(workflow, /--verify-tag/u);
+  assert.match(publishScript, /npm', \['publish', '--access', 'public'\]/u);
+  assert.match(publishScript, /npm', \['view', `\$\{packageName\}@\$\{version\}`, 'version'\]/u);
+  assert.match(publishScript, /git', \['tag', tagName\]/u);
+  assert.match(publishScript, /git', \['push', 'origin', tagName\]/u);
 }
 
 /**

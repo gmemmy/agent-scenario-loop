@@ -21,7 +21,7 @@ It might:
 - drive a simulator or device
 - collect logs, traces, or accessibility output
 
-Examples include Codex, Argent, Agent Device, adb-based automation, accessibility tooling, Xcode instrumentation, Maestro, Detox, Appium, profilers, and custom internal runners. You do not need to know any specific one of these tools to understand Agent Scenario Loop. They are all ways to execute or observe part of a scenario.
+Examples include agent workspaces, mobile device runners, adb-based automation, simctl-based automation, accessibility tooling, Xcode instrumentation, Maestro, Detox, Appium, profilers, and custom internal runners. You do not need to know any specific one of these tools to understand Agent Scenario Loop. They are all ways to execute or observe part of a scenario.
 
 ## Why orchestration matters
 

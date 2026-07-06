@@ -8,6 +8,8 @@ Execution tools can change. The scenario and evidence contract should not.
 
 **Bring your own runner. Keep your scenarios. Keep your evidence.**
 
+Package: [agent-scenario-loop on npm](https://www.npmjs.com/package/agent-scenario-loop)
+
 ## Start Here
 
 | If you want to... | Read this |
@@ -101,7 +103,7 @@ Install or use the package, then scaffold a first scenario inside an app:
 asl-init --out . --scenario first-journey
 ```
 
-Add the optional repository-scoped agent skill when you want Codex to load ASL operating guidance from the consuming app:
+Add the optional repository-scoped agent skill when you want an agent workspace to load ASL operating guidance from the consuming app:
 
 ```bash
 asl-init --out . --scenario first-journey --with-agent-skill
@@ -161,7 +163,7 @@ Agent Scenario Loop is not:
 
 - an end-to-end UI test framework
 - a generic mobile automation stack
-- a replacement for Codex, Argent, Agent Device, adb, XcodeBuildMCP, Maestro, Detox, Appium, accessibility tooling, or profilers
+- a replacement for agent workspaces, device runners, adb, simctl, XcodeBuildMCP, Maestro, Detox, Appium, accessibility tooling, or profilers
 - an agent evaluation framework
 
 Those tools can still execute or observe the work. Agent Scenario Loop gives the scenario, evidence, and history a stable home.
