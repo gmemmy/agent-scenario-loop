@@ -79,12 +79,25 @@ type AgentDeviceAvailabilityCheck = {
 
 type AgentDeviceAvailabilityResult = {
   agentDevicePath: string;
+  capabilityProbe: AgentDeviceCapabilityProbe;
   checks: AgentDeviceAvailabilityCheck[];
   devices: Array<Record<string, unknown>>;
   requiredCommands: string[];
   requiredPlatforms: string[];
   sessions: Array<Record<string, unknown>>;
   status: 'failed' | 'passed';
+};
+type AgentDeviceCapabilityProbe = {
+  args: string[];
+  availableCommands: string[];
+  code: 'agent_device_capabilities_available' | 'agent_device_capabilities_unavailable';
+  command: string;
+  device?: Record<string, unknown>;
+  exitCode: number;
+  failureClass?: string;
+  source: 'capabilities-command' | 'help-output-fallback';
+  stderrPreview?: string;
+  stdoutPreview?: string;
 };
 
 type AgentDeviceAvailabilityArtifactOptions = {
@@ -193,6 +206,7 @@ const DEFAULT_AGENT_DEVICE_REQUIRED_COMMANDS = [
 ];
 
 const AGENT_DEVICE_IOS_REQUIRED_COMMANDS = ['pinch'];
+const AGENT_DEVICE_MANAGEMENT_COMMANDS = new Set(['devices', 'session list']);
 
 const AGENT_DEVICE_PRESS_KEYS = new Set([
   'appBack',
@@ -469,6 +483,127 @@ function buildAgentDeviceAvailabilityCheck({
 }
 
 /**
+ * Reads the stable command identifiers from `agent-device capabilities --json`.
+ *
+ * @param {CommandResult} result
+ * @returns {AgentDeviceCapabilityProbe}
+ */
+function readAgentDeviceCapabilityProbe(result: CommandResult): AgentDeviceCapabilityProbe {
+  const fallbackProbe: AgentDeviceCapabilityProbe = {
+    args: result.args,
+    availableCommands: [],
+    code: 'agent_device_capabilities_unavailable',
+    command: result.command,
+    exitCode: result.exitCode,
+    source: 'help-output-fallback',
+  };
+
+  if (result.exitCode !== 0 || result.stdout.trim().length === 0) {
+    const failure = classifyAgentDeviceAvailabilityFailure(result);
+    const stderrPreview = previewCommandOutput(result.stderr);
+    const stdoutPreview = previewCommandOutput(result.stdout);
+    return {
+      ...fallbackProbe,
+      ...(failure.failureClass ? { failureClass: failure.failureClass } : {}),
+      ...(stderrPreview ? { stderrPreview } : {}),
+      ...(stdoutPreview ? { stdoutPreview } : {}),
+    };
+  }
+
+  try {
+    const parsed = JSON.parse(result.stdout) as Record<string, unknown>;
+    const data = parsed.data && typeof parsed.data === 'object' && !Array.isArray(parsed.data)
+      ? parsed.data as Record<string, unknown>
+      : parsed;
+    const commands = Array.isArray(data.availableCommands)
+      ? data.availableCommands.filter((command): command is string => typeof command === 'string' && command.length > 0)
+      : [];
+    if (commands.length === 0) {
+      const stdoutPreview = previewCommandOutput(result.stdout);
+      return {
+        ...fallbackProbe,
+        failureClass: 'command_surface',
+        ...(stdoutPreview ? { stdoutPreview } : {}),
+      };
+    }
+    const device = data.device && typeof data.device === 'object' && !Array.isArray(data.device)
+      ? data.device as Record<string, unknown>
+      : undefined;
+    return {
+      args: result.args,
+      availableCommands: commands,
+      code: 'agent_device_capabilities_available',
+      command: result.command,
+      ...(device ? { device } : {}),
+      exitCode: result.exitCode,
+      source: 'capabilities-command',
+    };
+  } catch {
+    const stdoutPreview = previewCommandOutput(result.stdout);
+    return {
+      ...fallbackProbe,
+      failureClass: 'command_surface',
+      ...(stdoutPreview ? { stdoutPreview } : {}),
+    };
+  }
+}
+
+/**
+ * Builds the best effort capabilities command for the selected availability scope.
+ *
+ * @param {string[]} requiredPlatforms
+ * @returns {string[]}
+ */
+function buildAgentDeviceCapabilityArgs(requiredPlatforms: string[]): string[] {
+  if (requiredPlatforms.length === 1) {
+    const platform = requiredPlatforms[0];
+    if (platform) {
+      return ['capabilities', '--platform', platform, '--json'];
+    }
+  }
+  return ['capabilities', '--json'];
+}
+
+/**
+ * Checks one command against Agent Device's own capability inventory.
+ *
+ * @param {{capabilityProbe: AgentDeviceCapabilityProbe, commandName: string}} options
+ * @returns {AgentDeviceAvailabilityCheck}
+ */
+function buildAgentDeviceCapabilityCommandCheck({
+  capabilityProbe,
+  commandName,
+}: {
+  capabilityProbe: AgentDeviceCapabilityProbe;
+  commandName: string;
+}): AgentDeviceAvailabilityCheck {
+  const commandLabel = commandName.replace(/\s+/gu, '_');
+  const passed = capabilityProbe.availableCommands.includes(commandName);
+  return {
+    args: capabilityProbe.args,
+    code: `agent_device_command_${commandLabel}_available`,
+    command: capabilityProbe.command,
+    exitCode: capabilityProbe.exitCode,
+    message: passed
+      ? `${commandName} is listed by agent-device capabilities.`
+      : `${commandName} is not listed by agent-device capabilities for the selected target.`,
+    metadata: {
+      capabilitySource: capabilityProbe.source,
+      availableCommandCount: capabilityProbe.availableCommands.length,
+      ...(capabilityProbe.device ? { device: JSON.stringify(capabilityProbe.device) } : {}),
+      ...(passed
+        ? {}
+        : {
+            nextAction: 'Select a target that supports this agent-device command, remove the unsupported action, or rerun with a different driver/provider.',
+            nextActionCode: 'select_agent_device_capability',
+          }),
+    },
+    name: `agent_device_command_${commandLabel}`,
+    status: passed ? 'passed' : 'failed',
+  };
+}
+
+/**
  * Parses agent-device device discovery JSON.
  *
  * @param {CommandResult} result
@@ -630,6 +765,10 @@ function buildAgentDeviceAvailabilitySummary(result: AgentDeviceAvailabilityResu
     '',
     `- Devices: ${result.devices.length}`,
     `- Active sessions: ${result.sessions.length}`,
+    `- Capability source: ${result.capabilityProbe.source}`,
+    ...(result.capabilityProbe.availableCommands.length > 0
+      ? [`- Available commands: ${result.capabilityProbe.availableCommands.join(', ')}`]
+      : []),
     ...(sessionSummary ? [`- Session hints: ${sessionSummary}`] : []),
     '',
   ].join('\n');
@@ -684,6 +823,8 @@ async function checkAgentDeviceAvailability({
 }: AgentDeviceAvailabilityOptions = {}): Promise<AgentDeviceAvailabilityResult> {
   const run = executor ?? ((command, args) => execFileCommandWithTimeout(command, args, commandTimeoutMs));
   const checks: AgentDeviceAvailabilityCheck[] = [];
+  const capabilityArgs = buildAgentDeviceCapabilityArgs(requiredPlatforms);
+  const capabilityProbe = readAgentDeviceCapabilityProbe(await run(agentDevicePath, capabilityArgs));
   const help = await run(agentDevicePath, ['--help']);
   const resolvedRequiredCommands = resolveRequiredAgentDeviceCommands({
     requiredCommands,
@@ -697,16 +838,20 @@ async function checkAgentDeviceAvailability({
   }));
 
   for (const commandName of resolvedRequiredCommands) {
-    const commandLabel = commandName.replace(/\s+/gu, '_');
-    const pattern = commandName === 'session list'
-      ? /\bsession\s+list\b/u
-      : new RegExp(`\\b${commandName.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')}\\b`, 'u');
-    checks.push(buildAgentDeviceAvailabilityCheck({
-      code: `agent_device_command_${commandLabel}_available`,
-      expectedPattern: pattern,
-      name: `agent_device_command_${commandLabel}`,
-      result: help,
-    }));
+    if (capabilityProbe.source === 'capabilities-command' && !AGENT_DEVICE_MANAGEMENT_COMMANDS.has(commandName)) {
+      checks.push(buildAgentDeviceCapabilityCommandCheck({ capabilityProbe, commandName }));
+    } else {
+      const commandLabel = commandName.replace(/\s+/gu, '_');
+      const pattern = commandName === 'session list'
+        ? /\bsession\s+list\b/u
+        : new RegExp(`\\b${commandName.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')}\\b`, 'u');
+      checks.push(buildAgentDeviceAvailabilityCheck({
+        code: `agent_device_command_${commandLabel}_available`,
+        expectedPattern: pattern,
+        name: `agent_device_command_${commandLabel}`,
+        result: help,
+      }));
+    }
   }
 
   const devicesResult = await run(agentDevicePath, ['devices', '--json']);
@@ -788,6 +933,7 @@ async function checkAgentDeviceAvailability({
   const status = checks.every((check) => check.status === 'passed') ? 'passed' : 'failed';
   return {
     agentDevicePath,
+    capabilityProbe,
     checks,
     devices,
     requiredCommands,
