@@ -853,6 +853,107 @@ test('builds a failed live-proof-set artifact when a required platform is missin
   });
 });
 
+test('builds proof-set skipped interaction proof context from linked proofs', async (t: TestContext) => {
+  const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-live-proof-set-skipped-'));
+  t.after(async () => {
+    await fsp.rm(tempDir, { recursive: true, force: true });
+  });
+  const androidProofPath = writeProof(tempDir, buildProof('unchanged', 'passed', 'android'));
+  const iosProof = buildProof('unchanged', 'failed', 'ios');
+  iosProof.skippedInteractionProofs = [
+    {
+      label: 'startup-ui',
+      nextAction: {
+        code: 'restart_ios_dev_client',
+        owner: 'runtime_environment',
+        summary: 'Restart the iOS dev client and rerun profile proof.',
+      },
+      profileGateDiagnostics: {
+        blockingDiagnosticSufficiency: [
+          {
+            kind: 'accessibility',
+            status: 'provider-blocked',
+          },
+        ],
+        capturedDiagnosticSufficiency: [
+          {
+            kind: 'nativePerformance',
+            status: 'diagnostic-only',
+          },
+        ],
+        nativePerformance: {
+          claimSufficiency: 'insufficient-for-claim',
+          comparability: 'diagnostic-only',
+          diagnosticSources: [
+            {
+              sourceId: 'xctrace',
+              status: 'partial',
+            },
+          ],
+          targetBinding: 'ambiguous',
+        },
+      },
+      profileGateReadiness: {
+        commandCount: 1,
+        devClientDeepLinkOpened: true,
+        expectedEvidence: 'profile_session_started',
+        failureClass: 'dev_client_bundle_or_command_channel_not_ready',
+        foregroundAppInfoCaptured: true,
+        foregroundApplicationState: 'foreground',
+        foregroundRawPath: 'raw/ios-foreground-app.json',
+        foregroundTargetOwned: false,
+        lastDeepLinkLabel: 'startup',
+        pendingPhase: 'session-start',
+        profileSessionSeedRawPath: 'raw/profile-session-seed.json',
+        profileSessionSeeded: true,
+        readinessRawPath: 'raw/ios-profile-session-readiness.json',
+      },
+      reason: 'Profile health failed before sidecar proof.',
+      runId: 'ios-startup-agent-device',
+      runnerId: 'agent-device',
+      scenarioId: 'app-startup',
+    },
+  ];
+  const iosProofPath = path.join(tempDir, 'ios-live-proof.json');
+  fs.writeFileSync(iosProofPath, `${JSON.stringify(iosProof, null, 2)}\n`, 'utf8');
+  const proofs = [readLiveProof(androidProofPath), readLiveProof(iosProofPath)];
+
+  const artifact = buildLiveProofSetArtifact({
+    failOnRegression: false,
+    files: [androidProofPath, iosProofPath],
+    proofs,
+    requiredPlatforms: ['android', 'ios'],
+    runId: 'skipped-ios-proof',
+  });
+  const markdown = formatLiveProofSetArtifactMarkdown(artifact);
+
+  assert.equal(artifact.status, 'failed');
+  assert.equal(artifact.skippedInteractionProofCount, 1);
+  assert.equal(artifact.skippedInteractionProofs?.[0].platform, 'ios');
+  assert.equal(artifact.skippedInteractionProofs?.[0].proofRunId, 'ios-live-proof');
+  assert.equal(artifact.skippedInteractionProofs?.[0].proofFilePath, path.resolve(iosProofPath));
+  assert.deepEqual(artifact.skippedInteractionProofs?.[0].profileGateReadiness, {
+    commandCount: 1,
+    devClientDeepLinkOpened: true,
+    expectedEvidence: 'profile_session_started',
+    failureClass: 'dev_client_bundle_or_command_channel_not_ready',
+    foregroundAppInfoCaptured: true,
+    foregroundApplicationState: 'foreground',
+    foregroundRawPath: 'raw/ios-foreground-app.json',
+    foregroundTargetOwned: false,
+    lastDeepLinkLabel: 'startup',
+    pendingPhase: 'session-start',
+    profileSessionSeedRawPath: 'raw/profile-session-seed.json',
+    profileSessionSeeded: true,
+    readinessRawPath: 'raw/ios-profile-session-readiness.json',
+  });
+  assert.match(markdown, /Skipped interaction proofs: 1/u);
+  assert.match(markdown, /skipped ios\/startup-ui \(agent-device\/app-startup\/ios-startup-agent-device\) from ios-live-proof: Profile health failed before sidecar proof\./u);
+  assert.match(markdown, /Diagnostics: captured=nativePerformance:diagnostic-only; blocking=accessibility:provider-blocked; nativePerformance\(claim=insufficient-for-claim, comparability=diagnostic-only, target=ambiguous, sources=xctrace:partial\)\./u);
+  assert.match(markdown, /Readiness: failure=dev_client_bundle_or_command_channel_not_ready, commands=1, devClientDeepLinkOpened=true, foregroundAppInfoCaptured=true, foregroundApplicationState=foreground, foregroundTargetOwned=false, lastDeepLink=startup, profileSessionSeeded=true, phase=session-start, expected=profile_session_started, foregroundRawPath=raw\/ios-foreground-app\.json, profileSessionSeedRawPath=raw\/profile-session-seed\.json, readinessRawPath=raw\/ios-profile-session-readiness\.json\./u);
+  assert.match(markdown, /Next action: runtime_environment\/restart_ios_dev_client - Restart the iOS dev client and rerun profile proof\./u);
+});
+
 test('writes live-proof-set artifact and agent summary', async (t: TestContext) => {
   const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-live-proof-set-write-'));
   t.after(async () => {
