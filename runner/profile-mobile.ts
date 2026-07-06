@@ -85,6 +85,20 @@ type DiagnosticAvailability =
   | 'requested-missing'
   | 'required-missing'
   | 'unsupported';
+type DiagnosticSufficiencyStatus =
+  | 'diagnostic-only'
+  | 'environment-blocked'
+  | 'not-requested'
+  | 'optional-preserved-evidence'
+  | 'provider-blocked'
+  | 'requested-missing'
+  | 'required-missing'
+  | 'satisfies-required-diagnostic'
+  | 'unsupported';
+type DiagnosticSufficiency = {
+  reason: string;
+  status: DiagnosticSufficiencyStatus;
+};
 type EvidenceRedactionStatus = 'not-redacted' | 'redacted' | 'unknown';
 type EvidenceRedactionAuthority = 'asl-default' | 'operator-declared' | 'provider-declared';
 type EvidenceSensitivity = 'declared-non-sensitive' | 'may-contain-sensitive-data' | 'unknown';
@@ -101,6 +115,7 @@ function isEvidenceRedactionStatus(value: string): value is EvidenceRedactionSta
 }
 type DiagnosticInventoryEntry = {
   availability?: DiagnosticAvailability;
+  sufficiency?: DiagnosticSufficiency;
   kind: DiagnosticKind;
   status: DiagnosticStatus;
   required: boolean;
@@ -1790,16 +1805,24 @@ function buildDiagnosticEntry(
     requested,
     status: diagnostic.status,
   });
+  const sufficiency = resolveDiagnosticSufficiency({
+    availability,
+    kind: diagnostic.kind,
+    required: diagnostic.required,
+    ...(diagnostic.path ? { path: diagnostic.path } : {}),
+  });
   if (diagnostic.status === 'captured' || requested || diagnostic.required) {
     return {
       ...diagnostic,
       availability,
+      sufficiency,
     };
   }
 
   return {
     ...diagnostic,
     availability,
+    sufficiency,
     status: 'not_requested',
     reason: diagnostic.reason ?? 'Scenario did not request this optional diagnostic surface.',
   };
@@ -1846,6 +1869,68 @@ function resolveDiagnosticAvailability({
   }
 
   return 'not-requested';
+}
+
+function resolveDiagnosticSufficiency({
+  availability,
+  kind,
+  path,
+  required,
+}: {
+  availability: DiagnosticAvailability;
+  kind: DiagnosticKind;
+  path?: string;
+  required: boolean;
+}): DiagnosticSufficiency {
+  switch (availability) {
+    case 'captured':
+      if (required) {
+        return {
+          status: 'satisfies-required-diagnostic',
+          reason: `${kind} evidence was captured and satisfies the declared required diagnostic.`,
+        };
+      }
+
+      return {
+        status: 'optional-preserved-evidence',
+        reason: `${kind} evidence was captured as optional preserved evidence.`,
+      };
+    case 'captured-diagnostic-only':
+      return {
+        status: 'diagnostic-only',
+        reason: `${kind} evidence was captured at ${path ?? 'an unrecorded path'}, but it is diagnostic-only and cannot satisfy a required diagnostic claim.`,
+      };
+    case 'provider-blocked':
+      return {
+        status: 'provider-blocked',
+        reason: `${kind} evidence was requested from a provider, but the provider did not produce a sufficient output.`,
+      };
+    case 'unsupported':
+      return {
+        status: 'unsupported',
+        reason: `${kind} evidence was requested from a runner or provider that does not support this diagnostic on the selected platform.`,
+      };
+    case 'required-missing':
+      return {
+        status: 'required-missing',
+        reason: `${kind} evidence was required but was not captured.`,
+      };
+    case 'requested-missing':
+      return {
+        status: 'requested-missing',
+        reason: `${kind} evidence was requested but was not captured.`,
+      };
+    case 'not-requested':
+      return {
+        status: 'not-requested',
+        reason: `${kind} evidence was optional and not requested for this scenario.`,
+      };
+    case 'environment-blocked':
+      return {
+        status: 'environment-blocked',
+        reason: `${kind} evidence was blocked by runner, host, or runtime state before a usable diagnostic was captured.`,
+      };
+  }
 }
 
 function readJsonRecordIfAvailable(filePath: string): Record<string, any> | null {
@@ -2315,6 +2400,7 @@ function buildRequiredDiagnosticHealthChecks(diagnostics: DiagnosticInventoryEnt
         ...(diagnostic.availability ? { availability: diagnostic.availability } : {}),
         kind: diagnostic.kind,
         status: diagnostic.status,
+        ...(diagnostic.sufficiency ? { sufficiencyStatus: diagnostic.sufficiency.status } : {}),
         ...(diagnostic.name ? { name: diagnostic.name } : {}),
         ...(diagnostic.nextAction ? { nextAction: diagnostic.nextAction } : {}),
         ...(diagnostic.provider ? { provider: diagnostic.provider } : {}),

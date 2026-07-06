@@ -445,6 +445,31 @@
                   "unsupported"
                 ]
               },
+              "sufficiency": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["reason", "status"],
+                "properties": {
+                  "reason": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "diagnostic-only",
+                      "environment-blocked",
+                      "not-requested",
+                      "optional-preserved-evidence",
+                      "provider-blocked",
+                      "requested-missing",
+                      "required-missing",
+                      "satisfies-required-diagnostic",
+                      "unsupported"
+                    ]
+                  }
+                }
+              },
               "required": {
                 "type": "boolean"
               },

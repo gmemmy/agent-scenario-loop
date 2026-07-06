@@ -317,6 +317,54 @@ test('indexes preserved provider diagnostics separately from product claims', ()
       verdictStatus: 'inconclusive',
       budgetChecks: [],
     },
+    manifest: {
+      artifacts: {
+        diagnostics: [
+          {
+            kind: 'accessibility',
+            provider: 'native-provider',
+            required: true,
+            status: 'failed',
+            sufficiency: {
+              status: 'provider-blocked',
+              reason: 'accessibility evidence was requested from a provider, but the provider did not produce a sufficient output.',
+            },
+          },
+          {
+            kind: 'nativePerformance',
+            path: 'raw/providers/native/native-performance.json',
+            provider: 'native-provider',
+            required: true,
+            status: 'captured',
+            sufficiency: {
+              status: 'diagnostic-only',
+              reason: 'nativePerformance evidence was captured, but it is diagnostic-only.',
+            },
+          },
+          {
+            kind: 'memory',
+            path: 'signals/memory/memory.json',
+            provider: 'native-provider',
+            required: false,
+            status: 'captured',
+            sufficiency: {
+              status: 'optional-preserved-evidence',
+              reason: 'memory evidence was captured as optional preserved evidence.',
+            },
+          },
+          {
+            kind: 'uiTree',
+            provider: 'native-provider',
+            required: true,
+            status: 'failed',
+            sufficiency: {
+              status: 'provider-blocked',
+              reason: 'uiTree evidence was requested from a provider, but the provider did not produce a sufficient output.',
+            },
+          },
+        ],
+      },
+    },
   });
 
   assert.match(summary, /Do not optimize from this run/u);
@@ -326,6 +374,11 @@ test('indexes preserved provider diagnostics separately from product claims', ()
   assert.match(summary, /Missing required `accessibility`, `uiTree`/u);
   assert.match(summary, /`raw\/providers\/native\/native-performance\.json`/u);
   assert.match(summary, /Next action `use_partial_provider_evidence_for_diagnosis`/u);
+  assert.match(summary, /## diagnostic sufficiency/u);
+  assert.match(summary, /`accessibility`: `provider-blocked`/u);
+  assert.match(summary, /`nativePerformance`: `diagnostic-only` \(required, provider=`native-provider`, path=`raw\/providers\/native\/native-performance\.json`\)/u);
+  assert.match(summary, /`memory`: `optional-preserved-evidence`/u);
+  assert.match(summary, /`uiTree`: `provider-blocked`/u);
   assert.match(summary, /## failed checks/u);
   assert.match(summary, /`required_accessibility_diagnostic`: failed/u);
   assert.match(summary, /## warnings/u);
