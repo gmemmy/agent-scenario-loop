@@ -551,7 +551,12 @@ test('profile-android classifies preserved native provider evidence as diagnosti
   assert.deepEqual(partialEvidenceCheck?.metadata?.capturedKinds.split(',').sort(), ['nativePerformance', 'profiler']);
   assert.deepEqual(partialEvidenceCheck?.metadata?.failedRequiredKinds.split(','), ['accessibility']);
   assert.deepEqual(partialEvidenceCheck?.metadata?.diagnosticOnlyKinds.split(',').sort(), ['nativePerformance', 'profiler']);
+  assert.deepEqual(partialEvidenceCheck?.metadata?.capturedDiagnosticSufficiency.split(',').sort(), [
+    'nativePerformance:diagnostic-only',
+    'profiler:diagnostic-only',
+  ]);
   assert.deepEqual(partialEvidenceCheck?.metadata?.blockingRequiredKinds.split(','), ['accessibility']);
+  assert.deepEqual(partialEvidenceCheck?.metadata?.blockingDiagnosticSufficiency.split(','), ['accessibility:provider-blocked']);
   assert.equal(partialEvidenceCheck?.metadata?.nextActionCode, 'use_partial_provider_evidence_for_diagnosis');
   assert.ok(
     (health.checks as Array<{ code: string; metadata?: { kind?: string } }>).some(

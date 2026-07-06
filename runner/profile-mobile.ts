@@ -2410,6 +2410,24 @@ function buildRequiredDiagnosticHealthChecks(diagnostics: DiagnosticInventoryEnt
 }
 
 /**
+ * Formats per-kind diagnostic sufficiency statuses for scalar health metadata.
+ *
+ * @param {DiagnosticInventoryEntry[]} diagnostics
+ * @returns {string[]}
+ */
+function formatDiagnosticSufficiencyStatusList(diagnostics: DiagnosticInventoryEntry[] = []): string[] {
+  return uniqueStrings(
+    diagnostics
+      .map((diagnostic) => {
+        if (!diagnostic.sufficiency?.status) {
+          return '';
+        }
+        return `${diagnostic.kind}:${diagnostic.sufficiency.status}`;
+      }),
+  );
+}
+
+/**
  * Reports provider-backed diagnostics that survived a provider command failure.
  *
  * @param {DiagnosticInventoryEntry[]} diagnostics
@@ -2438,11 +2456,12 @@ function buildPartialProviderEvidenceHealthChecks(
 
   const capturedKinds = uniqueStrings(capturedProviderDiagnostics.map((diagnostic) => diagnostic.kind));
   const capturedPaths = uniqueStrings(capturedProviderDiagnostics.map((diagnostic) => readTrimmedString(diagnostic.path)));
+  const capturedDiagnosticSufficiency = formatDiagnosticSufficiencyStatusList(capturedProviderDiagnostics);
+  const blockingDiagnostics = diagnostics.filter((diagnostic) => diagnostic.required && diagnostic.status !== 'captured');
   const failedRequiredKinds = uniqueStrings(
-    diagnostics
-      .filter((diagnostic) => diagnostic.required && diagnostic.status !== 'captured')
-      .map((diagnostic) => diagnostic.kind),
+    blockingDiagnostics.map((diagnostic) => diagnostic.kind),
   );
+  const blockingDiagnosticSufficiency = formatDiagnosticSufficiencyStatusList(blockingDiagnostics);
   const claimSufficiency = failedRequiredKinds.length > 0 ? 'insufficient-for-claim' : 'sufficient-for-diagnosis';
   return [
     {
@@ -2455,7 +2474,9 @@ function buildPartialProviderEvidenceHealthChecks(
         capturedKinds: capturedKinds.join(','),
         capturedPaths: capturedPaths.join(','),
         claimSufficiency,
+        ...(blockingDiagnosticSufficiency.length > 0 ? { blockingDiagnosticSufficiency: blockingDiagnosticSufficiency.join(',') } : {}),
         diagnosticOnlyKinds: capturedKinds.join(','),
+        ...(capturedDiagnosticSufficiency.length > 0 ? { capturedDiagnosticSufficiency: capturedDiagnosticSufficiency.join(',') } : {}),
         ...(failedRequiredKinds.length > 0 ? { blockingRequiredKinds: failedRequiredKinds.join(',') } : {}),
         ...(failedRequiredKinds.length > 0 ? { failedRequiredKinds: failedRequiredKinds.join(',') } : {}),
         nextAction: 'Use preserved diagnostics for investigation only; rerun or fix missing required provider outputs before making product claims.',
