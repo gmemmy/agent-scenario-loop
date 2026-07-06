@@ -178,6 +178,13 @@ type ProfileSessionStartWait = ProfileSessionStartObservation & {
   pollCount: number;
   timeoutMs: number;
 };
+type ProfileSessionStartForegroundProbe = {
+  appInfoCaptured: boolean;
+  applicationState: string | null;
+  rawPath: string;
+  targetForeground: boolean;
+};
+type ProfileSessionStartFailureClass = 'dev_client_bundle_or_command_channel_not_ready' | 'ios_profile_session_start_missing';
 type ProfileSessionStartWaitCheckInput = {
   readiness?: ProfileSessionStartReadinessContext;
   runId: string;
@@ -188,6 +195,8 @@ type ProfileSessionStartReadinessContext = {
   commandCount: number;
   devClientDeepLinkOpened: boolean;
   expectedEvidence: 'profile-session-start-or-profile-events';
+  failureClass: ProfileSessionStartFailureClass;
+  foregroundProbe: ProfileSessionStartForegroundProbe | null;
   lastDeepLinkLabel: string | null;
   lastDeepLinkUrl: string | null;
   pendingPhase: string;
@@ -1117,6 +1126,11 @@ function buildProfileSessionStartWaitCheck({
       commandCount: readiness.commandCount,
       devClientDeepLinkOpened: readiness.devClientDeepLinkOpened,
       expectedEvidence: readiness.expectedEvidence,
+      failureClass: readiness.failureClass,
+      foregroundAppInfoCaptured: readiness.foregroundProbe?.appInfoCaptured ?? null,
+      foregroundApplicationState: readiness.foregroundProbe?.applicationState ?? null,
+      foregroundRawPath: readiness.foregroundProbe?.rawPath ?? null,
+      foregroundTargetOwned: readiness.foregroundProbe?.targetForeground ?? null,
       lastDeepLinkLabel: readiness.lastDeepLinkLabel,
       lastDeepLinkUrl: readiness.lastDeepLinkUrl,
       pendingPhase: readiness.pendingPhase,
@@ -1541,22 +1555,27 @@ function lastOpenedDeepLink(results: Array<{exitCode?: unknown; label?: unknown;
 function buildProfileSessionStartReadinessContext({
   currentPhase,
   deepLinkResults,
+  foregroundProbe,
   profileSessionStorage,
   profileStorageKeys,
   seedRawPath,
 }: {
   currentPhase: IosSimctlCapturePhase;
   deepLinkResults: Record<string, unknown>[];
+  foregroundProbe: ProfileSessionStartForegroundProbe | null;
   profileSessionStorage: IosProfileSessionStorageSeed;
   profileStorageKeys: ProfileStorageKeys;
   seedRawPath: string | null;
 }): ProfileSessionStartReadinessContext {
   const lastDeepLink = lastOpenedDeepLink(deepLinkResults);
   const commands = Array.isArray(profileSessionStorage.commands) ? profileSessionStorage.commands : [];
+  const devClientDeepLinkOpened = hasOpenedIosDevClientDeepLink(deepLinkResults);
   return {
     commandCount: commands.length,
-    devClientDeepLinkOpened: hasOpenedIosDevClientDeepLink(deepLinkResults),
+    devClientDeepLinkOpened,
     expectedEvidence: 'profile-session-start-or-profile-events',
+    failureClass: profileSessionStartFailureClass({ devClientDeepLinkOpened }),
+    foregroundProbe,
     lastDeepLinkLabel: lastDeepLink?.label ?? null,
     lastDeepLinkUrl: lastDeepLink?.url ?? null,
     pendingPhase: currentPhase.name,
@@ -1566,6 +1585,56 @@ function buildProfileSessionStartReadinessContext({
     profileSessionStorageKey: profileStorageKeys.session,
     seedRawPath,
     waitRawPath: 'raw/ios-profile-session-start-wait.json',
+  };
+}
+
+/**
+ * Classifies the missing-start owner shape for storage-backed iOS profile sessions.
+ *
+ * @param {{devClientDeepLinkOpened: boolean}} options
+ * @returns {ProfileSessionStartFailureClass}
+ */
+function profileSessionStartFailureClass({
+  devClientDeepLinkOpened,
+}: {
+  devClientDeepLinkOpened: boolean;
+}): ProfileSessionStartFailureClass {
+  if (devClientDeepLinkOpened) {
+    return 'dev_client_bundle_or_command_channel_not_ready';
+  }
+
+  return 'ios_profile_session_start_missing';
+}
+
+/**
+ * Captures target foreground state when iOS profile-session startup never appears.
+ *
+ * @param {{bundleId: string, deviceUdid: string, executor: CommandExecutor, xcrunPath: string}} options
+ * @returns {Promise<{probe: ProfileSessionStartForegroundProbe, rawContent: string}>}
+ */
+async function inspectProfileSessionStartForeground({
+  bundleId,
+  deviceUdid,
+  executor,
+  xcrunPath,
+}: {
+  bundleId: string;
+  deviceUdid: string;
+  executor: CommandExecutor;
+  xcrunPath: string;
+}): Promise<{probe: ProfileSessionStartForegroundProbe; rawContent: string}> {
+  const result = await executor(xcrunPath, ['simctl', 'appinfo', deviceUdid, bundleId]);
+  const rawContent = formatIosSimctlRawOutput(result);
+  const applicationState = parseIosAppInfoApplicationState(rawContent);
+  const appInfoCaptured = result.exitCode === 0;
+  return {
+    probe: {
+      appInfoCaptured,
+      applicationState,
+      rawPath: 'raw/ios-profile-session-start-app-info.txt',
+      targetForeground: appInfoCaptured && isIosAppInfoForegroundState(applicationState),
+    },
+    rawContent,
   };
 }
 
@@ -2261,13 +2330,7 @@ async function runIosSimctlCapture(options: IosSimctlCaptureOptions = {}): Promi
           scenario: profileSessionStorage.scenario,
           timeoutMs: profileSessionStartWaitMs,
         });
-        const readiness = buildProfileSessionStartReadinessContext({
-          currentPhase,
-          deepLinkResults,
-          profileSessionStorage,
-          profileStorageKeys,
-          seedRawPath: raw['ios-profile-session-seed.json'] ? 'raw/ios-profile-session-seed.json' : null,
-        });
+        const profileSessionStartPhase = currentPhase;
         const startWait = await waitForStoredProfileSessionStart({
           bundleId,
           dataContainer: dataContainerPath,
@@ -2277,6 +2340,34 @@ async function runIosSimctlCapture(options: IosSimctlCaptureOptions = {}): Promi
           wait,
         });
         raw['ios-profile-session-start-wait.json'] = JSON.stringify(startWait, null, 2);
+        let foregroundProbe: ProfileSessionStartForegroundProbe | null = null;
+        if (!startWait.completed) {
+          setCurrentPhase('inspecting_profile_session_start_foreground', {
+            bundleId,
+            runId: profileSessionStorage.runId,
+            scenario: profileSessionStorage.scenario,
+          });
+          const startForeground = await inspectProfileSessionStartForeground({
+            bundleId,
+            deviceUdid: simulator.udid,
+            executor,
+            xcrunPath,
+          });
+          foregroundProbe = startForeground.probe;
+          raw['ios-profile-session-start-app-info.txt'] = startForeground.rawContent;
+        }
+        setCurrentPhase('classifying_profile_session_start_readiness', {
+          runId: profileSessionStorage.runId,
+          scenario: profileSessionStorage.scenario,
+        });
+        const readiness = buildProfileSessionStartReadinessContext({
+          currentPhase: profileSessionStartPhase,
+          deepLinkResults,
+          foregroundProbe,
+          profileSessionStorage,
+          profileStorageKeys,
+          seedRawPath: raw['ios-profile-session-seed.json'] ? 'raw/ios-profile-session-seed.json' : null,
+        });
         raw['ios-profile-session-readiness.json'] = JSON.stringify(readiness, null, 2);
         metadata.profileSessionStartWait = {
           ...startWait,

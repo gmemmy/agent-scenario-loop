@@ -382,6 +382,9 @@ test('classifies missing iOS profile-session start after storage seed and dev-cl
     'simctl openurl A692ED28-893E-453F-8866-C69331AE757F asl-example://expo-development-client/?url=http%3A%2F%2Flocalhost%3A8097': {
       stdout: '',
     },
+    'simctl appinfo A692ED28-893E-453F-8866-C69331AE757F dev.agent-scenario-loop.example': {
+      stdout: '{"ApplicationState":"ForegroundRunning","Bundle":"dev.agent-scenario-loop.example"}\n',
+    },
     'simctl spawn A692ED28-893E-453F-8866-C69331AE757F log show --style compact --last 2m --predicate eventMessage CONTAINS "[profile-event]" OR eventMessage CONTAINS "[profile-session]"': {
       stdout: 'Timestamp Ty Process[PID:TID]\n',
     },
@@ -421,6 +424,7 @@ test('classifies missing iOS profile-session start after storage seed and dev-cl
   const metadata = JSON.parse(fs.readFileSync(path.join(outputDir, 'raw', 'ios-metadata.json'), 'utf8'));
   const startWait = JSON.parse(fs.readFileSync(path.join(outputDir, 'raw', 'ios-profile-session-start-wait.json'), 'utf8'));
   const readiness = JSON.parse(fs.readFileSync(path.join(outputDir, 'raw', 'ios-profile-session-readiness.json'), 'utf8'));
+  const startAppInfo = fs.readFileSync(path.join(outputDir, 'raw', 'ios-profile-session-start-app-info.txt'), 'utf8');
   const startWaitCheck = (result.health.checks as Array<{ code: string; metadata?: Record<string, unknown> }>).find(
     (check) => check.code === 'ios_profile_session_start_wait_exhausted',
   );
@@ -430,19 +434,29 @@ test('classifies missing iOS profile-session start after storage seed and dev-cl
   assert.equal(startWaitCheck?.metadata?.commandCount, 1);
   assert.equal(startWaitCheck?.metadata?.devClientDeepLinkOpened, true);
   assert.equal(startWaitCheck?.metadata?.expectedEvidence, 'profile-session-start-or-profile-events');
+  assert.equal(startWaitCheck?.metadata?.failureClass, 'dev_client_bundle_or_command_channel_not_ready');
+  assert.equal(startWaitCheck?.metadata?.foregroundAppInfoCaptured, true);
+  assert.equal(startWaitCheck?.metadata?.foregroundApplicationState, 'ForegroundRunning');
+  assert.equal(startWaitCheck?.metadata?.foregroundRawPath, 'raw/ios-profile-session-start-app-info.txt');
+  assert.equal(startWaitCheck?.metadata?.foregroundTargetOwned, true);
   assert.equal(startWaitCheck?.metadata?.lastDeepLinkLabel, 'ios-dev-client-url');
   assert.equal(startWaitCheck?.metadata?.pendingPhase, 'waiting_for_profile_session_start');
   assert.equal(startWaitCheck?.metadata?.readinessRawPath, 'raw/ios-profile-session-readiness.json');
   assert.ok(!waits.includes(1000));
   assert.equal(startWait.completed, false);
+  assert.match(startAppInfo, /ForegroundRunning/u);
   assert.equal(readiness.commandCount, 1);
   assert.equal(readiness.devClientDeepLinkOpened, true);
+  assert.equal(readiness.failureClass, 'dev_client_bundle_or_command_channel_not_ready');
+  assert.equal(readiness.foregroundProbe.applicationState, 'ForegroundRunning');
+  assert.equal(readiness.foregroundProbe.targetForeground, true);
   assert.equal(readiness.pendingPhase, 'waiting_for_profile_session_start');
   assert.equal(readiness.profileSessionStorageKey, 'agent-scenario-loop.profile-session.1');
   assert.equal(metadata.profileSessionStartWait.completed, false);
   assert.equal(metadata.profileSessionStartWait.rawPath, 'raw/ios-profile-session-start-wait.json');
   assert.equal(metadata.profileSessionReadiness.rawPath, 'raw/ios-profile-session-readiness.json');
   assert.equal(metadata.profileSessionReadiness.expectedEvidence, 'profile-session-start-or-profile-events');
+  assert.equal(metadata.profileSessionReadiness.foregroundProbe.rawPath, 'raw/ios-profile-session-start-app-info.txt');
   assert.equal(metadata.profileSessionStartObservation.observed, false);
   assert.equal(metadata.profileSessionStartObservation.runId, 'ios-profile-start-missing');
   assert.equal(metadata.currentPhase.name, 'finalizing_artifacts');

@@ -122,6 +122,41 @@ test('blocks optimization claims when scenario health fails', () => {
   assert.match(summary, /`missing_optional_artifact`: warning/u);
 });
 
+test('renders diagnostic failure classes and raw paths on checks', () => {
+  const summary = buildAgentSummaryMarkdown({
+    health: {
+      scenarioId: 'app-startup',
+      runId: 'run-diagnostic',
+      healthStatus: 'failed',
+      checks: [
+        {
+          name: 'ios_profile_session_start_wait',
+          status: 'failed',
+          source: 'runner',
+          message: 'No same-run iOS profile-session app evidence appeared.',
+          metadata: {
+            failureClass: 'dev_client_bundle_or_command_channel_not_ready',
+            foregroundRawPath: 'raw/ios-profile-session-start-app-info.txt',
+            nextAction: 'Confirm the development client loaded the intended app bundle and command channel.',
+            nextActionCode: 'fix_ios_dev_client_bundle_or_command_channel',
+            readinessRawPath: 'raw/ios-profile-session-readiness.json',
+          },
+        },
+      ],
+    },
+    verdict: {
+      scenarioId: 'app-startup',
+      runId: 'run-diagnostic',
+      verdictStatus: 'inconclusive',
+      budgetChecks: [],
+    },
+  });
+
+  assert.match(summary, /failureClass=`dev_client_bundle_or_command_channel_not_ready`/u);
+  assert.match(summary, /foregroundRawPath=`raw\/ios-profile-session-start-app-info\.txt`/u);
+  assert.match(summary, /readinessRawPath=`raw\/ios-profile-session-readiness\.json`/u);
+});
+
 test('surfaces failed budget checks for valid runs', () => {
   const summary = buildAgentSummaryMarkdown({
     health: {
