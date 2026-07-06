@@ -420,18 +420,29 @@ test('classifies missing iOS profile-session start after storage seed and dev-cl
   });
   const metadata = JSON.parse(fs.readFileSync(path.join(outputDir, 'raw', 'ios-metadata.json'), 'utf8'));
   const startWait = JSON.parse(fs.readFileSync(path.join(outputDir, 'raw', 'ios-profile-session-start-wait.json'), 'utf8'));
+  const readiness = JSON.parse(fs.readFileSync(path.join(outputDir, 'raw', 'ios-profile-session-readiness.json'), 'utf8'));
+  const startWaitCheck = (result.health.checks as Array<{ code: string; metadata?: Record<string, unknown> }>).find(
+    (check) => check.code === 'ios_profile_session_start_wait_exhausted',
+  );
 
   assert.equal(result.health.healthStatus, 'failed');
-  assert.ok(
-    (result.health.checks as Array<{ code: string; metadata?: { nextActionCode?: string } }>).some(
-      (check) => check.code === 'ios_profile_session_start_wait_exhausted'
-        && check.metadata?.nextActionCode === 'fix_ios_dev_client_bundle_or_command_channel',
-    ),
-  );
+  assert.equal(startWaitCheck?.metadata?.nextActionCode, 'fix_ios_dev_client_bundle_or_command_channel');
+  assert.equal(startWaitCheck?.metadata?.commandCount, 1);
+  assert.equal(startWaitCheck?.metadata?.devClientDeepLinkOpened, true);
+  assert.equal(startWaitCheck?.metadata?.expectedEvidence, 'profile-session-start-or-profile-events');
+  assert.equal(startWaitCheck?.metadata?.lastDeepLinkLabel, 'ios-dev-client-url');
+  assert.equal(startWaitCheck?.metadata?.pendingPhase, 'waiting_for_profile_session_start');
+  assert.equal(startWaitCheck?.metadata?.readinessRawPath, 'raw/ios-profile-session-readiness.json');
   assert.ok(!waits.includes(1000));
   assert.equal(startWait.completed, false);
+  assert.equal(readiness.commandCount, 1);
+  assert.equal(readiness.devClientDeepLinkOpened, true);
+  assert.equal(readiness.pendingPhase, 'waiting_for_profile_session_start');
+  assert.equal(readiness.profileSessionStorageKey, 'agent-scenario-loop.profile-session.1');
   assert.equal(metadata.profileSessionStartWait.completed, false);
   assert.equal(metadata.profileSessionStartWait.rawPath, 'raw/ios-profile-session-start-wait.json');
+  assert.equal(metadata.profileSessionReadiness.rawPath, 'raw/ios-profile-session-readiness.json');
+  assert.equal(metadata.profileSessionReadiness.expectedEvidence, 'profile-session-start-or-profile-events');
   assert.equal(metadata.profileSessionStartObservation.observed, false);
   assert.equal(metadata.profileSessionStartObservation.runId, 'ios-profile-start-missing');
   assert.equal(metadata.currentPhase.name, 'finalizing_artifacts');
