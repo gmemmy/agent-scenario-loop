@@ -1848,6 +1848,37 @@ function resolveDiagnosticAvailability({
   return 'not-requested';
 }
 
+function readJsonRecordIfAvailable(filePath: string): Record<string, any> | null {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? parsed as Record<string, any>
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function isComparisonReadyNativePerformanceEvidence(evidence: Record<string, any>): boolean {
+  return evidence.completenessStatus === 'complete' &&
+    evidence.claimSufficiency?.status === 'sufficient-for-comparison' &&
+    evidence.comparability?.status === 'comparable' &&
+    evidence.targetBinding?.status === 'verified';
+}
+
+function isDiagnosticOnlyProviderAttachment(attachment: EvidenceAttachment | undefined): boolean {
+  if (!attachment) {
+    return false;
+  }
+
+  if (attachment.kind !== 'nativePerformance') {
+    return false;
+  }
+
+  const evidence = readJsonRecordIfAvailable(attachment.sourcePath);
+  return !evidence || !isComparisonReadyNativePerformanceEvidence(evidence);
+}
+
 function resolveProviderDiagnosticProvider(
   attachment: EvidenceAttachment | undefined,
   missingProviderOutput: ProviderOutputStatus | undefined,
@@ -2095,7 +2126,11 @@ function buildDiagnosticInventory({
   const entries: DiagnosticInventoryEntry[] = [];
   const pushDiagnostic = (
     kind: DiagnosticKind,
-    entry: Omit<DiagnosticInventoryEntry, 'kind' | 'required'> & { required?: boolean; requested?: boolean },
+    entry: Omit<DiagnosticInventoryEntry, 'kind' | 'required'> & {
+      diagnosticOnly?: boolean;
+      required?: boolean;
+      requested?: boolean;
+    },
   ) => {
     const request = resolveDiagnosticRequest({
       kind,
@@ -2107,7 +2142,9 @@ function buildDiagnosticInventory({
     entries.push(buildDiagnosticEntry({
       kind,
       ...entry,
-      diagnosticOnly: typeof entry.provider === 'string' && failedProviderIds.has(entry.provider),
+      diagnosticOnly: Boolean(entry.diagnosticOnly) || (
+        typeof entry.provider === 'string' && failedProviderIds.has(entry.provider)
+      ),
       required: request.required || requiredProviderDiagnostics.has(kind) || Boolean(entry.required),
       requested: request.requested ||
         providerDeclaredDiagnostics.has(kind) ||
@@ -2245,6 +2282,7 @@ function buildDiagnosticInventory({
     const status = resolveProviderDiagnosticStatus(attachment, missingProviderOutput);
     const reason = resolveProviderDiagnosticReason(kind, attachment, missingProviderOutput);
     pushDiagnostic(kind, {
+      ...(isDiagnosticOnlyProviderAttachment(attachment) ? { diagnosticOnly: true } : {}),
       ...(provider ? { provider } : {}),
       status,
       ...(attachment ? { path: attachment.manifestPath } : {}),
@@ -2266,7 +2304,7 @@ function buildDiagnosticInventory({
  */
 function buildRequiredDiagnosticHealthChecks(diagnostics: DiagnosticInventoryEntry[] = []): Record<string, unknown>[] {
   return diagnostics
-    .filter((diagnostic) => diagnostic.required && diagnostic.status !== 'captured')
+    .filter((diagnostic) => diagnostic.required && diagnostic.availability !== 'captured')
     .map((diagnostic) => ({
       name: `required_${diagnostic.kind}_diagnostic`,
       status: 'failed',
