@@ -69,6 +69,35 @@ function formatNextAction(record: SummaryRecord): string {
 }
 
 /**
+ * Formats stable diagnostic metadata that helps readers find the owning evidence.
+ *
+ * @param {SummaryRecord} record
+ * @returns {string}
+ */
+function formatDiagnosticMetadata(record: SummaryRecord): string {
+  const metadata = record.metadata;
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) {
+    return '';
+  }
+
+  const metadataRecord = metadata as SummaryRecord;
+  const details: string[] = [];
+  const failureClass = firstString([metadataRecord.failureClass], '');
+  if (failureClass) {
+    details.push(`failureClass=${code(failureClass)}`);
+  }
+
+  for (const [key, value] of Object.entries(metadataRecord)) {
+    if (!/(?:^rawPath$|RawPath$)/u.test(key) || typeof value !== 'string' || value.length === 0) {
+      continue;
+    }
+    details.push(`${key}=${code(value)}`);
+  }
+
+  return details.length > 0 ? ` Details: ${details.join(', ')}` : '';
+}
+
+/**
  * Formats health or warning checks as markdown list items.
  *
  * @param {unknown[]} checks
@@ -84,7 +113,7 @@ function formatChecks(checks: unknown[]): string[] {
     const name = firstString([record.name, record.code], 'unknown_check');
     const status = firstString([record.status], 'unknown');
     const message = firstString([record.message], 'no message');
-    return `- ${code(name)}: ${status} - ${message}${formatNextAction(record)}`;
+    return `- ${code(name)}: ${status} - ${message}${formatNextAction(record)}${formatDiagnosticMetadata(record)}`;
   });
 }
 
