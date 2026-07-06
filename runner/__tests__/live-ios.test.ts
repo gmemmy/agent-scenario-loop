@@ -449,3 +449,110 @@ test('generic iOS live proof writes failed aggregate before skipping sidecars on
   );
   assert.equal(liveProof.interactionProofs, undefined);
 });
+
+test('generic iOS live proof publishes storage start failure before skipping sidecars', async (t: TestContext) => {
+  const outputDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-live-ios-start-missing-'));
+  const dataContainer = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-live-ios-data-start-missing-'));
+  t.after(async () => {
+    await fsp.rm(outputDir, { recursive: true, force: true });
+    await fsp.rm(dataContainer, { recursive: true, force: true });
+  });
+
+  const executor = async (command: string, args: string[]): Promise<CommandResult> => {
+    const key = args.join(' ');
+
+    if (key === 'simctl list devices') {
+      return {
+        command,
+        args,
+        exitCode: 0,
+        stderr: '',
+        stdout: ['== Devices ==', '-- iOS 26.3 --', `    iPhone 17 Pro Max (${DEVICE_ID}) (Booted)`].join('\n'),
+      };
+    }
+    if (key === `simctl spawn ${DEVICE_ID} launchctl getenv DYLD_INSERT_LIBRARIES`) {
+      return { command, args, exitCode: 0, stderr: '', stdout: '' };
+    }
+    if (key === `simctl spawn ${DEVICE_ID} launchctl getenv NATIVE_DEVTOOLS_IOS_CDP_SOCKET`) {
+      return { command, args, exitCode: 0, stderr: '', stdout: '' };
+    }
+    if (key === `simctl get_app_container ${DEVICE_ID} ${BUNDLE_ID} app`) {
+      return { command, args, exitCode: 0, stderr: '', stdout: '/tmp/ASLExampleMobile.app\n' };
+    }
+    if (key === `simctl get_app_container ${DEVICE_ID} ${BUNDLE_ID} data`) {
+      return { command, args, exitCode: 0, stderr: '', stdout: `${dataContainer}\n` };
+    }
+    if (key === `simctl terminate ${DEVICE_ID} ${BUNDLE_ID}`) {
+      return { command, args, exitCode: 0, stderr: '', stdout: '' };
+    }
+    if (key === `simctl openurl ${DEVICE_ID} asl-example://expo-development-client/?url=http%3A%2F%2Flocalhost%3A8097`) {
+      return { command, args, exitCode: 0, stderr: '', stdout: '' };
+    }
+    if (key === `simctl appinfo ${DEVICE_ID} ${BUNDLE_ID}`) {
+      return {
+        command,
+        args,
+        exitCode: 0,
+        stderr: '',
+        stdout: `{"ApplicationState":"ForegroundRunning","Bundle":"${BUNDLE_ID}"}\n`,
+      };
+    }
+    if (key === `simctl spawn ${DEVICE_ID} log show --style compact --last 2m --predicate eventMessage CONTAINS "[profile-event]" OR eventMessage CONTAINS "[profile-session]"`) {
+      return { command, args, exitCode: 0, stderr: '', stdout: 'Timestamp Ty Process[PID:TID]\n' };
+    }
+
+    return { command, args, exitCode: 1, stderr: `unexpected command: ${key}`, stdout: '' };
+  };
+  const agentDeviceExecutor = async (): Promise<AgentDeviceCommandResult> => {
+    assert.fail('agent-device sidecar should not run after iOS profile-session start failure');
+    throw new Error('unreachable');
+  };
+  const argentExecutor = async (): Promise<ArgentCommandResult> => {
+    assert.fail('Argent sidecar should not run after iOS profile-session start failure');
+    throw new Error('unreachable');
+  };
+
+  await assert.rejects(
+    () => runIosLiveProof({
+      'agent-device-proof': true,
+      'argent-proof': true,
+      bundle: BUNDLE_ID,
+      config: path.join(ROOT, 'examples', 'mobile-app', 'asl.config.json'),
+      device: DEVICE_ID,
+      'ios-dev-client-url': 'asl-example://expo-development-client/?url=http%3A%2F%2Flocalhost%3A8097',
+      'ios-profile-session-start-wait-ms': '5',
+      'ios-profile-session-transport': 'storage',
+      out: outputDir,
+      scenario: path.join(ROOT, 'examples', 'mobile-app', 'scenarios', 'mobile', 'app-startup.json'),
+    }, {
+      agentDeviceExecutor,
+      argentExecutor,
+      delay: async () => {},
+      executor,
+    }),
+    /iOS live proof failed\. Inspect/u,
+  );
+
+  const liveProof = JSON.parse(
+    fs.readFileSync(path.join(outputDir, '_live-proof', 'ios-live-proof', 'live-proof.json'), 'utf8'),
+  );
+  const sidecarRoot = path.join(outputDir, '_ios-simctl-captures', 'app-startup-ios-live');
+  const health = JSON.parse(fs.readFileSync(path.join(sidecarRoot, 'health.json'), 'utf8'));
+  const metadata = JSON.parse(fs.readFileSync(path.join(sidecarRoot, 'raw', 'ios-metadata.json'), 'utf8'));
+  const startWaitCheck = (health.checks as Array<{ code: string; metadata?: Record<string, unknown> }>).find(
+    (check) => check.code === 'ios_profile_session_start_wait_exhausted',
+  );
+
+  assert.equal(liveProof.status, 'failed');
+  assert.equal(liveProof.nextAction.code, 'inspect_failed_run');
+  assert.deepEqual(
+    liveProof.skippedInteractionProofs.map((proof: { runnerId: string }) => proof.runnerId),
+    ['agent-device', 'argent'],
+  );
+  assert.equal(liveProof.interactionProofs, undefined);
+  assert.equal(startWaitCheck?.metadata?.failureClass, 'dev_client_bundle_or_command_channel_not_ready');
+  assert.equal(startWaitCheck?.metadata?.foregroundTargetOwned, true);
+  assert.equal(startWaitCheck?.metadata?.readinessRawPath, 'raw/ios-profile-session-readiness.json');
+  assert.equal(metadata.profileSessionStartWait.completed, false);
+  assert.equal(metadata.currentPhase.name, 'finalizing_artifacts');
+});

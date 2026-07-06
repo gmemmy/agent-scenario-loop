@@ -230,6 +230,33 @@ function isTrustedProfileRun({
 }
 
 /**
+ * Reports whether a run directory has the public status artifacts needed by the aggregate live proof.
+ *
+ * @param {string} runDir
+ * @returns {boolean}
+ */
+function hasLiveProofRunStatusArtifacts(runDir: string): boolean {
+  return fs.existsSync(path.join(runDir, 'agent-summary.md')) &&
+    fs.existsSync(path.join(runDir, 'health.json')) &&
+    fs.existsSync(path.join(runDir, 'verdict.json'));
+}
+
+/**
+ * Reads public status fields from a run directory already known to contain status artifacts.
+ *
+ * @param {string} runDir
+ * @returns {{healthStatus: string, verdictStatus: string}}
+ */
+function readProfileStatusArtifacts(runDir: string): {healthStatus: string; verdictStatus: string} {
+  const health = readJson(path.join(runDir, 'health.json'));
+  const verdict = readJson(path.join(runDir, 'verdict.json'));
+  return {
+    healthStatus: String(health.healthStatus ?? 'unknown'),
+    verdictStatus: String(verdict.verdictStatus ?? 'unknown'),
+  };
+}
+
+/**
  * Builds skipped sidecar pointers for requested runners when the profile gate failed.
  *
  * @param {{requestedRunners: string[], runIdsByRunner: Record<string, string>, scenarioId: string, profileHealthStatus: unknown, profileVerdictStatus: unknown}} options
@@ -411,40 +438,58 @@ async function runIosLiveProof(
     runnerId: string;
     scenarioId: string;
   }> = [];
-  const profile = await runProfileIos({
-    config: configPath,
-    ...(deviceId ? { device: deviceId } : {}),
-    launch: true,
-    out: outputDir,
-    ...(iosDevClientUrl ? { 'ios-dev-client-url': iosDevClientUrl } : {}),
-    ...(iosDevClientWaitMs ? { 'ios-dev-client-wait-ms': iosDevClientWaitMs } : {}),
-    'profile-session': true,
-    ...(iosProfileSessionTransport === 'storage' ? { 'profile-session-storage': true } : {}),
-    ...(iosProfileSessionStorageKey ? { 'ios-profile-session-storage-key': iosProfileSessionStorageKey } : {}),
-    ...(iosProfileCommandStorageKey ? { 'ios-profile-command-storage-key': iosProfileCommandStorageKey } : {}),
-    ...(iosProfileEventStorageKey ? { 'ios-profile-event-storage-key': iosProfileEventStorageKey } : {}),
-    ...(iosProfileSignalStorageKey ? { 'ios-profile-signal-storage-key': iosProfileSignalStorageKey } : {}),
-    ...(iosProfileSessionEntriesStorageKey ? { 'ios-profile-session-entries-storage-key': iosProfileSessionEntriesStorageKey } : {}),
-    ...(iosProfileSessionStartWaitMs ? { 'ios-profile-session-start-wait-ms': iosProfileSessionStartWaitMs } : {}),
-    'run-id': profileRunId,
-    scenario: scenarioPath,
-    'simctl-capture': true,
-    'simctl-out': path.join(outputDir, '_ios-simctl-captures', profileRunId),
-    ...(typeof args['wait-ms'] === 'string' ? { 'wait-ms': args['wait-ms'] } : {}),
-    ...(bundleId ? { bundle: bundleId } : {}),
-    ...(xcrunPath ? { xcrun: xcrunPath } : {}),
-  }, {
-    comparisonLane,
-    ...(options.delay ? { delay: options.delay } : {}),
-    ...(options.executor ? { executor: options.executor } : {}),
-  });
-  const profileTrusted = isTrustedProfileRun({ health: profile.health, verdict: profile.verdict });
+  const profileSidecarDir = path.join(outputDir, '_ios-simctl-captures', profileRunId);
+  const profileArtifactDir = path.join(outputDir, scenarioId, profileRunId);
+  let profile: Awaited<ReturnType<typeof runProfileIos>> | null = null;
+  let profileRunDir = profileArtifactDir;
+  try {
+    profile = await runProfileIos({
+      config: configPath,
+      ...(deviceId ? { device: deviceId } : {}),
+      launch: true,
+      out: outputDir,
+      ...(iosDevClientUrl ? { 'ios-dev-client-url': iosDevClientUrl } : {}),
+      ...(iosDevClientWaitMs ? { 'ios-dev-client-wait-ms': iosDevClientWaitMs } : {}),
+      'profile-session': true,
+      ...(iosProfileSessionTransport === 'storage' ? { 'profile-session-storage': true } : {}),
+      ...(iosProfileSessionStorageKey ? { 'ios-profile-session-storage-key': iosProfileSessionStorageKey } : {}),
+      ...(iosProfileCommandStorageKey ? { 'ios-profile-command-storage-key': iosProfileCommandStorageKey } : {}),
+      ...(iosProfileEventStorageKey ? { 'ios-profile-event-storage-key': iosProfileEventStorageKey } : {}),
+      ...(iosProfileSignalStorageKey ? { 'ios-profile-signal-storage-key': iosProfileSignalStorageKey } : {}),
+      ...(iosProfileSessionEntriesStorageKey ? { 'ios-profile-session-entries-storage-key': iosProfileSessionEntriesStorageKey } : {}),
+      ...(iosProfileSessionStartWaitMs ? { 'ios-profile-session-start-wait-ms': iosProfileSessionStartWaitMs } : {}),
+      'run-id': profileRunId,
+      scenario: scenarioPath,
+      'simctl-capture': true,
+      'simctl-out': path.join(outputDir, '_ios-simctl-captures', profileRunId),
+      ...(typeof args['wait-ms'] === 'string' ? { 'wait-ms': args['wait-ms'] } : {}),
+      ...(bundleId ? { bundle: bundleId } : {}),
+      ...(xcrunPath ? { xcrun: xcrunPath } : {}),
+    }, {
+      comparisonLane,
+      ...(options.delay ? { delay: options.delay } : {}),
+      ...(options.executor ? { executor: options.executor } : {}),
+    });
+    profileRunDir = profile.runDir;
+  } catch (error) {
+    if (!hasLiveProofRunStatusArtifacts(profileSidecarDir)) {
+      throw error;
+    }
+    profileRunDir = profileSidecarDir;
+  }
+  const profileStatus = profile
+    ? {
+        healthStatus: profile.health.healthStatus,
+        verdictStatus: profile.verdict.verdictStatus,
+      }
+    : readProfileStatusArtifacts(profileRunDir);
+  const profileTrusted = profileStatus.healthStatus === 'passed' && profileStatus.verdictStatus === 'passed';
 
   let skippedInteractionProofs: SkippedInteractionProof[] = [];
   if (!profileTrusted) {
     skippedInteractionProofs = buildSkippedInteractionProofs({
-      profileHealthStatus: profile.health.healthStatus,
-      profileVerdictStatus: profile.verdict.verdictStatus,
+      profileHealthStatus: profileStatus.healthStatus,
+      profileVerdictStatus: profileStatus.verdictStatus,
       requestedRunners: enabledInteractionRunners,
       runIdsByRunner,
       scenarioId,
@@ -505,7 +550,7 @@ async function runIosLiveProof(
 
   const profiles = [{
     label: scenarioId,
-    runDir: profile.runDir,
+    runDir: profileRunDir,
     runId: profileRunId,
     scenarioId,
   }];
@@ -527,7 +572,7 @@ async function runIosLiveProof(
     aggregateSummary,
     outputDir,
     preflightDir: preflight.runDir,
-    profileDir: profile.runDir,
+    profileDir: profileRunDir,
   };
   if (isEnabledFlag(args['fail-on-regression'])) {
     assertNoRegressedComparisons({ comparisons, result });
