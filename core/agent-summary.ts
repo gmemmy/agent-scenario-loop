@@ -147,6 +147,21 @@ function splitMetadataList(value: unknown): string[] {
 }
 
 /**
+ * Formats per-kind diagnostic sufficiency pairs from scalar health metadata.
+ *
+ * @param {unknown} value
+ * @returns {string}
+ */
+function formatDiagnosticSufficiencyPairs(value: unknown): string {
+  const pairs = splitMetadataList(value);
+  if (pairs.length === 0) {
+    return '';
+  }
+
+  return pairs.map((pair) => code(pair)).join(', ');
+}
+
+/**
  * Formats diagnostics that survived an unhealthy provider or sidecar run.
  *
  * @param {unknown[]} checks
@@ -194,6 +209,16 @@ function formatPreservedDiagnosticEvidence(checks: unknown[]): string[] {
       if (claimSufficiency) {
         claimSufficiencyText = ` Claim sufficiency: ${code(claimSufficiency)}.`;
       }
+      const capturedSufficiency = formatDiagnosticSufficiencyPairs(metadataRecord.capturedDiagnosticSufficiency);
+      let capturedSufficiencyText = '';
+      if (capturedSufficiency) {
+        capturedSufficiencyText = ` Captured sufficiency: ${capturedSufficiency}.`;
+      }
+      const blockingSufficiency = formatDiagnosticSufficiencyPairs(metadataRecord.blockingDiagnosticSufficiency);
+      let blockingSufficiencyText = '';
+      if (blockingSufficiency) {
+        blockingSufficiencyText = ` Blocking sufficiency: ${blockingSufficiency}.`;
+      }
 
       const message = firstString([record.message], 'Diagnostics were preserved from an unhealthy run.');
       const nextAction = formatNextAction(record).trim();
@@ -202,7 +227,7 @@ function formatPreservedDiagnosticEvidence(checks: unknown[]): string[] {
         nextActionText = ` ${nextAction}`;
       }
 
-      return `- Captured ${kindText} at ${pathText}.${failedRequiredText}${claimSufficiencyText} ${message}${nextActionText}`;
+      return `- Captured ${kindText} at ${pathText}.${failedRequiredText}${claimSufficiencyText}${capturedSufficiencyText}${blockingSufficiencyText} ${message}${nextActionText}`;
     });
 }
 
