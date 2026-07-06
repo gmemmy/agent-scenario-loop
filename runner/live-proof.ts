@@ -234,6 +234,15 @@ type LiveProofSetProfileGateReadinessRollup = {
   readinessProofCount: number;
   skippedInteractionProofCount: number;
 };
+type LiveProofSkippedInteractionProofNextActionCount = {
+  code: string;
+  count: number;
+  owner?: LiveProofNextActionOwner;
+};
+type LiveProofSetSkippedInteractionProofNextActionsRollup = {
+  nextActionCounts: LiveProofSkippedInteractionProofNextActionCount[];
+  skippedInteractionProofCount: number;
+};
 type LiveProofSetArtifact = {
   failureReasons: string[];
   missingPlatforms: LiveProofPlatform[];
@@ -253,6 +262,7 @@ type LiveProofSetArtifact = {
   runId: string;
   schemaVersion: '1.0.0';
   skippedInteractionProofCount?: number;
+  skippedInteractionProofNextActions?: LiveProofSetSkippedInteractionProofNextActionsRollup;
   skippedInteractionProofs?: LiveProofSetSkippedInteractionProofPointer[];
   status: 'failed' | 'passed';
   summary: string;
@@ -1462,6 +1472,43 @@ function buildLiveProofSetProfileGateReadinessRollup(
 }
 
 /**
+ * Builds next-action owner/code counts across skipped proof gates.
+ *
+ * @param {LiveProofSetSkippedInteractionProofPointer[]} skippedProofs
+ * @returns {LiveProofSetSkippedInteractionProofNextActionsRollup | null}
+ */
+function buildLiveProofSetSkippedInteractionProofNextActionsRollup(
+  skippedProofs: LiveProofSetSkippedInteractionProofPointer[],
+): LiveProofSetSkippedInteractionProofNextActionsRollup | null {
+  if (skippedProofs.length === 0) {
+    return null;
+  }
+
+  const nextActionCounts = new Map<string, number>();
+  for (const skippedProof of skippedProofs) {
+    const owner = skippedProof.nextAction.owner ?? '';
+    const key = `${owner}\u0000${skippedProof.nextAction.code}`;
+    nextActionCounts.set(key, (nextActionCounts.get(key) ?? 0) + 1);
+  }
+
+  return {
+    nextActionCounts: [...nextActionCounts.entries()]
+      .map(([key, count]) => {
+        const [owner = '', code = ''] = key.split('\u0000');
+        return {
+          code,
+          count,
+          ...(owner ? { owner: owner as LiveProofNextActionOwner } : {}),
+        };
+      })
+      .sort((left, right) => (
+        (left.owner ?? '').localeCompare(right.owner ?? '') || left.code.localeCompare(right.code)
+      )),
+    skippedInteractionProofCount: skippedProofs.length,
+  };
+}
+
+/**
  * Builds human-readable failure reasons for one proof set.
  *
  * @param {{failOnRegression: boolean, missingPlatforms: LiveProofPlatform[], proofs: LiveProofArtifact[]}} options
@@ -1584,6 +1631,9 @@ function buildLiveProofSetArtifact({
   const profileGateReadiness = buildLiveProofSetProfileGateReadinessRollup(
     skippedInteractionProofs,
   );
+  const skippedInteractionProofNextActions = buildLiveProofSetSkippedInteractionProofNextActionsRollup(
+    skippedInteractionProofs,
+  );
   return {
     failureReasons,
     missingPlatforms,
@@ -1604,6 +1654,7 @@ function buildLiveProofSetArtifact({
     ...(skippedInteractionProofs.length > 0
       ? {
         skippedInteractionProofCount: skippedInteractionProofs.length,
+        ...(skippedInteractionProofNextActions ? { skippedInteractionProofNextActions } : {}),
         skippedInteractionProofs,
       }
       : {}),
@@ -1788,6 +1839,36 @@ function formatLiveProofSetProfileGateReadinessRollup(
 
   return [
     `Profile gate readiness: ${details.join('; ')}`,
+  ];
+}
+
+/**
+ * Formats skipped-proof next-action count entries for proof-set markdown.
+ *
+ * @param {LiveProofSkippedInteractionProofNextActionCount[]} counts
+ * @returns {string}
+ */
+function formatLiveProofSetSkippedNextActionCounts(
+  counts: LiveProofSkippedInteractionProofNextActionCount[],
+): string {
+  return counts.map((entry) => `${entry.owner ?? 'unknown'}/${entry.code}=${entry.count}`).join(', ');
+}
+
+/**
+ * Formats aggregate skipped-proof next-action counts for proof-set markdown.
+ *
+ * @param {LiveProofSetSkippedInteractionProofNextActionsRollup | undefined} rollup
+ * @returns {string[]}
+ */
+function formatLiveProofSetSkippedInteractionProofNextActionsRollup(
+  rollup: LiveProofSetSkippedInteractionProofNextActionsRollup | undefined,
+): string[] {
+  if (!rollup) {
+    return [];
+  }
+
+  return [
+    `Skipped interaction proof next actions: skippedInteractionProofs=${rollup.skippedInteractionProofCount}; actions=${formatLiveProofSetSkippedNextActionCounts(rollup.nextActionCounts)}`,
   ];
 }
 
@@ -1998,6 +2079,7 @@ function formatLiveProofSetArtifactMarkdown(artifact: LiveProofSetArtifact): str
       ...formatLiveProofSetWarningDetails(proof),
     ]),
     ...formatLiveProofSetSkippedInteractionProofs(artifact.skippedInteractionProofs),
+    ...formatLiveProofSetSkippedInteractionProofNextActionsRollup(artifact.skippedInteractionProofNextActions),
     ...formatLiveProofSetProfileGateDiagnosticSufficiencyRollup(artifact.profileGateDiagnosticSufficiency),
     ...formatLiveProofSetProfileGateNativePerformanceRollup(artifact.profileGateNativePerformance),
     ...formatLiveProofSetProfileGateReadinessRollup(artifact.profileGateReadiness),
