@@ -88,10 +88,16 @@ function writeProviderTextAttachment(outPath, fileName, content) {
 /**
  * Builds deterministic Android native diagnostic text for package rehearsal.
  *
- * @returns {{gfxinfoText: string, meminfoText: string}}
+ * @returns {{framestatsText: string, gfxinfoText: string, meminfoText: string}}
  */
 function buildAndroidFixtureText() {
   return {
+    framestatsText: [
+      'Flags,IntendedVsync,Vsync,OldestInputEvent,NewestInputEvent,HandleInputStart,AnimationStart,PerformTraversalsStart,DrawStart,SyncQueued,SyncStart,IssueDrawCommandsStart,SwapBuffers,FrameCompleted,DequeueBufferDuration,QueueBufferDuration,GpuCompleted',
+      '0,1000000000,1000000000,0,0,0,0,0,0,0,0,0,0,1011000000,0,0,0',
+      '0,2000000000,2000000000,0,0,0,0,0,0,0,0,0,0,2023000000,0,0,0',
+      '',
+    ].join('\n'),
     gfxinfoText: [
       'Total frames rendered: 120',
       'Janky frames: 6 (5.00%)',
@@ -180,7 +186,8 @@ function writeNativePerformanceEvidence({
   scenarioId,
 }) {
   if (platform === 'android') {
-    const { gfxinfoText, meminfoText } = buildAndroidFixtureText();
+    const { framestatsText, gfxinfoText, meminfoText } = buildAndroidFixtureText();
+    const framestatsAttachment = writeProviderTextAttachment(outPath, 'native-performance-framestats.txt', framestatsText);
     const gfxinfoAttachment = writeProviderTextAttachment(outPath, 'native-performance-gfxinfo.txt', gfxinfoText);
     const meminfoAttachment = writeProviderTextAttachment(outPath, 'native-performance-meminfo.txt', meminfoText);
     writeJsonArtifact(outPath, buildAndroidNativePerformanceEvidence({
@@ -191,12 +198,17 @@ function writeNativePerformanceEvidence({
           ...gfxinfoAttachment,
         },
         {
+          kind: 'raw-framestats',
+          ...framestatsAttachment,
+        },
+        {
           kind: 'raw-meminfo',
           ...meminfoAttachment,
         },
       ],
       capturedAt: new Date(0).toISOString(),
       deviceId: 'example-device',
+      framestatsText,
       gfxinfoText,
       meminfoText,
       providerId: PROVIDER_ID,
