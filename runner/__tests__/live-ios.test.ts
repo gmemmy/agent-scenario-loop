@@ -553,6 +553,24 @@ test('generic iOS live proof publishes storage start failure before skipping sid
     liveProof.skippedInteractionProofs.map((proof: { nextAction: { owner: string } }) => proof.nextAction.owner),
     ['runtime_environment', 'runtime_environment'],
   );
+  assert.deepEqual(
+    liveProof.skippedInteractionProofs.map((proof: { profileGateReadiness?: { failureClass?: string } }) => (
+      proof.profileGateReadiness?.failureClass
+    )),
+    ['dev_client_bundle_or_command_channel_not_ready', 'dev_client_bundle_or_command_channel_not_ready'],
+  );
+  assert.deepEqual(
+    liveProof.skippedInteractionProofs.map((proof: { profileGateReadiness?: { readinessRawPath?: string } }) => (
+      proof.profileGateReadiness?.readinessRawPath
+    )),
+    ['raw/ios-profile-session-readiness.json', 'raw/ios-profile-session-readiness.json'],
+  );
+  assert.deepEqual(
+    liveProof.skippedInteractionProofs.map((proof: { profileGateReadiness?: { foregroundTargetOwned?: boolean } }) => (
+      proof.profileGateReadiness?.foregroundTargetOwned
+    )),
+    [true, true],
+  );
   assert.equal(liveProof.interactionProofs, undefined);
   assert.equal(startWaitCheck?.metadata?.failureClass, 'dev_client_bundle_or_command_channel_not_ready');
   assert.equal(startWaitCheck?.metadata?.foregroundTargetOwned, true);

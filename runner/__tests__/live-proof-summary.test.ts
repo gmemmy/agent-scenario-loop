@@ -12,6 +12,7 @@ const {
   buildLiveProofStatus,
   formatComparisonMetricSummary,
   readProfileGateDiagnosticSummary,
+  readProfileGateReadinessSummary,
   writeLiveProofSummary,
 } = require('../live-proof-summary');
 
@@ -196,6 +197,27 @@ test('writes failed aggregate proofs with skipped interaction proof pointers', a
           name: 'partial_provider_evidence_preserved',
           status: 'warning',
         },
+        {
+          code: 'ios_profile_session_start_wait_exhausted',
+          message: 'No same-run iOS profile-session app evidence appeared.',
+          metadata: {
+            commandCount: 0,
+            devClientDeepLinkOpened: true,
+            expectedEvidence: 'profile-session-start-or-profile-events',
+            failureClass: 'dev_client_bundle_or_command_channel_not_ready',
+            foregroundAppInfoCaptured: true,
+            foregroundApplicationState: 'ForegroundRunning',
+            foregroundRawPath: 'raw/ios-profile-session-start-app-info.txt',
+            foregroundTargetOwned: true,
+            lastDeepLinkLabel: 'ios-dev-client-url',
+            pendingPhase: 'waiting_for_profile_session_start',
+            profileSessionSeedRawPath: 'raw/ios-profile-session-seed.json',
+            profileSessionSeeded: true,
+            readinessRawPath: 'raw/ios-profile-session-readiness.json',
+          },
+          name: 'ios_profile_session_start_wait',
+          status: 'failed',
+        },
       ],
       healthStatus: 'passed',
     }),
@@ -221,6 +243,22 @@ test('writes failed aggregate proofs with skipped interaction proof pointers', a
       ],
       targetBinding: 'ambiguous',
     },
+  });
+  const profileGateReadiness = readProfileGateReadinessSummary(profileDir);
+  assert.deepEqual(profileGateReadiness, {
+    commandCount: 0,
+    devClientDeepLinkOpened: true,
+    expectedEvidence: 'profile-session-start-or-profile-events',
+    failureClass: 'dev_client_bundle_or_command_channel_not_ready',
+    foregroundAppInfoCaptured: true,
+    foregroundApplicationState: 'ForegroundRunning',
+    foregroundRawPath: 'raw/ios-profile-session-start-app-info.txt',
+    foregroundTargetOwned: true,
+    lastDeepLinkLabel: 'ios-dev-client-url',
+    pendingPhase: 'waiting_for_profile_session_start',
+    profileSessionSeedRawPath: 'raw/ios-profile-session-seed.json',
+    profileSessionSeeded: true,
+    readinessRawPath: 'raw/ios-profile-session-readiness.json',
   });
 
   const result = await writeLiveProofSummary({
@@ -248,6 +286,7 @@ test('writes failed aggregate proofs with skipped interaction proof pointers', a
         },
         reason: 'Profile verdict failed.',
         profileGateDiagnostics,
+        profileGateReadiness,
         runId: 'app-startup-ios-argent',
         runnerId: 'argent',
         scenarioId: 'app-startup',
@@ -266,10 +305,12 @@ test('writes failed aggregate proofs with skipped interaction proof pointers', a
   assert.equal('nextActionOwner' in artifact.profiles[0], false);
   assert.equal(artifact.skippedInteractionProofs[0].runnerId, 'argent');
   assert.deepEqual(artifact.skippedInteractionProofs[0].profileGateDiagnostics, profileGateDiagnostics);
+  assert.deepEqual(artifact.skippedInteractionProofs[0].profileGateReadiness, profileGateReadiness);
   const summary = fs.readFileSync(result.summaryPath, 'utf8');
   assert.match(summary, /Next action: runtime_environment\/inspect_failed_run/u);
   assert.match(summary, /## Skipped Interaction Proofs/u);
   assert.match(summary, /Diagnostics: captured=nativePerformance:diagnostic-only, profiler:diagnostic-only; blocking=accessibility:provider-blocked, uiTree:provider-blocked; nativePerformance\(claim=insufficient-for-claim, comparability=diagnostic-only, target=ambiguous, sources=xctrace:partial, metrickit:timeout\)\./u);
+  assert.match(summary, /Readiness: failure=dev_client_bundle_or_command_channel_not_ready, commands=0, devClientDeepLinkOpened=true, foregroundAppInfoCaptured=true, foregroundApplicationState=ForegroundRunning, foregroundTargetOwned=true, lastDeepLink=ios-dev-client-url, profileSessionSeeded=true, phase=waiting_for_profile_session_start, expected=profile-session-start-or-profile-events, foregroundRawPath=raw\/ios-profile-session-start-app-info\.txt, profileSessionSeedRawPath=raw\/ios-profile-session-seed\.json, readinessRawPath=raw\/ios-profile-session-readiness\.json\./u);
 });
 
 test('writes optional interaction proof pointers into aggregate live proof artifacts', async (t: TestContext) => {

@@ -243,6 +243,9 @@
         "profileGateDiagnostics": {
           "$ref": "#/$defs/profileGateDiagnostics"
         },
+        "profileGateReadiness": {
+          "$ref": "#/$defs/profileGateReadiness"
+        },
         "nextAction": {
           "$ref": "#/$defs/skippedInteractionProofNextAction"
         }
@@ -323,6 +326,61 @@
           "minLength": 1
         },
         "status": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "profileGateReadiness": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "commandCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "devClientDeepLinkOpened": {
+          "type": "boolean"
+        },
+        "expectedEvidence": {
+          "type": "string",
+          "minLength": 1
+        },
+        "failureClass": {
+          "type": "string",
+          "minLength": 1
+        },
+        "foregroundAppInfoCaptured": {
+          "type": "boolean"
+        },
+        "foregroundApplicationState": {
+          "type": "string",
+          "minLength": 1
+        },
+        "foregroundRawPath": {
+          "type": "string",
+          "minLength": 1
+        },
+        "foregroundTargetOwned": {
+          "type": "boolean"
+        },
+        "lastDeepLinkLabel": {
+          "type": "string",
+          "minLength": 1
+        },
+        "pendingPhase": {
+          "type": "string",
+          "minLength": 1
+        },
+        "profileSessionSeedRawPath": {
+          "type": "string",
+          "minLength": 1
+        },
+        "profileSessionSeeded": {
+          "type": "boolean"
+        },
+        "readinessRawPath": {
           "type": "string",
           "minLength": 1
         }
