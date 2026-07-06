@@ -625,6 +625,49 @@ function normalizeIosRunnerFailure(error: unknown): Record<string, unknown> {
 }
 
 /**
+ * Builds scalar health metadata for iOS runner liveness failures.
+ *
+ * @param {{currentPhase: IosSimctlCapturePhase, profileSessionStorage?: IosProfileSessionStorageSeed | null, rawPath: string, watchdog: IosSimctlCaptureWatchdogBudget}} options
+ * @returns {Record<string, string | number | boolean | null>}
+ */
+function buildIosSimctlLivenessMetadata({
+  currentPhase,
+  profileSessionStorage,
+  rawPath,
+  watchdog,
+}: {
+  currentPhase: IosSimctlCapturePhase;
+  profileSessionStorage?: IosProfileSessionStorageSeed | null;
+  rawPath: string;
+  watchdog: IosSimctlCaptureWatchdogBudget;
+}): Record<string, string | number | boolean | null> {
+  const metadata: Record<string, string | number | boolean | null> = {
+    pendingPhase: currentPhase.name,
+    pendingPhaseStartedAt: currentPhase.startedAt,
+    rawPath,
+    watchdogCommandBudgetMs: watchdog.commandBudgetMs,
+    watchdogCommandUnits: watchdog.commandUnits,
+    watchdogDeclaredWaitMs: watchdog.declaredWaitMs,
+    watchdogSource: watchdog.source,
+    watchdogTimeoutMs: watchdog.timeoutMs,
+  };
+
+  if (currentPhase.details && Object.keys(currentPhase.details).length > 0) {
+    metadata.pendingPhaseDetails = JSON.stringify(currentPhase.details);
+  }
+
+  if (profileSessionStorage) {
+    const commands = Array.isArray(profileSessionStorage.commands) ? profileSessionStorage.commands : [];
+    metadata.expectedEvidence = 'profile-session-start-or-profile-events';
+    metadata.profileSessionCommandCount = commands.length;
+    metadata.profileSessionRunId = profileSessionStorage.runId;
+    metadata.profileSessionScenario = profileSessionStorage.scenario;
+  }
+
+  return metadata;
+}
+
+/**
  * Formats an iOS runner failure raw artifact.
  *
  * @param {Record<string, unknown>} failure
@@ -2795,8 +2838,13 @@ async function runIosSimctlCapture(options: IosSimctlCaptureOptions = {}): Promi
       code: livenessCode,
       message: livenessMessage,
       metadata: {
+        ...buildIosSimctlLivenessMetadata({
+          currentPhase,
+          profileSessionStorage,
+          rawPath: `raw/${rawFileName}`,
+          watchdog: captureWatchdog,
+        }),
         ...nextActionHint(nextActionCode, nextAction),
-        rawPath: `raw/${rawFileName}`,
       },
     });
   }

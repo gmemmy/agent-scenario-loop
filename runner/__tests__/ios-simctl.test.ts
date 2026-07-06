@@ -334,15 +334,29 @@ test('writes failed artifact set when iOS simctl executor never resolves after o
     ],
   });
   assert.ok(
-    (health.checks as Array<{ code: string; metadata?: { nextActionCode?: string; rawPath?: string } }>).some(
+    (health.checks as Array<{
+      code: string;
+      metadata?: {
+        nextActionCode?: string;
+        pendingPhase?: string;
+        pendingPhaseDetails?: string;
+        rawPath?: string;
+        watchdogTimeoutMs?: number;
+      };
+    }>).some(
       (check) => check.code === 'ios_simctl_runner_liveness_timeout'
         && check.metadata?.nextActionCode === 'inspect_ios_simctl_runner_timeout'
-        && check.metadata?.rawPath === 'raw/ios-simctl-runner-watchdog-timeout.txt',
+        && check.metadata?.pendingPhase === 'listing_simulators'
+        && check.metadata?.pendingPhaseDetails === '{"device":"booted"}'
+        && check.metadata?.rawPath === 'raw/ios-simctl-runner-watchdog-timeout.txt'
+        && check.metadata?.watchdogTimeoutMs === 50,
     ),
   );
   assert.match(failureRaw, /iOS simctl capture did not complete within 50ms/u);
   assert.match(failureRaw, /ios_simctl_runner_liveness_timeout/u);
   assert.match(summary, /Next action `inspect_ios_simctl_runner_timeout`/u);
+  assert.match(summary, /pendingPhase=`listing_simulators`/u);
+  assert.match(summary, /watchdogTimeoutMs=`50`/u);
   assert.equal(metadata.runnerFailure.rawPath, 'raw/ios-simctl-runner-watchdog-timeout.txt');
   assert.equal(metadata.runnerFailure.watchdog.timeoutMs, 50);
   assert.equal(metadata.runnerFailure.currentPhase.name, 'listing_simulators');

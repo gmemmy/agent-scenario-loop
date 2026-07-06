@@ -86,6 +86,18 @@ function formatDiagnosticMetadata(record: SummaryRecord): string {
   if (failureClass) {
     details.push(`failureClass=${code(failureClass)}`);
   }
+  const pendingPhase = firstString([metadataRecord.pendingPhase], '');
+  if (pendingPhase) {
+    details.push(`pendingPhase=${code(pendingPhase)}`);
+  }
+  const expectedEvidence = firstString([metadataRecord.expectedEvidence], '');
+  if (expectedEvidence) {
+    details.push(`expectedEvidence=${code(expectedEvidence)}`);
+  }
+  const watchdogTimeoutMs = metadataRecord.watchdogTimeoutMs;
+  if (typeof watchdogTimeoutMs === 'number') {
+    details.push(`watchdogTimeoutMs=${code(watchdogTimeoutMs)}`);
+  }
 
   for (const [key, value] of Object.entries(metadataRecord)) {
     if (!/(?:^rawPath$|RawPath$)/u.test(key) || typeof value !== 'string' || value.length === 0) {
