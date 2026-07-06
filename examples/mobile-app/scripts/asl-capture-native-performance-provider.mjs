@@ -5,7 +5,12 @@ import { createRequire } from 'node:module';
 import path from 'node:path';
 
 const require = createRequire(import.meta.url);
-const { buildAndroidNativePerformanceEvidence, buildIosNativePerformanceEvidence } = require('../../..');
+const {
+  buildAndroidNativePerformanceEvidence,
+  buildIosNativePerformanceEvidence,
+  parseIosMetricKitSummaryText,
+  parseIosXctraceSummaryText,
+} = require('../../..');
 const PROVIDER_ID = 'example-mobile-app-evidence-provider';
 
 /**
@@ -113,29 +118,31 @@ function buildAndroidFixtureText() {
 }
 
 /**
- * Builds deterministic iOS native diagnostic summaries for package rehearsal.
+ * Builds deterministic iOS native diagnostic text for package rehearsal.
  *
- * @returns {{metricKitSummary: Record<string, number | string>, xctraceSummary: Record<string, number | string>}}
+ * @returns {{metricKitText: string, xctraceText: string}}
  */
-function buildIosFixtureSummaries() {
+function buildIosFixtureText() {
   return {
-    metricKitSummary: {
-      batteryImpact: 1,
-      hitchCount: 2,
-      jankyFrameCount: 4,
-      p95FrameMs: 24,
-      physicalFootprintBytes: 92000000,
-      thermalState: 'nominal',
-    },
-    xctraceSummary: {
-      cpuMs: 180,
-      durationMs: 12000,
-      mainThreadCpuMs: 110,
-      threadSchedulingDelayMs: 8,
-      traceId: 'example-ios-native-trace',
-      windowEndMs: 12000,
-      windowStartMs: 0,
-    },
+    metricKitText: [
+      'hitches: 2',
+      'janky frames: 4',
+      'p95 frame: 24ms',
+      'physical footprint: 92000000 bytes',
+      'thermal state: nominal',
+      'battery impact: 1',
+      '',
+    ].join('\n'),
+    xctraceText: [
+      'traceId: example-ios-native-trace',
+      'duration: 12000ms',
+      'window start: 0ms',
+      'window end: 12000ms',
+      'cpu time: 180ms',
+      'main thread cpu: 110ms',
+      'thread scheduling delay: 8ms',
+      '',
+    ].join('\n'),
   };
 }
 
@@ -146,17 +153,17 @@ function buildIosFixtureSummaries() {
  * @returns {Record<string, unknown>}
  */
 function buildIosScaffoldEvidence({ runId, scenarioId }) {
-  const { metricKitSummary, xctraceSummary } = buildIosFixtureSummaries();
+  const { metricKitText, xctraceText } = buildIosFixtureText();
   return buildIosNativePerformanceEvidence({
     appId: 'dev.agentscenarioloop.example',
     bundleId: 'dev.agentscenarioloop.example',
     capturedAt: new Date(0).toISOString(),
     deviceId: 'example-simulator',
-    metricKitSummary,
+    metricKitSummary: parseIosMetricKitSummaryText(metricKitText),
     providerId: PROVIDER_ID,
     scenarioId,
     runId,
-    xctraceSummary,
+    xctraceSummary: parseIosXctraceSummaryText(xctraceText),
   });
 }
 
