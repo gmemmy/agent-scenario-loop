@@ -8,7 +8,7 @@ const { SCHEMAS } = require('../core/schema-validator');
 const { hasHelpFlag, writeUsage } = require('./cli');
 const { execFileCommand, parseArgs, parsePositiveInteger, runAndroidAdbPreflight } = require('./android-adb');
 const { compareLiveProfilesToLatest, isEnabledFlag } = require('./live-comparison');
-const { writeLiveProofSummary } = require('./live-proof-summary');
+const { readRunNextActionOwner, writeLiveProofSummary } = require('./live-proof-summary');
 const { runAgentDeviceCapture } = require('./agent-device');
 const { assertConcreteMobileAppId } = require('./app-identity');
 const { parseBaseArgs: parseArgentBaseArgs, runArgentCapture } = require('./argent');
@@ -29,6 +29,7 @@ type AndroidGenericLiveResult = {
   profileDir: string;
 };
 type SkippedInteractionProof = import('./live-proof-summary').LiveProofSkippedInteractionProofPointer;
+type LiveProofNextActionOwner = import('./live-proof-summary').LiveProofNextActionOwner;
 
 /**
  * Prints CLI usage.
@@ -196,16 +197,18 @@ function isTrustedProfileRun({
 /**
  * Builds skipped sidecar pointers for requested runners when the profile gate failed.
  *
- * @param {{requestedRunners: string[], runIdsByRunner: Record<string, string>, scenarioId: string, profileHealthStatus: unknown, profileVerdictStatus: unknown}} options
+ * @param {{requestedRunners: string[], runIdsByRunner: Record<string, string>, scenarioId: string, profileHealthStatus: unknown, profileVerdictStatus: unknown, profileNextActionOwner?: LiveProofNextActionOwner | null}} options
  * @returns {SkippedInteractionProof[]}
  */
 function buildSkippedInteractionProofs({
+  profileNextActionOwner = null,
   profileHealthStatus,
   profileVerdictStatus,
   requestedRunners,
   runIdsByRunner,
   scenarioId,
 }: {
+  profileNextActionOwner?: LiveProofNextActionOwner | null;
   profileHealthStatus: unknown;
   profileVerdictStatus: unknown;
   requestedRunners: string[];
@@ -213,11 +216,12 @@ function buildSkippedInteractionProofs({
   scenarioId: string;
 }): SkippedInteractionProof[] {
   const reason = `Profile gate failed with health=${String(profileHealthStatus ?? 'unknown')} verdict=${String(profileVerdictStatus ?? 'unknown')}; sidecar interaction proof was skipped because timing and runner evidence would not be trustworthy.`;
+  const owner = profileNextActionOwner ?? 'asl_runner';
   return requestedRunners.map((runnerId) => ({
     label: `interaction-${runnerId}`,
     nextAction: {
       code: 'fix_profile_gate',
-      owner: 'asl_runner',
+      owner,
       summary: 'Inspect the profile health and verdict before rerunning sidecar interaction proofs.',
     },
     reason,
@@ -531,6 +535,7 @@ async function runAndroidLiveProof(
   let skippedInteractionProofs: SkippedInteractionProof[] = [];
   if (!profileTrusted) {
     skippedInteractionProofs = buildSkippedInteractionProofs({
+      profileNextActionOwner: readRunNextActionOwner(profile.runDir),
       profileHealthStatus: profile.health.healthStatus,
       profileVerdictStatus: profile.verdict.verdictStatus,
       requestedRunners: enabledInteractionRunners,

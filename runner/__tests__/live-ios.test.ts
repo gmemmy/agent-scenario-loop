@@ -549,6 +549,10 @@ test('generic iOS live proof publishes storage start failure before skipping sid
     liveProof.skippedInteractionProofs.map((proof: { runnerId: string }) => proof.runnerId),
     ['agent-device', 'argent'],
   );
+  assert.deepEqual(
+    liveProof.skippedInteractionProofs.map((proof: { nextAction: { owner: string } }) => proof.nextAction.owner),
+    ['runtime_environment', 'runtime_environment'],
+  );
   assert.equal(liveProof.interactionProofs, undefined);
   assert.equal(startWaitCheck?.metadata?.failureClass, 'dev_client_bundle_or_command_channel_not_ready');
   assert.equal(startWaitCheck?.metadata?.foregroundTargetOwned, true);

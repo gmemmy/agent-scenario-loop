@@ -891,6 +891,7 @@ export {
   readInteractionProofCaptures,
   readInteractionProofWarnings,
   readProfileRunStatus,
+  readRunNextActionOwner,
   writeLiveProofSummary,
 };
 
@@ -902,6 +903,7 @@ export type {
   LiveProofComparisonStatus,
   LiveProofInteractionProofCaptures,
   LiveProofInteractionProofPointer,
+  LiveProofNextActionOwner,
   LiveProofNextAction,
   LiveProofPlatform,
   LiveProofProfilePointer,
