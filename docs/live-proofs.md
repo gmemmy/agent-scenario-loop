@@ -378,7 +378,7 @@ The latest-trusted command excludes the exact current run directory from baselin
 
 ## Release Gate
 
-Before publishing, run:
+Before publishing, run the package gate:
 
 ```bash
 pnpm release:check
@@ -387,6 +387,14 @@ pnpm release:check
 That gate builds the release scripts, runs tests and readiness checks, packs the package once, then reuses that tarball for package smoke, installed-binary checks, fake-device example proofs, schema/example/template/doc packaging checks, and the packed-package consumer rehearsal. Reusing one tarball keeps the release path closer to npm publish behavior and avoids repeated clean/build/pack cycles.
 
 When a release-sensitive change affects a real adopter's runner, schema, provider, or app-helper contract, also run `pnpm downstream:local-package` against that adopter before publishing. That gate installs the packed local tarball into the downstream app, runs the requested app-owned validation commands, and restores package metadata afterward.
+
+When the release is ready, publish through the repo coordinator:
+
+```bash
+pnpm release:publish
+```
+
+That command runs the npm publish path, verifies the published package version on the registry, creates the matching `vX.Y.Z` git tag, and pushes the tag to `origin`. The tag push triggers the GitHub Release workflow, which verifies that the tag matches `package.json` and that npm already contains the same package version before creating the GitHub Release. If npm already contains the package version because a previous publish succeeded before tagging, `pnpm release:publish` resumes at tag synchronization.
 
 Package smoke and consumer rehearsal keep child commands bounded so package-manager stalls fail with the temporary rehearsal directory preserved. Set `ASL_PACKAGE_GATE_TIMEOUT_MS` to raise the per-command timeout when a local registry, proxy, or cold package cache is slow:
 
