@@ -118,16 +118,108 @@ test('profile-ios writes artifacts from fixture event logs', async (t: TestConte
 
   const runDir = stdout.trim();
   const health = readJson(path.join(runDir, 'health.json'));
+  const manifest = readJson(path.join(runDir, 'manifest.json'));
   const verdict = readJson(path.join(runDir, 'verdict.json'));
   const metrics = readJson(path.join(runDir, 'metrics.json'));
   const summary = fs.readFileSync(path.join(runDir, 'agent-summary.md'), 'utf8');
+  const diagnostics = (manifest.artifacts as { diagnostics: Array<Record<string, any>> }).diagnostics;
 
   assert.equal(runDir, path.join(artifactRoot, 'app-startup', 'demo-baseline'));
   assert.equal(health.healthStatus, 'passed');
   assert.equal(verdict.verdictStatus, 'passed');
   assert.equal(metrics.p95Ms, 2400);
   assert.equal(verdict.budgetChecks[0].name, 'failures');
+  assert.equal(diagnostics.find((entry) => entry.kind === 'logs')?.availability, 'captured');
+  assert.equal(diagnostics.find((entry) => entry.kind === 'video')?.status, 'not_requested');
+  assert.equal(diagnostics.find((entry) => entry.kind === 'video')?.availability, 'not-requested');
+  assert.equal(diagnostics.find((entry) => entry.kind === 'uiTree')?.status, 'not_requested');
+  assert.equal(diagnostics.find((entry) => entry.kind === 'uiTree')?.availability, 'not-requested');
   assert.match(summary, /Scenario health passed/u);
+});
+
+test('profile-ios treats optional diagnostic capabilities as requested inventory', async (t: TestContext) => {
+  const tempRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-ios-optional-capability-'));
+  t.after(async () => {
+    await fsp.rm(tempRoot, { recursive: true, force: true });
+  });
+  const artifactRoot = path.join(tempRoot, 'artifacts');
+  const scenarioPath = path.join(tempRoot, 'app-startup-video-capability.json');
+  const scenario = readJson(fixturePath('examples/scenarios/ios/app-startup.json'));
+  scenario.optionalCapabilities = ['video'];
+  delete scenario.artifacts;
+  await fsp.writeFile(scenarioPath, `${JSON.stringify(scenario, null, 2)}\n`, 'utf8');
+
+  const { stdout } = await execFileAsync(process.execPath, [
+    PROFILE_IOS,
+    '--config',
+    fixturePath('core/config-template.json'),
+    '--scenario',
+    scenarioPath,
+    '--events',
+    fixturePath('examples/event-logs/app-startup-baseline.log'),
+    '--out',
+    artifactRoot,
+    '--run-id',
+    'demo-baseline',
+  ]);
+
+  const manifest = readJson(path.join(stdout.trim(), 'manifest.json')) as Record<string, any>;
+  const videoDiagnostic = manifest.artifacts.diagnostics.find((entry: Record<string, unknown>) => entry.kind === 'video');
+
+  assert.equal(videoDiagnostic.status, 'unavailable');
+  assert.equal(videoDiagnostic.availability, 'requested-missing');
+  assert.equal(videoDiagnostic.required, false);
+  assert.equal('path' in videoDiagnostic, false);
+  assert.match(videoDiagnostic.nextAction, /capture provider/u);
+});
+
+test('profile-ios fails health for required missing diagnostic inventory', async (t: TestContext) => {
+  const tempRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-ios-required-diagnostic-'));
+  t.after(async () => {
+    await fsp.rm(tempRoot, { recursive: true, force: true });
+  });
+  const artifactRoot = path.join(tempRoot, 'artifacts');
+  const scenarioPath = path.join(tempRoot, 'app-startup-native-performance-required.json');
+  const scenario = readJson(fixturePath('examples/scenarios/ios/app-startup.json'));
+  scenario.artifacts = { required: ['nativePerformance'] };
+  await fsp.writeFile(scenarioPath, `${JSON.stringify(scenario, null, 2)}\n`, 'utf8');
+
+  const { stdout } = await execFileAsync(process.execPath, [
+    PROFILE_IOS,
+    '--config',
+    fixturePath('core/config-template.json'),
+    '--scenario',
+    scenarioPath,
+    '--events',
+    fixturePath('examples/event-logs/app-startup-baseline.log'),
+    '--out',
+    artifactRoot,
+    '--run-id',
+    'demo-baseline',
+  ]);
+
+  const runDir = stdout.trim();
+  const health = readJson(path.join(runDir, 'health.json')) as Record<string, any>;
+  const verdict = readJson(path.join(runDir, 'verdict.json')) as Record<string, any>;
+  const manifest = readJson(path.join(runDir, 'manifest.json')) as Record<string, any>;
+  const nativePerformanceDiagnostic = manifest.artifacts.diagnostics.find((entry: Record<string, unknown>) => (
+    entry.kind === 'nativePerformance'
+  ));
+
+  assert.equal(health.healthStatus, 'failed');
+  assert.equal(verdict.verdictStatus, 'inconclusive');
+  assert.equal(nativePerformanceDiagnostic.status, 'unavailable');
+  assert.equal(nativePerformanceDiagnostic.availability, 'required-missing');
+  assert.equal(nativePerformanceDiagnostic.required, true);
+  assert.ok(
+    (health.checks as Array<{ code: string; metadata?: { availability?: string; kind?: string } }>).some(
+      (check) => (
+        check.code === 'required_diagnostic_not_captured' &&
+        check.metadata?.kind === 'nativePerformance' &&
+        check.metadata?.availability === 'required-missing'
+      ),
+    ),
+  );
 });
 
 test('profile-ios preserves captured provider evidence when another required output fails', async (t: TestContext) => {
