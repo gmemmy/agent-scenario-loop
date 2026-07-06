@@ -240,8 +240,91 @@
         "reason": {
           "type": "string"
         },
+        "profileGateDiagnostics": {
+          "$ref": "#/$defs/profileGateDiagnostics"
+        },
         "nextAction": {
           "$ref": "#/$defs/skippedInteractionProofNextAction"
+        }
+      }
+    },
+    "profileGateDiagnostics": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "capturedDiagnosticSufficiency": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/diagnosticSufficiencyEntry"
+          }
+        },
+        "blockingDiagnosticSufficiency": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/diagnosticSufficiencyEntry"
+          }
+        },
+        "nativePerformance": {
+          "$ref": "#/$defs/nativePerformanceProfileGateDiagnostics"
+        }
+      }
+    },
+    "diagnosticSufficiencyEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "status"],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "minLength": 1
+        },
+        "status": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "nativePerformanceProfileGateDiagnostics": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "claimSufficiency": {
+          "type": "string",
+          "minLength": 1
+        },
+        "comparability": {
+          "type": "string",
+          "minLength": 1
+        },
+        "targetBinding": {
+          "type": "string",
+          "minLength": 1
+        },
+        "diagnosticSources": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/nativePerformanceSourceEntry"
+          }
+        }
+      }
+    },
+    "nativePerformanceSourceEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sourceId", "status"],
+      "properties": {
+        "sourceId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "status": {
+          "type": "string",
+          "minLength": 1
         }
       }
     },
