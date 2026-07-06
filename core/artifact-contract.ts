@@ -2191,9 +2191,10 @@ function buildSummaryMarkdown({
         const statusLabel = typeof diagnostic.availability === 'string'
           ? `${diagnostic.status} (${diagnostic.availability})`
           : String(diagnostic.status);
+        const requestLabel = diagnostic.requested ? ' (requested)' : '';
         const pathLabel = typeof diagnostic.path === 'string' ? ` \`${diagnostic.path}\`` : '';
         const reasonLabel = typeof diagnostic.reason === 'string' ? ` - ${diagnostic.reason}` : '';
-        return `- ${label}: ${statusLabel}${diagnostic.required ? ' (required)' : ''}${pathLabel}${reasonLabel}`;
+        return `- ${label}: ${statusLabel}${requestLabel}${diagnostic.required ? ' (required)' : ''}${pathLabel}${reasonLabel}`;
       })
     : ['- none'];
   const attempt = manifest.attempt && typeof manifest.attempt === 'object' ? manifest.attempt : {};
