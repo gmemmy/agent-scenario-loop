@@ -86,6 +86,24 @@ function formatDiagnosticMetadata(record: SummaryRecord): string {
   if (failureClass) {
     details.push(`failureClass=${code(failureClass)}`);
   }
+  const scalarKeys = [
+    'commandCount',
+    'devClientDeepLinkOpened',
+    'foregroundAppInfoCaptured',
+    'foregroundApplicationState',
+    'foregroundTargetOwned',
+    'lastDeepLinkLabel',
+    'profileSessionSeeded',
+  ];
+  for (const key of scalarKeys) {
+    const value = metadataRecord[key];
+    if (typeof value === 'string' && value.length > 0) {
+      details.push(`${key}=${code(value)}`);
+    }
+    if (typeof value === 'number' || typeof value === 'boolean') {
+      details.push(`${key}=${code(value)}`);
+    }
+  }
   const pendingPhase = firstString([metadataRecord.pendingPhase], '');
   if (pendingPhase) {
     details.push(`pendingPhase=${code(pendingPhase)}`);
