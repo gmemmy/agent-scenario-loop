@@ -2061,6 +2061,7 @@ test('profile-android keeps diagnostic-only native performance from satisfying r
   const health = readJson(path.join(runDir, 'health.json')) as Record<string, any>;
   const verdict = readJson(path.join(runDir, 'verdict.json')) as Record<string, any>;
   const manifest = readJson(path.join(runDir, 'manifest.json'));
+  const profileSummary = fs.readFileSync(path.join(runDir, 'summary.md'), 'utf8');
   const diagnostics = (manifest.artifacts as { diagnostics: Array<Record<string, unknown>> }).diagnostics;
   const memoryDiagnostic = diagnostics.find((entry) => entry.kind === 'memory');
   const accessibilityDiagnostic = diagnostics.find((entry) => entry.kind === 'accessibility');
@@ -2080,6 +2081,10 @@ test('profile-android keeps diagnostic-only native performance from satisfying r
   assert.equal(nativePerformanceDiagnostic?.path, 'raw/providers/required-diagnostics-provider/native-performance.json');
   assert.equal(health.healthStatus, 'failed');
   assert.equal(verdict.verdictStatus, 'inconclusive');
+  assert.match(
+    profileSummary,
+    /nativePerformance: captured \(captured-diagnostic-only\) \(required\)/u,
+  );
   assert.ok(
     (health.checks as Array<{ code: string; metadata?: { availability?: string; kind?: string } }>).some(
       (check) => (
