@@ -39,6 +39,9 @@
     "presentPlatforms": {
       "$ref": "#/$defs/platformList"
     },
+    "profileNativePerformance": {
+      "$ref": "#/$defs/profileNativePerformance"
+    },
     "missingPlatforms": {
       "$ref": "#/$defs/platformList"
     },
@@ -130,6 +133,83 @@
         },
         "nextAction": {
           "$ref": "#/$defs/nextAction"
+        }
+      }
+    },
+    "profileNativePerformance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["profileCount", "evidenceCount"],
+      "properties": {
+        "profileCount": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "evidenceCount": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "diagnosticSourceCounts": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/nativePerformanceSourceCount"
+          }
+        },
+        "claimSufficiencyCounts": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/nativePerformanceStatusCount"
+          }
+        },
+        "comparabilityCounts": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/nativePerformanceStatusCount"
+          }
+        },
+        "targetBindingCounts": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/nativePerformanceStatusCount"
+          }
+        }
+      }
+    },
+    "nativePerformanceStatusCount": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "count"],
+      "properties": {
+        "status": {
+          "type": "string",
+          "minLength": 1
+        },
+        "count": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "nativePerformanceSourceCount": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sourceId", "status", "count"],
+      "properties": {
+        "sourceId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "status": {
+          "type": "string",
+          "minLength": 1
+        },
+        "count": {
+          "type": "integer",
+          "minimum": 1
         }
       }
     },

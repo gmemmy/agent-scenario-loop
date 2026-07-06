@@ -304,6 +304,67 @@ function buildProof(
 }
 
 /**
+ * Adds native-performance rollup metadata to a live-proof fixture.
+ *
+ * @param {Record<string, unknown>} proof
+ * @param {{claim: string, comparability: string, evidenceCount: number, profileCount: number, sourceId: string, sourceStatus: string, target: string}} options
+ * @returns {Record<string, unknown>}
+ */
+function withNativePerformanceRollup(
+  proof: Record<string, unknown>,
+  {
+    claim,
+    comparability,
+    evidenceCount,
+    profileCount,
+    sourceId,
+    sourceStatus,
+    target,
+  }: {
+    claim: string;
+    comparability: string;
+    evidenceCount: number;
+    profileCount: number;
+    sourceId: string;
+    sourceStatus: string;
+    target: string;
+  },
+): Record<string, unknown> {
+  return {
+    ...proof,
+    profileNativePerformance: {
+      claimSufficiencyCounts: [
+        {
+          count: evidenceCount,
+          status: claim,
+        },
+      ],
+      comparabilityCounts: [
+        {
+          count: evidenceCount,
+          status: comparability,
+        },
+      ],
+      diagnosticSourceCounts: [
+        {
+          count: evidenceCount,
+          sourceId,
+          status: sourceStatus,
+        },
+      ],
+      evidenceCount,
+      profileCount,
+      targetBindingCounts: [
+        {
+          count: evidenceCount,
+          status: target,
+        },
+      ],
+    },
+  };
+}
+
+/**
  * Writes one proof artifact to a temporary file.
  *
  * @param {string} tempDir
@@ -650,9 +711,32 @@ test('builds a durable live-proof-set artifact for Android and iOS proofs', asyn
   t.after(async () => {
     await fsp.rm(tempDir, { recursive: true, force: true });
   });
-  const androidProofPath = writeProof(tempDir, buildProof('unchanged', 'passed', 'android'));
+  const androidProofPath = writeProof(tempDir, withNativePerformanceRollup(
+    buildProof('unchanged', 'passed', 'android'),
+    {
+      claim: 'insufficient-for-claim',
+      comparability: 'diagnostic-only',
+      evidenceCount: 1,
+      profileCount: 1,
+      sourceId: 'gfxinfo',
+      sourceStatus: 'partial',
+      target: 'verified',
+    },
+  ));
   const iosProofPath = path.join(tempDir, 'ios-live-proof.json');
-  fs.writeFileSync(iosProofPath, `${JSON.stringify(buildProof('unchanged', 'passed', 'ios'), null, 2)}\n`, 'utf8');
+  const iosProof = withNativePerformanceRollup(
+    buildProof('unchanged', 'passed', 'ios'),
+    {
+      claim: 'sufficient-for-comparison',
+      comparability: 'comparable',
+      evidenceCount: 2,
+      profileCount: 1,
+      sourceId: 'xctrace',
+      sourceStatus: 'captured',
+      target: 'verified',
+    },
+  );
+  fs.writeFileSync(iosProofPath, `${JSON.stringify(iosProof, null, 2)}\n`, 'utf8');
   const proofs = [readLiveProof(androidProofPath), readLiveProof(iosProofPath)];
 
   const artifact = buildLiveProofSetArtifact({
@@ -674,6 +758,48 @@ test('builds a durable live-proof-set artifact for Android and iOS proofs', asyn
   assert.deepEqual(artifact.presentPlatforms, ['android', 'ios']);
   assert.deepEqual(artifact.missingPlatforms, []);
   assert.deepEqual(artifact.failureReasons, []);
+  assert.deepEqual(artifact.profileNativePerformance, {
+    claimSufficiencyCounts: [
+      {
+        count: 1,
+        status: 'insufficient-for-claim',
+      },
+      {
+        count: 2,
+        status: 'sufficient-for-comparison',
+      },
+    ],
+    comparabilityCounts: [
+      {
+        count: 2,
+        status: 'comparable',
+      },
+      {
+        count: 1,
+        status: 'diagnostic-only',
+      },
+    ],
+    diagnosticSourceCounts: [
+      {
+        count: 1,
+        sourceId: 'gfxinfo',
+        status: 'partial',
+      },
+      {
+        count: 2,
+        sourceId: 'xctrace',
+        status: 'captured',
+      },
+    ],
+    evidenceCount: 3,
+    profileCount: 2,
+    targetBindingCounts: [
+      {
+        count: 3,
+        status: 'verified',
+      },
+    ],
+  });
   assert.equal(artifact.proofs[0].interactionWarningCount, 1);
   assert.deepEqual(artifact.proofs[0].interactionWarnings, [
     {
@@ -699,6 +825,7 @@ test('builds a durable live-proof-set artifact for Android and iOS proofs', asyn
   assert.match(markdown, /- android android-live-proof: status=passed comparison=unchanged/u);
   assert.match(markdown, /warning android\/startup-ui \(agent-device\/app-startup\/agent-device-startup\): argent_screenshot argent_screenshot_failed - Argent driver action screenshot failed\. Next action: provider_tooling\/inspect_argent_driver_action - Inspect raw screenshot output\./u);
   assert.match(markdown, /- ios ios-live-proof: status=passed comparison=unchanged/u);
+  assert.match(markdown, /Native performance: profiles=2; evidence=3; sources=gfxinfo:partial=1, xctrace:captured=2; claim=insufficient-for-claim=1, sufficient-for-comparison=2; comparability=comparable=2, diagnostic-only=1; target=verified=3/u);
 });
 
 test('builds a failed live-proof-set artifact when a required platform is missing', async (t: TestContext) => {
