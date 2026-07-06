@@ -185,6 +185,11 @@ type ProfileSessionStartForegroundProbe = {
   targetForeground: boolean;
 };
 type ProfileSessionStartFailureClass = 'dev_client_bundle_or_command_channel_not_ready' | 'ios_profile_session_start_missing';
+type ProfileSessionStartReadinessDetail =
+  | 'dev_client_foreground_command_channel_missing'
+  | 'dev_client_not_foreground'
+  | 'dev_client_foreground_unknown'
+  | 'profile_session_start_missing_without_dev_client';
 type ProfileSessionStartWaitCheckInput = {
   readiness?: ProfileSessionStartReadinessContext;
   runId: string;
@@ -204,6 +209,7 @@ type ProfileSessionStartReadinessContext = {
   profileEventStorageKey: string;
   profileSessionEntriesStorageKey: string;
   profileSessionStorageKey: string;
+  readinessDetail: ProfileSessionStartReadinessDetail;
   seedRawPath: string | null;
   waitRawPath: string;
 };
@@ -1137,6 +1143,7 @@ function buildProfileSessionStartWaitCheck({
       profileEventStorageKey: readiness.profileEventStorageKey,
       profileSessionEntriesStorageKey: readiness.profileSessionEntriesStorageKey,
       profileSessionStorageKey: readiness.profileSessionStorageKey,
+      readinessDetail: readiness.readinessDetail,
       readinessRawPath: 'raw/ios-profile-session-readiness.json',
     });
   }
@@ -1583,6 +1590,7 @@ function buildProfileSessionStartReadinessContext({
     profileEventStorageKey: profileStorageKeys.event,
     profileSessionEntriesStorageKey: profileStorageKeys.sessionEntries,
     profileSessionStorageKey: profileStorageKeys.session,
+    readinessDetail: profileSessionStartReadinessDetail({ devClientDeepLinkOpened, foregroundProbe }),
     seedRawPath,
     waitRawPath: 'raw/ios-profile-session-start-wait.json',
   };
@@ -1604,6 +1612,35 @@ function profileSessionStartFailureClass({
   }
 
   return 'ios_profile_session_start_missing';
+}
+
+/**
+ * Refines iOS missing-start readiness so agents can tell foreground bundle
+ * ownership apart from a missing app command channel.
+ *
+ * @param {{devClientDeepLinkOpened: boolean, foregroundProbe: ProfileSessionStartForegroundProbe | null}} options
+ * @returns {ProfileSessionStartReadinessDetail}
+ */
+function profileSessionStartReadinessDetail({
+  devClientDeepLinkOpened,
+  foregroundProbe,
+}: {
+  devClientDeepLinkOpened: boolean;
+  foregroundProbe: ProfileSessionStartForegroundProbe | null;
+}): ProfileSessionStartReadinessDetail {
+  if (!devClientDeepLinkOpened) {
+    return 'profile_session_start_missing_without_dev_client';
+  }
+
+  if (!foregroundProbe?.appInfoCaptured) {
+    return 'dev_client_foreground_unknown';
+  }
+
+  if (!foregroundProbe.targetForeground) {
+    return 'dev_client_not_foreground';
+  }
+
+  return 'dev_client_foreground_command_channel_missing';
 }
 
 /**
