@@ -880,6 +880,17 @@ test('builds proof-set skipped interaction proof context from linked proofs', as
             status: 'diagnostic-only',
           },
         ],
+        nativePerformance: {
+          claimSufficiency: 'insufficient-for-claim',
+          comparability: 'diagnostic-only',
+          diagnosticSources: [
+            {
+              sourceId: 'gfxinfo',
+              status: 'partial',
+            },
+          ],
+          targetBinding: 'verified',
+        },
       },
       reason: 'Profile provider evidence was partial.',
       runId: 'android-startup-agent-device',
@@ -980,6 +991,43 @@ test('builds proof-set skipped interaction proof context from linked proofs', as
     ],
     skippedInteractionProofCount: 2,
   });
+  assert.deepEqual(artifact.profileGateNativePerformance, {
+    claimSufficiencyCounts: [
+      {
+        count: 2,
+        status: 'insufficient-for-claim',
+      },
+    ],
+    comparabilityCounts: [
+      {
+        count: 2,
+        status: 'diagnostic-only',
+      },
+    ],
+    diagnosticSourceCounts: [
+      {
+        count: 1,
+        sourceId: 'gfxinfo',
+        status: 'partial',
+      },
+      {
+        count: 1,
+        sourceId: 'xctrace',
+        status: 'partial',
+      },
+    ],
+    skippedInteractionProofCount: 2,
+    targetBindingCounts: [
+      {
+        count: 1,
+        status: 'ambiguous',
+      },
+      {
+        count: 1,
+        status: 'verified',
+      },
+    ],
+  });
   assert.equal(artifact.skippedInteractionProofs?.[0].platform, 'android');
   assert.equal(artifact.skippedInteractionProofs?.[1].platform, 'ios');
   assert.equal(artifact.skippedInteractionProofs?.[1].proofRunId, 'ios-live-proof');
@@ -1005,6 +1053,7 @@ test('builds proof-set skipped interaction proof context from linked proofs', as
   assert.match(markdown, /Readiness: failure=dev_client_bundle_or_command_channel_not_ready, commands=1, devClientDeepLinkOpened=true, foregroundAppInfoCaptured=true, foregroundApplicationState=foreground, foregroundTargetOwned=false, lastDeepLink=startup, profileSessionSeeded=true, phase=session-start, expected=profile_session_started, foregroundRawPath=raw\/ios-foreground-app\.json, profileSessionSeedRawPath=raw\/profile-session-seed\.json, readinessRawPath=raw\/ios-profile-session-readiness\.json\./u);
   assert.match(markdown, /Next action: runtime_environment\/restart_ios_dev_client - Restart the iOS dev client and rerun profile proof\./u);
   assert.match(markdown, /Profile gate diagnostics: skippedInteractionProofs=2; captured=nativePerformance:diagnostic-only=2; blocking=accessibility:provider-blocked=1, profiler:provider-blocked=1/u);
+  assert.match(markdown, /Profile gate native performance: skippedInteractionProofs=2; sources=gfxinfo:partial=1, xctrace:partial=1; claim=insufficient-for-claim=2; comparability=diagnostic-only=2; target=ambiguous=1, verified=1/u);
 });
 
 test('writes live-proof-set artifact and agent summary', async (t: TestContext) => {
