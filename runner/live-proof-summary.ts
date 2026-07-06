@@ -152,6 +152,12 @@ type LiveProofSummaryResult = {
   summaryPath: string;
 };
 
+type LiveProofRunStatus = {
+  healthStatus?: string;
+  nextActionOwner?: LiveProofNextActionOwner;
+  verdictStatus?: string;
+};
+
 type WriteLiveProofSummaryOptions = {
   comparisons: LiveProofComparisonPointer[];
   interactionProofs?: LiveProofInteractionProofPointer[];
@@ -168,15 +174,53 @@ type WriteLiveProofSummaryOptions = {
  * Reads the profile run status fields that agents need at the aggregate entrypoint.
  *
  * @param {string} runDir
- * @returns {{healthStatus: string, verdictStatus: string}}
+ * @returns {LiveProofRunStatus}
  */
-function readProfileRunStatus(runDir: string): {healthStatus: string; verdictStatus: string} {
+function readProfileRunStatus(runDir: string): LiveProofRunStatus {
   const health = JSON.parse(fs.readFileSync(path.join(runDir, 'health.json'), 'utf8'));
   const verdict = JSON.parse(fs.readFileSync(path.join(runDir, 'verdict.json'), 'utf8'));
+  const nextActionOwner = readRunNextActionOwner(runDir);
   return {
     healthStatus: String(health.healthStatus ?? 'unknown'),
+    ...(nextActionOwner ? { nextActionOwner } : {}),
     verdictStatus: String(verdict.verdictStatus ?? 'unknown'),
   };
+}
+
+/**
+ * Reads the owner rendered by an agent summary, preserving legacy artifacts that lack the section.
+ *
+ * @param {string} runDir
+ * @returns {LiveProofNextActionOwner | null}
+ */
+function readRunNextActionOwner(runDir: string): LiveProofNextActionOwner | null {
+  const summaryPath = path.join(runDir, 'agent-summary.md');
+  if (!fs.existsSync(summaryPath)) {
+    return null;
+  }
+
+  const summary = fs.readFileSync(summaryPath, 'utf8');
+  const match = /-\s*Owner:\s*`([^`]+)`/u.exec(summary);
+  const owner = match?.[1];
+  if (isLiveProofNextActionOwner(owner)) {
+    return owner;
+  }
+  return null;
+}
+
+/**
+ * Reports whether a string is a stable live-proof next-action owner.
+ *
+ * @param {unknown} owner
+ * @returns {owner is LiveProofNextActionOwner}
+ */
+function isLiveProofNextActionOwner(owner: unknown): owner is LiveProofNextActionOwner {
+  return owner === 'app_truth' ||
+    owner === 'asl_runner' ||
+    owner === 'product_optimization' ||
+    owner === 'provider_tooling' ||
+    owner === 'runtime_environment' ||
+    owner === 'scenario_contract';
 }
 
 /**
@@ -408,16 +452,18 @@ function buildLiveProofComparisonCounts(
  *
  * @param {LiveProofComparisonStatus} comparisonStatus
  * @param {'failed' | 'passed'} [status]
+ * @param {LiveProofNextActionOwner} [failedOwner]
  * @returns {LiveProofNextAction}
  */
 function buildLiveProofNextAction(
   comparisonStatus: LiveProofComparisonStatus,
   status: 'failed' | 'passed' = 'passed',
+  failedOwner: LiveProofNextActionOwner = 'asl_runner',
 ): LiveProofNextAction {
   if (status === 'failed') {
     return {
       code: 'inspect_failed_run',
-      owner: 'asl_runner',
+      owner: failedOwner,
       summary: 'One or more live proof gates failed; inspect failed profile or interaction summaries before making optimization claims.',
     };
   }
@@ -470,19 +516,71 @@ function buildLiveProofNextAction(
 }
 
 /**
+ * Ranks owners so aggregate failures point at the earliest useful recovery lane.
+ *
+ * @param {LiveProofNextActionOwner} owner
+ * @returns {number}
+ */
+function liveProofFailureOwnerRank(owner: LiveProofNextActionOwner): number {
+  switch (owner) {
+    case 'runtime_environment':
+      return 0;
+    case 'asl_runner':
+      return 1;
+    case 'app_truth':
+      return 2;
+    case 'scenario_contract':
+      return 3;
+    case 'provider_tooling':
+      return 4;
+    case 'product_optimization':
+      return 5;
+  }
+}
+
+/**
+ * Selects the owner for a failed aggregate from linked failed run summaries.
+ *
+ * @param {{interactionProofs: LiveProofRunStatus[], preflight: LiveProofRunStatus, profiles: LiveProofRunStatus[]}} options
+ * @returns {LiveProofNextActionOwner}
+ */
+function selectLiveProofFailureOwner({
+  interactionProofs,
+  preflight,
+  profiles,
+}: {
+  interactionProofs: LiveProofRunStatus[];
+  preflight: LiveProofRunStatus;
+  profiles: LiveProofRunStatus[];
+}): LiveProofNextActionOwner {
+  const owners: LiveProofNextActionOwner[] = [];
+  const linkedRuns = [preflight, ...profiles, ...interactionProofs];
+  for (const run of linkedRuns) {
+    if (isTrustedLiveRunStatus(run)) {
+      continue;
+    }
+    if (run.nextActionOwner) {
+      owners.push(run.nextActionOwner);
+    }
+  }
+  owners.sort((left, right) => liveProofFailureOwnerRank(left) - liveProofFailureOwnerRank(right));
+  return owners[0] ?? 'asl_runner';
+}
+
+/**
  * Reports whether a referenced run is healthy enough to trust as proof.
  *
- * @param {{healthStatus?: string, verdictStatus?: string}} status
+ * @param {LiveProofRunStatus} status
  * @returns {boolean}
  */
-function isTrustedLiveRunStatus(status: {healthStatus?: string; verdictStatus?: string}): boolean {
+function isTrustedLiveRunStatus(status: LiveProofRunStatus): boolean {
   return status.healthStatus === 'passed' && (status.verdictStatus === 'passed' || status.verdictStatus === 'not_evaluated');
 }
 
 /**
  * Derives the aggregate live-proof status from the linked evidence pointers.
  *
- * @param {{preflight: {healthStatus?: string, verdictStatus?: string}, profiles: Array<{healthStatus?: string, verdictStatus?: string}>, interactionProofs: Array<{healthStatus?: string, verdictStatus?: string}>, skippedInteractionProofCount?: number}} options
+ * @param {{preflight: LiveProofRunStatus, profiles: LiveProofRunStatus[], interactionProofs: LiveProofRunStatus[], skippedInteractionProofCount?: number}} options
  * @returns {'failed' | 'passed'}
  */
 function buildLiveProofStatus({
@@ -491,9 +589,9 @@ function buildLiveProofStatus({
   profiles,
   skippedInteractionProofCount = 0,
 }: {
-  interactionProofs: Array<{healthStatus?: string; verdictStatus?: string}>;
-  preflight: {healthStatus?: string; verdictStatus?: string};
-  profiles: Array<{healthStatus?: string; verdictStatus?: string}>;
+  interactionProofs: LiveProofRunStatus[];
+  preflight: LiveProofRunStatus;
+  profiles: LiveProofRunStatus[];
   skippedInteractionProofCount?: number;
 }): 'failed' | 'passed' {
   if (!isTrustedLiveRunStatus(preflight)) {
@@ -678,26 +776,36 @@ async function writeLiveProofSummary({
   const comparisonStatus = buildLiveProofComparisonStatus(comparisons);
   const comparisonCounts = buildLiveProofComparisonCounts(comparisons);
   const preflightStatus = readProfileRunStatus(preflightDir);
-  const profilePointers = profiles.map((profile) => ({
-    ...readProfileRunStatus(profile.runDir),
+  const profileStatuses = profiles.map((profile) => ({
+    profile,
+    status: readProfileRunStatus(profile.runDir),
+  }));
+  const profilePointers = profileStatuses.map(({ profile, status }) => ({
+    healthStatus: String(status.healthStatus ?? 'unknown'),
     label: profile.label,
     runDir: profile.runDir,
     runId: profile.runId,
     scenarioId: profile.scenarioId,
     summaryPath: path.join(profile.runDir, 'agent-summary.md'),
+    verdictStatus: String(status.verdictStatus ?? 'unknown'),
   }));
-  const interactionProofPointers = interactionProofs.map((proof) => {
+  const interactionProofStatuses = interactionProofs.map((proof) => ({
+    proof,
+    status: readProfileRunStatus(proof.runDir),
+  }));
+  const interactionProofPointers = interactionProofStatuses.map(({ proof, status }) => {
     const captures = readInteractionProofCaptures(proof.runDir);
     const warnings = readInteractionProofWarnings(proof.runDir);
     return {
-      ...readProfileRunStatus(proof.runDir),
       ...(captures ? { captures } : {}),
+      healthStatus: String(status.healthStatus ?? 'unknown'),
       label: proof.label,
       runDir: proof.runDir,
       runId: proof.runId,
       runnerId: proof.runnerId,
       scenarioId: proof.scenarioId,
       summaryPath: path.join(proof.runDir, 'agent-summary.md'),
+      verdictStatus: String(status.verdictStatus ?? 'unknown'),
       ...(warnings ? { warnings } : {}),
     };
   });
@@ -708,20 +816,29 @@ async function writeLiveProofSummary({
     profiles: profilePointers,
     skippedInteractionProofCount: skippedInteractionProofs.length,
   });
+  let failedOwner: LiveProofNextActionOwner = 'asl_runner';
+  if (status === 'failed') {
+    failedOwner = selectLiveProofFailureOwner({
+      interactionProofs: interactionProofStatuses.map(({ status }) => status),
+      preflight: preflightStatus,
+      profiles: profileStatuses.map(({ status }) => status),
+    });
+  }
   const artifact: LiveProofArtifact = {
     comparisons,
     comparisonCounts,
     comparisonStatus,
-    nextAction: buildLiveProofNextAction(comparisonStatus, status),
+    nextAction: buildLiveProofNextAction(comparisonStatus, status, failedOwner),
     outputDir,
     platform,
     ...(interactionProofPointers.length > 0 ? { interactionProofs: interactionProofPointers } : {}),
     ...(skippedInteractionProofs.length > 0 ? { skippedInteractionProofs } : {}),
     preflight: {
-      ...preflightStatus,
+      healthStatus: String(preflightStatus.healthStatus ?? 'unknown'),
       runDir: preflightDir,
       runId: preflightRunId,
       summaryPath: path.join(preflightDir, 'agent-summary.md'),
+      verdictStatus: String(preflightStatus.verdictStatus ?? 'unknown'),
     },
     profiles: profilePointers,
     runId,
