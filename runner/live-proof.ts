@@ -138,6 +138,9 @@ type LiveProofDiagnosticSufficiencyEntry = {
   kind: string;
   status: string;
 };
+type LiveProofDiagnosticSufficiencyCount = LiveProofDiagnosticSufficiencyEntry & {
+  count: number;
+};
 type LiveProofNativePerformanceSourceEntry = {
   sourceId: string;
   status: string;
@@ -198,6 +201,11 @@ type LiveProofProfileNativePerformanceRollup = {
   profileCount: number;
   targetBindingCounts?: LiveProofNativePerformanceCount[];
 };
+type LiveProofSetProfileGateDiagnosticSufficiencyRollup = {
+  blockingDiagnosticSufficiencyCounts?: LiveProofDiagnosticSufficiencyCount[];
+  capturedDiagnosticSufficiencyCounts?: LiveProofDiagnosticSufficiencyCount[];
+  skippedInteractionProofCount: number;
+};
 type LiveProofSetArtifact = {
   failureReasons: string[];
   missingPlatforms: LiveProofPlatform[];
@@ -207,6 +215,7 @@ type LiveProofSetArtifact = {
     summary: string;
   };
   presentPlatforms: LiveProofPlatform[];
+  profileGateDiagnosticSufficiency?: LiveProofSetProfileGateDiagnosticSufficiencyRollup;
   profileNativePerformance?: LiveProofProfileNativePerformanceRollup;
   proofCount: number;
   proofs: LiveProofSetProofPointer[];
@@ -1155,6 +1164,73 @@ function buildLiveProofSetSkippedInteractionProofs({
 }
 
 /**
+ * Adds diagnostic sufficiency entries into a proof-set accumulator.
+ *
+ * @param {Map<string, number>} counts
+ * @param {LiveProofDiagnosticSufficiencyEntry[] | undefined} entries
+ * @returns {void}
+ */
+function addDiagnosticSufficiencyCounts(
+  counts: Map<string, number>,
+  entries: LiveProofDiagnosticSufficiencyEntry[] | undefined,
+): void {
+  for (const entry of entries ?? []) {
+    const key = `${entry.kind}\u0000${entry.status}`;
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+}
+
+/**
+ * Converts diagnostic sufficiency counts into stable artifact order.
+ *
+ * @param {Map<string, number>} counts
+ * @returns {LiveProofDiagnosticSufficiencyCount[]}
+ */
+function formatDiagnosticSufficiencyCounts(
+  counts: Map<string, number>,
+): LiveProofDiagnosticSufficiencyCount[] {
+  return [...counts.entries()]
+    .map(([key, count]) => {
+      const [kind = '', status = ''] = key.split('\u0000');
+      return { count, kind, status };
+    })
+    .sort((left, right) => (
+      left.kind.localeCompare(right.kind) || left.status.localeCompare(right.status)
+    ));
+}
+
+/**
+ * Builds provider diagnostic sufficiency counts across skipped proof gates.
+ *
+ * @param {LiveProofSetSkippedInteractionProofPointer[]} skippedProofs
+ * @returns {LiveProofSetProfileGateDiagnosticSufficiencyRollup | null}
+ */
+function buildLiveProofSetProfileGateDiagnosticSufficiencyRollup(
+  skippedProofs: LiveProofSetSkippedInteractionProofPointer[],
+): LiveProofSetProfileGateDiagnosticSufficiencyRollup | null {
+  const blockingCounts = new Map<string, number>();
+  const capturedCounts = new Map<string, number>();
+
+  for (const skippedProof of skippedProofs) {
+    const diagnostics = skippedProof.profileGateDiagnostics;
+    addDiagnosticSufficiencyCounts(capturedCounts, diagnostics?.capturedDiagnosticSufficiency);
+    addDiagnosticSufficiencyCounts(blockingCounts, diagnostics?.blockingDiagnosticSufficiency);
+  }
+
+  const blockingDiagnosticSufficiencyCounts = formatDiagnosticSufficiencyCounts(blockingCounts);
+  const capturedDiagnosticSufficiencyCounts = formatDiagnosticSufficiencyCounts(capturedCounts);
+  if (blockingDiagnosticSufficiencyCounts.length === 0 && capturedDiagnosticSufficiencyCounts.length === 0) {
+    return null;
+  }
+
+  return {
+    ...(blockingDiagnosticSufficiencyCounts.length > 0 ? { blockingDiagnosticSufficiencyCounts } : {}),
+    ...(capturedDiagnosticSufficiencyCounts.length > 0 ? { capturedDiagnosticSufficiencyCounts } : {}),
+    skippedInteractionProofCount: skippedProofs.length,
+  };
+}
+
+/**
  * Builds human-readable failure reasons for one proof set.
  *
  * @param {{failOnRegression: boolean, missingPlatforms: LiveProofPlatform[], proofs: LiveProofArtifact[]}} options
@@ -1268,11 +1344,15 @@ function buildLiveProofSetArtifact({
   });
   const profileNativePerformance = buildLiveProofSetNativePerformanceRollup(proofs);
   const skippedInteractionProofs = buildLiveProofSetSkippedInteractionProofs({ files, proofs });
+  const profileGateDiagnosticSufficiency = buildLiveProofSetProfileGateDiagnosticSufficiencyRollup(
+    skippedInteractionProofs,
+  );
   return {
     failureReasons,
     missingPlatforms,
     nextAction,
     presentPlatforms,
+    ...(profileGateDiagnosticSufficiency ? { profileGateDiagnosticSufficiency } : {}),
     ...(profileNativePerformance ? { profileNativePerformance } : {}),
     proofCount: proofs.length,
     proofs: proofs.map((proof, index) => buildLiveProofSetProofPointer({
@@ -1322,6 +1402,46 @@ function formatLiveProofSetDiagnosticSufficiencyEntries(
   entries: LiveProofDiagnosticSufficiencyEntry[],
 ): string {
   return entries.map((entry) => `${entry.kind}:${entry.status}`).join(', ');
+}
+
+/**
+ * Formats diagnostic sufficiency count entries for proof-set markdown.
+ *
+ * @param {LiveProofDiagnosticSufficiencyCount[]} entries
+ * @returns {string}
+ */
+function formatLiveProofSetDiagnosticSufficiencyCounts(
+  entries: LiveProofDiagnosticSufficiencyCount[],
+): string {
+  return entries.map((entry) => `${entry.kind}:${entry.status}=${entry.count}`).join(', ');
+}
+
+/**
+ * Formats aggregate profile-gate diagnostic sufficiency counts for proof-set markdown.
+ *
+ * @param {LiveProofSetProfileGateDiagnosticSufficiencyRollup | undefined} rollup
+ * @returns {string[]}
+ */
+function formatLiveProofSetProfileGateDiagnosticSufficiencyRollup(
+  rollup: LiveProofSetProfileGateDiagnosticSufficiencyRollup | undefined,
+): string[] {
+  if (!rollup) {
+    return [];
+  }
+
+  const details = [
+    `skippedInteractionProofs=${rollup.skippedInteractionProofCount}`,
+  ];
+  if (rollup.capturedDiagnosticSufficiencyCounts?.length) {
+    details.push(`captured=${formatLiveProofSetDiagnosticSufficiencyCounts(rollup.capturedDiagnosticSufficiencyCounts)}`);
+  }
+  if (rollup.blockingDiagnosticSufficiencyCounts?.length) {
+    details.push(`blocking=${formatLiveProofSetDiagnosticSufficiencyCounts(rollup.blockingDiagnosticSufficiencyCounts)}`);
+  }
+
+  return [
+    `Profile gate diagnostics: ${details.join('; ')}`,
+  ];
 }
 
 /**
@@ -1531,6 +1651,7 @@ function formatLiveProofSetArtifactMarkdown(artifact: LiveProofSetArtifact): str
       ...formatLiveProofSetWarningDetails(proof),
     ]),
     ...formatLiveProofSetSkippedInteractionProofs(artifact.skippedInteractionProofs),
+    ...formatLiveProofSetProfileGateDiagnosticSufficiencyRollup(artifact.profileGateDiagnosticSufficiency),
     ...formatLiveProofSetNativePerformanceRollup(artifact.profileNativePerformance),
     `Failure reasons: ${artifact.failureReasons.length > 0 ? artifact.failureReasons.join(' ') : 'none'}`,
     `Next action: ${artifact.nextAction.owner ?? 'unknown'}/${artifact.nextAction.code} - ${artifact.nextAction.summary}`,
