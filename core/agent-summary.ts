@@ -237,6 +237,26 @@ function formatPreservedDiagnosticEvidence(checks: unknown[]): string[] {
       if (blockingSufficiency) {
         blockingSufficiencyText = ` Blocking sufficiency: ${blockingSufficiency}.`;
       }
+      const nativePerformanceClaimSufficiency = formatDiagnosticSufficiencyPairs(metadataRecord.nativePerformanceClaimSufficiency);
+      let nativePerformanceClaimSufficiencyText = '';
+      if (nativePerformanceClaimSufficiency) {
+        nativePerformanceClaimSufficiencyText = ` Native performance claim: ${nativePerformanceClaimSufficiency}.`;
+      }
+      const nativePerformanceComparability = formatDiagnosticSufficiencyPairs(metadataRecord.nativePerformanceComparability);
+      let nativePerformanceComparabilityText = '';
+      if (nativePerformanceComparability) {
+        nativePerformanceComparabilityText = ` Native performance comparability: ${nativePerformanceComparability}.`;
+      }
+      const nativePerformanceTargetBinding = formatDiagnosticSufficiencyPairs(metadataRecord.nativePerformanceTargetBinding);
+      let nativePerformanceTargetBindingText = '';
+      if (nativePerformanceTargetBinding) {
+        nativePerformanceTargetBindingText = ` Native performance target binding: ${nativePerformanceTargetBinding}.`;
+      }
+      const nativePerformanceDiagnosticSources = formatDiagnosticSufficiencyPairs(metadataRecord.nativePerformanceDiagnosticSources);
+      let nativePerformanceDiagnosticSourcesText = '';
+      if (nativePerformanceDiagnosticSources) {
+        nativePerformanceDiagnosticSourcesText = ` Native performance sources: ${nativePerformanceDiagnosticSources}.`;
+      }
 
       const message = firstString([record.message], 'Diagnostics were preserved from an unhealthy run.');
       const nextAction = formatNextAction(record).trim();
@@ -245,7 +265,7 @@ function formatPreservedDiagnosticEvidence(checks: unknown[]): string[] {
         nextActionText = ` ${nextAction}`;
       }
 
-      return `- Captured ${kindText} at ${pathText}.${failedRequiredText}${claimSufficiencyText}${capturedSufficiencyText}${blockingSufficiencyText} ${message}${nextActionText}`;
+      return `- Captured ${kindText} at ${pathText}.${failedRequiredText}${claimSufficiencyText}${capturedSufficiencyText}${blockingSufficiencyText}${nativePerformanceClaimSufficiencyText}${nativePerformanceComparabilityText}${nativePerformanceTargetBindingText}${nativePerformanceDiagnosticSourcesText} ${message}${nextActionText}`;
     });
 }
 

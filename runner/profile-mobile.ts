@@ -2433,15 +2433,79 @@ function formatDiagnosticSufficiencyStatusList(diagnostics: DiagnosticInventoryE
   );
 }
 
+type NativePerformanceEvidenceSummary = {
+  claimSufficiency: string[];
+  comparability: string[];
+  diagnosticSources: string[];
+  targetBinding: string[];
+};
+
+function formatNativePerformanceSourceStatuses(evidence: Record<string, unknown>): string[] {
+  const diagnosticSources = Array.isArray(evidence.diagnosticSources) ? evidence.diagnosticSources : [];
+  return uniqueStrings(diagnosticSources.map((source) => {
+    const sourceRecord = readRecordValue(source);
+    if (!sourceRecord) {
+      return null;
+    }
+
+    const status = readTrimmedString(sourceRecord.status);
+    if (!status) {
+      return null;
+    }
+
+    const sourceId = readTrimmedString(sourceRecord.sourceId) ?? 'unknown';
+    return `${sourceId}:${status}`;
+  }));
+}
+
+function summarizeNativePerformanceEvidence(
+  attachments: EvidenceAttachment[],
+  failedProviderIds: Set<string>,
+): NativePerformanceEvidenceSummary {
+  const claimSufficiency: string[] = [];
+  const comparability: string[] = [];
+  const diagnosticSources: string[] = [];
+  const targetBinding: string[] = [];
+
+  for (const attachment of attachments) {
+    if (
+      attachment.kind !== 'nativePerformance' ||
+      typeof attachment.providerId !== 'string' ||
+      !failedProviderIds.has(attachment.providerId)
+    ) {
+      continue;
+    }
+
+    const evidence = readJsonRecordIfAvailable(attachment.sourcePath);
+    if (!evidence) {
+      continue;
+    }
+
+    claimSufficiency.push(readTrimmedString(readRecordValue(evidence.claimSufficiency)?.status) ?? '');
+    comparability.push(readTrimmedString(readRecordValue(evidence.comparability)?.status) ?? '');
+    targetBinding.push(readTrimmedString(readRecordValue(evidence.targetBinding)?.status) ?? '');
+    diagnosticSources.push(...formatNativePerformanceSourceStatuses(evidence));
+  }
+
+  return {
+    claimSufficiency: uniqueStrings(claimSufficiency),
+    comparability: uniqueStrings(comparability),
+    diagnosticSources: uniqueStrings(diagnosticSources),
+    targetBinding: uniqueStrings(targetBinding),
+  };
+}
+
 /**
  * Reports provider-backed diagnostics that survived a provider command failure.
  *
  * @param {DiagnosticInventoryEntry[]} diagnostics
+ * @param {EvidenceAttachment[]} attachments
  * @param {ProviderCommandFailure[]} failures
  * @returns {Record<string, unknown>[]}
  */
 function buildPartialProviderEvidenceHealthChecks(
   diagnostics: DiagnosticInventoryEntry[] = [],
+  attachments: EvidenceAttachment[] = [],
   failures: ProviderCommandFailure[] = [],
 ): Record<string, unknown>[] {
   if (failures.length === 0) {
@@ -2469,6 +2533,7 @@ function buildPartialProviderEvidenceHealthChecks(
   );
   const blockingDiagnosticSufficiency = formatDiagnosticSufficiencyStatusList(blockingDiagnostics);
   const claimSufficiency = failedRequiredKinds.length > 0 ? 'insufficient-for-claim' : 'sufficient-for-diagnosis';
+  const nativePerformanceSummary = summarizeNativePerformanceEvidence(attachments, failedProviderIds);
   return [
     {
       name: 'partial_provider_evidence_preserved',
@@ -2485,6 +2550,10 @@ function buildPartialProviderEvidenceHealthChecks(
         ...(capturedDiagnosticSufficiency.length > 0 ? { capturedDiagnosticSufficiency: capturedDiagnosticSufficiency.join(',') } : {}),
         ...(failedRequiredKinds.length > 0 ? { blockingRequiredKinds: failedRequiredKinds.join(',') } : {}),
         ...(failedRequiredKinds.length > 0 ? { failedRequiredKinds: failedRequiredKinds.join(',') } : {}),
+        ...(nativePerformanceSummary.claimSufficiency.length > 0 ? { nativePerformanceClaimSufficiency: nativePerformanceSummary.claimSufficiency.join(',') } : {}),
+        ...(nativePerformanceSummary.comparability.length > 0 ? { nativePerformanceComparability: nativePerformanceSummary.comparability.join(',') } : {}),
+        ...(nativePerformanceSummary.diagnosticSources.length > 0 ? { nativePerformanceDiagnosticSources: nativePerformanceSummary.diagnosticSources.join(',') } : {}),
+        ...(nativePerformanceSummary.targetBinding.length > 0 ? { nativePerformanceTargetBinding: nativePerformanceSummary.targetBinding.join(',') } : {}),
         nextAction: 'Use preserved diagnostics for investigation only; rerun or fix missing required provider outputs before making product claims.',
         nextActionCode: 'use_partial_provider_evidence_for_diagnosis',
       },
@@ -2915,7 +2984,7 @@ function buildAndroidProfileSessionSidecarObservationChecks({
 /**
  * Builds scenario health from profile metrics.
  *
- * @param {{scenario: Record<string, unknown>, runId: string, metrics: Record<string, unknown>, additionalRunnerChecks?: Record<string, unknown>[], diagnostics?: DiagnosticInventoryEntry[], providerFailures?: ProviderCommandFailure[], profileEventCount?: number, profileSessionEntryCount?: number, commandTransport?: string, helperVersion?: ProfileHelperVersionCheck | null, runtimeIdentity?: RuntimeIdentityVerification | null, sessionEntries?: Record<string, unknown>[], sessionFreshness?: ProfileSessionFreshness | null, sessionFreshnessRequired?: boolean, sidecarObservationChecks?: Record<string, unknown>[]}} options
+ * @param {{scenario: Record<string, unknown>, runId: string, metrics: Record<string, unknown>, additionalRunnerChecks?: Record<string, unknown>[], diagnostics?: DiagnosticInventoryEntry[], evidenceAttachments?: EvidenceAttachment[], providerFailures?: ProviderCommandFailure[], profileEventCount?: number, profileSessionEntryCount?: number, commandTransport?: string, helperVersion?: ProfileHelperVersionCheck | null, runtimeIdentity?: RuntimeIdentityVerification | null, sessionEntries?: Record<string, unknown>[], sessionFreshness?: ProfileSessionFreshness | null, sessionFreshnessRequired?: boolean, sidecarObservationChecks?: Record<string, unknown>[]}} options
  * @returns {Record<string, unknown>}
  */
 function buildProfileHealth({
@@ -2924,6 +2993,7 @@ function buildProfileHealth({
   metrics,
   additionalRunnerChecks = [],
   diagnostics = [],
+  evidenceAttachments = [],
   providerFailures = [],
   profileEventCount,
   profileSessionEntryCount,
@@ -2941,6 +3011,7 @@ function buildProfileHealth({
   metrics: Record<string, any>;
   additionalRunnerChecks?: Record<string, unknown>[];
   diagnostics?: DiagnosticInventoryEntry[];
+  evidenceAttachments?: EvidenceAttachment[];
   providerFailures?: ProviderCommandFailure[];
   profileEventCount?: number;
   profileSessionEntryCount?: number;
@@ -3054,7 +3125,11 @@ function buildProfileHealth({
   const evidenceIdentityChecksPassed = evidenceIdentityChecks.every((check) => check.status !== 'failed');
   const providerFailureChecks = buildProviderCommandFailureChecks(providerFailures);
   const providerFailureChecksPassed = providerFailureChecks.every((check) => check.status === 'passed');
-  const partialProviderEvidenceChecks = buildPartialProviderEvidenceHealthChecks(diagnostics, providerFailures);
+  const partialProviderEvidenceChecks = buildPartialProviderEvidenceHealthChecks(
+    diagnostics,
+    evidenceAttachments,
+    providerFailures,
+  );
   const helperVersionChecks = buildProfileHelperVersionHealthChecks(helperVersion);
   const helperVersionChecksPassed = helperVersionChecks.every((check) => check.status !== 'failed');
   const runtimeIdentityChecks = buildRuntimeIdentityHealthChecks(runtimeIdentity);
@@ -5335,6 +5410,7 @@ async function runProfileMobile(args: CliArgs, options: ProfileMobileOptions): P
     runId,
     metrics,
     diagnostics: manifestArtifacts.diagnostics,
+    evidenceAttachments: attachedEvidence.attachments,
     evidenceIdentityFailure: evidenceFilterRun.failure ?? null,
     providerFailures: providerExecution.failures,
     profileEventCount: events.length,

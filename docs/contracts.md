@@ -178,6 +178,8 @@ The native-performance helper functions preserve explicit provider claim classif
 
 `diagnosticSources` is the source inventory for native-performance lanes. Each source records a product-neutral `sourceId`, status, optional tool metadata, data classes, and the next action when it is missing or unverified. Android providers should distinguish sources such as `gfxinfo`, `framestats`, `meminfo`, `perfetto`, `trace-processor`, and `logcat-render`. iOS providers should distinguish `instruments`, `xctrace`, `metrickit`, `simctl`, and any project-local `native-trace` source. A scaffolded source inventory is not claim-ready evidence by itself; statuses such as `unverified`, `not-requested`, `unsupported`, `failed`, `timeout`, `partial`, and `available-unproven` keep agents from treating a listed source as fully captured. Use `captured` only when the source produced artifacts or structured metrics, and use `unknown` only when a provider can preserve the inventory but cannot classify the source outcome yet.
 
+When a failed provider command preserves native-performance evidence, the `partial_provider_evidence_preserved` health check includes native-performance claim context when it can read the validated JSON attachment. `nativePerformanceClaimSufficiency`, `nativePerformanceComparability`, `nativePerformanceTargetBinding`, and `nativePerformanceDiagnosticSources` summarize the evidence envelope so `agent-summary.md` can route the next action without treating partial native diagnostics as product-performance proof.
+
 Evidence folders:
 
 - `raw/`

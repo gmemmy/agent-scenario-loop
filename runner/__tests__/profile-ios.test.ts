@@ -250,6 +250,17 @@ test('profile-ios preserves captured provider evidence when another required out
       "  completenessStatus: 'partial',",
       "  targetBinding: { status: 'verified', deviceId: 'A692ED28-893E-453F-8866-C69331AE757F', appId: 'dev.agent-scenario-loop.example' },",
       "  comparability: { status: 'diagnostic-only', reason: 'Provider command failed after preserving iOS native performance evidence.' },",
+      "  diagnosticSources: [",
+      "    { sourceId: 'xctrace', status: 'partial', dataClasses: ['frames'] },",
+      "    { sourceId: 'metrickit', status: 'timeout', dataClasses: ['memory'] }",
+      "  ],",
+      "  claimSufficiency: {",
+      "    status: 'insufficient-for-claim',",
+      "    claim: 'ios-native-performance',",
+      "    reason: 'Accessibility evidence failed, so iOS native diagnostics remain diagnosis-only.',",
+      "    supportingEvidence: ['frames', 'memory'],",
+      "    missingEvidence: ['accessibility']",
+      "  },",
       "  frames: { frameHitchCount: 2 },",
       "  memory: { peakResidentMemoryKb: 420000 },",
       "  summary: 'Captured partial iOS native performance diagnostics.'",
@@ -354,6 +365,10 @@ test('profile-ios preserves captured provider evidence when another required out
       capturedKinds?: string;
       capturedDiagnosticSufficiency?: string;
       claimSufficiency?: string;
+      nativePerformanceClaimSufficiency?: string;
+      nativePerformanceComparability?: string;
+      nativePerformanceDiagnosticSources?: string;
+      nativePerformanceTargetBinding?: string;
       blockingDiagnosticSufficiency?: string;
       blockingRequiredKinds?: string;
       diagnosticOnlyKinds?: string;
@@ -366,6 +381,11 @@ test('profile-ios preserves captured provider evidence when another required out
         check.metadata?.capturedDiagnosticSufficiency?.split(',').includes('nativePerformance:diagnostic-only') &&
         check.metadata?.failedRequiredKinds?.split(',').includes('accessibility') &&
         check.metadata?.claimSufficiency === 'insufficient-for-claim' &&
+        check.metadata?.nativePerformanceClaimSufficiency === 'insufficient-for-claim' &&
+        check.metadata?.nativePerformanceComparability === 'diagnostic-only' &&
+        check.metadata?.nativePerformanceDiagnosticSources?.split(',').includes('xctrace:partial') &&
+        check.metadata?.nativePerformanceDiagnosticSources?.split(',').includes('metrickit:timeout') &&
+        check.metadata?.nativePerformanceTargetBinding === 'verified' &&
         check.metadata?.diagnosticOnlyKinds?.split(',').includes('nativePerformance') &&
         check.metadata?.blockingRequiredKinds?.split(',').includes('accessibility') &&
         check.metadata?.blockingDiagnosticSufficiency?.split(',').includes('accessibility:provider-blocked') &&
@@ -389,6 +409,10 @@ test('profile-ios preserves captured provider evidence when another required out
   assert.match(agentSummary, /Captured .*`nativePerformance`/u);
   assert.match(agentSummary, /Missing required `accessibility`/u);
   assert.match(agentSummary, /Claim sufficiency: `insufficient-for-claim`/u);
+  assert.match(agentSummary, /Native performance claim: `insufficient-for-claim`/u);
+  assert.match(agentSummary, /Native performance comparability: `diagnostic-only`/u);
+  assert.match(agentSummary, /Native performance target binding: `verified`/u);
+  assert.match(agentSummary, /Native performance sources: .*`xctrace:partial`.*`metrickit:timeout`/u);
   assert.match(agentSummary, /Next action `use_partial_provider_evidence_for_diagnosis`/u);
 });
 
