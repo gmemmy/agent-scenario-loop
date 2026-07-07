@@ -329,6 +329,51 @@ test('writes optional interaction proof pointers into aggregate live proof artif
   await fsp.writeFile(path.join(profileDir, 'agent-summary.md'), '# profile\n', 'utf8');
   await fsp.writeFile(path.join(profileDir, 'health.json'), '{"healthStatus":"passed"}\n', 'utf8');
   await fsp.writeFile(path.join(profileDir, 'verdict.json'), '{"verdictStatus":"passed"}\n', 'utf8');
+  await fsp.mkdir(path.join(profileDir, 'raw', 'providers', 'native'), { recursive: true });
+  await fsp.writeFile(
+    path.join(profileDir, 'manifest.json'),
+    JSON.stringify({
+      artifacts: {
+        evidenceAttachments: [
+          {
+            kind: 'nativePerformance',
+            path: 'raw/providers/native/native-performance.json',
+          },
+        ],
+      },
+    }),
+    'utf8',
+  );
+  await fsp.writeFile(
+    path.join(profileDir, 'raw', 'providers', 'native', 'native-performance.json'),
+    JSON.stringify({
+      claimSufficiency: {
+        status: 'insufficient-for-claim',
+      },
+      comparability: {
+        status: 'diagnostic-only',
+      },
+      diagnosticSources: [
+        {
+          sourceId: 'gfxinfo',
+          status: 'partial',
+        },
+        {
+          sourceId: 'meminfo',
+          status: 'captured',
+        },
+      ],
+      platform: 'android',
+      providerId: 'native',
+      runId: 'android-live-startup',
+      scenarioId: 'app-startup',
+      schemaVersion: '1.0.0',
+      targetBinding: {
+        status: 'verified',
+      },
+    }),
+    'utf8',
+  );
   await fsp.writeFile(path.join(interactionDir, 'agent-summary.md'), '# interaction\n', 'utf8');
   await fsp.writeFile(
     path.join(interactionDir, 'health.json'),
@@ -391,6 +436,40 @@ test('writes optional interaction proof pointers into aggregate live proof artif
 
   const artifact = JSON.parse(fs.readFileSync(result.liveProofPath, 'utf8'));
   assert.equal(artifact.summary, 'android live proof passed with 1 passed profile run(s) and 1 passed interaction proof(s) without comparison results; 1 interaction warning(s).');
+  assert.deepEqual(artifact.profileNativePerformance, {
+    claimSufficiencyCounts: [
+      {
+        count: 1,
+        status: 'insufficient-for-claim',
+      },
+    ],
+    comparabilityCounts: [
+      {
+        count: 1,
+        status: 'diagnostic-only',
+      },
+    ],
+    diagnosticSourceCounts: [
+      {
+        count: 1,
+        sourceId: 'gfxinfo',
+        status: 'partial',
+      },
+      {
+        count: 1,
+        sourceId: 'meminfo',
+        status: 'captured',
+      },
+    ],
+    evidenceCount: 1,
+    profileCount: 1,
+    targetBindingCounts: [
+      {
+        count: 1,
+        status: 'verified',
+      },
+    ],
+  });
   assert.deepEqual(
     {
       healthStatus: artifact.preflight.healthStatus,
@@ -440,6 +519,8 @@ test('writes optional interaction proof pointers into aggregate live proof artif
   const summary = fs.readFileSync(result.summaryPath, 'utf8');
   assert.match(summary, /Next action: product_optimization\/inspect_summary/u);
   assert.match(summary, /## Interaction Proofs/u);
+  assert.match(summary, /## Native Performance/u);
+  assert.match(summary, /profiles=1; evidence=1; sources=gfxinfo:partial=1, meminfo:captured=1; claim=insufficient-for-claim=1; comparability=diagnostic-only=1; target=verified=1/u);
   assert.match(summary, /screenshots=1/u);
   assert.match(summary, /warnings=1/u);
   assert.match(summary, /warning argent_screenshot: argent_screenshot_failed - Argent driver action screenshot failed\. Next action: provider_tooling\/inspect_argent_driver_action - Inspect raw screenshot output\./u);

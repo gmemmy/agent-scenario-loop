@@ -60,6 +60,24 @@ type LiveProofNativePerformanceDiagnosticSummary = {
   targetBinding?: string;
 };
 
+type LiveProofNativePerformanceCount = {
+  count: number;
+  status: string;
+};
+
+type LiveProofNativePerformanceSourceCount = LiveProofNativePerformanceCount & {
+  sourceId: string;
+};
+
+type LiveProofProfileNativePerformanceRollup = {
+  claimSufficiencyCounts?: LiveProofNativePerformanceCount[];
+  comparabilityCounts?: LiveProofNativePerformanceCount[];
+  diagnosticSourceCounts?: LiveProofNativePerformanceSourceCount[];
+  evidenceCount: number;
+  profileCount: number;
+  targetBindingCounts?: LiveProofNativePerformanceCount[];
+};
+
 type LiveProofProfileGateDiagnostics = {
   blockingDiagnosticSufficiency?: LiveProofDiagnosticSufficiencyEntry[];
   capturedDiagnosticSufficiency?: LiveProofDiagnosticSufficiencyEntry[];
@@ -136,6 +154,7 @@ type LiveProofArtifact = {
   outputDir: string;
   platform: LiveProofPlatform;
   interactionProofs?: Array<LiveProofInteractionProofPointer & { summaryPath: string }>;
+  profileNativePerformance?: LiveProofProfileNativePerformanceRollup;
   skippedInteractionProofs?: LiveProofSkippedInteractionProofPointer[];
   preflight: {
     healthStatus: string;
@@ -225,6 +244,205 @@ function readProfileRunStatus(runDir: string): LiveProofRunStatus {
     healthStatus: String(health.healthStatus ?? 'unknown'),
     ...(nextActionOwner ? { nextActionOwner } : {}),
     verdictStatus: String(verdict.verdictStatus ?? 'unknown'),
+  };
+}
+
+/**
+ * Reads native-performance evidence paths from a profile manifest.
+ *
+ * @param {string} runDir
+ * @returns {string[]}
+ */
+function readProfileNativePerformanceEvidencePaths(runDir: string): string[] {
+  const manifestPath = path.join(runDir, 'manifest.json');
+  if (!fs.existsSync(manifestPath)) {
+    return [];
+  }
+
+  try {
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8')) as Record<string, unknown>;
+    const artifacts = readObject(manifest.artifacts);
+    const attachments = Array.isArray(artifacts?.evidenceAttachments)
+      ? artifacts.evidenceAttachments
+      : [];
+    return attachments
+      .filter((attachment): attachment is Record<string, unknown> => (
+        attachment &&
+        typeof attachment === 'object' &&
+        !Array.isArray(attachment) &&
+        attachment.kind === 'nativePerformance' &&
+        typeof attachment.path === 'string' &&
+        attachment.path.length > 0
+      ))
+      .map((attachment) => attachment.path as string);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Reads an object value when the input is an object record.
+ *
+ * @param {unknown} value
+ * @returns {Record<string, unknown> | null}
+ */
+function readObject(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+/**
+ * Reads a native-performance evidence envelope from a profile-relative path.
+ *
+ * @param {{runDir: string, relativePath: string}} options
+ * @returns {Record<string, unknown> | null}
+ */
+function readNativePerformanceEvidence({
+  relativePath,
+  runDir,
+}: {
+  relativePath: string;
+  runDir: string;
+}): Record<string, unknown> | null {
+  const evidencePath = path.join(runDir, relativePath);
+  if (!fs.existsSync(evidencePath)) {
+    return null;
+  }
+
+  try {
+    return readObject(JSON.parse(fs.readFileSync(evidencePath, 'utf8')));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Increments a count map by status.
+ *
+ * @param {Map<string, number>} counts
+ * @param {unknown} status
+ * @returns {void}
+ */
+function incrementStatusCount(counts: Map<string, number>, status: unknown): void {
+  if (typeof status !== 'string' || status.length === 0) {
+    return;
+  }
+  counts.set(status, (counts.get(status) ?? 0) + 1);
+}
+
+/**
+ * Increments a native diagnostic source count map by source and status.
+ *
+ * @param {Map<string, number>} counts
+ * @param {{sourceId: unknown, status: unknown}} source
+ * @returns {void}
+ */
+function incrementSourceCount(
+  counts: Map<string, number>,
+  source: {sourceId: unknown; status: unknown},
+): void {
+  if (
+    typeof source.sourceId !== 'string' ||
+    source.sourceId.length === 0 ||
+    typeof source.status !== 'string' ||
+    source.status.length === 0
+  ) {
+    return;
+  }
+  const key = `${source.sourceId}\u0000${source.status}`;
+  counts.set(key, (counts.get(key) ?? 0) + 1);
+}
+
+/**
+ * Converts status counts to a stable artifact array.
+ *
+ * @param {Map<string, number>} counts
+ * @returns {LiveProofNativePerformanceCount[]}
+ */
+function formatStatusCounts(counts: Map<string, number>): LiveProofNativePerformanceCount[] {
+  return [...counts.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([status, count]) => ({ count, status }));
+}
+
+/**
+ * Converts native diagnostic source counts to a stable artifact array.
+ *
+ * @param {Map<string, number>} counts
+ * @returns {LiveProofNativePerformanceSourceCount[]}
+ */
+function formatSourceCounts(counts: Map<string, number>): LiveProofNativePerformanceSourceCount[] {
+  return [...counts.entries()]
+    .map(([key, count]) => {
+      const [sourceId = '', status = ''] = key.split('\u0000');
+      return { count, sourceId, status };
+    })
+    .sort((left, right) => (
+      left.sourceId.localeCompare(right.sourceId) || left.status.localeCompare(right.status)
+    ));
+}
+
+/**
+ * Builds aggregate native-performance evidence counts from profile artifacts.
+ *
+ * @param {LiveProofProfilePointer[]} profiles
+ * @returns {LiveProofProfileNativePerformanceRollup | null}
+ */
+function buildProfileNativePerformanceRollup(
+  profiles: LiveProofProfilePointer[],
+): LiveProofProfileNativePerformanceRollup | null {
+  const claimSufficiencyCounts = new Map<string, number>();
+  const comparabilityCounts = new Map<string, number>();
+  const diagnosticSourceCounts = new Map<string, number>();
+  const targetBindingCounts = new Map<string, number>();
+  let evidenceCount = 0;
+  let profileCount = 0;
+
+  for (const profile of profiles) {
+    let profileEvidenceCount = 0;
+    const paths = readProfileNativePerformanceEvidencePaths(profile.runDir);
+    for (const relativePath of paths) {
+      const evidence = readNativePerformanceEvidence({ relativePath, runDir: profile.runDir });
+      if (!evidence) {
+        continue;
+      }
+      evidenceCount += 1;
+      profileEvidenceCount += 1;
+      incrementStatusCount(claimSufficiencyCounts, readObject(evidence.claimSufficiency)?.status);
+      incrementStatusCount(comparabilityCounts, readObject(evidence.comparability)?.status);
+      incrementStatusCount(targetBindingCounts, readObject(evidence.targetBinding)?.status);
+      const sources = Array.isArray(evidence.diagnosticSources) ? evidence.diagnosticSources : [];
+      for (const source of sources) {
+        const sourceRecord = readObject(source);
+        if (sourceRecord) {
+          incrementSourceCount(diagnosticSourceCounts, {
+            sourceId: sourceRecord.sourceId,
+            status: sourceRecord.status,
+          });
+        }
+      }
+    }
+    if (profileEvidenceCount > 0) {
+      profileCount += 1;
+    }
+  }
+
+  if (evidenceCount === 0) {
+    return null;
+  }
+
+  const sourceCounts = formatSourceCounts(diagnosticSourceCounts);
+  const claimCounts = formatStatusCounts(claimSufficiencyCounts);
+  const comparableCounts = formatStatusCounts(comparabilityCounts);
+  const targetCounts = formatStatusCounts(targetBindingCounts);
+  return {
+    ...(claimCounts.length > 0 ? { claimSufficiencyCounts: claimCounts } : {}),
+    ...(comparableCounts.length > 0 ? { comparabilityCounts: comparableCounts } : {}),
+    ...(sourceCounts.length > 0 ? { diagnosticSourceCounts: sourceCounts } : {}),
+    evidenceCount,
+    profileCount,
+    ...(targetCounts.length > 0 ? { targetBindingCounts: targetCounts } : {}),
   };
 }
 
@@ -1052,6 +1270,64 @@ function formatProfileGateReadiness(readiness: LiveProofProfileGateReadiness | u
 }
 
 /**
+ * Formats status count entries for aggregate markdown.
+ *
+ * @param {LiveProofNativePerformanceCount[]} counts
+ * @returns {string}
+ */
+function formatNativePerformanceStatusCounts(counts: LiveProofNativePerformanceCount[]): string {
+  return counts.map((entry) => `${entry.status}=${entry.count}`).join(', ');
+}
+
+/**
+ * Formats native diagnostic source counts for aggregate markdown.
+ *
+ * @param {LiveProofNativePerformanceSourceCount[]} counts
+ * @returns {string}
+ */
+function formatNativePerformanceSourceCounts(counts: LiveProofNativePerformanceSourceCount[]): string {
+  return counts.map((entry) => `${entry.sourceId}:${entry.status}=${entry.count}`).join(', ');
+}
+
+/**
+ * Formats aggregate profile native-performance context for markdown.
+ *
+ * @param {LiveProofProfileNativePerformanceRollup | undefined} rollup
+ * @returns {string[]}
+ */
+function formatProfileNativePerformanceRollup(
+  rollup: LiveProofProfileNativePerformanceRollup | undefined,
+): string[] {
+  if (!rollup) {
+    return [];
+  }
+
+  const details = [
+    `profiles=${rollup.profileCount}`,
+    `evidence=${rollup.evidenceCount}`,
+  ];
+  if (rollup.diagnosticSourceCounts?.length) {
+    details.push(`sources=${formatNativePerformanceSourceCounts(rollup.diagnosticSourceCounts)}`);
+  }
+  if (rollup.claimSufficiencyCounts?.length) {
+    details.push(`claim=${formatNativePerformanceStatusCounts(rollup.claimSufficiencyCounts)}`);
+  }
+  if (rollup.comparabilityCounts?.length) {
+    details.push(`comparability=${formatNativePerformanceStatusCounts(rollup.comparabilityCounts)}`);
+  }
+  if (rollup.targetBindingCounts?.length) {
+    details.push(`target=${formatNativePerformanceStatusCounts(rollup.targetBindingCounts)}`);
+  }
+
+  return [
+    '',
+    '## Native Performance',
+    '',
+    `- ${details.join('; ')}`,
+  ];
+}
+
+/**
  * Builds markdown for the aggregate live proof entrypoint.
  *
  * @param {LiveProofArtifact} artifact
@@ -1077,6 +1353,7 @@ function buildLiveProofMarkdown(artifact: LiveProofArtifact): string {
     ...artifact.profiles.map((profile) => (
       `- ${profile.label} (${profile.scenarioId}): health=${profile.healthStatus} verdict=${profile.verdictStatus} - ${profile.summaryPath}`
     )),
+    ...formatProfileNativePerformanceRollup(artifact.profileNativePerformance),
   ];
 
   if (artifact.interactionProofs?.length) {
@@ -1153,6 +1430,7 @@ async function writeLiveProofSummary({
     summaryPath: path.join(profile.runDir, 'agent-summary.md'),
     verdictStatus: String(status.verdictStatus ?? 'unknown'),
   }));
+  const profileNativePerformance = buildProfileNativePerformanceRollup(profilePointers);
   const interactionProofStatuses = interactionProofs.map((proof) => ({
     proof,
     status: readProfileRunStatus(proof.runDir),
@@ -1196,6 +1474,7 @@ async function writeLiveProofSummary({
     outputDir,
     platform,
     ...(interactionProofPointers.length > 0 ? { interactionProofs: interactionProofPointers } : {}),
+    ...(profileNativePerformance ? { profileNativePerformance } : {}),
     ...(skippedInteractionProofs.length > 0 ? { skippedInteractionProofs } : {}),
     preflight: {
       healthStatus: String(preflightStatus.healthStatus ?? 'unknown'),
@@ -1253,7 +1532,9 @@ export {
   formatInteractionProofWarnings,
   formatProfileGateDiagnostics,
   formatProfileGateReadiness,
+  formatProfileNativePerformanceRollup,
   isTrustedLiveRunStatus,
+  buildProfileNativePerformanceRollup,
   readInteractionProofCaptures,
   readInteractionProofWarnings,
   readProfileGateDiagnosticSummary,
@@ -1273,6 +1554,7 @@ export type {
   LiveProofInteractionProofPointer,
   LiveProofProfileGateDiagnostics,
   LiveProofProfileGateReadiness,
+  LiveProofProfileNativePerformanceRollup,
   LiveProofNextActionOwner,
   LiveProofNextAction,
   LiveProofPlatform,
