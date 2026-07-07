@@ -60,6 +60,15 @@ type LiveProofRequestedDiagnosticInventoryEntry = {
   sufficiencyStatus?: string;
 };
 
+type LiveProofRequestedDiagnosticInventoryCount = {
+  availability?: string;
+  count: number;
+  kind: string;
+  required: boolean;
+  status: string;
+  sufficiencyStatus?: string;
+};
+
 type LiveProofNativePerformanceSourceEntry = {
   sourceId: string;
   status: string;
@@ -161,6 +170,22 @@ type LiveProofProfileGateReadinessRollup = {
   skippedInteractionProofCount: number;
 };
 
+type LiveProofNextActionCount = {
+  code: string;
+  count: number;
+  owner?: LiveProofNextActionOwner;
+};
+
+type LiveProofProfileGateProviderEvidenceNextActionsRollup = {
+  nextActionCounts: LiveProofNextActionCount[];
+  skippedInteractionProofCount: number;
+};
+
+type LiveProofProfileGateRequestedDiagnosticsRollup = {
+  requestedDiagnosticCounts: LiveProofRequestedDiagnosticInventoryCount[];
+  skippedInteractionProofCount: number;
+};
+
 type LiveProofInteractionProofCaptures = {
   screenshots: string[];
 };
@@ -215,7 +240,9 @@ type LiveProofArtifact = {
   outputDir: string;
   platform: LiveProofPlatform;
   interactionProofs?: Array<LiveProofInteractionProofPointer & { summaryPath: string }>;
+  profileGateProviderEvidenceNextActions?: LiveProofProfileGateProviderEvidenceNextActionsRollup;
   profileGateReadiness?: LiveProofProfileGateReadinessRollup;
+  profileGateRequestedDiagnostics?: LiveProofProfileGateRequestedDiagnosticsRollup;
   profileNativePerformance?: LiveProofProfileNativePerformanceRollup;
   skippedInteractionProofs?: LiveProofSkippedInteractionProofPointer[];
   preflight: {
@@ -1085,6 +1112,160 @@ function buildProfileGateReadinessRollup(
 }
 
 /**
+ * Adds one next-action owner/code entry into an accumulator.
+ *
+ * @param {Map<string, LiveProofNextActionCount>} counts
+ * @param {{code: string, owner?: LiveProofNextActionOwner}} nextAction
+ * @returns {void}
+ */
+function addLiveProofNextActionCount(
+  counts: Map<string, LiveProofNextActionCount>,
+  nextAction: {code: string; owner?: LiveProofNextActionOwner},
+): void {
+  const key = `${nextAction.owner ?? ''}\u0000${nextAction.code}`;
+  const existing = counts.get(key);
+  if (existing) {
+    existing.count += 1;
+    return;
+  }
+  counts.set(key, {
+    code: nextAction.code,
+    count: 1,
+    ...(nextAction.owner ? { owner: nextAction.owner } : {}),
+  });
+}
+
+/**
+ * Converts next-action counts into stable artifact order.
+ *
+ * @param {Map<string, LiveProofNextActionCount>} counts
+ * @returns {LiveProofNextActionCount[]}
+ */
+function formatLiveProofNextActionCounts(
+  counts: Map<string, LiveProofNextActionCount>,
+): LiveProofNextActionCount[] {
+  return [...counts.values()].sort((left, right) => (
+    (left.owner ?? '').localeCompare(right.owner ?? '') || left.code.localeCompare(right.code)
+  ));
+}
+
+/**
+ * Builds next-action owner/code counts from preserved provider evidence diagnostics.
+ *
+ * @param {LiveProofSkippedInteractionProofPointer[]} skippedProofs
+ * @returns {LiveProofProfileGateProviderEvidenceNextActionsRollup | null}
+ */
+function buildProfileGateProviderEvidenceNextActionsRollup(
+  skippedProofs: LiveProofSkippedInteractionProofPointer[],
+): LiveProofProfileGateProviderEvidenceNextActionsRollup | null {
+  const nextActionCounts = new Map<string, LiveProofNextActionCount>();
+  let skippedInteractionProofCount = 0;
+
+  for (const skippedProof of skippedProofs) {
+    const nextAction = skippedProof.profileGateDiagnostics?.providerEvidenceNextAction;
+    if (!nextAction) {
+      continue;
+    }
+
+    skippedInteractionProofCount += 1;
+    addLiveProofNextActionCount(nextActionCounts, nextAction);
+  }
+
+  if (skippedInteractionProofCount === 0) {
+    return null;
+  }
+
+  return {
+    nextActionCounts: formatLiveProofNextActionCounts(nextActionCounts),
+    skippedInteractionProofCount,
+  };
+}
+
+/**
+ * Adds one requested diagnostic inventory count.
+ *
+ * @param {Map<string, LiveProofRequestedDiagnosticInventoryCount>} counts
+ * @param {LiveProofRequestedDiagnosticInventoryEntry} entry
+ * @returns {void}
+ */
+function addRequestedDiagnosticInventoryCount(
+  counts: Map<string, LiveProofRequestedDiagnosticInventoryCount>,
+  entry: LiveProofRequestedDiagnosticInventoryEntry,
+): void {
+  const key = [
+    entry.kind,
+    entry.status,
+    entry.availability ?? '',
+    entry.sufficiencyStatus ?? '',
+    String(entry.required),
+  ].join('\u0000');
+  const existing = counts.get(key);
+  if (existing) {
+    existing.count += 1;
+    return;
+  }
+
+  counts.set(key, {
+    ...(entry.availability ? { availability: entry.availability } : {}),
+    count: 1,
+    kind: entry.kind,
+    required: entry.required,
+    status: entry.status,
+    ...(entry.sufficiencyStatus ? { sufficiencyStatus: entry.sufficiencyStatus } : {}),
+  });
+}
+
+/**
+ * Converts requested diagnostic inventory counts into stable artifact order.
+ *
+ * @param {Map<string, LiveProofRequestedDiagnosticInventoryCount>} counts
+ * @returns {LiveProofRequestedDiagnosticInventoryCount[]}
+ */
+function formatRequestedDiagnosticInventoryCounts(
+  counts: Map<string, LiveProofRequestedDiagnosticInventoryCount>,
+): LiveProofRequestedDiagnosticInventoryCount[] {
+  return [...counts.values()].sort((left, right) => (
+    `${left.kind}:${left.status}:${left.availability ?? ''}:${left.sufficiencyStatus ?? ''}:${left.required}`
+      .localeCompare(`${right.kind}:${right.status}:${right.availability ?? ''}:${right.sufficiencyStatus ?? ''}:${right.required}`)
+  ));
+}
+
+/**
+ * Builds requested diagnostic inventory counts across skipped proof gates.
+ *
+ * @param {LiveProofSkippedInteractionProofPointer[]} skippedProofs
+ * @returns {LiveProofProfileGateRequestedDiagnosticsRollup | null}
+ */
+function buildProfileGateRequestedDiagnosticsRollup(
+  skippedProofs: LiveProofSkippedInteractionProofPointer[],
+): LiveProofProfileGateRequestedDiagnosticsRollup | null {
+  const requestedDiagnosticCounts = new Map<string, LiveProofRequestedDiagnosticInventoryCount>();
+  let skippedInteractionProofCount = 0;
+
+  for (const skippedProof of skippedProofs) {
+    const requestedDiagnosticInventory = skippedProof.profileGateDiagnostics?.requestedDiagnosticInventory ?? [];
+    if (requestedDiagnosticInventory.length === 0) {
+      continue;
+    }
+
+    skippedInteractionProofCount += 1;
+    for (const entry of requestedDiagnosticInventory) {
+      addRequestedDiagnosticInventoryCount(requestedDiagnosticCounts, entry);
+    }
+  }
+
+  const counts = formatRequestedDiagnosticInventoryCounts(requestedDiagnosticCounts);
+  if (counts.length === 0) {
+    return null;
+  }
+
+  return {
+    requestedDiagnosticCounts: counts,
+    skippedInteractionProofCount,
+  };
+}
+
+/**
  * Parses comma-separated `kind:status` metadata into structured entries.
  *
  * @param {unknown} value
@@ -1920,6 +2101,75 @@ function formatProfileGateReadinessRollup(
 }
 
 /**
+ * Formats requested diagnostic inventory count entries for aggregate markdown.
+ *
+ * @param {LiveProofRequestedDiagnosticInventoryCount[]} counts
+ * @returns {string}
+ */
+function formatRequestedDiagnosticInventoryCountEntries(
+  counts: LiveProofRequestedDiagnosticInventoryCount[],
+): string {
+  return counts.map((entry) => {
+    const status = entry.availability ?? entry.sufficiencyStatus ?? entry.status;
+    return `${entry.kind}:${status}(${entry.required ? 'required' : 'optional'})=${entry.count}`;
+  }).join(', ');
+}
+
+/**
+ * Formats provider next-action count entries for aggregate markdown.
+ *
+ * @param {LiveProofNextActionCount[]} counts
+ * @returns {string}
+ */
+function formatLiveProofNextActionCountEntries(
+  counts: LiveProofNextActionCount[],
+): string {
+  return counts.map((entry) => `${entry.owner ?? 'unknown'}/${entry.code}=${entry.count}`).join(', ');
+}
+
+/**
+ * Formats aggregate profile-gate requested diagnostic context for markdown.
+ *
+ * @param {LiveProofProfileGateRequestedDiagnosticsRollup | undefined} rollup
+ * @returns {string[]}
+ */
+function formatProfileGateRequestedDiagnosticsRollup(
+  rollup: LiveProofProfileGateRequestedDiagnosticsRollup | undefined,
+): string[] {
+  if (!rollup) {
+    return [];
+  }
+
+  return [
+    '',
+    '## Profile Gate Requested Diagnostics',
+    '',
+    `- skippedInteractionProofs=${rollup.skippedInteractionProofCount}; requested=${formatRequestedDiagnosticInventoryCountEntries(rollup.requestedDiagnosticCounts)}`,
+  ];
+}
+
+/**
+ * Formats aggregate profile-gate provider evidence next actions for markdown.
+ *
+ * @param {LiveProofProfileGateProviderEvidenceNextActionsRollup | undefined} rollup
+ * @returns {string[]}
+ */
+function formatProfileGateProviderEvidenceNextActionsRollup(
+  rollup: LiveProofProfileGateProviderEvidenceNextActionsRollup | undefined,
+): string[] {
+  if (!rollup) {
+    return [];
+  }
+
+  return [
+    '',
+    '## Provider Evidence Next Actions',
+    '',
+    `- skippedInteractionProofs=${rollup.skippedInteractionProofCount}; actions=${formatLiveProofNextActionCountEntries(rollup.nextActionCounts)}`,
+  ];
+}
+
+/**
  * Formats status count entries for aggregate markdown.
  *
  * @param {LiveProofNativePerformanceCount[]} counts
@@ -2033,6 +2283,8 @@ function buildLiveProofMarkdown(artifact: LiveProofArtifact): string {
     ...artifact.profiles.map((profile) => (
       `- ${profile.label} (${profile.scenarioId}): health=${profile.healthStatus} verdict=${profile.verdictStatus} - ${profile.summaryPath}`
     )),
+    ...formatProfileGateRequestedDiagnosticsRollup(artifact.profileGateRequestedDiagnostics),
+    ...formatProfileGateProviderEvidenceNextActionsRollup(artifact.profileGateProviderEvidenceNextActions),
     ...formatProfileGateReadinessRollup(artifact.profileGateReadiness),
     ...formatProfileNativePerformanceRollup(artifact.profileNativePerformance),
   ];
@@ -2112,7 +2364,11 @@ async function writeLiveProofSummary({
     verdictStatus: String(status.verdictStatus ?? 'unknown'),
   }));
   const profileNativePerformance = buildProfileNativePerformanceRollup(profilePointers);
+  const profileGateProviderEvidenceNextActions =
+    buildProfileGateProviderEvidenceNextActionsRollup(skippedInteractionProofs);
   const profileGateReadiness = buildProfileGateReadinessRollup(skippedInteractionProofs);
+  const profileGateRequestedDiagnostics =
+    buildProfileGateRequestedDiagnosticsRollup(skippedInteractionProofs);
   const interactionProofStatuses = interactionProofs.map((proof) => ({
     proof,
     status: readProfileRunStatus(proof.runDir),
@@ -2155,7 +2411,9 @@ async function writeLiveProofSummary({
     nextAction: buildLiveProofNextAction(comparisonStatus, status, failedOwner),
     outputDir,
     platform,
+    ...(profileGateProviderEvidenceNextActions ? { profileGateProviderEvidenceNextActions } : {}),
     ...(profileGateReadiness ? { profileGateReadiness } : {}),
+    ...(profileGateRequestedDiagnostics ? { profileGateRequestedDiagnostics } : {}),
     ...(interactionProofPointers.length > 0 ? { interactionProofs: interactionProofPointers } : {}),
     ...(profileNativePerformance ? { profileNativePerformance } : {}),
     ...(skippedInteractionProofs.length > 0 ? { skippedInteractionProofs } : {}),

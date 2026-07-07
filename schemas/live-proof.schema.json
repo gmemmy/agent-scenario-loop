@@ -55,8 +55,14 @@
     "profileNativePerformance": {
       "$ref": "#/$defs/profileNativePerformance"
     },
+    "profileGateProviderEvidenceNextActions": {
+      "$ref": "#/$defs/profileGateProviderEvidenceNextActions"
+    },
     "profileGateReadiness": {
       "$ref": "#/$defs/profileGateReadinessRollup"
+    },
+    "profileGateRequestedDiagnostics": {
+      "$ref": "#/$defs/profileGateRequestedDiagnostics"
     },
     "skippedInteractionProofs": {
       "type": "array",
@@ -582,6 +588,90 @@
           "items": {
             "$ref": "#/$defs/profileGateReadinessValueCount"
           }
+        }
+      }
+    },
+    "profileGateProviderEvidenceNextActions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["skippedInteractionProofCount", "nextActionCounts"],
+      "properties": {
+        "skippedInteractionProofCount": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "nextActionCounts": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/liveProofNextActionCount"
+          }
+        }
+      }
+    },
+    "liveProofNextActionCount": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "count"],
+      "properties": {
+        "owner": {
+          "$ref": "#/$defs/nextActionOwner"
+        },
+        "code": {
+          "type": "string",
+          "minLength": 1
+        },
+        "count": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "profileGateRequestedDiagnostics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["skippedInteractionProofCount", "requestedDiagnosticCounts"],
+      "properties": {
+        "skippedInteractionProofCount": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "requestedDiagnosticCounts": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/requestedDiagnosticInventoryCount"
+          }
+        }
+      }
+    },
+    "requestedDiagnosticInventoryCount": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "status", "required", "count"],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "minLength": 1
+        },
+        "status": {
+          "type": "string",
+          "minLength": 1
+        },
+        "availability": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sufficiencyStatus": {
+          "type": "string",
+          "minLength": 1
+        },
+        "required": {
+          "type": "boolean"
+        },
+        "count": {
+          "type": "integer",
+          "minimum": 1
         }
       }
     },
