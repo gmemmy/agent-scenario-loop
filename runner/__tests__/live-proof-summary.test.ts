@@ -176,7 +176,7 @@ test('writes failed aggregate proofs with skipped interaction proof pointers', a
   await fsp.writeFile(path.join(preflightDir, 'agent-summary.md'), '# preflight\n', 'utf8');
   await fsp.writeFile(path.join(preflightDir, 'health.json'), '{"healthStatus":"passed"}\n', 'utf8');
   await fsp.writeFile(path.join(preflightDir, 'verdict.json'), '{"verdictStatus":"not_evaluated"}\n', 'utf8');
-  await fsp.writeFile(path.join(profileDir, 'agent-summary.md'), '# profile\n', 'utf8');
+  await fsp.writeFile(path.join(profileDir, 'agent-summary.md'), '# profile\n\n## Next Action\n\n- Owner: `runtime_environment`\n', 'utf8');
   await fsp.writeFile(path.join(profileDir, 'health.json'), '{"healthStatus":"passed"}\n', 'utf8');
   await fsp.writeFile(path.join(profileDir, 'verdict.json'), '{"verdictStatus":"failed"}\n', 'utf8');
 
@@ -215,13 +215,14 @@ test('writes failed aggregate proofs with skipped interaction proof pointers', a
   assert.equal(artifact.status, 'failed');
   assert.deepEqual(artifact.nextAction, {
     code: 'inspect_failed_run',
-    owner: 'asl_runner',
+    owner: 'runtime_environment',
     summary: 'One or more live proof gates failed; inspect failed profile or interaction summaries before making optimization claims.',
   });
   assert.equal(artifact.summary, 'ios live proof failed with 1 failed profile run(s) without comparison results; skipped 1 interaction proof(s).');
+  assert.equal('nextActionOwner' in artifact.profiles[0], false);
   assert.equal(artifact.skippedInteractionProofs[0].runnerId, 'argent');
   const summary = fs.readFileSync(result.summaryPath, 'utf8');
-  assert.match(summary, /Next action: asl_runner\/inspect_failed_run/u);
+  assert.match(summary, /Next action: runtime_environment\/inspect_failed_run/u);
   assert.match(summary, /## Skipped Interaction Proofs/u);
 });
 
