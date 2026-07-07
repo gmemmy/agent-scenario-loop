@@ -36,6 +36,7 @@ type LiveProofSkippedInteractionProofPointer = {
     summary: string;
   };
   profileGateDiagnostics?: LiveProofProfileGateDiagnostics;
+  profileGateReadiness?: LiveProofProfileGateReadiness;
   reason: string;
   runId: string;
   runnerId: string;
@@ -63,6 +64,22 @@ type LiveProofProfileGateDiagnostics = {
   blockingDiagnosticSufficiency?: LiveProofDiagnosticSufficiencyEntry[];
   capturedDiagnosticSufficiency?: LiveProofDiagnosticSufficiencyEntry[];
   nativePerformance?: LiveProofNativePerformanceDiagnosticSummary;
+};
+
+type LiveProofProfileGateReadiness = {
+  commandCount?: number;
+  devClientDeepLinkOpened?: boolean;
+  expectedEvidence?: string;
+  failureClass?: string;
+  foregroundAppInfoCaptured?: boolean;
+  foregroundApplicationState?: string;
+  foregroundRawPath?: string;
+  foregroundTargetOwned?: boolean;
+  lastDeepLinkLabel?: string;
+  pendingPhase?: string;
+  profileSessionSeedRawPath?: string;
+  profileSessionSeeded?: boolean;
+  readinessRawPath?: string;
 };
 
 type LiveProofInteractionProofCaptures = {
@@ -274,6 +291,111 @@ function readProfileGateDiagnosticSummary(runDir: string): LiveProofProfileGateD
   } catch {
     return null;
   }
+}
+
+/**
+ * Reads compact iOS readiness context from a failed profile run.
+ *
+ * @param {string} runDir
+ * @returns {LiveProofProfileGateReadiness | null}
+ */
+function readProfileGateReadinessSummary(runDir: string): LiveProofProfileGateReadiness | null {
+  const healthPath = path.join(runDir, 'health.json');
+  if (!fs.existsSync(healthPath)) {
+    return null;
+  }
+
+  try {
+    const health = JSON.parse(fs.readFileSync(healthPath, 'utf8')) as Record<string, unknown>;
+    const checks = Array.isArray(health.checks) ? health.checks : [];
+    const readinessCheck = checks.find((check): check is Record<string, unknown> => (
+      check &&
+      typeof check === 'object' &&
+      !Array.isArray(check) &&
+      check.code === 'ios_profile_session_start_wait_exhausted'
+    ));
+    const metadata = readinessCheck?.metadata &&
+      typeof readinessCheck.metadata === 'object' &&
+      !Array.isArray(readinessCheck.metadata)
+      ? readinessCheck.metadata as Record<string, unknown>
+      : null;
+    if (!metadata) {
+      return null;
+    }
+
+    const summary = {
+      ...readOptionalNumber(metadata, 'commandCount'),
+      ...readOptionalBoolean(metadata, 'devClientDeepLinkOpened'),
+      ...readOptionalString(metadata, 'expectedEvidence'),
+      ...readOptionalString(metadata, 'failureClass'),
+      ...readOptionalBoolean(metadata, 'foregroundAppInfoCaptured'),
+      ...readOptionalString(metadata, 'foregroundApplicationState'),
+      ...readOptionalString(metadata, 'foregroundRawPath'),
+      ...readOptionalBoolean(metadata, 'foregroundTargetOwned'),
+      ...readOptionalString(metadata, 'lastDeepLinkLabel'),
+      ...readOptionalString(metadata, 'pendingPhase'),
+      ...readOptionalString(metadata, 'profileSessionSeedRawPath'),
+      ...readOptionalBoolean(metadata, 'profileSessionSeeded'),
+      ...readOptionalString(metadata, 'readinessRawPath'),
+    };
+    return Object.keys(summary).length > 0 ? summary : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Reads a non-empty string property into an optional one-field object.
+ *
+ * @param {Record<string, unknown>} source
+ * @param {keyof LiveProofProfileGateReadiness} key
+ * @returns {Partial<LiveProofProfileGateReadiness>}
+ */
+function readOptionalString(
+  source: Record<string, unknown>,
+  key: keyof LiveProofProfileGateReadiness,
+): Partial<LiveProofProfileGateReadiness> {
+  const value = source[key];
+  if (typeof value !== 'string' || value.length === 0) {
+    return {};
+  }
+  return { [key]: value };
+}
+
+/**
+ * Reads a boolean property into an optional one-field object.
+ *
+ * @param {Record<string, unknown>} source
+ * @param {keyof LiveProofProfileGateReadiness} key
+ * @returns {Partial<LiveProofProfileGateReadiness>}
+ */
+function readOptionalBoolean(
+  source: Record<string, unknown>,
+  key: keyof LiveProofProfileGateReadiness,
+): Partial<LiveProofProfileGateReadiness> {
+  const value = source[key];
+  if (typeof value !== 'boolean') {
+    return {};
+  }
+  return { [key]: value };
+}
+
+/**
+ * Reads a finite number property into an optional one-field object.
+ *
+ * @param {Record<string, unknown>} source
+ * @param {keyof LiveProofProfileGateReadiness} key
+ * @returns {Partial<LiveProofProfileGateReadiness>}
+ */
+function readOptionalNumber(
+  source: Record<string, unknown>,
+  key: keyof LiveProofProfileGateReadiness,
+): Partial<LiveProofProfileGateReadiness> {
+  const value = source[key];
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return {};
+  }
+  return { [key]: value };
 }
 
 /**
@@ -875,6 +997,61 @@ function formatProfileGateDiagnostics(diagnostics: LiveProofProfileGateDiagnosti
 }
 
 /**
+ * Formats iOS profile-session readiness context for aggregate markdown.
+ *
+ * @param {LiveProofProfileGateReadiness | undefined} readiness
+ * @returns {string}
+ */
+function formatProfileGateReadiness(readiness: LiveProofProfileGateReadiness | undefined): string {
+  if (!readiness) {
+    return '';
+  }
+
+  const parts = [];
+  if (readiness.failureClass) {
+    parts.push(`failure=${readiness.failureClass}`);
+  }
+  if (typeof readiness.commandCount === 'number') {
+    parts.push(`commands=${readiness.commandCount}`);
+  }
+  if (typeof readiness.devClientDeepLinkOpened === 'boolean') {
+    parts.push(`devClientDeepLinkOpened=${readiness.devClientDeepLinkOpened}`);
+  }
+  if (typeof readiness.foregroundAppInfoCaptured === 'boolean') {
+    parts.push(`foregroundAppInfoCaptured=${readiness.foregroundAppInfoCaptured}`);
+  }
+  if (readiness.foregroundApplicationState) {
+    parts.push(`foregroundApplicationState=${readiness.foregroundApplicationState}`);
+  }
+  if (typeof readiness.foregroundTargetOwned === 'boolean') {
+    parts.push(`foregroundTargetOwned=${readiness.foregroundTargetOwned}`);
+  }
+  if (readiness.lastDeepLinkLabel) {
+    parts.push(`lastDeepLink=${readiness.lastDeepLinkLabel}`);
+  }
+  if (typeof readiness.profileSessionSeeded === 'boolean') {
+    parts.push(`profileSessionSeeded=${readiness.profileSessionSeeded}`);
+  }
+  if (readiness.pendingPhase) {
+    parts.push(`phase=${readiness.pendingPhase}`);
+  }
+  if (readiness.expectedEvidence) {
+    parts.push(`expected=${readiness.expectedEvidence}`);
+  }
+  if (readiness.foregroundRawPath) {
+    parts.push(`foregroundRawPath=${readiness.foregroundRawPath}`);
+  }
+  if (readiness.profileSessionSeedRawPath) {
+    parts.push(`profileSessionSeedRawPath=${readiness.profileSessionSeedRawPath}`);
+  }
+  if (readiness.readinessRawPath) {
+    parts.push(`readinessRawPath=${readiness.readinessRawPath}`);
+  }
+
+  return parts.length > 0 ? ` Readiness: ${parts.join(', ')}.` : '';
+}
+
+/**
  * Builds markdown for the aggregate live proof entrypoint.
  *
  * @param {LiveProofArtifact} artifact
@@ -920,7 +1097,7 @@ function buildLiveProofMarkdown(artifact: LiveProofArtifact): string {
       '## Skipped Interaction Proofs',
       '',
       ...artifact.skippedInteractionProofs.map((proof) => (
-        `- ${proof.label} (${proof.runnerId}/${proof.scenarioId}/${proof.runId}): ${proof.reason}${formatProfileGateDiagnostics(proof.profileGateDiagnostics)} Next action: ${formatLiveProofNextAction(proof.nextAction)}`
+        `- ${proof.label} (${proof.runnerId}/${proof.scenarioId}/${proof.runId}): ${proof.reason}${formatProfileGateDiagnostics(proof.profileGateDiagnostics)}${formatProfileGateReadiness(proof.profileGateReadiness)} Next action: ${formatLiveProofNextAction(proof.nextAction)}`
       )),
     );
   }
@@ -1075,10 +1252,12 @@ export {
   formatInteractionProofWarningDetails,
   formatInteractionProofWarnings,
   formatProfileGateDiagnostics,
+  formatProfileGateReadiness,
   isTrustedLiveRunStatus,
   readInteractionProofCaptures,
   readInteractionProofWarnings,
   readProfileGateDiagnosticSummary,
+  readProfileGateReadinessSummary,
   readProfileRunStatus,
   readRunNextActionOwner,
   writeLiveProofSummary,
@@ -1093,6 +1272,7 @@ export type {
   LiveProofInteractionProofCaptures,
   LiveProofInteractionProofPointer,
   LiveProofProfileGateDiagnostics,
+  LiveProofProfileGateReadiness,
   LiveProofNextActionOwner,
   LiveProofNextAction,
   LiveProofPlatform,
