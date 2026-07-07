@@ -61,6 +61,9 @@
     "proofFailureNativePerformance": {
       "$ref": "#/$defs/proofFailureNativePerformance"
     },
+    "proofFailureRequestedDiagnostics": {
+      "$ref": "#/$defs/proofFailureRequestedDiagnostics"
+    },
     "profileGateReadiness": {
       "$ref": "#/$defs/profileGateReadinessRollup"
     },
@@ -320,6 +323,58 @@
         "status": {
           "type": "string",
           "minLength": 1
+        },
+        "count": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "proofFailureRequestedDiagnostics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["failedProofCount", "skippedInteractionProofCount", "requestedDiagnosticCounts"],
+      "properties": {
+        "failedProofCount": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "skippedInteractionProofCount": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "requestedDiagnosticCounts": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/requestedDiagnosticInventoryCount"
+          }
+        }
+      }
+    },
+    "requestedDiagnosticInventoryCount": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "status", "required", "count"],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "minLength": 1
+        },
+        "status": {
+          "type": "string",
+          "minLength": 1
+        },
+        "availability": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sufficiencyStatus": {
+          "type": "string",
+          "minLength": 1
+        },
+        "required": {
+          "type": "boolean"
         },
         "count": {
           "type": "integer",
@@ -817,8 +872,57 @@
             "$ref": "#/$defs/diagnosticSufficiencyEntry"
           }
         },
+        "requestedDiagnosticInventory": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/requestedDiagnosticInventoryEntry"
+          }
+        },
         "nativePerformance": {
           "$ref": "#/$defs/nativePerformanceProfileGateDiagnostics"
+        }
+      }
+    },
+    "requestedDiagnosticInventoryEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "status", "required"],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "minLength": 1
+        },
+        "status": {
+          "type": "string",
+          "minLength": 1
+        },
+        "availability": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sufficiencyStatus": {
+          "type": "string",
+          "minLength": 1
+        },
+        "required": {
+          "type": "boolean"
+        },
+        "provider": {
+          "type": "string",
+          "minLength": 1
+        },
+        "runnerId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        },
+        "nextAction": {
+          "type": "string",
+          "minLength": 1
         }
       }
     },

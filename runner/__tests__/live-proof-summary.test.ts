@@ -180,6 +180,60 @@ test('writes failed aggregate proofs with skipped interaction proof pointers', a
   await fsp.writeFile(path.join(preflightDir, 'verdict.json'), '{"verdictStatus":"not_evaluated"}\n', 'utf8');
   await fsp.writeFile(path.join(profileDir, 'agent-summary.md'), '# profile\n\n## Next Action\n\n- Owner: `runtime_environment`\n', 'utf8');
   await fsp.writeFile(
+    path.join(profileDir, 'manifest.json'),
+    JSON.stringify({
+      artifacts: {
+        diagnostics: [
+          {
+            availability: 'provider-blocked',
+            kind: 'accessibility',
+            nextAction: 'Fix the accessibility provider output.',
+            provider: 'axe',
+            reason: 'Provider command failed before required output.',
+            requested: true,
+            required: true,
+            status: 'failed',
+            sufficiency: {
+              reason: 'Required diagnostic was provider-blocked.',
+              status: 'provider-blocked',
+            },
+          },
+          {
+            availability: 'requested-missing',
+            kind: 'video',
+            requested: true,
+            required: false,
+            runnerId: 'agent-device',
+            status: 'missing',
+            sufficiency: {
+              reason: 'Optional requested capture was not produced.',
+              status: 'requested-missing',
+            },
+          },
+          {
+            availability: 'not-requested',
+            kind: 'network',
+            requested: false,
+            required: false,
+            status: 'not_requested',
+          },
+          {
+            availability: 'captured',
+            kind: 'logs',
+            requested: true,
+            required: false,
+            status: 'captured',
+            sufficiency: {
+              reason: 'Captured optional logs.',
+              status: 'optional-preserved-evidence',
+            },
+          },
+        ],
+      },
+    }),
+    'utf8',
+  );
+  await fsp.writeFile(
     path.join(profileDir, 'health.json'),
     JSON.stringify({
       checks: [
@@ -243,6 +297,26 @@ test('writes failed aggregate proofs with skipped interaction proof pointers', a
       ],
       targetBinding: 'ambiguous',
     },
+    requestedDiagnosticInventory: [
+      {
+        availability: 'provider-blocked',
+        kind: 'accessibility',
+        nextAction: 'Fix the accessibility provider output.',
+        provider: 'axe',
+        reason: 'Provider command failed before required output.',
+        required: true,
+        status: 'failed',
+        sufficiencyStatus: 'provider-blocked',
+      },
+      {
+        availability: 'requested-missing',
+        kind: 'video',
+        required: false,
+        runnerId: 'agent-device',
+        status: 'missing',
+        sufficiencyStatus: 'requested-missing',
+      },
+    ],
   });
   const profileGateReadiness = readProfileGateReadinessSummary(profileDir);
   assert.deepEqual(profileGateReadiness, {
@@ -309,7 +383,7 @@ test('writes failed aggregate proofs with skipped interaction proof pointers', a
   const summary = fs.readFileSync(result.summaryPath, 'utf8');
   assert.match(summary, /Next action: runtime_environment\/inspect_failed_run/u);
   assert.match(summary, /## Skipped Interaction Proofs/u);
-  assert.match(summary, /Diagnostics: captured=nativePerformance:diagnostic-only, profiler:diagnostic-only; blocking=accessibility:provider-blocked, uiTree:provider-blocked; nativePerformance\(claim=insufficient-for-claim, comparability=diagnostic-only, target=ambiguous, sources=xctrace:partial, metrickit:timeout\)\./u);
+  assert.match(summary, /Diagnostics: captured=nativePerformance:diagnostic-only, profiler:diagnostic-only; blocking=accessibility:provider-blocked, uiTree:provider-blocked; requested=accessibility:provider-blocked\(required, provider=axe\), video:requested-missing\(optional, runner=agent-device\); nativePerformance\(claim=insufficient-for-claim, comparability=diagnostic-only, target=ambiguous, sources=xctrace:partial, metrickit:timeout\)\./u);
   assert.match(summary, /Readiness: failure=dev_client_bundle_or_command_channel_not_ready, commands=0, devClientDeepLinkOpened=true, foregroundAppInfoCaptured=true, foregroundApplicationState=ForegroundRunning, foregroundTargetOwned=true, lastDeepLink=ios-dev-client-url, profileSessionSeeded=true, phase=waiting_for_profile_session_start, expected=profile-session-start-or-profile-events, foregroundRawPath=raw\/ios-profile-session-start-app-info\.txt, profileSessionSeedRawPath=raw\/ios-profile-session-seed\.json, readinessRawPath=raw\/ios-profile-session-readiness\.json\./u);
 });
 

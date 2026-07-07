@@ -48,6 +48,18 @@ type LiveProofDiagnosticSufficiencyEntry = {
   status: string;
 };
 
+type LiveProofRequestedDiagnosticInventoryEntry = {
+  availability?: string;
+  kind: string;
+  nextAction?: string;
+  provider?: string;
+  reason?: string;
+  required: boolean;
+  runnerId?: string;
+  status: string;
+  sufficiencyStatus?: string;
+};
+
 type LiveProofNativePerformanceSourceEntry = {
   sourceId: string;
   status: string;
@@ -82,6 +94,7 @@ type LiveProofProfileGateDiagnostics = {
   blockingDiagnosticSufficiency?: LiveProofDiagnosticSufficiencyEntry[];
   capturedDiagnosticSufficiency?: LiveProofDiagnosticSufficiencyEntry[];
   nativePerformance?: LiveProofNativePerformanceDiagnosticSummary;
+  requestedDiagnosticInventory?: LiveProofRequestedDiagnosticInventoryEntry[];
 };
 
 type LiveProofProfileGateReadiness = {
@@ -281,6 +294,18 @@ function readProfileNativePerformanceEvidencePaths(runDir: string): string[] {
 }
 
 /**
+ * Returns a string field from an untrusted object record.
+ *
+ * @param {Record<string, unknown>} record
+ * @param {string} key
+ * @returns {string | undefined}
+ */
+function readStringField(record: Record<string, unknown>, key: string): string | undefined {
+  const value = record[key];
+  return typeof value === 'string' && value.length > 0 ? value : undefined;
+}
+
+/**
  * Reads an object value when the input is an object record.
  *
  * @param {unknown} value
@@ -290,6 +315,95 @@ function readObject(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? value as Record<string, unknown>
     : null;
+}
+
+/**
+ * Returns whether a requested diagnostic inventory entry still blocks proof interpretation.
+ *
+ * @param {Record<string, unknown>} diagnostic
+ * @returns {boolean}
+ */
+function isUnresolvedRequestedDiagnostic(diagnostic: Record<string, unknown>): boolean {
+  if (diagnostic.requested !== true) {
+    return false;
+  }
+
+  const availability = readStringField(diagnostic, 'availability');
+  if (availability && availability !== 'captured' && availability !== 'not-requested') {
+    return true;
+  }
+
+  const sufficiency = readObject(diagnostic.sufficiency);
+  const sufficiencyStatus = sufficiency ? readStringField(sufficiency, 'status') : undefined;
+  if (
+    sufficiencyStatus &&
+    sufficiencyStatus !== 'satisfies-required-diagnostic' &&
+    sufficiencyStatus !== 'optional-preserved-evidence' &&
+    sufficiencyStatus !== 'not-requested'
+  ) {
+    return true;
+  }
+
+  const status = readStringField(diagnostic, 'status');
+  return Boolean(status && status !== 'captured' && status !== 'not_requested');
+}
+
+/**
+ * Reads unresolved requested diagnostic inventory from a profile manifest.
+ *
+ * @param {string} runDir
+ * @returns {LiveProofRequestedDiagnosticInventoryEntry[]}
+ */
+function readRequestedDiagnosticInventory(runDir: string): LiveProofRequestedDiagnosticInventoryEntry[] {
+  const manifestPath = path.join(runDir, 'manifest.json');
+  if (!fs.existsSync(manifestPath)) {
+    return [];
+  }
+
+  try {
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8')) as Record<string, unknown>;
+    const artifacts = readObject(manifest.artifacts);
+    const diagnostics = Array.isArray(artifacts?.diagnostics) ? artifacts.diagnostics : [];
+    return diagnostics
+      .filter((diagnostic): diagnostic is Record<string, unknown> => (
+        diagnostic &&
+        typeof diagnostic === 'object' &&
+        !Array.isArray(diagnostic) &&
+        isUnresolvedRequestedDiagnostic(diagnostic)
+      ))
+      .flatMap((diagnostic) => {
+        const kind = readStringField(diagnostic, 'kind');
+        const status = readStringField(diagnostic, 'status');
+        if (!kind || !status || typeof diagnostic.required !== 'boolean') {
+          return [];
+        }
+
+        const sufficiency = readObject(diagnostic.sufficiency);
+        const availability = readStringField(diagnostic, 'availability');
+        const nextAction = readStringField(diagnostic, 'nextAction');
+        const provider = readStringField(diagnostic, 'provider');
+        const reason = readStringField(diagnostic, 'reason');
+        const runnerId = readStringField(diagnostic, 'runnerId');
+        const sufficiencyStatus = sufficiency ? readStringField(sufficiency, 'status') : undefined;
+        return [{
+          ...(availability ? { availability } : {}),
+          kind,
+          ...(nextAction ? { nextAction } : {}),
+          ...(provider ? { provider } : {}),
+          ...(reason ? { reason } : {}),
+          required: diagnostic.required,
+          ...(runnerId ? { runnerId } : {}),
+          status,
+          ...(sufficiencyStatus ? { sufficiencyStatus } : {}),
+        }];
+      })
+      .sort((left, right) => (
+        `${left.kind}:${left.status}:${left.availability ?? ''}:${left.sufficiencyStatus ?? ''}:${left.required}`
+          .localeCompare(`${right.kind}:${right.status}:${right.availability ?? ''}:${right.sufficiencyStatus ?? ''}:${right.required}`)
+      ));
+  } catch {
+    return [];
+  }
 }
 
 /**
@@ -476,10 +590,12 @@ function readRunNextActionOwner(runDir: string): LiveProofNextActionOwner | null
 function readProfileGateDiagnosticSummary(runDir: string): LiveProofProfileGateDiagnostics | null {
   const healthPath = path.join(runDir, 'health.json');
   if (!fs.existsSync(healthPath)) {
-    return null;
+    const requestedDiagnosticInventory = readRequestedDiagnosticInventory(runDir);
+    return requestedDiagnosticInventory.length > 0 ? { requestedDiagnosticInventory } : null;
   }
 
   try {
+    const requestedDiagnosticInventory = readRequestedDiagnosticInventory(runDir);
     const health = JSON.parse(fs.readFileSync(healthPath, 'utf8')) as Record<string, unknown>;
     const checks = Array.isArray(health.checks) ? health.checks : [];
     const partialEvidenceCheck = checks.find((check): check is Record<string, unknown> => (
@@ -494,7 +610,7 @@ function readProfileGateDiagnosticSummary(runDir: string): LiveProofProfileGateD
       ? partialEvidenceCheck.metadata as Record<string, unknown>
       : null;
     if (!metadata) {
-      return null;
+      return requestedDiagnosticInventory.length > 0 ? { requestedDiagnosticInventory } : null;
     }
 
     const capturedDiagnosticSufficiency = parseDiagnosticSufficiencyList(metadata.capturedDiagnosticSufficiency);
@@ -504,10 +620,12 @@ function readProfileGateDiagnosticSummary(runDir: string): LiveProofProfileGateD
       ...(capturedDiagnosticSufficiency.length > 0 ? { capturedDiagnosticSufficiency } : {}),
       ...(blockingDiagnosticSufficiency.length > 0 ? { blockingDiagnosticSufficiency } : {}),
       ...(nativePerformance ? { nativePerformance } : {}),
+      ...(requestedDiagnosticInventory.length > 0 ? { requestedDiagnosticInventory } : {}),
     };
     return Object.keys(summary).length > 0 ? summary : null;
   } catch {
-    return null;
+    const requestedDiagnosticInventory = readRequestedDiagnosticInventory(runDir);
+    return requestedDiagnosticInventory.length > 0 ? { requestedDiagnosticInventory } : null;
   }
 }
 
@@ -1169,6 +1287,24 @@ function formatDiagnosticSufficiencyEntries(entries: LiveProofDiagnosticSufficie
 }
 
 /**
+ * Formats requested diagnostic inventory entries for aggregate markdown.
+ *
+ * @param {LiveProofRequestedDiagnosticInventoryEntry[]} entries
+ * @returns {string}
+ */
+function formatRequestedDiagnosticInventoryEntries(entries: LiveProofRequestedDiagnosticInventoryEntry[]): string {
+  return entries.map((entry) => {
+    const status = entry.availability ?? entry.sufficiencyStatus ?? entry.status;
+    const details = [
+      entry.required ? 'required' : 'optional',
+      entry.provider ? `provider=${entry.provider}` : '',
+      entry.runnerId ? `runner=${entry.runnerId}` : '',
+    ].filter((detail) => detail.length > 0);
+    return `${entry.kind}:${status}${details.length > 0 ? `(${details.join(', ')})` : ''}`;
+  }).join(', ');
+}
+
+/**
  * Formats native-performance source entries for aggregate markdown.
  *
  * @param {LiveProofNativePerformanceSourceEntry[]} entries
@@ -1195,6 +1331,9 @@ function formatProfileGateDiagnostics(diagnostics: LiveProofProfileGateDiagnosti
   }
   if (diagnostics.blockingDiagnosticSufficiency?.length) {
     parts.push(`blocking=${formatDiagnosticSufficiencyEntries(diagnostics.blockingDiagnosticSufficiency)}`);
+  }
+  if (diagnostics.requestedDiagnosticInventory?.length) {
+    parts.push(`requested=${formatRequestedDiagnosticInventoryEntries(diagnostics.requestedDiagnosticInventory)}`);
   }
   const nativePerformance = diagnostics.nativePerformance;
   if (nativePerformance) {
