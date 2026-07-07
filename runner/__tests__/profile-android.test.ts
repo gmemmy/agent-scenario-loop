@@ -323,6 +323,7 @@ test('profile-android writes artifacts from fixture event logs', async (t: TestC
     path: 'raw/android-app-startup.log',
     provider: 'fixture-log-ingest',
     reason: 'Device or fixture log evidence was available to the profile runner.',
+    requested: false,
     required: false,
     status: 'captured',
     sufficiency: {
@@ -332,10 +333,12 @@ test('profile-android writes artifacts from fixture event logs', async (t: TestC
   });
   assert.equal(diagnostics.find((entry) => entry.kind === 'video')?.status, 'not_requested');
   assert.equal(diagnostics.find((entry) => entry.kind === 'video')?.availability, 'not-requested');
+  assert.equal(diagnostics.find((entry) => entry.kind === 'video')?.requested, false);
   assert.equal(diagnostics.find((entry) => entry.kind === 'video')?.required, false);
   assert.equal('path' in (diagnostics.find((entry) => entry.kind === 'video') ?? {}), false);
   assert.equal(diagnostics.find((entry) => entry.kind === 'uiTree')?.status, 'not_requested');
   assert.equal(diagnostics.find((entry) => entry.kind === 'uiTree')?.availability, 'not-requested');
+  assert.equal(diagnostics.find((entry) => entry.kind === 'uiTree')?.requested, false);
   assert.equal('path' in (diagnostics.find((entry) => entry.kind === 'uiTree') ?? {}), false);
   assert.match(profileSummary, /## Attempt/u);
   assert.match(profileSummary, /## Diagnostic inventory/u);
@@ -375,6 +378,7 @@ test('profile-android treats optional diagnostic capabilities as requested inven
 
   assert.equal(videoDiagnostic.status, 'unavailable');
   assert.equal(videoDiagnostic.availability, 'requested-missing');
+  assert.equal(videoDiagnostic.requested, true);
   assert.equal(videoDiagnostic.required, false);
   assert.equal('path' in videoDiagnostic, false);
   assert.match(videoDiagnostic.nextAction, /capture provider/u);
@@ -534,6 +538,7 @@ test('profile-android classifies preserved native provider evidence as diagnosti
   assert.equal(commandRecord.exitCode, 7);
   assert.equal(nativePerformanceDiagnostic?.status, 'captured');
   assert.equal(nativePerformanceDiagnostic?.availability, 'captured-diagnostic-only');
+  assert.equal(nativePerformanceDiagnostic?.requested, true);
   assert.equal(nativePerformanceDiagnostic?.required, true);
   assert.equal(profilerDiagnostic?.status, 'captured');
   assert.equal(profilerDiagnostic?.availability, 'captured-diagnostic-only');
@@ -2097,7 +2102,7 @@ test('profile-android keeps diagnostic-only native performance from satisfying r
   assert.equal(verdict.verdictStatus, 'inconclusive');
   assert.match(
     profileSummary,
-    /nativePerformance: captured \(captured-diagnostic-only\) \(required\)/u,
+    /nativePerformance: captured \(captured-diagnostic-only\) \(requested\) \(required\)/u,
   );
   assert.ok(
     (health.checks as Array<{ code: string; metadata?: { availability?: string; kind?: string } }>).some(
@@ -2597,6 +2602,7 @@ test('profile-android preserves captured provider evidence when another required
   assert.equal(nativePerformanceDiagnostic?.sufficiency?.status, 'diagnostic-only');
   assert.equal(memoryDiagnostic?.status, 'captured');
   assert.equal(memoryDiagnostic?.availability, 'captured');
+  assert.equal(memoryDiagnostic?.requested, true);
   assert.equal(memoryDiagnostic?.provider, 'satisfied-diagnostics-provider');
   assert.equal(memoryDiagnostic?.path, 'signals/memory/memory.json');
   assert.equal(memoryDiagnostic?.sufficiency?.status, 'optional-preserved-evidence');
@@ -2607,6 +2613,7 @@ test('profile-android preserves captured provider evidence when another required
   assert.equal(accessibilityDiagnostic?.sufficiency?.status, 'satisfies-required-diagnostic');
   assert.equal(uiTreeDiagnostic?.status, 'failed');
   assert.equal(uiTreeDiagnostic?.availability, 'provider-blocked');
+  assert.equal(uiTreeDiagnostic?.requested, true);
   assert.equal(uiTreeDiagnostic?.required, true);
   assert.equal(uiTreeDiagnostic?.provider, 'partial-native-provider');
   assert.equal(uiTreeDiagnostic?.sufficiency?.status, 'provider-blocked');

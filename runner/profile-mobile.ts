@@ -118,6 +118,7 @@ type DiagnosticInventoryEntry = {
   sufficiency?: DiagnosticSufficiency;
   kind: DiagnosticKind;
   status: DiagnosticStatus;
+  requested: boolean;
   required: boolean;
   name?: string;
   provider?: string;
@@ -1795,7 +1796,10 @@ function resolveDiagnosticRequest({
  * @returns {DiagnosticInventoryEntry}
  */
 function buildDiagnosticEntry(
-  entry: DiagnosticInventoryEntry & { diagnosticOnly?: boolean; requested?: boolean },
+  entry: Omit<DiagnosticInventoryEntry, 'requested'> & {
+    diagnosticOnly?: boolean;
+    requested?: boolean;
+  },
 ): DiagnosticInventoryEntry {
   const { diagnosticOnly = false, requested = true, ...diagnostic } = entry;
   const availability = resolveDiagnosticAvailability({
@@ -1815,6 +1819,7 @@ function buildDiagnosticEntry(
     return {
       ...diagnostic,
       availability,
+      requested,
       sufficiency,
     };
   }
@@ -1822,6 +1827,7 @@ function buildDiagnosticEntry(
   return {
     ...diagnostic,
     availability,
+    requested,
     sufficiency,
     status: 'not_requested',
     reason: diagnostic.reason ?? 'Scenario did not request this optional diagnostic surface.',
@@ -2211,7 +2217,7 @@ function buildDiagnosticInventory({
   const entries: DiagnosticInventoryEntry[] = [];
   const pushDiagnostic = (
     kind: DiagnosticKind,
-    entry: Omit<DiagnosticInventoryEntry, 'kind' | 'required'> & {
+    entry: Omit<DiagnosticInventoryEntry, 'kind' | 'requested' | 'required'> & {
       diagnosticOnly?: boolean;
       required?: boolean;
       requested?: boolean;
