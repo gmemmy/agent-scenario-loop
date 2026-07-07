@@ -56,6 +56,15 @@ test('agent-device session mode parser accepts explicit target-selection modes',
 test('agent-device availability check verifies command surface and booted platforms', async () => {
   const result = await checkAgentDeviceAvailability({
     executor: async (command: string, args: string[]): Promise<CommandResult> => {
+      if (args.join(' ') === 'capabilities --json') {
+        return {
+          args,
+          command,
+          exitCode: 1,
+          stderr: 'unknown command "capabilities"',
+          stdout: '',
+        };
+      }
       if (args.join(' ') === 'devices --json') {
         return {
           args,
@@ -125,6 +134,7 @@ test('agent-device availability check verifies command surface and booted platfo
   });
 
   assert.equal(result.status, 'passed');
+  assert.equal(result.capabilityProbe.source, 'help-output-fallback');
   assert.deepEqual(result.requiredPlatforms, ['ios', 'android']);
   assert.equal(result.devices.length, 2);
   assert.equal(result.sessions.length, 2);
@@ -135,6 +145,152 @@ test('agent-device availability check verifies command surface and booted platfo
   );
   assert.equal(result.checks.find((check: {name: string}) => check.name === 'agent_device_booted_ios')?.status, 'passed');
   assert.equal(result.checks.find((check: {name: string}) => check.name === 'agent_device_booted_android')?.status, 'passed');
+});
+
+test('agent-device availability check uses capabilities inventory when available', async () => {
+  const result = await checkAgentDeviceAvailability({
+    executor: async (command: string, args: string[]): Promise<CommandResult> => {
+      if (args.join(' ') === 'capabilities --platform android --json') {
+        return {
+          args,
+          command,
+          exitCode: 0,
+          stderr: '',
+          stdout: JSON.stringify({
+            device: { id: 'emulator-5554', platform: 'android', target: 'mobile' },
+            availableCommands: [
+              'open',
+              'snapshot',
+              'screenshot',
+              'is',
+              'back',
+              'click',
+              'fill',
+              'focus',
+              'home',
+              'app-switcher',
+              'keyboard',
+              'longpress',
+              'press',
+              'rotate',
+              'scroll',
+              'swipe',
+              'type',
+              'logs',
+            ],
+          }),
+        };
+      }
+      if (args.join(' ') === 'devices --json') {
+        return {
+          args,
+          command,
+          exitCode: 0,
+          stderr: '',
+          stdout: JSON.stringify({
+            success: true,
+            data: {
+              devices: [{ platform: 'android', id: 'emulator-5554', target: 'mobile', booted: true }],
+            },
+          }),
+        };
+      }
+      if (args.join(' ') === 'session list --json') {
+        return {
+          args,
+          command,
+          exitCode: 0,
+          stderr: '',
+          stdout: JSON.stringify({
+            success: true,
+            data: {
+              sessions: [{ name: 'android-example', platform: 'android', target: 'mobile', device: 'emulator-5554' }],
+            },
+          }),
+        };
+      }
+      return {
+        args,
+        command,
+        exitCode: 0,
+        stderr: '',
+        stdout: [
+          'CLI to control iOS and Android devices',
+          'devices',
+          'session list',
+        ].join('\n'),
+      };
+    },
+    requiredPlatforms: ['android'],
+  });
+
+  assert.equal(result.status, 'passed');
+  assert.equal(result.capabilityProbe.source, 'capabilities-command');
+  assert.deepEqual(result.capabilityProbe.availableCommands.slice(0, 2), ['open', 'snapshot']);
+  assert.equal(
+    result.checks.find((check: {name: string}) => check.name === 'agent_device_command_snapshot')?.metadata?.capabilitySource,
+    'capabilities-command',
+  );
+  assert.equal(
+    result.checks.find((check: {name: string}) => check.name === 'agent_device_command_devices')?.metadata?.capabilitySource,
+    undefined,
+  );
+});
+
+test('agent-device availability check fails unsupported commands from capabilities inventory', async () => {
+  const result = await checkAgentDeviceAvailability({
+    executor: async (command: string, args: string[]): Promise<CommandResult> => {
+      if (args.join(' ') === 'capabilities --platform android --json') {
+        return {
+          args,
+          command,
+          exitCode: 0,
+          stderr: '',
+          stdout: JSON.stringify({
+            device: { id: 'emulator-5554', platform: 'android', target: 'mobile' },
+            availableCommands: ['open'],
+          }),
+        };
+      }
+      if (args.join(' ') === 'devices --json') {
+        return {
+          args,
+          command,
+          exitCode: 0,
+          stderr: '',
+          stdout: JSON.stringify({
+            success: true,
+            data: {
+              devices: [{ platform: 'android', id: 'emulator-5554', target: 'mobile', booted: true }],
+            },
+          }),
+        };
+      }
+      if (args.join(' ') === 'session list --json') {
+        return {
+          args,
+          command,
+          exitCode: 0,
+          stderr: '',
+          stdout: JSON.stringify({ success: true, data: { sessions: [] } }),
+        };
+      }
+      return {
+        args,
+        command,
+        exitCode: 0,
+        stderr: '',
+        stdout: 'CLI to control iOS and Android devices\ndevices\nsession list\n',
+      };
+    },
+    requiredCommands: ['open', 'snapshot'],
+    requiredPlatforms: ['android'],
+  });
+
+  const snapshotCheck = result.checks.find((check: {name: string}) => check.name === 'agent_device_command_snapshot');
+  assert.equal(result.status, 'failed');
+  assert.equal(snapshotCheck?.status, 'failed');
+  assert.equal(snapshotCheck?.metadata?.nextActionCode, 'select_agent_device_capability');
 });
 
 test('agent-device availability check does not require iOS-only pinch for Android-only checks', async () => {
