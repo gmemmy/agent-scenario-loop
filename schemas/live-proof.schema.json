@@ -435,6 +435,10 @@
           "type": "string",
           "minLength": 1
         },
+        "completenessStatus": {
+          "type": "string",
+          "minLength": 1
+        },
         "comparability": {
           "type": "string",
           "minLength": 1

@@ -932,6 +932,7 @@ test('builds proof-set skipped interaction proof context from linked proofs', as
         ],
         nativePerformance: {
           claimSufficiency: 'insufficient-for-claim',
+          completenessStatus: 'partial',
           comparability: 'diagnostic-only',
           diagnosticSources: [
             {
@@ -983,6 +984,7 @@ test('builds proof-set skipped interaction proof context from linked proofs', as
         ],
         nativePerformance: {
           claimSufficiency: 'insufficient-for-claim',
+          completenessStatus: 'truncated',
           comparability: 'diagnostic-only',
           diagnosticSources: [
             {
@@ -1134,6 +1136,16 @@ test('builds proof-set skipped interaction proof context from linked proofs', as
         status: 'insufficient-for-claim',
       },
     ],
+    completenessStatusCounts: [
+      {
+        count: 1,
+        status: 'partial',
+      },
+      {
+        count: 1,
+        status: 'truncated',
+      },
+    ],
     comparabilityCounts: [
       {
         count: 2,
@@ -1169,6 +1181,16 @@ test('builds proof-set skipped interaction proof context from linked proofs', as
       {
         count: 2,
         status: 'insufficient-for-claim',
+      },
+    ],
+    completenessStatusCounts: [
+      {
+        count: 1,
+        status: 'partial',
+      },
+      {
+        count: 1,
+        status: 'truncated',
       },
     ],
     comparabilityCounts: [
@@ -1385,16 +1407,16 @@ test('builds proof-set skipped interaction proof context from linked proofs', as
   });
   assert.match(markdown, /Skipped interaction proofs: 2/u);
   assert.match(markdown, /skipped ios\/startup-ui \(agent-device\/app-startup\/ios-startup-agent-device\) from ios-live-proof: Profile health failed before sidecar proof\./u);
-  assert.match(markdown, /Diagnostics: captured=nativePerformance:diagnostic-only; blocking=accessibility:provider-blocked; nativePerformance\(claim=insufficient-for-claim, comparability=diagnostic-only, target=ambiguous, sources=xctrace:partial\)\./u);
+  assert.match(markdown, /Diagnostics: captured=nativePerformance:diagnostic-only; blocking=accessibility:provider-blocked; nativePerformance\(claim=insufficient-for-claim, completeness=truncated, comparability=diagnostic-only, target=ambiguous, sources=xctrace:partial\)\./u);
   assert.match(markdown, /Readiness: failure=dev_client_bundle_or_command_channel_not_ready, commands=1, devClientDeepLinkOpened=true, foregroundAppInfoCaptured=true, foregroundApplicationState=foreground, foregroundTargetOwned=false, lastDeepLink=startup, profileSessionSeeded=true, phase=session-start, expected=profile_session_started, foregroundRawPath=raw\/ios-foreground-app\.json, profileSessionSeedRawPath=raw\/profile-session-seed\.json, readinessRawPath=raw\/ios-profile-session-readiness\.json\./u);
   assert.match(markdown, /Next action: runtime_environment\/restart_ios_dev_client - Restart the iOS dev client and rerun profile proof\./u);
   assert.match(markdown, /Skipped interaction proof next actions: skippedInteractionProofs=2; actions=provider_tooling\/fix_provider_outputs=1, runtime_environment\/restart_ios_dev_client=1/u);
   assert.match(markdown, /Proof failure diagnostics: failedProofs=2; skippedInteractionProofs=2; captured=nativePerformance:diagnostic-only=2; blocking=accessibility:provider-blocked=1, profiler:provider-blocked=1/u);
   assert.match(markdown, /Proof failure requested diagnostics: failedProofs=2; skippedInteractionProofs=2; requested=accessibility:provider-blocked\(required\)=1, profiler:provider-blocked\(required\)=1, video:requested-missing\(optional\)=1/u);
-  assert.match(markdown, /Proof failure native performance: failedProofs=2; skippedInteractionProofs=2; sources=gfxinfo:partial=1, xctrace:partial=1; claim=insufficient-for-claim=2; comparability=diagnostic-only=2; target=ambiguous=1, verified=1/u);
+  assert.match(markdown, /Proof failure native performance: failedProofs=2; skippedInteractionProofs=2; sources=gfxinfo:partial=1, xctrace:partial=1; completeness=partial=1, truncated=1; claim=insufficient-for-claim=2; comparability=diagnostic-only=2; target=ambiguous=1, verified=1/u);
   assert.match(markdown, /Proof failure readiness: failedProofs=1; skippedInteractionProofs=1; readinessProofs=1; commands=1; failure=dev_client_bundle_or_command_channel_not_ready=1; devClientDeepLinkOpened=true=1; foregroundAppInfoCaptured=true=1; foregroundApplicationState=foreground=1; foregroundTargetOwned=false=1; profileSessionSeeded=true=1; phase=session-start=1; detail=dev-client-deep-link-opened=1, profile-session-command-present=1, profile-session-storage-seeded=1, target-foreground-not-owned=1; expected=profile_session_started=1/u);
   assert.match(markdown, /Profile gate diagnostics: skippedInteractionProofs=2; captured=nativePerformance:diagnostic-only=2; blocking=accessibility:provider-blocked=1, profiler:provider-blocked=1/u);
-  assert.match(markdown, /Profile gate native performance: skippedInteractionProofs=2; sources=gfxinfo:partial=1, xctrace:partial=1; claim=insufficient-for-claim=2; comparability=diagnostic-only=2; target=ambiguous=1, verified=1/u);
+  assert.match(markdown, /Profile gate native performance: skippedInteractionProofs=2; sources=gfxinfo:partial=1, xctrace:partial=1; completeness=partial=1, truncated=1; claim=insufficient-for-claim=2; comparability=diagnostic-only=2; target=ambiguous=1, verified=1/u);
   assert.match(markdown, /Profile gate readiness: skippedInteractionProofs=2; readinessProofs=1; commands=1; failure=dev_client_bundle_or_command_channel_not_ready=1; devClientDeepLinkOpened=true=1; foregroundAppInfoCaptured=true=1; foregroundApplicationState=foreground=1; foregroundTargetOwned=false=1; profileSessionSeeded=true=1; phase=session-start=1; detail=dev-client-deep-link-opened=1, profile-session-command-present=1, profile-session-storage-seeded=1, target-foreground-not-owned=1; expected=profile_session_started=1/u);
 });
 

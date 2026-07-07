@@ -304,6 +304,7 @@ test('indexes preserved provider diagnostics separately from product claims', ()
             blockingDiagnosticSufficiency: 'accessibility:provider-blocked,uiTree:provider-blocked',
             failedRequiredKinds: 'accessibility,uiTree',
             nativePerformanceClaimSufficiency: 'insufficient-for-claim',
+            nativePerformanceCompletenessStatus: 'partial',
             nativePerformanceComparability: 'captured-not-comparable',
             nativePerformanceDiagnosticSources: 'xctrace:partial,metrickit:timeout',
             nativePerformanceTargetBinding: 'ambiguous',
@@ -395,6 +396,7 @@ test('indexes preserved provider diagnostics separately from product claims', ()
   assert.match(summary, /Captured sufficiency: `nativePerformance:diagnostic-only`, `profiler:diagnostic-only`/u);
   assert.match(summary, /Blocking sufficiency: `accessibility:provider-blocked`, `uiTree:provider-blocked`/u);
   assert.match(summary, /Native performance claim: `insufficient-for-claim`/u);
+  assert.match(summary, /Native performance completeness: `partial`/u);
   assert.match(summary, /Native performance comparability: `captured-not-comparable`/u);
   assert.match(summary, /Native performance target binding: `ambiguous`/u);
   assert.match(summary, /Native performance sources: `xctrace:partial`, `metrickit:timeout`/u);

@@ -244,6 +244,7 @@ test('writes failed aggregate proofs with skipped interaction proof pointers', a
             blockingDiagnosticSufficiency: 'accessibility:provider-blocked,uiTree:provider-blocked',
             capturedDiagnosticSufficiency: 'nativePerformance:diagnostic-only,profiler:diagnostic-only',
             nativePerformanceClaimSufficiency: 'insufficient-for-claim',
+            nativePerformanceCompletenessStatus: 'partial',
             nativePerformanceComparability: 'diagnostic-only',
             nativePerformanceDiagnosticSources: 'xctrace:partial,metrickit:timeout',
             nativePerformanceTargetBinding: 'ambiguous',
@@ -290,6 +291,7 @@ test('writes failed aggregate proofs with skipped interaction proof pointers', a
     ],
     nativePerformance: {
       claimSufficiency: 'insufficient-for-claim',
+      completenessStatus: 'partial',
       comparability: 'diagnostic-only',
       diagnosticSources: [
         { sourceId: 'xctrace', status: 'partial' },
@@ -383,7 +385,7 @@ test('writes failed aggregate proofs with skipped interaction proof pointers', a
   const summary = fs.readFileSync(result.summaryPath, 'utf8');
   assert.match(summary, /Next action: runtime_environment\/inspect_failed_run/u);
   assert.match(summary, /## Skipped Interaction Proofs/u);
-  assert.match(summary, /Diagnostics: captured=nativePerformance:diagnostic-only, profiler:diagnostic-only; blocking=accessibility:provider-blocked, uiTree:provider-blocked; requested=accessibility:provider-blocked\(required, provider=axe\), video:requested-missing\(optional, runner=agent-device\); nativePerformance\(claim=insufficient-for-claim, comparability=diagnostic-only, target=ambiguous, sources=xctrace:partial, metrickit:timeout\)\./u);
+  assert.match(summary, /Diagnostics: captured=nativePerformance:diagnostic-only, profiler:diagnostic-only; blocking=accessibility:provider-blocked, uiTree:provider-blocked; requested=accessibility:provider-blocked\(required, provider=axe\), video:requested-missing\(optional, runner=agent-device\); nativePerformance\(claim=insufficient-for-claim, completeness=partial, comparability=diagnostic-only, target=ambiguous, sources=xctrace:partial, metrickit:timeout\)\./u);
   assert.match(summary, /Readiness: failure=dev_client_bundle_or_command_channel_not_ready, commands=0, devClientDeepLinkOpened=true, foregroundAppInfoCaptured=true, foregroundApplicationState=ForegroundRunning, foregroundTargetOwned=true, lastDeepLink=ios-dev-client-url, profileSessionSeeded=true, phase=waiting_for_profile_session_start, expected=profile-session-start-or-profile-events, foregroundRawPath=raw\/ios-profile-session-start-app-info\.txt, profileSessionSeedRawPath=raw\/ios-profile-session-seed\.json, readinessRawPath=raw\/ios-profile-session-readiness\.json\./u);
 });
 

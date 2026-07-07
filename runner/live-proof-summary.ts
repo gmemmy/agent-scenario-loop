@@ -67,6 +67,7 @@ type LiveProofNativePerformanceSourceEntry = {
 
 type LiveProofNativePerformanceDiagnosticSummary = {
   claimSufficiency?: string;
+  completenessStatus?: string;
   comparability?: string;
   diagnosticSources?: LiveProofNativePerformanceSourceEntry[];
   targetBinding?: string;
@@ -791,6 +792,9 @@ function buildNativePerformanceDiagnosticSummary(
     ...(typeof metadata.nativePerformanceClaimSufficiency === 'string'
       ? { claimSufficiency: metadata.nativePerformanceClaimSufficiency }
       : {}),
+    ...(typeof metadata.nativePerformanceCompletenessStatus === 'string'
+      ? { completenessStatus: metadata.nativePerformanceCompletenessStatus }
+      : {}),
     ...(typeof metadata.nativePerformanceComparability === 'string'
       ? { comparability: metadata.nativePerformanceComparability }
       : {}),
@@ -1344,6 +1348,7 @@ function formatProfileGateDiagnostics(diagnostics: LiveProofProfileGateDiagnosti
   if (nativePerformance) {
     const nativeParts = [
       nativePerformance.claimSufficiency ? `claim=${nativePerformance.claimSufficiency}` : '',
+      nativePerformance.completenessStatus ? `completeness=${nativePerformance.completenessStatus}` : '',
       nativePerformance.comparability ? `comparability=${nativePerformance.comparability}` : '',
       nativePerformance.targetBinding ? `target=${nativePerformance.targetBinding}` : '',
       nativePerformance.diagnosticSources?.length

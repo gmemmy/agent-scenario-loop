@@ -366,6 +366,7 @@ test('profile-ios preserves captured provider evidence when another required out
       capturedDiagnosticSufficiency?: string;
       claimSufficiency?: string;
       nativePerformanceClaimSufficiency?: string;
+      nativePerformanceCompletenessStatus?: string;
       nativePerformanceComparability?: string;
       nativePerformanceDiagnosticSources?: string;
       nativePerformanceTargetBinding?: string;
@@ -382,6 +383,7 @@ test('profile-ios preserves captured provider evidence when another required out
         check.metadata?.failedRequiredKinds?.split(',').includes('accessibility') &&
         check.metadata?.claimSufficiency === 'insufficient-for-claim' &&
         check.metadata?.nativePerformanceClaimSufficiency === 'insufficient-for-claim' &&
+        check.metadata?.nativePerformanceCompletenessStatus === 'partial' &&
         check.metadata?.nativePerformanceComparability === 'diagnostic-only' &&
         check.metadata?.nativePerformanceDiagnosticSources?.split(',').includes('xctrace:partial') &&
         check.metadata?.nativePerformanceDiagnosticSources?.split(',').includes('metrickit:timeout') &&

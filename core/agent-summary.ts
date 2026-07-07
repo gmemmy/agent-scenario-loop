@@ -242,6 +242,11 @@ function formatPreservedDiagnosticEvidence(checks: unknown[]): string[] {
       if (nativePerformanceClaimSufficiency) {
         nativePerformanceClaimSufficiencyText = ` Native performance claim: ${nativePerformanceClaimSufficiency}.`;
       }
+      const nativePerformanceCompletenessStatus = formatDiagnosticSufficiencyPairs(metadataRecord.nativePerformanceCompletenessStatus);
+      let nativePerformanceCompletenessStatusText = '';
+      if (nativePerformanceCompletenessStatus) {
+        nativePerformanceCompletenessStatusText = ` Native performance completeness: ${nativePerformanceCompletenessStatus}.`;
+      }
       const nativePerformanceComparability = formatDiagnosticSufficiencyPairs(metadataRecord.nativePerformanceComparability);
       let nativePerformanceComparabilityText = '';
       if (nativePerformanceComparability) {
@@ -265,7 +270,7 @@ function formatPreservedDiagnosticEvidence(checks: unknown[]): string[] {
         nextActionText = ` ${nextAction}`;
       }
 
-      return `- Captured ${kindText} at ${pathText}.${failedRequiredText}${claimSufficiencyText}${capturedSufficiencyText}${blockingSufficiencyText}${nativePerformanceClaimSufficiencyText}${nativePerformanceComparabilityText}${nativePerformanceTargetBindingText}${nativePerformanceDiagnosticSourcesText} ${message}${nextActionText}`;
+      return `- Captured ${kindText} at ${pathText}.${failedRequiredText}${claimSufficiencyText}${capturedSufficiencyText}${blockingSufficiencyText}${nativePerformanceClaimSufficiencyText}${nativePerformanceCompletenessStatusText}${nativePerformanceComparabilityText}${nativePerformanceTargetBindingText}${nativePerformanceDiagnosticSourcesText} ${message}${nextActionText}`;
     });
 }
 
