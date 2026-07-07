@@ -526,6 +526,9 @@
         "readinessRawPath": {
           "type": "string",
           "minLength": 1
+        },
+        "readinessNextAction": {
+          "$ref": "#/$defs/skippedInteractionProofNextAction"
         }
       }
     },

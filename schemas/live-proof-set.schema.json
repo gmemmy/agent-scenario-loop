@@ -73,6 +73,9 @@
     "profileGateReadiness": {
       "$ref": "#/$defs/profileGateReadinessRollup"
     },
+    "profileGateReadinessNextActions": {
+      "$ref": "#/$defs/profileGateReadinessNextActions"
+    },
     "profileNativePerformance": {
       "$ref": "#/$defs/profileNativePerformance"
     },
@@ -84,6 +87,9 @@
     },
     "proofFailureReadiness": {
       "$ref": "#/$defs/proofFailureReadiness"
+    },
+    "proofFailureReadinessNextActions": {
+      "$ref": "#/$defs/proofFailureReadinessNextActions"
     },
     "missingPlatforms": {
       "$ref": "#/$defs/platformList"
@@ -894,6 +900,46 @@
         }
       }
     },
+    "profileGateReadinessNextActions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["skippedInteractionProofCount", "nextActionCounts"],
+      "properties": {
+        "skippedInteractionProofCount": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "nextActionCounts": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/skippedInteractionProofNextActionCount"
+          }
+        }
+      }
+    },
+    "proofFailureReadinessNextActions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["failedProofCount", "skippedInteractionProofCount", "nextActionCounts"],
+      "properties": {
+        "failedProofCount": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "skippedInteractionProofCount": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "nextActionCounts": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/proofFailureNextActionCount"
+          }
+        }
+      }
+    },
     "interactionWarningNextActions": {
       "type": "object",
       "additionalProperties": false,
@@ -1122,6 +1168,9 @@
         "readinessRawPath": {
           "type": "string",
           "minLength": 1
+        },
+        "readinessNextAction": {
+          "$ref": "#/$defs/nextAction"
         }
       }
     },

@@ -445,6 +445,7 @@ test('classifies missing iOS profile-session start after storage seed and dev-cl
 
   assert.equal(result.health.healthStatus, 'failed');
   assert.equal(startWaitCheck?.metadata?.nextActionCode, 'fix_ios_dev_client_bundle_or_command_channel');
+  assert.equal(startWaitCheck?.metadata?.nextActionOwner, 'runtime_environment');
   assert.equal(startWaitCheck?.metadata?.commandCount, 1);
   assert.equal(startWaitCheck?.metadata?.devClientDeepLinkOpened, true);
   assert.equal(startWaitCheck?.metadata?.expectedEvidence, 'profile-session-start-or-profile-events');
