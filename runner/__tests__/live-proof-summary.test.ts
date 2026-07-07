@@ -272,6 +272,9 @@ test('writes failed aggregate proofs with skipped interaction proof pointers', a
             profileSessionSeedRawPath: 'raw/ios-profile-session-seed.json',
             profileSessionSeeded: true,
             readinessRawPath: 'raw/ios-profile-session-readiness.json',
+            nextAction: 'Confirm the iOS development client loaded the intended app bundle.',
+            nextActionCode: 'fix_ios_dev_client_bundle_or_command_channel',
+            nextActionOwner: 'runtime_environment',
           },
           name: 'ios_profile_session_start_wait',
           status: 'failed',
@@ -343,6 +346,11 @@ test('writes failed aggregate proofs with skipped interaction proof pointers', a
     profileSessionSeedRawPath: 'raw/ios-profile-session-seed.json',
     profileSessionSeeded: true,
     readinessRawPath: 'raw/ios-profile-session-readiness.json',
+    readinessNextAction: {
+      code: 'fix_ios_dev_client_bundle_or_command_channel',
+      owner: 'runtime_environment',
+      summary: 'Confirm the iOS development client loaded the intended app bundle.',
+    },
   });
 
   const result = await writeLiveProofSummary({
@@ -394,7 +402,7 @@ test('writes failed aggregate proofs with skipped interaction proof pointers', a
   assert.match(summary, /Next action: runtime_environment\/inspect_failed_run/u);
   assert.match(summary, /## Skipped Interaction Proofs/u);
   assert.match(summary, /Diagnostics: captured=nativePerformance:diagnostic-only, profiler:diagnostic-only; blocking=accessibility:provider-blocked, uiTree:provider-blocked; requested=accessibility:provider-blocked\(required, provider=axe\), video:requested-missing\(optional, runner=agent-device\); providerNextAction=provider_tooling\/use_partial_provider_evidence_for_diagnosis - Use preserved diagnostics for investigation only\.; nativePerformance\(claim=insufficient-for-claim, completeness=partial, comparability=diagnostic-only, target=ambiguous, sources=xctrace:partial, metrickit:timeout\)\./u);
-  assert.match(summary, /Readiness: failure=dev_client_bundle_or_command_channel_not_ready, commands=0, devClientDeepLinkOpened=true, foregroundAppInfoCaptured=true, foregroundApplicationState=ForegroundRunning, foregroundTargetOwned=true, lastDeepLink=ios-dev-client-url, profileSessionSeeded=true, phase=waiting_for_profile_session_start, expected=profile-session-start-or-profile-events, foregroundRawPath=raw\/ios-profile-session-start-app-info\.txt, profileSessionSeedRawPath=raw\/ios-profile-session-seed\.json, readinessRawPath=raw\/ios-profile-session-readiness\.json\./u);
+  assert.match(summary, /Readiness: failure=dev_client_bundle_or_command_channel_not_ready, commands=0, devClientDeepLinkOpened=true, foregroundAppInfoCaptured=true, foregroundApplicationState=ForegroundRunning, foregroundTargetOwned=true, lastDeepLink=ios-dev-client-url, profileSessionSeeded=true, phase=waiting_for_profile_session_start, expected=profile-session-start-or-profile-events, readinessNextAction=runtime_environment\/fix_ios_dev_client_bundle_or_command_channel - Confirm the iOS development client loaded the intended app bundle\., foregroundRawPath=raw\/ios-profile-session-start-app-info\.txt, profileSessionSeedRawPath=raw\/ios-profile-session-seed\.json, readinessRawPath=raw\/ios-profile-session-readiness\.json\./u);
 });
 
 test('writes optional interaction proof pointers into aggregate live proof artifacts', async (t: TestContext) => {

@@ -120,6 +120,7 @@ type LiveProofProfileGateReadiness = {
   profileSessionSeedRawPath?: string;
   profileSessionSeeded?: boolean;
   readinessRawPath?: string;
+  readinessNextAction?: LiveProofProfileGateNextAction;
 };
 
 type LiveProofInteractionProofCaptures = {
@@ -674,6 +675,7 @@ function readProfileGateReadinessSummary(runDir: string): LiveProofProfileGateRe
       return null;
     }
 
+    const readinessNextAction = buildMetadataNextAction(metadata, 'runtime_environment');
     const summary = {
       ...readOptionalNumber(metadata, 'commandCount'),
       ...readOptionalBoolean(metadata, 'devClientDeepLinkOpened'),
@@ -688,6 +690,7 @@ function readProfileGateReadinessSummary(runDir: string): LiveProofProfileGateRe
       ...readOptionalString(metadata, 'profileSessionSeedRawPath'),
       ...readOptionalBoolean(metadata, 'profileSessionSeeded'),
       ...readOptionalString(metadata, 'readinessRawPath'),
+      ...(readinessNextAction ? { readinessNextAction } : {}),
     };
     return Object.keys(summary).length > 0 ? summary : null;
   } catch {
@@ -788,13 +791,15 @@ function parseNativePerformanceSources(value: unknown): LiveProofNativePerforman
 }
 
 /**
- * Builds the provider evidence next-action hint from partial-provider health metadata.
+ * Builds a next-action hint from scalar health metadata.
  *
  * @param {Record<string, unknown>} metadata
+ * @param {LiveProofNextActionOwner} defaultOwner
  * @returns {LiveProofProfileGateNextAction | null}
  */
-function buildProviderEvidenceNextAction(
+function buildMetadataNextAction(
   metadata: Record<string, unknown>,
+  defaultOwner: LiveProofNextActionOwner,
 ): LiveProofProfileGateNextAction | null {
   if (
     typeof metadata.nextActionCode !== 'string' ||
@@ -807,12 +812,24 @@ function buildProviderEvidenceNextAction(
 
   const owner = isLiveProofNextActionOwner(metadata.nextActionOwner)
     ? metadata.nextActionOwner
-    : 'provider_tooling';
+    : defaultOwner;
   return {
     code: metadata.nextActionCode,
     owner,
     summary: metadata.nextAction,
   };
+}
+
+/**
+ * Builds the provider evidence next-action hint from partial-provider health metadata.
+ *
+ * @param {Record<string, unknown>} metadata
+ * @returns {LiveProofProfileGateNextAction | null}
+ */
+function buildProviderEvidenceNextAction(
+  metadata: Record<string, unknown>,
+): LiveProofProfileGateNextAction | null {
+  return buildMetadataNextAction(metadata, 'provider_tooling');
 }
 
 /**
@@ -1444,6 +1461,9 @@ function formatProfileGateReadiness(readiness: LiveProofProfileGateReadiness | u
   }
   if (readiness.expectedEvidence) {
     parts.push(`expected=${readiness.expectedEvidence}`);
+  }
+  if (readiness.readinessNextAction) {
+    parts.push(`readinessNextAction=${formatLiveProofNextAction(readiness.readinessNextAction)}`);
   }
   if (readiness.foregroundRawPath) {
     parts.push(`foregroundRawPath=${readiness.foregroundRawPath}`);

@@ -1172,6 +1172,7 @@ function buildProfileSessionStartWaitCheck({
       'fix_ios_dev_client_bundle_or_command_channel',
       'Confirm the iOS development client loaded the intended app bundle and that the app can start the scenario command channel before rerunning.',
     ),
+    nextActionOwner: 'runtime_environment',
   };
   if (readiness) {
     Object.assign(metadata, {
