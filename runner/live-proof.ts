@@ -169,6 +169,7 @@ type LiveProofProfileGateDiagnostics = {
   capturedDiagnosticSufficiency?: LiveProofDiagnosticSufficiencyEntry[];
   nativePerformance?: {
     claimSufficiency?: string;
+    completenessStatus?: string;
     comparability?: string;
     diagnosticSources?: LiveProofNativePerformanceSourceEntry[];
     targetBinding?: string;
@@ -247,6 +248,7 @@ type LiveProofSetProofFailureRequestedDiagnosticsRollup = {
 };
 type LiveProofSetProfileGateNativePerformanceRollup = {
   claimSufficiencyCounts?: LiveProofNativePerformanceCount[];
+  completenessStatusCounts?: LiveProofNativePerformanceCount[];
   comparabilityCounts?: LiveProofNativePerformanceCount[];
   diagnosticSourceCounts?: LiveProofNativePerformanceSourceCount[];
   skippedInteractionProofCount: number;
@@ -1519,6 +1521,7 @@ function buildLiveProofSetProfileGateNativePerformanceRollup(
   skippedProofs: LiveProofSetSkippedInteractionProofPointer[],
 ): LiveProofSetProfileGateNativePerformanceRollup | null {
   const claimSufficiencyCounts = new Map<string, number>();
+  const completenessStatusCounts = new Map<string, number>();
   const comparabilityCounts = new Map<string, number>();
   const diagnosticSourceCounts = new Map<string, number>();
   const targetBindingCounts = new Map<string, number>();
@@ -1532,6 +1535,12 @@ function buildLiveProofSetProfileGateNativePerformanceRollup(
       claimSufficiencyCounts.set(
         nativePerformance.claimSufficiency,
         (claimSufficiencyCounts.get(nativePerformance.claimSufficiency) ?? 0) + 1,
+      );
+    }
+    if (nativePerformance.completenessStatus) {
+      completenessStatusCounts.set(
+        nativePerformance.completenessStatus,
+        (completenessStatusCounts.get(nativePerformance.completenessStatus) ?? 0) + 1,
       );
     }
     if (nativePerformance.comparability) {
@@ -1554,11 +1563,13 @@ function buildLiveProofSetProfileGateNativePerformanceRollup(
   }
 
   const claimCounts = formatNativePerformanceStatusCounts(claimSufficiencyCounts);
+  const completenessCounts = formatNativePerformanceStatusCounts(completenessStatusCounts);
   const comparableCounts = formatNativePerformanceStatusCounts(comparabilityCounts);
   const sourceCounts = formatNativePerformanceSourceCounts(diagnosticSourceCounts);
   const targetCounts = formatNativePerformanceStatusCounts(targetBindingCounts);
   if (
     claimCounts.length === 0 &&
+    completenessCounts.length === 0 &&
     comparableCounts.length === 0 &&
     sourceCounts.length === 0 &&
     targetCounts.length === 0
@@ -1568,6 +1579,7 @@ function buildLiveProofSetProfileGateNativePerformanceRollup(
 
   return {
     ...(claimCounts.length > 0 ? { claimSufficiencyCounts: claimCounts } : {}),
+    ...(completenessCounts.length > 0 ? { completenessStatusCounts: completenessCounts } : {}),
     ...(comparableCounts.length > 0 ? { comparabilityCounts: comparableCounts } : {}),
     ...(sourceCounts.length > 0 ? { diagnosticSourceCounts: sourceCounts } : {}),
     skippedInteractionProofCount: skippedProofs.length,
@@ -1591,6 +1603,7 @@ function hasNativePerformanceProfileGateContext(
 
   return Boolean(
     nativePerformance.claimSufficiency ||
+    nativePerformance.completenessStatus ||
     nativePerformance.comparability ||
     nativePerformance.targetBinding ||
     (nativePerformance.diagnosticSources?.length ?? 0) > 0,
@@ -2369,6 +2382,9 @@ function formatLiveProofSetProfileGateNativePerformanceRollup(
   if (rollup.diagnosticSourceCounts?.length) {
     details.push(`sources=${formatLiveProofSetNativePerformanceSourceCounts(rollup.diagnosticSourceCounts)}`);
   }
+  if (rollup.completenessStatusCounts?.length) {
+    details.push(`completeness=${formatLiveProofSetNativePerformanceStatusCounts(rollup.completenessStatusCounts)}`);
+  }
   if (rollup.claimSufficiencyCounts?.length) {
     details.push(`claim=${formatLiveProofSetNativePerformanceStatusCounts(rollup.claimSufficiencyCounts)}`);
   }
@@ -2403,6 +2419,9 @@ function formatLiveProofSetProofFailureNativePerformanceRollup(
   ];
   if (rollup.diagnosticSourceCounts?.length) {
     details.push(`sources=${formatLiveProofSetNativePerformanceSourceCounts(rollup.diagnosticSourceCounts)}`);
+  }
+  if (rollup.completenessStatusCounts?.length) {
+    details.push(`completeness=${formatLiveProofSetNativePerformanceStatusCounts(rollup.completenessStatusCounts)}`);
   }
   if (rollup.claimSufficiencyCounts?.length) {
     details.push(`claim=${formatLiveProofSetNativePerformanceStatusCounts(rollup.claimSufficiencyCounts)}`);
@@ -2670,6 +2689,7 @@ function formatLiveProofSetProfileGateDiagnostics(
   if (nativePerformance) {
     const nativeParts = [
       nativePerformance.claimSufficiency ? `claim=${nativePerformance.claimSufficiency}` : '',
+      nativePerformance.completenessStatus ? `completeness=${nativePerformance.completenessStatus}` : '',
       nativePerformance.comparability ? `comparability=${nativePerformance.comparability}` : '',
       nativePerformance.targetBinding ? `target=${nativePerformance.targetBinding}` : '',
       nativePerformance.diagnosticSources?.length

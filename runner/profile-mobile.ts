@@ -2435,6 +2435,7 @@ function formatDiagnosticSufficiencyStatusList(diagnostics: DiagnosticInventoryE
 
 type NativePerformanceEvidenceSummary = {
   claimSufficiency: string[];
+  completenessStatus: string[];
   comparability: string[];
   diagnosticSources: string[];
   targetBinding: string[];
@@ -2463,6 +2464,7 @@ function summarizeNativePerformanceEvidence(
   failedProviderIds: Set<string>,
 ): NativePerformanceEvidenceSummary {
   const claimSufficiency: string[] = [];
+  const completenessStatus: string[] = [];
   const comparability: string[] = [];
   const diagnosticSources: string[] = [];
   const targetBinding: string[] = [];
@@ -2482,6 +2484,7 @@ function summarizeNativePerformanceEvidence(
     }
 
     claimSufficiency.push(readTrimmedString(readRecordValue(evidence.claimSufficiency)?.status) ?? '');
+    completenessStatus.push(readTrimmedString(evidence.completenessStatus) ?? '');
     comparability.push(readTrimmedString(readRecordValue(evidence.comparability)?.status) ?? '');
     targetBinding.push(readTrimmedString(readRecordValue(evidence.targetBinding)?.status) ?? '');
     diagnosticSources.push(...formatNativePerformanceSourceStatuses(evidence));
@@ -2489,6 +2492,7 @@ function summarizeNativePerformanceEvidence(
 
   return {
     claimSufficiency: uniqueStrings(claimSufficiency),
+    completenessStatus: uniqueStrings(completenessStatus),
     comparability: uniqueStrings(comparability),
     diagnosticSources: uniqueStrings(diagnosticSources),
     targetBinding: uniqueStrings(targetBinding),
@@ -2551,6 +2555,7 @@ function buildPartialProviderEvidenceHealthChecks(
         ...(failedRequiredKinds.length > 0 ? { blockingRequiredKinds: failedRequiredKinds.join(',') } : {}),
         ...(failedRequiredKinds.length > 0 ? { failedRequiredKinds: failedRequiredKinds.join(',') } : {}),
         ...(nativePerformanceSummary.claimSufficiency.length > 0 ? { nativePerformanceClaimSufficiency: nativePerformanceSummary.claimSufficiency.join(',') } : {}),
+        ...(nativePerformanceSummary.completenessStatus.length > 0 ? { nativePerformanceCompletenessStatus: nativePerformanceSummary.completenessStatus.join(',') } : {}),
         ...(nativePerformanceSummary.comparability.length > 0 ? { nativePerformanceComparability: nativePerformanceSummary.comparability.join(',') } : {}),
         ...(nativePerformanceSummary.diagnosticSources.length > 0 ? { nativePerformanceDiagnosticSources: nativePerformanceSummary.diagnosticSources.join(',') } : {}),
         ...(nativePerformanceSummary.targetBinding.length > 0 ? { nativePerformanceTargetBinding: nativePerformanceSummary.targetBinding.join(',') } : {}),
