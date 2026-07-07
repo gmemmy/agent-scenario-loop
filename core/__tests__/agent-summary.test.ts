@@ -286,6 +286,8 @@ test('indexes preserved provider diagnostics separately from product claims', ()
           metadata: {
             capturedKinds: 'nativePerformance,profiler',
             capturedPaths: 'raw/providers/native/native-performance.json,raw/providers/native/profiler.json',
+            capturedDiagnosticSufficiency: 'nativePerformance:diagnostic-only,profiler:diagnostic-only',
+            blockingDiagnosticSufficiency: 'accessibility:provider-blocked,uiTree:provider-blocked',
             failedRequiredKinds: 'accessibility,uiTree',
             nextAction: 'Use preserved diagnostics for investigation only; rerun before making product claims.',
             nextActionCode: 'use_partial_provider_evidence_for_diagnosis',
@@ -372,6 +374,8 @@ test('indexes preserved provider diagnostics separately from product claims', ()
   assert.match(summary, /## preserved diagnostic evidence/u);
   assert.match(summary, /Captured `nativePerformance`, `profiler`/u);
   assert.match(summary, /Missing required `accessibility`, `uiTree`/u);
+  assert.match(summary, /Captured sufficiency: `nativePerformance:diagnostic-only`, `profiler:diagnostic-only`/u);
+  assert.match(summary, /Blocking sufficiency: `accessibility:provider-blocked`, `uiTree:provider-blocked`/u);
   assert.match(summary, /`raw\/providers\/native\/native-performance\.json`/u);
   assert.match(summary, /Next action `use_partial_provider_evidence_for_diagnosis`/u);
   assert.match(summary, /## diagnostic sufficiency/u);
