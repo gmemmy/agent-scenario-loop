@@ -67,6 +67,9 @@
     "proofFailureNextActions": {
       "$ref": "#/$defs/proofFailureNextActions"
     },
+    "proofFailureReadiness": {
+      "$ref": "#/$defs/proofFailureReadiness"
+    },
     "missingPlatforms": {
       "$ref": "#/$defs/platformList"
     },
@@ -333,6 +336,85 @@
       "additionalProperties": false,
       "required": ["skippedInteractionProofCount", "readinessProofCount"],
       "properties": {
+        "skippedInteractionProofCount": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "readinessProofCount": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "commandCountTotal": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "devClientDeepLinkOpenedCounts": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/profileGateReadinessBooleanCount"
+          }
+        },
+        "expectedEvidenceCounts": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/profileGateReadinessValueCount"
+          }
+        },
+        "failureClassCounts": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/profileGateReadinessValueCount"
+          }
+        },
+        "foregroundAppInfoCapturedCounts": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/profileGateReadinessBooleanCount"
+          }
+        },
+        "foregroundApplicationStateCounts": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/profileGateReadinessValueCount"
+          }
+        },
+        "foregroundTargetOwnedCounts": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/profileGateReadinessBooleanCount"
+          }
+        },
+        "pendingPhaseCounts": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/profileGateReadinessValueCount"
+          }
+        },
+        "profileSessionSeededCounts": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/profileGateReadinessBooleanCount"
+          }
+        }
+      }
+    },
+    "proofFailureReadiness": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["failedProofCount", "skippedInteractionProofCount", "readinessProofCount"],
+      "properties": {
+        "failedProofCount": {
+          "type": "integer",
+          "minimum": 1
+        },
         "skippedInteractionProofCount": {
           "type": "integer",
           "minimum": 1

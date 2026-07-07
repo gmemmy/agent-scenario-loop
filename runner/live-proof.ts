@@ -234,6 +234,9 @@ type LiveProofSetProfileGateReadinessRollup = {
   readinessProofCount: number;
   skippedInteractionProofCount: number;
 };
+type LiveProofSetProofFailureReadinessRollup = LiveProofSetProfileGateReadinessRollup & {
+  failedProofCount: number;
+};
 type LiveProofNextActionCount = {
   code: string;
   count: number;
@@ -274,6 +277,7 @@ type LiveProofSetArtifact = {
   interactionWarningNextActions?: LiveProofSetInteractionWarningNextActionsRollup;
   profileNativePerformance?: LiveProofProfileNativePerformanceRollup;
   proofFailureNextActions?: LiveProofSetProofFailureNextActionsRollup;
+  proofFailureReadiness?: LiveProofSetProofFailureReadinessRollup;
   proofCount: number;
   proofs: LiveProofSetProofPointer[];
   requiredPlatforms: LiveProofPlatform[];
@@ -1490,6 +1494,47 @@ function buildLiveProofSetProfileGateReadinessRollup(
 }
 
 /**
+ * Builds profile-session readiness counts across failed linked proof artifacts.
+ *
+ * @param {{proofs: LiveProofArtifact[], skippedProofs: LiveProofSetSkippedInteractionProofPointer[]}} options
+ * @returns {LiveProofSetProofFailureReadinessRollup | null}
+ */
+function buildLiveProofSetProofFailureReadinessRollup({
+  proofs,
+  skippedProofs,
+}: {
+  proofs: LiveProofArtifact[];
+  skippedProofs: LiveProofSetSkippedInteractionProofPointer[];
+}): LiveProofSetProofFailureReadinessRollup | null {
+  const failedProofRunIds = new Set(
+    proofs
+      .filter((proof) => proof.status === 'failed')
+      .map((proof) => proof.runId),
+  );
+  if (failedProofRunIds.size === 0) {
+    return null;
+  }
+
+  const failedProofsWithReadiness = new Set<string>();
+  const readinessSkippedProofs = skippedProofs.filter((skippedProof) => {
+    if (!failedProofRunIds.has(skippedProof.proofRunId) || !skippedProof.profileGateReadiness) {
+      return false;
+    }
+    failedProofsWithReadiness.add(skippedProof.proofRunId);
+    return true;
+  });
+  const rollup = buildLiveProofSetProfileGateReadinessRollup(readinessSkippedProofs);
+  if (!rollup) {
+    return null;
+  }
+
+  return {
+    failedProofCount: failedProofsWithReadiness.size,
+    ...rollup,
+  };
+}
+
+/**
  * Adds one next-action owner/code entry into a proof-set accumulator.
  *
  * @param {Map<string, LiveProofNextActionCount>} counts
@@ -1801,6 +1846,10 @@ function buildLiveProofSetArtifact({
   const profileGateReadiness = buildLiveProofSetProfileGateReadinessRollup(
     skippedInteractionProofs,
   );
+  const proofFailureReadiness = buildLiveProofSetProofFailureReadinessRollup({
+    proofs,
+    skippedProofs: skippedInteractionProofs,
+  });
   const skippedInteractionProofNextActions = buildLiveProofSetSkippedInteractionProofNextActionsRollup(
     skippedInteractionProofs,
   );
@@ -1821,6 +1870,7 @@ function buildLiveProofSetArtifact({
     ...(profileGateReadiness ? { profileGateReadiness } : {}),
     ...(profileNativePerformance ? { profileNativePerformance } : {}),
     ...(proofFailureNextActions ? { proofFailureNextActions } : {}),
+    ...(proofFailureReadiness ? { proofFailureReadiness } : {}),
     proofCount: proofs.length,
     proofs: proofPointers,
     requiredPlatforms,
@@ -2014,6 +2064,57 @@ function formatLiveProofSetProfileGateReadinessRollup(
 
   return [
     `Profile gate readiness: ${details.join('; ')}`,
+  ];
+}
+
+/**
+ * Formats aggregate failed-proof readiness counts for proof-set markdown.
+ *
+ * @param {LiveProofSetProofFailureReadinessRollup | undefined} rollup
+ * @returns {string[]}
+ */
+function formatLiveProofSetProofFailureReadinessRollup(
+  rollup: LiveProofSetProofFailureReadinessRollup | undefined,
+): string[] {
+  if (!rollup) {
+    return [];
+  }
+
+  const details = [
+    `failedProofs=${rollup.failedProofCount}`,
+    `skippedInteractionProofs=${rollup.skippedInteractionProofCount}`,
+    `readinessProofs=${rollup.readinessProofCount}`,
+  ];
+  if (typeof rollup.commandCountTotal === 'number') {
+    details.push(`commands=${rollup.commandCountTotal}`);
+  }
+  if (rollup.failureClassCounts?.length) {
+    details.push(`failure=${formatLiveProofSetReadinessValueCounts(rollup.failureClassCounts)}`);
+  }
+  if (rollup.devClientDeepLinkOpenedCounts?.length) {
+    details.push(`devClientDeepLinkOpened=${formatLiveProofSetReadinessBooleanCounts(rollup.devClientDeepLinkOpenedCounts)}`);
+  }
+  if (rollup.foregroundAppInfoCapturedCounts?.length) {
+    details.push(`foregroundAppInfoCaptured=${formatLiveProofSetReadinessBooleanCounts(rollup.foregroundAppInfoCapturedCounts)}`);
+  }
+  if (rollup.foregroundApplicationStateCounts?.length) {
+    details.push(`foregroundApplicationState=${formatLiveProofSetReadinessValueCounts(rollup.foregroundApplicationStateCounts)}`);
+  }
+  if (rollup.foregroundTargetOwnedCounts?.length) {
+    details.push(`foregroundTargetOwned=${formatLiveProofSetReadinessBooleanCounts(rollup.foregroundTargetOwnedCounts)}`);
+  }
+  if (rollup.profileSessionSeededCounts?.length) {
+    details.push(`profileSessionSeeded=${formatLiveProofSetReadinessBooleanCounts(rollup.profileSessionSeededCounts)}`);
+  }
+  if (rollup.pendingPhaseCounts?.length) {
+    details.push(`phase=${formatLiveProofSetReadinessValueCounts(rollup.pendingPhaseCounts)}`);
+  }
+  if (rollup.expectedEvidenceCounts?.length) {
+    details.push(`expected=${formatLiveProofSetReadinessValueCounts(rollup.expectedEvidenceCounts)}`);
+  }
+
+  return [
+    `Proof failure readiness: ${details.join('; ')}`,
   ];
 }
 
@@ -2310,6 +2411,7 @@ function formatLiveProofSetArtifactMarkdown(artifact: LiveProofSetArtifact): str
     ...formatLiveProofSetMissingPlatformNextActionsRollup(artifact.missingPlatformNextActions),
     ...formatLiveProofSetInteractionWarningNextActionsRollup(artifact.interactionWarningNextActions),
     ...formatLiveProofSetProofFailureNextActionsRollup(artifact.proofFailureNextActions),
+    ...formatLiveProofSetProofFailureReadinessRollup(artifact.proofFailureReadiness),
     ...formatLiveProofSetSkippedInteractionProofs(artifact.skippedInteractionProofs),
     ...formatLiveProofSetSkippedInteractionProofNextActionsRollup(artifact.skippedInteractionProofNextActions),
     ...formatLiveProofSetProfileGateDiagnosticSufficiencyRollup(artifact.profileGateDiagnosticSufficiency),
