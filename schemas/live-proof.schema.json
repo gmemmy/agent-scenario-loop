@@ -243,6 +243,13 @@
             "$ref": "#/$defs/nativePerformanceSourceCount"
           }
         },
+        "completenessStatusCounts": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/nativePerformanceStatusCount"
+          }
+        },
         "claimSufficiencyCounts": {
           "type": "array",
           "minItems": 1,

@@ -83,6 +83,7 @@ type LiveProofNativePerformanceSourceCount = LiveProofNativePerformanceCount & {
 
 type LiveProofProfileNativePerformanceRollup = {
   claimSufficiencyCounts?: LiveProofNativePerformanceCount[];
+  completenessStatusCounts?: LiveProofNativePerformanceCount[];
   comparabilityCounts?: LiveProofNativePerformanceCount[];
   diagnosticSourceCounts?: LiveProofNativePerformanceSourceCount[];
   evidenceCount: number;
@@ -507,6 +508,7 @@ function buildProfileNativePerformanceRollup(
   profiles: LiveProofProfilePointer[],
 ): LiveProofProfileNativePerformanceRollup | null {
   const claimSufficiencyCounts = new Map<string, number>();
+  const completenessStatusCounts = new Map<string, number>();
   const comparabilityCounts = new Map<string, number>();
   const diagnosticSourceCounts = new Map<string, number>();
   const targetBindingCounts = new Map<string, number>();
@@ -524,6 +526,7 @@ function buildProfileNativePerformanceRollup(
       evidenceCount += 1;
       profileEvidenceCount += 1;
       incrementStatusCount(claimSufficiencyCounts, readObject(evidence.claimSufficiency)?.status);
+      incrementStatusCount(completenessStatusCounts, evidence.completenessStatus);
       incrementStatusCount(comparabilityCounts, readObject(evidence.comparability)?.status);
       incrementStatusCount(targetBindingCounts, readObject(evidence.targetBinding)?.status);
       const sources = Array.isArray(evidence.diagnosticSources) ? evidence.diagnosticSources : [];
@@ -548,10 +551,12 @@ function buildProfileNativePerformanceRollup(
 
   const sourceCounts = formatSourceCounts(diagnosticSourceCounts);
   const claimCounts = formatStatusCounts(claimSufficiencyCounts);
+  const completenessCounts = formatStatusCounts(completenessStatusCounts);
   const comparableCounts = formatStatusCounts(comparabilityCounts);
   const targetCounts = formatStatusCounts(targetBindingCounts);
   return {
     ...(claimCounts.length > 0 ? { claimSufficiencyCounts: claimCounts } : {}),
+    ...(completenessCounts.length > 0 ? { completenessStatusCounts: completenessCounts } : {}),
     ...(comparableCounts.length > 0 ? { comparabilityCounts: comparableCounts } : {}),
     ...(sourceCounts.length > 0 ? { diagnosticSourceCounts: sourceCounts } : {}),
     evidenceCount,
@@ -1447,6 +1452,9 @@ function formatProfileNativePerformanceRollup(
   ];
   if (rollup.diagnosticSourceCounts?.length) {
     details.push(`sources=${formatNativePerformanceSourceCounts(rollup.diagnosticSourceCounts)}`);
+  }
+  if (rollup.completenessStatusCounts?.length) {
+    details.push(`completeness=${formatNativePerformanceStatusCounts(rollup.completenessStatusCounts)}`);
   }
   if (rollup.claimSufficiencyCounts?.length) {
     details.push(`claim=${formatNativePerformanceStatusCounts(rollup.claimSufficiencyCounts)}`);
