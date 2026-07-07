@@ -181,6 +181,11 @@ type LiveProofProfileGateProviderEvidenceNextActionsRollup = {
   skippedInteractionProofCount: number;
 };
 
+type LiveProofProfileGateReadinessNextActionsRollup = {
+  nextActionCounts: LiveProofNextActionCount[];
+  skippedInteractionProofCount: number;
+};
+
 type LiveProofProfileGateRequestedDiagnosticsRollup = {
   requestedDiagnosticCounts: LiveProofRequestedDiagnosticInventoryCount[];
   skippedInteractionProofCount: number;
@@ -242,6 +247,7 @@ type LiveProofArtifact = {
   interactionProofs?: Array<LiveProofInteractionProofPointer & { summaryPath: string }>;
   profileGateProviderEvidenceNextActions?: LiveProofProfileGateProviderEvidenceNextActionsRollup;
   profileGateReadiness?: LiveProofProfileGateReadinessRollup;
+  profileGateReadinessNextActions?: LiveProofProfileGateReadinessNextActionsRollup;
   profileGateRequestedDiagnostics?: LiveProofProfileGateRequestedDiagnosticsRollup;
   profileNativePerformance?: LiveProofProfileNativePerformanceRollup;
   skippedInteractionProofs?: LiveProofSkippedInteractionProofPointer[];
@@ -1163,6 +1169,38 @@ function buildProfileGateProviderEvidenceNextActionsRollup(
 
   for (const skippedProof of skippedProofs) {
     const nextAction = skippedProof.profileGateDiagnostics?.providerEvidenceNextAction;
+    if (!nextAction) {
+      continue;
+    }
+
+    skippedInteractionProofCount += 1;
+    addLiveProofNextActionCount(nextActionCounts, nextAction);
+  }
+
+  if (skippedInteractionProofCount === 0) {
+    return null;
+  }
+
+  return {
+    nextActionCounts: formatLiveProofNextActionCounts(nextActionCounts),
+    skippedInteractionProofCount,
+  };
+}
+
+/**
+ * Builds readiness next-action owner/code counts from skipped proof gates.
+ *
+ * @param {LiveProofSkippedInteractionProofPointer[]} skippedProofs
+ * @returns {LiveProofProfileGateReadinessNextActionsRollup | null}
+ */
+function buildProfileGateReadinessNextActionsRollup(
+  skippedProofs: LiveProofSkippedInteractionProofPointer[],
+): LiveProofProfileGateReadinessNextActionsRollup | null {
+  const nextActionCounts = new Map<string, LiveProofNextActionCount>();
+  let skippedInteractionProofCount = 0;
+
+  for (const skippedProof of skippedProofs) {
+    const nextAction = skippedProof.profileGateReadiness?.readinessNextAction;
     if (!nextAction) {
       continue;
     }
@@ -2170,6 +2208,27 @@ function formatProfileGateProviderEvidenceNextActionsRollup(
 }
 
 /**
+ * Formats aggregate profile-gate readiness next actions for markdown.
+ *
+ * @param {LiveProofProfileGateReadinessNextActionsRollup | undefined} rollup
+ * @returns {string[]}
+ */
+function formatProfileGateReadinessNextActionsRollup(
+  rollup: LiveProofProfileGateReadinessNextActionsRollup | undefined,
+): string[] {
+  if (!rollup) {
+    return [];
+  }
+
+  return [
+    '',
+    '## Profile Gate Readiness Next Actions',
+    '',
+    `- skippedInteractionProofs=${rollup.skippedInteractionProofCount}; actions=${formatLiveProofNextActionCountEntries(rollup.nextActionCounts)}`,
+  ];
+}
+
+/**
  * Formats status count entries for aggregate markdown.
  *
  * @param {LiveProofNativePerformanceCount[]} counts
@@ -2286,6 +2345,7 @@ function buildLiveProofMarkdown(artifact: LiveProofArtifact): string {
     ...formatProfileGateRequestedDiagnosticsRollup(artifact.profileGateRequestedDiagnostics),
     ...formatProfileGateProviderEvidenceNextActionsRollup(artifact.profileGateProviderEvidenceNextActions),
     ...formatProfileGateReadinessRollup(artifact.profileGateReadiness),
+    ...formatProfileGateReadinessNextActionsRollup(artifact.profileGateReadinessNextActions),
     ...formatProfileNativePerformanceRollup(artifact.profileNativePerformance),
   ];
 
@@ -2367,6 +2427,8 @@ async function writeLiveProofSummary({
   const profileGateProviderEvidenceNextActions =
     buildProfileGateProviderEvidenceNextActionsRollup(skippedInteractionProofs);
   const profileGateReadiness = buildProfileGateReadinessRollup(skippedInteractionProofs);
+  const profileGateReadinessNextActions =
+    buildProfileGateReadinessNextActionsRollup(skippedInteractionProofs);
   const profileGateRequestedDiagnostics =
     buildProfileGateRequestedDiagnosticsRollup(skippedInteractionProofs);
   const interactionProofStatuses = interactionProofs.map((proof) => ({
@@ -2413,6 +2475,7 @@ async function writeLiveProofSummary({
     platform,
     ...(profileGateProviderEvidenceNextActions ? { profileGateProviderEvidenceNextActions } : {}),
     ...(profileGateReadiness ? { profileGateReadiness } : {}),
+    ...(profileGateReadinessNextActions ? { profileGateReadinessNextActions } : {}),
     ...(profileGateRequestedDiagnostics ? { profileGateRequestedDiagnostics } : {}),
     ...(interactionProofPointers.length > 0 ? { interactionProofs: interactionProofPointers } : {}),
     ...(profileNativePerformance ? { profileNativePerformance } : {}),
