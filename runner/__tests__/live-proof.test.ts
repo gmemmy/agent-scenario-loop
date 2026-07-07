@@ -821,9 +821,21 @@ test('builds a durable live-proof-set artifact for Android and iOS proofs', asyn
       scenarioId: 'app-startup',
     },
   ]);
+  assert.deepEqual(artifact.interactionWarningNextActions, {
+    interactionWarningCount: 2,
+    nextActionCounts: [
+      {
+        code: 'inspect_argent_driver_action',
+        count: 2,
+        owner: 'provider_tooling',
+      },
+    ],
+    proofCount: 2,
+  });
   assert.match(markdown, /Status: passed/u);
   assert.match(markdown, /- android android-live-proof: status=passed comparison=unchanged/u);
   assert.match(markdown, /warning android\/startup-ui \(agent-device\/app-startup\/agent-device-startup\): argent_screenshot argent_screenshot_failed - Argent driver action screenshot failed\. Next action: provider_tooling\/inspect_argent_driver_action - Inspect raw screenshot output\./u);
+  assert.match(markdown, /Interaction warning next actions: proofs=2; warnings=2; actions=provider_tooling\/inspect_argent_driver_action=2/u);
   assert.match(markdown, /- ios ios-live-proof: status=passed comparison=unchanged/u);
   assert.match(markdown, /Native performance: profiles=2; evidence=3; sources=gfxinfo:partial=1, xctrace:captured=2; claim=insufficient-for-claim=1, sufficient-for-comparison=2; comparability=comparable=2, diagnostic-only=1; target=verified=3/u);
 });
