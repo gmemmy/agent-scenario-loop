@@ -265,6 +265,7 @@ type LiveProofSetProfileGateReadinessRollup = {
   foregroundApplicationStateCounts?: LiveProofProfileGateReadinessValueCount[];
   foregroundTargetOwnedCounts?: LiveProofProfileGateReadinessBooleanCount[];
   pendingPhaseCounts?: LiveProofProfileGateReadinessValueCount[];
+  readinessDetailCounts?: LiveProofProfileGateReadinessValueCount[];
   profileSessionSeededCounts?: LiveProofProfileGateReadinessBooleanCount[];
   readinessProofCount: number;
   skippedInteractionProofCount: number;
@@ -1701,6 +1702,31 @@ function formatProfileGateReadinessBooleanCounts(
 }
 
 /**
+ * Derives command-channel readiness detail tags from profile-session readiness facts.
+ *
+ * @param {LiveProofProfileGateReadiness} readiness
+ * @returns {string[]}
+ */
+function deriveProfileGateReadinessDetails(
+  readiness: LiveProofProfileGateReadiness,
+): string[] {
+  const details: string[] = [];
+  if (typeof readiness.commandCount === 'number') {
+    details.push(readiness.commandCount === 0 ? 'no-profile-session-command' : 'profile-session-command-present');
+  }
+  if (typeof readiness.devClientDeepLinkOpened === 'boolean') {
+    details.push(readiness.devClientDeepLinkOpened ? 'dev-client-deep-link-opened' : 'dev-client-deep-link-not-opened');
+  }
+  if (typeof readiness.profileSessionSeeded === 'boolean') {
+    details.push(readiness.profileSessionSeeded ? 'profile-session-storage-seeded' : 'profile-session-storage-not-seeded');
+  }
+  if (typeof readiness.foregroundTargetOwned === 'boolean') {
+    details.push(readiness.foregroundTargetOwned ? 'target-foreground-owned' : 'target-foreground-not-owned');
+  }
+  return details;
+}
+
+/**
  * Builds profile-session readiness counts across skipped proof gates.
  *
  * @param {LiveProofSetSkippedInteractionProofPointer[]} skippedProofs
@@ -1716,6 +1742,7 @@ function buildLiveProofSetProfileGateReadinessRollup(
   const foregroundApplicationStateCounts = new Map<string, number>();
   const foregroundTargetOwnedCounts = new Map<string, number>();
   const pendingPhaseCounts = new Map<string, number>();
+  const readinessDetailCounts = new Map<string, number>();
   const profileSessionSeededCounts = new Map<string, number>();
   let commandCountTotal = 0;
   let commandCountSeen = false;
@@ -1739,6 +1766,9 @@ function buildLiveProofSetProfileGateReadinessRollup(
     addProfileGateReadinessValueCount(foregroundApplicationStateCounts, readiness.foregroundApplicationState);
     addProfileGateReadinessBooleanCount(foregroundTargetOwnedCounts, readiness.foregroundTargetOwned);
     addProfileGateReadinessValueCount(pendingPhaseCounts, readiness.pendingPhase);
+    for (const detail of deriveProfileGateReadinessDetails(readiness)) {
+      addProfileGateReadinessValueCount(readinessDetailCounts, detail);
+    }
     addProfileGateReadinessBooleanCount(profileSessionSeededCounts, readiness.profileSessionSeeded);
   }
 
@@ -1753,6 +1783,7 @@ function buildLiveProofSetProfileGateReadinessRollup(
   const foregroundStateCounts = formatProfileGateReadinessValueCounts(foregroundApplicationStateCounts);
   const foregroundOwnedCounts = formatProfileGateReadinessBooleanCounts(foregroundTargetOwnedCounts);
   const phaseCounts = formatProfileGateReadinessValueCounts(pendingPhaseCounts);
+  const detailCounts = formatProfileGateReadinessValueCounts(readinessDetailCounts);
   const seedCounts = formatProfileGateReadinessBooleanCounts(profileSessionSeededCounts);
 
   return {
@@ -1764,6 +1795,7 @@ function buildLiveProofSetProfileGateReadinessRollup(
     ...(foregroundStateCounts.length > 0 ? { foregroundApplicationStateCounts: foregroundStateCounts } : {}),
     ...(foregroundOwnedCounts.length > 0 ? { foregroundTargetOwnedCounts: foregroundOwnedCounts } : {}),
     ...(phaseCounts.length > 0 ? { pendingPhaseCounts: phaseCounts } : {}),
+    ...(detailCounts.length > 0 ? { readinessDetailCounts: detailCounts } : {}),
     ...(seedCounts.length > 0 ? { profileSessionSeededCounts: seedCounts } : {}),
     readinessProofCount,
     skippedInteractionProofCount: skippedProofs.length,
@@ -2447,6 +2479,9 @@ function formatLiveProofSetProfileGateReadinessRollup(
   if (rollup.pendingPhaseCounts?.length) {
     details.push(`phase=${formatLiveProofSetReadinessValueCounts(rollup.pendingPhaseCounts)}`);
   }
+  if (rollup.readinessDetailCounts?.length) {
+    details.push(`detail=${formatLiveProofSetReadinessValueCounts(rollup.readinessDetailCounts)}`);
+  }
   if (rollup.expectedEvidenceCounts?.length) {
     details.push(`expected=${formatLiveProofSetReadinessValueCounts(rollup.expectedEvidenceCounts)}`);
   }
@@ -2497,6 +2532,9 @@ function formatLiveProofSetProofFailureReadinessRollup(
   }
   if (rollup.pendingPhaseCounts?.length) {
     details.push(`phase=${formatLiveProofSetReadinessValueCounts(rollup.pendingPhaseCounts)}`);
+  }
+  if (rollup.readinessDetailCounts?.length) {
+    details.push(`detail=${formatLiveProofSetReadinessValueCounts(rollup.readinessDetailCounts)}`);
   }
   if (rollup.expectedEvidenceCounts?.length) {
     details.push(`expected=${formatLiveProofSetReadinessValueCounts(rollup.expectedEvidenceCounts)}`);

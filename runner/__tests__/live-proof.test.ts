@@ -1226,6 +1226,24 @@ test('builds proof-set skipped interaction proof context from linked proofs', as
         value: 'session-start',
       },
     ],
+    readinessDetailCounts: [
+      {
+        count: 1,
+        value: 'dev-client-deep-link-opened',
+      },
+      {
+        count: 1,
+        value: 'profile-session-command-present',
+      },
+      {
+        count: 1,
+        value: 'profile-session-storage-seeded',
+      },
+      {
+        count: 1,
+        value: 'target-foreground-not-owned',
+      },
+    ],
     profileSessionSeededCounts: [
       {
         count: 1,
@@ -1283,6 +1301,24 @@ test('builds proof-set skipped interaction proof context from linked proofs', as
         value: 'session-start',
       },
     ],
+    readinessDetailCounts: [
+      {
+        count: 1,
+        value: 'dev-client-deep-link-opened',
+      },
+      {
+        count: 1,
+        value: 'profile-session-command-present',
+      },
+      {
+        count: 1,
+        value: 'profile-session-storage-seeded',
+      },
+      {
+        count: 1,
+        value: 'target-foreground-not-owned',
+      },
+    ],
     profileSessionSeededCounts: [
       {
         count: 1,
@@ -1336,10 +1372,71 @@ test('builds proof-set skipped interaction proof context from linked proofs', as
   assert.match(markdown, /Proof failure diagnostics: failedProofs=2; skippedInteractionProofs=2; captured=nativePerformance:diagnostic-only=2; blocking=accessibility:provider-blocked=1, profiler:provider-blocked=1/u);
   assert.match(markdown, /Proof failure requested diagnostics: failedProofs=2; skippedInteractionProofs=2; requested=accessibility:provider-blocked\(required\)=1, profiler:provider-blocked\(required\)=1, video:requested-missing\(optional\)=1/u);
   assert.match(markdown, /Proof failure native performance: failedProofs=2; skippedInteractionProofs=2; sources=gfxinfo:partial=1, xctrace:partial=1; claim=insufficient-for-claim=2; comparability=diagnostic-only=2; target=ambiguous=1, verified=1/u);
-  assert.match(markdown, /Proof failure readiness: failedProofs=1; skippedInteractionProofs=1; readinessProofs=1; commands=1; failure=dev_client_bundle_or_command_channel_not_ready=1; devClientDeepLinkOpened=true=1; foregroundAppInfoCaptured=true=1; foregroundApplicationState=foreground=1; foregroundTargetOwned=false=1; profileSessionSeeded=true=1; phase=session-start=1; expected=profile_session_started=1/u);
+  assert.match(markdown, /Proof failure readiness: failedProofs=1; skippedInteractionProofs=1; readinessProofs=1; commands=1; failure=dev_client_bundle_or_command_channel_not_ready=1; devClientDeepLinkOpened=true=1; foregroundAppInfoCaptured=true=1; foregroundApplicationState=foreground=1; foregroundTargetOwned=false=1; profileSessionSeeded=true=1; phase=session-start=1; detail=dev-client-deep-link-opened=1, profile-session-command-present=1, profile-session-storage-seeded=1, target-foreground-not-owned=1; expected=profile_session_started=1/u);
   assert.match(markdown, /Profile gate diagnostics: skippedInteractionProofs=2; captured=nativePerformance:diagnostic-only=2; blocking=accessibility:provider-blocked=1, profiler:provider-blocked=1/u);
   assert.match(markdown, /Profile gate native performance: skippedInteractionProofs=2; sources=gfxinfo:partial=1, xctrace:partial=1; claim=insufficient-for-claim=2; comparability=diagnostic-only=2; target=ambiguous=1, verified=1/u);
-  assert.match(markdown, /Profile gate readiness: skippedInteractionProofs=2; readinessProofs=1; commands=1; failure=dev_client_bundle_or_command_channel_not_ready=1; devClientDeepLinkOpened=true=1; foregroundAppInfoCaptured=true=1; foregroundApplicationState=foreground=1; foregroundTargetOwned=false=1; profileSessionSeeded=true=1; phase=session-start=1; expected=profile_session_started=1/u);
+  assert.match(markdown, /Profile gate readiness: skippedInteractionProofs=2; readinessProofs=1; commands=1; failure=dev_client_bundle_or_command_channel_not_ready=1; devClientDeepLinkOpened=true=1; foregroundAppInfoCaptured=true=1; foregroundApplicationState=foreground=1; foregroundTargetOwned=false=1; profileSessionSeeded=true=1; phase=session-start=1; detail=dev-client-deep-link-opened=1, profile-session-command-present=1, profile-session-storage-seeded=1, target-foreground-not-owned=1; expected=profile_session_started=1/u);
+});
+
+test('builds no-command readiness details from failed proof sets', async (t: TestContext) => {
+  const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-live-proof-set-readiness-detail-'));
+  t.after(async () => {
+    await fsp.rm(tempDir, { recursive: true, force: true });
+  });
+
+  const iosProof = buildProof('unchanged', 'failed', 'ios');
+  iosProof.skippedInteractionProofs = [
+    {
+      label: 'startup-ui',
+      nextAction: {
+        code: 'restart_ios_dev_client',
+        owner: 'runtime_environment',
+        summary: 'Restart the iOS dev client and rerun profile proof.',
+      },
+      profileGateReadiness: {
+        commandCount: 0,
+        devClientDeepLinkOpened: true,
+        expectedEvidence: 'profile-session-start-or-profile-events',
+        failureClass: 'dev_client_bundle_or_command_channel_not_ready',
+        foregroundTargetOwned: false,
+        pendingPhase: 'waiting_for_profile_session_start',
+        profileSessionSeeded: true,
+      },
+      reason: 'Profile health failed before sidecar proof.',
+      runId: 'ios-startup-agent-device',
+      runnerId: 'agent-device',
+      scenarioId: 'app-startup',
+    },
+  ];
+  const iosProofPath = writeProof(tempDir, iosProof);
+  const artifact = buildLiveProofSetArtifact({
+    failOnRegression: false,
+    files: [iosProofPath],
+    proofs: [readLiveProof(iosProofPath)],
+    requiredPlatforms: ['ios'],
+    runId: 'ios-readiness-detail',
+  });
+  const markdown = formatLiveProofSetArtifactMarkdown(artifact);
+
+  assert.deepEqual(artifact.proofFailureReadiness?.readinessDetailCounts, [
+    {
+      count: 1,
+      value: 'dev-client-deep-link-opened',
+    },
+    {
+      count: 1,
+      value: 'no-profile-session-command',
+    },
+    {
+      count: 1,
+      value: 'profile-session-storage-seeded',
+    },
+    {
+      count: 1,
+      value: 'target-foreground-not-owned',
+    },
+  ]);
+  assert.match(markdown, /Proof failure readiness: failedProofs=1; skippedInteractionProofs=1; readinessProofs=1; commands=0; failure=dev_client_bundle_or_command_channel_not_ready=1; devClientDeepLinkOpened=true=1; foregroundTargetOwned=false=1; profileSessionSeeded=true=1; phase=waiting_for_profile_session_start=1; detail=dev-client-deep-link-opened=1, no-profile-session-command=1, profile-session-storage-seeded=1, target-foreground-not-owned=1; expected=profile-session-start-or-profile-events=1/u);
 });
 
 test('writes live-proof-set artifact and agent summary', async (t: TestContext) => {
