@@ -33,6 +33,10 @@
       "type": "integer",
       "minimum": 0
     },
+    "skippedInteractionProofCount": {
+      "type": "integer",
+      "minimum": 1
+    },
     "requiredPlatforms": {
       "$ref": "#/$defs/platformList"
     },
@@ -49,6 +53,13 @@
       "type": "array",
       "items": {
         "$ref": "#/$defs/proofPointer"
+      }
+    },
+    "skippedInteractionProofs": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/skippedInteractionProofPointer"
       }
     },
     "failureReasons": {
@@ -210,6 +221,191 @@
         "count": {
           "type": "integer",
           "minimum": 1
+        }
+      }
+    },
+    "skippedInteractionProofPointer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "platform",
+        "proofRunId",
+        "proofFilePath",
+        "label",
+        "runnerId",
+        "scenarioId",
+        "runId",
+        "reason",
+        "nextAction"
+      ],
+      "properties": {
+        "platform": {
+          "$ref": "#/$defs/platform"
+        },
+        "proofRunId": {
+          "type": "string"
+        },
+        "proofFilePath": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "runnerId": {
+          "type": "string"
+        },
+        "scenarioId": {
+          "type": "string"
+        },
+        "runId": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "profileGateDiagnostics": {
+          "$ref": "#/$defs/profileGateDiagnostics"
+        },
+        "profileGateReadiness": {
+          "$ref": "#/$defs/profileGateReadiness"
+        },
+        "nextAction": {
+          "$ref": "#/$defs/nextAction"
+        }
+      }
+    },
+    "profileGateDiagnostics": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "capturedDiagnosticSufficiency": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/diagnosticSufficiencyEntry"
+          }
+        },
+        "blockingDiagnosticSufficiency": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/diagnosticSufficiencyEntry"
+          }
+        },
+        "nativePerformance": {
+          "$ref": "#/$defs/nativePerformanceProfileGateDiagnostics"
+        }
+      }
+    },
+    "diagnosticSufficiencyEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "status"],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "minLength": 1
+        },
+        "status": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "nativePerformanceProfileGateDiagnostics": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "claimSufficiency": {
+          "type": "string",
+          "minLength": 1
+        },
+        "comparability": {
+          "type": "string",
+          "minLength": 1
+        },
+        "targetBinding": {
+          "type": "string",
+          "minLength": 1
+        },
+        "diagnosticSources": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/nativePerformanceSourceEntry"
+          }
+        }
+      }
+    },
+    "nativePerformanceSourceEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sourceId", "status"],
+      "properties": {
+        "sourceId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "status": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "profileGateReadiness": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "commandCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "devClientDeepLinkOpened": {
+          "type": "boolean"
+        },
+        "expectedEvidence": {
+          "type": "string",
+          "minLength": 1
+        },
+        "failureClass": {
+          "type": "string",
+          "minLength": 1
+        },
+        "foregroundAppInfoCaptured": {
+          "type": "boolean"
+        },
+        "foregroundApplicationState": {
+          "type": "string",
+          "minLength": 1
+        },
+        "foregroundRawPath": {
+          "type": "string",
+          "minLength": 1
+        },
+        "foregroundTargetOwned": {
+          "type": "boolean"
+        },
+        "lastDeepLinkLabel": {
+          "type": "string",
+          "minLength": 1
+        },
+        "pendingPhase": {
+          "type": "string",
+          "minLength": 1
+        },
+        "profileSessionSeedRawPath": {
+          "type": "string",
+          "minLength": 1
+        },
+        "profileSessionSeeded": {
+          "type": "boolean"
+        },
+        "readinessRawPath": {
+          "type": "string",
+          "minLength": 1
         }
       }
     },

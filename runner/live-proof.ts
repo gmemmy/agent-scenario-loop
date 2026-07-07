@@ -62,18 +62,7 @@ type LiveProofArtifact = {
       count?: number;
     };
   }>;
-  skippedInteractionProofs?: Array<{
-    label: string;
-    nextAction: {
-      code: string;
-      owner?: LiveProofNextActionOwner;
-      summary: string;
-    };
-    reason: string;
-    runId: string;
-    runnerId: string;
-    scenarioId: string;
-  }>;
+  skippedInteractionProofs?: LiveProofSkippedInteractionProofPointer[];
   platform: 'android' | 'ios';
   preflight: {
     healthStatus: string;
@@ -145,6 +134,53 @@ type LiveProofNextActionOwner = (
   'runtime_environment' |
   'scenario_contract'
 );
+type LiveProofDiagnosticSufficiencyEntry = {
+  kind: string;
+  status: string;
+};
+type LiveProofNativePerformanceSourceEntry = {
+  sourceId: string;
+  status: string;
+};
+type LiveProofProfileGateDiagnostics = {
+  blockingDiagnosticSufficiency?: LiveProofDiagnosticSufficiencyEntry[];
+  capturedDiagnosticSufficiency?: LiveProofDiagnosticSufficiencyEntry[];
+  nativePerformance?: {
+    claimSufficiency?: string;
+    comparability?: string;
+    diagnosticSources?: LiveProofNativePerformanceSourceEntry[];
+    targetBinding?: string;
+  };
+};
+type LiveProofProfileGateReadiness = {
+  commandCount?: number;
+  devClientDeepLinkOpened?: boolean;
+  expectedEvidence?: string;
+  failureClass?: string;
+  foregroundAppInfoCaptured?: boolean;
+  foregroundApplicationState?: string;
+  foregroundRawPath?: string;
+  foregroundTargetOwned?: boolean;
+  lastDeepLinkLabel?: string;
+  pendingPhase?: string;
+  profileSessionSeedRawPath?: string;
+  profileSessionSeeded?: boolean;
+  readinessRawPath?: string;
+};
+type LiveProofSkippedInteractionProofPointer = {
+  label: string;
+  nextAction: {
+    code: string;
+    owner?: LiveProofNextActionOwner;
+    summary: string;
+  };
+  profileGateDiagnostics?: LiveProofProfileGateDiagnostics;
+  profileGateReadiness?: LiveProofProfileGateReadiness;
+  reason: string;
+  runId: string;
+  runnerId: string;
+  scenarioId: string;
+};
 type LiveProofNativePerformanceCount = {
   count: number;
   status: string;
@@ -177,6 +213,8 @@ type LiveProofSetArtifact = {
   requiredPlatforms: LiveProofPlatform[];
   runId: string;
   schemaVersion: '1.0.0';
+  skippedInteractionProofCount?: number;
+  skippedInteractionProofs?: LiveProofSetSkippedInteractionProofPointer[];
   status: 'failed' | 'passed';
   summary: string;
 };
@@ -212,6 +250,11 @@ type LiveProofSetInteractionWarningPointer = {
   runId: string;
   runnerId: string;
   scenarioId: string;
+};
+type LiveProofSetSkippedInteractionProofPointer = LiveProofSkippedInteractionProofPointer & {
+  platform: LiveProofPlatform;
+  proofFilePath: string;
+  proofRunId: string;
 };
 type LiveProofArtifactPointerIssue = {
   expected: 'directory' | 'file';
@@ -1088,6 +1131,30 @@ function buildLiveProofSetProofPointer({
 }
 
 /**
+ * Builds flattened skipped interaction proof pointers across platform live-proof artifacts.
+ *
+ * @param {{files: string[], proofs: LiveProofArtifact[]}} options
+ * @returns {LiveProofSetSkippedInteractionProofPointer[]}
+ */
+function buildLiveProofSetSkippedInteractionProofs({
+  files,
+  proofs,
+}: {
+  files: string[];
+  proofs: LiveProofArtifact[];
+}): LiveProofSetSkippedInteractionProofPointer[] {
+  return proofs.flatMap((proof, index) => {
+    const proofFilePath = path.resolve(files[index] ?? '');
+    return (proof.skippedInteractionProofs ?? []).map((skippedProof) => ({
+      ...skippedProof,
+      platform: proof.platform,
+      proofFilePath,
+      proofRunId: proof.runId,
+    }));
+  });
+}
+
+/**
  * Builds human-readable failure reasons for one proof set.
  *
  * @param {{failOnRegression: boolean, missingPlatforms: LiveProofPlatform[], proofs: LiveProofArtifact[]}} options
@@ -1200,6 +1267,7 @@ function buildLiveProofSetArtifact({
     proofs,
   });
   const profileNativePerformance = buildLiveProofSetNativePerformanceRollup(proofs);
+  const skippedInteractionProofs = buildLiveProofSetSkippedInteractionProofs({ files, proofs });
   return {
     failureReasons,
     missingPlatforms,
@@ -1214,6 +1282,12 @@ function buildLiveProofSetArtifact({
     requiredPlatforms,
     runId,
     schemaVersion: '1.0.0',
+    ...(skippedInteractionProofs.length > 0
+      ? {
+        skippedInteractionProofCount: skippedInteractionProofs.length,
+        skippedInteractionProofs,
+      }
+      : {}),
     status,
     summary: status === 'passed'
       ? `live proof set passed for ${presentPlatforms.join(', ')}.`
@@ -1236,6 +1310,146 @@ function formatLiveProofSetWarningDetails(proof: LiveProofSetProofPointer): stri
       return `  - warning ${proof.platform}/${interactionWarning.label} (${interactionWarning.runnerId}/${interactionWarning.scenarioId}/${interactionWarning.runId}): ${warning.name} ${warning.code} - ${warning.message}${nextAction}`;
     })
   ));
+}
+
+/**
+ * Formats diagnostic sufficiency entries for proof-set markdown.
+ *
+ * @param {LiveProofDiagnosticSufficiencyEntry[]} entries
+ * @returns {string}
+ */
+function formatLiveProofSetDiagnosticSufficiencyEntries(
+  entries: LiveProofDiagnosticSufficiencyEntry[],
+): string {
+  return entries.map((entry) => `${entry.kind}:${entry.status}`).join(', ');
+}
+
+/**
+ * Formats native-performance source entries for proof-set markdown.
+ *
+ * @param {LiveProofNativePerformanceSourceEntry[]} entries
+ * @returns {string}
+ */
+function formatLiveProofSetNativePerformanceSources(
+  entries: LiveProofNativePerformanceSourceEntry[],
+): string {
+  return entries.map((entry) => `${entry.sourceId}:${entry.status}`).join(', ');
+}
+
+/**
+ * Formats skipped-proof profile-gate diagnostics for proof-set markdown.
+ *
+ * @param {LiveProofProfileGateDiagnostics | undefined} diagnostics
+ * @returns {string}
+ */
+function formatLiveProofSetProfileGateDiagnostics(
+  diagnostics: LiveProofProfileGateDiagnostics | undefined,
+): string {
+  if (!diagnostics) {
+    return '';
+  }
+
+  const parts = [];
+  if (diagnostics.capturedDiagnosticSufficiency?.length) {
+    parts.push(`captured=${formatLiveProofSetDiagnosticSufficiencyEntries(diagnostics.capturedDiagnosticSufficiency)}`);
+  }
+  if (diagnostics.blockingDiagnosticSufficiency?.length) {
+    parts.push(`blocking=${formatLiveProofSetDiagnosticSufficiencyEntries(diagnostics.blockingDiagnosticSufficiency)}`);
+  }
+  const nativePerformance = diagnostics.nativePerformance;
+  if (nativePerformance) {
+    const nativeParts = [
+      nativePerformance.claimSufficiency ? `claim=${nativePerformance.claimSufficiency}` : '',
+      nativePerformance.comparability ? `comparability=${nativePerformance.comparability}` : '',
+      nativePerformance.targetBinding ? `target=${nativePerformance.targetBinding}` : '',
+      nativePerformance.diagnosticSources?.length
+        ? `sources=${formatLiveProofSetNativePerformanceSources(nativePerformance.diagnosticSources)}`
+        : '',
+    ].filter((part) => part.length > 0);
+    if (nativeParts.length > 0) {
+      parts.push(`nativePerformance(${nativeParts.join(', ')})`);
+    }
+  }
+
+  return parts.length > 0 ? ` Diagnostics: ${parts.join('; ')}.` : '';
+}
+
+/**
+ * Formats iOS profile-session readiness context for proof-set markdown.
+ *
+ * @param {LiveProofProfileGateReadiness | undefined} readiness
+ * @returns {string}
+ */
+function formatLiveProofSetProfileGateReadiness(
+  readiness: LiveProofProfileGateReadiness | undefined,
+): string {
+  if (!readiness) {
+    return '';
+  }
+
+  const parts = [];
+  if (readiness.failureClass) {
+    parts.push(`failure=${readiness.failureClass}`);
+  }
+  if (typeof readiness.commandCount === 'number') {
+    parts.push(`commands=${readiness.commandCount}`);
+  }
+  if (typeof readiness.devClientDeepLinkOpened === 'boolean') {
+    parts.push(`devClientDeepLinkOpened=${readiness.devClientDeepLinkOpened}`);
+  }
+  if (typeof readiness.foregroundAppInfoCaptured === 'boolean') {
+    parts.push(`foregroundAppInfoCaptured=${readiness.foregroundAppInfoCaptured}`);
+  }
+  if (readiness.foregroundApplicationState) {
+    parts.push(`foregroundApplicationState=${readiness.foregroundApplicationState}`);
+  }
+  if (typeof readiness.foregroundTargetOwned === 'boolean') {
+    parts.push(`foregroundTargetOwned=${readiness.foregroundTargetOwned}`);
+  }
+  if (readiness.lastDeepLinkLabel) {
+    parts.push(`lastDeepLink=${readiness.lastDeepLinkLabel}`);
+  }
+  if (typeof readiness.profileSessionSeeded === 'boolean') {
+    parts.push(`profileSessionSeeded=${readiness.profileSessionSeeded}`);
+  }
+  if (readiness.pendingPhase) {
+    parts.push(`phase=${readiness.pendingPhase}`);
+  }
+  if (readiness.expectedEvidence) {
+    parts.push(`expected=${readiness.expectedEvidence}`);
+  }
+  if (readiness.foregroundRawPath) {
+    parts.push(`foregroundRawPath=${readiness.foregroundRawPath}`);
+  }
+  if (readiness.profileSessionSeedRawPath) {
+    parts.push(`profileSessionSeedRawPath=${readiness.profileSessionSeedRawPath}`);
+  }
+  if (readiness.readinessRawPath) {
+    parts.push(`readinessRawPath=${readiness.readinessRawPath}`);
+  }
+
+  return parts.length > 0 ? ` Readiness: ${parts.join(', ')}.` : '';
+}
+
+/**
+ * Formats skipped interaction proof details for proof-set markdown.
+ *
+ * @param {LiveProofSetSkippedInteractionProofPointer[] | undefined} skippedProofs
+ * @returns {string[]}
+ */
+function formatLiveProofSetSkippedInteractionProofs(
+  skippedProofs: LiveProofSetSkippedInteractionProofPointer[] | undefined,
+): string[] {
+  if (!skippedProofs?.length) {
+    return [];
+  }
+
+  return [
+    `Skipped interaction proofs: ${skippedProofs.length}`,
+    ...skippedProofs.map((proof) => (
+      `- skipped ${proof.platform}/${proof.label} (${proof.runnerId}/${proof.scenarioId}/${proof.runId}) from ${proof.proofRunId}: ${proof.reason}${formatLiveProofSetProfileGateDiagnostics(proof.profileGateDiagnostics)}${formatLiveProofSetProfileGateReadiness(proof.profileGateReadiness)} Next action: ${proof.nextAction.owner ?? 'unknown'}/${proof.nextAction.code} - ${proof.nextAction.summary}`
+    )),
+  ];
 }
 
 /**
@@ -1316,6 +1530,7 @@ function formatLiveProofSetArtifactMarkdown(artifact: LiveProofSetArtifact): str
       `- ${proof.platform} ${proof.runId}: status=${proof.status} comparison=${proof.comparisonStatus} profiles=${proof.profileCount} interactionProofs=${proof.interactionProofCount} warnings=${proof.interactionWarningCount} summary=${proof.summaryPath}`,
       ...formatLiveProofSetWarningDetails(proof),
     ]),
+    ...formatLiveProofSetSkippedInteractionProofs(artifact.skippedInteractionProofs),
     ...formatLiveProofSetNativePerformanceRollup(artifact.profileNativePerformance),
     `Failure reasons: ${artifact.failureReasons.length > 0 ? artifact.failureReasons.join(' ') : 'none'}`,
     `Next action: ${artifact.nextAction.owner ?? 'unknown'}/${artifact.nextAction.code} - ${artifact.nextAction.summary}`,
