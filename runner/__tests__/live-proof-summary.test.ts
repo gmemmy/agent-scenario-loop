@@ -395,11 +395,84 @@ test('writes failed aggregate proofs with skipped interaction proof pointers', a
   });
   assert.equal(artifact.summary, 'ios live proof failed with 1 failed profile run(s) without comparison results; skipped 1 interaction proof(s).');
   assert.equal('nextActionOwner' in artifact.profiles[0], false);
+  assert.deepEqual(artifact.profileGateReadiness, {
+    commandCountTotal: 0,
+    devClientDeepLinkOpenedCounts: [
+      {
+        count: 1,
+        value: true,
+      },
+    ],
+    expectedEvidenceCounts: [
+      {
+        count: 1,
+        value: 'profile-session-start-or-profile-events',
+      },
+    ],
+    failureClassCounts: [
+      {
+        count: 1,
+        value: 'dev_client_bundle_or_command_channel_not_ready',
+      },
+    ],
+    foregroundAppInfoCapturedCounts: [
+      {
+        count: 1,
+        value: true,
+      },
+    ],
+    foregroundApplicationStateCounts: [
+      {
+        count: 1,
+        value: 'ForegroundRunning',
+      },
+    ],
+    foregroundTargetOwnedCounts: [
+      {
+        count: 1,
+        value: true,
+      },
+    ],
+    pendingPhaseCounts: [
+      {
+        count: 1,
+        value: 'waiting_for_profile_session_start',
+      },
+    ],
+    profileSessionSeededCounts: [
+      {
+        count: 1,
+        value: true,
+      },
+    ],
+    readinessDetailCounts: [
+      {
+        count: 1,
+        value: 'dev-client-deep-link-opened',
+      },
+      {
+        count: 1,
+        value: 'no-profile-session-command',
+      },
+      {
+        count: 1,
+        value: 'profile-session-storage-seeded',
+      },
+      {
+        count: 1,
+        value: 'target-foreground-owned',
+      },
+    ],
+    readinessProofCount: 1,
+    skippedInteractionProofCount: 1,
+  });
   assert.equal(artifact.skippedInteractionProofs[0].runnerId, 'argent');
   assert.deepEqual(artifact.skippedInteractionProofs[0].profileGateDiagnostics, profileGateDiagnostics);
   assert.deepEqual(artifact.skippedInteractionProofs[0].profileGateReadiness, profileGateReadiness);
   const summary = fs.readFileSync(result.summaryPath, 'utf8');
   assert.match(summary, /Next action: runtime_environment\/inspect_failed_run/u);
+  assert.match(summary, /## Profile Gate Readiness/u);
+  assert.match(summary, /skippedInteractionProofs=1; readinessProofs=1; commands=0; failure=dev_client_bundle_or_command_channel_not_ready=1; devClientDeepLinkOpened=true=1; foregroundAppInfoCaptured=true=1; foregroundApplicationState=ForegroundRunning=1; foregroundTargetOwned=true=1; profileSessionSeeded=true=1; phase=waiting_for_profile_session_start=1; detail=dev-client-deep-link-opened=1, no-profile-session-command=1, profile-session-storage-seeded=1, target-foreground-owned=1; expected=profile-session-start-or-profile-events=1/u);
   assert.match(summary, /## Skipped Interaction Proofs/u);
   assert.match(summary, /Diagnostics: captured=nativePerformance:diagnostic-only, profiler:diagnostic-only; blocking=accessibility:provider-blocked, uiTree:provider-blocked; requested=accessibility:provider-blocked\(required, provider=axe\), video:requested-missing\(optional, runner=agent-device\); providerNextAction=provider_tooling\/use_partial_provider_evidence_for_diagnosis - Use preserved diagnostics for investigation only\.; nativePerformance\(claim=insufficient-for-claim, completeness=partial, comparability=diagnostic-only, target=ambiguous, sources=xctrace:partial, metrickit:timeout\)\./u);
   assert.match(summary, /Readiness: failure=dev_client_bundle_or_command_channel_not_ready, commands=0, devClientDeepLinkOpened=true, foregroundAppInfoCaptured=true, foregroundApplicationState=ForegroundRunning, foregroundTargetOwned=true, lastDeepLink=ios-dev-client-url, profileSessionSeeded=true, phase=waiting_for_profile_session_start, expected=profile-session-start-or-profile-events, readinessNextAction=runtime_environment\/fix_ios_dev_client_bundle_or_command_channel - Confirm the iOS development client loaded the intended app bundle\., foregroundRawPath=raw\/ios-profile-session-start-app-info\.txt, profileSessionSeedRawPath=raw\/ios-profile-session-seed\.json, readinessRawPath=raw\/ios-profile-session-readiness\.json\./u);

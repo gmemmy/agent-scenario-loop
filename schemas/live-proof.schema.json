@@ -55,6 +55,9 @@
     "profileNativePerformance": {
       "$ref": "#/$defs/profileNativePerformance"
     },
+    "profileGateReadiness": {
+      "$ref": "#/$defs/profileGateReadinessRollup"
+    },
     "skippedInteractionProofs": {
       "type": "array",
       "items": {
@@ -497,6 +500,117 @@
           "items": {
             "$ref": "#/$defs/nativePerformanceSourceEntry"
           }
+        }
+      }
+    },
+    "profileGateReadinessRollup": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["skippedInteractionProofCount", "readinessProofCount"],
+      "properties": {
+        "skippedInteractionProofCount": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "readinessProofCount": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "commandCountTotal": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "devClientDeepLinkOpenedCounts": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/profileGateReadinessBooleanCount"
+          }
+        },
+        "expectedEvidenceCounts": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/profileGateReadinessValueCount"
+          }
+        },
+        "failureClassCounts": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/profileGateReadinessValueCount"
+          }
+        },
+        "foregroundAppInfoCapturedCounts": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/profileGateReadinessBooleanCount"
+          }
+        },
+        "foregroundApplicationStateCounts": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/profileGateReadinessValueCount"
+          }
+        },
+        "foregroundTargetOwnedCounts": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/profileGateReadinessBooleanCount"
+          }
+        },
+        "pendingPhaseCounts": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/profileGateReadinessValueCount"
+          }
+        },
+        "profileSessionSeededCounts": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/profileGateReadinessBooleanCount"
+          }
+        },
+        "readinessDetailCounts": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/profileGateReadinessValueCount"
+          }
+        }
+      }
+    },
+    "profileGateReadinessBooleanCount": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["value", "count"],
+      "properties": {
+        "value": {
+          "type": "boolean"
+        },
+        "count": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "profileGateReadinessValueCount": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["value", "count"],
+      "properties": {
+        "value": {
+          "type": "string",
+          "minLength": 1
+        },
+        "count": {
+          "type": "integer",
+          "minimum": 1
         }
       }
     },
