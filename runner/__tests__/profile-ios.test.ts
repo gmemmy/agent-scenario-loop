@@ -352,7 +352,9 @@ test('profile-ios preserves captured provider evidence when another required out
   assert.ok(
     (health.checks as Array<{ code: string; metadata?: {
       capturedKinds?: string;
+      capturedDiagnosticSufficiency?: string;
       claimSufficiency?: string;
+      blockingDiagnosticSufficiency?: string;
       blockingRequiredKinds?: string;
       diagnosticOnlyKinds?: string;
       failedRequiredKinds?: string;
@@ -361,10 +363,12 @@ test('profile-ios preserves captured provider evidence when another required out
       (check) => (
         check.code === 'partial_provider_evidence_preserved' &&
         check.metadata?.capturedKinds?.split(',').includes('nativePerformance') &&
+        check.metadata?.capturedDiagnosticSufficiency?.split(',').includes('nativePerformance:diagnostic-only') &&
         check.metadata?.failedRequiredKinds?.split(',').includes('accessibility') &&
         check.metadata?.claimSufficiency === 'insufficient-for-claim' &&
         check.metadata?.diagnosticOnlyKinds?.split(',').includes('nativePerformance') &&
         check.metadata?.blockingRequiredKinds?.split(',').includes('accessibility') &&
+        check.metadata?.blockingDiagnosticSufficiency?.split(',').includes('accessibility:provider-blocked') &&
         check.metadata?.nextActionCode === 'use_partial_provider_evidence_for_diagnosis'
       ),
     ),
