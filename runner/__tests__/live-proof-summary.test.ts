@@ -395,6 +395,37 @@ test('writes failed aggregate proofs with skipped interaction proof pointers', a
   });
   assert.equal(artifact.summary, 'ios live proof failed with 1 failed profile run(s) without comparison results; skipped 1 interaction proof(s).');
   assert.equal('nextActionOwner' in artifact.profiles[0], false);
+  assert.deepEqual(artifact.profileGateRequestedDiagnostics, {
+    requestedDiagnosticCounts: [
+      {
+        availability: 'provider-blocked',
+        count: 1,
+        kind: 'accessibility',
+        required: true,
+        status: 'failed',
+        sufficiencyStatus: 'provider-blocked',
+      },
+      {
+        availability: 'requested-missing',
+        count: 1,
+        kind: 'video',
+        required: false,
+        status: 'missing',
+        sufficiencyStatus: 'requested-missing',
+      },
+    ],
+    skippedInteractionProofCount: 1,
+  });
+  assert.deepEqual(artifact.profileGateProviderEvidenceNextActions, {
+    nextActionCounts: [
+      {
+        code: 'use_partial_provider_evidence_for_diagnosis',
+        count: 1,
+        owner: 'provider_tooling',
+      },
+    ],
+    skippedInteractionProofCount: 1,
+  });
   assert.deepEqual(artifact.profileGateReadiness, {
     commandCountTotal: 0,
     devClientDeepLinkOpenedCounts: [
@@ -471,6 +502,10 @@ test('writes failed aggregate proofs with skipped interaction proof pointers', a
   assert.deepEqual(artifact.skippedInteractionProofs[0].profileGateReadiness, profileGateReadiness);
   const summary = fs.readFileSync(result.summaryPath, 'utf8');
   assert.match(summary, /Next action: runtime_environment\/inspect_failed_run/u);
+  assert.match(summary, /## Profile Gate Requested Diagnostics/u);
+  assert.match(summary, /requested=accessibility:provider-blocked\(required\)=1, video:requested-missing\(optional\)=1/u);
+  assert.match(summary, /## Provider Evidence Next Actions/u);
+  assert.match(summary, /actions=provider_tooling\/use_partial_provider_evidence_for_diagnosis=1/u);
   assert.match(summary, /## Profile Gate Readiness/u);
   assert.match(summary, /skippedInteractionProofs=1; readinessProofs=1; commands=0; failure=dev_client_bundle_or_command_channel_not_ready=1; devClientDeepLinkOpened=true=1; foregroundAppInfoCaptured=true=1; foregroundApplicationState=ForegroundRunning=1; foregroundTargetOwned=true=1; profileSessionSeeded=true=1; phase=waiting_for_profile_session_start=1; detail=dev-client-deep-link-opened=1, no-profile-session-command=1, profile-session-storage-seeded=1, target-foreground-owned=1; expected=profile-session-start-or-profile-events=1/u);
   assert.match(summary, /## Skipped Interaction Proofs/u);
