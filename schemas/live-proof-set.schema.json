@@ -58,6 +58,9 @@
     "profileNativePerformance": {
       "$ref": "#/$defs/profileNativePerformance"
     },
+    "interactionWarningNextActions": {
+      "$ref": "#/$defs/interactionWarningNextActions"
+    },
     "proofFailureNextActions": {
       "$ref": "#/$defs/proofFailureNextActions"
     },
@@ -539,6 +542,46 @@
       }
     },
     "proofFailureNextActionCount": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "count"],
+      "properties": {
+        "owner": {
+          "$ref": "#/$defs/nextActionOwner"
+        },
+        "code": {
+          "type": "string",
+          "minLength": 1
+        },
+        "count": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "interactionWarningNextActions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["proofCount", "interactionWarningCount", "nextActionCounts"],
+      "properties": {
+        "proofCount": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "interactionWarningCount": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "nextActionCounts": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/interactionWarningNextActionCount"
+          }
+        }
+      }
+    },
+    "interactionWarningNextActionCount": {
       "type": "object",
       "additionalProperties": false,
       "required": ["code", "count"],

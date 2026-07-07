@@ -245,6 +245,11 @@ type LiveProofSetProofFailureNextActionsRollup = {
   proofCount: number;
   regressedProofCount: number;
 };
+type LiveProofSetInteractionWarningNextActionsRollup = {
+  interactionWarningCount: number;
+  nextActionCounts: LiveProofNextActionCount[];
+  proofCount: number;
+};
 type LiveProofSetSkippedInteractionProofNextActionsRollup = {
   nextActionCounts: LiveProofNextActionCount[];
   skippedInteractionProofCount: number;
@@ -261,6 +266,7 @@ type LiveProofSetArtifact = {
   profileGateDiagnosticSufficiency?: LiveProofSetProfileGateDiagnosticSufficiencyRollup;
   profileGateNativePerformance?: LiveProofSetProfileGateNativePerformanceRollup;
   profileGateReadiness?: LiveProofSetProfileGateReadinessRollup;
+  interactionWarningNextActions?: LiveProofSetInteractionWarningNextActionsRollup;
   profileNativePerformance?: LiveProofProfileNativePerformanceRollup;
   proofFailureNextActions?: LiveProofSetProofFailureNextActionsRollup;
   proofCount: number;
@@ -1561,6 +1567,47 @@ function buildLiveProofSetProofFailureNextActionsRollup({
 }
 
 /**
+ * Builds next-action owner/code counts across optional interaction warning checks.
+ *
+ * @param {LiveProofSetProofPointer[]} proofPointers
+ * @returns {LiveProofSetInteractionWarningNextActionsRollup | null}
+ */
+function buildLiveProofSetInteractionWarningNextActionsRollup(
+  proofPointers: LiveProofSetProofPointer[],
+): LiveProofSetInteractionWarningNextActionsRollup | null {
+  const nextActionCounts = new Map<string, LiveProofNextActionCount>();
+  const proofRunIds = new Set<string>();
+  let interactionWarningCount = 0;
+
+  for (const proof of proofPointers) {
+    let proofHasWarningNextAction = false;
+    for (const interactionWarning of proof.interactionWarnings ?? []) {
+      for (const warning of interactionWarning.checks) {
+        if (!warning.nextAction) {
+          continue;
+        }
+        interactionWarningCount += 1;
+        proofHasWarningNextAction = true;
+        addLiveProofSetNextActionCount(nextActionCounts, warning.nextAction);
+      }
+    }
+    if (proofHasWarningNextAction) {
+      proofRunIds.add(proof.runId);
+    }
+  }
+
+  if (interactionWarningCount === 0) {
+    return null;
+  }
+
+  return {
+    interactionWarningCount,
+    nextActionCounts: formatLiveProofSetNextActionCounts(nextActionCounts),
+    proofCount: proofRunIds.size,
+  };
+}
+
+/**
  * Builds next-action owner/code counts across skipped proof gates.
  *
  * @param {LiveProofSetSkippedInteractionProofPointer[]} skippedProofs
@@ -1714,21 +1761,24 @@ function buildLiveProofSetArtifact({
   const skippedInteractionProofNextActions = buildLiveProofSetSkippedInteractionProofNextActionsRollup(
     skippedInteractionProofs,
   );
+  const proofPointers = proofs.map((proof, index) => buildLiveProofSetProofPointer({
+    filePath: path.resolve(files[index] ?? ''),
+    proof,
+  }));
+  const interactionWarningNextActions = buildLiveProofSetInteractionWarningNextActionsRollup(proofPointers);
   return {
     failureReasons,
     missingPlatforms,
     nextAction,
     presentPlatforms,
+    ...(interactionWarningNextActions ? { interactionWarningNextActions } : {}),
     ...(profileGateDiagnosticSufficiency ? { profileGateDiagnosticSufficiency } : {}),
     ...(profileGateNativePerformance ? { profileGateNativePerformance } : {}),
     ...(profileGateReadiness ? { profileGateReadiness } : {}),
     ...(profileNativePerformance ? { profileNativePerformance } : {}),
     ...(proofFailureNextActions ? { proofFailureNextActions } : {}),
     proofCount: proofs.length,
-    proofs: proofs.map((proof, index) => buildLiveProofSetProofPointer({
-      filePath: path.resolve(files[index] ?? ''),
-      proof,
-    })),
+    proofs: proofPointers,
     requiredPlatforms,
     runId,
     schemaVersion: '1.0.0',
@@ -1950,6 +2000,24 @@ function formatLiveProofSetProofFailureNextActionsRollup(
 
   return [
     `Proof failure next actions: proofs=${rollup.proofCount}; failed=${rollup.failedProofCount}; regressed=${rollup.regressedProofCount}; actions=${formatLiveProofSetNextActionCountsForMarkdown(rollup.nextActionCounts)}`,
+  ];
+}
+
+/**
+ * Formats aggregate interaction warning next-action counts for proof-set markdown.
+ *
+ * @param {LiveProofSetInteractionWarningNextActionsRollup | undefined} rollup
+ * @returns {string[]}
+ */
+function formatLiveProofSetInteractionWarningNextActionsRollup(
+  rollup: LiveProofSetInteractionWarningNextActionsRollup | undefined,
+): string[] {
+  if (!rollup) {
+    return [];
+  }
+
+  return [
+    `Interaction warning next actions: proofs=${rollup.proofCount}; warnings=${rollup.interactionWarningCount}; actions=${formatLiveProofSetNextActionCountsForMarkdown(rollup.nextActionCounts)}`,
   ];
 }
 
@@ -2177,6 +2245,7 @@ function formatLiveProofSetArtifactMarkdown(artifact: LiveProofSetArtifact): str
       `- ${proof.platform} ${proof.runId}: status=${proof.status} comparison=${proof.comparisonStatus} profiles=${proof.profileCount} interactionProofs=${proof.interactionProofCount} warnings=${proof.interactionWarningCount} summary=${proof.summaryPath}`,
       ...formatLiveProofSetWarningDetails(proof),
     ]),
+    ...formatLiveProofSetInteractionWarningNextActionsRollup(artifact.interactionWarningNextActions),
     ...formatLiveProofSetProofFailureNextActionsRollup(artifact.proofFailureNextActions),
     ...formatLiveProofSetSkippedInteractionProofs(artifact.skippedInteractionProofs),
     ...formatLiveProofSetSkippedInteractionProofNextActionsRollup(artifact.skippedInteractionProofNextActions),
