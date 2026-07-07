@@ -136,6 +136,31 @@ type LiveProofProfileGateReadiness = {
   readinessNextAction?: LiveProofProfileGateNextAction;
 };
 
+type LiveProofProfileGateReadinessBooleanCount = {
+  count: number;
+  value: boolean;
+};
+
+type LiveProofProfileGateReadinessValueCount = {
+  count: number;
+  value: string;
+};
+
+type LiveProofProfileGateReadinessRollup = {
+  commandCountTotal?: number;
+  devClientDeepLinkOpenedCounts?: LiveProofProfileGateReadinessBooleanCount[];
+  expectedEvidenceCounts?: LiveProofProfileGateReadinessValueCount[];
+  failureClassCounts?: LiveProofProfileGateReadinessValueCount[];
+  foregroundAppInfoCapturedCounts?: LiveProofProfileGateReadinessBooleanCount[];
+  foregroundApplicationStateCounts?: LiveProofProfileGateReadinessValueCount[];
+  foregroundTargetOwnedCounts?: LiveProofProfileGateReadinessBooleanCount[];
+  pendingPhaseCounts?: LiveProofProfileGateReadinessValueCount[];
+  profileSessionSeededCounts?: LiveProofProfileGateReadinessBooleanCount[];
+  readinessDetailCounts?: LiveProofProfileGateReadinessValueCount[];
+  readinessProofCount: number;
+  skippedInteractionProofCount: number;
+};
+
 type LiveProofInteractionProofCaptures = {
   screenshots: string[];
 };
@@ -190,6 +215,7 @@ type LiveProofArtifact = {
   outputDir: string;
   platform: LiveProofPlatform;
   interactionProofs?: Array<LiveProofInteractionProofPointer & { summaryPath: string }>;
+  profileGateReadiness?: LiveProofProfileGateReadinessRollup;
   profileNativePerformance?: LiveProofProfileNativePerformanceRollup;
   skippedInteractionProofs?: LiveProofSkippedInteractionProofPointer[];
   preflight: {
@@ -890,6 +916,172 @@ function readOptionalNumber(
     return {};
   }
   return { [key]: value };
+}
+
+/**
+ * Adds one profile-session readiness string count.
+ *
+ * @param {Map<string, number>} counts
+ * @param {string | undefined} value
+ * @returns {void}
+ */
+function addProfileGateReadinessValueCount(
+  counts: Map<string, number>,
+  value: string | undefined,
+): void {
+  if (!value) {
+    return;
+  }
+  counts.set(value, (counts.get(value) ?? 0) + 1);
+}
+
+/**
+ * Adds one profile-session readiness boolean count.
+ *
+ * @param {Map<string, number>} counts
+ * @param {boolean | undefined} value
+ * @returns {void}
+ */
+function addProfileGateReadinessBooleanCount(
+  counts: Map<string, number>,
+  value: boolean | undefined,
+): void {
+  if (typeof value !== 'boolean') {
+    return;
+  }
+  counts.set(String(value), (counts.get(String(value)) ?? 0) + 1);
+}
+
+/**
+ * Converts readiness value counts into stable artifact order.
+ *
+ * @param {Map<string, number>} counts
+ * @returns {LiveProofProfileGateReadinessValueCount[]}
+ */
+function formatProfileGateReadinessValueCounts(
+  counts: Map<string, number>,
+): LiveProofProfileGateReadinessValueCount[] {
+  return [...counts.entries()]
+    .map(([value, count]) => ({ count, value }))
+    .sort((left, right) => left.value.localeCompare(right.value));
+}
+
+/**
+ * Converts readiness boolean counts into stable artifact order.
+ *
+ * @param {Map<string, number>} counts
+ * @returns {LiveProofProfileGateReadinessBooleanCount[]}
+ */
+function formatProfileGateReadinessBooleanCounts(
+  counts: Map<string, number>,
+): LiveProofProfileGateReadinessBooleanCount[] {
+  return [...counts.entries()]
+    .map(([key, count]) => ({
+      count,
+      value: key === 'true',
+    }))
+    .sort((left, right) => Number(left.value) - Number(right.value));
+}
+
+/**
+ * Derives command-channel readiness detail tags from profile-session readiness facts.
+ *
+ * @param {LiveProofProfileGateReadiness} readiness
+ * @returns {string[]}
+ */
+function deriveProfileGateReadinessDetails(
+  readiness: LiveProofProfileGateReadiness,
+): string[] {
+  const details: string[] = [];
+  if (typeof readiness.commandCount === 'number') {
+    details.push(readiness.commandCount === 0 ? 'no-profile-session-command' : 'profile-session-command-present');
+  }
+  if (typeof readiness.devClientDeepLinkOpened === 'boolean') {
+    details.push(readiness.devClientDeepLinkOpened ? 'dev-client-deep-link-opened' : 'dev-client-deep-link-not-opened');
+  }
+  if (typeof readiness.profileSessionSeeded === 'boolean') {
+    details.push(readiness.profileSessionSeeded ? 'profile-session-storage-seeded' : 'profile-session-storage-not-seeded');
+  }
+  if (typeof readiness.foregroundTargetOwned === 'boolean') {
+    details.push(readiness.foregroundTargetOwned ? 'target-foreground-owned' : 'target-foreground-not-owned');
+  }
+  return details;
+}
+
+/**
+ * Builds profile-session readiness counts across skipped proof gates.
+ *
+ * @param {LiveProofSkippedInteractionProofPointer[]} skippedProofs
+ * @returns {LiveProofProfileGateReadinessRollup | null}
+ */
+function buildProfileGateReadinessRollup(
+  skippedProofs: LiveProofSkippedInteractionProofPointer[],
+): LiveProofProfileGateReadinessRollup | null {
+  const devClientDeepLinkOpenedCounts = new Map<string, number>();
+  const expectedEvidenceCounts = new Map<string, number>();
+  const failureClassCounts = new Map<string, number>();
+  const foregroundAppInfoCapturedCounts = new Map<string, number>();
+  const foregroundApplicationStateCounts = new Map<string, number>();
+  const foregroundTargetOwnedCounts = new Map<string, number>();
+  const pendingPhaseCounts = new Map<string, number>();
+  const profileSessionSeededCounts = new Map<string, number>();
+  const readinessDetailCounts = new Map<string, number>();
+  let commandCountTotal = 0;
+  let commandCountSeen = false;
+  let readinessProofCount = 0;
+
+  for (const skippedProof of skippedProofs) {
+    const readiness = skippedProof.profileGateReadiness;
+    if (!readiness) {
+      continue;
+    }
+
+    readinessProofCount += 1;
+    if (typeof readiness.commandCount === 'number') {
+      commandCountSeen = true;
+      commandCountTotal += readiness.commandCount;
+    }
+    addProfileGateReadinessBooleanCount(devClientDeepLinkOpenedCounts, readiness.devClientDeepLinkOpened);
+    addProfileGateReadinessValueCount(expectedEvidenceCounts, readiness.expectedEvidence);
+    addProfileGateReadinessValueCount(failureClassCounts, readiness.failureClass);
+    addProfileGateReadinessBooleanCount(foregroundAppInfoCapturedCounts, readiness.foregroundAppInfoCaptured);
+    addProfileGateReadinessValueCount(foregroundApplicationStateCounts, readiness.foregroundApplicationState);
+    addProfileGateReadinessBooleanCount(foregroundTargetOwnedCounts, readiness.foregroundTargetOwned);
+    addProfileGateReadinessValueCount(pendingPhaseCounts, readiness.pendingPhase);
+    addProfileGateReadinessBooleanCount(profileSessionSeededCounts, readiness.profileSessionSeeded);
+    for (const detail of deriveProfileGateReadinessDetails(readiness)) {
+      addProfileGateReadinessValueCount(readinessDetailCounts, detail);
+    }
+  }
+
+  if (readinessProofCount === 0) {
+    return null;
+  }
+
+  const devClientCounts = formatProfileGateReadinessBooleanCounts(devClientDeepLinkOpenedCounts);
+  const expectedCounts = formatProfileGateReadinessValueCounts(expectedEvidenceCounts);
+  const failureCounts = formatProfileGateReadinessValueCounts(failureClassCounts);
+  const foregroundCapturedCounts = formatProfileGateReadinessBooleanCounts(foregroundAppInfoCapturedCounts);
+  const foregroundStateCounts = formatProfileGateReadinessValueCounts(foregroundApplicationStateCounts);
+  const foregroundOwnedCounts = formatProfileGateReadinessBooleanCounts(foregroundTargetOwnedCounts);
+  const phaseCounts = formatProfileGateReadinessValueCounts(pendingPhaseCounts);
+  const seedCounts = formatProfileGateReadinessBooleanCounts(profileSessionSeededCounts);
+  const detailCounts = formatProfileGateReadinessValueCounts(readinessDetailCounts);
+
+  return {
+    ...(commandCountSeen ? { commandCountTotal } : {}),
+    ...(devClientCounts.length > 0 ? { devClientDeepLinkOpenedCounts: devClientCounts } : {}),
+    ...(expectedCounts.length > 0 ? { expectedEvidenceCounts: expectedCounts } : {}),
+    ...(failureCounts.length > 0 ? { failureClassCounts: failureCounts } : {}),
+    ...(foregroundCapturedCounts.length > 0 ? { foregroundAppInfoCapturedCounts: foregroundCapturedCounts } : {}),
+    ...(foregroundStateCounts.length > 0 ? { foregroundApplicationStateCounts: foregroundStateCounts } : {}),
+    ...(foregroundOwnedCounts.length > 0 ? { foregroundTargetOwnedCounts: foregroundOwnedCounts } : {}),
+    ...(phaseCounts.length > 0 ? { pendingPhaseCounts: phaseCounts } : {}),
+    ...(seedCounts.length > 0 ? { profileSessionSeededCounts: seedCounts } : {}),
+    ...(detailCounts.length > 0 ? { readinessDetailCounts: detailCounts } : {}),
+    readinessProofCount,
+    skippedInteractionProofCount: skippedProofs.length,
+  };
 }
 
 /**
@@ -1648,6 +1840,86 @@ function formatProfileGateReadiness(readiness: LiveProofProfileGateReadiness | u
 }
 
 /**
+ * Formats readiness value count entries for aggregate markdown.
+ *
+ * @param {LiveProofProfileGateReadinessValueCount[]} counts
+ * @returns {string}
+ */
+function formatProfileGateReadinessValueCountSummary(
+  counts: LiveProofProfileGateReadinessValueCount[],
+): string {
+  return counts.map((entry) => `${entry.value}=${entry.count}`).join(', ');
+}
+
+/**
+ * Formats readiness boolean count entries for aggregate markdown.
+ *
+ * @param {LiveProofProfileGateReadinessBooleanCount[]} counts
+ * @returns {string}
+ */
+function formatProfileGateReadinessBooleanCountSummary(
+  counts: LiveProofProfileGateReadinessBooleanCount[],
+): string {
+  return counts.map((entry) => `${entry.value}=${entry.count}`).join(', ');
+}
+
+/**
+ * Formats aggregate profile-session readiness context for markdown.
+ *
+ * @param {LiveProofProfileGateReadinessRollup | undefined} rollup
+ * @returns {string[]}
+ */
+function formatProfileGateReadinessRollup(
+  rollup: LiveProofProfileGateReadinessRollup | undefined,
+): string[] {
+  if (!rollup) {
+    return [];
+  }
+
+  const details = [
+    `skippedInteractionProofs=${rollup.skippedInteractionProofCount}`,
+    `readinessProofs=${rollup.readinessProofCount}`,
+  ];
+  if (typeof rollup.commandCountTotal === 'number') {
+    details.push(`commands=${rollup.commandCountTotal}`);
+  }
+  if (rollup.failureClassCounts?.length) {
+    details.push(`failure=${formatProfileGateReadinessValueCountSummary(rollup.failureClassCounts)}`);
+  }
+  if (rollup.devClientDeepLinkOpenedCounts?.length) {
+    details.push(`devClientDeepLinkOpened=${formatProfileGateReadinessBooleanCountSummary(rollup.devClientDeepLinkOpenedCounts)}`);
+  }
+  if (rollup.foregroundAppInfoCapturedCounts?.length) {
+    details.push(`foregroundAppInfoCaptured=${formatProfileGateReadinessBooleanCountSummary(rollup.foregroundAppInfoCapturedCounts)}`);
+  }
+  if (rollup.foregroundApplicationStateCounts?.length) {
+    details.push(`foregroundApplicationState=${formatProfileGateReadinessValueCountSummary(rollup.foregroundApplicationStateCounts)}`);
+  }
+  if (rollup.foregroundTargetOwnedCounts?.length) {
+    details.push(`foregroundTargetOwned=${formatProfileGateReadinessBooleanCountSummary(rollup.foregroundTargetOwnedCounts)}`);
+  }
+  if (rollup.profileSessionSeededCounts?.length) {
+    details.push(`profileSessionSeeded=${formatProfileGateReadinessBooleanCountSummary(rollup.profileSessionSeededCounts)}`);
+  }
+  if (rollup.pendingPhaseCounts?.length) {
+    details.push(`phase=${formatProfileGateReadinessValueCountSummary(rollup.pendingPhaseCounts)}`);
+  }
+  if (rollup.readinessDetailCounts?.length) {
+    details.push(`detail=${formatProfileGateReadinessValueCountSummary(rollup.readinessDetailCounts)}`);
+  }
+  if (rollup.expectedEvidenceCounts?.length) {
+    details.push(`expected=${formatProfileGateReadinessValueCountSummary(rollup.expectedEvidenceCounts)}`);
+  }
+
+  return [
+    '',
+    '## Profile Gate Readiness',
+    '',
+    `- ${details.join('; ')}`,
+  ];
+}
+
+/**
  * Formats status count entries for aggregate markdown.
  *
  * @param {LiveProofNativePerformanceCount[]} counts
@@ -1761,6 +2033,7 @@ function buildLiveProofMarkdown(artifact: LiveProofArtifact): string {
     ...artifact.profiles.map((profile) => (
       `- ${profile.label} (${profile.scenarioId}): health=${profile.healthStatus} verdict=${profile.verdictStatus} - ${profile.summaryPath}`
     )),
+    ...formatProfileGateReadinessRollup(artifact.profileGateReadiness),
     ...formatProfileNativePerformanceRollup(artifact.profileNativePerformance),
   ];
 
@@ -1839,6 +2112,7 @@ async function writeLiveProofSummary({
     verdictStatus: String(status.verdictStatus ?? 'unknown'),
   }));
   const profileNativePerformance = buildProfileNativePerformanceRollup(profilePointers);
+  const profileGateReadiness = buildProfileGateReadinessRollup(skippedInteractionProofs);
   const interactionProofStatuses = interactionProofs.map((proof) => ({
     proof,
     status: readProfileRunStatus(proof.runDir),
@@ -1881,6 +2155,7 @@ async function writeLiveProofSummary({
     nextAction: buildLiveProofNextAction(comparisonStatus, status, failedOwner),
     outputDir,
     platform,
+    ...(profileGateReadiness ? { profileGateReadiness } : {}),
     ...(interactionProofPointers.length > 0 ? { interactionProofs: interactionProofPointers } : {}),
     ...(profileNativePerformance ? { profileNativePerformance } : {}),
     ...(skippedInteractionProofs.length > 0 ? { skippedInteractionProofs } : {}),
