@@ -86,9 +86,29 @@ function writeProviderTextAttachment(outPath, fileName, content) {
 }
 
 /**
+ * Writes a provider-local JSON artifact.
+ *
+ * @param {string} outPath
+ * @param {string} fileName
+ * @param {Record<string, unknown>} payload
+ * @returns {{path: string, sizeBytes: number}}
+ */
+function writeProviderJsonAttachment(outPath, fileName, payload) {
+  const providerDir = path.dirname(outPath);
+  const artifactPath = path.join(providerDir, fileName);
+  const content = `${JSON.stringify(payload, null, 2)}\n`;
+  fs.mkdirSync(providerDir, { recursive: true });
+  fs.writeFileSync(artifactPath, content, 'utf8');
+  return {
+    path: `raw/providers/${PROVIDER_ID}/${fileName}`,
+    sizeBytes: Buffer.byteLength(content, 'utf8'),
+  };
+}
+
+/**
  * Builds deterministic Android native diagnostic text for package rehearsal.
  *
- * @returns {{framestatsText: string, gfxinfoText: string, meminfoText: string}}
+ * @returns {{framestatsText: string, gfxinfoText: string, meminfoText: string, traceProcessorSummary: Record<string, unknown>}}
  */
 function buildAndroidFixtureText() {
   return {
@@ -120,6 +140,20 @@ function buildAndroidFixtureText() {
       'WebViews: 0',
       '',
     ].join('\n'),
+    traceProcessorSummary: {
+      cpuMs: 320,
+      durationMs: 12000,
+      frameCount: 120,
+      jankyFrameCount: 6,
+      mainThreadCpuMs: 210,
+      p95FrameMs: 28,
+      renderThreadCpuMs: 90,
+      threadSchedulingDelayMs: 7,
+      traceId: 'example-android-perfetto',
+      windowEndMs: 12000,
+      windowStartMs: 0,
+      worstFrameMs: 48,
+    },
   };
 }
 
@@ -186,10 +220,15 @@ function writeNativePerformanceEvidence({
   scenarioId,
 }) {
   if (platform === 'android') {
-    const { framestatsText, gfxinfoText, meminfoText } = buildAndroidFixtureText();
+    const { framestatsText, gfxinfoText, meminfoText, traceProcessorSummary } = buildAndroidFixtureText();
     const framestatsAttachment = writeProviderTextAttachment(outPath, 'native-performance-framestats.txt', framestatsText);
     const gfxinfoAttachment = writeProviderTextAttachment(outPath, 'native-performance-gfxinfo.txt', gfxinfoText);
     const meminfoAttachment = writeProviderTextAttachment(outPath, 'native-performance-meminfo.txt', meminfoText);
+    const traceProcessorAttachment = writeProviderJsonAttachment(
+      outPath,
+      'native-performance-trace-processor-summary.json',
+      traceProcessorSummary,
+    );
     writeJsonArtifact(outPath, buildAndroidNativePerformanceEvidence({
       appId: 'dev.agentscenarioloop.example',
       attachments: [
@@ -205,6 +244,10 @@ function writeNativePerformanceEvidence({
           kind: 'raw-meminfo',
           ...meminfoAttachment,
         },
+        {
+          kind: 'trace-processor-summary',
+          ...traceProcessorAttachment,
+        },
       ],
       capturedAt: new Date(0).toISOString(),
       deviceId: 'example-device',
@@ -214,6 +257,7 @@ function writeNativePerformanceEvidence({
       providerId: PROVIDER_ID,
       runId,
       scenarioId,
+      traceProcessorSummary,
     }));
     return;
   }

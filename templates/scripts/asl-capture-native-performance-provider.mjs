@@ -179,6 +179,26 @@ function readOptionalText(args, key) {
 }
 
 /**
+ * Reads an optional JSON object artifact path.
+ *
+ * @param {Record<string, string | boolean>} args
+ * @param {string} key
+ * @returns {Record<string, unknown> | undefined}
+ */
+function readOptionalJsonObject(args, key) {
+  const value = args[key];
+  if (typeof value !== 'string' || value.length === 0 || !fs.existsSync(value)) {
+    return undefined;
+  }
+
+  const parsed = JSON.parse(fs.readFileSync(value, 'utf8'));
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error(`Expected --${key} to point at a JSON object.`);
+  }
+  return parsed;
+}
+
+/**
  * Builds optional raw attachment metadata for provider-owned text captures.
  *
  * @param {Record<string, string | boolean>} args
@@ -190,6 +210,7 @@ function buildNativePerformanceAttachments(args) {
     { arg: 'gfxinfo', kind: 'raw-gfxinfo' },
     { arg: 'framestats', kind: 'raw-framestats' },
     { arg: 'meminfo', kind: 'raw-meminfo' },
+    { arg: 'trace-processor-summary', kind: 'trace-processor-summary' },
     { arg: 'xctrace-summary', kind: 'xctrace-summary' },
     { arg: 'metrickit-summary', kind: 'metrickit-summary' },
   ]) {
@@ -295,6 +316,7 @@ function main() {
       providerId: 'example-evidence-provider',
       runId,
       scenarioId,
+      traceProcessorSummary: readOptionalJsonObject(args, 'trace-processor-summary'),
     }));
     return;
   }
