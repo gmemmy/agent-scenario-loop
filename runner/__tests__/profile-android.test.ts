@@ -415,6 +415,10 @@ test('profile-android classifies preserved native provider evidence as diagnosti
       "  completenessStatus: 'partial',",
       "  targetBinding: { status: 'verified', deviceId: 'emulator-5554', appId: 'dev.agent-scenario-loop.example' },",
       "  comparability: { status: 'diagnostic-only', reason: 'Provider command failed after preserving Android native evidence.' },",
+      "  diagnosticSources: [",
+      "    { sourceId: 'gfxinfo', status: 'partial', dataClasses: ['frames'] },",
+      "    { sourceId: 'meminfo', status: 'captured', dataClasses: ['memory'] }",
+      "  ],",
       "  claimSufficiency: {",
       "    status: 'insufficient-for-claim',",
       "    claim: 'android-native-performance',",
@@ -562,6 +566,13 @@ test('profile-android classifies preserved native provider evidence as diagnosti
   ]);
   assert.deepEqual(partialEvidenceCheck?.metadata?.blockingRequiredKinds.split(','), ['accessibility']);
   assert.deepEqual(partialEvidenceCheck?.metadata?.blockingDiagnosticSufficiency.split(','), ['accessibility:provider-blocked']);
+  assert.equal(partialEvidenceCheck?.metadata?.nativePerformanceClaimSufficiency, 'insufficient-for-claim');
+  assert.equal(partialEvidenceCheck?.metadata?.nativePerformanceComparability, 'diagnostic-only');
+  assert.deepEqual(partialEvidenceCheck?.metadata?.nativePerformanceDiagnosticSources.split(',').sort(), [
+    'gfxinfo:partial',
+    'meminfo:captured',
+  ]);
+  assert.equal(partialEvidenceCheck?.metadata?.nativePerformanceTargetBinding, 'verified');
   assert.equal(partialEvidenceCheck?.metadata?.nextActionCode, 'use_partial_provider_evidence_for_diagnosis');
   assert.ok(
     (health.checks as Array<{ code: string; metadata?: { kind?: string } }>).some(
@@ -576,6 +587,9 @@ test('profile-android classifies preserved native provider evidence as diagnosti
   assert.match(agentSummary, /Captured .*`nativePerformance`.*`profiler`/u);
   assert.match(agentSummary, /Missing required `accessibility`/u);
   assert.match(agentSummary, /Claim sufficiency: `insufficient-for-claim`/u);
+  assert.match(agentSummary, /Native performance claim: `insufficient-for-claim`/u);
+  assert.match(agentSummary, /Native performance target binding: `verified`/u);
+  assert.match(agentSummary, /Native performance sources: .*`gfxinfo:partial`.*`meminfo:captured`/u);
 });
 
 test('profile-android profiles public scenario ids and milestone budgets', async (t: TestContext) => {
