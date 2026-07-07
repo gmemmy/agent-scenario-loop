@@ -2485,7 +2485,17 @@ test('profile-android preserves captured provider evidence when another required
       "  evidenceKind: 'gfxinfo',",
       "  dataClasses: ['frames', 'jank'],",
       "  completenessStatus: 'partial',",
-      "  targetBinding: { status: 'verified', deviceId: 'emulator-5554', appId: 'dev.agent-scenario-loop.example' },",
+      "  targetBinding: {",
+      "    status: 'ambiguous',",
+      "    deviceId: 'emulator-5554',",
+      "    appId: 'dev.agent-scenario-loop.example',",
+      "    source: 'provider',",
+      "    reason: 'Two app runtimes were visible during capture.',",
+      "    candidateTargets: [",
+      "      { bindingStatus: 'expected', source: 'manifest', reason: 'Requested app id matched the provider command.' },",
+      "      { bindingStatus: 'observed', source: 'trace', reason: 'Observed another debuggable runtime in trace metadata.' }",
+      "    ]",
+      "  },",
       "  comparability: { status: 'diagnostic-only', reason: 'Provider command failed after preserving native performance evidence.' },",
       "  frames: { totalFrameCount: 42, droppedFrameCount: 3 }",
       "}) + '\\n');",
@@ -2596,6 +2606,7 @@ test('profile-android preserves captured provider evidence when another required
   const manifest = readJson(path.join(runDir, 'manifest.json'));
   const metrics = readJson(path.join(runDir, 'metrics.json')) as Record<string, any>;
   const health = readJson(path.join(runDir, 'health.json')) as Record<string, any>;
+  const nativePerformance = readJson(nativePerformancePath) as Record<string, any>;
   const verdict = readJson(path.join(runDir, 'verdict.json')) as Record<string, any>;
   const agentSummary = fs.readFileSync(path.join(runDir, 'agent-summary.md'), 'utf8');
   const commandRecord = readJson(path.join(runDir, 'raw', 'provider-commands', 'partial-native-provider-capture-required-diagnostics.json'));
@@ -2616,6 +2627,8 @@ test('profile-android preserves captured provider evidence when another required
   assert.equal(nativePerformanceDiagnostic?.required, true);
   assert.equal(nativePerformanceDiagnostic?.path, 'raw/providers/partial-native-provider/native-performance.json');
   assert.equal(nativePerformanceDiagnostic?.sufficiency?.status, 'diagnostic-only');
+  assert.equal(nativePerformance.targetBinding?.status, 'ambiguous');
+  assert.equal(nativePerformance.targetBinding?.candidateTargets?.length, 2);
   assert.equal(memoryDiagnostic?.status, 'captured');
   assert.equal(memoryDiagnostic?.availability, 'captured');
   assert.equal(memoryDiagnostic?.requested, true);
@@ -2640,13 +2653,16 @@ test('profile-android preserves captured provider evidence when another required
     ),
   );
   assert.ok(
-    (health.checks as Array<{ code: string; metadata?: { capturedKinds?: string; diagnosticOnlyKinds?: string; failedRequiredKinds?: string; nextActionCode?: string } }>).some(
+    (health.checks as Array<{ code: string; metadata?: { capturedKinds?: string; diagnosticOnlyKinds?: string; failedRequiredKinds?: string; nativePerformanceTargetBinding?: string; nativePerformanceTargetBindingDetails?: string; nextActionCode?: string } }>).some(
       (check) => (
         check.code === 'partial_provider_evidence_preserved' &&
         check.metadata?.capturedKinds?.split(',').includes('nativePerformance') &&
         !check.metadata?.capturedKinds?.split(',').includes('memory') &&
         check.metadata?.diagnosticOnlyKinds?.split(',').includes('nativePerformance') &&
         check.metadata?.failedRequiredKinds?.split(',').includes('uiTree') &&
+        check.metadata?.nativePerformanceTargetBinding === 'ambiguous' &&
+        check.metadata?.nativePerformanceTargetBindingDetails?.includes('"candidateBindingStatus":"expected"') &&
+        check.metadata?.nativePerformanceTargetBindingDetails?.includes('"candidateBindingStatus":"observed"') &&
         check.metadata?.nextActionCode === 'use_partial_provider_evidence_for_diagnosis'
       ),
     ),

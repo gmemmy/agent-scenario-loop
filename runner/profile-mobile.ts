@@ -2439,6 +2439,7 @@ type NativePerformanceEvidenceSummary = {
   comparability: string[];
   diagnosticSources: string[];
   targetBinding: string[];
+  targetBindingDetails: string[];
 };
 
 function formatNativePerformanceSourceStatuses(evidence: Record<string, unknown>): string[] {
@@ -2459,6 +2460,58 @@ function formatNativePerformanceSourceStatuses(evidence: Record<string, unknown>
   }));
 }
 
+type NativePerformanceTargetBindingDetailMetadata = {
+  candidateBindingStatus?: string;
+  reason?: string;
+  source?: string;
+  status: string;
+};
+
+function readNativePerformanceTargetBindingDetails(
+  evidence: Record<string, unknown>,
+): NativePerformanceTargetBindingDetailMetadata[] {
+  const targetBinding = readRecordValue(evidence.targetBinding);
+  const status = readTrimmedString(targetBinding?.status);
+  if (!targetBinding || !status) {
+    return [];
+  }
+
+  const source = readTrimmedString(targetBinding.source);
+  const reason = readTrimmedString(targetBinding.reason);
+  const candidates = Array.isArray(targetBinding.candidateTargets) ? targetBinding.candidateTargets : [];
+  const candidateDetails = candidates
+    .map((candidate): NativePerformanceTargetBindingDetailMetadata | null => {
+      const candidateRecord = readRecordValue(candidate);
+      const candidateBindingStatus = readTrimmedString(candidateRecord?.bindingStatus);
+      if (!candidateRecord || !candidateBindingStatus) {
+        return null;
+      }
+      const candidateReason = readTrimmedString(candidateRecord.reason) ?? reason;
+      const candidateSource = readTrimmedString(candidateRecord.source) ?? source;
+      return {
+        candidateBindingStatus,
+        ...(candidateReason ? { reason: candidateReason } : {}),
+        ...(candidateSource ? { source: candidateSource } : {}),
+        status,
+      };
+    })
+    .filter((detail): detail is NativePerformanceTargetBindingDetailMetadata => detail !== null);
+
+  if (candidateDetails.length > 0) {
+    return candidateDetails;
+  }
+
+  return [{
+    ...(reason ? { reason } : {}),
+    ...(source ? { source } : {}),
+    status,
+  }];
+}
+
+function formatNativePerformanceTargetBindingDetails(evidence: Record<string, unknown>): string[] {
+  return readNativePerformanceTargetBindingDetails(evidence).map((detail) => JSON.stringify(detail));
+}
+
 function summarizeNativePerformanceEvidence(
   attachments: EvidenceAttachment[],
   failedProviderIds: Set<string>,
@@ -2468,6 +2521,7 @@ function summarizeNativePerformanceEvidence(
   const comparability: string[] = [];
   const diagnosticSources: string[] = [];
   const targetBinding: string[] = [];
+  const targetBindingDetails: string[] = [];
 
   for (const attachment of attachments) {
     if (
@@ -2487,6 +2541,7 @@ function summarizeNativePerformanceEvidence(
     completenessStatus.push(readTrimmedString(evidence.completenessStatus) ?? '');
     comparability.push(readTrimmedString(readRecordValue(evidence.comparability)?.status) ?? '');
     targetBinding.push(readTrimmedString(readRecordValue(evidence.targetBinding)?.status) ?? '');
+    targetBindingDetails.push(...formatNativePerformanceTargetBindingDetails(evidence));
     diagnosticSources.push(...formatNativePerformanceSourceStatuses(evidence));
   }
 
@@ -2496,6 +2551,7 @@ function summarizeNativePerformanceEvidence(
     comparability: uniqueStrings(comparability),
     diagnosticSources: uniqueStrings(diagnosticSources),
     targetBinding: uniqueStrings(targetBinding),
+    targetBindingDetails: uniqueStrings(targetBindingDetails),
   };
 }
 
@@ -2559,6 +2615,9 @@ function buildPartialProviderEvidenceHealthChecks(
         ...(nativePerformanceSummary.comparability.length > 0 ? { nativePerformanceComparability: nativePerformanceSummary.comparability.join(',') } : {}),
         ...(nativePerformanceSummary.diagnosticSources.length > 0 ? { nativePerformanceDiagnosticSources: nativePerformanceSummary.diagnosticSources.join(',') } : {}),
         ...(nativePerformanceSummary.targetBinding.length > 0 ? { nativePerformanceTargetBinding: nativePerformanceSummary.targetBinding.join(',') } : {}),
+        ...(nativePerformanceSummary.targetBindingDetails.length > 0
+          ? { nativePerformanceTargetBindingDetails: `[${nativePerformanceSummary.targetBindingDetails.join(',')}]` }
+          : {}),
         nextAction: 'Use preserved diagnostics for investigation only; rerun or fix missing required provider outputs before making product claims.',
         nextActionCode: 'use_partial_provider_evidence_for_diagnosis',
         nextActionOwner: 'provider_tooling',

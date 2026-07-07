@@ -65,12 +65,20 @@ type LiveProofNativePerformanceSourceEntry = {
   status: string;
 };
 
+type LiveProofNativePerformanceTargetBindingDetail = {
+  candidateBindingStatus?: string;
+  reason?: string;
+  source?: string;
+  status: string;
+};
+
 type LiveProofNativePerformanceDiagnosticSummary = {
   claimSufficiency?: string;
   completenessStatus?: string;
   comparability?: string;
   diagnosticSources?: LiveProofNativePerformanceSourceEntry[];
   targetBinding?: string;
+  targetBindingDetails?: LiveProofNativePerformanceTargetBindingDetail[];
 };
 
 type LiveProofNativePerformanceCount = {
@@ -80,6 +88,10 @@ type LiveProofNativePerformanceCount = {
 
 type LiveProofNativePerformanceSourceCount = LiveProofNativePerformanceCount & {
   sourceId: string;
+};
+
+type LiveProofNativePerformanceTargetBindingDetailCount = LiveProofNativePerformanceTargetBindingDetail & {
+  count: number;
 };
 
 type LiveProofProfileGateNextAction = {
@@ -96,6 +108,7 @@ type LiveProofProfileNativePerformanceRollup = {
   evidenceCount: number;
   profileCount: number;
   targetBindingCounts?: LiveProofNativePerformanceCount[];
+  targetBindingDetailCounts?: LiveProofNativePerformanceTargetBindingDetailCount[];
 };
 
 type LiveProofProfileGateDiagnostics = {
@@ -478,6 +491,127 @@ function incrementSourceCount(
   counts.set(key, (counts.get(key) ?? 0) + 1);
 }
 
+function targetBindingDetailKey(detail: LiveProofNativePerformanceTargetBindingDetail): string {
+  return JSON.stringify({
+    candidateBindingStatus: detail.candidateBindingStatus ?? '',
+    reason: detail.reason ?? '',
+    source: detail.source ?? '',
+    status: detail.status,
+  });
+}
+
+function incrementTargetBindingDetailCount(
+  counts: Map<string, LiveProofNativePerformanceTargetBindingDetailCount>,
+  detail: LiveProofNativePerformanceTargetBindingDetail,
+): void {
+  const key = targetBindingDetailKey(detail);
+  const existing = counts.get(key);
+  if (existing) {
+    existing.count += 1;
+    return;
+  }
+  counts.set(key, {
+    ...detail,
+    count: 1,
+  });
+}
+
+function readNativePerformanceTargetBindingDetails(
+  evidence: Record<string, unknown>,
+): LiveProofNativePerformanceTargetBindingDetail[] {
+  const targetBinding = readObject(evidence.targetBinding);
+  const status = targetBinding ? readStringField(targetBinding, 'status') : undefined;
+  if (!targetBinding || !status) {
+    return [];
+  }
+
+  const source = readStringField(targetBinding, 'source');
+  const reason = readStringField(targetBinding, 'reason');
+  const candidates = Array.isArray(targetBinding.candidateTargets) ? targetBinding.candidateTargets : [];
+  const candidateDetails = candidates
+    .map((candidate): LiveProofNativePerformanceTargetBindingDetail | null => {
+      const candidateRecord = readObject(candidate);
+      const candidateBindingStatus = candidateRecord
+        ? readStringField(candidateRecord, 'bindingStatus')
+        : undefined;
+      if (!candidateRecord || !candidateBindingStatus) {
+        return null;
+      }
+      const candidateReason = readStringField(candidateRecord, 'reason') ?? reason;
+      const candidateSource = readStringField(candidateRecord, 'source') ?? source;
+
+      return {
+        candidateBindingStatus,
+        ...(candidateReason ? { reason: candidateReason } : {}),
+        ...(candidateSource ? { source: candidateSource } : {}),
+        status,
+      };
+    })
+    .filter((detail): detail is LiveProofNativePerformanceTargetBindingDetail => detail !== null);
+
+  if (candidateDetails.length > 0) {
+    return candidateDetails;
+  }
+
+  return [{
+    ...(reason ? { reason } : {}),
+    ...(source ? { source } : {}),
+    status,
+  }];
+}
+
+function parseNativePerformanceTargetBindingDetails(
+  value: unknown,
+): LiveProofNativePerformanceTargetBindingDetail[] {
+  if (typeof value !== 'string' || value.length === 0) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(value);
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+    return parsed
+      .map((entry): LiveProofNativePerformanceTargetBindingDetail | null => {
+        const record = readObject(entry);
+      const status = record ? readStringField(record, 'status') : undefined;
+      if (!record || !status) {
+        return null;
+      }
+      const candidateBindingStatus = readStringField(record, 'candidateBindingStatus');
+      const reason = readStringField(record, 'reason');
+      const source = readStringField(record, 'source');
+      return {
+        ...(candidateBindingStatus ? { candidateBindingStatus } : {}),
+        ...(reason ? { reason } : {}),
+        ...(source ? { source } : {}),
+        status,
+      };
+      })
+      .filter((entry): entry is LiveProofNativePerformanceTargetBindingDetail => entry !== null);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Converts target-binding detail counts to stable artifact order.
+ *
+ * @param {Map<string, LiveProofNativePerformanceTargetBindingDetailCount>} counts
+ * @returns {LiveProofNativePerformanceTargetBindingDetailCount[]}
+ */
+function formatTargetBindingDetailCounts(
+  counts: Map<string, LiveProofNativePerformanceTargetBindingDetailCount>,
+): LiveProofNativePerformanceTargetBindingDetailCount[] {
+  return [...counts.values()].sort((left, right) => (
+    left.status.localeCompare(right.status) ||
+    (left.candidateBindingStatus ?? '').localeCompare(right.candidateBindingStatus ?? '') ||
+    (left.source ?? '').localeCompare(right.source ?? '') ||
+    (left.reason ?? '').localeCompare(right.reason ?? '')
+  ));
+}
+
 /**
  * Converts status counts to a stable artifact array.
  *
@@ -521,6 +655,7 @@ function buildProfileNativePerformanceRollup(
   const comparabilityCounts = new Map<string, number>();
   const diagnosticSourceCounts = new Map<string, number>();
   const targetBindingCounts = new Map<string, number>();
+  const targetBindingDetailCounts = new Map<string, LiveProofNativePerformanceTargetBindingDetailCount>();
   let evidenceCount = 0;
   let profileCount = 0;
 
@@ -538,6 +673,9 @@ function buildProfileNativePerformanceRollup(
       incrementStatusCount(completenessStatusCounts, evidence.completenessStatus);
       incrementStatusCount(comparabilityCounts, readObject(evidence.comparability)?.status);
       incrementStatusCount(targetBindingCounts, readObject(evidence.targetBinding)?.status);
+      for (const detail of readNativePerformanceTargetBindingDetails(evidence)) {
+        incrementTargetBindingDetailCount(targetBindingDetailCounts, detail);
+      }
       const sources = Array.isArray(evidence.diagnosticSources) ? evidence.diagnosticSources : [];
       for (const source of sources) {
         const sourceRecord = readObject(source);
@@ -563,6 +701,7 @@ function buildProfileNativePerformanceRollup(
   const completenessCounts = formatStatusCounts(completenessStatusCounts);
   const comparableCounts = formatStatusCounts(comparabilityCounts);
   const targetCounts = formatStatusCounts(targetBindingCounts);
+  const targetDetailCounts = formatTargetBindingDetailCounts(targetBindingDetailCounts);
   return {
     ...(claimCounts.length > 0 ? { claimSufficiencyCounts: claimCounts } : {}),
     ...(completenessCounts.length > 0 ? { completenessStatusCounts: completenessCounts } : {}),
@@ -571,6 +710,7 @@ function buildProfileNativePerformanceRollup(
     evidenceCount,
     profileCount,
     ...(targetCounts.length > 0 ? { targetBindingCounts: targetCounts } : {}),
+    ...(targetDetailCounts.length > 0 ? { targetBindingDetailCounts: targetDetailCounts } : {}),
   };
 }
 
@@ -842,6 +982,7 @@ function buildNativePerformanceDiagnosticSummary(
   metadata: Record<string, unknown>,
 ): LiveProofNativePerformanceDiagnosticSummary | null {
   const diagnosticSources = parseNativePerformanceSources(metadata.nativePerformanceDiagnosticSources);
+  const targetBindingDetails = parseNativePerformanceTargetBindingDetails(metadata.nativePerformanceTargetBindingDetails);
   const summary = {
     ...(typeof metadata.nativePerformanceClaimSufficiency === 'string'
       ? { claimSufficiency: metadata.nativePerformanceClaimSufficiency }
@@ -856,6 +997,7 @@ function buildNativePerformanceDiagnosticSummary(
     ...(typeof metadata.nativePerformanceTargetBinding === 'string'
       ? { targetBinding: metadata.nativePerformanceTargetBinding }
       : {}),
+    ...(targetBindingDetails.length > 0 ? { targetBindingDetails } : {}),
   };
   return Object.keys(summary).length > 0 ? summary : null;
 }
@@ -1378,6 +1520,30 @@ function formatNativePerformanceSources(entries: LiveProofNativePerformanceSourc
 }
 
 /**
+ * Formats target-binding detail entries for aggregate markdown.
+ *
+ * @param {LiveProofNativePerformanceTargetBindingDetail[]} entries
+ * @returns {string}
+ */
+function formatNativePerformanceTargetBindingDetails(
+  entries: LiveProofNativePerformanceTargetBindingDetail[],
+): string {
+  return entries.map((entry) => {
+    const parts = [entry.status];
+    if (entry.candidateBindingStatus) {
+      parts.push(`candidate=${entry.candidateBindingStatus}`);
+    }
+    if (entry.source) {
+      parts.push(`source=${entry.source}`);
+    }
+    if (entry.reason) {
+      parts.push(`reason=${entry.reason}`);
+    }
+    return parts.join(':');
+  }).join(', ');
+}
+
+/**
  * Formats skipped-proof profile-gate diagnostics for aggregate markdown.
  *
  * @param {LiveProofProfileGateDiagnostics | undefined} diagnostics
@@ -1408,6 +1574,9 @@ function formatProfileGateDiagnostics(diagnostics: LiveProofProfileGateDiagnosti
       nativePerformance.completenessStatus ? `completeness=${nativePerformance.completenessStatus}` : '',
       nativePerformance.comparability ? `comparability=${nativePerformance.comparability}` : '',
       nativePerformance.targetBinding ? `target=${nativePerformance.targetBinding}` : '',
+      nativePerformance.targetBindingDetails?.length
+        ? `targetDetails=${formatNativePerformanceTargetBindingDetails(nativePerformance.targetBindingDetails)}`
+        : '',
       nativePerformance.diagnosticSources?.length
         ? `sources=${formatNativePerformanceSources(nativePerformance.diagnosticSources)}`
         : '',
@@ -1499,6 +1668,30 @@ function formatNativePerformanceSourceCounts(counts: LiveProofNativePerformanceS
 }
 
 /**
+ * Formats aggregate target-binding detail counts for markdown.
+ *
+ * @param {LiveProofNativePerformanceTargetBindingDetailCount[]} counts
+ * @returns {string}
+ */
+function formatNativePerformanceTargetBindingDetailCounts(
+  counts: LiveProofNativePerformanceTargetBindingDetailCount[],
+): string {
+  return counts.map((entry) => {
+    const parts = [entry.status];
+    if (entry.candidateBindingStatus) {
+      parts.push(`candidate=${entry.candidateBindingStatus}`);
+    }
+    if (entry.source) {
+      parts.push(`source=${entry.source}`);
+    }
+    if (entry.reason) {
+      parts.push(`reason=${entry.reason}`);
+    }
+    return `${parts.join(':')}=${entry.count}`;
+  }).join(', ');
+}
+
+/**
  * Formats aggregate profile native-performance context for markdown.
  *
  * @param {LiveProofProfileNativePerformanceRollup | undefined} rollup
@@ -1529,6 +1722,9 @@ function formatProfileNativePerformanceRollup(
   }
   if (rollup.targetBindingCounts?.length) {
     details.push(`target=${formatNativePerformanceStatusCounts(rollup.targetBindingCounts)}`);
+  }
+  if (rollup.targetBindingDetailCounts?.length) {
+    details.push(`targetDetails=${formatNativePerformanceTargetBindingDetailCounts(rollup.targetBindingDetailCounts)}`);
   }
 
   return [
