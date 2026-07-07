@@ -2561,6 +2561,7 @@ function buildPartialProviderEvidenceHealthChecks(
         ...(nativePerformanceSummary.targetBinding.length > 0 ? { nativePerformanceTargetBinding: nativePerformanceSummary.targetBinding.join(',') } : {}),
         nextAction: 'Use preserved diagnostics for investigation only; rerun or fix missing required provider outputs before making product claims.',
         nextActionCode: 'use_partial_provider_evidence_for_diagnosis',
+        nextActionOwner: 'provider_tooling',
       },
     },
   ];

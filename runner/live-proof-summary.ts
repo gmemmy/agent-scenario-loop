@@ -82,6 +82,12 @@ type LiveProofNativePerformanceSourceCount = LiveProofNativePerformanceCount & {
   sourceId: string;
 };
 
+type LiveProofProfileGateNextAction = {
+  code: string;
+  owner?: LiveProofNextActionOwner;
+  summary: string;
+};
+
 type LiveProofProfileNativePerformanceRollup = {
   claimSufficiencyCounts?: LiveProofNativePerformanceCount[];
   completenessStatusCounts?: LiveProofNativePerformanceCount[];
@@ -96,6 +102,7 @@ type LiveProofProfileGateDiagnostics = {
   blockingDiagnosticSufficiency?: LiveProofDiagnosticSufficiencyEntry[];
   capturedDiagnosticSufficiency?: LiveProofDiagnosticSufficiencyEntry[];
   nativePerformance?: LiveProofNativePerformanceDiagnosticSummary;
+  providerEvidenceNextAction?: LiveProofProfileGateNextAction;
   requestedDiagnosticInventory?: LiveProofRequestedDiagnosticInventoryEntry[];
 };
 
@@ -622,10 +629,12 @@ function readProfileGateDiagnosticSummary(runDir: string): LiveProofProfileGateD
     const capturedDiagnosticSufficiency = parseDiagnosticSufficiencyList(metadata.capturedDiagnosticSufficiency);
     const blockingDiagnosticSufficiency = parseDiagnosticSufficiencyList(metadata.blockingDiagnosticSufficiency);
     const nativePerformance = buildNativePerformanceDiagnosticSummary(metadata);
+    const providerEvidenceNextAction = buildProviderEvidenceNextAction(metadata);
     const summary = {
       ...(capturedDiagnosticSufficiency.length > 0 ? { capturedDiagnosticSufficiency } : {}),
       ...(blockingDiagnosticSufficiency.length > 0 ? { blockingDiagnosticSufficiency } : {}),
       ...(nativePerformance ? { nativePerformance } : {}),
+      ...(providerEvidenceNextAction ? { providerEvidenceNextAction } : {}),
       ...(requestedDiagnosticInventory.length > 0 ? { requestedDiagnosticInventory } : {}),
     };
     return Object.keys(summary).length > 0 ? summary : null;
@@ -776,6 +785,34 @@ function parseNativePerformanceSources(value: unknown): LiveProofNativePerforman
     sourceId: entry.kind,
     status: entry.status,
   }));
+}
+
+/**
+ * Builds the provider evidence next-action hint from partial-provider health metadata.
+ *
+ * @param {Record<string, unknown>} metadata
+ * @returns {LiveProofProfileGateNextAction | null}
+ */
+function buildProviderEvidenceNextAction(
+  metadata: Record<string, unknown>,
+): LiveProofProfileGateNextAction | null {
+  if (
+    typeof metadata.nextActionCode !== 'string' ||
+    metadata.nextActionCode.length === 0 ||
+    typeof metadata.nextAction !== 'string' ||
+    metadata.nextAction.length === 0
+  ) {
+    return null;
+  }
+
+  const owner = isLiveProofNextActionOwner(metadata.nextActionOwner)
+    ? metadata.nextActionOwner
+    : 'provider_tooling';
+  return {
+    code: metadata.nextActionCode,
+    owner,
+    summary: metadata.nextAction,
+  };
 }
 
 /**
@@ -1343,6 +1380,9 @@ function formatProfileGateDiagnostics(diagnostics: LiveProofProfileGateDiagnosti
   }
   if (diagnostics.requestedDiagnosticInventory?.length) {
     parts.push(`requested=${formatRequestedDiagnosticInventoryEntries(diagnostics.requestedDiagnosticInventory)}`);
+  }
+  if (diagnostics.providerEvidenceNextAction) {
+    parts.push(`providerNextAction=${formatLiveProofNextAction(diagnostics.providerEvidenceNextAction)}`);
   }
   const nativePerformance = diagnostics.nativePerformance;
   if (nativePerformance) {

@@ -61,6 +61,12 @@
     "proofFailureNativePerformance": {
       "$ref": "#/$defs/proofFailureNativePerformance"
     },
+    "profileGateProviderEvidenceNextActions": {
+      "$ref": "#/$defs/profileGateProviderEvidenceNextActions"
+    },
+    "proofFailureProviderEvidenceNextActions": {
+      "$ref": "#/$defs/proofFailureProviderEvidenceNextActions"
+    },
     "proofFailureRequestedDiagnostics": {
       "$ref": "#/$defs/proofFailureRequestedDiagnostics"
     },
@@ -848,6 +854,46 @@
         }
       }
     },
+    "profileGateProviderEvidenceNextActions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["skippedInteractionProofCount", "nextActionCounts"],
+      "properties": {
+        "skippedInteractionProofCount": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "nextActionCounts": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/skippedInteractionProofNextActionCount"
+          }
+        }
+      }
+    },
+    "proofFailureProviderEvidenceNextActions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["failedProofCount", "skippedInteractionProofCount", "nextActionCounts"],
+      "properties": {
+        "failedProofCount": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "skippedInteractionProofCount": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "nextActionCounts": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/proofFailureNextActionCount"
+          }
+        }
+      }
+    },
     "interactionWarningNextActions": {
       "type": "object",
       "additionalProperties": false,
@@ -913,6 +959,9 @@
           "items": {
             "$ref": "#/$defs/requestedDiagnosticInventoryEntry"
           }
+        },
+        "providerEvidenceNextAction": {
+          "$ref": "#/$defs/nextAction"
         },
         "nativePerformance": {
           "$ref": "#/$defs/nativePerformanceProfileGateDiagnostics"

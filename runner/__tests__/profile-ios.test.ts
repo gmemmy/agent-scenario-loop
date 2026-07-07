@@ -375,6 +375,7 @@ test('profile-ios preserves captured provider evidence when another required out
       diagnosticOnlyKinds?: string;
       failedRequiredKinds?: string;
       nextActionCode?: string;
+      nextActionOwner?: string;
     } }>).some(
       (check) => (
         check.code === 'partial_provider_evidence_preserved' &&
@@ -391,7 +392,8 @@ test('profile-ios preserves captured provider evidence when another required out
         check.metadata?.diagnosticOnlyKinds?.split(',').includes('nativePerformance') &&
         check.metadata?.blockingRequiredKinds?.split(',').includes('accessibility') &&
         check.metadata?.blockingDiagnosticSufficiency?.split(',').includes('accessibility:provider-blocked') &&
-        check.metadata?.nextActionCode === 'use_partial_provider_evidence_for_diagnosis'
+        check.metadata?.nextActionCode === 'use_partial_provider_evidence_for_diagnosis' &&
+        check.metadata?.nextActionOwner === 'provider_tooling'
       ),
     ),
   );
