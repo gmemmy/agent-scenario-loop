@@ -195,6 +195,66 @@ function formatPreservedDiagnosticEvidence(checks: unknown[]): string[] {
 }
 
 /**
+ * Formats optional diagnostic sufficiency qualifiers.
+ *
+ * @param {SummaryRecord} diagnostic
+ * @returns {string}
+ */
+function formatDiagnosticSufficiencyQualifiers(diagnostic: SummaryRecord): string {
+  const qualifiers: string[] = [];
+  if (diagnostic.required === true) {
+    qualifiers.push('required');
+  } else {
+    qualifiers.push('optional');
+  }
+
+  const provider = firstString([diagnostic.provider], '');
+  if (provider) {
+    qualifiers.push(`provider=${code(provider)}`);
+  }
+
+  const path = firstString([diagnostic.path], '');
+  if (path) {
+    qualifiers.push(`path=${code(path)}`);
+  }
+
+  return qualifiers.join(', ');
+}
+
+/**
+ * Formats per-diagnostic evidence interpretation from the manifest inventory.
+ *
+ * @param {SummaryRecord | null | undefined} manifest
+ * @returns {string[]}
+ */
+function formatDiagnosticSufficiency(manifest: SummaryRecord | null | undefined): string[] {
+  const artifacts = asSummaryRecord(manifest?.artifacts);
+  const diagnostics = asArray(artifacts.diagnostics)
+    .map((diagnostic) => asSummaryRecord(diagnostic))
+    .filter((diagnostic) => {
+      const sufficiency = asSummaryRecord(diagnostic.sufficiency);
+      return firstString([diagnostic.kind], '').length > 0 &&
+        firstString([sufficiency.status], '').length > 0;
+    });
+
+  if (diagnostics.length === 0) {
+    return [];
+  }
+
+  const lines = ['', '## diagnostic sufficiency', ''];
+  for (const diagnostic of diagnostics) {
+    const sufficiency = asSummaryRecord(diagnostic.sufficiency);
+    const kind = firstString([diagnostic.kind], 'unknown');
+    const status = firstString([sufficiency.status], 'unknown');
+    const reason = firstString([sufficiency.reason, diagnostic.reason], 'No reason recorded.');
+    const qualifiers = formatDiagnosticSufficiencyQualifiers(diagnostic);
+    lines.push(`- ${code(kind)}: ${code(status)} (${qualifiers}) - ${reason}`);
+  }
+
+  return lines;
+}
+
+/**
  * Returns health checks whose status matches one of the requested values.
  *
  * @param {unknown[]} checks
@@ -636,6 +696,8 @@ function buildAgentSummaryMarkdown({ health, verdict, comparison = null, manifes
   if (preservedDiagnosticEvidence.length > 0) {
     lines.push('', '## preserved diagnostic evidence', '', ...preservedDiagnosticEvidence);
   }
+
+  lines.push(...formatDiagnosticSufficiency(manifest));
 
   const failedBudgets = formatFailedBudgets(budgetChecks);
   if (failedBudgets.length > 0) {
