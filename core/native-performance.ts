@@ -231,6 +231,8 @@ type IosNativePerformanceEvidenceInput = {
   xctraceSummary?: IosNativePerformanceSummaryInput;
 };
 
+type IosNativePerformanceTextSummary = IosNativePerformanceSummaryInput;
+
 type IosNativePerformanceSummary = {
   frames: JsonRecord;
   memory: JsonRecord;
@@ -276,6 +278,69 @@ function parsePercentToken(value: string | undefined): number | undefined {
 }
 
 /**
+ * Reads a finite number token that may contain thousands separators.
+ *
+ * @param {string | undefined} value
+ * @returns {number | undefined}
+ */
+function parseNumberToken(value: string | undefined): number | undefined {
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+
+  const parsed = Number(value.replace(/,/gu, ''));
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+/**
+ * Converts a duration token into milliseconds.
+ *
+ * @param {string | undefined} value
+ * @param {string | undefined} unit
+ * @returns {number | undefined}
+ */
+function parseDurationMsToken(value: string | undefined, unit: string | undefined): number | undefined {
+  const parsed = parseNumberToken(value);
+  if (typeof parsed !== 'number') {
+    return undefined;
+  }
+
+  const normalizedUnit = unit?.toLowerCase();
+  if (normalizedUnit === 's' || normalizedUnit === 'sec' || normalizedUnit === 'secs' || normalizedUnit === 'second' || normalizedUnit === 'seconds') {
+    return parsed * 1000;
+  }
+
+  return parsed;
+}
+
+/**
+ * Converts a memory-size token into bytes.
+ *
+ * @param {string | undefined} value
+ * @param {string | undefined} unit
+ * @returns {number | undefined}
+ */
+function parseBytesToken(value: string | undefined, unit: string | undefined): number | undefined {
+  const parsed = parseNumberToken(value);
+  if (typeof parsed !== 'number') {
+    return undefined;
+  }
+
+  const normalizedUnit = unit?.toLowerCase();
+  if (normalizedUnit === 'kb' || normalizedUnit === 'kib') {
+    return Math.round(parsed * 1024);
+  }
+  if (normalizedUnit === 'mb' || normalizedUnit === 'mib') {
+    return Math.round(parsed * 1024 * 1024);
+  }
+  if (normalizedUnit === 'gb' || normalizedUnit === 'gib') {
+    return Math.round(parsed * 1024 * 1024 * 1024);
+  }
+
+  return Math.round(parsed);
+}
+
+/**
  * Finds the first integer that matches any supplied pattern.
  *
  * @param {string} text
@@ -288,6 +353,82 @@ function firstIntegerMatch(text: string, patterns: RegExp[]): number | undefined
     const parsed = parseIntegerToken(match?.[1]);
     if (typeof parsed === 'number') {
       return parsed;
+    }
+  }
+
+  return undefined;
+}
+
+/**
+ * Finds the first finite number that matches any supplied pattern.
+ *
+ * @param {string} text
+ * @param {RegExp[]} patterns
+ * @returns {number | undefined}
+ */
+function firstNumberMatch(text: string, patterns: RegExp[]): number | undefined {
+  for (const pattern of patterns) {
+    const match = pattern.exec(text);
+    const parsed = parseNumberToken(match?.[1]);
+    if (typeof parsed === 'number') {
+      return parsed;
+    }
+  }
+
+  return undefined;
+}
+
+/**
+ * Finds the first duration value and returns it in milliseconds.
+ *
+ * @param {string} text
+ * @param {RegExp[]} patterns
+ * @returns {number | undefined}
+ */
+function firstDurationMsMatch(text: string, patterns: RegExp[]): number | undefined {
+  for (const pattern of patterns) {
+    const match = pattern.exec(text);
+    const parsed = parseDurationMsToken(match?.[1], match?.[2]);
+    if (typeof parsed === 'number') {
+      return parsed;
+    }
+  }
+
+  return undefined;
+}
+
+/**
+ * Finds the first memory-size value and returns it in bytes.
+ *
+ * @param {string} text
+ * @param {RegExp[]} patterns
+ * @returns {number | undefined}
+ */
+function firstBytesMatch(text: string, patterns: RegExp[]): number | undefined {
+  for (const pattern of patterns) {
+    const match = pattern.exec(text);
+    const parsed = parseBytesToken(match?.[1], match?.[2]);
+    if (typeof parsed === 'number') {
+      return parsed;
+    }
+  }
+
+  return undefined;
+}
+
+/**
+ * Finds the first string capture that matches any supplied pattern.
+ *
+ * @param {string} text
+ * @param {RegExp[]} patterns
+ * @returns {string | undefined}
+ */
+function firstStringMatch(text: string, patterns: RegExp[]): string | undefined {
+  for (const pattern of patterns) {
+    const match = pattern.exec(text);
+    const value = match?.[1];
+    if (isNonEmptyString(value)) {
+      return value;
     }
   }
 
@@ -428,6 +569,118 @@ function parseAndroidMeminfoSummary(text: string): AndroidMeminfoSummary {
   setDefined(summary, 'webViews', firstIntegerMatch(text, [/\bWebViews:\s*([\d,]+)/iu]));
 
   return summary as AndroidMeminfoSummary;
+}
+
+/**
+ * Parses common xctrace or Instruments exported summary text into iOS native-performance fields.
+ *
+ * Capture/export ownership stays with the provider; this helper only normalizes
+ * scalar fields that are already present in a bounded summary.
+ *
+ * @param {string} text
+ * @returns {IosNativePerformanceTextSummary}
+ */
+function parseIosXctraceSummaryText(text: string): IosNativePerformanceTextSummary {
+  const summary: JsonRecord = {};
+
+  setDefined(summary, 'traceId', firstStringMatch(text, [
+    /\btrace(?:Id| ID)?\s*[:=]\s*([A-Za-z0-9._:-]+)/iu,
+    /\brun(?:Id| ID)?\s*[:=]\s*([A-Za-z0-9._:-]+)/iu,
+  ]));
+  setDefined(summary, 'durationMs', firstDurationMsMatch(text, [
+    /\bduration\s*[:=]\s*([\d,.]+)\s*(ms|s|sec|secs|seconds?)\b/iu,
+    /\btrace window\s*[:=]\s*([\d,.]+)\s*(ms|s|sec|secs|seconds?)\b/iu,
+  ]));
+  setDefined(summary, 'windowStartMs', firstDurationMsMatch(text, [
+    /\bwindow start\s*[:=]\s*([\d,.]+)\s*(ms|s|sec|secs|seconds?)\b/iu,
+  ]));
+  setDefined(summary, 'windowEndMs', firstDurationMsMatch(text, [
+    /\bwindow end\s*[:=]\s*([\d,.]+)\s*(ms|s|sec|secs|seconds?)\b/iu,
+  ]));
+  setDefined(summary, 'cpuMs', firstDurationMsMatch(text, [
+    /\bcpu(?: time)?\s*[:=]\s*([\d,.]+)\s*(ms|s|sec|secs|seconds?)\b/iu,
+  ]));
+  setDefined(summary, 'mainThreadCpuMs', firstDurationMsMatch(text, [
+    /\bmain thread cpu(?: time)?\s*[:=]\s*([\d,.]+)\s*(ms|s|sec|secs|seconds?)\b/iu,
+  ]));
+  setDefined(summary, 'threadSchedulingDelayMs', firstDurationMsMatch(text, [
+    /\bthread scheduling delay\s*[:=]\s*([\d,.]+)\s*(ms|s|sec|secs|seconds?)\b/iu,
+    /\bscheduling delay\s*[:=]\s*([\d,.]+)\s*(ms|s|sec|secs|seconds?)\b/iu,
+  ]));
+  setDefined(summary, 'frameCount', firstNumberMatch(text, [
+    /\bframes?(?: count)?\s*[:=]\s*([\d,.]+)/iu,
+  ]));
+  setDefined(summary, 'jankyFrameCount', firstNumberMatch(text, [
+    /\bjanky frames?\s*[:=]\s*([\d,.]+)/iu,
+  ]));
+  setDefined(summary, 'hitchCount', firstNumberMatch(text, [
+    /\bhitches?\s*[:=]\s*([\d,.]+)/iu,
+    /\bhitch count\s*[:=]\s*([\d,.]+)/iu,
+  ]));
+  setDefined(summary, 'averageFrameMs', firstDurationMsMatch(text, [
+    /\baverage frame(?: time)?\s*[:=]\s*([\d,.]+)\s*(ms|s|sec|secs|seconds?)\b/iu,
+  ]));
+  setDefined(summary, 'p95FrameMs', firstDurationMsMatch(text, [
+    /\bp95(?: frame)?\s*[:=]\s*([\d,.]+)\s*(ms|s|sec|secs|seconds?)\b/iu,
+    /\b95th percentile(?: frame)?\s*[:=]\s*([\d,.]+)\s*(ms|s|sec|secs|seconds?)\b/iu,
+  ]));
+  setDefined(summary, 'worstFrameMs', firstDurationMsMatch(text, [
+    /\bworst frame(?: time)?\s*[:=]\s*([\d,.]+)\s*(ms|s|sec|secs|seconds?)\b/iu,
+  ]));
+  setDefined(summary, 'residentSizeBytes', firstBytesMatch(text, [
+    /\bresident(?: size)?\s*[:=]\s*([\d,.]+)\s*(bytes?|kb|kib|mb|mib|gb|gib)\b/iu,
+  ]));
+  setDefined(summary, 'physicalFootprintBytes', firstBytesMatch(text, [
+    /\bphysical footprint\s*[:=]\s*([\d,.]+)\s*(bytes?|kb|kib|mb|mib|gb|gib)\b/iu,
+  ]));
+  setDefined(summary, 'memoryPeakBytes', firstBytesMatch(text, [
+    /\b(?:peak memory|memory peak)\s*[:=]\s*([\d,.]+)\s*(bytes?|kb|kib|mb|mib|gb|gib)\b/iu,
+  ]));
+
+  return summary as IosNativePerformanceTextSummary;
+}
+
+/**
+ * Parses common MetricKit payload summaries into iOS native-performance fields.
+ *
+ * @param {string} text
+ * @returns {IosNativePerformanceTextSummary}
+ */
+function parseIosMetricKitSummaryText(text: string): IosNativePerformanceTextSummary {
+  const summary: JsonRecord = {};
+
+  setDefined(summary, 'hitchCount', firstNumberMatch(text, [
+    /\bhitches?\s*[:=]\s*([\d,.]+)/iu,
+    /\bscroll hitch(?:es)?\s*[:=]\s*([\d,.]+)/iu,
+  ]));
+  setDefined(summary, 'jankyFrameCount', firstNumberMatch(text, [
+    /\bjanky frames?\s*[:=]\s*([\d,.]+)/iu,
+    /\bdropped frames?\s*[:=]\s*([\d,.]+)/iu,
+  ]));
+  setDefined(summary, 'p95FrameMs', firstDurationMsMatch(text, [
+    /\bp95(?: frame)?\s*[:=]\s*([\d,.]+)\s*(ms|s|sec|secs|seconds?)\b/iu,
+    /\b95th percentile(?: frame)?\s*[:=]\s*([\d,.]+)\s*(ms|s|sec|secs|seconds?)\b/iu,
+  ]));
+  setDefined(summary, 'averageFrameMs', firstDurationMsMatch(text, [
+    /\baverage frame(?: time)?\s*[:=]\s*([\d,.]+)\s*(ms|s|sec|secs|seconds?)\b/iu,
+  ]));
+  setDefined(summary, 'cpuMs', firstDurationMsMatch(text, [
+    /\bcpu(?: time)?\s*[:=]\s*([\d,.]+)\s*(ms|s|sec|secs|seconds?)\b/iu,
+  ]));
+  setDefined(summary, 'memoryPeakBytes', firstBytesMatch(text, [
+    /\b(?:peak memory|memory peak)\s*[:=]\s*([\d,.]+)\s*(bytes?|kb|kib|mb|mib|gb|gib)\b/iu,
+  ]));
+  setDefined(summary, 'physicalFootprintBytes', firstBytesMatch(text, [
+    /\bphysical footprint\s*[:=]\s*([\d,.]+)\s*(bytes?|kb|kib|mb|mib|gb|gib)\b/iu,
+  ]));
+  setDefined(summary, 'thermalState', firstStringMatch(text, [
+    /\bthermal state\s*[:=]\s*([A-Za-z0-9._:-]+)/iu,
+  ]));
+  setDefined(summary, 'batteryImpact', firstNumberMatch(text, [
+    /\bbattery impact\s*[:=]\s*([\d,.]+)/iu,
+  ]));
+
+  return summary as IosNativePerformanceTextSummary;
 }
 
 /**
@@ -1573,6 +1826,8 @@ export {
   buildIosNativePerformanceEvidence,
   parseAndroidGfxinfoSummary,
   parseAndroidMeminfoSummary,
+  parseIosMetricKitSummaryText,
+  parseIosXctraceSummaryText,
 };
 
 export type {
@@ -1582,6 +1837,7 @@ export type {
   AndroidTraceProcessorSummaryInput,
   IosNativePerformanceEvidenceInput,
   IosNativePerformanceSummaryInput,
+  IosNativePerformanceTextSummary,
   NativePerformanceAttachment,
   NativePerformanceClaimSufficiencyOverride,
   NativePerformanceClaimSufficiencyStatus,

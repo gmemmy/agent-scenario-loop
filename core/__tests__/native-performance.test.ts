@@ -6,6 +6,8 @@ const {
   buildIosNativePerformanceEvidence,
   parseAndroidGfxinfoSummary,
   parseAndroidMeminfoSummary,
+  parseIosMetricKitSummaryText,
+  parseIosXctraceSummaryText,
 } = require('../native-performance');
 
 test('parses Android gfxinfo headline summary fields', () => {
@@ -57,6 +59,122 @@ test('parses Android meminfo headline summary fields', () => {
     views: 6882,
     webViews: 12,
   });
+});
+
+test('parses iOS xctrace-style summary fields', () => {
+  const summary = parseIosXctraceSummaryText(`
+    traceId: feed-scroll-trace
+    duration: 12.5s
+    window start: 250ms
+    window end: 12750ms
+    cpu time: 455.25ms
+    main thread cpu: 300.5ms
+    thread scheduling delay: 14ms
+    frames: 720
+    janky frames: 8
+    hitches: 4
+    average frame: 16.7ms
+    p95 frame: 32ms
+    worst frame: 91ms
+    resident size: 95 MB
+    physical footprint: 110 MB
+    peak memory: 128 MB
+  `);
+
+  assert.deepEqual(summary, {
+    averageFrameMs: 16.7,
+    cpuMs: 455.25,
+    durationMs: 12500,
+    frameCount: 720,
+    hitchCount: 4,
+    jankyFrameCount: 8,
+    mainThreadCpuMs: 300.5,
+    memoryPeakBytes: 134217728,
+    p95FrameMs: 32,
+    physicalFootprintBytes: 115343360,
+    residentSizeBytes: 99614720,
+    threadSchedulingDelayMs: 14,
+    traceId: 'feed-scroll-trace',
+    windowEndMs: 12750,
+    windowStartMs: 250,
+    worstFrameMs: 91,
+  });
+});
+
+test('parses iOS MetricKit-style summary fields', () => {
+  const summary = parseIosMetricKitSummaryText(`
+    scroll hitches: 3
+    dropped frames: 17
+    95th percentile frame: 42ms
+    average frame time: 18ms
+    cpu time: 1.25s
+    peak memory: 146 MB
+    physical footprint: 120 MB
+    thermal state: nominal
+    battery impact: 2.5
+  `);
+
+  assert.deepEqual(summary, {
+    averageFrameMs: 18,
+    batteryImpact: 2.5,
+    cpuMs: 1250,
+    hitchCount: 3,
+    jankyFrameCount: 17,
+    memoryPeakBytes: 153092096,
+    p95FrameMs: 42,
+    physicalFootprintBytes: 125829120,
+    thermalState: 'nominal',
+  });
+});
+
+test('builds iOS native-performance evidence from parsed text summaries', () => {
+  const evidence = buildIosNativePerformanceEvidence({
+    attachments: [
+      {
+        kind: 'xctrace-summary',
+        path: 'raw/providers/native/xctrace-summary.txt',
+      },
+      {
+        kind: 'metrickit-summary',
+        path: 'raw/providers/native/metrickit-summary.txt',
+      },
+    ],
+    bundleId: 'com.example.app',
+    deviceId: 'SIM-123',
+    metricKitSummary: parseIosMetricKitSummaryText(`
+      hitches: 2
+      p95 frame: 36ms
+      physical footprint: 96 MB
+      thermal state: nominal
+    `),
+    providerId: 'native-provider',
+    runId: 'run-ios-text',
+    scenarioId: 'feed-scroll',
+    xctraceSummary: parseIosXctraceSummaryText(`
+      traceId: run-ios-text-trace
+      duration: 10s
+      cpu time: 375ms
+      main thread cpu: 240ms
+      thread scheduling delay: 9ms
+      frames: 600
+    `),
+  });
+
+  assert.equal(evidence.evidenceKind, 'mixed');
+  assert.equal(evidence.claimSufficiency.status, 'sufficient-for-diagnosis');
+  assert.equal(evidence.targetBinding.status, 'verified');
+  assert.equal(evidence.frames.totalFrameCount, 600);
+  assert.equal(evidence.frames.hitchCount, 2);
+  assert.equal(evidence.frames.p95FrameMs, 36);
+  assert.equal(evidence.metrics.cpuMs, 375);
+  assert.equal(evidence.metrics.thermalState, 'nominal');
+  assert.equal(evidence.memory.physicalFootprintBytes, 100663296);
+  assert.deepEqual(evidence.traces, [
+    {
+      durationMs: 10000,
+      traceId: 'run-ios-text-trace',
+    },
+  ]);
 });
 
 test('builds diagnostic-only Android native-performance evidence from platform summaries', () => {
