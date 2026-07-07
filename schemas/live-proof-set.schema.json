@@ -530,6 +530,13 @@
             "$ref": "#/$defs/profileGateReadinessValueCount"
           }
         },
+        "readinessDetailCounts": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/profileGateReadinessValueCount"
+          }
+        },
         "profileSessionSeededCounts": {
           "type": "array",
           "minItems": 1,
@@ -603,6 +610,13 @@
           }
         },
         "pendingPhaseCounts": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/profileGateReadinessValueCount"
+          }
+        },
+        "readinessDetailCounts": {
           "type": "array",
           "minItems": 1,
           "items": {
