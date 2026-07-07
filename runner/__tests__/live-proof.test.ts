@@ -307,13 +307,14 @@ function buildProof(
  * Adds native-performance rollup metadata to a live-proof fixture.
  *
  * @param {Record<string, unknown>} proof
- * @param {{claim: string, comparability: string, evidenceCount: number, profileCount: number, sourceId: string, sourceStatus: string, target: string}} options
+ * @param {{claim: string, completeness: string, comparability: string, evidenceCount: number, profileCount: number, sourceId: string, sourceStatus: string, target: string}} options
  * @returns {Record<string, unknown>}
  */
 function withNativePerformanceRollup(
   proof: Record<string, unknown>,
   {
     claim,
+    completeness,
     comparability,
     evidenceCount,
     profileCount,
@@ -322,6 +323,7 @@ function withNativePerformanceRollup(
     target,
   }: {
     claim: string;
+    completeness: string;
     comparability: string;
     evidenceCount: number;
     profileCount: number;
@@ -343,6 +345,12 @@ function withNativePerformanceRollup(
         {
           count: evidenceCount,
           status: comparability,
+        },
+      ],
+      completenessStatusCounts: [
+        {
+          count: evidenceCount,
+          status: completeness,
         },
       ],
       diagnosticSourceCounts: [
@@ -715,6 +723,7 @@ test('builds a durable live-proof-set artifact for Android and iOS proofs', asyn
     buildProof('unchanged', 'passed', 'android'),
     {
       claim: 'insufficient-for-claim',
+      completeness: 'partial',
       comparability: 'diagnostic-only',
       evidenceCount: 1,
       profileCount: 1,
@@ -728,6 +737,7 @@ test('builds a durable live-proof-set artifact for Android and iOS proofs', asyn
     buildProof('unchanged', 'passed', 'ios'),
     {
       claim: 'sufficient-for-comparison',
+      completeness: 'complete',
       comparability: 'comparable',
       evidenceCount: 2,
       profileCount: 1,
@@ -767,6 +777,16 @@ test('builds a durable live-proof-set artifact for Android and iOS proofs', asyn
       {
         count: 2,
         status: 'sufficient-for-comparison',
+      },
+    ],
+    completenessStatusCounts: [
+      {
+        count: 2,
+        status: 'complete',
+      },
+      {
+        count: 1,
+        status: 'partial',
       },
     ],
     comparabilityCounts: [
@@ -837,7 +857,7 @@ test('builds a durable live-proof-set artifact for Android and iOS proofs', asyn
   assert.match(markdown, /warning android\/startup-ui \(agent-device\/app-startup\/agent-device-startup\): argent_screenshot argent_screenshot_failed - Argent driver action screenshot failed\. Next action: provider_tooling\/inspect_argent_driver_action - Inspect raw screenshot output\./u);
   assert.match(markdown, /Interaction warning next actions: proofs=2; warnings=2; actions=provider_tooling\/inspect_argent_driver_action=2/u);
   assert.match(markdown, /- ios ios-live-proof: status=passed comparison=unchanged/u);
-  assert.match(markdown, /Native performance: profiles=2; evidence=3; sources=gfxinfo:partial=1, xctrace:captured=2; claim=insufficient-for-claim=1, sufficient-for-comparison=2; comparability=comparable=2, diagnostic-only=1; target=verified=3/u);
+  assert.match(markdown, /Native performance: profiles=2; evidence=3; sources=gfxinfo:partial=1, xctrace:captured=2; completeness=complete=2, partial=1; claim=insufficient-for-claim=1, sufficient-for-comparison=2; comparability=comparable=2, diagnostic-only=1; target=verified=3/u);
 });
 
 test('builds a failed live-proof-set artifact when a required platform is missing', async (t: TestContext) => {

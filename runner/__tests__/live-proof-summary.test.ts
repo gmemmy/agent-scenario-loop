@@ -424,6 +424,7 @@ test('writes optional interaction proof pointers into aggregate live proof artif
       claimSufficiency: {
         status: 'insufficient-for-claim',
       },
+      completenessStatus: 'partial',
       comparability: {
         status: 'diagnostic-only',
       },
@@ -517,6 +518,12 @@ test('writes optional interaction proof pointers into aggregate live proof artif
         status: 'insufficient-for-claim',
       },
     ],
+    completenessStatusCounts: [
+      {
+        count: 1,
+        status: 'partial',
+      },
+    ],
     comparabilityCounts: [
       {
         count: 1,
@@ -594,7 +601,7 @@ test('writes optional interaction proof pointers into aggregate live proof artif
   assert.match(summary, /Next action: product_optimization\/inspect_summary/u);
   assert.match(summary, /## Interaction Proofs/u);
   assert.match(summary, /## Native Performance/u);
-  assert.match(summary, /profiles=1; evidence=1; sources=gfxinfo:partial=1, meminfo:captured=1; claim=insufficient-for-claim=1; comparability=diagnostic-only=1; target=verified=1/u);
+  assert.match(summary, /profiles=1; evidence=1; sources=gfxinfo:partial=1, meminfo:captured=1; completeness=partial=1; claim=insufficient-for-claim=1; comparability=diagnostic-only=1; target=verified=1/u);
   assert.match(summary, /screenshots=1/u);
   assert.match(summary, /warnings=1/u);
   assert.match(summary, /warning argent_screenshot: argent_screenshot_failed - Argent driver action screenshot failed\. Next action: provider_tooling\/inspect_argent_driver_action - Inspect raw screenshot output\./u);
