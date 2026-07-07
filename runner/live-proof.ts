@@ -234,13 +234,19 @@ type LiveProofSetProfileGateReadinessRollup = {
   readinessProofCount: number;
   skippedInteractionProofCount: number;
 };
-type LiveProofSkippedInteractionProofNextActionCount = {
+type LiveProofNextActionCount = {
   code: string;
   count: number;
   owner?: LiveProofNextActionOwner;
 };
+type LiveProofSetProofFailureNextActionsRollup = {
+  failedProofCount: number;
+  nextActionCounts: LiveProofNextActionCount[];
+  proofCount: number;
+  regressedProofCount: number;
+};
 type LiveProofSetSkippedInteractionProofNextActionsRollup = {
-  nextActionCounts: LiveProofSkippedInteractionProofNextActionCount[];
+  nextActionCounts: LiveProofNextActionCount[];
   skippedInteractionProofCount: number;
 };
 type LiveProofSetArtifact = {
@@ -256,6 +262,7 @@ type LiveProofSetArtifact = {
   profileGateNativePerformance?: LiveProofSetProfileGateNativePerformanceRollup;
   profileGateReadiness?: LiveProofSetProfileGateReadinessRollup;
   profileNativePerformance?: LiveProofProfileNativePerformanceRollup;
+  proofFailureNextActions?: LiveProofSetProofFailureNextActionsRollup;
   proofCount: number;
   proofs: LiveProofSetProofPointer[];
   requiredPlatforms: LiveProofPlatform[];
@@ -1472,6 +1479,88 @@ function buildLiveProofSetProfileGateReadinessRollup(
 }
 
 /**
+ * Adds one next-action owner/code entry into a proof-set accumulator.
+ *
+ * @param {Map<string, LiveProofNextActionCount>} counts
+ * @param {{code: string, owner?: LiveProofNextActionOwner}} nextAction
+ * @returns {void}
+ */
+function addLiveProofSetNextActionCount(
+  counts: Map<string, LiveProofNextActionCount>,
+  nextAction: {code: string; owner?: LiveProofNextActionOwner},
+): void {
+  const key = `${nextAction.owner ?? ''}\u0000${nextAction.code}`;
+  const existing = counts.get(key);
+  if (existing) {
+    existing.count += 1;
+    return;
+  }
+  counts.set(key, {
+    code: nextAction.code,
+    count: 1,
+    ...(nextAction.owner ? { owner: nextAction.owner } : {}),
+  });
+}
+
+/**
+ * Converts next-action counts into stable artifact order.
+ *
+ * @param {Map<string, LiveProofNextActionCount>} counts
+ * @returns {LiveProofNextActionCount[]}
+ */
+function formatLiveProofSetNextActionCounts(
+  counts: Map<string, LiveProofNextActionCount>,
+): LiveProofNextActionCount[] {
+  return [...counts.values()]
+    .sort((left, right) => (
+      (left.owner ?? '').localeCompare(right.owner ?? '') || left.code.localeCompare(right.code)
+    ));
+}
+
+/**
+ * Builds next-action owner/code counts across failed or gated-regressed platform proofs.
+ *
+ * @param {{failOnRegression: boolean, proofs: LiveProofArtifact[]}} options
+ * @returns {LiveProofSetProofFailureNextActionsRollup | null}
+ */
+function buildLiveProofSetProofFailureNextActionsRollup({
+  failOnRegression,
+  proofs,
+}: {
+  failOnRegression: boolean;
+  proofs: LiveProofArtifact[];
+}): LiveProofSetProofFailureNextActionsRollup | null {
+  const nextActionCounts = new Map<string, LiveProofNextActionCount>();
+  let failedProofCount = 0;
+  let proofCount = 0;
+  let regressedProofCount = 0;
+
+  for (const proof of proofs) {
+    const failed = proof.status === 'failed';
+    const gatedRegression = failOnRegression && proof.comparisonStatus === 'regressed';
+    if (!failed && !gatedRegression) {
+      continue;
+    }
+
+    proofCount += 1;
+    failedProofCount += failed ? 1 : 0;
+    regressedProofCount += gatedRegression ? 1 : 0;
+    addLiveProofSetNextActionCount(nextActionCounts, proof.nextAction);
+  }
+
+  if (proofCount === 0) {
+    return null;
+  }
+
+  return {
+    failedProofCount,
+    nextActionCounts: formatLiveProofSetNextActionCounts(nextActionCounts),
+    proofCount,
+    regressedProofCount,
+  };
+}
+
+/**
  * Builds next-action owner/code counts across skipped proof gates.
  *
  * @param {LiveProofSetSkippedInteractionProofPointer[]} skippedProofs
@@ -1484,26 +1573,13 @@ function buildLiveProofSetSkippedInteractionProofNextActionsRollup(
     return null;
   }
 
-  const nextActionCounts = new Map<string, number>();
+  const nextActionCounts = new Map<string, LiveProofNextActionCount>();
   for (const skippedProof of skippedProofs) {
-    const owner = skippedProof.nextAction.owner ?? '';
-    const key = `${owner}\u0000${skippedProof.nextAction.code}`;
-    nextActionCounts.set(key, (nextActionCounts.get(key) ?? 0) + 1);
+    addLiveProofSetNextActionCount(nextActionCounts, skippedProof.nextAction);
   }
 
   return {
-    nextActionCounts: [...nextActionCounts.entries()]
-      .map(([key, count]) => {
-        const [owner = '', code = ''] = key.split('\u0000');
-        return {
-          code,
-          count,
-          ...(owner ? { owner: owner as LiveProofNextActionOwner } : {}),
-        };
-      })
-      .sort((left, right) => (
-        (left.owner ?? '').localeCompare(right.owner ?? '') || left.code.localeCompare(right.code)
-      )),
+    nextActionCounts: formatLiveProofSetNextActionCounts(nextActionCounts),
     skippedInteractionProofCount: skippedProofs.length,
   };
 }
@@ -1620,6 +1696,10 @@ function buildLiveProofSetArtifact({
     missingPlatforms,
     proofs,
   });
+  const proofFailureNextActions = buildLiveProofSetProofFailureNextActionsRollup({
+    failOnRegression,
+    proofs,
+  });
   const profileNativePerformance = buildLiveProofSetNativePerformanceRollup(proofs);
   const skippedInteractionProofs = buildLiveProofSetSkippedInteractionProofs({ files, proofs });
   const profileGateDiagnosticSufficiency = buildLiveProofSetProfileGateDiagnosticSufficiencyRollup(
@@ -1643,6 +1723,7 @@ function buildLiveProofSetArtifact({
     ...(profileGateNativePerformance ? { profileGateNativePerformance } : {}),
     ...(profileGateReadiness ? { profileGateReadiness } : {}),
     ...(profileNativePerformance ? { profileNativePerformance } : {}),
+    ...(proofFailureNextActions ? { proofFailureNextActions } : {}),
     proofCount: proofs.length,
     proofs: proofs.map((proof, index) => buildLiveProofSetProofPointer({
       filePath: path.resolve(files[index] ?? ''),
@@ -1845,13 +1926,31 @@ function formatLiveProofSetProfileGateReadinessRollup(
 /**
  * Formats skipped-proof next-action count entries for proof-set markdown.
  *
- * @param {LiveProofSkippedInteractionProofNextActionCount[]} counts
+ * @param {LiveProofNextActionCount[]} counts
  * @returns {string}
  */
-function formatLiveProofSetSkippedNextActionCounts(
-  counts: LiveProofSkippedInteractionProofNextActionCount[],
+function formatLiveProofSetNextActionCountsForMarkdown(
+  counts: LiveProofNextActionCount[],
 ): string {
   return counts.map((entry) => `${entry.owner ?? 'unknown'}/${entry.code}=${entry.count}`).join(', ');
+}
+
+/**
+ * Formats aggregate failed-proof next-action counts for proof-set markdown.
+ *
+ * @param {LiveProofSetProofFailureNextActionsRollup | undefined} rollup
+ * @returns {string[]}
+ */
+function formatLiveProofSetProofFailureNextActionsRollup(
+  rollup: LiveProofSetProofFailureNextActionsRollup | undefined,
+): string[] {
+  if (!rollup) {
+    return [];
+  }
+
+  return [
+    `Proof failure next actions: proofs=${rollup.proofCount}; failed=${rollup.failedProofCount}; regressed=${rollup.regressedProofCount}; actions=${formatLiveProofSetNextActionCountsForMarkdown(rollup.nextActionCounts)}`,
+  ];
 }
 
 /**
@@ -1868,7 +1967,7 @@ function formatLiveProofSetSkippedInteractionProofNextActionsRollup(
   }
 
   return [
-    `Skipped interaction proof next actions: skippedInteractionProofs=${rollup.skippedInteractionProofCount}; actions=${formatLiveProofSetSkippedNextActionCounts(rollup.nextActionCounts)}`,
+    `Skipped interaction proof next actions: skippedInteractionProofs=${rollup.skippedInteractionProofCount}; actions=${formatLiveProofSetNextActionCountsForMarkdown(rollup.nextActionCounts)}`,
   ];
 }
 
@@ -2078,6 +2177,7 @@ function formatLiveProofSetArtifactMarkdown(artifact: LiveProofSetArtifact): str
       `- ${proof.platform} ${proof.runId}: status=${proof.status} comparison=${proof.comparisonStatus} profiles=${proof.profileCount} interactionProofs=${proof.interactionProofCount} warnings=${proof.interactionWarningCount} summary=${proof.summaryPath}`,
       ...formatLiveProofSetWarningDetails(proof),
     ]),
+    ...formatLiveProofSetProofFailureNextActionsRollup(artifact.proofFailureNextActions),
     ...formatLiveProofSetSkippedInteractionProofs(artifact.skippedInteractionProofs),
     ...formatLiveProofSetSkippedInteractionProofNextActionsRollup(artifact.skippedInteractionProofNextActions),
     ...formatLiveProofSetProfileGateDiagnosticSufficiencyRollup(artifact.profileGateDiagnosticSufficiency),
