@@ -858,7 +858,36 @@ test('builds proof-set skipped interaction proof context from linked proofs', as
   t.after(async () => {
     await fsp.rm(tempDir, { recursive: true, force: true });
   });
-  const androidProofPath = writeProof(tempDir, buildProof('unchanged', 'passed', 'android'));
+  const androidProof = buildProof('unchanged', 'failed', 'android');
+  androidProof.skippedInteractionProofs = [
+    {
+      label: 'startup-agent-device',
+      nextAction: {
+        code: 'fix_provider_outputs',
+        owner: 'provider_tooling',
+        summary: 'Restore required provider outputs and rerun profile proof.',
+      },
+      profileGateDiagnostics: {
+        blockingDiagnosticSufficiency: [
+          {
+            kind: 'profiler',
+            status: 'provider-blocked',
+          },
+        ],
+        capturedDiagnosticSufficiency: [
+          {
+            kind: 'nativePerformance',
+            status: 'diagnostic-only',
+          },
+        ],
+      },
+      reason: 'Profile provider evidence was partial.',
+      runId: 'android-startup-agent-device',
+      runnerId: 'agent-device',
+      scenarioId: 'app-startup',
+    },
+  ];
+  const androidProofPath = writeProof(tempDir, androidProof);
   const iosProof = buildProof('unchanged', 'failed', 'ios');
   iosProof.skippedInteractionProofs = [
     {
@@ -928,11 +957,34 @@ test('builds proof-set skipped interaction proof context from linked proofs', as
   const markdown = formatLiveProofSetArtifactMarkdown(artifact);
 
   assert.equal(artifact.status, 'failed');
-  assert.equal(artifact.skippedInteractionProofCount, 1);
-  assert.equal(artifact.skippedInteractionProofs?.[0].platform, 'ios');
-  assert.equal(artifact.skippedInteractionProofs?.[0].proofRunId, 'ios-live-proof');
-  assert.equal(artifact.skippedInteractionProofs?.[0].proofFilePath, path.resolve(iosProofPath));
-  assert.deepEqual(artifact.skippedInteractionProofs?.[0].profileGateReadiness, {
+  assert.equal(artifact.skippedInteractionProofCount, 2);
+  assert.deepEqual(artifact.profileGateDiagnosticSufficiency, {
+    blockingDiagnosticSufficiencyCounts: [
+      {
+        count: 1,
+        kind: 'accessibility',
+        status: 'provider-blocked',
+      },
+      {
+        count: 1,
+        kind: 'profiler',
+        status: 'provider-blocked',
+      },
+    ],
+    capturedDiagnosticSufficiencyCounts: [
+      {
+        count: 2,
+        kind: 'nativePerformance',
+        status: 'diagnostic-only',
+      },
+    ],
+    skippedInteractionProofCount: 2,
+  });
+  assert.equal(artifact.skippedInteractionProofs?.[0].platform, 'android');
+  assert.equal(artifact.skippedInteractionProofs?.[1].platform, 'ios');
+  assert.equal(artifact.skippedInteractionProofs?.[1].proofRunId, 'ios-live-proof');
+  assert.equal(artifact.skippedInteractionProofs?.[1].proofFilePath, path.resolve(iosProofPath));
+  assert.deepEqual(artifact.skippedInteractionProofs?.[1].profileGateReadiness, {
     commandCount: 1,
     devClientDeepLinkOpened: true,
     expectedEvidence: 'profile_session_started',
@@ -947,11 +999,12 @@ test('builds proof-set skipped interaction proof context from linked proofs', as
     profileSessionSeeded: true,
     readinessRawPath: 'raw/ios-profile-session-readiness.json',
   });
-  assert.match(markdown, /Skipped interaction proofs: 1/u);
+  assert.match(markdown, /Skipped interaction proofs: 2/u);
   assert.match(markdown, /skipped ios\/startup-ui \(agent-device\/app-startup\/ios-startup-agent-device\) from ios-live-proof: Profile health failed before sidecar proof\./u);
   assert.match(markdown, /Diagnostics: captured=nativePerformance:diagnostic-only; blocking=accessibility:provider-blocked; nativePerformance\(claim=insufficient-for-claim, comparability=diagnostic-only, target=ambiguous, sources=xctrace:partial\)\./u);
   assert.match(markdown, /Readiness: failure=dev_client_bundle_or_command_channel_not_ready, commands=1, devClientDeepLinkOpened=true, foregroundAppInfoCaptured=true, foregroundApplicationState=foreground, foregroundTargetOwned=false, lastDeepLink=startup, profileSessionSeeded=true, phase=session-start, expected=profile_session_started, foregroundRawPath=raw\/ios-foreground-app\.json, profileSessionSeedRawPath=raw\/profile-session-seed\.json, readinessRawPath=raw\/ios-profile-session-readiness\.json\./u);
   assert.match(markdown, /Next action: runtime_environment\/restart_ios_dev_client - Restart the iOS dev client and rerun profile proof\./u);
+  assert.match(markdown, /Profile gate diagnostics: skippedInteractionProofs=2; captured=nativePerformance:diagnostic-only=2; blocking=accessibility:provider-blocked=1, profiler:provider-blocked=1/u);
 });
 
 test('writes live-proof-set artifact and agent summary', async (t: TestContext) => {
