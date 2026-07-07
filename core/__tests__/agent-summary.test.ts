@@ -135,10 +135,17 @@ test('renders diagnostic failure classes and raw paths on checks', () => {
           source: 'runner',
           message: 'No same-run iOS profile-session app evidence appeared.',
           metadata: {
+            commandCount: 0,
+            devClientDeepLinkOpened: true,
             failureClass: 'dev_client_bundle_or_command_channel_not_ready',
+            foregroundAppInfoCaptured: true,
+            foregroundApplicationState: 'BackgroundRunning',
             foregroundRawPath: 'raw/ios-profile-session-start-app-info.txt',
+            foregroundTargetOwned: false,
+            lastDeepLinkLabel: 'ios-dev-client-url',
             nextAction: 'Confirm the development client loaded the intended app bundle and command channel.',
             nextActionCode: 'fix_ios_dev_client_bundle_or_command_channel',
+            profileSessionSeeded: true,
             readinessRawPath: 'raw/ios-profile-session-readiness.json',
           },
         },
@@ -153,6 +160,13 @@ test('renders diagnostic failure classes and raw paths on checks', () => {
   });
 
   assert.match(summary, /failureClass=`dev_client_bundle_or_command_channel_not_ready`/u);
+  assert.match(summary, /commandCount=`0`/u);
+  assert.match(summary, /devClientDeepLinkOpened=`true`/u);
+  assert.match(summary, /foregroundAppInfoCaptured=`true`/u);
+  assert.match(summary, /foregroundApplicationState=`BackgroundRunning`/u);
+  assert.match(summary, /foregroundTargetOwned=`false`/u);
+  assert.match(summary, /lastDeepLinkLabel=`ios-dev-client-url`/u);
+  assert.match(summary, /profileSessionSeeded=`true`/u);
   assert.match(summary, /foregroundRawPath=`raw\/ios-profile-session-start-app-info\.txt`/u);
   assert.match(summary, /readinessRawPath=`raw\/ios-profile-session-readiness\.json`/u);
 });
