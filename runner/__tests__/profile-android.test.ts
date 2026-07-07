@@ -1956,7 +1956,7 @@ test('profile-android fails health for malformed native performance provider evi
   assert.match(agentSummary, /fix_provider_evidence_output/u);
 });
 
-test('profile-android marks required provider command outputs as required diagnostics', async (t: TestContext) => {
+test('profile-android keeps diagnostic-only native performance from satisfying required diagnostics', async (t: TestContext) => {
   const artifactRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-android-provider-required-'));
   const providerRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-provider-required-'));
   t.after(async () => {
@@ -1987,6 +1987,7 @@ test('profile-android marks required provider command outputs as required diagno
       "  completenessStatus: 'complete',",
       "  targetBinding: { status: 'verified', deviceId: 'emulator-5554', appId: 'dev.agent-scenario-loop.example' },",
       "  comparability: { status: 'diagnostic-only', reason: 'Provider evidence was captured after the profile loop.' },",
+      "  claimSufficiency: { status: 'sufficient-for-diagnosis', reason: 'Captured for diagnosis, not comparison.' },",
       "  frames: { janky: 0 }",
       "}) + '\\n');",
     ].join('\n'),
@@ -2057,7 +2058,10 @@ test('profile-android marks required provider command outputs as required diagno
   ]);
 
   const runDir = stdout.trim();
+  const health = readJson(path.join(runDir, 'health.json')) as Record<string, any>;
+  const verdict = readJson(path.join(runDir, 'verdict.json')) as Record<string, any>;
   const manifest = readJson(path.join(runDir, 'manifest.json'));
+  const profileSummary = fs.readFileSync(path.join(runDir, 'summary.md'), 'utf8');
   const diagnostics = (manifest.artifacts as { diagnostics: Array<Record<string, unknown>> }).diagnostics;
   const memoryDiagnostic = diagnostics.find((entry) => entry.kind === 'memory');
   const accessibilityDiagnostic = diagnostics.find((entry) => entry.kind === 'accessibility');
@@ -2072,9 +2076,24 @@ test('profile-android marks required provider command outputs as required diagno
   assert.equal(accessibilityDiagnostic?.required, true);
   assert.equal(accessibilityDiagnostic?.path, 'raw/providers/required-diagnostics-provider/accessibility.json');
   assert.equal(nativePerformanceDiagnostic?.status, 'captured');
-  assert.equal(nativePerformanceDiagnostic?.availability, 'captured');
+  assert.equal(nativePerformanceDiagnostic?.availability, 'captured-diagnostic-only');
   assert.equal(nativePerformanceDiagnostic?.required, true);
   assert.equal(nativePerformanceDiagnostic?.path, 'raw/providers/required-diagnostics-provider/native-performance.json');
+  assert.equal(health.healthStatus, 'failed');
+  assert.equal(verdict.verdictStatus, 'inconclusive');
+  assert.match(
+    profileSummary,
+    /nativePerformance: captured \(captured-diagnostic-only\) \(required\)/u,
+  );
+  assert.ok(
+    (health.checks as Array<{ code: string; metadata?: { availability?: string; kind?: string } }>).some(
+      (check) => (
+        check.code === 'required_diagnostic_not_captured' &&
+        check.metadata?.kind === 'nativePerformance' &&
+        check.metadata?.availability === 'captured-diagnostic-only'
+      ),
+    ),
+  );
 });
 
 test('profile-android rejects duplicate evidence provider command ids', async (t: TestContext) => {

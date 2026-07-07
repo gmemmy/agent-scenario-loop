@@ -2188,9 +2188,12 @@ function buildSummaryMarkdown({
   const diagnosticLines = diagnostics.length > 0
     ? diagnostics.map((diagnostic: ArtifactRecord) => {
         const label = diagnostic.name ? `${diagnostic.kind}/${diagnostic.name}` : diagnostic.kind;
+        const statusLabel = typeof diagnostic.availability === 'string'
+          ? `${diagnostic.status} (${diagnostic.availability})`
+          : String(diagnostic.status);
         const pathLabel = typeof diagnostic.path === 'string' ? ` \`${diagnostic.path}\`` : '';
         const reasonLabel = typeof diagnostic.reason === 'string' ? ` - ${diagnostic.reason}` : '';
-        return `- ${label}: ${diagnostic.status}${diagnostic.required ? ' (required)' : ''}${pathLabel}${reasonLabel}`;
+        return `- ${label}: ${statusLabel}${diagnostic.required ? ' (required)' : ''}${pathLabel}${reasonLabel}`;
       })
     : ['- none'];
   const attempt = manifest.attempt && typeof manifest.attempt === 'object' ? manifest.attempt : {};
