@@ -408,5 +408,9 @@ test('generic Android live proof writes failed aggregate before skipping sidecar
     liveProof.skippedInteractionProofs.map((proof: { runnerId: string }) => proof.runnerId),
     ['agent-device', 'argent'],
   );
+  assert.deepEqual(
+    liveProof.skippedInteractionProofs.map((proof: { nextAction: { owner: string } }) => proof.nextAction.owner),
+    ['product_optimization', 'product_optimization'],
+  );
   assert.equal(liveProof.interactionProofs, undefined);
 });
