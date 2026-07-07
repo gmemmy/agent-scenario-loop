@@ -226,6 +226,11 @@ type LiveProofSetProfileGateNativePerformanceRollup = {
   skippedInteractionProofCount: number;
   targetBindingCounts?: LiveProofNativePerformanceCount[];
 };
+type LiveProofSetProofFailureNativePerformanceRollup = (
+  LiveProofSetProfileGateNativePerformanceRollup & {
+    failedProofCount: number;
+  }
+);
 type LiveProofSetProfileGateReadinessRollup = {
   commandCountTotal?: number;
   devClientDeepLinkOpenedCounts?: LiveProofProfileGateReadinessBooleanCount[];
@@ -282,6 +287,7 @@ type LiveProofSetArtifact = {
   interactionWarningNextActions?: LiveProofSetInteractionWarningNextActionsRollup;
   profileNativePerformance?: LiveProofProfileNativePerformanceRollup;
   proofFailureDiagnosticSufficiency?: LiveProofSetProofFailureDiagnosticSufficiencyRollup;
+  proofFailureNativePerformance?: LiveProofSetProofFailureNativePerformanceRollup;
   proofFailureNextActions?: LiveProofSetProofFailureNextActionsRollup;
   proofFailureReadiness?: LiveProofSetProofFailureReadinessRollup;
   proofCount: number;
@@ -1424,6 +1430,72 @@ function buildLiveProofSetProfileGateNativePerformanceRollup(
 }
 
 /**
+ * Returns whether skipped proof diagnostics carry native-performance claim context.
+ *
+ * @param {LiveProofProfileGateDiagnostics | undefined} diagnostics
+ * @returns {boolean}
+ */
+function hasNativePerformanceProfileGateContext(
+  diagnostics: LiveProofProfileGateDiagnostics | undefined,
+): boolean {
+  const nativePerformance = diagnostics?.nativePerformance;
+  if (!nativePerformance) {
+    return false;
+  }
+
+  return Boolean(
+    nativePerformance.claimSufficiency ||
+    nativePerformance.comparability ||
+    nativePerformance.targetBinding ||
+    (nativePerformance.diagnosticSources?.length ?? 0) > 0,
+  );
+}
+
+/**
+ * Builds native-performance claim context counts across failed linked proof artifacts.
+ *
+ * @param {{proofs: LiveProofArtifact[], skippedProofs: LiveProofSetSkippedInteractionProofPointer[]}} options
+ * @returns {LiveProofSetProofFailureNativePerformanceRollup | null}
+ */
+function buildLiveProofSetProofFailureNativePerformanceRollup({
+  proofs,
+  skippedProofs,
+}: {
+  proofs: LiveProofArtifact[];
+  skippedProofs: LiveProofSetSkippedInteractionProofPointer[];
+}): LiveProofSetProofFailureNativePerformanceRollup | null {
+  const failedProofRunIds = new Set(
+    proofs
+      .filter((proof) => proof.status === 'failed')
+      .map((proof) => proof.runId),
+  );
+  if (failedProofRunIds.size === 0) {
+    return null;
+  }
+
+  const failedProofsWithNativePerformance = new Set<string>();
+  const nativePerformanceSkippedProofs = skippedProofs.filter((skippedProof) => {
+    if (
+      !failedProofRunIds.has(skippedProof.proofRunId) ||
+      !hasNativePerformanceProfileGateContext(skippedProof.profileGateDiagnostics)
+    ) {
+      return false;
+    }
+    failedProofsWithNativePerformance.add(skippedProof.proofRunId);
+    return true;
+  });
+  const rollup = buildLiveProofSetProfileGateNativePerformanceRollup(nativePerformanceSkippedProofs);
+  if (!rollup) {
+    return null;
+  }
+
+  return {
+    failedProofCount: failedProofsWithNativePerformance.size,
+    ...rollup,
+  };
+}
+
+/**
  * Adds one profile-session readiness string count.
  *
  * @param {Map<string, number>} counts
@@ -1912,6 +1984,10 @@ function buildLiveProofSetArtifact({
   const profileGateNativePerformance = buildLiveProofSetProfileGateNativePerformanceRollup(
     skippedInteractionProofs,
   );
+  const proofFailureNativePerformance = buildLiveProofSetProofFailureNativePerformanceRollup({
+    proofs,
+    skippedProofs: skippedInteractionProofs,
+  });
   const profileGateReadiness = buildLiveProofSetProfileGateReadinessRollup(
     skippedInteractionProofs,
   );
@@ -1939,6 +2015,7 @@ function buildLiveProofSetArtifact({
     ...(profileGateReadiness ? { profileGateReadiness } : {}),
     ...(profileNativePerformance ? { profileNativePerformance } : {}),
     ...(proofFailureDiagnosticSufficiency ? { proofFailureDiagnosticSufficiency } : {}),
+    ...(proofFailureNativePerformance ? { proofFailureNativePerformance } : {}),
     ...(proofFailureNextActions ? { proofFailureNextActions } : {}),
     ...(proofFailureReadiness ? { proofFailureReadiness } : {}),
     proofCount: proofs.length,
@@ -2089,6 +2166,41 @@ function formatLiveProofSetProfileGateNativePerformanceRollup(
 
   return [
     `Profile gate native performance: ${details.join('; ')}`,
+  ];
+}
+
+/**
+ * Formats aggregate failed-proof native-performance claim context for proof-set markdown.
+ *
+ * @param {LiveProofSetProofFailureNativePerformanceRollup | undefined} rollup
+ * @returns {string[]}
+ */
+function formatLiveProofSetProofFailureNativePerformanceRollup(
+  rollup: LiveProofSetProofFailureNativePerformanceRollup | undefined,
+): string[] {
+  if (!rollup) {
+    return [];
+  }
+
+  const details = [
+    `failedProofs=${rollup.failedProofCount}`,
+    `skippedInteractionProofs=${rollup.skippedInteractionProofCount}`,
+  ];
+  if (rollup.diagnosticSourceCounts?.length) {
+    details.push(`sources=${formatLiveProofSetNativePerformanceSourceCounts(rollup.diagnosticSourceCounts)}`);
+  }
+  if (rollup.claimSufficiencyCounts?.length) {
+    details.push(`claim=${formatLiveProofSetNativePerformanceStatusCounts(rollup.claimSufficiencyCounts)}`);
+  }
+  if (rollup.comparabilityCounts?.length) {
+    details.push(`comparability=${formatLiveProofSetNativePerformanceStatusCounts(rollup.comparabilityCounts)}`);
+  }
+  if (rollup.targetBindingCounts?.length) {
+    details.push(`target=${formatLiveProofSetNativePerformanceStatusCounts(rollup.targetBindingCounts)}`);
+  }
+
+  return [
+    `Proof failure native performance: ${details.join('; ')}`,
   ];
 }
 
@@ -2511,6 +2623,7 @@ function formatLiveProofSetArtifactMarkdown(artifact: LiveProofSetArtifact): str
     ...formatLiveProofSetInteractionWarningNextActionsRollup(artifact.interactionWarningNextActions),
     ...formatLiveProofSetProofFailureNextActionsRollup(artifact.proofFailureNextActions),
     ...formatLiveProofSetProofFailureDiagnosticSufficiencyRollup(artifact.proofFailureDiagnosticSufficiency),
+    ...formatLiveProofSetProofFailureNativePerformanceRollup(artifact.proofFailureNativePerformance),
     ...formatLiveProofSetProofFailureReadinessRollup(artifact.proofFailureReadiness),
     ...formatLiveProofSetSkippedInteractionProofs(artifact.skippedInteractionProofs),
     ...formatLiveProofSetSkippedInteractionProofNextActionsRollup(artifact.skippedInteractionProofNextActions),
