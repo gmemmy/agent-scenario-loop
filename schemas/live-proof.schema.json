@@ -61,6 +61,9 @@
     "profileGateReadiness": {
       "$ref": "#/$defs/profileGateReadinessRollup"
     },
+    "profileGateReadinessNextActions": {
+      "$ref": "#/$defs/profileGateReadinessNextActions"
+    },
     "profileGateRequestedDiagnostics": {
       "$ref": "#/$defs/profileGateRequestedDiagnostics"
     },
@@ -624,6 +627,24 @@
         "count": {
           "type": "integer",
           "minimum": 1
+        }
+      }
+    },
+    "profileGateReadinessNextActions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["skippedInteractionProofCount", "nextActionCounts"],
+      "properties": {
+        "skippedInteractionProofCount": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "nextActionCounts": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/liveProofNextActionCount"
+          }
         }
       }
     },
