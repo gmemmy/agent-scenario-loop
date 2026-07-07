@@ -5,7 +5,12 @@ import { createRequire } from 'node:module';
 import path from 'node:path';
 
 const require = createRequire(import.meta.url);
-const { buildAndroidNativePerformanceEvidence, buildIosNativePerformanceEvidence } = require('agent-scenario-loop');
+const {
+  buildAndroidNativePerformanceEvidence,
+  buildIosNativePerformanceEvidence,
+  parseIosMetricKitSummaryText,
+  parseIosXctraceSummaryText,
+} = require('agent-scenario-loop');
 
 /**
  * Parses simple `--key value` CLI arguments.
@@ -184,6 +189,8 @@ function buildNativePerformanceAttachments(args) {
   for (const entry of [
     { arg: 'gfxinfo', kind: 'raw-gfxinfo' },
     { arg: 'meminfo', kind: 'raw-meminfo' },
+    { arg: 'xctrace-summary', kind: 'xctrace-summary' },
+    { arg: 'metrickit-summary', kind: 'metrickit-summary' },
   ]) {
     const value = args[entry.arg];
     if (typeof value !== 'string' || value.length === 0 || !fs.existsSync(value)) {
@@ -291,14 +298,18 @@ function main() {
   }
 
   if (platform === 'ios') {
-    // Intentionally pass no summaries: list source lanes, but keep top-level dataClasses unknown until real counters exist.
+    const metricKitText = readOptionalText(args, 'metrickit-summary');
+    const xctraceText = readOptionalText(args, 'xctrace-summary');
     writeJsonArtifact(outPath, buildIosNativePerformanceEvidence({
       appId: typeof args.app === 'string' ? args.app : undefined,
+      attachments: buildNativePerformanceAttachments(args),
       bundleId: typeof args.bundle === 'string' ? args.bundle : undefined,
       deviceId: typeof args.device === 'string' ? args.device : undefined,
+      metricKitSummary: metricKitText ? parseIosMetricKitSummaryText(metricKitText) : undefined,
       providerId: 'example-evidence-provider',
       runId,
       scenarioId,
+      xctraceSummary: xctraceText ? parseIosXctraceSummaryText(xctraceText) : undefined,
     }));
     return;
   }
