@@ -575,6 +575,7 @@ test('profile-android classifies preserved native provider evidence as diagnosti
   ]);
   assert.equal(partialEvidenceCheck?.metadata?.nativePerformanceTargetBinding, 'verified');
   assert.equal(partialEvidenceCheck?.metadata?.nextActionCode, 'use_partial_provider_evidence_for_diagnosis');
+  assert.equal(partialEvidenceCheck?.metadata?.nextActionOwner, 'provider_tooling');
   assert.ok(
     (health.checks as Array<{ code: string; metadata?: { kind?: string } }>).some(
       (check) => check.code === 'required_diagnostic_not_captured' && check.metadata?.kind === 'accessibility',

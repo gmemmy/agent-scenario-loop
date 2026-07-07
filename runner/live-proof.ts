@@ -164,6 +164,11 @@ type LiveProofNativePerformanceSourceEntry = {
   sourceId: string;
   status: string;
 };
+type LiveProofProfileGateNextAction = {
+  code: string;
+  owner?: LiveProofNextActionOwner;
+  summary: string;
+};
 type LiveProofProfileGateDiagnostics = {
   blockingDiagnosticSufficiency?: LiveProofDiagnosticSufficiencyEntry[];
   capturedDiagnosticSufficiency?: LiveProofDiagnosticSufficiencyEntry[];
@@ -174,6 +179,7 @@ type LiveProofProfileGateDiagnostics = {
     diagnosticSources?: LiveProofNativePerformanceSourceEntry[];
     targetBinding?: string;
   };
+  providerEvidenceNextAction?: LiveProofProfileGateNextAction;
   requestedDiagnosticInventory?: LiveProofRequestedDiagnosticInventoryEntry[];
 };
 type LiveProofProfileGateReadiness = {
@@ -300,6 +306,15 @@ type LiveProofSetSkippedInteractionProofNextActionsRollup = {
   nextActionCounts: LiveProofNextActionCount[];
   skippedInteractionProofCount: number;
 };
+type LiveProofSetProfileGateProviderEvidenceNextActionsRollup = {
+  nextActionCounts: LiveProofNextActionCount[];
+  skippedInteractionProofCount: number;
+};
+type LiveProofSetProofFailureProviderEvidenceNextActionsRollup = (
+  LiveProofSetProfileGateProviderEvidenceNextActionsRollup & {
+    failedProofCount: number;
+  }
+);
 type LiveProofSetArtifact = {
   failureReasons: string[];
   missingPlatforms: LiveProofPlatform[];
@@ -312,12 +327,14 @@ type LiveProofSetArtifact = {
   presentPlatforms: LiveProofPlatform[];
   profileGateDiagnosticSufficiency?: LiveProofSetProfileGateDiagnosticSufficiencyRollup;
   profileGateNativePerformance?: LiveProofSetProfileGateNativePerformanceRollup;
+  profileGateProviderEvidenceNextActions?: LiveProofSetProfileGateProviderEvidenceNextActionsRollup;
   profileGateReadiness?: LiveProofSetProfileGateReadinessRollup;
   interactionWarningNextActions?: LiveProofSetInteractionWarningNextActionsRollup;
   profileNativePerformance?: LiveProofProfileNativePerformanceRollup;
   proofFailureDiagnosticSufficiency?: LiveProofSetProofFailureDiagnosticSufficiencyRollup;
   proofFailureNativePerformance?: LiveProofSetProofFailureNativePerformanceRollup;
   proofFailureNextActions?: LiveProofSetProofFailureNextActionsRollup;
+  proofFailureProviderEvidenceNextActions?: LiveProofSetProofFailureProviderEvidenceNextActionsRollup;
   proofFailureReadiness?: LiveProofSetProofFailureReadinessRollup;
   proofFailureRequestedDiagnostics?: LiveProofSetProofFailureRequestedDiagnosticsRollup;
   proofCount: number;
@@ -2050,6 +2067,82 @@ function buildLiveProofSetSkippedInteractionProofNextActionsRollup(
 }
 
 /**
+ * Builds next-action owner/code counts from preserved provider evidence diagnostics.
+ *
+ * @param {LiveProofSetSkippedInteractionProofPointer[]} skippedProofs
+ * @returns {LiveProofSetProfileGateProviderEvidenceNextActionsRollup | null}
+ */
+function buildLiveProofSetProfileGateProviderEvidenceNextActionsRollup(
+  skippedProofs: LiveProofSetSkippedInteractionProofPointer[],
+): LiveProofSetProfileGateProviderEvidenceNextActionsRollup | null {
+  const nextActionCounts = new Map<string, LiveProofNextActionCount>();
+  let skippedInteractionProofCount = 0;
+
+  for (const skippedProof of skippedProofs) {
+    const nextAction = skippedProof.profileGateDiagnostics?.providerEvidenceNextAction;
+    if (!nextAction) {
+      continue;
+    }
+
+    skippedInteractionProofCount += 1;
+    addLiveProofSetNextActionCount(nextActionCounts, nextAction);
+  }
+
+  if (skippedInteractionProofCount === 0) {
+    return null;
+  }
+
+  return {
+    nextActionCounts: formatLiveProofSetNextActionCounts(nextActionCounts),
+    skippedInteractionProofCount,
+  };
+}
+
+/**
+ * Builds preserved-provider next-action counts across failed linked proof artifacts.
+ *
+ * @param {{proofs: LiveProofArtifact[], skippedProofs: LiveProofSetSkippedInteractionProofPointer[]}} options
+ * @returns {LiveProofSetProofFailureProviderEvidenceNextActionsRollup | null}
+ */
+function buildLiveProofSetProofFailureProviderEvidenceNextActionsRollup({
+  proofs,
+  skippedProofs,
+}: {
+  proofs: LiveProofArtifact[];
+  skippedProofs: LiveProofSetSkippedInteractionProofPointer[];
+}): LiveProofSetProofFailureProviderEvidenceNextActionsRollup | null {
+  const failedProofRunIds = new Set(
+    proofs
+      .filter((proof) => proof.status === 'failed')
+      .map((proof) => proof.runId),
+  );
+  if (failedProofRunIds.size === 0) {
+    return null;
+  }
+
+  const failedProofsWithProviderEvidenceNextAction = new Set<string>();
+  const providerEvidenceSkippedProofs = skippedProofs.filter((skippedProof) => {
+    if (
+      !failedProofRunIds.has(skippedProof.proofRunId) ||
+      !skippedProof.profileGateDiagnostics?.providerEvidenceNextAction
+    ) {
+      return false;
+    }
+    failedProofsWithProviderEvidenceNextAction.add(skippedProof.proofRunId);
+    return true;
+  });
+  const rollup = buildLiveProofSetProfileGateProviderEvidenceNextActionsRollup(providerEvidenceSkippedProofs);
+  if (!rollup) {
+    return null;
+  }
+
+  return {
+    failedProofCount: failedProofsWithProviderEvidenceNextAction.size,
+    ...rollup,
+  };
+}
+
+/**
  * Builds human-readable failure reasons for one proof set.
  *
  * @param {{failOnRegression: boolean, missingPlatforms: LiveProofPlatform[], proofs: LiveProofArtifact[]}} options
@@ -2171,6 +2264,13 @@ function buildLiveProofSetArtifact({
     proofs,
     skippedProofs: skippedInteractionProofs,
   });
+  const profileGateProviderEvidenceNextActions = buildLiveProofSetProfileGateProviderEvidenceNextActionsRollup(
+    skippedInteractionProofs,
+  );
+  const proofFailureProviderEvidenceNextActions = buildLiveProofSetProofFailureProviderEvidenceNextActionsRollup({
+    proofs,
+    skippedProofs: skippedInteractionProofs,
+  });
   const proofFailureRequestedDiagnostics = buildLiveProofSetProofFailureRequestedDiagnosticsRollup({
     proofs,
     skippedProofs: skippedInteractionProofs,
@@ -2206,11 +2306,13 @@ function buildLiveProofSetArtifact({
     ...(interactionWarningNextActions ? { interactionWarningNextActions } : {}),
     ...(profileGateDiagnosticSufficiency ? { profileGateDiagnosticSufficiency } : {}),
     ...(profileGateNativePerformance ? { profileGateNativePerformance } : {}),
+    ...(profileGateProviderEvidenceNextActions ? { profileGateProviderEvidenceNextActions } : {}),
     ...(profileGateReadiness ? { profileGateReadiness } : {}),
     ...(profileNativePerformance ? { profileNativePerformance } : {}),
     ...(proofFailureDiagnosticSufficiency ? { proofFailureDiagnosticSufficiency } : {}),
     ...(proofFailureNativePerformance ? { proofFailureNativePerformance } : {}),
     ...(proofFailureNextActions ? { proofFailureNextActions } : {}),
+    ...(proofFailureProviderEvidenceNextActions ? { proofFailureProviderEvidenceNextActions } : {}),
     ...(proofFailureReadiness ? { proofFailureReadiness } : {}),
     ...(proofFailureRequestedDiagnostics ? { proofFailureRequestedDiagnostics } : {}),
     proofCount: proofs.length,
@@ -2654,6 +2756,42 @@ function formatLiveProofSetSkippedInteractionProofNextActionsRollup(
 }
 
 /**
+ * Formats preserved-provider next-action counts across failed proofs.
+ *
+ * @param {LiveProofSetProofFailureProviderEvidenceNextActionsRollup | undefined} rollup
+ * @returns {string[]}
+ */
+function formatLiveProofSetProofFailureProviderEvidenceNextActionsRollup(
+  rollup: LiveProofSetProofFailureProviderEvidenceNextActionsRollup | undefined,
+): string[] {
+  if (!rollup) {
+    return [];
+  }
+
+  return [
+    `Proof failure provider evidence next actions: failedProofs=${rollup.failedProofCount}; skippedInteractionProofs=${rollup.skippedInteractionProofCount}; actions=${formatLiveProofSetNextActionCountsForMarkdown(rollup.nextActionCounts)}`,
+  ];
+}
+
+/**
+ * Formats preserved-provider next-action counts across skipped proof gates.
+ *
+ * @param {LiveProofSetProfileGateProviderEvidenceNextActionsRollup | undefined} rollup
+ * @returns {string[]}
+ */
+function formatLiveProofSetProfileGateProviderEvidenceNextActionsRollup(
+  rollup: LiveProofSetProfileGateProviderEvidenceNextActionsRollup | undefined,
+): string[] {
+  if (!rollup) {
+    return [];
+  }
+
+  return [
+    `Profile gate provider evidence next actions: skippedInteractionProofs=${rollup.skippedInteractionProofCount}; actions=${formatLiveProofSetNextActionCountsForMarkdown(rollup.nextActionCounts)}`,
+  ];
+}
+
+/**
  * Formats native-performance source entries for proof-set markdown.
  *
  * @param {LiveProofNativePerformanceSourceEntry[]} entries
@@ -2684,6 +2822,9 @@ function formatLiveProofSetProfileGateDiagnostics(
   }
   if (diagnostics.blockingDiagnosticSufficiency?.length) {
     parts.push(`blocking=${formatLiveProofSetDiagnosticSufficiencyEntries(diagnostics.blockingDiagnosticSufficiency)}`);
+  }
+  if (diagnostics.providerEvidenceNextAction) {
+    parts.push(`providerNextAction=${diagnostics.providerEvidenceNextAction.owner ?? 'unknown'}/${diagnostics.providerEvidenceNextAction.code}`);
   }
   const nativePerformance = diagnostics.nativePerformance;
   if (nativePerformance) {
@@ -2869,11 +3010,13 @@ function formatLiveProofSetArtifactMarkdown(artifact: LiveProofSetArtifact): str
     ...formatLiveProofSetProofFailureDiagnosticSufficiencyRollup(artifact.proofFailureDiagnosticSufficiency),
     ...formatLiveProofSetProofFailureRequestedDiagnosticsRollup(artifact.proofFailureRequestedDiagnostics),
     ...formatLiveProofSetProofFailureNativePerformanceRollup(artifact.proofFailureNativePerformance),
+    ...formatLiveProofSetProofFailureProviderEvidenceNextActionsRollup(artifact.proofFailureProviderEvidenceNextActions),
     ...formatLiveProofSetProofFailureReadinessRollup(artifact.proofFailureReadiness),
     ...formatLiveProofSetSkippedInteractionProofs(artifact.skippedInteractionProofs),
     ...formatLiveProofSetSkippedInteractionProofNextActionsRollup(artifact.skippedInteractionProofNextActions),
     ...formatLiveProofSetProfileGateDiagnosticSufficiencyRollup(artifact.profileGateDiagnosticSufficiency),
     ...formatLiveProofSetProfileGateNativePerformanceRollup(artifact.profileGateNativePerformance),
+    ...formatLiveProofSetProfileGateProviderEvidenceNextActionsRollup(artifact.profileGateProviderEvidenceNextActions),
     ...formatLiveProofSetProfileGateReadinessRollup(artifact.profileGateReadiness),
     ...formatLiveProofSetNativePerformanceRollup(artifact.profileNativePerformance),
     `Failure reasons: ${artifact.failureReasons.length > 0 ? artifact.failureReasons.join(' ') : 'none'}`,

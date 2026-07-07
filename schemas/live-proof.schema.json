@@ -364,6 +364,9 @@
             "$ref": "#/$defs/requestedDiagnosticInventoryEntry"
           }
         },
+        "providerEvidenceNextAction": {
+          "$ref": "#/$defs/skippedInteractionProofNextAction"
+        },
         "nativePerformance": {
           "$ref": "#/$defs/nativePerformanceProfileGateDiagnostics"
         }
