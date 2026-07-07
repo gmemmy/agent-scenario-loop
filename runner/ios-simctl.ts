@@ -137,6 +137,9 @@ type NextActionHint = {
   nextActionCode: string;
 };
 type IosTargetForegroundFailure = NextActionHint & {
+  devClientDeepLinkLabel?: string | null;
+  devClientDeepLinkRawPath?: string | null;
+  devClientDeepLinkUrl?: string | null;
   failureClass?: 'dev_client_foreground_mismatch';
 };
 type SimulatorLaunchEnvironmentProbe = {
@@ -1509,6 +1512,7 @@ function iosTargetForegroundMetadata({
   appInfoCaptured,
   applicationState,
   bundleId,
+  devClientDeepLink,
   devClientDeepLinkOpened,
   rawFileName,
   targetForeground,
@@ -1516,6 +1520,7 @@ function iosTargetForegroundMetadata({
   appInfoCaptured: boolean;
   applicationState: string | null;
   bundleId: string;
+  devClientDeepLink: {label: string | null; rawPath: string | null; url: string | null} | null;
   devClientDeepLinkOpened: boolean;
   rawFileName: string;
   targetForeground: boolean;
@@ -1541,6 +1546,9 @@ function iosTargetForegroundMetadata({
             'reload_ios_dev_client_url',
             `The target app reported ${applicationState} after an iOS dev-client URL was opened. Inspect raw/${rawFileName}, restart Metro from the consuming app worktree if needed, reopen the dev-client URL, and rerun before trusting profile-session or screenshot evidence.`,
           ),
+          devClientDeepLinkLabel: devClientDeepLink?.label ?? null,
+          devClientDeepLinkRawPath: devClientDeepLink?.rawPath ?? null,
+          devClientDeepLinkUrl: devClientDeepLink?.url ?? null,
           failureClass: 'dev_client_foreground_mismatch',
         },
       };
@@ -1582,10 +1590,12 @@ function hasOpenedIosDevClientDeepLink(results: Array<{exitCode?: unknown; label
 /**
  * Returns the last successfully opened deep link in a capture attempt.
  *
- * @param {Array<{exitCode?: unknown, label?: unknown, url?: unknown}>} results
- * @returns {{label: string | null, url: string | null} | null}
+ * @param {Array<{exitCode?: unknown, label?: unknown, rawPath?: unknown, url?: unknown}>} results
+ * @returns {{label: string | null, rawPath: string | null, url: string | null} | null}
  */
-function lastOpenedDeepLink(results: Array<{exitCode?: unknown; label?: unknown; url?: unknown}>): {label: string | null; url: string | null} | null {
+function lastOpenedDeepLink(
+  results: Array<{exitCode?: unknown; label?: unknown; rawPath?: unknown; url?: unknown}>,
+): {label: string | null; rawPath: string | null; url: string | null} | null {
   for (let index = results.length - 1; index >= 0; index -= 1) {
     const result = results[index];
     if (!result || result.exitCode !== 0) {
@@ -1593,6 +1603,7 @@ function lastOpenedDeepLink(results: Array<{exitCode?: unknown; label?: unknown;
     }
     return {
       label: typeof result.label === 'string' ? result.label : null,
+      rawPath: typeof result.rawPath === 'string' ? result.rawPath : null,
       url: typeof result.url === 'string' ? result.url : null,
     };
   }
@@ -2600,6 +2611,7 @@ async function runIosSimctlCapture(options: IosSimctlCaptureOptions = {}): Promi
             appInfoCaptured,
             applicationState,
             bundleId,
+            devClientDeepLink: lastOpenedDeepLink(deepLinkResults),
             devClientDeepLinkOpened: hasOpenedIosDevClientDeepLink(deepLinkResults),
             rawFileName: appInfoResult.rawFileName,
             targetForeground,

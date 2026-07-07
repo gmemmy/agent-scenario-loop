@@ -986,12 +986,24 @@ test('classifies iOS dev-client foreground mismatch after opening dev-client URL
   });
 
   const foregroundCheck = (
-    result.health.checks as Array<{ code: string; metadata?: { failureClass?: string; nextActionCode?: string } }>
+    result.health.checks as Array<{
+      code: string;
+      metadata?: {
+        devClientDeepLinkLabel?: string | null;
+        devClientDeepLinkRawPath?: string | null;
+        devClientDeepLinkUrl?: string | null;
+        failureClass?: string;
+        nextActionCode?: string;
+      };
+    }>
   ).find((check) => check.code === 'ios_target_app_backgrounded');
 
   assert.equal(result.health.healthStatus, 'failed');
   assert.equal(foregroundCheck?.metadata?.failureClass, 'dev_client_foreground_mismatch');
   assert.equal(foregroundCheck?.metadata?.nextActionCode, 'reload_ios_dev_client_url');
+  assert.equal(foregroundCheck?.metadata?.devClientDeepLinkLabel, 'ios-dev-client-url');
+  assert.equal(foregroundCheck?.metadata?.devClientDeepLinkRawPath, 'raw/ios-deep-link-1.txt');
+  assert.equal(foregroundCheck?.metadata?.devClientDeepLinkUrl, devClientUrl);
 });
 
 test('blocks lifecycle mutation when simulator launch environment is contaminated', async (t: TestContext) => {

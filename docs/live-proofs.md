@@ -286,7 +286,7 @@ The same `low_confidence` comparison policy applies to iOS seeded baselines, whe
 
 Expo dev-client iOS shells may need an explicit Metro deep link after the native app launches. Put that local URL in ignored env state, for example `ASL_EXAMPLE_IOS_DEV_CLIENT_URL=asl-example://expo-development-client/?url=http%3A%2F%2Flocalhost%3A8097`, so iOS profile capture opens the correct app session before collecting evidence.
 
-If the runner opened an iOS dev-client URL but `simctl appinfo` reports that the target bundle is not foreground-owned after capture, ASL classifies the failure as `dev_client_foreground_mismatch` with next action `reload_ios_dev_client_url`. Treat that as runtime-environment evidence: restart Metro from the consuming app worktree if needed, reopen the dev-client URL, and rerun before trusting profile-session or screenshot evidence.
+If the runner opened an iOS dev-client URL but `simctl appinfo` reports that the target bundle is not foreground-owned after capture, ASL classifies the failure as `dev_client_foreground_mismatch` with next action `reload_ios_dev_client_url`. The failed check records the opened dev-client URL label, URL, and run-relative raw output path when available. Treat that as runtime-environment evidence: restart Metro from the consuming app worktree if needed, reopen the dev-client URL, and rerun before trusting profile-session or screenshot evidence.
 
 The default iOS live proof transport seeds profile-session control into simulator app storage. Use `--ios-profile-session-transport deeplink` when the app should receive profile-session start and command control through app URLs instead.
 
