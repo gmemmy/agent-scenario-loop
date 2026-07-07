@@ -245,6 +245,10 @@ type LiveProofSetProofFailureNextActionsRollup = {
   proofCount: number;
   regressedProofCount: number;
 };
+type LiveProofSetMissingPlatformNextActionsRollup = {
+  missingPlatformCount: number;
+  nextActionCounts: LiveProofNextActionCount[];
+};
 type LiveProofSetInteractionWarningNextActionsRollup = {
   interactionWarningCount: number;
   nextActionCounts: LiveProofNextActionCount[];
@@ -257,6 +261,7 @@ type LiveProofSetSkippedInteractionProofNextActionsRollup = {
 type LiveProofSetArtifact = {
   failureReasons: string[];
   missingPlatforms: LiveProofPlatform[];
+  missingPlatformNextActions?: LiveProofSetMissingPlatformNextActionsRollup;
   nextAction: {
     code: string;
     owner?: LiveProofNextActionOwner;
@@ -1567,6 +1572,47 @@ function buildLiveProofSetProofFailureNextActionsRollup({
 }
 
 /**
+ * Builds the stable next action for missing required platform proofs.
+ *
+ * @param {LiveProofPlatform[]} missingPlatforms
+ * @returns {{code: string, owner: LiveProofNextActionOwner, summary: string}}
+ */
+function buildLiveProofSetMissingPlatformNextAction(
+  missingPlatforms: LiveProofPlatform[],
+): {code: string; owner: LiveProofNextActionOwner; summary: string} {
+  return {
+    code: 'collect_missing_platform_proofs',
+    owner: 'runtime_environment',
+    summary: `Run the missing platform proof(s): ${missingPlatforms.join(', ')}.`,
+  };
+}
+
+/**
+ * Builds next-action owner/code counts across missing required platforms.
+ *
+ * @param {LiveProofPlatform[]} missingPlatforms
+ * @returns {LiveProofSetMissingPlatformNextActionsRollup | null}
+ */
+function buildLiveProofSetMissingPlatformNextActionsRollup(
+  missingPlatforms: LiveProofPlatform[],
+): LiveProofSetMissingPlatformNextActionsRollup | null {
+  if (missingPlatforms.length === 0) {
+    return null;
+  }
+
+  const nextActionCounts = new Map<string, LiveProofNextActionCount>();
+  const nextAction = buildLiveProofSetMissingPlatformNextAction(missingPlatforms);
+  for (let index = 0; index < missingPlatforms.length; index += 1) {
+    addLiveProofSetNextActionCount(nextActionCounts, nextAction);
+  }
+
+  return {
+    missingPlatformCount: missingPlatforms.length,
+    nextActionCounts: formatLiveProofSetNextActionCounts(nextActionCounts),
+  };
+}
+
+/**
  * Builds next-action owner/code counts across optional interaction warning checks.
  *
  * @param {LiveProofSetProofPointer[]} proofPointers
@@ -1677,11 +1723,7 @@ function buildLiveProofSetNextAction({
   proofs: LiveProofArtifact[];
 }): {code: string; owner: LiveProofNextActionOwner; summary: string} {
   if (missingPlatforms.length > 0) {
-    return {
-      code: 'collect_missing_platform_proofs',
-      owner: 'runtime_environment',
-      summary: `Run the missing platform proof(s): ${missingPlatforms.join(', ')}.`,
-    };
+    return buildLiveProofSetMissingPlatformNextAction(missingPlatforms);
   }
   if (proofs.some((proof) => proof.status === 'failed')) {
     return {
@@ -1747,6 +1789,7 @@ function buildLiveProofSetArtifact({
     failOnRegression,
     proofs,
   });
+  const missingPlatformNextActions = buildLiveProofSetMissingPlatformNextActionsRollup(missingPlatforms);
   const profileNativePerformance = buildLiveProofSetNativePerformanceRollup(proofs);
   const skippedInteractionProofs = buildLiveProofSetSkippedInteractionProofs({ files, proofs });
   const profileGateDiagnosticSufficiency = buildLiveProofSetProfileGateDiagnosticSufficiencyRollup(
@@ -1769,6 +1812,7 @@ function buildLiveProofSetArtifact({
   return {
     failureReasons,
     missingPlatforms,
+    ...(missingPlatformNextActions ? { missingPlatformNextActions } : {}),
     nextAction,
     presentPlatforms,
     ...(interactionWarningNextActions ? { interactionWarningNextActions } : {}),
@@ -2000,6 +2044,24 @@ function formatLiveProofSetProofFailureNextActionsRollup(
 
   return [
     `Proof failure next actions: proofs=${rollup.proofCount}; failed=${rollup.failedProofCount}; regressed=${rollup.regressedProofCount}; actions=${formatLiveProofSetNextActionCountsForMarkdown(rollup.nextActionCounts)}`,
+  ];
+}
+
+/**
+ * Formats aggregate missing-platform next-action counts for proof-set markdown.
+ *
+ * @param {LiveProofSetMissingPlatformNextActionsRollup | undefined} rollup
+ * @returns {string[]}
+ */
+function formatLiveProofSetMissingPlatformNextActionsRollup(
+  rollup: LiveProofSetMissingPlatformNextActionsRollup | undefined,
+): string[] {
+  if (!rollup) {
+    return [];
+  }
+
+  return [
+    `Missing platform next actions: missingPlatforms=${rollup.missingPlatformCount}; actions=${formatLiveProofSetNextActionCountsForMarkdown(rollup.nextActionCounts)}`,
   ];
 }
 
@@ -2245,6 +2307,7 @@ function formatLiveProofSetArtifactMarkdown(artifact: LiveProofSetArtifact): str
       `- ${proof.platform} ${proof.runId}: status=${proof.status} comparison=${proof.comparisonStatus} profiles=${proof.profileCount} interactionProofs=${proof.interactionProofCount} warnings=${proof.interactionWarningCount} summary=${proof.summaryPath}`,
       ...formatLiveProofSetWarningDetails(proof),
     ]),
+    ...formatLiveProofSetMissingPlatformNextActionsRollup(artifact.missingPlatformNextActions),
     ...formatLiveProofSetInteractionWarningNextActionsRollup(artifact.interactionWarningNextActions),
     ...formatLiveProofSetProofFailureNextActionsRollup(artifact.proofFailureNextActions),
     ...formatLiveProofSetSkippedInteractionProofs(artifact.skippedInteractionProofs),

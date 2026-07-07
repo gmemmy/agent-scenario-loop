@@ -854,15 +854,33 @@ test('builds a failed live-proof-set artifact when a required platform is missin
     requiredPlatforms: ['android', 'ios'],
     runId: 'missing-ios',
   });
+  const markdown = formatLiveProofSetArtifactMarkdown(artifact);
+  const written = await writeLiveProofSetArtifact({
+    artifact,
+    outputDir: path.join(tempDir, 'proof-set'),
+  });
+  const writtenJson = JSON.parse(fs.readFileSync(written.liveProofSetPath, 'utf8'));
 
   assert.equal(artifact.status, 'failed');
   assert.deepEqual(artifact.missingPlatforms, ['ios']);
   assert.deepEqual(artifact.failureReasons, ['Missing required platform proof: ios.']);
+  assert.deepEqual(artifact.missingPlatformNextActions, {
+    missingPlatformCount: 1,
+    nextActionCounts: [
+      {
+        code: 'collect_missing_platform_proofs',
+        count: 1,
+        owner: 'runtime_environment',
+      },
+    ],
+  });
+  assert.deepEqual(writtenJson.missingPlatformNextActions, artifact.missingPlatformNextActions);
   assert.deepEqual(artifact.nextAction, {
     code: 'collect_missing_platform_proofs',
     owner: 'runtime_environment',
     summary: 'Run the missing platform proof(s): ios.',
   });
+  assert.match(markdown, /Missing platform next actions: missingPlatforms=1; actions=runtime_environment\/collect_missing_platform_proofs=1/u);
 });
 
 test('builds proof-set skipped interaction proof context from linked proofs', async (t: TestContext) => {

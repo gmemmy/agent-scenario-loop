@@ -40,6 +40,9 @@
     "skippedInteractionProofNextActions": {
       "$ref": "#/$defs/skippedInteractionProofNextActions"
     },
+    "missingPlatformNextActions": {
+      "$ref": "#/$defs/missingPlatformNextActions"
+    },
     "requiredPlatforms": {
       "$ref": "#/$defs/platformList"
     },
@@ -498,6 +501,42 @@
       }
     },
     "skippedInteractionProofNextActionCount": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "count"],
+      "properties": {
+        "owner": {
+          "$ref": "#/$defs/nextActionOwner"
+        },
+        "code": {
+          "type": "string",
+          "minLength": 1
+        },
+        "count": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "missingPlatformNextActions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["missingPlatformCount", "nextActionCounts"],
+      "properties": {
+        "missingPlatformCount": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "nextActionCounts": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/missingPlatformNextActionCount"
+          }
+        }
+      }
+    },
+    "missingPlatformNextActionCount": {
       "type": "object",
       "additionalProperties": false,
       "required": ["code", "count"],
