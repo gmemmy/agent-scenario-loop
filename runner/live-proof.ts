@@ -91,6 +91,7 @@ type LiveProofArtifact = {
     summaryPath: string;
     verdictStatus: string;
   }>;
+  profileNativePerformance?: LiveProofProfileNativePerformanceRollup;
   runId: string;
   status: string;
   summary: string;
@@ -144,6 +145,23 @@ type LiveProofNextActionOwner = (
   'runtime_environment' |
   'scenario_contract'
 );
+type LiveProofNativePerformanceCount = {
+  count: number;
+  status: string;
+};
+type LiveProofNativePerformanceSourceCount = {
+  count: number;
+  sourceId: string;
+  status: string;
+};
+type LiveProofProfileNativePerformanceRollup = {
+  claimSufficiencyCounts?: LiveProofNativePerformanceCount[];
+  comparabilityCounts?: LiveProofNativePerformanceCount[];
+  diagnosticSourceCounts?: LiveProofNativePerformanceSourceCount[];
+  evidenceCount: number;
+  profileCount: number;
+  targetBindingCounts?: LiveProofNativePerformanceCount[];
+};
 type LiveProofSetArtifact = {
   failureReasons: string[];
   missingPlatforms: LiveProofPlatform[];
@@ -153,6 +171,7 @@ type LiveProofSetArtifact = {
     summary: string;
   };
   presentPlatforms: LiveProofPlatform[];
+  profileNativePerformance?: LiveProofProfileNativePerformanceRollup;
   proofCount: number;
   proofs: LiveProofSetProofPointer[];
   requiredPlatforms: LiveProofPlatform[];
@@ -896,6 +915,119 @@ function countInteractionWarnings(proof: LiveProofArtifact): number {
 }
 
 /**
+ * Adds native-performance status counts into a proof-set accumulator.
+ *
+ * @param {Map<string, number>} counts
+ * @param {LiveProofNativePerformanceCount[] | undefined} entries
+ * @returns {void}
+ */
+function addNativePerformanceStatusCounts(
+  counts: Map<string, number>,
+  entries: LiveProofNativePerformanceCount[] | undefined,
+): void {
+  for (const entry of entries ?? []) {
+    counts.set(entry.status, (counts.get(entry.status) ?? 0) + entry.count);
+  }
+}
+
+/**
+ * Adds native-performance diagnostic source counts into a proof-set accumulator.
+ *
+ * @param {Map<string, number>} counts
+ * @param {LiveProofNativePerformanceSourceCount[] | undefined} entries
+ * @returns {void}
+ */
+function addNativePerformanceSourceCounts(
+  counts: Map<string, number>,
+  entries: LiveProofNativePerformanceSourceCount[] | undefined,
+): void {
+  for (const entry of entries ?? []) {
+    const key = `${entry.sourceId}\u0000${entry.status}`;
+    counts.set(key, (counts.get(key) ?? 0) + entry.count);
+  }
+}
+
+/**
+ * Converts accumulated native-performance status counts into stable artifact order.
+ *
+ * @param {Map<string, number>} counts
+ * @returns {LiveProofNativePerformanceCount[]}
+ */
+function formatNativePerformanceStatusCounts(
+  counts: Map<string, number>,
+): LiveProofNativePerformanceCount[] {
+  return [...counts.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([status, count]) => ({ count, status }));
+}
+
+/**
+ * Converts accumulated native-performance source counts into stable artifact order.
+ *
+ * @param {Map<string, number>} counts
+ * @returns {LiveProofNativePerformanceSourceCount[]}
+ */
+function formatNativePerformanceSourceCounts(
+  counts: Map<string, number>,
+): LiveProofNativePerformanceSourceCount[] {
+  return [...counts.entries()]
+    .map(([key, count]) => {
+      const [sourceId = '', status = ''] = key.split('\u0000');
+      return { count, sourceId, status };
+    })
+    .sort((left, right) => (
+      left.sourceId.localeCompare(right.sourceId) || left.status.localeCompare(right.status)
+    ));
+}
+
+/**
+ * Builds native-performance interpretation counts across linked live-proof artifacts.
+ *
+ * @param {LiveProofArtifact[]} proofs
+ * @returns {LiveProofProfileNativePerformanceRollup | null}
+ */
+function buildLiveProofSetNativePerformanceRollup(
+  proofs: LiveProofArtifact[],
+): LiveProofProfileNativePerformanceRollup | null {
+  const claimSufficiencyCounts = new Map<string, number>();
+  const comparabilityCounts = new Map<string, number>();
+  const diagnosticSourceCounts = new Map<string, number>();
+  const targetBindingCounts = new Map<string, number>();
+  let evidenceCount = 0;
+  let profileCount = 0;
+
+  for (const proof of proofs) {
+    const rollup = proof.profileNativePerformance;
+    if (!rollup) {
+      continue;
+    }
+    evidenceCount += rollup.evidenceCount;
+    profileCount += rollup.profileCount;
+    addNativePerformanceStatusCounts(claimSufficiencyCounts, rollup.claimSufficiencyCounts);
+    addNativePerformanceStatusCounts(comparabilityCounts, rollup.comparabilityCounts);
+    addNativePerformanceSourceCounts(diagnosticSourceCounts, rollup.diagnosticSourceCounts);
+    addNativePerformanceStatusCounts(targetBindingCounts, rollup.targetBindingCounts);
+  }
+
+  if (evidenceCount === 0) {
+    return null;
+  }
+
+  const claimCounts = formatNativePerformanceStatusCounts(claimSufficiencyCounts);
+  const comparableCounts = formatNativePerformanceStatusCounts(comparabilityCounts);
+  const sourceCounts = formatNativePerformanceSourceCounts(diagnosticSourceCounts);
+  const targetCounts = formatNativePerformanceStatusCounts(targetBindingCounts);
+  return {
+    ...(claimCounts.length > 0 ? { claimSufficiencyCounts: claimCounts } : {}),
+    ...(comparableCounts.length > 0 ? { comparabilityCounts: comparableCounts } : {}),
+    ...(sourceCounts.length > 0 ? { diagnosticSourceCounts: sourceCounts } : {}),
+    evidenceCount,
+    profileCount,
+    ...(targetCounts.length > 0 ? { targetBindingCounts: targetCounts } : {}),
+  };
+}
+
+/**
  * Builds warning detail pointers from one platform live-proof artifact.
  *
  * @param {LiveProofArtifact} proof
@@ -1067,11 +1199,13 @@ function buildLiveProofSetArtifact({
     missingPlatforms,
     proofs,
   });
+  const profileNativePerformance = buildLiveProofSetNativePerformanceRollup(proofs);
   return {
     failureReasons,
     missingPlatforms,
     nextAction,
     presentPlatforms,
+    ...(profileNativePerformance ? { profileNativePerformance } : {}),
     proofCount: proofs.length,
     proofs: proofs.map((proof, index) => buildLiveProofSetProofPointer({
       filePath: path.resolve(files[index] ?? ''),
@@ -1105,6 +1239,65 @@ function formatLiveProofSetWarningDetails(proof: LiveProofSetProofPointer): stri
 }
 
 /**
+ * Formats native-performance status counts for proof-set markdown.
+ *
+ * @param {LiveProofNativePerformanceCount[]} counts
+ * @returns {string}
+ */
+function formatLiveProofSetNativePerformanceStatusCounts(
+  counts: LiveProofNativePerformanceCount[],
+): string {
+  return counts.map((entry) => `${entry.status}=${entry.count}`).join(', ');
+}
+
+/**
+ * Formats native-performance diagnostic source counts for proof-set markdown.
+ *
+ * @param {LiveProofNativePerformanceSourceCount[]} counts
+ * @returns {string}
+ */
+function formatLiveProofSetNativePerformanceSourceCounts(
+  counts: LiveProofNativePerformanceSourceCount[],
+): string {
+  return counts.map((entry) => `${entry.sourceId}:${entry.status}=${entry.count}`).join(', ');
+}
+
+/**
+ * Formats proof-set native-performance interpretation details for markdown.
+ *
+ * @param {LiveProofProfileNativePerformanceRollup | undefined} rollup
+ * @returns {string[]}
+ */
+function formatLiveProofSetNativePerformanceRollup(
+  rollup: LiveProofProfileNativePerformanceRollup | undefined,
+): string[] {
+  if (!rollup) {
+    return [];
+  }
+
+  const details = [
+    `profiles=${rollup.profileCount}`,
+    `evidence=${rollup.evidenceCount}`,
+  ];
+  if (rollup.diagnosticSourceCounts?.length) {
+    details.push(`sources=${formatLiveProofSetNativePerformanceSourceCounts(rollup.diagnosticSourceCounts)}`);
+  }
+  if (rollup.claimSufficiencyCounts?.length) {
+    details.push(`claim=${formatLiveProofSetNativePerformanceStatusCounts(rollup.claimSufficiencyCounts)}`);
+  }
+  if (rollup.comparabilityCounts?.length) {
+    details.push(`comparability=${formatLiveProofSetNativePerformanceStatusCounts(rollup.comparabilityCounts)}`);
+  }
+  if (rollup.targetBindingCounts?.length) {
+    details.push(`target=${formatLiveProofSetNativePerformanceStatusCounts(rollup.targetBindingCounts)}`);
+  }
+
+  return [
+    `Native performance: ${details.join('; ')}`,
+  ];
+}
+
+/**
  * Formats a proof-set artifact for agent-readable markdown.
  *
  * @param {LiveProofSetArtifact} artifact
@@ -1123,6 +1316,7 @@ function formatLiveProofSetArtifactMarkdown(artifact: LiveProofSetArtifact): str
       `- ${proof.platform} ${proof.runId}: status=${proof.status} comparison=${proof.comparisonStatus} profiles=${proof.profileCount} interactionProofs=${proof.interactionProofCount} warnings=${proof.interactionWarningCount} summary=${proof.summaryPath}`,
       ...formatLiveProofSetWarningDetails(proof),
     ]),
+    ...formatLiveProofSetNativePerformanceRollup(artifact.profileNativePerformance),
     `Failure reasons: ${artifact.failureReasons.length > 0 ? artifact.failureReasons.join(' ') : 'none'}`,
     `Next action: ${artifact.nextAction.owner ?? 'unknown'}/${artifact.nextAction.code} - ${artifact.nextAction.summary}`,
     '',
