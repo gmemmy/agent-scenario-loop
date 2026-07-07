@@ -46,6 +46,9 @@
     "profileGateDiagnosticSufficiency": {
       "$ref": "#/$defs/profileGateDiagnosticSufficiency"
     },
+    "profileGateNativePerformance": {
+      "$ref": "#/$defs/profileGateNativePerformance"
+    },
     "profileNativePerformance": {
       "$ref": "#/$defs/profileNativePerformance"
     },
@@ -268,6 +271,45 @@
         "count": {
           "type": "integer",
           "minimum": 1
+        }
+      }
+    },
+    "profileGateNativePerformance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["skippedInteractionProofCount"],
+      "properties": {
+        "skippedInteractionProofCount": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "diagnosticSourceCounts": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/nativePerformanceSourceCount"
+          }
+        },
+        "claimSufficiencyCounts": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/nativePerformanceStatusCount"
+          }
+        },
+        "comparabilityCounts": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/nativePerformanceStatusCount"
+          }
+        },
+        "targetBindingCounts": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/nativePerformanceStatusCount"
+          }
         }
       }
     },
