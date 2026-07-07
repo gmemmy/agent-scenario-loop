@@ -1229,19 +1229,66 @@ test('supports a fail-on-regression gate', () => {
   assert.equal(shouldFailOnRegression({ failOnRegression: false, proof }), false);
 });
 
-test('fails a live-proof set when any proof artifact failed', () => {
+test('fails a live-proof set when any proof artifact failed', async (t: TestContext) => {
+  const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-live-proof-set-failed-next-actions-'));
+  t.after(async () => {
+    await fsp.rm(tempDir, { recursive: true, force: true });
+  });
   const passedProof = buildProof('unchanged', 'passed', 'android') as ReturnType<typeof readLiveProof>;
   const failedProof = buildProof('unchanged', 'failed', 'ios') as ReturnType<typeof readLiveProof>;
+  const artifact = buildLiveProofSetArtifact({
+    failOnRegression: false,
+    files: [
+      path.join(tempDir, 'android-live-proof.json'),
+      path.join(tempDir, 'ios-live-proof.json'),
+    ],
+    proofs: [passedProof, failedProof],
+    requiredPlatforms: ['android', 'ios'],
+    runId: 'failed-proof-next-actions',
+  });
+  const markdown = formatLiveProofSetArtifactMarkdown(artifact);
 
   assert.equal(shouldFailLiveProofSet({
     failOnRegression: false,
     proofs: [passedProof, failedProof],
   }), true);
+  assert.deepEqual(artifact.proofFailureNextActions, {
+    failedProofCount: 1,
+    nextActionCounts: [
+      {
+        code: 'inspect_failed_run',
+        count: 1,
+        owner: 'asl_runner',
+      },
+    ],
+    proofCount: 1,
+    regressedProofCount: 0,
+  });
+  assert.match(markdown, /Proof failure next actions: proofs=1; failed=1; regressed=0; actions=asl_runner\/inspect_failed_run=1/u);
+  await writeLiveProofSetArtifact({
+    artifact,
+    outputDir: path.join(tempDir, 'proof-set'),
+  });
 });
 
 test('fails a live-proof set when regression gating finds a regressed proof', () => {
   const androidProof = buildProof('unchanged', 'passed', 'android') as ReturnType<typeof readLiveProof>;
   const iosProof = buildProof('regressed', 'passed', 'ios') as ReturnType<typeof readLiveProof>;
+  const gatedArtifact = buildLiveProofSetArtifact({
+    failOnRegression: true,
+    files: ['android-live-proof.json', 'ios-live-proof.json'],
+    proofs: [androidProof, iosProof],
+    requiredPlatforms: ['android', 'ios'],
+    runId: 'regressed-proof-next-actions',
+  });
+  const ungatedArtifact = buildLiveProofSetArtifact({
+    failOnRegression: false,
+    files: ['android-live-proof.json', 'ios-live-proof.json'],
+    proofs: [androidProof, iosProof],
+    requiredPlatforms: ['android', 'ios'],
+    runId: 'ungated-regressed-proof-next-actions',
+  });
+  const markdown = formatLiveProofSetArtifactMarkdown(gatedArtifact);
 
   assert.equal(shouldFailLiveProofSet({
     failOnRegression: true,
@@ -1251,4 +1298,18 @@ test('fails a live-proof set when regression gating finds a regressed proof', ()
     failOnRegression: false,
     proofs: [androidProof, iosProof],
   }), false);
+  assert.deepEqual(gatedArtifact.proofFailureNextActions, {
+    failedProofCount: 0,
+    nextActionCounts: [
+      {
+        code: 'inspect_regressions',
+        count: 1,
+        owner: 'product_optimization',
+      },
+    ],
+    proofCount: 1,
+    regressedProofCount: 1,
+  });
+  assert.equal(ungatedArtifact.proofFailureNextActions, undefined);
+  assert.match(markdown, /Proof failure next actions: proofs=1; failed=0; regressed=1; actions=product_optimization\/inspect_regressions=1/u);
 });
