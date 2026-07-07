@@ -462,7 +462,21 @@ test('writes optional interaction proof pointers into aggregate live proof artif
       scenarioId: 'app-startup',
       schemaVersion: '1.0.0',
       targetBinding: {
-        status: 'verified',
+        candidateTargets: [
+          {
+            bindingStatus: 'expected',
+            reason: 'Requested app id matched the provider command.',
+            source: 'manifest',
+          },
+          {
+            bindingStatus: 'observed',
+            reason: 'Observed another debuggable runtime in trace metadata.',
+            source: 'trace',
+          },
+        ],
+        reason: 'Two app runtimes were visible during capture.',
+        source: 'provider',
+        status: 'ambiguous',
       },
     }),
     'utf8',
@@ -565,7 +579,23 @@ test('writes optional interaction proof pointers into aggregate live proof artif
     targetBindingCounts: [
       {
         count: 1,
-        status: 'verified',
+        status: 'ambiguous',
+      },
+    ],
+    targetBindingDetailCounts: [
+      {
+        candidateBindingStatus: 'expected',
+        count: 1,
+        reason: 'Requested app id matched the provider command.',
+        source: 'manifest',
+        status: 'ambiguous',
+      },
+      {
+        candidateBindingStatus: 'observed',
+        count: 1,
+        reason: 'Observed another debuggable runtime in trace metadata.',
+        source: 'trace',
+        status: 'ambiguous',
       },
     ],
   });
@@ -619,7 +649,7 @@ test('writes optional interaction proof pointers into aggregate live proof artif
   assert.match(summary, /Next action: product_optimization\/inspect_summary/u);
   assert.match(summary, /## Interaction Proofs/u);
   assert.match(summary, /## Native Performance/u);
-  assert.match(summary, /profiles=1; evidence=1; sources=gfxinfo:partial=1, meminfo:captured=1; completeness=partial=1; claim=insufficient-for-claim=1; comparability=diagnostic-only=1; target=verified=1/u);
+  assert.match(summary, /profiles=1; evidence=1; sources=gfxinfo:partial=1, meminfo:captured=1; completeness=partial=1; claim=insufficient-for-claim=1; comparability=diagnostic-only=1; target=ambiguous=1; targetDetails=ambiguous:candidate=expected:source=manifest:reason=Requested app id matched the provider command\.=1, ambiguous:candidate=observed:source=trace:reason=Observed another debuggable runtime in trace metadata\.=1/u);
   assert.match(summary, /screenshots=1/u);
   assert.match(summary, /warnings=1/u);
   assert.match(summary, /warning argent_screenshot: argent_screenshot_failed - Argent driver action screenshot failed\. Next action: provider_tooling\/inspect_argent_driver_action - Inspect raw screenshot output\./u);

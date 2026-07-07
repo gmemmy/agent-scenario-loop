@@ -307,7 +307,7 @@ function buildProof(
  * Adds native-performance rollup metadata to a live-proof fixture.
  *
  * @param {Record<string, unknown>} proof
- * @param {{claim: string, completeness: string, comparability: string, evidenceCount: number, profileCount: number, sourceId: string, sourceStatus: string, target: string}} options
+ * @param {{claim: string, completeness: string, comparability: string, evidenceCount: number, profileCount: number, sourceId: string, sourceStatus: string, target: string, targetDetailReason?: string, targetDetailSource?: string}} options
  * @returns {Record<string, unknown>}
  */
 function withNativePerformanceRollup(
@@ -321,6 +321,8 @@ function withNativePerformanceRollup(
     sourceId,
     sourceStatus,
     target,
+    targetDetailReason,
+    targetDetailSource,
   }: {
     claim: string;
     completeness: string;
@@ -330,8 +332,20 @@ function withNativePerformanceRollup(
     sourceId: string;
     sourceStatus: string;
     target: string;
+    targetDetailReason?: string;
+    targetDetailSource?: string;
   },
 ): Record<string, unknown> {
+  const targetBindingDetailCounts = targetDetailReason || targetDetailSource
+    ? [
+      {
+        count: evidenceCount,
+        ...(targetDetailReason ? { reason: targetDetailReason } : {}),
+        ...(targetDetailSource ? { source: targetDetailSource } : {}),
+        status: target,
+      },
+    ]
+    : [];
   return {
     ...proof,
     profileNativePerformance: {
@@ -368,6 +382,7 @@ function withNativePerformanceRollup(
           status: target,
         },
       ],
+      ...(targetBindingDetailCounts.length > 0 ? { targetBindingDetailCounts } : {}),
     },
   };
 }
@@ -730,6 +745,8 @@ test('builds a durable live-proof-set artifact for Android and iOS proofs', asyn
       sourceId: 'gfxinfo',
       sourceStatus: 'partial',
       target: 'verified',
+      targetDetailReason: 'Provider matched the requested device and app.',
+      targetDetailSource: 'provider',
     },
   ));
   const iosProofPath = path.join(tempDir, 'ios-live-proof.json');
@@ -819,6 +836,14 @@ test('builds a durable live-proof-set artifact for Android and iOS proofs', asyn
         status: 'verified',
       },
     ],
+    targetBindingDetailCounts: [
+      {
+        count: 1,
+        reason: 'Provider matched the requested device and app.',
+        source: 'provider',
+        status: 'verified',
+      },
+    ],
   });
   assert.equal(artifact.proofs[0].interactionWarningCount, 1);
   assert.deepEqual(artifact.proofs[0].interactionWarnings, [
@@ -857,7 +882,7 @@ test('builds a durable live-proof-set artifact for Android and iOS proofs', asyn
   assert.match(markdown, /warning android\/startup-ui \(agent-device\/app-startup\/agent-device-startup\): argent_screenshot argent_screenshot_failed - Argent driver action screenshot failed\. Next action: provider_tooling\/inspect_argent_driver_action - Inspect raw screenshot output\./u);
   assert.match(markdown, /Interaction warning next actions: proofs=2; warnings=2; actions=provider_tooling\/inspect_argent_driver_action=2/u);
   assert.match(markdown, /- ios ios-live-proof: status=passed comparison=unchanged/u);
-  assert.match(markdown, /Native performance: profiles=2; evidence=3; sources=gfxinfo:partial=1, xctrace:captured=2; completeness=complete=2, partial=1; claim=insufficient-for-claim=1, sufficient-for-comparison=2; comparability=comparable=2, diagnostic-only=1; target=verified=3/u);
+  assert.match(markdown, /Native performance: profiles=2; evidence=3; sources=gfxinfo:partial=1, xctrace:captured=2; completeness=complete=2, partial=1; claim=insufficient-for-claim=1, sufficient-for-comparison=2; comparability=comparable=2, diagnostic-only=1; target=verified=3; targetDetails=verified:source=provider:reason=Provider matched the requested device and app\.=1/u);
 });
 
 test('builds a failed live-proof-set artifact when a required platform is missing', async (t: TestContext) => {
@@ -998,6 +1023,20 @@ test('builds proof-set skipped interaction proof context from linked proofs', as
             },
           ],
           targetBinding: 'ambiguous',
+          targetBindingDetails: [
+            {
+              candidateBindingStatus: 'expected',
+              reason: 'Requested app id matched the provider command.',
+              source: 'manifest',
+              status: 'ambiguous',
+            },
+            {
+              candidateBindingStatus: 'observed',
+              reason: 'Observed another runtime in trace metadata.',
+              source: 'trace',
+              status: 'ambiguous',
+            },
+          ],
         },
         providerEvidenceNextAction: {
           code: 'use_partial_provider_evidence_for_diagnosis',
@@ -1190,6 +1229,22 @@ test('builds proof-set skipped interaction proof context from linked proofs', as
         status: 'verified',
       },
     ],
+    targetBindingDetailCounts: [
+      {
+        candidateBindingStatus: 'expected',
+        count: 1,
+        reason: 'Requested app id matched the provider command.',
+        source: 'manifest',
+        status: 'ambiguous',
+      },
+      {
+        candidateBindingStatus: 'observed',
+        count: 1,
+        reason: 'Observed another runtime in trace metadata.',
+        source: 'trace',
+        status: 'ambiguous',
+      },
+    ],
   });
   assert.deepEqual(artifact.proofFailureNativePerformance, {
     claimSufficiencyCounts: [
@@ -1236,6 +1291,22 @@ test('builds proof-set skipped interaction proof context from linked proofs', as
       {
         count: 1,
         status: 'verified',
+      },
+    ],
+    targetBindingDetailCounts: [
+      {
+        candidateBindingStatus: 'expected',
+        count: 1,
+        reason: 'Requested app id matched the provider command.',
+        source: 'manifest',
+        status: 'ambiguous',
+      },
+      {
+        candidateBindingStatus: 'observed',
+        count: 1,
+        reason: 'Observed another runtime in trace metadata.',
+        source: 'trace',
+        status: 'ambiguous',
       },
     ],
   });
@@ -1473,18 +1544,18 @@ test('builds proof-set skipped interaction proof context from linked proofs', as
   });
   assert.match(markdown, /Skipped interaction proofs: 2/u);
   assert.match(markdown, /skipped ios\/startup-ui \(agent-device\/app-startup\/ios-startup-agent-device\) from ios-live-proof: Profile health failed before sidecar proof\./u);
-  assert.match(markdown, /Diagnostics: captured=nativePerformance:diagnostic-only; blocking=accessibility:provider-blocked; providerNextAction=provider_tooling\/use_partial_provider_evidence_for_diagnosis; nativePerformance\(claim=insufficient-for-claim, completeness=truncated, comparability=diagnostic-only, target=ambiguous, sources=xctrace:partial\)\./u);
+  assert.match(markdown, /Diagnostics: captured=nativePerformance:diagnostic-only; blocking=accessibility:provider-blocked; providerNextAction=provider_tooling\/use_partial_provider_evidence_for_diagnosis; nativePerformance\(claim=insufficient-for-claim, completeness=truncated, comparability=diagnostic-only, target=ambiguous, targetDetails=ambiguous:candidate=expected:source=manifest:reason=Requested app id matched the provider command\., ambiguous:candidate=observed:source=trace:reason=Observed another runtime in trace metadata\., sources=xctrace:partial\)\./u);
   assert.match(markdown, /Readiness: failure=dev_client_bundle_or_command_channel_not_ready, commands=1, devClientDeepLinkOpened=true, foregroundAppInfoCaptured=true, foregroundApplicationState=foreground, foregroundTargetOwned=false, lastDeepLink=startup, profileSessionSeeded=true, phase=session-start, expected=profile_session_started, readinessNextAction=runtime_environment\/fix_ios_dev_client_bundle_or_command_channel, foregroundRawPath=raw\/ios-foreground-app\.json, profileSessionSeedRawPath=raw\/profile-session-seed\.json, readinessRawPath=raw\/ios-profile-session-readiness\.json\./u);
   assert.match(markdown, /Next action: runtime_environment\/restart_ios_dev_client - Restart the iOS dev client and rerun profile proof\./u);
   assert.match(markdown, /Skipped interaction proof next actions: skippedInteractionProofs=2; actions=provider_tooling\/fix_provider_outputs=1, runtime_environment\/restart_ios_dev_client=1/u);
   assert.match(markdown, /Proof failure diagnostics: failedProofs=2; skippedInteractionProofs=2; captured=nativePerformance:diagnostic-only=2; blocking=accessibility:provider-blocked=1, profiler:provider-blocked=1/u);
   assert.match(markdown, /Proof failure requested diagnostics: failedProofs=2; skippedInteractionProofs=2; requested=accessibility:provider-blocked\(required\)=1, profiler:provider-blocked\(required\)=1, video:requested-missing\(optional\)=1/u);
-  assert.match(markdown, /Proof failure native performance: failedProofs=2; skippedInteractionProofs=2; sources=gfxinfo:partial=1, xctrace:partial=1; completeness=partial=1, truncated=1; claim=insufficient-for-claim=2; comparability=diagnostic-only=2; target=ambiguous=1, verified=1/u);
+  assert.match(markdown, /Proof failure native performance: failedProofs=2; skippedInteractionProofs=2; sources=gfxinfo:partial=1, xctrace:partial=1; completeness=partial=1, truncated=1; claim=insufficient-for-claim=2; comparability=diagnostic-only=2; target=ambiguous=1, verified=1; targetDetails=ambiguous:candidate=expected:source=manifest:reason=Requested app id matched the provider command\.=1, ambiguous:candidate=observed:source=trace:reason=Observed another runtime in trace metadata\.=1/u);
   assert.match(markdown, /Proof failure provider evidence next actions: failedProofs=2; skippedInteractionProofs=2; actions=provider_tooling\/use_partial_provider_evidence_for_diagnosis=2/u);
   assert.match(markdown, /Proof failure readiness: failedProofs=1; skippedInteractionProofs=1; readinessProofs=1; commands=1; failure=dev_client_bundle_or_command_channel_not_ready=1; devClientDeepLinkOpened=true=1; foregroundAppInfoCaptured=true=1; foregroundApplicationState=foreground=1; foregroundTargetOwned=false=1; profileSessionSeeded=true=1; phase=session-start=1; detail=dev-client-deep-link-opened=1, profile-session-command-present=1, profile-session-storage-seeded=1, target-foreground-not-owned=1; expected=profile_session_started=1/u);
   assert.match(markdown, /Proof failure readiness next actions: failedProofs=1; skippedInteractionProofs=1; actions=runtime_environment\/fix_ios_dev_client_bundle_or_command_channel=1/u);
   assert.match(markdown, /Profile gate diagnostics: skippedInteractionProofs=2; captured=nativePerformance:diagnostic-only=2; blocking=accessibility:provider-blocked=1, profiler:provider-blocked=1/u);
-  assert.match(markdown, /Profile gate native performance: skippedInteractionProofs=2; sources=gfxinfo:partial=1, xctrace:partial=1; completeness=partial=1, truncated=1; claim=insufficient-for-claim=2; comparability=diagnostic-only=2; target=ambiguous=1, verified=1/u);
+  assert.match(markdown, /Profile gate native performance: skippedInteractionProofs=2; sources=gfxinfo:partial=1, xctrace:partial=1; completeness=partial=1, truncated=1; claim=insufficient-for-claim=2; comparability=diagnostic-only=2; target=ambiguous=1, verified=1; targetDetails=ambiguous:candidate=expected:source=manifest:reason=Requested app id matched the provider command\.=1, ambiguous:candidate=observed:source=trace:reason=Observed another runtime in trace metadata\.=1/u);
   assert.match(markdown, /Profile gate provider evidence next actions: skippedInteractionProofs=2; actions=provider_tooling\/use_partial_provider_evidence_for_diagnosis=2/u);
   assert.match(markdown, /Profile gate readiness: skippedInteractionProofs=2; readinessProofs=1; commands=1; failure=dev_client_bundle_or_command_channel_not_ready=1; devClientDeepLinkOpened=true=1; foregroundAppInfoCaptured=true=1; foregroundApplicationState=foreground=1; foregroundTargetOwned=false=1; profileSessionSeeded=true=1; phase=session-start=1; detail=dev-client-deep-link-opened=1, profile-session-command-present=1, profile-session-storage-seeded=1, target-foreground-not-owned=1; expected=profile_session_started=1/u);
   assert.match(markdown, /Profile gate readiness next actions: skippedInteractionProofs=1; actions=runtime_environment\/fix_ios_dev_client_bundle_or_command_channel=1/u);
