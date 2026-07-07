@@ -35,10 +35,34 @@ type LiveProofSkippedInteractionProofPointer = {
     owner?: LiveProofNextActionOwner;
     summary: string;
   };
+  profileGateDiagnostics?: LiveProofProfileGateDiagnostics;
   reason: string;
   runId: string;
   runnerId: string;
   scenarioId: string;
+};
+
+type LiveProofDiagnosticSufficiencyEntry = {
+  kind: string;
+  status: string;
+};
+
+type LiveProofNativePerformanceSourceEntry = {
+  sourceId: string;
+  status: string;
+};
+
+type LiveProofNativePerformanceDiagnosticSummary = {
+  claimSufficiency?: string;
+  comparability?: string;
+  diagnosticSources?: LiveProofNativePerformanceSourceEntry[];
+  targetBinding?: string;
+};
+
+type LiveProofProfileGateDiagnostics = {
+  blockingDiagnosticSufficiency?: LiveProofDiagnosticSufficiencyEntry[];
+  capturedDiagnosticSufficiency?: LiveProofDiagnosticSufficiencyEntry[];
+  nativePerformance?: LiveProofNativePerformanceDiagnosticSummary;
 };
 
 type LiveProofInteractionProofCaptures = {
@@ -206,6 +230,113 @@ function readRunNextActionOwner(runDir: string): LiveProofNextActionOwner | null
     return owner;
   }
   return null;
+}
+
+/**
+ * Reads compact diagnostic sufficiency context from a failed profile run.
+ *
+ * @param {string} runDir
+ * @returns {LiveProofProfileGateDiagnostics | null}
+ */
+function readProfileGateDiagnosticSummary(runDir: string): LiveProofProfileGateDiagnostics | null {
+  const healthPath = path.join(runDir, 'health.json');
+  if (!fs.existsSync(healthPath)) {
+    return null;
+  }
+
+  try {
+    const health = JSON.parse(fs.readFileSync(healthPath, 'utf8')) as Record<string, unknown>;
+    const checks = Array.isArray(health.checks) ? health.checks : [];
+    const partialEvidenceCheck = checks.find((check): check is Record<string, unknown> => (
+      check &&
+      typeof check === 'object' &&
+      !Array.isArray(check) &&
+      check.code === 'partial_provider_evidence_preserved'
+    ));
+    const metadata = partialEvidenceCheck?.metadata &&
+      typeof partialEvidenceCheck.metadata === 'object' &&
+      !Array.isArray(partialEvidenceCheck.metadata)
+      ? partialEvidenceCheck.metadata as Record<string, unknown>
+      : null;
+    if (!metadata) {
+      return null;
+    }
+
+    const capturedDiagnosticSufficiency = parseDiagnosticSufficiencyList(metadata.capturedDiagnosticSufficiency);
+    const blockingDiagnosticSufficiency = parseDiagnosticSufficiencyList(metadata.blockingDiagnosticSufficiency);
+    const nativePerformance = buildNativePerformanceDiagnosticSummary(metadata);
+    const summary = {
+      ...(capturedDiagnosticSufficiency.length > 0 ? { capturedDiagnosticSufficiency } : {}),
+      ...(blockingDiagnosticSufficiency.length > 0 ? { blockingDiagnosticSufficiency } : {}),
+      ...(nativePerformance ? { nativePerformance } : {}),
+    };
+    return Object.keys(summary).length > 0 ? summary : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Parses comma-separated `kind:status` metadata into structured entries.
+ *
+ * @param {unknown} value
+ * @returns {LiveProofDiagnosticSufficiencyEntry[]}
+ */
+function parseDiagnosticSufficiencyList(value: unknown): LiveProofDiagnosticSufficiencyEntry[] {
+  if (typeof value !== 'string') {
+    return [];
+  }
+
+  return value
+    .split(',')
+    .map((entry) => {
+      const separatorIndex = entry.indexOf(':');
+      if (separatorIndex <= 0 || separatorIndex === entry.length - 1) {
+        return null;
+      }
+      const kind = entry.slice(0, separatorIndex).trim();
+      const status = entry.slice(separatorIndex + 1).trim();
+      return kind.length > 0 && status.length > 0 ? { kind, status } : null;
+    })
+    .filter((entry): entry is LiveProofDiagnosticSufficiencyEntry => entry !== null);
+}
+
+/**
+ * Parses comma-separated `sourceId:status` metadata into structured entries.
+ *
+ * @param {unknown} value
+ * @returns {LiveProofNativePerformanceSourceEntry[]}
+ */
+function parseNativePerformanceSources(value: unknown): LiveProofNativePerformanceSourceEntry[] {
+  return parseDiagnosticSufficiencyList(value).map((entry) => ({
+    sourceId: entry.kind,
+    status: entry.status,
+  }));
+}
+
+/**
+ * Builds compact native-performance claim context from scalar health metadata.
+ *
+ * @param {Record<string, unknown>} metadata
+ * @returns {LiveProofNativePerformanceDiagnosticSummary | null}
+ */
+function buildNativePerformanceDiagnosticSummary(
+  metadata: Record<string, unknown>,
+): LiveProofNativePerformanceDiagnosticSummary | null {
+  const diagnosticSources = parseNativePerformanceSources(metadata.nativePerformanceDiagnosticSources);
+  const summary = {
+    ...(typeof metadata.nativePerformanceClaimSufficiency === 'string'
+      ? { claimSufficiency: metadata.nativePerformanceClaimSufficiency }
+      : {}),
+    ...(typeof metadata.nativePerformanceComparability === 'string'
+      ? { comparability: metadata.nativePerformanceComparability }
+      : {}),
+    ...(diagnosticSources.length > 0 ? { diagnosticSources } : {}),
+    ...(typeof metadata.nativePerformanceTargetBinding === 'string'
+      ? { targetBinding: metadata.nativePerformanceTargetBinding }
+      : {}),
+  };
+  return Object.keys(summary).length > 0 ? summary : null;
 }
 
 /**
@@ -688,6 +819,62 @@ function formatLiveProofNextAction(action: {
 }
 
 /**
+ * Formats per-kind diagnostic sufficiency entries for aggregate markdown.
+ *
+ * @param {LiveProofDiagnosticSufficiencyEntry[]} entries
+ * @returns {string}
+ */
+function formatDiagnosticSufficiencyEntries(entries: LiveProofDiagnosticSufficiencyEntry[]): string {
+  return entries.map((entry) => `${entry.kind}:${entry.status}`).join(', ');
+}
+
+/**
+ * Formats native-performance source entries for aggregate markdown.
+ *
+ * @param {LiveProofNativePerformanceSourceEntry[]} entries
+ * @returns {string}
+ */
+function formatNativePerformanceSources(entries: LiveProofNativePerformanceSourceEntry[]): string {
+  return entries.map((entry) => `${entry.sourceId}:${entry.status}`).join(', ');
+}
+
+/**
+ * Formats skipped-proof profile-gate diagnostics for aggregate markdown.
+ *
+ * @param {LiveProofProfileGateDiagnostics | undefined} diagnostics
+ * @returns {string}
+ */
+function formatProfileGateDiagnostics(diagnostics: LiveProofProfileGateDiagnostics | undefined): string {
+  if (!diagnostics) {
+    return '';
+  }
+
+  const parts = [];
+  if (diagnostics.capturedDiagnosticSufficiency?.length) {
+    parts.push(`captured=${formatDiagnosticSufficiencyEntries(diagnostics.capturedDiagnosticSufficiency)}`);
+  }
+  if (diagnostics.blockingDiagnosticSufficiency?.length) {
+    parts.push(`blocking=${formatDiagnosticSufficiencyEntries(diagnostics.blockingDiagnosticSufficiency)}`);
+  }
+  const nativePerformance = diagnostics.nativePerformance;
+  if (nativePerformance) {
+    const nativeParts = [
+      nativePerformance.claimSufficiency ? `claim=${nativePerformance.claimSufficiency}` : '',
+      nativePerformance.comparability ? `comparability=${nativePerformance.comparability}` : '',
+      nativePerformance.targetBinding ? `target=${nativePerformance.targetBinding}` : '',
+      nativePerformance.diagnosticSources?.length
+        ? `sources=${formatNativePerformanceSources(nativePerformance.diagnosticSources)}`
+        : '',
+    ].filter((part) => part.length > 0);
+    if (nativeParts.length > 0) {
+      parts.push(`nativePerformance(${nativeParts.join(', ')})`);
+    }
+  }
+
+  return parts.length > 0 ? ` Diagnostics: ${parts.join('; ')}.` : '';
+}
+
+/**
  * Builds markdown for the aggregate live proof entrypoint.
  *
  * @param {LiveProofArtifact} artifact
@@ -733,7 +920,7 @@ function buildLiveProofMarkdown(artifact: LiveProofArtifact): string {
       '## Skipped Interaction Proofs',
       '',
       ...artifact.skippedInteractionProofs.map((proof) => (
-        `- ${proof.label} (${proof.runnerId}/${proof.scenarioId}/${proof.runId}): ${proof.reason} Next action: ${formatLiveProofNextAction(proof.nextAction)}`
+        `- ${proof.label} (${proof.runnerId}/${proof.scenarioId}/${proof.runId}): ${proof.reason}${formatProfileGateDiagnostics(proof.profileGateDiagnostics)} Next action: ${formatLiveProofNextAction(proof.nextAction)}`
       )),
     );
   }
@@ -887,9 +1074,11 @@ export {
   formatInteractionProofCaptures,
   formatInteractionProofWarningDetails,
   formatInteractionProofWarnings,
+  formatProfileGateDiagnostics,
   isTrustedLiveRunStatus,
   readInteractionProofCaptures,
   readInteractionProofWarnings,
+  readProfileGateDiagnosticSummary,
   readProfileRunStatus,
   readRunNextActionOwner,
   writeLiveProofSummary,
@@ -903,6 +1092,7 @@ export type {
   LiveProofComparisonStatus,
   LiveProofInteractionProofCaptures,
   LiveProofInteractionProofPointer,
+  LiveProofProfileGateDiagnostics,
   LiveProofNextActionOwner,
   LiveProofNextAction,
   LiveProofPlatform,

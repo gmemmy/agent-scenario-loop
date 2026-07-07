@@ -11,6 +11,7 @@ const {
   buildLiveProofNextAction,
   buildLiveProofStatus,
   formatComparisonMetricSummary,
+  readProfileGateDiagnosticSummary,
   writeLiveProofSummary,
 } = require('../live-proof-summary');
 
@@ -177,8 +178,50 @@ test('writes failed aggregate proofs with skipped interaction proof pointers', a
   await fsp.writeFile(path.join(preflightDir, 'health.json'), '{"healthStatus":"passed"}\n', 'utf8');
   await fsp.writeFile(path.join(preflightDir, 'verdict.json'), '{"verdictStatus":"not_evaluated"}\n', 'utf8');
   await fsp.writeFile(path.join(profileDir, 'agent-summary.md'), '# profile\n\n## Next Action\n\n- Owner: `runtime_environment`\n', 'utf8');
-  await fsp.writeFile(path.join(profileDir, 'health.json'), '{"healthStatus":"passed"}\n', 'utf8');
+  await fsp.writeFile(
+    path.join(profileDir, 'health.json'),
+    JSON.stringify({
+      checks: [
+        {
+          code: 'partial_provider_evidence_preserved',
+          message: 'Provider failed after preserving partial diagnostics.',
+          metadata: {
+            blockingDiagnosticSufficiency: 'accessibility:provider-blocked,uiTree:provider-blocked',
+            capturedDiagnosticSufficiency: 'nativePerformance:diagnostic-only,profiler:diagnostic-only',
+            nativePerformanceClaimSufficiency: 'insufficient-for-claim',
+            nativePerformanceComparability: 'diagnostic-only',
+            nativePerformanceDiagnosticSources: 'xctrace:partial,metrickit:timeout',
+            nativePerformanceTargetBinding: 'ambiguous',
+          },
+          name: 'partial_provider_evidence_preserved',
+          status: 'warning',
+        },
+      ],
+      healthStatus: 'passed',
+    }),
+    'utf8',
+  );
   await fsp.writeFile(path.join(profileDir, 'verdict.json'), '{"verdictStatus":"failed"}\n', 'utf8');
+  const profileGateDiagnostics = readProfileGateDiagnosticSummary(profileDir);
+  assert.deepEqual(profileGateDiagnostics, {
+    blockingDiagnosticSufficiency: [
+      { kind: 'accessibility', status: 'provider-blocked' },
+      { kind: 'uiTree', status: 'provider-blocked' },
+    ],
+    capturedDiagnosticSufficiency: [
+      { kind: 'nativePerformance', status: 'diagnostic-only' },
+      { kind: 'profiler', status: 'diagnostic-only' },
+    ],
+    nativePerformance: {
+      claimSufficiency: 'insufficient-for-claim',
+      comparability: 'diagnostic-only',
+      diagnosticSources: [
+        { sourceId: 'xctrace', status: 'partial' },
+        { sourceId: 'metrickit', status: 'timeout' },
+      ],
+      targetBinding: 'ambiguous',
+    },
+  });
 
   const result = await writeLiveProofSummary({
     comparisons: [],
@@ -204,6 +247,7 @@ test('writes failed aggregate proofs with skipped interaction proof pointers', a
           summary: 'Inspect the profile first.',
         },
         reason: 'Profile verdict failed.',
+        profileGateDiagnostics,
         runId: 'app-startup-ios-argent',
         runnerId: 'argent',
         scenarioId: 'app-startup',
@@ -221,9 +265,11 @@ test('writes failed aggregate proofs with skipped interaction proof pointers', a
   assert.equal(artifact.summary, 'ios live proof failed with 1 failed profile run(s) without comparison results; skipped 1 interaction proof(s).');
   assert.equal('nextActionOwner' in artifact.profiles[0], false);
   assert.equal(artifact.skippedInteractionProofs[0].runnerId, 'argent');
+  assert.deepEqual(artifact.skippedInteractionProofs[0].profileGateDiagnostics, profileGateDiagnostics);
   const summary = fs.readFileSync(result.summaryPath, 'utf8');
   assert.match(summary, /Next action: runtime_environment\/inspect_failed_run/u);
   assert.match(summary, /## Skipped Interaction Proofs/u);
+  assert.match(summary, /Diagnostics: captured=nativePerformance:diagnostic-only, profiler:diagnostic-only; blocking=accessibility:provider-blocked, uiTree:provider-blocked; nativePerformance\(claim=insufficient-for-claim, comparability=diagnostic-only, target=ambiguous, sources=xctrace:partial, metrickit:timeout\)\./u);
 });
 
 test('writes optional interaction proof pointers into aggregate live proof artifacts', async (t: TestContext) => {
