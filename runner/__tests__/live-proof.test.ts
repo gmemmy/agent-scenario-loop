@@ -921,6 +921,16 @@ test('builds proof-set skipped interaction proof context from linked proofs', as
           ],
           targetBinding: 'verified',
         },
+        requestedDiagnosticInventory: [
+          {
+            availability: 'provider-blocked',
+            kind: 'profiler',
+            provider: 'profiler-provider',
+            required: true,
+            status: 'failed',
+            sufficiencyStatus: 'provider-blocked',
+          },
+        ],
       },
       reason: 'Profile provider evidence was partial.',
       runId: 'android-startup-agent-device',
@@ -962,6 +972,24 @@ test('builds proof-set skipped interaction proof context from linked proofs', as
           ],
           targetBinding: 'ambiguous',
         },
+        requestedDiagnosticInventory: [
+          {
+            availability: 'provider-blocked',
+            kind: 'accessibility',
+            provider: 'axe',
+            required: true,
+            status: 'failed',
+            sufficiencyStatus: 'provider-blocked',
+          },
+          {
+            availability: 'requested-missing',
+            kind: 'video',
+            required: false,
+            runnerId: 'agent-device',
+            status: 'missing',
+            sufficiencyStatus: 'requested-missing',
+          },
+        ],
       },
       profileGateReadiness: {
         commandCount: 1,
@@ -1047,6 +1075,36 @@ test('builds proof-set skipped interaction proof context from linked proofs', as
       },
     ],
     failedProofCount: 2,
+    skippedInteractionProofCount: 2,
+  });
+  assert.deepEqual(artifact.proofFailureRequestedDiagnostics, {
+    failedProofCount: 2,
+    requestedDiagnosticCounts: [
+      {
+        availability: 'provider-blocked',
+        count: 1,
+        kind: 'accessibility',
+        required: true,
+        status: 'failed',
+        sufficiencyStatus: 'provider-blocked',
+      },
+      {
+        availability: 'provider-blocked',
+        count: 1,
+        kind: 'profiler',
+        required: true,
+        status: 'failed',
+        sufficiencyStatus: 'provider-blocked',
+      },
+      {
+        availability: 'requested-missing',
+        count: 1,
+        kind: 'video',
+        required: false,
+        status: 'missing',
+        sufficiencyStatus: 'requested-missing',
+      },
+    ],
     skippedInteractionProofCount: 2,
   });
   assert.deepEqual(artifact.profileGateNativePerformance, {
@@ -1178,6 +1236,7 @@ test('builds proof-set skipped interaction proof context from linked proofs', as
     skippedInteractionProofCount: 2,
   });
   assert.deepEqual(writtenJson.proofFailureDiagnosticSufficiency, artifact.proofFailureDiagnosticSufficiency);
+  assert.deepEqual(writtenJson.proofFailureRequestedDiagnostics, artifact.proofFailureRequestedDiagnostics);
   assert.deepEqual(writtenJson.proofFailureNativePerformance, artifact.proofFailureNativePerformance);
   assert.deepEqual(artifact.proofFailureReadiness, {
     commandCountTotal: 1,
@@ -1275,6 +1334,7 @@ test('builds proof-set skipped interaction proof context from linked proofs', as
   assert.match(markdown, /Next action: runtime_environment\/restart_ios_dev_client - Restart the iOS dev client and rerun profile proof\./u);
   assert.match(markdown, /Skipped interaction proof next actions: skippedInteractionProofs=2; actions=provider_tooling\/fix_provider_outputs=1, runtime_environment\/restart_ios_dev_client=1/u);
   assert.match(markdown, /Proof failure diagnostics: failedProofs=2; skippedInteractionProofs=2; captured=nativePerformance:diagnostic-only=2; blocking=accessibility:provider-blocked=1, profiler:provider-blocked=1/u);
+  assert.match(markdown, /Proof failure requested diagnostics: failedProofs=2; skippedInteractionProofs=2; requested=accessibility:provider-blocked\(required\)=1, profiler:provider-blocked\(required\)=1, video:requested-missing\(optional\)=1/u);
   assert.match(markdown, /Proof failure native performance: failedProofs=2; skippedInteractionProofs=2; sources=gfxinfo:partial=1, xctrace:partial=1; claim=insufficient-for-claim=2; comparability=diagnostic-only=2; target=ambiguous=1, verified=1/u);
   assert.match(markdown, /Proof failure readiness: failedProofs=1; skippedInteractionProofs=1; readinessProofs=1; commands=1; failure=dev_client_bundle_or_command_channel_not_ready=1; devClientDeepLinkOpened=true=1; foregroundAppInfoCaptured=true=1; foregroundApplicationState=foreground=1; foregroundTargetOwned=false=1; profileSessionSeeded=true=1; phase=session-start=1; expected=profile_session_started=1/u);
   assert.match(markdown, /Profile gate diagnostics: skippedInteractionProofs=2; captured=nativePerformance:diagnostic-only=2; blocking=accessibility:provider-blocked=1, profiler:provider-blocked=1/u);

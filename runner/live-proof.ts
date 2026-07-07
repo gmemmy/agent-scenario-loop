@@ -141,6 +141,25 @@ type LiveProofDiagnosticSufficiencyEntry = {
 type LiveProofDiagnosticSufficiencyCount = LiveProofDiagnosticSufficiencyEntry & {
   count: number;
 };
+type LiveProofRequestedDiagnosticInventoryEntry = {
+  availability?: string;
+  kind: string;
+  nextAction?: string;
+  provider?: string;
+  reason?: string;
+  required: boolean;
+  runnerId?: string;
+  status: string;
+  sufficiencyStatus?: string;
+};
+type LiveProofRequestedDiagnosticInventoryCount = {
+  availability?: string;
+  count: number;
+  kind: string;
+  required: boolean;
+  status: string;
+  sufficiencyStatus?: string;
+};
 type LiveProofNativePerformanceSourceEntry = {
   sourceId: string;
   status: string;
@@ -154,6 +173,7 @@ type LiveProofProfileGateDiagnostics = {
     diagnosticSources?: LiveProofNativePerformanceSourceEntry[];
     targetBinding?: string;
   };
+  requestedDiagnosticInventory?: LiveProofRequestedDiagnosticInventoryEntry[];
 };
 type LiveProofProfileGateReadiness = {
   commandCount?: number;
@@ -219,6 +239,11 @@ type LiveProofSetProofFailureDiagnosticSufficiencyRollup = (
     failedProofCount: number;
   }
 );
+type LiveProofSetProofFailureRequestedDiagnosticsRollup = {
+  failedProofCount: number;
+  requestedDiagnosticCounts: LiveProofRequestedDiagnosticInventoryCount[];
+  skippedInteractionProofCount: number;
+};
 type LiveProofSetProfileGateNativePerformanceRollup = {
   claimSufficiencyCounts?: LiveProofNativePerformanceCount[];
   comparabilityCounts?: LiveProofNativePerformanceCount[];
@@ -290,6 +315,7 @@ type LiveProofSetArtifact = {
   proofFailureNativePerformance?: LiveProofSetProofFailureNativePerformanceRollup;
   proofFailureNextActions?: LiveProofSetProofFailureNextActionsRollup;
   proofFailureReadiness?: LiveProofSetProofFailureReadinessRollup;
+  proofFailureRequestedDiagnostics?: LiveProofSetProofFailureRequestedDiagnosticsRollup;
   proofCount: number;
   proofs: LiveProofSetProofPointer[];
   requiredPlatforms: LiveProofPlatform[];
@@ -1364,6 +1390,120 @@ function buildLiveProofSetProofFailureDiagnosticSufficiencyRollup({
 }
 
 /**
+ * Returns whether skipped proof diagnostics carry requested diagnostic inventory.
+ *
+ * @param {LiveProofProfileGateDiagnostics | undefined} diagnostics
+ * @returns {boolean}
+ */
+function hasRequestedDiagnosticInventory(
+  diagnostics: LiveProofProfileGateDiagnostics | undefined,
+): boolean {
+  return (diagnostics?.requestedDiagnosticInventory?.length ?? 0) > 0;
+}
+
+/**
+ * Adds one requested diagnostic inventory count.
+ *
+ * @param {Map<string, LiveProofRequestedDiagnosticInventoryCount>} counts
+ * @param {LiveProofRequestedDiagnosticInventoryEntry} entry
+ * @returns {void}
+ */
+function addRequestedDiagnosticInventoryCount(
+  counts: Map<string, LiveProofRequestedDiagnosticInventoryCount>,
+  entry: LiveProofRequestedDiagnosticInventoryEntry,
+): void {
+  const key = [
+    entry.kind,
+    entry.status,
+    entry.availability ?? '',
+    entry.sufficiencyStatus ?? '',
+    String(entry.required),
+  ].join('\u0000');
+  const existing = counts.get(key);
+  if (existing) {
+    counts.set(key, { ...existing, count: existing.count + 1 });
+    return;
+  }
+
+  counts.set(key, {
+    ...(entry.availability ? { availability: entry.availability } : {}),
+    count: 1,
+    kind: entry.kind,
+    required: entry.required,
+    status: entry.status,
+    ...(entry.sufficiencyStatus ? { sufficiencyStatus: entry.sufficiencyStatus } : {}),
+  });
+}
+
+/**
+ * Converts requested diagnostic inventory counts into stable artifact order.
+ *
+ * @param {Map<string, LiveProofRequestedDiagnosticInventoryCount>} counts
+ * @returns {LiveProofRequestedDiagnosticInventoryCount[]}
+ */
+function formatRequestedDiagnosticInventoryCounts(
+  counts: Map<string, LiveProofRequestedDiagnosticInventoryCount>,
+): LiveProofRequestedDiagnosticInventoryCount[] {
+  return [...counts.values()].sort((left, right) => (
+    `${left.kind}:${left.status}:${left.availability ?? ''}:${left.sufficiencyStatus ?? ''}:${left.required}`
+      .localeCompare(`${right.kind}:${right.status}:${right.availability ?? ''}:${right.sufficiencyStatus ?? ''}:${right.required}`)
+  ));
+}
+
+/**
+ * Builds requested diagnostic inventory counts across failed linked proof artifacts.
+ *
+ * @param {{proofs: LiveProofArtifact[], skippedProofs: LiveProofSetSkippedInteractionProofPointer[]}} options
+ * @returns {LiveProofSetProofFailureRequestedDiagnosticsRollup | null}
+ */
+function buildLiveProofSetProofFailureRequestedDiagnosticsRollup({
+  proofs,
+  skippedProofs,
+}: {
+  proofs: LiveProofArtifact[];
+  skippedProofs: LiveProofSetSkippedInteractionProofPointer[];
+}): LiveProofSetProofFailureRequestedDiagnosticsRollup | null {
+  const failedProofRunIds = new Set(
+    proofs
+      .filter((proof) => proof.status === 'failed')
+      .map((proof) => proof.runId),
+  );
+  if (failedProofRunIds.size === 0) {
+    return null;
+  }
+
+  const failedProofsWithRequestedDiagnostics = new Set<string>();
+  const requestedDiagnosticCounts = new Map<string, LiveProofRequestedDiagnosticInventoryCount>();
+  let skippedInteractionProofCount = 0;
+
+  for (const skippedProof of skippedProofs) {
+    if (
+      !failedProofRunIds.has(skippedProof.proofRunId) ||
+      !hasRequestedDiagnosticInventory(skippedProof.profileGateDiagnostics)
+    ) {
+      continue;
+    }
+
+    skippedInteractionProofCount += 1;
+    failedProofsWithRequestedDiagnostics.add(skippedProof.proofRunId);
+    for (const entry of skippedProof.profileGateDiagnostics?.requestedDiagnosticInventory ?? []) {
+      addRequestedDiagnosticInventoryCount(requestedDiagnosticCounts, entry);
+    }
+  }
+
+  const counts = formatRequestedDiagnosticInventoryCounts(requestedDiagnosticCounts);
+  if (counts.length === 0) {
+    return null;
+  }
+
+  return {
+    failedProofCount: failedProofsWithRequestedDiagnostics.size,
+    requestedDiagnosticCounts: counts,
+    skippedInteractionProofCount,
+  };
+}
+
+/**
  * Builds native-performance claim context counts across skipped proof gates.
  *
  * @param {LiveProofSetSkippedInteractionProofPointer[]} skippedProofs
@@ -1981,6 +2121,10 @@ function buildLiveProofSetArtifact({
     proofs,
     skippedProofs: skippedInteractionProofs,
   });
+  const proofFailureRequestedDiagnostics = buildLiveProofSetProofFailureRequestedDiagnosticsRollup({
+    proofs,
+    skippedProofs: skippedInteractionProofs,
+  });
   const profileGateNativePerformance = buildLiveProofSetProfileGateNativePerformanceRollup(
     skippedInteractionProofs,
   );
@@ -2018,6 +2162,7 @@ function buildLiveProofSetArtifact({
     ...(proofFailureNativePerformance ? { proofFailureNativePerformance } : {}),
     ...(proofFailureNextActions ? { proofFailureNextActions } : {}),
     ...(proofFailureReadiness ? { proofFailureReadiness } : {}),
+    ...(proofFailureRequestedDiagnostics ? { proofFailureRequestedDiagnostics } : {}),
     proofCount: proofs.length,
     proofs: proofPointers,
     requiredPlatforms,
@@ -2132,6 +2277,39 @@ function formatLiveProofSetProofFailureDiagnosticSufficiencyRollup(
 
   return [
     `Proof failure diagnostics: ${details.join('; ')}`,
+  ];
+}
+
+/**
+ * Formats requested diagnostic inventory counts for proof-set markdown.
+ *
+ * @param {LiveProofRequestedDiagnosticInventoryCount[]} counts
+ * @returns {string}
+ */
+function formatLiveProofSetRequestedDiagnosticInventoryCounts(
+  counts: LiveProofRequestedDiagnosticInventoryCount[],
+): string {
+  return counts.map((entry) => {
+    const status = entry.availability ?? entry.sufficiencyStatus ?? entry.status;
+    return `${entry.kind}:${status}(${entry.required ? 'required' : 'optional'})=${entry.count}`;
+  }).join(', ');
+}
+
+/**
+ * Formats aggregate failed-proof requested diagnostic inventory counts for proof-set markdown.
+ *
+ * @param {LiveProofSetProofFailureRequestedDiagnosticsRollup | undefined} rollup
+ * @returns {string[]}
+ */
+function formatLiveProofSetProofFailureRequestedDiagnosticsRollup(
+  rollup: LiveProofSetProofFailureRequestedDiagnosticsRollup | undefined,
+): string[] {
+  if (!rollup) {
+    return [];
+  }
+
+  return [
+    `Proof failure requested diagnostics: failedProofs=${rollup.failedProofCount}; skippedInteractionProofs=${rollup.skippedInteractionProofCount}; requested=${formatLiveProofSetRequestedDiagnosticInventoryCounts(rollup.requestedDiagnosticCounts)}`,
   ];
 }
 
@@ -2623,6 +2801,7 @@ function formatLiveProofSetArtifactMarkdown(artifact: LiveProofSetArtifact): str
     ...formatLiveProofSetInteractionWarningNextActionsRollup(artifact.interactionWarningNextActions),
     ...formatLiveProofSetProofFailureNextActionsRollup(artifact.proofFailureNextActions),
     ...formatLiveProofSetProofFailureDiagnosticSufficiencyRollup(artifact.proofFailureDiagnosticSufficiency),
+    ...formatLiveProofSetProofFailureRequestedDiagnosticsRollup(artifact.proofFailureRequestedDiagnostics),
     ...formatLiveProofSetProofFailureNativePerformanceRollup(artifact.proofFailureNativePerformance),
     ...formatLiveProofSetProofFailureReadinessRollup(artifact.proofFailureReadiness),
     ...formatLiveProofSetSkippedInteractionProofs(artifact.skippedInteractionProofs),
