@@ -126,6 +126,7 @@ type AndroidNativePerformanceEvidenceInput = {
   completenessStatus?: NativePerformanceCompletenessStatus;
   deviceId?: string;
   diagnosticSources?: NativePerformanceDiagnosticSourceOverride[];
+  framestatsText?: string;
   gfxinfoText?: string;
   meminfoText?: string;
   providerId: string;
@@ -148,6 +149,18 @@ type AndroidGfxinfoSummary = {
   slowIssueDrawCommands?: number;
   slowUiThread?: number;
   total?: number;
+};
+
+type AndroidFramestatsSummary = {
+  flaggedFrameCount?: number;
+  frameCount?: number;
+  jankyFrameCount?: number;
+  missedDeadlineFrameCount?: number;
+  p50FrameMs?: number;
+  p90FrameMs?: number;
+  p95FrameMs?: number;
+  p99FrameMs?: number;
+  worstFrameMs?: number;
 };
 
 type AndroidMeminfoSummary = {
@@ -543,6 +556,82 @@ function parseAndroidGfxinfoSummary(text: string): AndroidGfxinfoSummary {
 }
 
 /**
+ * Calculates a percentile from a sorted list of values.
+ *
+ * @param {number[]} sortedValues
+ * @param {number} percentile
+ * @returns {number | undefined}
+ */
+function percentile(sortedValues: number[], percentile: number): number | undefined {
+  if (sortedValues.length === 0) {
+    return undefined;
+  }
+
+  const rawIndex = Math.ceil((percentile / 100) * sortedValues.length) - 1;
+  const index = Math.min(Math.max(rawIndex, 0), sortedValues.length - 1);
+  return sortedValues[index];
+}
+
+/**
+ * Parses Android `dumpsys gfxinfo framestats` rows into ASL frame evidence.
+ *
+ * @param {string} text
+ * @returns {AndroidFramestatsSummary}
+ */
+function parseAndroidFramestatsSummary(text: string): AndroidFramestatsSummary {
+  const frames: Array<{ durationMs: number; flags: number }> = [];
+  const frameDeadlineMs = 16.67;
+
+  for (const line of text.split(/\r?\n/u)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('---') || /Flags,IntendedVsync/u.test(trimmed)) {
+      continue;
+    }
+
+    const columns = trimmed.split(',').map((column) => Number(column.trim()));
+    const flags = columns[0];
+    const intendedVsync = columns[1];
+    const frameCompleted = columns[13];
+    if (
+      typeof flags !== 'number' ||
+      typeof intendedVsync !== 'number' ||
+      typeof frameCompleted !== 'number' ||
+      !Number.isFinite(flags) ||
+      !Number.isFinite(intendedVsync) ||
+      !Number.isFinite(frameCompleted) ||
+      frameCompleted <= intendedVsync
+    ) {
+      continue;
+    }
+
+    frames.push({
+      durationMs: (frameCompleted - intendedVsync) / 1_000_000,
+      flags,
+    });
+  }
+
+  if (frames.length === 0) {
+    return {};
+  }
+
+  const sortedDurations = frames.map((frame) => frame.durationMs).sort((left, right) => left - right);
+  const missedDeadlineFrameCount = frames.filter((frame) => frame.durationMs > frameDeadlineMs).length;
+  const flaggedFrameCount = frames.filter((frame) => frame.flags !== 0).length;
+  const summary: JsonRecord = {
+    flaggedFrameCount,
+    frameCount: frames.length,
+    jankyFrameCount: frames.filter((frame) => frame.flags !== 0 || frame.durationMs > frameDeadlineMs).length,
+    missedDeadlineFrameCount,
+  };
+  setDefined(summary, 'p50FrameMs', percentile(sortedDurations, 50));
+  setDefined(summary, 'p90FrameMs', percentile(sortedDurations, 90));
+  setDefined(summary, 'p95FrameMs', percentile(sortedDurations, 95));
+  setDefined(summary, 'p99FrameMs', percentile(sortedDurations, 99));
+  setDefined(summary, 'worstFrameMs', sortedDurations[sortedDurations.length - 1]);
+  return summary as AndroidFramestatsSummary;
+}
+
+/**
  * Parses Android `dumpsys meminfo` summary text into ASL native memory evidence.
  *
  * @param {string} text
@@ -735,24 +824,30 @@ function normalizeAndroidTraceProcessorSummary(input: AndroidTraceProcessorSumma
 /**
  * Resolves the most specific native-performance evidence kind for Android text inputs.
  *
- * @param {{frames: Record<string, unknown>, memory: Record<string, unknown>, traceProcessor: AndroidTraceProcessorSummary}} options
- * @returns {'gfxinfo' | 'meminfo' | 'mixed' | 'trace-processor' | 'unknown'}
+ * @param {{framestats: Record<string, unknown>, frames: Record<string, unknown>, memory: Record<string, unknown>, traceProcessor: AndroidTraceProcessorSummary}} options
+ * @returns {'framestats' | 'gfxinfo' | 'meminfo' | 'mixed' | 'trace-processor' | 'unknown'}
  */
 function resolveAndroidEvidenceKind({
+  framestats,
   frames,
   memory,
   traceProcessor,
 }: {
+  framestats: JsonRecord;
   frames: JsonRecord;
   memory: JsonRecord;
   traceProcessor: AndroidTraceProcessorSummary;
-}): 'gfxinfo' | 'meminfo' | 'mixed' | 'trace-processor' | 'unknown' {
+}): 'framestats' | 'gfxinfo' | 'meminfo' | 'mixed' | 'trace-processor' | 'unknown' {
+  const hasFramestats = hasFields(framestats);
   const hasFrames = hasFields(frames);
   const hasMemory = hasFields(memory);
   const hasTraceProcessor = hasTraceProcessorSummary(traceProcessor);
-  const sourceCount = [hasFrames, hasMemory, hasTraceProcessor].filter(Boolean).length;
+  const sourceCount = [hasFramestats, hasFrames, hasMemory, hasTraceProcessor].filter(Boolean).length;
   if (sourceCount > 1) {
     return 'mixed';
+  }
+  if (hasFramestats) {
+    return 'framestats';
   }
   if (hasTraceProcessor) {
     return 'trace-processor';
@@ -769,19 +864,26 @@ function resolveAndroidEvidenceKind({
 /**
  * Builds data-class tags from parsed native surfaces.
  *
- * @param {{frames: Record<string, unknown>, memory: Record<string, unknown>, traceProcessor: AndroidTraceProcessorSummary}} options
+ * @param {{framestats: Record<string, unknown>, frames: Record<string, unknown>, memory: Record<string, unknown>, traceProcessor: AndroidTraceProcessorSummary}} options
  * @returns {string[]}
  */
 function buildAndroidDataClasses({
+  framestats,
   frames,
   memory,
   traceProcessor,
 }: {
+  framestats: JsonRecord;
   frames: JsonRecord;
   memory: JsonRecord;
   traceProcessor: AndroidTraceProcessorSummary;
 }): string[] {
   const dataClasses = new Set<string>();
+  if (hasFields(framestats)) {
+    dataClasses.add('frames');
+    dataClasses.add('jank');
+    dataClasses.add('render');
+  }
   if (hasFields(frames)) {
     dataClasses.add('frames');
     dataClasses.add('jank');
@@ -1032,16 +1134,19 @@ function applyDiagnosticSourceOverrides(
 function buildAndroidDiagnosticSources({
   attachments,
   diagnosticSources,
+  framestats,
   frames,
   memory,
   traceProcessor,
 }: {
   attachments: NativePerformanceAttachment[] | undefined;
   diagnosticSources: NativePerformanceDiagnosticSourceOverride[] | undefined;
+  framestats: JsonRecord;
   frames: JsonRecord;
   memory: JsonRecord;
   traceProcessor: AndroidTraceProcessorSummary;
 }): JsonRecord[] {
+  const framestatsCaptured = hasFields(framestats);
   const gfxinfoCaptured = hasFields(frames);
   const meminfoCaptured = hasFields(memory);
   const traceProcessorCaptured = hasTraceProcessorSummary(traceProcessor);
@@ -1065,10 +1170,15 @@ function buildAndroidDiagnosticSources({
     }),
     buildAndroidDiagnosticSource({
       dataClasses: ['frames', 'jank'],
-      nextAction: 'Capture Android framestats when frame deadline or per-frame timing evidence is needed.',
-      reason: 'This builder does not parse framestats rows yet.',
+      nextAction: framestatsCaptured
+        ? 'Use the parsed framestats summary for diagnosis; capture comparable frame evidence before release claims.'
+        : 'Capture Android framestats when frame deadline or per-frame timing evidence is needed.',
+      path: findAttachmentPath(attachments, 'raw-framestats'),
+      reason: framestatsCaptured
+        ? 'Parsed Android framestats frame timing rows were captured.'
+        : 'No Android framestats rows were parsed.',
       sourceId: 'framestats',
-      status: 'unverified',
+      status: framestatsCaptured ? 'captured' : 'unverified',
       tool: {
         name: 'adb dumpsys gfxinfo framestats',
       },
@@ -1735,20 +1845,25 @@ function buildIosNativePerformanceEvidence(input: IosNativePerformanceEvidenceIn
  * @returns {Record<string, unknown>}
  */
 function buildAndroidNativePerformanceEvidence(input: AndroidNativePerformanceEvidenceInput): JsonRecord {
+  const framestats = typeof input.framestatsText === 'string' ? parseAndroidFramestatsSummary(input.framestatsText) : {};
   const frames = typeof input.gfxinfoText === 'string' ? parseAndroidGfxinfoSummary(input.gfxinfoText) : {};
   const memory = typeof input.meminfoText === 'string' ? parseAndroidMeminfoSummary(input.meminfoText) : {};
   const traceProcessor = normalizeAndroidTraceProcessorSummary(input.traceProcessorSummary);
   const traceProcessorCaptured = hasTraceProcessorSummary(traceProcessor);
-  const evidenceKind = resolveAndroidEvidenceKind({ frames, memory, traceProcessor });
-  const dataClasses = buildAndroidDataClasses({ frames, memory, traceProcessor });
+  const evidenceKind = resolveAndroidEvidenceKind({ framestats, frames, memory, traceProcessor });
+  const dataClasses = buildAndroidDataClasses({ framestats, frames, memory, traceProcessor });
   const diagnosticSources = buildAndroidDiagnosticSources({
     attachments: input.attachments,
     diagnosticSources: input.diagnosticSources,
+    framestats,
     frames,
     memory,
     traceProcessor,
   });
   const supportingEvidence: string[] = [];
+  if (hasFields(framestats)) {
+    supportingEvidence.push('android framestats frame summary');
+  }
   if (hasFields(frames)) {
     supportingEvidence.push('android gfxinfo frame summary');
   }
@@ -1759,6 +1874,9 @@ function buildAndroidNativePerformanceEvidence(input: AndroidNativePerformanceEv
     supportingEvidence.push('android trace-processor summary');
   }
   const toolCommands: string[] = [];
+  if (hasFields(framestats)) {
+    toolCommands.push('dumpsys gfxinfo framestats');
+  }
   if (hasFields(frames)) {
     toolCommands.push('dumpsys gfxinfo');
   }
@@ -1799,6 +1917,12 @@ function buildAndroidNativePerformanceEvidence(input: AndroidNativePerformanceEv
   if (hasFields(frames)) {
     evidence.frames = frames;
   }
+  if (hasFields(framestats)) {
+    evidence.frames = {
+      ...((evidence.frames as JsonRecord | undefined) ?? {}),
+      ...framestats,
+    };
+  }
   if (hasFields(memory)) {
     evidence.memory = memory;
   }
@@ -1823,6 +1947,7 @@ function buildAndroidNativePerformanceEvidence(input: AndroidNativePerformanceEv
 
 export {
   buildAndroidNativePerformanceEvidence,
+  parseAndroidFramestatsSummary,
   buildIosNativePerformanceEvidence,
   parseAndroidGfxinfoSummary,
   parseAndroidMeminfoSummary,
@@ -1832,6 +1957,7 @@ export {
 
 export type {
   AndroidGfxinfoSummary,
+  AndroidFramestatsSummary,
   AndroidMeminfoSummary,
   AndroidNativePerformanceEvidenceInput,
   AndroidTraceProcessorSummaryInput,

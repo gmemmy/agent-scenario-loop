@@ -4,6 +4,7 @@ const test = require('node:test');
 const {
   buildAndroidNativePerformanceEvidence,
   buildIosNativePerformanceEvidence,
+  parseAndroidFramestatsSummary,
   parseAndroidGfxinfoSummary,
   parseAndroidMeminfoSummary,
   parseIosMetricKitSummaryText,
@@ -38,6 +39,29 @@ test('parses Android gfxinfo headline summary fields', () => {
     slowIssueDrawCommands: 9150,
     slowUiThread: 4136,
     total: 21570,
+  });
+});
+
+test('parses Android framestats frame timing rows', () => {
+  const summary = parseAndroidFramestatsSummary(`
+    ---PROFILEDATA---
+    Flags,IntendedVsync,Vsync,OldestInputEvent,NewestInputEvent,HandleInputStart,AnimationStart,PerformTraversalsStart,DrawStart,SyncQueued,SyncStart,IssueDrawCommandsStart,SwapBuffers,FrameCompleted,DequeueBufferDuration,QueueBufferDuration,GpuCompleted
+    0,1000000000,1000000000,0,0,0,0,0,0,0,0,0,0,1010000000,0,0,0
+    0,2000000000,2000000000,0,0,0,0,0,0,0,0,0,0,2020000000,0,0,0
+    0,3000000000,3000000000,0,0,0,0,0,0,0,0,0,0,3035000000,0,0,0
+    1,4000000000,4000000000,0,0,0,0,0,0,0,0,0,0,4005000000,0,0,0
+  `);
+
+  assert.deepEqual(summary, {
+    flaggedFrameCount: 1,
+    frameCount: 4,
+    jankyFrameCount: 3,
+    missedDeadlineFrameCount: 2,
+    p50FrameMs: 10,
+    p90FrameMs: 35,
+    p95FrameMs: 35,
+    p99FrameMs: 35,
+    worstFrameMs: 35,
   });
 });
 
@@ -278,6 +302,61 @@ test('builds diagnostic-only Android native-performance evidence from platform s
       path: 'raw/providers/native/meminfo.txt',
     },
   ]);
+});
+
+test('builds Android native-performance evidence from framestats rows', () => {
+  const evidence = buildAndroidNativePerformanceEvidence({
+    attachments: [
+      {
+        kind: 'raw-framestats',
+        path: 'raw/providers/native/framestats.txt',
+      },
+    ],
+    framestatsText: `
+      Flags,IntendedVsync,Vsync,OldestInputEvent,NewestInputEvent,HandleInputStart,AnimationStart,PerformTraversalsStart,DrawStart,SyncQueued,SyncStart,IssueDrawCommandsStart,SwapBuffers,FrameCompleted,DequeueBufferDuration,QueueBufferDuration,GpuCompleted
+      0,1000000000,1000000000,0,0,0,0,0,0,0,0,0,0,1011000000,0,0,0
+      0,2000000000,2000000000,0,0,0,0,0,0,0,0,0,0,2024000000,0,0,0
+    `,
+    providerId: 'native-provider',
+    runId: 'run-android-framestats',
+    scenarioId: 'feed-scroll',
+  });
+
+  assert.equal(evidence.evidenceKind, 'framestats');
+  assert.equal(evidence.claimSufficiency.status, 'sufficient-for-diagnosis');
+  assert.equal(evidence.tool.command, 'dumpsys gfxinfo framestats');
+  assert.deepEqual(evidence.frames, {
+    flaggedFrameCount: 0,
+    frameCount: 2,
+    jankyFrameCount: 1,
+    missedDeadlineFrameCount: 1,
+    p50FrameMs: 11,
+    p90FrameMs: 24,
+    p95FrameMs: 24,
+    p99FrameMs: 24,
+    worstFrameMs: 24,
+  });
+  assert.deepEqual(
+    evidence.diagnosticSources
+      .filter((source: { sourceId: string; status: string }) => ['framestats', 'gfxinfo'].includes(source.sourceId))
+      .map((source: { path?: string; sourceId: string; status: string }) => ({
+        path: source.path,
+        sourceId: source.sourceId,
+        status: source.status,
+      })),
+    [
+      {
+        path: undefined,
+        sourceId: 'gfxinfo',
+        status: 'unverified',
+      },
+      {
+        path: 'raw/providers/native/framestats.txt',
+        sourceId: 'framestats',
+        status: 'captured',
+      },
+    ],
+  );
 });
 
 test('builds Android native-performance evidence from trace-processor summaries', () => {

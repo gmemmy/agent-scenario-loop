@@ -505,6 +505,10 @@ test('example mobile app provider manifest writes stable evidence attachments', 
             sourceId: 'gfxinfo',
           },
           {
+            path: 'raw/providers/example-mobile-app-evidence-provider/native-performance-framestats.txt',
+            sourceId: 'framestats',
+          },
+          {
             path: 'raw/providers/example-mobile-app-evidence-provider/native-performance-meminfo.txt',
             sourceId: 'meminfo',
           },

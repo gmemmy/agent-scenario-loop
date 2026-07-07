@@ -188,6 +188,7 @@ function buildNativePerformanceAttachments(args) {
   const attachments = [];
   for (const entry of [
     { arg: 'gfxinfo', kind: 'raw-gfxinfo' },
+    { arg: 'framestats', kind: 'raw-framestats' },
     { arg: 'meminfo', kind: 'raw-meminfo' },
     { arg: 'xctrace-summary', kind: 'xctrace-summary' },
     { arg: 'metrickit-summary', kind: 'metrickit-summary' },
@@ -288,6 +289,7 @@ function main() {
       appId: typeof args.app === 'string' ? args.app : undefined,
       attachments: buildNativePerformanceAttachments(args),
       deviceId: typeof args.device === 'string' ? args.device : undefined,
+      framestatsText: readOptionalText(args, 'framestats'),
       gfxinfoText: readOptionalText(args, 'gfxinfo'),
       meminfoText: readOptionalText(args, 'meminfo'),
       providerId: 'example-evidence-provider',
