@@ -32,6 +32,9 @@
     "description": {
       "type": "string"
     },
+    "metadata": {
+      "$ref": "#/$defs/scenarioMetadata"
+    },
     "journey": {
       "$ref": "#/$defs/journey"
     },
@@ -122,6 +125,92 @@
     }
   },
   "$defs": {
+    "scenarioMetadata": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/metadataValue"
+      },
+      "properties": {
+        "coverage": {
+          "$ref": "#/$defs/coverageMetadata"
+        },
+        "tags": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "coverageMetadata": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/metadataValue"
+      },
+      "properties": {
+        "featureSet": {
+          "type": "string",
+          "minLength": 1
+        },
+        "behaviorContract": {
+          "type": "string",
+          "minLength": 1
+        },
+        "variant": {
+          "type": "string",
+          "minLength": 1
+        },
+        "coverageRole": {
+          "type": "string",
+          "enum": ["canonical", "stress", "degraded", "platform-specific", "diagnostic"]
+        },
+        "riskClass": {
+          "type": "string",
+          "minLength": 1
+        },
+        "platformContract": {
+          "type": "string",
+          "minLength": 1
+        },
+        "fixtureContract": {
+          "type": "string",
+          "minLength": 1
+        },
+        "evidenceTier": {
+          "type": "string",
+          "minLength": 1
+        },
+        "coverageStatus": {
+          "type": "string",
+          "minLength": 1
+        },
+        "ownerOnFailure": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "metadataValue": {
+      "oneOf": [
+        {
+          "type": ["string", "number", "boolean", "null"]
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/metadataValue"
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/metadataValue"
+          }
+        }
+      ]
+    },
     "journey": {
       "type": "object",
       "additionalProperties": false,

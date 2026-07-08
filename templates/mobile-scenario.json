@@ -3,6 +3,21 @@
   "id": "first-journey",
   "flowId": "first-journey",
   "description": "Prove one durable mobile app journey with app-owned truth events.",
+  "metadata": {
+    "coverage": {
+      "featureSet": "core journey",
+      "behaviorContract": "first journey completes",
+      "variant": "default",
+      "coverageRole": "canonical",
+      "riskClass": "core",
+      "platformContract": "cross-platform",
+      "fixtureContract": "default fixture",
+      "evidenceTier": "runtime-readiness",
+      "coverageStatus": "active",
+      "ownerOnFailure": "app_or_runtime"
+    },
+    "tags": ["first-journey", "runtime-readiness"]
+  },
   "journey": {
     "name": "First journey",
     "intent": "Run one important user journey and prove the app reached the expected state.",

@@ -319,6 +319,7 @@ type ProfileRunPlan = {
   runDir: string;
   interactionDriver: string;
   comparisonLane?: string;
+  scenarioMetadata?: Record<string, unknown>;
   expectedIterations: number;
   milestoneEventsPerIteration: number;
   commandTransport: string;
@@ -1534,6 +1535,20 @@ function readScenarioWaitMilestones(scenario: Record<string, unknown>): string[]
 }
 
 /**
+ * Reads product-owned scenario metadata for run-plan preservation.
+ *
+ * @param {Record<string, unknown>} scenario
+ * @returns {Record<string, unknown> | null}
+ */
+function readScenarioMetadata(scenario: Record<string, unknown>): Record<string, unknown> | null {
+  if (!isRecord(scenario.metadata)) {
+    return null;
+  }
+
+  return JSON.parse(JSON.stringify(scenario.metadata)) as Record<string, unknown>;
+}
+
+/**
  * Builds the early run plan artifact before provider commands or event parsing.
  *
  * @param {{args: CliArgs, artifactRoot: string, comparisonLane?: string | undefined, expectedIterations: number, interactionDriver: string, layout: ReturnType<typeof createArtifactLayout>, milestoneEventsPerIteration: number, options: ProfileMobileOptions, profileScenario: Record<string, unknown>, runDir: string, runId: string, scenarioHash: string, scenarioPath: string}} options
@@ -1568,6 +1583,7 @@ function buildProfileRunPlan({
   scenarioHash: string;
   scenarioPath: string;
 }): ProfileRunPlan {
+  const scenarioMetadata = readScenarioMetadata(profileScenario);
   return {
     artifactVersion: '1.0.0',
     runId,
@@ -1579,6 +1595,7 @@ function buildProfileRunPlan({
     runDir,
     interactionDriver,
     ...(comparisonLane ? { comparisonLane } : {}),
+    ...(scenarioMetadata ? { scenarioMetadata } : {}),
     expectedIterations,
     milestoneEventsPerIteration,
     commandTransport: resolveCommandTransport({ args, interactionDriver, options }),

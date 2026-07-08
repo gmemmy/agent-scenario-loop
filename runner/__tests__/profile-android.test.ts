@@ -639,6 +639,7 @@ test('profile-android profiles public scenario ids and milestone budgets', async
   const health = readJson(path.join(runDir, 'health.json')) as Record<string, any>;
   const verdict = readJson(path.join(runDir, 'verdict.json')) as Record<string, any>;
   const causalRun = readJson(path.join(runDir, 'causal-run.json')) as Record<string, any>;
+  const runPlan = readJson(path.join(runDir, 'run-plan.json')) as Record<string, any>;
 
   assert.equal(runDir, path.join(artifactRoot, 'public-journey', 'public-journey-android'));
   assert.equal(metrics.scenario, 'public-journey');
@@ -656,6 +657,7 @@ test('profile-android profiles public scenario ids and milestone budgets', async
   assert.deepEqual(causalRun.budgets, {
     failures: { limit: 0, metric: 'failures', unit: 'count' },
   });
+  assert.deepEqual(runPlan.scenarioMetadata, scenario.metadata);
 });
 
 test('profile-android treats readiness-to-completion budgets as repeated milestone cycles', async (t: TestContext) => {
