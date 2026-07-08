@@ -557,7 +557,7 @@ test('generic iOS live proof publishes storage start failure before skipping sid
     liveProof.skippedInteractionProofs.map((proof: { profileGateReadiness?: { failureClass?: string } }) => (
       proof.profileGateReadiness?.failureClass
     )),
-    ['dev_client_bundle_or_command_channel_not_ready', 'dev_client_bundle_or_command_channel_not_ready'],
+    ['dev_client_shell_foreground_no_js_app', 'dev_client_shell_foreground_no_js_app'],
   );
   assert.deepEqual(
     liveProof.skippedInteractionProofs.map((proof: { profileGateReadiness?: { readinessRawPath?: string } }) => (
@@ -572,7 +572,7 @@ test('generic iOS live proof publishes storage start failure before skipping sid
     [true, true],
   );
   assert.equal(liveProof.interactionProofs, undefined);
-  assert.equal(startWaitCheck?.metadata?.failureClass, 'dev_client_bundle_or_command_channel_not_ready');
+  assert.equal(startWaitCheck?.metadata?.failureClass, 'dev_client_shell_foreground_no_js_app');
   assert.equal(startWaitCheck?.metadata?.foregroundTargetOwned, true);
   assert.equal(startWaitCheck?.metadata?.readinessRawPath, 'raw/ios-profile-session-readiness.json');
   assert.equal(metadata.profileSessionStartWait.completed, false);
