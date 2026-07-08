@@ -181,6 +181,16 @@ type ProfileSessionStartWait = ProfileSessionStartObservation & {
   pollCount: number;
   timeoutMs: number;
 };
+type ProfileSessionStartRepairAttempt = {
+  completed: boolean;
+  elapsedMs: number | null;
+  exitCode: number;
+  label: string;
+  rawPath: string;
+  reason: ProfileSessionStartFailureClass;
+  timeoutMs: number;
+  url: string;
+};
 type ProfileSessionStartForegroundProbe = {
   appInfoCaptured: boolean;
   applicationState: string | null;
@@ -215,6 +225,7 @@ type ProfileSessionStartReadinessContext = {
   pendingPhase: string;
   profileCommandStorageKey: string;
   profileEventStorageKey: string;
+  profileSessionStartRepair: ProfileSessionStartRepairAttempt | null;
   profileSessionEntriesStorageKey: string;
   profileSessionStorageKey: string;
   readinessDetail: ProfileSessionStartReadinessDetail;
@@ -521,9 +532,16 @@ function deriveIosSimctlCaptureWatchdogBudget({
     };
   }
 
+  const canRepairDevClientReadiness = Boolean(
+    profileSessionStorage &&
+    deepLinks.some((deepLink) => (
+      deepLink.label === 'ios-dev-client-url' || deepLink.url.includes('expo-development-client')
+    )),
+  );
   const declaredWaitMs = sumPositiveDurations([
     waitMs,
     profileSessionStorage ? profileSessionStartWaitMs : 0,
+    canRepairDevClientReadiness ? profileSessionStartWaitMs : 0,
     ...deepLinks.map((deepLink) => deepLink.waitMs),
   ]);
   const commandUnits = 4 +
@@ -534,6 +552,7 @@ function deriveIosSimctlCaptureWatchdogBudget({
     (profileSessionStorage ? 1 : 0) +
     (launch ? 3 : 0) +
     deepLinks.length +
+    (canRepairDevClientReadiness ? 1 : 0) +
     (screenshot ? 1 : 0);
   const perCommandOverheadMs = Math.min(commandTimeoutMs, IOS_SIMCTL_CAPTURE_COMMAND_OVERHEAD_MS);
   const commandBudgetMs = Math.min(
@@ -542,7 +561,10 @@ function deriveIosSimctlCaptureWatchdogBudget({
   );
   const bufferedBudgetMs = commandBudgetMs + declaredWaitMs + 5000;
   const floorBoundedBudgetMs = Math.max(IOS_SIMCTL_CAPTURE_WATCHDOG_FLOOR_MS, bufferedBudgetMs);
-  const timeoutMs = Math.min(IOS_SIMCTL_CAPTURE_WATCHDOG_CEILING_MS, floorBoundedBudgetMs);
+  const timeoutMs = Math.max(
+    Math.min(IOS_SIMCTL_CAPTURE_WATCHDOG_CEILING_MS, floorBoundedBudgetMs),
+    bufferedBudgetMs,
+  );
   return {
     ceilingMs: IOS_SIMCTL_CAPTURE_WATCHDOG_CEILING_MS,
     commandBudgetMs,
@@ -1194,6 +1216,9 @@ function buildProfileSessionStartWaitCheck({
       profileEventStorageKey: readiness.profileEventStorageKey,
       profileSessionSeeded: readiness.seedRawPath !== null,
       profileSessionSeedRawPath: readiness.seedRawPath,
+      profileSessionStartRepairCompleted: readiness.profileSessionStartRepair?.completed ?? null,
+      profileSessionStartRepairRawPath: readiness.profileSessionStartRepair?.rawPath ?? null,
+      profileSessionStartRepairReason: readiness.profileSessionStartRepair?.reason ?? null,
       profileSessionEntriesStorageKey: readiness.profileSessionEntriesStorageKey,
       profileSessionStorageKey: readiness.profileSessionStorageKey,
       readinessDetail: readiness.readinessDetail,
@@ -1615,6 +1640,52 @@ function lastOpenedDeepLink(
 }
 
 /**
+ * Returns the last successfully opened iOS development-client URL.
+ *
+ * @param {Array<{exitCode?: unknown, label?: unknown, rawPath?: unknown, url?: unknown}>} results
+ * @returns {{label: string | null, rawPath: string | null, url: string} | null}
+ */
+function lastOpenedIosDevClientDeepLink(
+  results: Array<{exitCode?: unknown; label?: unknown; rawPath?: unknown; url?: unknown}>,
+): {label: string | null; rawPath: string | null; url: string} | null {
+  for (let index = results.length - 1; index >= 0; index -= 1) {
+    const result = results[index];
+    if (!result || result.exitCode !== 0) {
+      continue;
+    }
+    const label = typeof result.label === 'string' ? result.label : '';
+    const url = typeof result.url === 'string' ? result.url : '';
+    if (label !== 'ios-dev-client-url' && !url.includes('expo-development-client')) {
+      continue;
+    }
+    return {
+      label: label || null,
+      rawPath: typeof result.rawPath === 'string' ? result.rawPath : null,
+      url,
+    };
+  }
+  return null;
+}
+
+/**
+ * Reports whether reopening the configured dev-client URL can reasonably repair readiness.
+ *
+ * @param {ProfileSessionStartFailureClass} failureClass
+ * @returns {boolean}
+ */
+function shouldRetryIosDevClientForProfileSessionStart(failureClass: ProfileSessionStartFailureClass): boolean {
+  switch (failureClass) {
+    case 'dev_client_bundle_or_command_channel_not_ready':
+    case 'dev_client_not_foreground':
+    case 'dev_client_shell_foreground_no_js_app':
+      return true;
+    case 'ios_profile_session_start_missing':
+    case 'profile_command_channel_missing':
+      return false;
+  }
+}
+
+/**
  * Builds diagnostic context for iOS profile-session startup readiness.
  *
  * @param {{currentPhase: IosSimctlCapturePhase, deepLinkResults: Record<string, unknown>[], profileSessionStorage: IosProfileSessionStorageSeed, profileStorageKeys: ProfileStorageKeys, seedRawPath: string | null}} options
@@ -1624,6 +1695,7 @@ function buildProfileSessionStartReadinessContext({
   currentPhase,
   deepLinkResults,
   foregroundProbe,
+  profileSessionStartRepair,
   profileSessionStorage,
   profileStorageKeys,
   seedRawPath,
@@ -1631,6 +1703,7 @@ function buildProfileSessionStartReadinessContext({
   currentPhase: IosSimctlCapturePhase;
   deepLinkResults: Record<string, unknown>[];
   foregroundProbe: ProfileSessionStartForegroundProbe | null;
+  profileSessionStartRepair: ProfileSessionStartRepairAttempt | null;
   profileSessionStorage: IosProfileSessionStorageSeed;
   profileStorageKeys: ProfileStorageKeys;
   seedRawPath: string | null;
@@ -1649,6 +1722,7 @@ function buildProfileSessionStartReadinessContext({
     pendingPhase: currentPhase.name,
     profileCommandStorageKey: profileStorageKeys.command,
     profileEventStorageKey: profileStorageKeys.event,
+    profileSessionStartRepair,
     profileSessionEntriesStorageKey: profileStorageKeys.sessionEntries,
     profileSessionStorageKey: profileStorageKeys.session,
     readinessDetail: profileSessionStartReadinessDetail({ devClientDeepLinkOpened, foregroundProbe }),
@@ -2485,8 +2559,8 @@ async function runIosSimctlCapture(options: IosSimctlCaptureOptions = {}): Promi
           scenario: profileSessionStorage.scenario,
           timeoutMs: profileSessionStartWaitMs,
         });
-        const profileSessionStartPhase = currentPhase;
-        const startWait = await waitForStoredProfileSessionStart({
+        let profileSessionStartPhase = currentPhase;
+        let startWait = await waitForStoredProfileSessionStart({
           bundleId,
           dataContainer: dataContainerPath,
           profileStorageKeys,
@@ -2494,6 +2568,7 @@ async function runIosSimctlCapture(options: IosSimctlCaptureOptions = {}): Promi
           timeoutMs: profileSessionStartWaitMs,
           wait,
         });
+        let profileSessionStartRepair: ProfileSessionStartRepairAttempt | null = null;
         raw['ios-profile-session-start-wait.json'] = JSON.stringify(startWait, null, 2);
         let foregroundProbe: ProfileSessionStartForegroundProbe | null = null;
         if (!startWait.completed) {
@@ -2510,6 +2585,112 @@ async function runIosSimctlCapture(options: IosSimctlCaptureOptions = {}): Promi
           });
           foregroundProbe = startForeground.probe;
           raw['ios-profile-session-start-app-info.txt'] = startForeground.rawContent;
+          const initialReadiness = buildProfileSessionStartReadinessContext({
+            currentPhase: profileSessionStartPhase,
+            deepLinkResults,
+            foregroundProbe,
+            profileSessionStartRepair,
+            profileSessionStorage,
+            profileStorageKeys,
+            seedRawPath: raw['ios-profile-session-seed.json'] ? 'raw/ios-profile-session-seed.json' : null,
+          });
+          const retryDeepLink = shouldRetryIosDevClientForProfileSessionStart(initialReadiness.failureClass)
+            ? lastOpenedIosDevClientDeepLink(deepLinkResults)
+            : null;
+          if (retryDeepLink) {
+            setCurrentPhase('reopening_dev_client_for_profile_session_start', {
+              reason: initialReadiness.failureClass,
+              runId: profileSessionStorage.runId,
+              scenario: profileSessionStorage.scenario,
+              url: retryDeepLink.url,
+            });
+            const retryRawFileName = 'ios-dev-client-readiness-retry-1.txt';
+            const retryOpenResult = await driver.openDeepLink({
+              rawFileName: retryRawFileName,
+              url: retryDeepLink.url,
+            });
+            const retryOpened = retryOpenResult.exitCode === 0;
+            raw[retryOpenResult.rawFileName] = formatIosSimctlRawOutput(retryOpenResult);
+            deepLinkResults.push({
+              args: retryOpenResult.args,
+              exitCode: retryOpenResult.exitCode,
+              label: 'ios-dev-client-readiness-retry',
+              rawPath: `raw/${retryOpenResult.rawFileName}`,
+              url: retryDeepLink.url,
+              waitMs: 0,
+            });
+            checks.push({
+              name: 'ios_dev_client_readiness_repair_opened',
+              status: retryOpened ? 'passed' : 'failed',
+              source: 'runner',
+              code: retryOpened ? 'ios_dev_client_readiness_repair_opened' : 'ios_dev_client_readiness_repair_failed',
+              message: retryOpened
+                ? 'Reopened the configured iOS development-client URL after missing same-run profile-session evidence.'
+                : 'Failed to reopen the configured iOS development-client URL after missing same-run profile-session evidence.',
+              ...(!retryOpened
+                ? {
+                    metadata: nextActionHint(
+                      'reload_ios_dev_client_url',
+                      `Inspect raw/${retryOpenResult.rawFileName}, verify the app URL scheme, and confirm the dev client can load the configured bundle URL.`,
+                    ),
+                  }
+                : {}),
+            });
+            profileSessionStartRepair = {
+              completed: false,
+              elapsedMs: null,
+              exitCode: retryOpenResult.exitCode,
+              label: 'ios-dev-client-readiness-retry',
+              rawPath: `raw/${retryOpenResult.rawFileName}`,
+              reason: initialReadiness.failureClass,
+              timeoutMs: profileSessionStartWaitMs,
+              url: retryDeepLink.url,
+            };
+            if (retryOpened) {
+              setCurrentPhase('waiting_for_profile_session_start_after_dev_client_repair', {
+                commandCount: Array.isArray(profileSessionStorage.commands) ? profileSessionStorage.commands.length : 0,
+                expectedEvidence: 'profile-session-start-or-profile-events',
+                repairReason: initialReadiness.failureClass,
+                runId: profileSessionStorage.runId,
+                scenario: profileSessionStorage.scenario,
+                timeoutMs: profileSessionStartWaitMs,
+              });
+              profileSessionStartPhase = currentPhase;
+              startWait = await waitForStoredProfileSessionStart({
+                bundleId,
+                dataContainer: dataContainerPath,
+                profileStorageKeys,
+                runId: profileSessionStorage.runId,
+                timeoutMs: profileSessionStartWaitMs,
+                wait,
+              });
+              raw['ios-profile-session-start-wait-retry-1.json'] = JSON.stringify(startWait, null, 2);
+              raw['ios-profile-session-start-wait.json'] = JSON.stringify(startWait, null, 2);
+              profileSessionStartRepair = {
+                ...profileSessionStartRepair,
+                completed: startWait.completed,
+                elapsedMs: startWait.elapsedMs,
+              };
+              if (!startWait.completed) {
+                setCurrentPhase('inspecting_profile_session_start_foreground_after_dev_client_repair', {
+                  bundleId,
+                  runId: profileSessionStorage.runId,
+                  scenario: profileSessionStorage.scenario,
+                });
+                const retryForeground = await inspectProfileSessionStartForeground({
+                  bundleId,
+                  deviceUdid: simulator.udid,
+                  executor,
+                  xcrunPath,
+                });
+                foregroundProbe = {
+                  ...retryForeground.probe,
+                  rawPath: 'raw/ios-profile-session-start-app-info-retry-1.txt',
+                };
+                raw['ios-profile-session-start-app-info-retry-1.txt'] = retryForeground.rawContent;
+              }
+            }
+          }
         }
         setCurrentPhase('classifying_profile_session_start_readiness', {
           runId: profileSessionStorage.runId,
@@ -2519,6 +2700,7 @@ async function runIosSimctlCapture(options: IosSimctlCaptureOptions = {}): Promi
           currentPhase: profileSessionStartPhase,
           deepLinkResults,
           foregroundProbe,
+          profileSessionStartRepair,
           profileSessionStorage,
           profileStorageKeys,
           seedRawPath: raw['ios-profile-session-seed.json'] ? 'raw/ios-profile-session-seed.json' : null,
@@ -2534,6 +2716,7 @@ async function runIosSimctlCapture(options: IosSimctlCaptureOptions = {}): Promi
           ...readiness,
           rawPath: 'raw/ios-profile-session-readiness.json',
         };
+        metadata.profileSessionStartRepair = profileSessionStartRepair;
         checks.push(buildProfileSessionStartWaitCheck({
           readiness,
           runId: profileSessionStorage.runId,
