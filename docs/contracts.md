@@ -59,6 +59,8 @@ The app integration is intentionally thin. The application emits truth; runners 
 Portable scenario manifests describe the durable app behavior before choosing a runner:
 
 - `journey`: human-readable intent, actor, start state, and end state
+- `metadata`: optional product-owned coverage context; `metadata.coverage`
+  records behavior-contract taxonomy without changing runner behavior
 - `platforms`: supported runtime targets
 - `requiredCapabilities` and `optionalCapabilities`: runner capability requirements
 - `steps[].driverAction`: optional concrete driver operation required by a step, such as `tap`, `longPress`, `scroll`, `swipe`, `drag`, `pinch`, `rotate`, `typeText`, `fill`, `focus`, `pressKey`, `pressButton`, `assertVisible`, `inspectTree`, `screenshot`, `record`, `readLogs`, `collectPerfSignals`, `customGesture`, or `runSequence`
@@ -74,6 +76,15 @@ Portable scenario manifests describe the durable app behavior before choosing a 
 - `artifacts`: required and optional evidence outputs, including provider-backed diagnostics such as accessibility, memory, network, profiler, and native performance evidence
 
 The scenario contract is intentionally runner-neutral. Runners can map steps to adb, XcodeBuildMCP, agent-device, accessibility tools, profilers, or custom scripts while preserving the same journey, milestones, budgets, and expected events.
+
+Scenario metadata is descriptive scenario context, not execution policy. ASL
+validates `metadata.coverage` as the sanctioned behavior coverage namespace,
+projects its standardized fields into `project-validation.json` plan entries as
+`scenarioCoverage`, and preserves the full metadata object in profile
+`run-plan.json` as `scenarioMetadata`. Coverage metadata participates in the
+profile `scenarioHash` because it is part of the declared scenario contract.
+Health, verdict, budget, command delivery, and comparison logic do not interpret
+coverage fields.
 
 For repeated mobile command scenarios, `cycles.setupStepIds` names leading setup commands that run once before measured cycle work, while `cycles.bodyStepIds` names the first repeated body commands when inference would be ambiguous. Built-in profile-session runners also infer a setup prefix conservatively: leading readiness commands or leading commands before the first measured milestone command run once, and the remaining command body repeats for `cycles.iterations`. Wait gates remain strict; ASL does not synthesize missing app-owned truth events. When app truth events include command correlation such as `queueId` and `sequence`, the profile-session helper uses that correlation before releasing a waiting command gate.
 

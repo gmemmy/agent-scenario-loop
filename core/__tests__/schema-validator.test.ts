@@ -214,6 +214,50 @@ test('accepts scenario-authored comparison lanes', () => {
   assert.deepEqual(result.errors, []);
 });
 
+test('accepts product-neutral scenario coverage metadata', () => {
+  const scenario = readJson('examples/scenarios/mobile/app-startup.json');
+  scenario.metadata = {
+    coverage: {
+      featureSet: 'startup',
+      behaviorContract: 'app startup reaches first usable screen',
+      variant: 'default',
+      coverageRole: 'canonical',
+      riskClass: 'core',
+      platformContract: 'cross-platform',
+      fixtureContract: 'default fixture',
+      evidenceTier: 'runtime-readiness',
+      coverageStatus: 'active',
+      ownerOnFailure: 'runtime_environment',
+    },
+    productTaxonomy: {
+      owner: 'mobile',
+      priority: 1,
+      releaseBlocking: true,
+      notes: ['cold-start', 'readiness'],
+    },
+    tags: ['startup', 'readiness'],
+  };
+
+  const result = validateJson(scenario, SCHEMAS.scenario, 'Scenario manifest');
+
+  assert.equal(result.valid, true, result.message);
+  assert.deepEqual(result.errors, []);
+});
+
+test('rejects unknown scenario coverage roles', () => {
+  const scenario = readJson('examples/scenarios/mobile/app-startup.json');
+  scenario.metadata = {
+    coverage: {
+      coverageRole: 'happy-path',
+    },
+  };
+
+  const result = validateJson(scenario, SCHEMAS.scenario, 'Scenario manifest');
+
+  assert.equal(result.valid, false);
+  assert.ok(result.errors.some((error: ValidationIssue) => error.path === '$.metadata.coverage.coverageRole'));
+});
+
 test('accepts aggregate live proof set artifacts', () => {
   const artifact = {
     schemaVersion: '1.0.0',
@@ -2021,6 +2065,18 @@ test('accepts project validation artifacts', () => {
         healthStatus: 'passed',
         platform: 'ios',
         runId: 'validate-ios-checkout-submit',
+        scenarioCoverage: {
+          behaviorContract: 'checkout completes',
+          coverageRole: 'canonical',
+          coverageStatus: 'active',
+          evidenceTier: 'runtime-readiness',
+          featureSet: 'checkout',
+          fixtureContract: 'signed-in account',
+          ownerOnFailure: 'app_or_runtime',
+          platformContract: 'cross-platform',
+          riskClass: 'revenue',
+          variant: 'default',
+        },
         scenarioId: 'checkout-submit',
         scenarioPath: '/app/scenarios/mobile/checkout-submit.json',
       },

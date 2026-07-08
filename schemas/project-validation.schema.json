@@ -249,10 +249,50 @@
         "runId": {
           "type": "string"
         },
+        "scenarioCoverage": {
+          "$ref": "#/$defs/scenarioCoverage"
+        },
         "scenarioId": {
           "type": "string"
         },
         "scenarioPath": {
+          "type": "string"
+        }
+      }
+    },
+    "scenarioCoverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "behaviorContract": {
+          "type": "string"
+        },
+        "coverageRole": {
+          "type": "string",
+          "enum": ["canonical", "stress", "degraded", "platform-specific", "diagnostic"]
+        },
+        "coverageStatus": {
+          "type": "string"
+        },
+        "evidenceTier": {
+          "type": "string"
+        },
+        "featureSet": {
+          "type": "string"
+        },
+        "fixtureContract": {
+          "type": "string"
+        },
+        "ownerOnFailure": {
+          "type": "string"
+        },
+        "platformContract": {
+          "type": "string"
+        },
+        "riskClass": {
+          "type": "string"
+        },
+        "variant": {
           "type": "string"
         }
       }

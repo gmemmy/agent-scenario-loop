@@ -21,11 +21,25 @@ type ProjectValidationPlan = {
   healthStatus: string;
   platform: string;
   runId: string;
+  scenarioCoverage?: ScenarioCoverageMetadata;
   scenarioId: string;
   scenarioPath: string;
 };
 
 type MobilePlatform = 'android' | 'ios';
+
+type ScenarioCoverageMetadata = {
+  behaviorContract?: string;
+  coverageRole?: string;
+  coverageStatus?: string;
+  evidenceTier?: string;
+  featureSet?: string;
+  fixtureContract?: string;
+  ownerOnFailure?: string;
+  platformContract?: string;
+  riskClass?: string;
+  variant?: string;
+};
 
 type ProjectValidationAppHelper = {
   missingExports: string[];
@@ -661,6 +675,47 @@ function resolvePlatforms({
     ? scenario.platforms.filter((platform): platform is string => typeof platform === 'string')
     : [];
   return platforms.length > 0 ? platforms : ['ios', 'android'];
+}
+
+/**
+ * Reads standardized behavior coverage metadata for project validation inventory.
+ *
+ * @param {Record<string, unknown>} scenario
+ * @returns {ScenarioCoverageMetadata | null}
+ */
+function readScenarioCoverageMetadata(scenario: Record<string, unknown>): ScenarioCoverageMetadata | null {
+  const metadata = scenario.metadata;
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) {
+    return null;
+  }
+
+  const coverage = (metadata as Record<string, unknown>).coverage;
+  if (!coverage || typeof coverage !== 'object' || Array.isArray(coverage)) {
+    return null;
+  }
+
+  const coverageRecord = coverage as Record<string, unknown>;
+  const keys: Array<keyof ScenarioCoverageMetadata> = [
+    'behaviorContract',
+    'coverageRole',
+    'coverageStatus',
+    'evidenceTier',
+    'featureSet',
+    'fixtureContract',
+    'ownerOnFailure',
+    'platformContract',
+    'riskClass',
+    'variant',
+  ];
+  const result = keys.reduce<ScenarioCoverageMetadata>((accumulator, key) => {
+    const value = coverageRecord[key];
+    if (typeof value === 'string' && value.length > 0) {
+      accumulator[key] = value;
+    }
+    return accumulator;
+  }, {});
+
+  return Object.keys(result).length > 0 ? result : null;
 }
 
 /**
@@ -1703,6 +1758,7 @@ async function validateProject(options: {
     for (const scenarioPath of scenarioPaths) {
       const scenario = readJson(scenarioPath);
       const scenarioId = typeof scenario.id === 'string' ? scenario.id : path.basename(scenarioPath, '.json');
+      const scenarioCoverage = readScenarioCoverageMetadata(scenario);
       for (const platform of resolvePlatforms({ requestedPlatform, scenario })) {
         const runId = buildValidationRunId({ platform, scenarioId });
         const artifacts = await buildPlanArtifacts({
@@ -1717,6 +1773,7 @@ async function validateProject(options: {
           healthStatus,
           platform,
           runId,
+          ...(scenarioCoverage ? { scenarioCoverage } : {}),
           scenarioId,
           scenarioPath,
         });

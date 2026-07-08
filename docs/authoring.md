@@ -77,6 +77,7 @@ Minimal fields:
 
 Preferred fields:
 
+- `metadata`: product-owned tags and behavior coverage taxonomy
 - `journey`: human-readable intent, actor, start state, and end state
 - `comparisonLane`: default historical baseline lane for runs of this scenario
 - `milestones`: named event checkpoints with phases and timeouts
@@ -85,6 +86,42 @@ Preferred fields:
 - `artifacts`: required and optional evidence outputs
 
 Use `comparisonLane` when a scenario should always compare within one stable proof mode, such as `feed-open-android-live`. Profile CLIs can also receive `--comparison-lane`; the CLI flag wins when one-off runs need a different lane.
+
+Use `metadata` when a consuming app needs machine-readable coverage context that
+does not change runner behavior. ASL validates and preserves scenario metadata
+in `run-plan.json` as `scenarioMetadata`, and projects standardized
+`metadata.coverage` fields into project-validation plan entries as
+`scenarioCoverage`; health, verdicts, budgets, command delivery, and comparisons
+do not interpret it.
+
+The sanctioned behavior coverage namespace is `metadata.coverage`:
+
+```json
+{
+  "metadata": {
+    "coverage": {
+      "featureSet": "account",
+      "behaviorContract": "drawer opens and closes",
+      "variant": "default",
+      "coverageRole": "canonical",
+      "riskClass": "core",
+      "platformContract": "cross-platform",
+      "fixtureContract": "signed-in user",
+      "evidenceTier": "runtime-readiness",
+      "coverageStatus": "active",
+      "ownerOnFailure": "app_or_runtime"
+    },
+    "tags": ["account", "drawer"]
+  }
+}
+```
+
+`coverageRole` is intentionally closed to `canonical`, `stress`, `degraded`,
+`platform-specific`, or `diagnostic`. Other coverage values are product-defined
+strings. Additional `metadata` keys are allowed for app-owned taxonomy, but they
+remain descriptive evidence context rather than scenario execution policy.
+Because scenario metadata is part of the scenario contract, it participates in
+`scenarioHash` just like milestones, budgets, and steps.
 
 For repeated scenarios, separate setup from the measured body. Commands that clear state, navigate home, dismiss modals, or establish readiness should not be measured every iteration unless that cleanup is the journey under test. Use `cycles.setupStepIds` for leading setup commands that run once, or `cycles.bodyStepIds` to name the repeated command body. If neither is provided, ASL profile-session runners infer a conservative setup prefix from readiness waits and measured milestone budgets, but explicit ids are clearer for complex flows.
 

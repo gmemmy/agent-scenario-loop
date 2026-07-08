@@ -189,6 +189,49 @@ test('validates an initialized project for iOS and Android', async (t: TestConte
       { healthStatus: 'passed', platform: 'ios', scenarioId: 'checkout-submit' },
     ],
   );
+  assert.deepEqual(
+    result.plans
+      .map((plan: { platform: string; scenarioCoverage?: Record<string, unknown> }) => ({
+        platform: plan.platform,
+        scenarioCoverage: plan.scenarioCoverage,
+      }))
+      .sort((
+        left: { platform: string },
+        right: { platform: string },
+      ) => left.platform.localeCompare(right.platform)),
+    [
+      {
+        platform: 'android',
+        scenarioCoverage: {
+          behaviorContract: 'first journey completes',
+          coverageRole: 'canonical',
+          coverageStatus: 'active',
+          evidenceTier: 'runtime-readiness',
+          featureSet: 'core journey',
+          fixtureContract: 'default fixture',
+          ownerOnFailure: 'app_or_runtime',
+          platformContract: 'cross-platform',
+          riskClass: 'core',
+          variant: 'default',
+        },
+      },
+      {
+        platform: 'ios',
+        scenarioCoverage: {
+          behaviorContract: 'first journey completes',
+          coverageRole: 'canonical',
+          coverageStatus: 'active',
+          evidenceTier: 'runtime-readiness',
+          featureSet: 'core journey',
+          fixtureContract: 'default fixture',
+          ownerOnFailure: 'app_or_runtime',
+          platformContract: 'cross-platform',
+          riskClass: 'core',
+          variant: 'default',
+        },
+      },
+    ],
+  );
   assert.match(formatResult(result), /project validation passed/u);
   assert.match(formatResult(result), /Warnings:/u);
   assert.match(formatResult(result), /Next actions:/u);
