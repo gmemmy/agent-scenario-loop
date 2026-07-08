@@ -279,6 +279,28 @@ test('derives bounded iOS simctl capture watchdog from declared waits', () => {
   assert.equal(watchdog.commandBudgetMs <= 45000, true);
   assert.equal(watchdog.timeoutMs < 120000, true);
 
+  const devClientWatchdog = deriveIosSimctlCaptureWatchdogBudget({
+    bundleId: 'dev.agent-scenario-loop.example',
+    commandTimeoutMs: 60000,
+    deepLinks: [
+      {
+        label: 'ios-dev-client-url',
+        url: 'asl-example://expo-development-client/?url=http%3A%2F%2Flocalhost%3A8097',
+        waitMs: 25000,
+      },
+    ],
+    profileSessionStorage: {
+      commands: [],
+      runId: 'ios-watchdog-dev-client',
+      scenario: 'app-startup',
+    },
+    profileSessionStartWaitMs: 20000,
+    waitMs: 145000,
+  });
+
+  assert.equal(devClientWatchdog.declaredWaitMs, 210000);
+  assert.equal(devClientWatchdog.timeoutMs >= devClientWatchdog.declaredWaitMs, true);
+
   const explicitWatchdog = deriveIosSimctlCaptureWatchdogBudget({
     captureWatchdogMs: 600000,
     commandTimeoutMs: 60000,
@@ -482,6 +504,129 @@ test('classifies missing iOS profile-session start after storage seed and dev-cl
   assert.equal(metadata.profileSessionStartObservation.observed, false);
   assert.equal(metadata.profileSessionStartObservation.runId, 'ios-profile-start-missing');
   assert.equal(metadata.currentPhase.name, 'finalizing_artifacts');
+});
+
+test('reopens iOS dev-client URL when storage start is missing before final classification', async (t: TestContext) => {
+  const outputDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-ios-simctl-profile-start-repair-'));
+  const dataContainer = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-ios-simctl-profile-start-repair-data-'));
+  t.after(async () => {
+    await fsp.rm(outputDir, { recursive: true, force: true });
+    await fsp.rm(dataContainer, { recursive: true, force: true });
+  });
+  const runId = 'ios-profile-start-repaired';
+  const storageDir = resolveAsyncStorageDirectory({
+    bundleId: 'dev.agent-scenario-loop.example',
+    dataContainer,
+  });
+  let devClientOpenCount = 0;
+  const executor = async (command: string, args: string[]): Promise<CommandResult> => {
+    const key = args.join(' ');
+    if (key === 'simctl list devices') {
+      return {
+        args,
+        command,
+        exitCode: 0,
+        stderr: '',
+        stdout: [
+          '== Devices ==',
+          '-- iOS 26.3 --',
+          '    iPhone 17 Pro Max (A692ED28-893E-453F-8866-C69331AE757F) (Booted)',
+        ].join('\n'),
+      };
+    }
+    if (key === 'simctl spawn A692ED28-893E-453F-8866-C69331AE757F launchctl getenv DYLD_INSERT_LIBRARIES' ||
+      key === 'simctl spawn A692ED28-893E-453F-8866-C69331AE757F launchctl getenv NATIVE_DEVTOOLS_IOS_CDP_SOCKET') {
+      return { args, command, exitCode: 0, stderr: '', stdout: '' };
+    }
+    if (key === 'simctl get_app_container A692ED28-893E-453F-8866-C69331AE757F dev.agent-scenario-loop.example app') {
+      return { args, command, exitCode: 0, stderr: '', stdout: '/tmp/ASLExampleMobile.app\n' };
+    }
+    if (key === 'simctl get_app_container A692ED28-893E-453F-8866-C69331AE757F dev.agent-scenario-loop.example data') {
+      return { args, command, exitCode: 0, stderr: '', stdout: `${dataContainer}\n` };
+    }
+    if (key === 'simctl terminate A692ED28-893E-453F-8866-C69331AE757F dev.agent-scenario-loop.example') {
+      return { args, command, exitCode: 0, stderr: '', stdout: '' };
+    }
+    if (key === 'simctl appinfo A692ED28-893E-453F-8866-C69331AE757F dev.agent-scenario-loop.example') {
+      return {
+        args,
+        command,
+        exitCode: 0,
+        stderr: '',
+        stdout: '{"ApplicationState":"BackgroundRunning","Bundle":"dev.agent-scenario-loop.example"}\n',
+      };
+    }
+    if (key === 'simctl openurl A692ED28-893E-453F-8866-C69331AE757F asl-example://expo-development-client/?url=http%3A%2F%2Flocalhost%3A8097') {
+      devClientOpenCount += 1;
+      if (devClientOpenCount === 2) {
+        await fsp.mkdir(storageDir, { recursive: true });
+        await fsp.writeFile(
+          path.join(storageDir, 'manifest.json'),
+          JSON.stringify({
+            'agent-scenario-loop.profile-events.1': null,
+            'agent-scenario-loop.profile-session-entries.1': null,
+          }),
+          'utf8',
+        );
+        await fsp.writeFile(
+          path.join(storageDir, asyncStorageFileNameForKey('agent-scenario-loop.profile-events.1')),
+          JSON.stringify([{ event: 'app_ready', runId, timestamp: Date.now() }]),
+          'utf8',
+        );
+        await fsp.writeFile(
+          path.join(storageDir, asyncStorageFileNameForKey('agent-scenario-loop.profile-session-entries.1')),
+          JSON.stringify([{ kind: 'start', runId, timestamp: Date.now() }]),
+          'utf8',
+        );
+      }
+      return { args, command, exitCode: 0, stderr: '', stdout: '' };
+    }
+    if (key === 'simctl spawn A692ED28-893E-453F-8866-C69331AE757F log show --style compact --last 2m --predicate eventMessage CONTAINS "[profile-event]" OR eventMessage CONTAINS "[profile-session]"') {
+      return { args, command, exitCode: 0, stderr: '', stdout: 'Timestamp Ty Process[PID:TID]\n' };
+    }
+    return { args, command, exitCode: 1, stderr: `unexpected command: ${key}`, stdout: '' };
+  };
+
+  const result = await runIosSimctlCapture({
+    bundleId: 'dev.agent-scenario-loop.example',
+    collectProfileStorage: true,
+    deepLinks: [
+      {
+        label: 'ios-dev-client-url',
+        url: 'asl-example://expo-development-client/?url=http%3A%2F%2Flocalhost%3A8097',
+      },
+    ],
+    delay: async () => {},
+    executor,
+    outputDir,
+    profileSessionStorage: {
+      commands: [],
+      runId,
+      scenario: 'app-startup',
+    },
+    profileSessionStartWaitMs: 5,
+    runId,
+    terminateBeforeLaunch: true,
+  });
+  const metadata = JSON.parse(fs.readFileSync(path.join(outputDir, 'raw', 'ios-metadata.json'), 'utf8'));
+  const readiness = JSON.parse(fs.readFileSync(path.join(outputDir, 'raw', 'ios-profile-session-readiness.json'), 'utf8'));
+  const repairOpenCheck = (result.health.checks as Array<{ code: string; status: string }>).find(
+    (check) => check.code === 'ios_dev_client_readiness_repair_opened',
+  );
+  const startWaitCheck = (result.health.checks as Array<{ name: string; status: string }>).find(
+    (check) => check.name === 'ios_profile_session_start_wait',
+  );
+
+  assert.equal(result.health.healthStatus, 'passed');
+  assert.equal(devClientOpenCount, 2);
+  assert.equal(repairOpenCheck?.status, 'passed');
+  assert.equal(startWaitCheck?.status, 'passed');
+  assert.equal(metadata.profileSessionStartWait.completed, true);
+  assert.equal(metadata.profileSessionStartRepair.completed, true);
+  assert.equal(metadata.profileSessionStartRepair.reason, 'dev_client_not_foreground');
+  assert.equal(metadata.profileSessionStartRepair.rawPath, 'raw/ios-dev-client-readiness-retry-1.txt');
+  assert.equal(readiness.profileSessionStartRepair.completed, true);
+  assert.equal(readiness.profileSessionStartRepair.reason, 'dev_client_not_foreground');
 });
 
 test('times out hung iOS simctl subprocesses with diagnostic stderr', async () => {
