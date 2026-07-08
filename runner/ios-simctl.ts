@@ -187,7 +187,12 @@ type ProfileSessionStartForegroundProbe = {
   rawPath: string;
   targetForeground: boolean;
 };
-type ProfileSessionStartFailureClass = 'dev_client_bundle_or_command_channel_not_ready' | 'ios_profile_session_start_missing';
+type ProfileSessionStartFailureClass =
+  | 'dev_client_bundle_or_command_channel_not_ready'
+  | 'dev_client_not_foreground'
+  | 'dev_client_shell_foreground_no_js_app'
+  | 'ios_profile_session_start_missing'
+  | 'profile_command_channel_missing';
 type ProfileSessionStartReadinessDetail =
   | 'dev_client_foreground_command_channel_missing'
   | 'dev_client_not_foreground'
@@ -1167,11 +1172,9 @@ function buildProfileSessionStartWaitCheck({
     };
   }
 
+  const nextAction = profileSessionStartNextAction(readiness?.failureClass ?? 'ios_profile_session_start_missing');
   const metadata: Record<string, string | number | boolean | null> = {
-    ...nextActionHint(
-      'fix_ios_dev_client_bundle_or_command_channel',
-      'Confirm the iOS development client loaded the intended app bundle and that the app can start the scenario command channel before rerunning.',
-    ),
+    ...nextActionHint(nextAction.code, nextAction.message),
     nextActionOwner: 'runtime_environment',
   };
   if (readiness) {
@@ -1639,7 +1642,7 @@ function buildProfileSessionStartReadinessContext({
     commandCount: commands.length,
     devClientDeepLinkOpened,
     expectedEvidence: 'profile-session-start-or-profile-events',
-    failureClass: profileSessionStartFailureClass({ devClientDeepLinkOpened }),
+    failureClass: profileSessionStartFailureClass({ commandCount: commands.length, devClientDeepLinkOpened, foregroundProbe }),
     foregroundProbe,
     lastDeepLinkLabel: lastDeepLink?.label ?? null,
     lastDeepLinkUrl: lastDeepLink?.url ?? null,
@@ -1657,19 +1660,76 @@ function buildProfileSessionStartReadinessContext({
 /**
  * Classifies the missing-start owner shape for storage-backed iOS profile sessions.
  *
- * @param {{devClientDeepLinkOpened: boolean}} options
+ * @param {{commandCount: number, devClientDeepLinkOpened: boolean, foregroundProbe: ProfileSessionStartForegroundProbe | null}} options
  * @returns {ProfileSessionStartFailureClass}
  */
 function profileSessionStartFailureClass({
+  commandCount,
   devClientDeepLinkOpened,
+  foregroundProbe,
 }: {
+  commandCount: number;
   devClientDeepLinkOpened: boolean;
+  foregroundProbe: ProfileSessionStartForegroundProbe | null;
 }): ProfileSessionStartFailureClass {
-  if (devClientDeepLinkOpened) {
+  if (!devClientDeepLinkOpened) {
+    return 'ios_profile_session_start_missing';
+  }
+
+  if (!foregroundProbe?.appInfoCaptured) {
     return 'dev_client_bundle_or_command_channel_not_ready';
   }
 
-  return 'ios_profile_session_start_missing';
+  if (!foregroundProbe.targetForeground) {
+    return 'dev_client_not_foreground';
+  }
+
+  if (commandCount === 0) {
+    return 'dev_client_shell_foreground_no_js_app';
+  }
+
+  return 'profile_command_channel_missing';
+}
+
+/**
+ * Returns a product-neutral next action for iOS profile-session start failures.
+ *
+ * @param {ProfileSessionStartFailureClass} failureClass
+ * @returns {{code: string, message: string}}
+ */
+function profileSessionStartNextAction(failureClass: ProfileSessionStartFailureClass): { code: string; message: string } {
+  switch (failureClass) {
+    case 'dev_client_not_foreground':
+      return {
+        code: 'reload_ios_dev_client_url',
+        message:
+          'Open an explicit iOS development-client URL and confirm the target app owns the foreground surface before rerunning.',
+      };
+    case 'dev_client_shell_foreground_no_js_app':
+      return {
+        code: 'fix_ios_dev_client_bundle_surface',
+        message:
+          'Confirm Metro is serving the intended app bundle, clear stale development-client server state if needed, and reload the explicit dev-client URL.',
+      };
+    case 'profile_command_channel_missing':
+      return {
+        code: 'fix_ios_profile_command_channel',
+        message:
+          'Confirm the app has adopted the profile-session helper and starts the command channel after the JavaScript bundle loads.',
+      };
+    case 'dev_client_bundle_or_command_channel_not_ready':
+      return {
+        code: 'fix_ios_dev_client_bundle_or_command_channel',
+        message:
+          'Confirm the iOS development client loaded the intended app bundle and that the app can start the scenario command channel before rerunning.',
+      };
+    case 'ios_profile_session_start_missing':
+      return {
+        code: 'fix_ios_profile_session_start',
+        message:
+          'Confirm the iOS app can load the configured scenario session and emit same-run profile-session evidence before rerunning.',
+      };
+  }
 }
 
 /**

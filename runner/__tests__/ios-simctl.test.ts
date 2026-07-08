@@ -444,12 +444,12 @@ test('classifies missing iOS profile-session start after storage seed and dev-cl
   );
 
   assert.equal(result.health.healthStatus, 'failed');
-  assert.equal(startWaitCheck?.metadata?.nextActionCode, 'fix_ios_dev_client_bundle_or_command_channel');
+  assert.equal(startWaitCheck?.metadata?.nextActionCode, 'fix_ios_profile_command_channel');
   assert.equal(startWaitCheck?.metadata?.nextActionOwner, 'runtime_environment');
   assert.equal(startWaitCheck?.metadata?.commandCount, 1);
   assert.equal(startWaitCheck?.metadata?.devClientDeepLinkOpened, true);
   assert.equal(startWaitCheck?.metadata?.expectedEvidence, 'profile-session-start-or-profile-events');
-  assert.equal(startWaitCheck?.metadata?.failureClass, 'dev_client_bundle_or_command_channel_not_ready');
+  assert.equal(startWaitCheck?.metadata?.failureClass, 'profile_command_channel_missing');
   assert.equal(startWaitCheck?.metadata?.foregroundAppInfoCaptured, true);
   assert.equal(startWaitCheck?.metadata?.foregroundApplicationState, 'ForegroundRunning');
   assert.equal(startWaitCheck?.metadata?.foregroundRawPath, 'raw/ios-profile-session-start-app-info.txt');
@@ -466,7 +466,7 @@ test('classifies missing iOS profile-session start after storage seed and dev-cl
   assert.match(startAppInfo, /ForegroundRunning/u);
   assert.equal(readiness.commandCount, 1);
   assert.equal(readiness.devClientDeepLinkOpened, true);
-  assert.equal(readiness.failureClass, 'dev_client_bundle_or_command_channel_not_ready');
+  assert.equal(readiness.failureClass, 'profile_command_channel_missing');
   assert.equal(readiness.foregroundProbe.applicationState, 'ForegroundRunning');
   assert.equal(readiness.foregroundProbe.targetForeground, true);
   assert.equal(readiness.pendingPhase, 'waiting_for_profile_session_start');
