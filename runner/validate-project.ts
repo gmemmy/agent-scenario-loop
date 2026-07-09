@@ -26,6 +26,56 @@ type ProjectValidationPlan = {
   scenarioPath: string;
 };
 
+type CoverageInventoryField =
+  | 'featureSet'
+  | 'behaviorContract'
+  | 'variant'
+  | 'coverageRole'
+  | 'coverageStatus'
+  | 'evidenceTier'
+  | 'platformContract';
+
+type CoverageInventoryGroupField = CoverageInventoryField | 'platform';
+
+type CoverageInventoryGroup = {
+  field: CoverageInventoryGroupField;
+  planCount: number;
+  platforms: string[];
+  scenarioCount: number;
+  scenarioIds: string[];
+  status: 'present' | 'missing';
+  value: string;
+};
+
+type CoverageInventoryGap = {
+  missingFields: CoverageInventoryField[];
+  platforms: string[];
+  scenarioId: string;
+  scenarioPath: string;
+  status: 'missing' | 'partial';
+};
+
+type CoverageInventory = {
+  fields: CoverageInventoryField[];
+  gaps: CoverageInventoryGap[];
+  groups: Record<CoverageInventoryGroupField, CoverageInventoryGroup[]>;
+  totals: {
+    completeCoverage: number;
+    missingCoverage: number;
+    partialCoverage: number;
+    planCount: number;
+    scenarioCount: number;
+    withCoverage: number;
+  };
+};
+
+type CoverageInventoryInput = {
+  coverage: ScenarioCoverageMetadata | null;
+  platforms: string[];
+  scenarioId: string;
+  scenarioPath: string;
+};
+
 type MobilePlatform = 'android' | 'ios';
 
 type ScenarioCoverageMetadata = {
@@ -101,6 +151,7 @@ type ProjectValidationResult = {
   appHelper: ProjectValidationAppHelper;
   config: ProjectValidationConfig;
   configPath: string;
+  coverageInventory: CoverageInventory;
   errors: string[];
   gitignore: ProjectValidationGitignore;
   nextActions: ProjectValidationNextAction[];
@@ -115,6 +166,24 @@ type ProjectValidationResult = {
   status: 'passed' | 'failed';
   warnings: string[];
 };
+
+const COVERAGE_INVENTORY_FIELDS: CoverageInventoryField[] = [
+  'featureSet',
+  'behaviorContract',
+  'variant',
+  'coverageRole',
+  'coverageStatus',
+  'evidenceTier',
+  'platformContract',
+];
+
+const COVERAGE_ROLE_ORDER = [
+  'canonical',
+  'stress',
+  'degraded',
+  'platform-specific',
+  'diagnostic',
+];
 
 const REQUIRED_APP_HELPER_EXPORTS = [
   'emitProfileEvent',
@@ -716,6 +785,203 @@ function readScenarioCoverageMetadata(scenario: Record<string, unknown>): Scenar
   }, {});
 
   return Object.keys(result).length > 0 ? result : null;
+}
+
+type MutableCoverageInventoryGroup = CoverageInventoryGroup & {
+  scenarioKeys: Set<string>;
+};
+
+/**
+ * Creates an empty coverage inventory group collection with stable field keys.
+ *
+ * @returns {Record<CoverageInventoryGroupField, CoverageInventoryGroup[]>}
+ */
+function createEmptyCoverageInventoryGroups(): Record<CoverageInventoryGroupField, CoverageInventoryGroup[]> {
+  return {
+    featureSet: [],
+    behaviorContract: [],
+    variant: [],
+    coverageRole: [],
+    coverageStatus: [],
+    evidenceTier: [],
+    platformContract: [],
+    platform: [],
+  };
+}
+
+/**
+ * Adds one scenario to a coverage inventory grouping bucket.
+ *
+ * @param {{groups: Map<string, MutableCoverageInventoryGroup>, field: CoverageInventoryGroupField, value: string, status: 'present' | 'missing', scenarioId: string, scenarioPath: string, platforms: string[], planCount: number}} options
+ * @returns {void}
+ */
+function addCoverageGroupEntry({
+  groups,
+  field,
+  value,
+  status,
+  scenarioId,
+  scenarioPath,
+  platforms,
+  planCount,
+}: {
+  groups: Map<string, MutableCoverageInventoryGroup>;
+  field: CoverageInventoryGroupField;
+  value: string;
+  status: 'present' | 'missing';
+  scenarioId: string;
+  scenarioPath: string;
+  platforms: string[];
+  planCount: number;
+}): void {
+  const key = `${field}\u0000${status}\u0000${value}`;
+  const existing = groups.get(key);
+  const group = existing ?? {
+    field,
+    planCount: 0,
+    platforms: [],
+    scenarioCount: 0,
+    scenarioIds: [],
+    scenarioKeys: new Set<string>(),
+    status,
+    value,
+  };
+
+  group.planCount += planCount;
+  group.scenarioKeys.add(scenarioPath);
+  group.scenarioIds = [...new Set([...group.scenarioIds, scenarioId])].sort();
+  group.platforms = [...new Set([...group.platforms, ...platforms])].sort();
+  group.scenarioCount = group.scenarioKeys.size;
+  groups.set(key, group);
+}
+
+/**
+ * Sorts inventory groups by missing status, known role order, then value.
+ *
+ * @param {CoverageInventoryGroup} left
+ * @param {CoverageInventoryGroup} right
+ * @returns {number}
+ */
+function compareCoverageGroups(left: CoverageInventoryGroup, right: CoverageInventoryGroup): number {
+  if (left.status !== right.status) {
+    return left.status === 'present' ? -1 : 1;
+  }
+
+  if (left.field === 'coverageRole' && right.field === 'coverageRole') {
+    const leftRoleIndex = COVERAGE_ROLE_ORDER.indexOf(left.value);
+    const rightRoleIndex = COVERAGE_ROLE_ORDER.indexOf(right.value);
+    if (leftRoleIndex !== rightRoleIndex) {
+      if (leftRoleIndex === -1) {
+        return 1;
+      }
+      if (rightRoleIndex === -1) {
+        return -1;
+      }
+      return leftRoleIndex - rightRoleIndex;
+    }
+  }
+
+  return left.value.localeCompare(right.value);
+}
+
+/**
+ * Builds a product-neutral coverage inventory from scenario metadata.
+ *
+ * @param {CoverageInventoryInput[]} scenarios
+ * @returns {CoverageInventory}
+ */
+function buildCoverageInventory(scenarios: CoverageInventoryInput[]): CoverageInventory {
+  const mutableGroups = new Map<string, MutableCoverageInventoryGroup>();
+  const gaps: CoverageInventoryGap[] = [];
+  let completeCoverage = 0;
+  let missingCoverage = 0;
+  let partialCoverage = 0;
+  let planCount = 0;
+  let withCoverage = 0;
+
+  for (const scenario of scenarios) {
+    const platforms = scenario.platforms.length > 0 ? scenario.platforms : ['unknown'];
+    const scenarioPlanCount = platforms.length;
+    planCount += scenarioPlanCount;
+
+    const missingFields = COVERAGE_INVENTORY_FIELDS.filter((field) => !scenario.coverage?.[field]);
+    if (!scenario.coverage) {
+      missingCoverage += 1;
+      gaps.push({
+        missingFields: [...COVERAGE_INVENTORY_FIELDS],
+        platforms,
+        scenarioId: scenario.scenarioId,
+        scenarioPath: scenario.scenarioPath,
+        status: 'missing',
+      });
+    } else {
+      withCoverage += 1;
+      if (missingFields.length > 0) {
+        partialCoverage += 1;
+        gaps.push({
+          missingFields,
+          platforms,
+          scenarioId: scenario.scenarioId,
+          scenarioPath: scenario.scenarioPath,
+          status: 'partial',
+        });
+      } else {
+        completeCoverage += 1;
+      }
+    }
+
+    for (const field of COVERAGE_INVENTORY_FIELDS) {
+      const value = scenario.coverage?.[field];
+      addCoverageGroupEntry({
+        groups: mutableGroups,
+        field,
+        value: value ?? 'missing',
+        status: value ? 'present' : 'missing',
+        scenarioId: scenario.scenarioId,
+        scenarioPath: scenario.scenarioPath,
+        platforms,
+        planCount: scenarioPlanCount,
+      });
+    }
+
+    for (const platform of platforms) {
+      addCoverageGroupEntry({
+        groups: mutableGroups,
+        field: 'platform',
+        value: platform,
+        status: platform === 'unknown' ? 'missing' : 'present',
+        scenarioId: scenario.scenarioId,
+        scenarioPath: scenario.scenarioPath,
+        platforms: [platform],
+        planCount: 1,
+      });
+    }
+  }
+
+  const groups = createEmptyCoverageInventoryGroups();
+  for (const group of mutableGroups.values()) {
+    const { scenarioKeys, ...publicGroup } = group;
+    groups[publicGroup.field].push(publicGroup);
+  }
+  for (const field of [...COVERAGE_INVENTORY_FIELDS, 'platform'] as CoverageInventoryGroupField[]) {
+    groups[field].sort(compareCoverageGroups);
+  }
+
+  gaps.sort((left, right) => left.scenarioId.localeCompare(right.scenarioId) || left.scenarioPath.localeCompare(right.scenarioPath));
+
+  return {
+    fields: [...COVERAGE_INVENTORY_FIELDS],
+    gaps,
+    groups,
+    totals: {
+      completeCoverage,
+      missingCoverage,
+      partialCoverage,
+      planCount,
+      scenarioCount: scenarios.length,
+      withCoverage,
+    },
+  };
 }
 
 /**
@@ -1491,13 +1757,14 @@ function validateProviderCommandReferences({
 /**
  * Builds stable agent-readable next actions from project validation facts.
  *
- * @param {{appHelper: ProjectValidationAppHelper, config: ProjectValidationConfig, configPath: string, gitignore: ProjectValidationGitignore, plans: ProjectValidationPlan[], providerCommandMissingPaths: string[], requestedPlatform: string, rootDir: string, runnerPath: string, scenarioPaths: string[], scripts: ProjectValidationScripts, warnings: string[]}} options
+ * @param {{appHelper: ProjectValidationAppHelper, config: ProjectValidationConfig, configPath: string, coverageInventory: CoverageInventory, gitignore: ProjectValidationGitignore, plans: ProjectValidationPlan[], providerCommandMissingPaths: string[], requestedPlatform: string, rootDir: string, runnerPath: string, scenarioPaths: string[], scripts: ProjectValidationScripts, warnings: string[]}} options
  * @returns {ProjectValidationNextAction[]}
  */
 function buildNextActions({
   appHelper,
   config,
   configPath,
+  coverageInventory,
   gitignore,
   plans,
   providerCommandMissingPaths,
@@ -1511,6 +1778,7 @@ function buildNextActions({
   appHelper: ProjectValidationAppHelper;
   config: ProjectValidationConfig;
   configPath: string;
+  coverageInventory: CoverageInventory;
   gitignore: ProjectValidationGitignore;
   plans: ProjectValidationPlan[];
   providerCommandMissingPaths: string[];
@@ -1562,6 +1830,15 @@ function buildNextActions({
       message: 'Add at least one scenario manifest under a configured scenario root or scenarios/mobile.',
       severity: 'error',
       target: path.join(rootDir, 'scenarios', 'mobile'),
+    });
+  }
+
+  if (coverageInventory.gaps.length > 0) {
+    actions.push({
+      code: 'complete_coverage_metadata',
+      message: `Complete metadata.coverage for ${coverageInventory.totals.missingCoverage} missing and ${coverageInventory.totals.partialCoverage} partial scenario(s).`,
+      severity: 'warning',
+      target: coverageInventory.gaps[0]?.scenarioPath ?? path.join(rootDir, 'scenarios', 'mobile'),
     });
   }
 
@@ -1677,6 +1954,7 @@ async function validateProject(options: {
     ...(options.packageRoot ? { packageRoot: options.packageRoot } : {}),
     rootDir,
   });
+  const coverageInventoryInputs: CoverageInventoryInput[] = [];
   const errors: string[] = [];
   const plans: ProjectValidationPlan[] = [];
   const warnings: string[] = [];
@@ -1759,7 +2037,14 @@ async function validateProject(options: {
       const scenario = readJson(scenarioPath);
       const scenarioId = typeof scenario.id === 'string' ? scenario.id : path.basename(scenarioPath, '.json');
       const scenarioCoverage = readScenarioCoverageMetadata(scenario);
-      for (const platform of resolvePlatforms({ requestedPlatform, scenario })) {
+      const platforms = resolvePlatforms({ requestedPlatform, scenario });
+      coverageInventoryInputs.push({
+        coverage: scenarioCoverage,
+        platforms,
+        scenarioId,
+        scenarioPath,
+      });
+      for (const platform of platforms) {
         const runId = buildValidationRunId({ platform, scenarioId });
         const artifacts = await buildPlanArtifacts({
           scenarioPath,
@@ -1784,10 +2069,18 @@ async function validateProject(options: {
     }
   }
 
+  const coverageInventory = buildCoverageInventory(coverageInventoryInputs);
+  if (coverageInventory.gaps.length > 0) {
+    warnings.push(
+      `Coverage inventory metadata gaps: ${coverageInventory.totals.missingCoverage} scenario(s) missing coverage and ${coverageInventory.totals.partialCoverage} scenario(s) with partial coverage.`,
+    );
+  }
+
   const nextActions = buildNextActions({
     appHelper,
     config,
     configPath,
+    coverageInventory,
     gitignore,
     plans,
     providerCommandMissingPaths,
@@ -1803,6 +2096,7 @@ async function validateProject(options: {
     appHelper,
     config,
     configPath,
+    coverageInventory,
     errors,
     gitignore,
     nextActions,
@@ -1817,6 +2111,51 @@ async function validateProject(options: {
     status: errors.length > 0 ? 'failed' : 'passed',
     warnings,
   };
+}
+
+/**
+ * Formats compact inventory group counts for CLI output.
+ *
+ * @param {CoverageInventoryGroup[]} groups
+ * @returns {string}
+ */
+function formatCoverageGroups(groups: CoverageInventoryGroup[]): string {
+  if (groups.length === 0) {
+    return 'none';
+  }
+
+  return groups
+    .map((group) => `${group.value}: ${group.scenarioCount} scenario(s), ${group.planCount} plan(s)`)
+    .join('; ');
+}
+
+/**
+ * Formats coverage inventory lines for project validation output.
+ *
+ * @param {CoverageInventory} inventory
+ * @returns {string[]}
+ */
+function formatCoverageInventory(inventory: CoverageInventory): string[] {
+  const lines = [
+    `Coverage inventory: ${inventory.totals.completeCoverage}/${inventory.totals.scenarioCount} complete, ${inventory.totals.partialCoverage} partial, ${inventory.totals.missingCoverage} missing`,
+    `Coverage platforms: ${formatCoverageGroups(inventory.groups.platform)}`,
+    `Coverage roles: ${formatCoverageGroups(inventory.groups.coverageRole)}`,
+    `Coverage feature sets: ${formatCoverageGroups(inventory.groups.featureSet)}`,
+    `Coverage behavior contracts: ${formatCoverageGroups(inventory.groups.behaviorContract)}`,
+    `Coverage variants: ${formatCoverageGroups(inventory.groups.variant)}`,
+    `Coverage statuses: ${formatCoverageGroups(inventory.groups.coverageStatus)}`,
+    `Coverage evidence tiers: ${formatCoverageGroups(inventory.groups.evidenceTier)}`,
+    `Coverage platform contracts: ${formatCoverageGroups(inventory.groups.platformContract)}`,
+  ];
+
+  if (inventory.gaps.length > 0) {
+    lines.push(
+      'Coverage gaps:',
+      ...inventory.gaps.map((gap) => `- ${gap.status} ${gap.scenarioId} (${gap.platforms.join(', ')}): ${gap.missingFields.join(', ')}`),
+    );
+  }
+
+  return lines;
 }
 
 /**
@@ -1842,6 +2181,7 @@ function formatResult(result: ProjectValidationResult): string {
     `Package.json scripts: ${result.scripts.packageJsonStatus}`,
     `Scenario candidate directories: ${result.scenarioCandidateDirectories.length}`,
     `Scenarios: ${result.scenarioPaths.length}`,
+    ...formatCoverageInventory(result.coverageInventory),
     `Providers: ${result.providerPaths.length}`,
     ...(result.warnings.length > 0
       ? [
@@ -1918,6 +2258,7 @@ if (require.main === module) {
 }
 
 export {
+  buildCoverageInventory,
   buildValidationRunId,
   formatResult,
   listScenarioFiles,
@@ -1941,6 +2282,12 @@ export {
 
 export type {
   CliArgs,
+  CoverageInventory,
+  CoverageInventoryField,
+  CoverageInventoryGap,
+  CoverageInventoryGroup,
+  CoverageInventoryGroupField,
+  CoverageInventoryInput,
   ProjectValidationAppHelper,
   ProjectValidationConfig,
   ProjectValidationGitignore,
