@@ -396,7 +396,15 @@ When the release is ready, publish through the repo coordinator:
 pnpm release:publish
 ```
 
-That command runs the npm publish path, verifies the published package version on the registry, creates the matching `vX.Y.Z` git tag, and pushes the tag to `origin`. The tag push triggers the GitHub Release workflow, which verifies that the tag matches `package.json` and that npm already contains the same package version before creating the GitHub Release. If npm already contains the package version because a previous publish succeeded before tagging, `pnpm release:publish` resumes at tag synchronization.
+That command runs the full release gate, records a local proof marker for the current clean `main` checkout, runs the package clean/build step immediately before upload, uploads with npm lifecycle scripts disabled for that verified upload, verifies the published package version on the registry, creates the matching `vX.Y.Z` git tag, and pushes the tag to `origin`. The tag push triggers the GitHub Release workflow, which verifies that the tag matches `package.json` and that npm already contains the same package version before creating the GitHub Release. Direct `npm publish` remains guarded by `prepublishOnly`.
+
+If the full gate already passed for the same package version and checkout but npm upload or tag synchronization failed, resume only the upload/tag phase:
+
+```bash
+pnpm release:publish -- --resume-upload
+```
+
+The resume path refuses to run unless the local proof marker still matches the current clean `main` checkout, package name, version, package metadata, lockfile hash, and commit. If npm already contains the package version because a previous upload succeeded before tagging, the same command resumes at tag synchronization.
 
 Package smoke and consumer rehearsal keep child commands bounded so package-manager stalls fail with the temporary rehearsal directory preserved. Set `ASL_PACKAGE_GATE_TIMEOUT_MS` to raise the per-command timeout when a local registry, proxy, or cold package cache is slow:
 
