@@ -465,7 +465,10 @@ function assertGithubReleaseWorkflow(repoRoot: string): void {
   assert.match(workflow, /gh release create "\$GITHUB_REF_NAME"/u);
   assert.match(workflow, /--generate-notes/u);
   assert.match(workflow, /--verify-tag/u);
-  assert.match(publishScript, /npm', \['publish', '--access', 'public'\]/u);
+  assert.match(publishScript, /runReleaseCheck\(repoRoot\)/u);
+  assert.match(publishScript, /preparePackageForPublish\(repoRoot\)/u);
+  assert.match(publishScript, /--resume-upload/u);
+  assert.match(publishScript, /npm', \['publish', '--ignore-scripts', '--access', 'public'\]/u);
   assert.match(publishScript, /npm', \['view', `\$\{packageName\}@\$\{version\}`, 'version'\]/u);
   assert.match(publishScript, /git', \['tag', tagName\]/u);
   assert.match(publishScript, /git', \['push', 'origin', tagName\]/u);
