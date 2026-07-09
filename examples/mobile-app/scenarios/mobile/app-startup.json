@@ -3,6 +3,21 @@
   "id": "app-startup",
   "flowId": "example-startup",
   "description": "Launch the example app and wait for the home screen to become usable.",
+  "metadata": {
+    "coverage": {
+      "featureSet": "example lifecycle",
+      "behaviorContract": "home screen becomes usable",
+      "variant": "startup",
+      "coverageRole": "canonical",
+      "riskClass": "core",
+      "platformContract": "cross-platform",
+      "fixtureContract": "default example app",
+      "evidenceTier": "runtime-readiness",
+      "coverageStatus": "active",
+      "ownerOnFailure": "app_or_runtime"
+    },
+    "tags": ["example", "startup"]
+  },
   "journey": {
     "name": "Example app startup",
     "intent": "Open the neutral example app and prove the first usable screen is ready.",

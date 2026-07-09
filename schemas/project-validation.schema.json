@@ -32,6 +32,9 @@
     "configPath": {
       "type": "string"
     },
+    "coverageInventory": {
+      "$ref": "#/$defs/coverageInventory"
+    },
     "errors": {
       "type": "array",
       "items": {
@@ -210,6 +213,191 @@
           "items": {
             "type": "string"
           }
+        }
+      }
+    },
+    "coverageInventory": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["fields", "gaps", "groups", "totals"],
+      "properties": {
+        "fields": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/coverageInventoryField"
+          }
+        },
+        "gaps": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/coverageInventoryGap"
+          }
+        },
+        "groups": {
+          "$ref": "#/$defs/coverageInventoryGroups"
+        },
+        "totals": {
+          "$ref": "#/$defs/coverageInventoryTotals"
+        }
+      }
+    },
+    "coverageInventoryField": {
+      "type": "string",
+      "enum": ["featureSet", "behaviorContract", "variant", "coverageRole", "coverageStatus", "evidenceTier", "platformContract"]
+    },
+    "coverageInventoryGroupField": {
+      "type": "string",
+      "enum": ["featureSet", "behaviorContract", "variant", "coverageRole", "coverageStatus", "evidenceTier", "platformContract", "platform"]
+    },
+    "coverageInventoryGroup": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["field", "planCount", "platforms", "scenarioCount", "scenarioIds", "status", "value"],
+      "properties": {
+        "field": {
+          "$ref": "#/$defs/coverageInventoryGroupField"
+        },
+        "planCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "platforms": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "scenarioCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "scenarioIds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "status": {
+          "type": "string",
+          "enum": ["present", "missing"]
+        },
+        "value": {
+          "type": "string"
+        }
+      }
+    },
+    "coverageInventoryGap": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["missingFields", "platforms", "scenarioId", "scenarioPath", "status"],
+      "properties": {
+        "missingFields": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/coverageInventoryField"
+          }
+        },
+        "platforms": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "scenarioId": {
+          "type": "string"
+        },
+        "scenarioPath": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["missing", "partial"]
+        }
+      }
+    },
+    "coverageInventoryGroups": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["featureSet", "behaviorContract", "variant", "coverageRole", "coverageStatus", "evidenceTier", "platformContract", "platform"],
+      "properties": {
+        "featureSet": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/coverageInventoryGroup"
+          }
+        },
+        "behaviorContract": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/coverageInventoryGroup"
+          }
+        },
+        "variant": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/coverageInventoryGroup"
+          }
+        },
+        "coverageRole": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/coverageInventoryGroup"
+          }
+        },
+        "coverageStatus": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/coverageInventoryGroup"
+          }
+        },
+        "evidenceTier": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/coverageInventoryGroup"
+          }
+        },
+        "platformContract": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/coverageInventoryGroup"
+          }
+        },
+        "platform": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/coverageInventoryGroup"
+          }
+        }
+      }
+    },
+    "coverageInventoryTotals": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["completeCoverage", "missingCoverage", "partialCoverage", "planCount", "scenarioCount", "withCoverage"],
+      "properties": {
+        "completeCoverage": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "missingCoverage": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "partialCoverage": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "planCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "scenarioCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "withCoverage": {
+          "type": "integer",
+          "minimum": 0
         }
       }
     },

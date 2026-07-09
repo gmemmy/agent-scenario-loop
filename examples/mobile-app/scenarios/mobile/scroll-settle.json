@@ -3,6 +3,21 @@
   "id": "scroll-settle",
   "flowId": "example-feed-scroll",
   "description": "Scroll the example feed and measure app-owned evidence until visible content settles.",
+  "metadata": {
+    "coverage": {
+      "featureSet": "example feed",
+      "behaviorContract": "feed scroll settles",
+      "variant": "repeated-scroll",
+      "coverageRole": "stress",
+      "riskClass": "core",
+      "platformContract": "cross-platform",
+      "fixtureContract": "default example app",
+      "evidenceTier": "runtime-readiness",
+      "coverageStatus": "active",
+      "ownerOnFailure": "app_or_runtime"
+    },
+    "tags": ["example", "feed"]
+  },
   "journey": {
     "name": "Example feed scroll settle",
     "intent": "Trigger a deterministic feed scroll, prove content became visible, and prove the feed reached a settled state.",

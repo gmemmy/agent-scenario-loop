@@ -91,8 +91,12 @@ Use `metadata` when a consuming app needs machine-readable coverage context that
 does not change runner behavior. ASL validates and preserves scenario metadata
 in `run-plan.json` as `scenarioMetadata`, and projects standardized
 `metadata.coverage` fields into project-validation plan entries as
-`scenarioCoverage`; health, verdicts, budgets, command delivery, and comparisons
-do not interpret it.
+`scenarioCoverage`. Project validation also writes a `coverageInventory` summary
+that groups discovered scenarios by `featureSet`, `behaviorContract`, `variant`,
+`coverageRole`, `coverageStatus`, `evidenceTier`, `platformContract`, and
+platform, then lists missing or partial coverage metadata as warning-grade gaps.
+Health, verdicts, budgets, command delivery, and comparisons do not interpret
+coverage metadata.
 
 The sanctioned behavior coverage namespace is `metadata.coverage`:
 

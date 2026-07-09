@@ -80,9 +80,12 @@ The scenario contract is intentionally runner-neutral. Runners can map steps to 
 Scenario metadata is descriptive scenario context, not execution policy. ASL
 validates `metadata.coverage` as the sanctioned behavior coverage namespace,
 projects its standardized fields into `project-validation.json` plan entries as
-`scenarioCoverage`, and preserves the full metadata object in profile
-`run-plan.json` as `scenarioMetadata`. Coverage metadata participates in the
-profile `scenarioHash` because it is part of the declared scenario contract.
+`scenarioCoverage`, writes a `coverageInventory` summary grouped by coverage
+field and platform, and preserves the full metadata object in profile
+`run-plan.json` as `scenarioMetadata`. Missing or partial coverage metadata is
+reported as warning-grade inventory gaps; it does not fail project validation
+unless the scenario itself is schema-invalid. Coverage metadata participates in
+the profile `scenarioHash` because it is part of the declared scenario contract.
 Health, verdict, budget, command delivery, and comparison logic do not interpret
 coverage fields.
 

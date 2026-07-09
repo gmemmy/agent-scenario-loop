@@ -5,6 +5,7 @@ const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
 
+const { SCHEMAS, validateJson } = require('../../core/schema-validator');
 const { initProject } = require('../init-project');
 const {
   buildValidationRunId,
@@ -364,6 +365,176 @@ test('validates project scenarios from configured platform roots', async (t: Tes
       { platform: 'ios', scenarioId: 'checkout-submit-ios' },
     ],
   );
+});
+
+test('builds a coverage inventory for mixed scenario metadata', async (t: TestContext) => {
+  const targetDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-validate-coverage-inventory-'));
+  t.after(async () => {
+    await fsp.rm(targetDir, { recursive: true, force: true });
+  });
+
+  await initProject({
+    outDir: targetDir,
+    packageRoot: ROOT,
+    scenarioId: 'Coverage Canonical',
+  });
+  await writeMergedPackageJson(targetDir);
+
+  const scenarioRoot = path.join(targetDir, 'scenarios', 'mobile');
+  const baseScenario = await readJsonFile(path.join(scenarioRoot, 'coverage-canonical.json'));
+  await fsp.rm(path.join(scenarioRoot, 'coverage-canonical.json'));
+
+  const writeScenario = async ({
+    coverage,
+    id,
+    platforms,
+  }: {
+    coverage?: Record<string, string> | null;
+    id: string;
+    platforms: string[];
+  }): Promise<void> => {
+    const metadata = coverage === undefined
+      ? {}
+      : {
+        coverage,
+      };
+    await writeJsonFile(path.join(scenarioRoot, `${id}.json`), {
+      ...baseScenario,
+      flowId: id,
+      id,
+      metadata,
+      platforms,
+    });
+  };
+
+  const sharedCoverage = {
+    behaviorContract: 'primary journey completes',
+    coverageStatus: 'active',
+    evidenceTier: 'runtime-readiness',
+    featureSet: 'account',
+    platformContract: 'cross-platform',
+    variant: 'default',
+  };
+
+  await writeScenario({
+    id: 'coverage-canonical',
+    platforms: ['ios', 'android'],
+    coverage: {
+      ...sharedCoverage,
+      coverageRole: 'canonical',
+    },
+  });
+  await writeScenario({
+    id: 'coverage-stress',
+    platforms: ['ios', 'android'],
+    coverage: {
+      ...sharedCoverage,
+      behaviorContract: 'primary journey handles repeated input',
+      coverageRole: 'stress',
+      variant: 'repeated-input',
+    },
+  });
+  await writeScenario({
+    id: 'coverage-degraded',
+    platforms: ['ios', 'android'],
+    coverage: {
+      behaviorContract: 'primary journey reports degraded evidence',
+      coverageRole: 'degraded',
+      coverageStatus: 'active',
+      featureSet: 'account',
+      platformContract: 'cross-platform',
+      variant: 'missing-sidecar',
+    },
+  });
+  await writeScenario({
+    id: 'coverage-ios-specific',
+    platforms: ['ios'],
+    coverage: {
+      ...sharedCoverage,
+      behaviorContract: 'platform affordance opens',
+      coverageRole: 'platform-specific',
+      platformContract: 'ios-only',
+      variant: 'ios-sheet',
+    },
+  });
+  await writeScenario({
+    id: 'coverage-diagnostic',
+    platforms: ['android'],
+    coverage: {
+      ...sharedCoverage,
+      behaviorContract: 'diagnostic evidence is collected',
+      coverageRole: 'diagnostic',
+      evidenceTier: 'provider-diagnostic',
+      platformContract: 'android-only',
+      variant: 'diagnostic',
+    },
+  });
+  await writeScenario({
+    id: 'coverage-missing',
+    platforms: ['android'],
+  });
+
+  const result = await validateProject({ rootDir: targetDir });
+
+  assert.equal(result.status, 'passed');
+  assert.deepEqual(validateJson(result, SCHEMAS.projectValidation, 'Project validation artifact').errors, []);
+  assert.deepEqual(result.coverageInventory.totals, {
+    completeCoverage: 4,
+    missingCoverage: 1,
+    partialCoverage: 1,
+    planCount: 9,
+    scenarioCount: 6,
+    withCoverage: 5,
+  });
+  assert.deepEqual(
+    result.coverageInventory.groups.coverageRole.map((group: { scenarioCount: number; status: string; value: string }) => ({
+      scenarioCount: group.scenarioCount,
+      status: group.status,
+      value: group.value,
+    })),
+    [
+      { scenarioCount: 1, status: 'present', value: 'canonical' },
+      { scenarioCount: 1, status: 'present', value: 'stress' },
+      { scenarioCount: 1, status: 'present', value: 'degraded' },
+      { scenarioCount: 1, status: 'present', value: 'platform-specific' },
+      { scenarioCount: 1, status: 'present', value: 'diagnostic' },
+      { scenarioCount: 1, status: 'missing', value: 'missing' },
+    ],
+  );
+  assert.deepEqual(
+    result.coverageInventory.groups.platform.map((group: { planCount: number; scenarioCount: number; value: string }) => ({
+      planCount: group.planCount,
+      scenarioCount: group.scenarioCount,
+      value: group.value,
+    })),
+    [
+      { planCount: 5, scenarioCount: 5, value: 'android' },
+      { planCount: 4, scenarioCount: 4, value: 'ios' },
+    ],
+  );
+  assert.deepEqual(
+    result.coverageInventory.gaps.map((gap: { missingFields: string[]; scenarioId: string; status: string }) => ({
+      missingFields: gap.missingFields,
+      scenarioId: gap.scenarioId,
+      status: gap.status,
+    })),
+    [
+      {
+        missingFields: ['evidenceTier'],
+        scenarioId: 'coverage-degraded',
+        status: 'partial',
+      },
+      {
+        missingFields: ['featureSet', 'behaviorContract', 'variant', 'coverageRole', 'coverageStatus', 'evidenceTier', 'platformContract'],
+        scenarioId: 'coverage-missing',
+        status: 'missing',
+      },
+    ],
+  );
+  assert.equal(actionCodes(result).includes('complete_coverage_metadata'), true);
+  assert.equal(result.warnings.some((warning: string) => warning.includes('Coverage inventory metadata gaps')), true);
+  assert.match(formatResult(result), /Coverage inventory: 4\/6 complete, 1 partial, 1 missing/u);
+  assert.match(formatResult(result), /Coverage roles: canonical: 1 scenario\(s\), 2 plan\(s\); stress: 1 scenario\(s\), 2 plan\(s\); degraded: 1 scenario\(s\), 2 plan\(s\); platform-specific: 1 scenario\(s\), 1 plan\(s\); diagnostic: 1 scenario\(s\), 1 plan\(s\); missing: 1 scenario\(s\), 1 plan\(s\)/u);
 });
 
 test('fails validation when initialized project files are missing', async (t: TestContext) => {

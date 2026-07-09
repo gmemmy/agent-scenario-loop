@@ -3,6 +3,21 @@
   "id": "open-close-cycle",
   "flowId": "example-card-open-close",
   "description": "Open and dismiss the example app detail card repeatedly from one portable scenario.",
+  "metadata": {
+    "coverage": {
+      "featureSet": "example card",
+      "behaviorContract": "card opens and closes",
+      "variant": "repeated-cycle",
+      "coverageRole": "canonical",
+      "riskClass": "core",
+      "platformContract": "cross-platform",
+      "fixtureContract": "default example app",
+      "evidenceTier": "runtime-readiness",
+      "coverageStatus": "active",
+      "ownerOnFailure": "app_or_runtime"
+    },
+    "tags": ["example", "card"]
+  },
   "journey": {
     "name": "Example card open and close",
     "intent": "Open a stable example card, prove it rendered, dismiss it, and prove the app returned to the list.",
