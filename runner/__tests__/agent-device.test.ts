@@ -6,6 +6,7 @@ const path = require('node:path');
 const test = require('node:test');
 
 const {
+  buildAgentDeviceCapabilityInventory,
   checkAgentDeviceAvailability,
   parseAgentDeviceSessionMode,
   parseRequiredPlatforms,
@@ -135,6 +136,7 @@ test('agent-device availability check verifies command surface and booted platfo
 
   assert.equal(result.status, 'passed');
   assert.equal(result.capabilityProbe.source, 'help-output-fallback');
+  assert.equal(result.capabilityInventory.status, 'fallback');
   assert.deepEqual(result.requiredPlatforms, ['ios', 'android']);
   assert.equal(result.devices.length, 2);
   assert.equal(result.sessions.length, 2);
@@ -147,7 +149,11 @@ test('agent-device availability check verifies command surface and booted platfo
   assert.equal(result.checks.find((check: {name: string}) => check.name === 'agent_device_booted_android')?.status, 'passed');
 });
 
-test('agent-device availability check uses capabilities inventory when available', async () => {
+test('agent-device availability check uses capabilities inventory when available', async (t: TestContext) => {
+  const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-agent-device-capability-inventory-'));
+  t.after(async () => {
+    await fsp.rm(tempDir, { recursive: true, force: true });
+  });
   const result = await checkAgentDeviceAvailability({
     executor: async (command: string, args: string[]): Promise<CommandResult> => {
       if (args.join(' ') === 'capabilities --platform android --json') {
@@ -227,6 +233,24 @@ test('agent-device availability check uses capabilities inventory when available
   assert.equal(result.status, 'passed');
   assert.equal(result.capabilityProbe.source, 'capabilities-command');
   assert.deepEqual(result.capabilityProbe.availableCommands.slice(0, 2), ['open', 'snapshot']);
+  assert.deepEqual(result.capabilityInventory.driverActions, [
+    'assertVisible',
+    'fill',
+    'focus',
+    'inspectTree',
+    'longPress',
+    'pressButton',
+    'pressKey',
+    'readLogs',
+    'rotate',
+    'screenshot',
+    'scroll',
+    'swipe',
+    'tap',
+    'typeText',
+  ]);
+  assert.deepEqual(result.capabilityInventory.unsupportedDriverActions, ['pinch']);
+  assert.deepEqual(result.capabilityInventory.unknownCommands, []);
   assert.equal(
     result.checks.find((check: {name: string}) => check.name === 'agent_device_command_snapshot')?.metadata?.capabilitySource,
     'capabilities-command',
@@ -235,6 +259,17 @@ test('agent-device availability check uses capabilities inventory when available
     result.checks.find((check: {name: string}) => check.name === 'agent_device_command_devices')?.metadata?.capabilitySource,
     undefined,
   );
+
+  await writeAgentDeviceAvailabilityArtifacts({
+    outputDir: tempDir,
+    result,
+    runId: 'agent-device-capability-inventory',
+  });
+  const raw = readJson(path.join(tempDir, 'raw', 'agent-device-availability.json'));
+  assert.equal(raw.capabilityInventory.status, 'available');
+  assert.deepEqual(raw.capabilityInventory.driverActions, result.capabilityInventory.driverActions);
+  assert.deepEqual(raw.capabilityInventory.unsupportedDriverActions, ['pinch']);
+  assert.match(fs.readFileSync(path.join(tempDir, 'agent-summary.md'), 'utf8'), /ASL driver actions: /u);
 });
 
 test('agent-device availability check fails unsupported commands from capabilities inventory', async () => {
@@ -291,6 +326,117 @@ test('agent-device availability check fails unsupported commands from capabiliti
   assert.equal(result.status, 'failed');
   assert.equal(snapshotCheck?.status, 'failed');
   assert.equal(snapshotCheck?.metadata?.nextActionCode, 'select_agent_device_capability');
+  assert.deepEqual(result.capabilityInventory.driverActions, []);
+  assert.deepEqual(result.capabilityInventory.unsupportedDriverActions, [
+    'tap',
+    'longPress',
+    'typeText',
+    'fill',
+    'focus',
+    'pinch',
+    'scroll',
+    'swipe',
+    'rotate',
+    'pressKey',
+    'pressButton',
+    'assertVisible',
+    'inspectTree',
+    'screenshot',
+    'readLogs',
+  ]);
+});
+
+test('agent-device availability check falls back when capabilities JSON is malformed', async () => {
+  const result = await checkAgentDeviceAvailability({
+    executor: async (command: string, args: string[]): Promise<CommandResult> => {
+      if (args.join(' ') === 'capabilities --platform android --json') {
+        return {
+          args,
+          command,
+          exitCode: 0,
+          stderr: '',
+          stdout: '{not-json',
+        };
+      }
+      if (args.join(' ') === 'devices --json') {
+        return {
+          args,
+          command,
+          exitCode: 0,
+          stderr: '',
+          stdout: JSON.stringify({
+            success: true,
+            data: {
+              devices: [{ platform: 'android', id: 'emulator-5554', target: 'mobile', booted: true }],
+            },
+          }),
+        };
+      }
+      if (args.join(' ') === 'session list --json') {
+        return {
+          args,
+          command,
+          exitCode: 0,
+          stderr: '',
+          stdout: JSON.stringify({ success: true, data: { sessions: [] } }),
+        };
+      }
+      return {
+        args,
+        command,
+        exitCode: 0,
+        stderr: '',
+        stdout: [
+          'CLI to control iOS and Android devices',
+          'open',
+          'snapshot',
+          'screenshot',
+          'is',
+          'back',
+          'click',
+          'fill',
+          'focus',
+          'home',
+          'app-switcher',
+          'keyboard',
+          'longpress',
+          'press',
+          'rotate',
+          'scroll',
+          'swipe',
+          'type',
+          'logs',
+          'devices',
+          'session list',
+        ].join('\n'),
+      };
+    },
+    requiredPlatforms: ['android'],
+  });
+
+  assert.equal(result.status, 'passed');
+  assert.equal(result.capabilityProbe.source, 'help-output-fallback');
+  assert.equal(result.capabilityProbe.failureClass, 'command_surface');
+  assert.equal(result.capabilityInventory.status, 'fallback');
+  assert.deepEqual(result.capabilityInventory.driverActions, []);
+});
+
+test('agent-device capability inventory preserves unknown commands without promoting ASL support', () => {
+  const inventory = buildAgentDeviceCapabilityInventory({
+    args: ['capabilities', '--json'],
+    availableCommands: ['open', 'snapshot', 'screenshot', 'teleport', 'network capture'],
+    code: 'agent_device_capabilities_available',
+    command: 'agent-device',
+    exitCode: 0,
+    source: 'capabilities-command',
+  });
+
+  assert.deepEqual(inventory.driverActions, ['inspectTree', 'screenshot']);
+  assert.deepEqual(inventory.capabilities, ['artifactWrite', 'command', 'launch', 'screenshot', 'uiTree']);
+  assert.deepEqual(inventory.artifactOutputs, ['screenshot', 'uiTree']);
+  assert.deepEqual(inventory.unknownCommands, ['network capture', 'teleport']);
+  assert.equal(inventory.unsupportedDriverActions.includes('collectPerfSignals'), false);
+  assert.equal(inventory.unsupportedDriverActions.includes('tap'), true);
 });
 
 test('agent-device availability check does not require iOS-only pinch for Android-only checks', async () => {
@@ -502,6 +648,7 @@ test('agent-device availability check writes ASL artifacts when requested', asyn
   assert.equal(verdict.verdictStatus, 'not_evaluated');
   assert.equal(raw.status, 'passed');
   assert.equal(raw.sessions.length, 1);
+  assert.equal(raw.capabilityInventory.status, 'fallback');
   assert.match(fs.readFileSync(path.join(tempDir, 'agent-summary.md'), 'utf8'), /Active sessions: 1/u);
   assert.match(fs.readFileSync(path.join(tempDir, 'agent-summary.md'), 'utf8'), /android-example:android:mobile/u);
   assertAdapterArtifactConformance(artifacts, {
