@@ -79,6 +79,7 @@ type AgentDeviceAvailabilityCheck = {
 
 type AgentDeviceAvailabilityResult = {
   agentDevicePath: string;
+  capabilityInventory: AgentDeviceCapabilityInventory;
   capabilityProbe: AgentDeviceCapabilityProbe;
   checks: AgentDeviceAvailabilityCheck[];
   devices: Array<Record<string, unknown>>;
@@ -98,6 +99,23 @@ type AgentDeviceCapabilityProbe = {
   source: 'capabilities-command' | 'help-output-fallback';
   stderrPreview?: string;
   stdoutPreview?: string;
+};
+type AgentDeviceCommandMapping = {
+  artifactOutputs?: string[];
+  capabilities?: string[];
+  command: string;
+  driverActions?: string[];
+};
+type AgentDeviceCapabilityInventory = {
+  artifactOutputs: string[];
+  capabilities: string[];
+  commandMappings: AgentDeviceCommandMapping[];
+  driverActions: string[];
+  source: AgentDeviceCapabilityProbe['source'];
+  status: 'available' | 'fallback';
+  unknownCommands: string[];
+  unsupportedCapabilities: string[];
+  unsupportedDriverActions: string[];
 };
 
 type AgentDeviceAvailabilityArtifactOptions = {
@@ -207,6 +225,58 @@ const DEFAULT_AGENT_DEVICE_REQUIRED_COMMANDS = [
 
 const AGENT_DEVICE_IOS_REQUIRED_COMMANDS = ['pinch'];
 const AGENT_DEVICE_MANAGEMENT_COMMANDS = new Set(['devices', 'session list']);
+
+const AGENT_DEVICE_STATIC_CAPABILITIES = [
+  'launch',
+  'sessionControl',
+  'command',
+  'logCapture',
+  'artifactWrite',
+  'screenshot',
+  'uiTree',
+];
+
+const AGENT_DEVICE_STATIC_DRIVER_ACTIONS = [
+  'tap',
+  'longPress',
+  'typeText',
+  'fill',
+  'focus',
+  'pinch',
+  'scroll',
+  'swipe',
+  'rotate',
+  'pressKey',
+  'pressButton',
+  'assertVisible',
+  'inspectTree',
+  'screenshot',
+  'readLogs',
+];
+
+const AGENT_DEVICE_COMMAND_MAPPINGS: AgentDeviceCommandMapping[] = [
+  { command: 'open', capabilities: ['launch'] },
+  { command: 'devices', capabilities: ['sessionControl'] },
+  { command: 'session list', capabilities: ['sessionControl'] },
+  { command: 'snapshot', capabilities: ['uiTree'], driverActions: ['inspectTree'], artifactOutputs: ['uiTree'] },
+  { command: 'screenshot', capabilities: ['screenshot'], driverActions: ['screenshot'], artifactOutputs: ['screenshot'] },
+  { command: 'is', driverActions: ['assertVisible'] },
+  { command: 'click', driverActions: ['tap'] },
+  { command: 'fill', driverActions: ['fill'] },
+  { command: 'focus', driverActions: ['focus'] },
+  { command: 'longpress', driverActions: ['longPress'] },
+  { command: 'pinch', driverActions: ['pinch'] },
+  { command: 'press', driverActions: ['pressButton'] },
+  { command: 'rotate', driverActions: ['rotate'] },
+  { command: 'scroll', driverActions: ['scroll'] },
+  { command: 'swipe', driverActions: ['swipe'] },
+  { command: 'type', driverActions: ['typeText'] },
+  { command: 'logs', capabilities: ['logCapture'], driverActions: ['readLogs'], artifactOutputs: ['logs'] },
+  { command: 'back', driverActions: ['pressKey'] },
+  { command: 'home', driverActions: ['pressKey'] },
+  { command: 'app-switcher', driverActions: ['pressKey'] },
+  { command: 'keyboard', driverActions: ['pressKey'] },
+];
 
 const AGENT_DEVICE_PRESS_KEYS = new Set([
   'appBack',
@@ -549,6 +619,66 @@ function readAgentDeviceCapabilityProbe(result: CommandResult): AgentDeviceCapab
 }
 
 /**
+ * Returns unique string values in deterministic order.
+ *
+ * @param {Iterable<string>} values
+ * @returns {string[]}
+ */
+function uniqueSortedStrings(values: Iterable<string>): string[] {
+  return [...new Set(values)].sort();
+}
+
+/**
+ * Builds ASL runner capability vocabulary from agent-device command inventory.
+ *
+ * Unknown agent-device commands stay adapter-local and do not become ASL
+ * capability or driver-action vocabulary.
+ *
+ * @param {AgentDeviceCapabilityProbe} capabilityProbe
+ * @returns {AgentDeviceCapabilityInventory}
+ */
+function buildAgentDeviceCapabilityInventory(
+  capabilityProbe: AgentDeviceCapabilityProbe,
+): AgentDeviceCapabilityInventory {
+  if (capabilityProbe.source !== 'capabilities-command') {
+    return {
+      artifactOutputs: [],
+      capabilities: [],
+      commandMappings: [],
+      driverActions: [],
+      source: capabilityProbe.source,
+      status: 'fallback',
+      unknownCommands: [],
+      unsupportedCapabilities: [],
+      unsupportedDriverActions: [],
+    };
+  }
+
+  const availableCommands = new Set(capabilityProbe.availableCommands);
+  const commandMappings = AGENT_DEVICE_COMMAND_MAPPINGS.filter((mapping) => availableCommands.has(mapping.command));
+  const knownCommands = new Set(AGENT_DEVICE_COMMAND_MAPPINGS.map((mapping) => mapping.command));
+  const mappedArtifactOutputs = uniqueSortedStrings(commandMappings.flatMap((mapping) => mapping.artifactOutputs ?? []));
+  const mappedCapabilities = uniqueSortedStrings([
+    ...(commandMappings.length > 0 ? ['command'] : []),
+    ...(mappedArtifactOutputs.length > 0 ? ['artifactWrite'] : []),
+    ...commandMappings.flatMap((mapping) => mapping.capabilities ?? []),
+  ]);
+  const mappedDriverActions = uniqueSortedStrings(commandMappings.flatMap((mapping) => mapping.driverActions ?? []));
+
+  return {
+    artifactOutputs: mappedArtifactOutputs,
+    capabilities: mappedCapabilities,
+    commandMappings,
+    driverActions: mappedDriverActions,
+    source: capabilityProbe.source,
+    status: 'available',
+    unknownCommands: uniqueSortedStrings(capabilityProbe.availableCommands.filter((command) => !knownCommands.has(command))),
+    unsupportedCapabilities: AGENT_DEVICE_STATIC_CAPABILITIES.filter((capability) => !mappedCapabilities.includes(capability)),
+    unsupportedDriverActions: AGENT_DEVICE_STATIC_DRIVER_ACTIONS.filter((driverAction) => !mappedDriverActions.includes(driverAction)),
+  };
+}
+
+/**
  * Builds the best effort capabilities command for the selected availability scope.
  *
  * @param {string[]} requiredPlatforms
@@ -769,6 +899,12 @@ function buildAgentDeviceAvailabilitySummary(result: AgentDeviceAvailabilityResu
     ...(result.capabilityProbe.availableCommands.length > 0
       ? [`- Available commands: ${result.capabilityProbe.availableCommands.join(', ')}`]
       : []),
+    ...(result.capabilityInventory.driverActions.length > 0
+      ? [`- ASL driver actions: ${result.capabilityInventory.driverActions.join(', ')}`]
+      : []),
+    ...(result.capabilityInventory.unsupportedDriverActions.length > 0
+      ? [`- Unsupported ASL driver actions: ${result.capabilityInventory.unsupportedDriverActions.join(', ')}`]
+      : []),
     ...(sessionSummary ? [`- Session hints: ${sessionSummary}`] : []),
     '',
   ].join('\n');
@@ -825,6 +961,7 @@ async function checkAgentDeviceAvailability({
   const checks: AgentDeviceAvailabilityCheck[] = [];
   const capabilityArgs = buildAgentDeviceCapabilityArgs(requiredPlatforms);
   const capabilityProbe = readAgentDeviceCapabilityProbe(await run(agentDevicePath, capabilityArgs));
+  const capabilityInventory = buildAgentDeviceCapabilityInventory(capabilityProbe);
   const help = await run(agentDevicePath, ['--help']);
   const resolvedRequiredCommands = resolveRequiredAgentDeviceCommands({
     requiredCommands,
@@ -933,6 +1070,7 @@ async function checkAgentDeviceAvailability({
   const status = checks.every((check) => check.status === 'passed') ? 'passed' : 'failed';
   return {
     agentDevicePath,
+    capabilityInventory,
     capabilityProbe,
     checks,
     devices,
@@ -2037,6 +2175,7 @@ if (require.main === module) {
 
 export {
   agentDeviceDriverActionCode,
+  buildAgentDeviceCapabilityInventory,
   buildAgentDeviceHealth,
   buildAgentDeviceVerdict,
   buildAgentDeviceSelectorHealthMetadata,
@@ -2067,6 +2206,8 @@ export type {
   AgentDeviceAvailabilityOptions,
   AgentDeviceAvailabilityResult,
   AgentDeviceAvailabilityCheck,
+  AgentDeviceCapabilityInventory,
+  AgentDeviceCapabilityProbe,
   AgentDeviceSessionMode,
   CliArgs,
   CommandExecutor,
