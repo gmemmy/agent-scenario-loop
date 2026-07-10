@@ -2308,6 +2308,80 @@ test('cancels pending adb capture sleeps after watchdog publication', async (t: 
   assert.ok(elapsedMs < 1000, `watchdog publication took ${elapsedMs}ms`);
 });
 
+test('records profile-session readiness from watchdog logcat when storage wait is interrupted', async (t: TestContext) => {
+  const outputDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-android-adb-watchdog-profile-session-'));
+  t.after(async () => {
+    await fsp.rm(outputDir, { recursive: true, force: true });
+  });
+  const executor = async (command: string, args: string[]): Promise<CommandResult> => {
+    const key = args.join(' ');
+    if (key.includes('run-as') && key.includes('agent-scenario-loop.profile-session.1')) {
+      return { args, command, exitCode: 0, stderr: '', stdout: '' };
+    }
+
+    return createExecutor({
+      version: { stdout: 'Android Debug Bridge version 1.0.41\n' },
+      'devices -l': {
+        stdout: [
+          'List of devices attached',
+          'emulator-5554 device product:sdk_gphone model:Pixel_6 device:emu64',
+        ].join('\n'),
+      },
+      '-s emulator-5554 shell getprop ro.product.model': { stdout: 'Pixel 6\n' },
+      '-s emulator-5554 shell getprop ro.build.version.release': { stdout: '14\n' },
+      '-s emulator-5554 shell getprop ro.build.version.sdk': { stdout: '35\n' },
+      '-s emulator-5554 shell pm path com.example.app': { stdout: 'package:/data/app/com.example.app/base.apk\n' },
+      '-s emulator-5554 logcat -d -v time -t 10000': {
+        stdout: '06-16 10:00:00.000 I/ReactNativeJS(123): Running "main"\n',
+      },
+      '-s emulator-5554 logcat -d -v time -t 1000': {
+        stdout: '06-16 10:00:01.000 I/ReactNativeJS(123): Running "main"\n',
+      },
+    })(command, args);
+  };
+
+  const result = await runAndroidAdbPreflight({
+    captureLogcat: true,
+    captureWatchdogMs: 50,
+    executor,
+    logcatLines: 25,
+    outputDir,
+    packageName: 'com.example.app',
+    runId: 'android-watchdog-profile-session',
+    storageWrites: [{
+      key: 'agent-scenario-loop.profile-session.1',
+      label: 'profile-session-start',
+      value: JSON.stringify({
+        active: true,
+        scenario: 'app-startup',
+        runId: 'android-watchdog-profile-session',
+        startedAt: 1800000000000,
+      }),
+    }],
+    waitMs: 5000,
+  });
+  const metadata = JSON.parse(fs.readFileSync(path.join(outputDir, 'raw', 'android-metadata.json'), 'utf8'));
+  const checks = result.health.checks as Array<{ code: string; metadata?: Record<string, unknown>; name: string; status: string }>;
+  const startCheck = checks.find((check) => check.name === 'android_profile_session_start_wait');
+  const livenessCheck = checks.find((check) => check.code === 'android_adb_runner_liveness_timeout');
+  const preserved = checks.find((check) => check.code === 'partial_sidecar_evidence_preserved');
+
+  assert.equal(result.health.healthStatus, 'failed');
+  assert.equal(startCheck?.status, 'warning');
+  assert.equal(startCheck?.code, 'android_profile_session_start_wait_exhausted');
+  assert.equal(startCheck?.metadata?.rawPath, 'raw/adb-runner-watchdog-logcat.txt');
+  assert.equal(startCheck?.metadata?.pollCount, 0);
+  assert.equal(startCheck?.metadata?.started, false);
+  assert.equal(livenessCheck?.status, 'failed');
+  assert.equal(preserved?.metadata?.capturedKinds, 'logs');
+  assert.equal(preserved?.metadata?.capturedPaths, 'raw/adb-runner-watchdog-logcat.txt');
+  assert.equal(metadata.profileSessionStartWait.completed, false);
+  assert.equal(metadata.profileSessionStartWait.rawPath, 'raw/adb-runner-watchdog-logcat.txt');
+  assert.equal(metadata.profileSessionStartWait.started, false);
+  assert.equal(metadata.runnerFailure.watchdogLogcat.rawPath, 'raw/adb-runner-watchdog-logcat.txt');
+  assert.ok(fs.existsSync(path.join(outputDir, 'raw', 'adb-runner-watchdog-logcat.txt')));
+});
+
 test('fails logcat capture when no online Android device is connected', async (t: TestContext) => {
   const outputDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-android-adb-logcat-missing-'));
   t.after(async () => {
