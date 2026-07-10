@@ -365,6 +365,7 @@ test('profile-ios preserves captured provider evidence when another required out
       capturedKinds?: string;
       capturedDiagnosticSufficiency?: string;
       claimSufficiency?: string;
+      nativePerformanceClaimSufficiencyDetails?: string;
       nativePerformanceClaimSufficiency?: string;
       nativePerformanceCompletenessStatus?: string;
       nativePerformanceComparability?: string;
@@ -384,6 +385,10 @@ test('profile-ios preserves captured provider evidence when another required out
         check.metadata?.failedRequiredKinds?.split(',').includes('accessibility') &&
         check.metadata?.claimSufficiency === 'insufficient-for-claim' &&
         check.metadata?.nativePerformanceClaimSufficiency === 'insufficient-for-claim' &&
+        check.metadata?.nativePerformanceClaimSufficiencyDetails?.includes('"claim":"ios-native-performance"') &&
+        check.metadata?.nativePerformanceClaimSufficiencyDetails?.includes('"reason":"Accessibility evidence failed, so iOS native diagnostics remain diagnosis-only."') &&
+        check.metadata?.nativePerformanceClaimSufficiencyDetails?.includes('"missingEvidence":["accessibility"]') &&
+        check.metadata?.nativePerformanceClaimSufficiencyDetails?.includes('"supportingEvidence":["frames","memory"]') &&
         check.metadata?.nativePerformanceCompletenessStatus === 'partial' &&
         check.metadata?.nativePerformanceComparability === 'diagnostic-only' &&
         check.metadata?.nativePerformanceDiagnosticSources?.split(',').includes('xctrace:partial') &&

@@ -226,6 +226,13 @@
             "$ref": "#/$defs/nativePerformanceStatusCount"
           }
         },
+        "claimSufficiencyDetailCounts": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/nativePerformanceClaimSufficiencyDetailCount"
+          }
+        },
         "comparabilityCounts": {
           "type": "array",
           "minItems": 1,
@@ -246,6 +253,49 @@
           "items": {
             "$ref": "#/$defs/nativePerformanceTargetBindingDetailCount"
           }
+        }
+      }
+    },
+    "nativePerformanceClaimSufficiencyDetailCount": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "count"],
+      "properties": {
+        "status": {
+          "type": "string",
+          "minLength": 1
+        },
+        "claim": {
+          "type": "string",
+          "minLength": 1
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        },
+        "nextAction": {
+          "type": "string",
+          "minLength": 1
+        },
+        "missingEvidence": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "supportingEvidence": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "count": {
+          "type": "integer",
+          "minimum": 1
         }
       }
     },
@@ -465,6 +515,13 @@
             "$ref": "#/$defs/nativePerformanceStatusCount"
           }
         },
+        "claimSufficiencyDetailCounts": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/nativePerformanceClaimSufficiencyDetailCount"
+          }
+        },
         "comparabilityCounts": {
           "type": "array",
           "minItems": 1,
@@ -520,6 +577,13 @@
           "minItems": 1,
           "items": {
             "$ref": "#/$defs/nativePerformanceStatusCount"
+          }
+        },
+        "claimSufficiencyDetailCounts": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/nativePerformanceClaimSufficiencyDetailCount"
           }
         },
         "comparabilityCounts": {
@@ -1128,6 +1192,13 @@
           "type": "string",
           "minLength": 1
         },
+        "claimSufficiencyDetails": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/nativePerformanceClaimSufficiencyDetail"
+          }
+        },
         "completenessStatus": {
           "type": "string",
           "minLength": 1
@@ -1152,6 +1223,45 @@
           "minItems": 1,
           "items": {
             "$ref": "#/$defs/nativePerformanceSourceEntry"
+          }
+        }
+      }
+    },
+    "nativePerformanceClaimSufficiencyDetail": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status"],
+      "properties": {
+        "status": {
+          "type": "string",
+          "minLength": 1
+        },
+        "claim": {
+          "type": "string",
+          "minLength": 1
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        },
+        "nextAction": {
+          "type": "string",
+          "minLength": 1
+        },
+        "missingEvidence": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "supportingEvidence": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
           }
         }
       }
