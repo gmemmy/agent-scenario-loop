@@ -303,6 +303,11 @@ function buildProfileSessionUrl({
  * @returns {number}
  */
 function readStepWaitMs(step: ScenarioExecutionStep): number {
+  const cadenceWaitMs = readPositiveInteger(step.cadence?.settleMs, 0);
+  if (cadenceWaitMs > 0) {
+    return cadenceWaitMs;
+  }
+
   const iosSimctlOptions = step.adapterOptions?.iosSimctl;
   if (iosSimctlOptions && typeof iosSimctlOptions === 'object' && !Array.isArray(iosSimctlOptions)) {
     const waitMs = (iosSimctlOptions as Record<string, unknown>).waitMs;

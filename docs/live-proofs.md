@@ -153,7 +153,7 @@ context for the next capture.
 
 When a scenario requests a screenshot, pass supported simulator screenshot options through the iOS capture command with `--screenshot-type`, `--screenshot-display`, or `--screenshot-mask`; ASL records the chosen options in capture metadata and the resulting path in `manifest.artifacts.captures.screenshots`.
 
-For profile-session capture on Android or iOS, omitting `--wait-ms` lets ASL derive the final evidence window from scenario execution waits and cycle count. On iOS, command-backed profile sessions use the expanded command queue, including setup commands, repeated cycle body commands, command pacing `waitMs`, milestone-gate `waitTimeoutMs`, and a conservative buffer. Explicit `--wait-ms` remains authoritative when a consuming app has a known startup or logging delay that the scenario cannot express.
+For profile-session capture on Android or iOS, omitting `--wait-ms` lets ASL derive the final evidence window from scenario execution waits and cycle count. Command-backed profile sessions use the expanded command queue, including setup commands, repeated cycle body commands, resolved scenario cadence or command pacing `waitMs`, milestone-gate `waitTimeoutMs`, and a conservative buffer. Explicit `--wait-ms` remains authoritative when a consuming app has a known startup or logging delay that the scenario cannot express.
 
 On Android storage-backed runs, the adb sidecar may record an early
 `profileSessionCompletionWait` timeout before the final profile artifact has

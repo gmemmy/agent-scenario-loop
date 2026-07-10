@@ -495,6 +495,11 @@ function readAndroidAdbDriverWaitMs(step: ScenarioExecutionStep): number {
  * @returns {number}
  */
 function readStepWaitMs(step: ScenarioExecutionStep): number {
+  const cadenceWaitMs = readPositiveInteger(step.cadence?.settleMs, 0);
+  if (cadenceWaitMs > 0) {
+    return cadenceWaitMs;
+  }
+
   const androidAdbWaitMs = readAndroidAdbDriverWaitMs(step);
   if (androidAdbWaitMs > 0) {
     return androidAdbWaitMs;

@@ -2113,3 +2113,49 @@ test('profile-ios applies execution-plan wait gates to simctl adapter commands',
     { command: 'activate-target:close-card', commandId: 'close example card', dependsOnMilestones: ['card_opened'], label: 'close example card', queueId: 'open-close-cycle', sequence: 4, waitForMilestone: 'card_dismissed', waitMs: 300, waitTimeoutMs: 1200 },
   ]);
 });
+
+test('profile-ios applies scenario cadence to profile-session command pacing', () => {
+  const scenario = {
+    cadence: {
+      commandSettleMs: 200,
+    },
+    id: 'composer-flow',
+    milestones: [
+      { id: 'sheet-opened', event: 'comments_sheet_opened' },
+      { id: 'composer-expanded', event: 'comments_composer_expanded' },
+    ],
+    steps: [
+      {
+        command: 'comments:open-sheet',
+        id: 'open-comments-sheet',
+        kind: 'command',
+      },
+      {
+        id: 'wait-sheet-opened',
+        kind: 'waitForMilestone',
+        milestone: 'sheet-opened',
+        timeoutMs: 1500,
+      },
+      {
+        cadence: {
+          reason: 'Expanded composer waits for keyboard and sheet animation.',
+          settleMs: 650,
+        },
+        command: 'comments:expand-composer',
+        id: 'expand-composer',
+        kind: 'command',
+      },
+      {
+        id: 'wait-composer-expanded',
+        kind: 'waitForMilestone',
+        milestone: 'composer-expanded',
+        timeoutMs: 2000,
+      },
+    ],
+  };
+
+  assert.deepEqual(resolveIosSimctlProfileCommands(scenario), [
+    { command: 'comments:open-sheet', commandId: 'open-comments-sheet', label: 'open-comments-sheet', queueId: 'composer-flow', sequence: 1, waitForMilestone: 'comments_sheet_opened', waitMs: 200, waitTimeoutMs: 1500 },
+    { command: 'comments:expand-composer', commandId: 'expand-composer', dependsOnMilestones: ['comments_sheet_opened'], label: 'expand-composer', queueId: 'composer-flow', sequence: 2, waitForMilestone: 'comments_composer_expanded', waitMs: 650, waitTimeoutMs: 2000 },
+  ]);
+});
