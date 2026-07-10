@@ -170,6 +170,14 @@ type LiveProofNativePerformanceTargetBindingDetail = {
   source?: string;
   status: string;
 };
+type LiveProofNativePerformanceClaimSufficiencyDetail = {
+  claim?: string;
+  missingEvidence?: string[];
+  nextAction?: string;
+  reason?: string;
+  status: string;
+  supportingEvidence?: string[];
+};
 type LiveProofProfileGateNextAction = {
   code: string;
   owner?: LiveProofNextActionOwner;
@@ -180,6 +188,7 @@ type LiveProofProfileGateDiagnostics = {
   capturedDiagnosticSufficiency?: LiveProofDiagnosticSufficiencyEntry[];
   nativePerformance?: {
     claimSufficiency?: string;
+    claimSufficiencyDetails?: LiveProofNativePerformanceClaimSufficiencyDetail[];
     completenessStatus?: string;
     comparability?: string;
     diagnosticSources?: LiveProofNativePerformanceSourceEntry[];
@@ -231,6 +240,9 @@ type LiveProofNativePerformanceSourceCount = {
 type LiveProofNativePerformanceTargetBindingDetailCount = LiveProofNativePerformanceTargetBindingDetail & {
   count: number;
 };
+type LiveProofNativePerformanceClaimSufficiencyDetailCount = LiveProofNativePerformanceClaimSufficiencyDetail & {
+  count: number;
+};
 type LiveProofProfileGateReadinessBooleanCount = {
   count: number;
   value: boolean;
@@ -240,6 +252,7 @@ type LiveProofProfileGateReadinessValueCount = {
   value: string;
 };
 type LiveProofProfileNativePerformanceRollup = {
+  claimSufficiencyDetailCounts?: LiveProofNativePerformanceClaimSufficiencyDetailCount[];
   claimSufficiencyCounts?: LiveProofNativePerformanceCount[];
   completenessStatusCounts?: LiveProofNativePerformanceCount[];
   comparabilityCounts?: LiveProofNativePerformanceCount[];
@@ -265,6 +278,7 @@ type LiveProofSetProofFailureRequestedDiagnosticsRollup = {
   skippedInteractionProofCount: number;
 };
 type LiveProofSetProfileGateNativePerformanceRollup = {
+  claimSufficiencyDetailCounts?: LiveProofNativePerformanceClaimSufficiencyDetailCount[];
   claimSufficiencyCounts?: LiveProofNativePerformanceCount[];
   completenessStatusCounts?: LiveProofNativePerformanceCount[];
   comparabilityCounts?: LiveProofNativePerformanceCount[];
@@ -1155,6 +1169,36 @@ function nativePerformanceTargetBindingDetailKey(
   });
 }
 
+function nativePerformanceClaimSufficiencyDetailKey(
+  detail: LiveProofNativePerformanceClaimSufficiencyDetail,
+): string {
+  return JSON.stringify({
+    claim: detail.claim ?? '',
+    missingEvidence: detail.missingEvidence ?? [],
+    nextAction: detail.nextAction ?? '',
+    reason: detail.reason ?? '',
+    status: detail.status,
+    supportingEvidence: detail.supportingEvidence ?? [],
+  });
+}
+
+function incrementNativePerformanceClaimSufficiencyDetailCount(
+  counts: Map<string, LiveProofNativePerformanceClaimSufficiencyDetailCount>,
+  detail: LiveProofNativePerformanceClaimSufficiencyDetail,
+  count: number,
+): void {
+  const key = nativePerformanceClaimSufficiencyDetailKey(detail);
+  const existing = counts.get(key);
+  if (existing) {
+    existing.count += count;
+    return;
+  }
+  counts.set(key, {
+    ...detail,
+    count,
+  });
+}
+
 function incrementNativePerformanceTargetBindingDetailCount(
   counts: Map<string, LiveProofNativePerformanceTargetBindingDetailCount>,
   detail: LiveProofNativePerformanceTargetBindingDetail,
@@ -1170,6 +1214,24 @@ function incrementNativePerformanceTargetBindingDetailCount(
     ...detail,
     count,
   });
+}
+
+function addNativePerformanceClaimSufficiencyDetailCounts(
+  counts: Map<string, LiveProofNativePerformanceClaimSufficiencyDetailCount>,
+  entries: LiveProofNativePerformanceClaimSufficiencyDetailCount[] | undefined,
+): void {
+  for (const entry of entries ?? []) {
+    incrementNativePerformanceClaimSufficiencyDetailCount(counts, entry, entry.count);
+  }
+}
+
+function addNativePerformanceClaimSufficiencyDetails(
+  counts: Map<string, LiveProofNativePerformanceClaimSufficiencyDetailCount>,
+  entries: LiveProofNativePerformanceClaimSufficiencyDetail[] | undefined,
+): void {
+  for (const entry of entries ?? []) {
+    incrementNativePerformanceClaimSufficiencyDetailCount(counts, entry, 1);
+  }
 }
 
 /**
@@ -1254,6 +1316,19 @@ function formatNativePerformanceTargetBindingDetailCounts(
   ));
 }
 
+function formatNativePerformanceClaimSufficiencyDetailCounts(
+  counts: Map<string, LiveProofNativePerformanceClaimSufficiencyDetailCount>,
+): LiveProofNativePerformanceClaimSufficiencyDetailCount[] {
+  return [...counts.values()].sort((left, right) => (
+    left.status.localeCompare(right.status) ||
+    (left.claim ?? '').localeCompare(right.claim ?? '') ||
+    (left.reason ?? '').localeCompare(right.reason ?? '') ||
+    (left.nextAction ?? '').localeCompare(right.nextAction ?? '') ||
+    (left.missingEvidence ?? []).join(',').localeCompare((right.missingEvidence ?? []).join(',')) ||
+    (left.supportingEvidence ?? []).join(',').localeCompare((right.supportingEvidence ?? []).join(','))
+  ));
+}
+
 /**
  * Builds native-performance interpretation counts across linked live-proof artifacts.
  *
@@ -1264,6 +1339,7 @@ function buildLiveProofSetNativePerformanceRollup(
   proofs: LiveProofArtifact[],
 ): LiveProofProfileNativePerformanceRollup | null {
   const claimSufficiencyCounts = new Map<string, number>();
+  const claimSufficiencyDetailCounts = new Map<string, LiveProofNativePerformanceClaimSufficiencyDetailCount>();
   const completenessStatusCounts = new Map<string, number>();
   const comparabilityCounts = new Map<string, number>();
   const diagnosticSourceCounts = new Map<string, number>();
@@ -1280,6 +1356,7 @@ function buildLiveProofSetNativePerformanceRollup(
     evidenceCount += rollup.evidenceCount;
     profileCount += rollup.profileCount;
     addNativePerformanceStatusCounts(claimSufficiencyCounts, rollup.claimSufficiencyCounts);
+    addNativePerformanceClaimSufficiencyDetailCounts(claimSufficiencyDetailCounts, rollup.claimSufficiencyDetailCounts);
     addNativePerformanceStatusCounts(completenessStatusCounts, rollup.completenessStatusCounts);
     addNativePerformanceStatusCounts(comparabilityCounts, rollup.comparabilityCounts);
     addNativePerformanceSourceCounts(diagnosticSourceCounts, rollup.diagnosticSourceCounts);
@@ -1292,6 +1369,7 @@ function buildLiveProofSetNativePerformanceRollup(
   }
 
   const claimCounts = formatNativePerformanceStatusCounts(claimSufficiencyCounts);
+  const claimDetailCounts = formatNativePerformanceClaimSufficiencyDetailCounts(claimSufficiencyDetailCounts);
   const completenessCounts = formatNativePerformanceStatusCounts(completenessStatusCounts);
   const comparableCounts = formatNativePerformanceStatusCounts(comparabilityCounts);
   const sourceCounts = formatNativePerformanceSourceCounts(diagnosticSourceCounts);
@@ -1299,6 +1377,7 @@ function buildLiveProofSetNativePerformanceRollup(
   const targetDetailCounts = formatNativePerformanceTargetBindingDetailCounts(targetBindingDetailCounts);
   return {
     ...(claimCounts.length > 0 ? { claimSufficiencyCounts: claimCounts } : {}),
+    ...(claimDetailCounts.length > 0 ? { claimSufficiencyDetailCounts: claimDetailCounts } : {}),
     ...(completenessCounts.length > 0 ? { completenessStatusCounts: completenessCounts } : {}),
     ...(comparableCounts.length > 0 ? { comparabilityCounts: comparableCounts } : {}),
     ...(sourceCounts.length > 0 ? { diagnosticSourceCounts: sourceCounts } : {}),
@@ -1643,6 +1722,7 @@ function buildLiveProofSetProfileGateNativePerformanceRollup(
   skippedProofs: LiveProofSetSkippedInteractionProofPointer[],
 ): LiveProofSetProfileGateNativePerformanceRollup | null {
   const claimSufficiencyCounts = new Map<string, number>();
+  const claimSufficiencyDetailCounts = new Map<string, LiveProofNativePerformanceClaimSufficiencyDetailCount>();
   const completenessStatusCounts = new Map<string, number>();
   const comparabilityCounts = new Map<string, number>();
   const diagnosticSourceCounts = new Map<string, number>();
@@ -1660,6 +1740,10 @@ function buildLiveProofSetProfileGateNativePerformanceRollup(
         (claimSufficiencyCounts.get(nativePerformance.claimSufficiency) ?? 0) + 1,
       );
     }
+    addNativePerformanceClaimSufficiencyDetails(
+      claimSufficiencyDetailCounts,
+      nativePerformance.claimSufficiencyDetails,
+    );
     if (nativePerformance.completenessStatus) {
       completenessStatusCounts.set(
         nativePerformance.completenessStatus,
@@ -1687,6 +1771,7 @@ function buildLiveProofSetProfileGateNativePerformanceRollup(
   }
 
   const claimCounts = formatNativePerformanceStatusCounts(claimSufficiencyCounts);
+  const claimDetailCounts = formatNativePerformanceClaimSufficiencyDetailCounts(claimSufficiencyDetailCounts);
   const completenessCounts = formatNativePerformanceStatusCounts(completenessStatusCounts);
   const comparableCounts = formatNativePerformanceStatusCounts(comparabilityCounts);
   const sourceCounts = formatNativePerformanceSourceCounts(diagnosticSourceCounts);
@@ -1694,6 +1779,7 @@ function buildLiveProofSetProfileGateNativePerformanceRollup(
   const targetDetailCounts = formatNativePerformanceTargetBindingDetailCounts(targetBindingDetailCounts);
   if (
     claimCounts.length === 0 &&
+    claimDetailCounts.length === 0 &&
     completenessCounts.length === 0 &&
     comparableCounts.length === 0 &&
     sourceCounts.length === 0 &&
@@ -1705,6 +1791,7 @@ function buildLiveProofSetProfileGateNativePerformanceRollup(
 
   return {
     ...(claimCounts.length > 0 ? { claimSufficiencyCounts: claimCounts } : {}),
+    ...(claimDetailCounts.length > 0 ? { claimSufficiencyDetailCounts: claimDetailCounts } : {}),
     ...(completenessCounts.length > 0 ? { completenessStatusCounts: completenessCounts } : {}),
     ...(comparableCounts.length > 0 ? { comparabilityCounts: comparableCounts } : {}),
     ...(sourceCounts.length > 0 ? { diagnosticSourceCounts: sourceCounts } : {}),
@@ -1730,6 +1817,7 @@ function hasNativePerformanceProfileGateContext(
 
   return Boolean(
     nativePerformance.claimSufficiency ||
+    (nativePerformance.claimSufficiencyDetails?.length ?? 0) > 0 ||
     nativePerformance.completenessStatus ||
     nativePerformance.comparability ||
     nativePerformance.targetBinding ||
@@ -2686,6 +2774,9 @@ function formatLiveProofSetProfileGateNativePerformanceRollup(
   if (rollup.claimSufficiencyCounts?.length) {
     details.push(`claim=${formatLiveProofSetNativePerformanceStatusCounts(rollup.claimSufficiencyCounts)}`);
   }
+  if (rollup.claimSufficiencyDetailCounts?.length) {
+    details.push(`claimDetails=${formatLiveProofSetNativePerformanceClaimSufficiencyDetailCounts(rollup.claimSufficiencyDetailCounts)}`);
+  }
   if (rollup.comparabilityCounts?.length) {
     details.push(`comparability=${formatLiveProofSetNativePerformanceStatusCounts(rollup.comparabilityCounts)}`);
   }
@@ -2726,6 +2817,9 @@ function formatLiveProofSetProofFailureNativePerformanceRollup(
   }
   if (rollup.claimSufficiencyCounts?.length) {
     details.push(`claim=${formatLiveProofSetNativePerformanceStatusCounts(rollup.claimSufficiencyCounts)}`);
+  }
+  if (rollup.claimSufficiencyDetailCounts?.length) {
+    details.push(`claimDetails=${formatLiveProofSetNativePerformanceClaimSufficiencyDetailCounts(rollup.claimSufficiencyDetailCounts)}`);
   }
   if (rollup.comparabilityCounts?.length) {
     details.push(`comparability=${formatLiveProofSetNativePerformanceStatusCounts(rollup.comparabilityCounts)}`);
@@ -3041,6 +3135,30 @@ function formatLiveProofSetNativePerformanceSources(
   return entries.map((entry) => `${entry.sourceId}:${entry.status}`).join(', ');
 }
 
+function formatLiveProofSetNativePerformanceClaimSufficiencyDetails(
+  entries: LiveProofNativePerformanceClaimSufficiencyDetail[],
+): string {
+  return entries.map((entry) => {
+    const parts = [entry.status];
+    if (entry.claim) {
+      parts.push(`claim=${entry.claim}`);
+    }
+    if (entry.reason) {
+      parts.push(`reason=${entry.reason}`);
+    }
+    if (entry.nextAction) {
+      parts.push(`next=${entry.nextAction}`);
+    }
+    if (entry.missingEvidence?.length) {
+      parts.push(`missing=${entry.missingEvidence.join('|')}`);
+    }
+    if (entry.supportingEvidence?.length) {
+      parts.push(`supporting=${entry.supportingEvidence.join('|')}`);
+    }
+    return parts.join(':');
+  }).join(', ');
+}
+
 /**
  * Formats skipped-proof profile-gate diagnostics for proof-set markdown.
  *
@@ -3068,6 +3186,9 @@ function formatLiveProofSetProfileGateDiagnostics(
   if (nativePerformance) {
     const nativeParts = [
       nativePerformance.claimSufficiency ? `claim=${nativePerformance.claimSufficiency}` : '',
+      nativePerformance.claimSufficiencyDetails?.length
+        ? `claimDetails=${formatLiveProofSetNativePerformanceClaimSufficiencyDetails(nativePerformance.claimSufficiencyDetails)}`
+        : '',
       nativePerformance.completenessStatus ? `completeness=${nativePerformance.completenessStatus}` : '',
       nativePerformance.comparability ? `comparability=${nativePerformance.comparability}` : '',
       nativePerformance.targetBinding ? `target=${nativePerformance.targetBinding}` : '',
@@ -3233,6 +3354,30 @@ function formatLiveProofSetNativePerformanceTargetBindingDetailCounts(
   }).join(', ');
 }
 
+function formatLiveProofSetNativePerformanceClaimSufficiencyDetailCounts(
+  counts: LiveProofNativePerformanceClaimSufficiencyDetailCount[],
+): string {
+  return counts.map((entry) => {
+    const parts = [entry.status];
+    if (entry.claim) {
+      parts.push(`claim=${entry.claim}`);
+    }
+    if (entry.reason) {
+      parts.push(`reason=${entry.reason}`);
+    }
+    if (entry.nextAction) {
+      parts.push(`next=${entry.nextAction}`);
+    }
+    if (entry.missingEvidence?.length) {
+      parts.push(`missing=${entry.missingEvidence.join('|')}`);
+    }
+    if (entry.supportingEvidence?.length) {
+      parts.push(`supporting=${entry.supportingEvidence.join('|')}`);
+    }
+    return `${parts.join(':')}=${entry.count}`;
+  }).join(', ');
+}
+
 /**
  * Formats proof-set native-performance interpretation details for markdown.
  *
@@ -3258,6 +3403,9 @@ function formatLiveProofSetNativePerformanceRollup(
   }
   if (rollup.claimSufficiencyCounts?.length) {
     details.push(`claim=${formatLiveProofSetNativePerformanceStatusCounts(rollup.claimSufficiencyCounts)}`);
+  }
+  if (rollup.claimSufficiencyDetailCounts?.length) {
+    details.push(`claimDetails=${formatLiveProofSetNativePerformanceClaimSufficiencyDetailCounts(rollup.claimSufficiencyDetailCounts)}`);
   }
   if (rollup.comparabilityCounts?.length) {
     details.push(`comparability=${formatLiveProofSetNativePerformanceStatusCounts(rollup.comparabilityCounts)}`);

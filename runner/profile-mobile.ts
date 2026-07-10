@@ -2451,6 +2451,7 @@ function formatDiagnosticSufficiencyStatusList(diagnostics: DiagnosticInventoryE
 }
 
 type NativePerformanceEvidenceSummary = {
+  claimSufficiencyDetails: string[];
   claimSufficiency: string[];
   completenessStatus: string[];
   comparability: string[];
@@ -2458,6 +2459,51 @@ type NativePerformanceEvidenceSummary = {
   targetBinding: string[];
   targetBindingDetails: string[];
 };
+
+type NativePerformanceClaimSufficiencyDetailMetadata = {
+  claim?: string;
+  missingEvidence?: string[];
+  nextAction?: string;
+  reason?: string;
+  status: string;
+  supportingEvidence?: string[];
+};
+
+function readStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return uniqueStrings(value.map((entry) => readTrimmedString(entry)));
+}
+
+function readNativePerformanceClaimSufficiencyDetail(
+  evidence: Record<string, unknown>,
+): NativePerformanceClaimSufficiencyDetailMetadata | null {
+  const claimSufficiency = readRecordValue(evidence.claimSufficiency);
+  const status = readTrimmedString(claimSufficiency?.status);
+  if (!claimSufficiency || !status) {
+    return null;
+  }
+
+  const claim = readTrimmedString(claimSufficiency.claim);
+  const missingEvidence = readStringArray(claimSufficiency.missingEvidence);
+  const nextAction = readTrimmedString(claimSufficiency.nextAction);
+  const reason = readTrimmedString(claimSufficiency.reason);
+  const supportingEvidence = readStringArray(claimSufficiency.supportingEvidence);
+  return {
+    ...(claim ? { claim } : {}),
+    ...(missingEvidence.length > 0 ? { missingEvidence } : {}),
+    ...(nextAction ? { nextAction } : {}),
+    ...(reason ? { reason } : {}),
+    status,
+    ...(supportingEvidence.length > 0 ? { supportingEvidence } : {}),
+  };
+}
+
+function formatNativePerformanceClaimSufficiencyDetail(evidence: Record<string, unknown>): string[] {
+  const detail = readNativePerformanceClaimSufficiencyDetail(evidence);
+  return detail ? [JSON.stringify(detail)] : [];
+}
 
 function formatNativePerformanceSourceStatuses(evidence: Record<string, unknown>): string[] {
   const diagnosticSources = Array.isArray(evidence.diagnosticSources) ? evidence.diagnosticSources : [];
@@ -2534,6 +2580,7 @@ function summarizeNativePerformanceEvidence(
   failedProviderIds: Set<string>,
 ): NativePerformanceEvidenceSummary {
   const claimSufficiency: string[] = [];
+  const claimSufficiencyDetails: string[] = [];
   const completenessStatus: string[] = [];
   const comparability: string[] = [];
   const diagnosticSources: string[] = [];
@@ -2555,6 +2602,7 @@ function summarizeNativePerformanceEvidence(
     }
 
     claimSufficiency.push(readTrimmedString(readRecordValue(evidence.claimSufficiency)?.status) ?? '');
+    claimSufficiencyDetails.push(...formatNativePerformanceClaimSufficiencyDetail(evidence));
     completenessStatus.push(readTrimmedString(evidence.completenessStatus) ?? '');
     comparability.push(readTrimmedString(readRecordValue(evidence.comparability)?.status) ?? '');
     targetBinding.push(readTrimmedString(readRecordValue(evidence.targetBinding)?.status) ?? '');
@@ -2564,6 +2612,7 @@ function summarizeNativePerformanceEvidence(
 
   return {
     claimSufficiency: uniqueStrings(claimSufficiency),
+    claimSufficiencyDetails: uniqueStrings(claimSufficiencyDetails),
     completenessStatus: uniqueStrings(completenessStatus),
     comparability: uniqueStrings(comparability),
     diagnosticSources: uniqueStrings(diagnosticSources),
@@ -2628,6 +2677,9 @@ function buildPartialProviderEvidenceHealthChecks(
         ...(failedRequiredKinds.length > 0 ? { blockingRequiredKinds: failedRequiredKinds.join(',') } : {}),
         ...(failedRequiredKinds.length > 0 ? { failedRequiredKinds: failedRequiredKinds.join(',') } : {}),
         ...(nativePerformanceSummary.claimSufficiency.length > 0 ? { nativePerformanceClaimSufficiency: nativePerformanceSummary.claimSufficiency.join(',') } : {}),
+        ...(nativePerformanceSummary.claimSufficiencyDetails.length > 0
+          ? { nativePerformanceClaimSufficiencyDetails: `[${nativePerformanceSummary.claimSufficiencyDetails.join(',')}]` }
+          : {}),
         ...(nativePerformanceSummary.completenessStatus.length > 0 ? { nativePerformanceCompletenessStatus: nativePerformanceSummary.completenessStatus.join(',') } : {}),
         ...(nativePerformanceSummary.comparability.length > 0 ? { nativePerformanceComparability: nativePerformanceSummary.comparability.join(',') } : {}),
         ...(nativePerformanceSummary.diagnosticSources.length > 0 ? { nativePerformanceDiagnosticSources: nativePerformanceSummary.diagnosticSources.join(',') } : {}),

@@ -560,7 +560,12 @@ test('writes optional interaction proof pointers into aggregate live proof artif
     path.join(profileDir, 'raw', 'providers', 'native', 'native-performance.json'),
     JSON.stringify({
       claimSufficiency: {
+        claim: 'startup-native-performance',
+        missingEvidence: ['complete-capture', 'verified-target'],
+        nextAction: 'Rerun native provider after restoring required outputs.',
+        reason: 'Provider output was partial.',
         status: 'insufficient-for-claim',
+        supportingEvidence: ['gfxinfo', 'meminfo'],
       },
       completenessStatus: 'partial',
       comparability: {
@@ -670,6 +675,17 @@ test('writes optional interaction proof pointers into aggregate live proof artif
         status: 'insufficient-for-claim',
       },
     ],
+    claimSufficiencyDetailCounts: [
+      {
+        claim: 'startup-native-performance',
+        count: 1,
+        missingEvidence: ['complete-capture', 'verified-target'],
+        nextAction: 'Rerun native provider after restoring required outputs.',
+        reason: 'Provider output was partial.',
+        status: 'insufficient-for-claim',
+        supportingEvidence: ['gfxinfo', 'meminfo'],
+      },
+    ],
     completenessStatusCounts: [
       {
         count: 1,
@@ -769,7 +785,7 @@ test('writes optional interaction proof pointers into aggregate live proof artif
   assert.match(summary, /Next action: product_optimization\/inspect_summary/u);
   assert.match(summary, /## Interaction Proofs/u);
   assert.match(summary, /## Native Performance/u);
-  assert.match(summary, /profiles=1; evidence=1; sources=gfxinfo:partial=1, meminfo:captured=1; completeness=partial=1; claim=insufficient-for-claim=1; comparability=diagnostic-only=1; target=ambiguous=1; targetDetails=ambiguous:candidate=expected:source=manifest:reason=Requested app id matched the provider command\.=1, ambiguous:candidate=observed:source=trace:reason=Observed another debuggable runtime in trace metadata\.=1/u);
+  assert.match(summary, /profiles=1; evidence=1; sources=gfxinfo:partial=1, meminfo:captured=1; completeness=partial=1; claim=insufficient-for-claim=1; claimDetails=insufficient-for-claim:claim=startup-native-performance:reason=Provider output was partial\.:next=Rerun native provider after restoring required outputs\.:missing=complete-capture\|verified-target:supporting=gfxinfo\|meminfo=1; comparability=diagnostic-only=1; target=ambiguous=1; targetDetails=ambiguous:candidate=expected:source=manifest:reason=Requested app id matched the provider command\.=1, ambiguous:candidate=observed:source=trace:reason=Observed another debuggable runtime in trace metadata\.=1/u);
   assert.match(summary, /screenshots=1/u);
   assert.match(summary, /warnings=1/u);
   assert.match(summary, /warning argent_screenshot: argent_screenshot_failed - Argent driver action screenshot failed\. Next action: provider_tooling\/inspect_argent_driver_action - Inspect raw screenshot output\./u);
