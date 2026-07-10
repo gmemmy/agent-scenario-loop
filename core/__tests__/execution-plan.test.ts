@@ -88,6 +88,48 @@ test('preserves required and optional driver actions in execution plans', () => 
   );
 });
 
+test('resolves scenario cadence defaults and step overrides in execution plans', () => {
+  const plan = buildScenarioExecutionPlan({
+    cadence: {
+      commandSettleMs: 250,
+      defaultSettleMs: 75,
+      gestureSettleMs: 125,
+    },
+    id: 'cadence-flow',
+    steps: [
+      { id: 'launch-app', kind: 'launch' },
+      { command: 'open-sheet', id: 'open-sheet', kind: 'command' },
+      {
+        cadence: { reason: 'Composer expands with native keyboard animation.', settleMs: 600 },
+        command: 'expand-composer',
+        id: 'expand-composer',
+        kind: 'command',
+      },
+      { driverAction: 'tap', id: 'tap-send', kind: 'gesture' },
+    ],
+  });
+
+  assert.deepEqual(
+    plan.steps.map((step: { cadence?: { reason?: string; settleMs: number; source: string }; id: string }) => ({
+      cadence: step.cadence,
+      id: step.id,
+    })),
+    [
+      { cadence: { settleMs: 75, source: 'scenario-default' }, id: 'launch-app' },
+      { cadence: { settleMs: 250, source: 'scenario-kind' }, id: 'open-sheet' },
+      {
+        cadence: {
+          reason: 'Composer expands with native keyboard animation.',
+          settleMs: 600,
+          source: 'step',
+        },
+        id: 'expand-composer',
+      },
+      { cadence: { settleMs: 125, source: 'scenario-kind' }, id: 'tap-send' },
+    ],
+  );
+});
+
 test('preserves portable selectors in execution plans', () => {
   const step = normalizeScenarioStep({
     driverAction: 'tap',

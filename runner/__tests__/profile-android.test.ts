@@ -4474,6 +4474,52 @@ test('profile-android applies execution-plan wait gates to adb adapter commands'
   ]);
 });
 
+test('profile-android applies scenario cadence to profile-session command pacing', () => {
+  const scenario = {
+    cadence: {
+      commandSettleMs: 200,
+    },
+    id: 'composer-flow',
+    milestones: [
+      { id: 'sheet-opened', event: 'comments_sheet_opened' },
+      { id: 'composer-expanded', event: 'comments_composer_expanded' },
+    ],
+    steps: [
+      {
+        command: 'comments:open-sheet',
+        id: 'open-comments-sheet',
+        kind: 'command',
+      },
+      {
+        id: 'wait-sheet-opened',
+        kind: 'waitForMilestone',
+        milestone: 'sheet-opened',
+        timeoutMs: 1500,
+      },
+      {
+        cadence: {
+          reason: 'Expanded composer waits for keyboard and sheet animation.',
+          settleMs: 650,
+        },
+        command: 'comments:expand-composer',
+        id: 'expand-composer',
+        kind: 'command',
+      },
+      {
+        id: 'wait-composer-expanded',
+        kind: 'waitForMilestone',
+        milestone: 'composer-expanded',
+        timeoutMs: 2000,
+      },
+    ],
+  };
+
+  assert.deepEqual(resolveAndroidAdbProfileCommands(scenario), [
+    { command: 'comments:open-sheet', commandId: 'open-comments-sheet', label: 'open-comments-sheet', queueId: 'composer-flow', sequence: 1, waitForMilestone: 'comments_sheet_opened', waitMs: 200, waitTimeoutMs: 1500 },
+    { command: 'comments:expand-composer', commandId: 'expand-composer', label: 'expand-composer', queueId: 'composer-flow', sequence: 2, waitForMilestone: 'comments_composer_expanded', waitMs: 650, waitTimeoutMs: 2000 },
+  ]);
+});
+
 test('profile-android derives adb driver steps from normalized execution-plan evidence steps', () => {
   const scenario = {
     id: 'startup',

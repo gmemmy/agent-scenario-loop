@@ -82,6 +82,7 @@ Preferred fields:
 - `comparisonLane`: default historical baseline lane for runs of this scenario
 - `milestones`: named event checkpoints with phases and timeouts
 - `cycles`: iteration count, stop policy, and optional setup/body step ids
+- `cadence`: product-neutral pacing defaults for interaction settle windows
 - `budgets`: thresholds to evaluate only after truth-event health passes
 - `artifacts`: required and optional evidence outputs
 
@@ -128,6 +129,48 @@ Because scenario metadata is part of the scenario contract, it participates in
 `scenarioHash` just like milestones, budgets, and steps.
 
 For repeated scenarios, separate setup from the measured body. Commands that clear state, navigate home, dismiss modals, or establish readiness should not be measured every iteration unless that cleanup is the journey under test. Use `cycles.setupStepIds` for leading setup commands that run once, or `cycles.bodyStepIds` to name the repeated command body. If neither is provided, ASL profile-session runners infer a conservative setup prefix from readiness waits and measured milestone budgets, but explicit ids are clearer for complex flows.
+
+## Cadence
+
+Use `cadence` when a scenario needs intentional pacing between interactions.
+Cadence is runner pacing, not app truth. It gives the selected runner a bounded
+settle window so multi-interaction flows can wait for natural UI motion,
+keyboard transitions, sheet expansion, navigation handoff, or other expected
+settling before the next command is released. App-owned milestones still prove
+that the interaction produced the intended product state.
+
+Scenario-level cadence can set a default or specialize by step kind:
+
+```json
+{
+  "cadence": {
+    "defaultSettleMs": 100,
+    "commandSettleMs": 250,
+    "gestureSettleMs": 150
+  }
+}
+```
+
+Step-level cadence overrides the scenario policy for the one interaction:
+
+```json
+{
+  "id": "expand-composer",
+  "kind": "command",
+  "command": "comments-composer:expand",
+  "cadence": {
+    "settleMs": 600,
+    "reason": "expanded composer waits for keyboard and sheet animation"
+  }
+}
+```
+
+Use cadence for pacing, and use `waitForMilestone` plus `timeoutMs` for
+readiness proof. A cadence delay should be short and intentional; it should not
+hide missing truth events, fixture gaps, or slow product behavior. Normalized
+execution plans preserve resolved cadence with the source (`step`,
+`scenario-kind`, or `scenario-default`) so artifact readers can distinguish
+author-chosen pacing from adapter-specific waits.
 
 ## Truth Events
 

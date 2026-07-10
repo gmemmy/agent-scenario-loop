@@ -2408,6 +2408,7 @@ function main(): void {
       "assert.equal(driverValidation.message, 'driver is missing required method(s): longPress, typeText, fill, scroll, swipe, drag, pinch, rotate, rotateGesture, pressKey, pressButton, focus, assertVisible, inspectTree, record, readLogs, collectPerfSignals, customGesture, runSequence');",
       "assert.deepEqual(asl.collectScenarioDriverActions({ steps: [{ kind: 'gesture', driverAction: 'scroll' }, { kind: 'captureEvidence', driverAction: 'screenshot', required: false }] }), { required: ['scroll'], optional: ['screenshot'] });",
       "assert.deepEqual(asl.buildScenarioExecutionPlan({ id: 'scroll', steps: [{ kind: 'gesture', driverAction: 'scroll' }] }).steps[0], { id: '01-gesture', index: 0, kind: 'gesture', portMethod: 'executeStep', required: true, driverAction: 'scroll' });",
+      "assert.deepEqual(asl.buildScenarioExecutionPlan({ id: 'cadence', cadence: { commandSettleMs: 120 }, steps: [{ kind: 'command', command: 'open' }] }).steps[0].cadence, { settleMs: 120, source: 'scenario-kind' });",
       "const legacyLayoutVersionExport = ['V', '1', '_ARTIFACT_LAYOUT_VERSION'].join('');",
       "const legacyFilenamesExport = ['V', '1', '_ARTIFACT_FILENAMES'].join('');",
       "assert.equal(Object.prototype.hasOwnProperty.call(asl, legacyLayoutVersionExport), false);",

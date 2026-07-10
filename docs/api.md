@@ -24,7 +24,7 @@ The root package is for stable, runner-neutral behavior:
 
 - artifact layout and artifact writers
 - profile-event parsing, metrics, manifests, causal runs, budget verdicts, and summaries
-- scenario execution-plan normalization
+- scenario execution-plan normalization, including resolved cadence pacing metadata
 - scenario/runner/provider compatibility checks
 - port validation and driver dispatch helpers
 - typed port contracts for primary runners, drivers, evidence providers, artifact writers, and interpreters

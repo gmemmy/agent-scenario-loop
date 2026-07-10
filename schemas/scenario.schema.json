@@ -87,6 +87,9 @@
     "cycles": {
       "$ref": "#/$defs/cycles"
     },
+    "cadence": {
+      "$ref": "#/$defs/cadencePolicy"
+    },
     "budgets": {
       "type": "array",
       "items": {
@@ -404,6 +407,54 @@
         }
       }
     },
+    "cadencePolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "defaultSettleMs": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "launchSettleMs": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "commandSettleMs": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "gestureSettleMs": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "assertionSettleMs": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "captureSettleMs": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "waitSettleMs": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "stepCadence": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "settleMs": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
     "step": {
       "type": "object",
       "additionalProperties": false,
@@ -448,6 +499,9 @@
         "required": {
           "type": "boolean",
           "default": true
+        },
+        "cadence": {
+          "$ref": "#/$defs/stepCadence"
         },
         "adapterOptions": {
           "$ref": "#/$defs/adapterOptions"

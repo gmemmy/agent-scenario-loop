@@ -258,6 +258,42 @@ test('rejects unknown scenario coverage roles', () => {
   assert.ok(result.errors.some((error: ValidationIssue) => error.path === '$.metadata.coverage.coverageRole'));
 });
 
+test('accepts scenario cadence policy and step overrides', () => {
+  const scenario = readJson('examples/scenarios/mobile/app-startup.json');
+  scenario.cadence = {
+    commandSettleMs: 250,
+    defaultSettleMs: 100,
+    gestureSettleMs: 150,
+  };
+  scenario.steps.push({
+    cadence: {
+      reason: 'Wait for native sheet animation before the next command.',
+      settleMs: 600,
+    },
+    command: 'open-sheet',
+    id: 'open-sheet',
+    kind: 'command',
+  });
+
+  const result = validateJson(scenario, SCHEMAS.scenario, 'Scenario manifest');
+
+  assert.equal(result.valid, true, result.message);
+  assert.deepEqual(result.errors, []);
+});
+
+test('rejects unknown scenario cadence fields', () => {
+  const scenario = readJson('examples/scenarios/mobile/app-startup.json');
+  scenario.cadence = {
+    commandSettleMs: 250,
+    blitzThroughMs: 1,
+  };
+
+  const result = validateJson(scenario, SCHEMAS.scenario, 'Scenario manifest');
+
+  assert.equal(result.valid, false);
+  assert.ok(result.errors.some((error: ValidationIssue) => error.path === '$.cadence.blitzThroughMs'));
+});
+
 test('accepts aggregate live proof set artifacts', () => {
   const artifact = {
     schemaVersion: '1.0.0',
