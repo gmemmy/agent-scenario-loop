@@ -354,7 +354,11 @@ function classifyAndroidPreservedRawEvidence(fileName: string): AndroidPreserved
     return 'screenshot';
   }
 
-  if (/^adb-logcat(?:-\d+)?\.txt$/u.test(fileName) || fileName === 'adb-app-lifecycle-log.txt') {
+  if (
+    /^adb-logcat(?:-\d+)?\.txt$/u.test(fileName) ||
+    fileName === 'adb-app-lifecycle-log.txt' ||
+    fileName === 'adb-runner-watchdog-logcat.txt'
+  ) {
     return 'logs';
   }
 
@@ -852,6 +856,54 @@ function reconcileAndroidProfileSessionObservationFromFinalLogs({
     }
     return;
   }
+}
+
+function synthesizeAndroidProfileSessionObservationFromWatchdogLog({
+  checks,
+  expectation,
+  logText,
+  metadata,
+  rawPath,
+  timeoutMs,
+}: {
+  checks: Array<Record<string, unknown>>;
+  expectation: AndroidProfileSessionCompletionExpectation | null;
+  logText: string;
+  metadata: Record<string, unknown>;
+  rawPath: string;
+  timeoutMs: number;
+}): void {
+  if (!expectation) {
+    return;
+  }
+
+  const metadataKey = expectation.expectedCommandCount === 0
+    ? 'profileSessionStartWait'
+    : 'profileSessionCompletionWait';
+  if (isAndroidProfileSessionObservationWait(metadata[metadataKey])) {
+    return;
+  }
+
+  const inspection = inspectProfileSessionCompletion({
+    expectation,
+    logText,
+  });
+  const observation = buildAndroidProfileSessionObservationWait({
+    expectation,
+    inspection,
+    rawPath,
+    wait: {
+      completed: shouldReconcileAndroidProfileSessionObservation({ expectation, inspection }),
+      elapsedMs: timeoutMs,
+      pollCount: 0,
+    },
+  });
+  metadata[metadataKey] = observation;
+  checks.push(buildAndroidProfileSessionObservationCheck({
+    expectation,
+    observation,
+    timeoutMs,
+  }));
 }
 
 /**
@@ -4013,6 +4065,14 @@ async function runAndroidAdbPreflight({
       : null;
     if (watchdogLogcat) {
       raw[watchdogLogcat.rawFileName] = formatAndroidCommandRawOutput(watchdogLogcat.result);
+      synthesizeAndroidProfileSessionObservationFromWatchdogLog({
+        checks,
+        expectation: profileSessionCompletionExpectation,
+        logText: `${watchdogLogcat.result.stdout}\n${watchdogLogcat.result.stderr}`,
+        metadata,
+        rawPath: `raw/${watchdogLogcat.rawFileName}`,
+        timeoutMs: captureWatchdog.timeoutMs,
+      });
     }
     const failure = {
       ...normalizeAndroidRunnerFailure(error),
