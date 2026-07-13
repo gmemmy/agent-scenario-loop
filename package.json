@@ -191,6 +191,12 @@
       "require": "./dist/runner/profile-android.js",
       "default": "./dist/runner/profile-android.js"
     },
+    "./runner/resource-lease": {
+      "types": "./dist/runner/resource-lease.d.ts",
+      "import": "./dist/runner/resource-lease.js",
+      "require": "./dist/runner/resource-lease.js",
+      "default": "./dist/runner/resource-lease.js"
+    },
     "./runner/validate-project": {
       "types": "./dist/runner/validate-project.d.ts",
       "import": "./dist/runner/validate-project.js",

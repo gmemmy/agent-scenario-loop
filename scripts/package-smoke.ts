@@ -2488,6 +2488,7 @@ function main(): void {
       "require.resolve('agent-scenario-loop/runner/argent-driver');",
       "require.resolve('agent-scenario-loop/runner/ios-simctl-driver');",
       "require.resolve('agent-scenario-loop/runner/live-proof');",
+      "require.resolve('agent-scenario-loop/runner/resource-lease');",
       "require.resolve('agent-scenario-loop/runner/validate-project');",
     ].join('\n');
     run(process.execPath, ['-e', resolveSmokeScript], {
@@ -2535,6 +2536,7 @@ function main(): void {
       "import { readLiveProof } from 'agent-scenario-loop/runner/live-proof';",
       "import { resolveAndroidAdbDriverSteps, resolveAndroidAdbProfileCommands, runProfileAndroid } from 'agent-scenario-loop/runner/profile-android';",
       "import { runProfileIos, type CliArgs } from 'agent-scenario-loop/runner/profile-ios';",
+      "import { acquireResourceLease, releaseResourceLease, type ResourceLeaseAcquireResult } from 'agent-scenario-loop/runner/resource-lease';",
       "import { validateProject } from 'agent-scenario-loop/runner/validate-project';",
       "import {",
       "  emitProfileEvent,",
@@ -2711,6 +2713,7 @@ function main(): void {
       "const summary = buildAgentSummaryMarkdown({ health: comparison, verdict: comparison });",
       "validateJson({ schemaVersion: '1.0.0' }, SCHEMAS.health, 'health');",
       "validateScenarioAdapterOptions({ effectivePlatforms: ['android'], errors: [], scenario: { id: 'startup', steps: [] } });",
+      'const resourceLeaseResultSample: ResourceLeaseAcquireResult["status"] = "failed";',
       "void ARTIFACT_LAYOUT_VERSION;",
       'void layout;',
       'void validation;',
@@ -2764,6 +2767,9 @@ function main(): void {
       'void resolveAndroidAdbProfileCommands;',
       'void runProfileAndroid;',
       'void runProfileIos;',
+      'void acquireResourceLease;',
+      'void releaseResourceLease;',
+      'void resourceLeaseResultSample;',
       'void validateProject;',
       '',
     ].join('\n');
