@@ -168,6 +168,12 @@ const REQUIRED_EXPORTS: Record<string, string | Record<string, string>> = {
     import: './dist/runner/profile-ios.js',
     default: './dist/runner/profile-ios.js',
   },
+  './runner/resource-lease': {
+    require: './dist/runner/resource-lease.js',
+    types: './dist/runner/resource-lease.d.ts',
+    import: './dist/runner/resource-lease.js',
+    default: './dist/runner/resource-lease.js',
+  },
   './runner/validate-project': {
     require: './dist/runner/validate-project.js',
     types: './dist/runner/validate-project.d.ts',
