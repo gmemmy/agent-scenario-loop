@@ -308,6 +308,11 @@ type ProviderCommandExecution = {
   outputStatuses: ProviderOutputStatus[];
   providers: Array<{ name: string; version?: string }>;
 };
+type RequestedDiagnosticDemand = {
+  byKind: Map<DiagnosticKind, { requested: boolean; required: boolean }>;
+  optional: string[];
+  required: string[];
+};
 type ProfileRunPlan = {
   artifactVersion: '1.0.0';
   runId: string;
@@ -1584,6 +1589,10 @@ function buildProfileRunPlan({
   scenarioPath: string;
 }): ProfileRunPlan {
   const scenarioMetadata = readScenarioMetadata(profileScenario);
+  const requestedDiagnosticDemand = resolveRequestedDiagnosticDemand({
+    providerOutputs: readSelectedProviderOutputDemand({ args }),
+    scenario: profileScenario as Record<string, any>,
+  });
   return {
     artifactVersion: '1.0.0',
     runId,
@@ -1603,8 +1612,8 @@ function buildProfileRunPlan({
       path: toPortablePathReference(path.resolve(providerPath)),
     })),
     requestedDiagnostics: {
-      required: Array.from(readScenarioStringSet(profileScenario, ['artifacts', 'required'])).sort(),
-      optional: Array.from(readScenarioStringSet(profileScenario, ['artifacts', 'optional'])).sort(),
+      required: requestedDiagnosticDemand.required,
+      optional: requestedDiagnosticDemand.optional,
     },
     scenarioShape: {
       budgets: Array.isArray(profileScenario.budgets) ? profileScenario.budgets.length : 0,
@@ -1729,6 +1738,42 @@ function artifactSetHasAny(artifacts: Set<string>, aliases: string[]): boolean {
   return aliases.some((alias) => artifacts.has(alias));
 }
 
+const DIAGNOSTIC_KINDS: DiagnosticKind[] = [
+  'accessibility',
+  'js',
+  'logs',
+  'memory',
+  'nativePerformance',
+  'network',
+  'profiler',
+  'screenshot',
+  'uiTree',
+  'video',
+];
+
+const DIAGNOSTIC_KIND_SET = new Set<DiagnosticKind>(DIAGNOSTIC_KINDS);
+
+function isDiagnosticKind(value: unknown): value is DiagnosticKind {
+  return typeof value === 'string' && DIAGNOSTIC_KIND_SET.has(value as DiagnosticKind);
+}
+
+const SCENARIO_ARTIFACT_KINDS = new Set([
+  'accessibility',
+  'logs',
+  'memory',
+  'nativePerformance',
+  'network',
+  'profiler',
+  'screenshot',
+  'signals',
+  'uiTree',
+  'video',
+]);
+
+function isScenarioArtifactKind(value: unknown): value is string {
+  return typeof value === 'string' && SCENARIO_ARTIFACT_KINDS.has(value);
+}
+
 /**
  * Resolves common aliases used by scenario artifact contracts.
  *
@@ -1804,6 +1849,109 @@ function resolveDiagnosticRequest({
       artifactSetHasAny(optionalArtifacts, artifactAliases) ||
       artifactSetHasAny(optionalCapabilities, capabilityAliases),
   };
+}
+
+/**
+ * Canonicalizes requested diagnostic demand from scenario declarations and selected provider outputs.
+ *
+ * @param {{providerOutputs?: Array<{kind: unknown, required?: boolean}>, scenario: Record<string, any>}} options
+ * @returns {RequestedDiagnosticDemand}
+ */
+function resolveRequestedDiagnosticDemand({
+  providerOutputs = [],
+  scenario,
+}: {
+  providerOutputs?: Array<{ kind: unknown; required?: boolean }>;
+  scenario: Record<string, any>;
+}): RequestedDiagnosticDemand {
+  const requiredArtifacts = readScenarioStringSet(scenario, ['artifacts', 'required']);
+  const optionalArtifacts = readScenarioStringSet(scenario, ['artifacts', 'optional']);
+  const requiredCapabilities = readScenarioStringSet(scenario, ['requiredCapabilities']);
+  const optionalCapabilities = readScenarioStringSet(scenario, ['optionalCapabilities']);
+  const requiredScenarioArtifactDemand = Array.from(requiredArtifacts).filter((kind) => isScenarioArtifactKind(kind));
+  const optionalScenarioArtifactDemand = Array.from(optionalArtifacts).filter((kind) => isScenarioArtifactKind(kind));
+  const requiredDemand = new Set<string>(requiredScenarioArtifactDemand);
+  const optionalDemand = new Set<string>(
+    optionalScenarioArtifactDemand.filter((kind) => !requiredDemand.has(kind)),
+  );
+  const byKind = new Map<DiagnosticKind, { requested: boolean; required: boolean }>();
+  for (const kind of DIAGNOSTIC_KINDS) {
+    byKind.set(kind, resolveDiagnosticRequest({
+      kind,
+      optionalArtifacts,
+      optionalCapabilities,
+      requiredArtifacts,
+      requiredCapabilities,
+    }));
+  }
+
+  for (const providerOutput of providerOutputs) {
+    if (!isDiagnosticKind(providerOutput.kind)) {
+      continue;
+    }
+    const current = byKind.get(providerOutput.kind);
+    if (!current) {
+      continue;
+    }
+    if (providerOutput.required === true) {
+      byKind.set(providerOutput.kind, { required: true, requested: true });
+      continue;
+    }
+    byKind.set(providerOutput.kind, { ...current, requested: true });
+  }
+
+  for (const kind of DIAGNOSTIC_KINDS) {
+    const demand = byKind.get(kind);
+    if (!demand) {
+      continue;
+    }
+    if (demand.required) {
+      requiredDemand.add(kind);
+      optionalDemand.delete(kind);
+      continue;
+    }
+    if (demand.requested && !requiredDemand.has(kind)) {
+      optionalDemand.add(kind);
+    }
+  }
+
+  const required = Array.from(requiredDemand).sort();
+  const optional = Array.from(optionalDemand).filter((kind) => !requiredDemand.has(kind)).sort();
+  return { byKind, optional, required };
+}
+
+/**
+ * Reads selected provider-command output declarations for run-plan demand semantics.
+ *
+ * @param {{args: CliArgs}} options
+ * @returns {Array<{kind: EvidenceKind, required: boolean}>}
+ */
+function readSelectedProviderOutputDemand({
+  args,
+}: {
+  args: CliArgs;
+}): Array<{ kind: EvidenceKind; required: boolean }> {
+  const outputs: Array<{ kind: EvidenceKind; required: boolean }> = [];
+  for (const providerManifestPath of readRepeatableArgValues(args, 'provider')) {
+    const absoluteManifestPath = path.resolve(providerManifestPath);
+    const provider = assertValidJson(
+      readJson(absoluteManifestPath),
+      SCHEMAS.runnerCapabilities,
+      'Evidence provider manifest',
+    ) as ProviderManifest;
+    if (provider.kind !== 'evidenceProvider') {
+      throw new Error(`Provider manifest must use kind "evidenceProvider": ${absoluteManifestPath}`);
+    }
+    for (const providerCommand of provider.providerCommands ?? []) {
+      for (const output of providerCommand.outputs ?? []) {
+        outputs.push({
+          kind: output.kind,
+          required: output.required === true,
+        });
+      }
+    }
+  }
+  return outputs;
 }
 
 /**
@@ -2169,10 +2317,13 @@ function buildDiagnosticInventory({
   runDir: string;
   scenario: Record<string, any>;
 }): DiagnosticInventoryEntry[] {
-  const requiredArtifacts = readScenarioStringSet(scenario, ['artifacts', 'required']);
-  const optionalArtifacts = readScenarioStringSet(scenario, ['artifacts', 'optional']);
-  const requiredCapabilities = readScenarioStringSet(scenario, ['requiredCapabilities']);
-  const optionalCapabilities = readScenarioStringSet(scenario, ['optionalCapabilities']);
+  const requestedDiagnosticDemand = resolveRequestedDiagnosticDemand({
+    providerOutputs: providerOutputStatuses.map((output) => ({
+      kind: output.kind,
+      required: output.required,
+    })),
+    scenario,
+  });
   const requiredProviderDiagnostics = new Set(
     [
       ...attachedEvidence.attachments
@@ -2187,7 +2338,6 @@ function buildDiagnosticInventory({
     providerFailures.map((failure) => failure.providerId).filter((providerId) => providerId.length > 0),
   );
   const providerOutputByKind = new Map<DiagnosticKind, ProviderOutputStatus>();
-  const providerDeclaredDiagnostics = new Set(providerOutputStatuses.map((output) => output.kind));
   for (const output of providerOutputStatuses) {
     if (output.status === 'captured') {
       continue;
@@ -2240,13 +2390,7 @@ function buildDiagnosticInventory({
       requested?: boolean;
     },
   ) => {
-    const request = resolveDiagnosticRequest({
-      kind,
-      optionalArtifacts,
-      optionalCapabilities,
-      requiredArtifacts,
-      requiredCapabilities,
-    });
+    const request = requestedDiagnosticDemand.byKind.get(kind) ?? { requested: false, required: false };
     entries.push(buildDiagnosticEntry({
       kind,
       ...entry,
@@ -2254,10 +2398,7 @@ function buildDiagnosticInventory({
         typeof entry.provider === 'string' && failedProviderIds.has(entry.provider)
       ),
       required: request.required || requiredProviderDiagnostics.has(kind) || Boolean(entry.required),
-      requested: request.requested ||
-        providerDeclaredDiagnostics.has(kind) ||
-        requiredProviderDiagnostics.has(kind) ||
-        Boolean(entry.requested),
+      requested: request.requested || requiredProviderDiagnostics.has(kind) || Boolean(entry.requested),
     }));
   };
 

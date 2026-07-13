@@ -384,6 +384,189 @@ test('profile-android treats optional diagnostic capabilities as requested inven
   assert.match(videoDiagnostic.nextAction, /capture provider/u);
 });
 
+test('profile-android run plan canonicalizes requested diagnostics from capabilities and provider outputs', async (t: TestContext) => {
+  const tempRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-android-run-plan-demand-'));
+  t.after(async () => {
+    await fsp.rm(tempRoot, { recursive: true, force: true });
+  });
+  const artifactRoot = path.join(tempRoot, 'artifacts');
+  const scenarioPath = path.join(tempRoot, 'app-startup-diagnostic-demand.json');
+  const providerManifestPath = path.join(tempRoot, 'provider.json');
+  const providerScriptPath = path.join(tempRoot, 'provider.js');
+  const scenario = readJson(fixturePath('examples/mobile-app/scenarios/android/app-startup.json'));
+  scenario.artifacts = {
+    required: ['uiTree', 'signals'],
+    optional: ['screenshot'],
+  };
+  scenario.requiredCapabilities = ['logCapture'];
+  scenario.optionalCapabilities = ['network', 'accessibility'];
+  await fsp.writeFile(scenarioPath, `${JSON.stringify(scenario, null, 2)}\n`, 'utf8');
+  await fsp.writeFile(
+    providerScriptPath,
+    'process.exit(0);\n',
+    'utf8',
+  );
+  await fsp.writeFile(
+    providerManifestPath,
+    `${JSON.stringify({
+      schemaVersion: '1.0.0',
+      runnerId: 'diagnostic-demand-provider',
+      kind: 'evidenceProvider',
+      platforms: ['android'],
+      capabilities: ['accessibility', 'logCapture', 'video', 'network'],
+      artifactOutputs: ['accessibility', 'logs', 'video', 'network'],
+      lifecycle: ['capture'],
+      providerCommands: [
+        {
+          id: 'capture-demand',
+          phase: 'capture',
+          command: process.execPath,
+          args: [providerScriptPath],
+          outputs: [
+            {
+              channel: 'capture',
+              kind: 'video',
+              path: '{providerDir}/video.mp4',
+              required: false,
+            },
+            {
+              channel: 'capture',
+              kind: 'video',
+              path: '{providerDir}/video-second.mp4',
+              required: true,
+            },
+            {
+              channel: 'provider',
+              kind: 'accessibility',
+              path: '{providerDir}/accessibility.json',
+              required: true,
+            },
+            {
+              channel: 'provider',
+              kind: 'logs',
+              path: '{providerDir}/logs.txt',
+              required: false,
+            },
+            {
+              channel: 'capture',
+              kind: 'uiTree',
+              path: '{providerDir}/ui-tree.json',
+              required: false,
+            },
+            {
+              channel: 'signal',
+              kind: 'network',
+              path: '{providerDir}/network.har',
+              required: false,
+            },
+            {
+              channel: 'capture',
+              kind: 'screenshot',
+              path: '{providerDir}/screenshot.png',
+              required: false,
+            },
+          ],
+        },
+      ],
+    }, null, 2)}\n`,
+    'utf8',
+  );
+
+  const { stdout } = await execFileAsync(process.execPath, [
+    PROFILE_ANDROID,
+    '--config',
+    fixturePath('examples/mobile-app/asl.config.json'),
+    '--scenario',
+    scenarioPath,
+    '--events',
+    fixturePath('examples/mobile-app/event-logs/android-app-startup.log'),
+    '--provider',
+    providerManifestPath,
+    '--out',
+    artifactRoot,
+    '--run-id',
+    'android-run-plan-demand',
+  ]);
+
+  const runPlan = readJson(path.join(stdout.trim(), 'run-plan.json')) as {
+    requestedDiagnostics: {
+      required: string[];
+      optional: string[];
+    };
+  };
+  const manifest = readJson(path.join(stdout.trim(), 'manifest.json'));
+  const diagnostics = (manifest.artifacts as {
+    diagnostics: Array<{ kind: string; required: boolean; requested: boolean }>;
+  }).diagnostics;
+  const diagnosticsByKind = new Map(diagnostics.map((entry) => [entry.kind, entry]));
+  assert.deepEqual(runPlan.requestedDiagnostics, {
+    required: ['accessibility', 'logs', 'signals', 'uiTree', 'video'],
+    optional: ['network', 'screenshot'],
+  });
+  assert.equal(runPlan.requestedDiagnostics.required.includes('signals'), true);
+
+  for (const kind of runPlan.requestedDiagnostics.required.filter((entry: string) => entry !== 'signals')) {
+    const diagnostic = diagnosticsByKind.get(kind);
+    assert.equal(diagnostic?.requested, true);
+    assert.equal(diagnostic?.required, true);
+  }
+
+  for (const kind of runPlan.requestedDiagnostics.optional) {
+    const diagnostic = diagnosticsByKind.get(kind);
+    assert.equal(diagnostic?.requested, true);
+    assert.equal(diagnostic?.required, false);
+  }
+});
+
+test('profile-android rejects non-evidence provider manifests before run-plan publication', async (t: TestContext) => {
+  const artifactRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-android-provider-kind-invalid-'));
+  const providerRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-provider-kind-invalid-'));
+  t.after(async () => {
+    await fsp.rm(artifactRoot, { recursive: true, force: true });
+    await fsp.rm(providerRoot, { recursive: true, force: true });
+  });
+  const providerManifestPath = path.join(providerRoot, 'provider.json');
+  await fsp.writeFile(
+    providerManifestPath,
+    `${JSON.stringify({
+      schemaVersion: '1.0.0',
+      runnerId: 'wrong-kind-provider',
+      kind: 'primary',
+      platforms: ['android'],
+      capabilities: ['logCapture'],
+      lifecycle: ['capture'],
+    }, null, 2)}\n`,
+    'utf8',
+  );
+
+  await assert.rejects(
+    execFileAsync(process.execPath, [
+      PROFILE_ANDROID,
+      '--config',
+      fixturePath('examples/mobile-app/asl.config.json'),
+      '--scenario',
+      fixturePath('examples/mobile-app/scenarios/android/app-startup.json'),
+      '--events',
+      fixturePath('examples/mobile-app/event-logs/android-app-startup.log'),
+      '--provider',
+      providerManifestPath,
+      '--out',
+      artifactRoot,
+      '--run-id',
+      'android-provider-kind-invalid',
+    ]),
+    /Provider manifest must use kind "evidenceProvider"/u,
+  );
+
+  const runPlanPath = path.join(
+    artifactRoot,
+    'app-startup',
+    'android-provider-kind-invalid',
+    'run-plan.json',
+  );
+  assert.equal(fs.existsSync(runPlanPath), false);
+});
+
 test('profile-android classifies preserved native provider evidence as diagnostic-only when accessibility fails', async (t: TestContext) => {
   const artifactRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-android-provider-partial-'));
   const providerRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-android-provider-partial-'));
@@ -2432,7 +2615,7 @@ test('profile-android writes failed health when an evidence provider command fai
 
   assert.equal(runPlan.inputMode, 'fixture-event-log');
   assert.deepEqual(runPlan.providers, [{ path: 'provider.json' }]);
-  assert.deepEqual(runPlan.requestedDiagnostics, { required: [], optional: [] });
+  assert.deepEqual(runPlan.requestedDiagnostics, { required: [], optional: ['accessibility'] });
   assert.equal(health.healthStatus, 'failed');
   assert.equal(verdict.verdictStatus, 'inconclusive');
   assert.equal(commandRecord.exitCode, 7);
