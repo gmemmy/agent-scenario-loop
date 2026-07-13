@@ -94,6 +94,16 @@ type NativePerformanceComparabilityOverride = {
 
 type NativePerformanceCompletenessStatus = 'complete' | 'failed' | 'partial' | 'truncated' | 'unknown';
 
+type NativePerformanceCaptureMode = 'afterCapture' | 'inline' | 'passive-report' | 'postRun' | 'rehydrated' | 'session' | 'unknown';
+
+type NativePerformanceLifecycleOverride = {
+  durationMs?: number;
+  endedAt?: string;
+  perturbsTiming: boolean;
+  phase: 'activeLoop' | 'afterCapture' | 'beforeRun' | 'postRun' | 'rehydrated' | 'unknown';
+  startedAt?: string;
+};
+
 type NativePerformanceComparisonEvidenceGap =
   | 'artifact-identity'
   | 'bounded-capture-window'
@@ -259,6 +269,7 @@ type IosNativePerformanceEvidenceInput = {
   appId?: string;
   attachments?: NativePerformanceAttachment[];
   bundleId?: string;
+  captureMode?: NativePerformanceCaptureMode;
   capturedAt?: string;
   claimSufficiency?: NativePerformanceClaimSufficiencyOverride;
   comparability?: NativePerformanceComparabilityOverride;
@@ -266,6 +277,7 @@ type IosNativePerformanceEvidenceInput = {
   deviceId?: string;
   diagnosticSources?: NativePerformanceDiagnosticSourceOverride[];
   instrumentsSummary?: IosNativePerformanceSummaryInput;
+  lifecycle?: NativePerformanceLifecycleOverride;
   metricKitSummary?: IosNativePerformanceSummaryInput;
   providerId: string;
   runId: string;
@@ -2259,17 +2271,19 @@ function buildIosNativePerformanceEvidence(input: IosNativePerformanceEvidenceIn
       command: buildIosToolCommand(toolCommands),
     },
     capturedAt: input.capturedAt ?? new Date(0).toISOString(),
-    captureMode: 'afterCapture',
+    captureMode: input.captureMode ?? 'afterCapture',
     clockDomain: 'host',
     completenessStatus: input.completenessStatus ?? (hasDiagnosticEvidence ? 'partial' : 'unknown'),
     comparability: buildIosComparability(input.comparability),
     dataClasses,
     diagnosticSources,
     evidenceKind: resolveIosEvidenceKind(sourceSummaries, Boolean(nativeTracePath)),
-    lifecycle: {
-      phase: 'afterCapture',
-      perturbsTiming: false,
-    },
+    lifecycle: input.lifecycle
+      ? { ...input.lifecycle }
+      : {
+          phase: 'afterCapture',
+          perturbsTiming: false,
+        },
     targetBinding: buildIosTargetBinding(input),
     claimSufficiency: buildIosClaimSufficiency(supportingEvidence, input.claimSufficiency),
     summary: summarizeIosNativePerformanceEvidence(supportingEvidence),
@@ -2424,6 +2438,7 @@ export type {
   NativePerformanceAttachment,
   NativePerformanceClaimSufficiencyOverride,
   NativePerformanceClaimSufficiencyStatus,
+  NativePerformanceCaptureMode,
   NativePerformanceComparisonContext,
   NativePerformanceComparisonEvidenceGap,
   NativePerformanceComparisonReadiness,
@@ -2433,6 +2448,7 @@ export type {
   NativePerformanceDiagnosticSourceId,
   NativePerformanceDiagnosticSourceOverride,
   NativePerformanceDiagnosticSourceStatus,
+  NativePerformanceLifecycleOverride,
   NativePerformanceTargetBindingOverride,
   NativePerformanceTargetBindingStatus,
   NativePerformanceTargetCandidate,

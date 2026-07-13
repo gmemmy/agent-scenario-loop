@@ -69,7 +69,17 @@ ASL_PROFILE_ANDROID_EVENTS=event-logs/{{SCENARIO_ID}}-android.log \
 pnpm asl:profile:android:provider
 ```
 
-Set `ASL_ADB_PATH` when `adb` is not on `PATH`, and use `ASL_NATIVE_PERFORMANCE_COMMAND_TIMEOUT_MS` only when the default 10-second per-command bound is unsuitable. The provider preserves stdout, stderr, argv, exit status, timeouts, source status, and target-verification evidence under its run folder. It deliberately marks this after-capture evidence `diagnostic-only`, `partial`, and `insufficient-for-claim`: gfxinfo and meminfo summaries do not prove a bounded native measurement window. iOS remains a scaffold/input-ingest path until a provider-owned bounded Instruments, xctrace, MetricKit, or equivalent capture path is added; Android capture alone is not mobile completion.
+On iOS Simulator, the same provider can run bounded `xcrun simctl` target checks plus `xcrun xctrace record/export --toc` after capture:
+
+```bash
+ASL_NATIVE_PERFORMANCE_IOS_CAPTURE=1 \
+ASL_IOS_UDID=<simulator-udid> \
+ASL_IOS_APP_ID=<bundle-id> \
+ASL_PROFILE_IOS_EVENTS=event-logs/{{SCENARIO_ID}}-ios.log \
+pnpm asl:profile:ios:provider
+```
+
+Set `ASL_ADB_PATH` when `adb` is not on `PATH`, set `ASL_XCRUN_PATH` when `xcrun` is not on `PATH`, and use `ASL_NATIVE_PERFORMANCE_COMMAND_TIMEOUT_MS` only when the Android default 10-second per-command bound is unsuitable. iOS capture accepts `ASL_NATIVE_PERFORMANCE_IOS_CAPTURE_DURATION_SECONDS`, `ASL_NATIVE_PERFORMANCE_IOS_XCTRACE_TEMPLATE` (default `Time Profiler`), and `ASL_NATIVE_PERFORMANCE_IOS_COMMAND_TIMEOUT_MS`; its command-timeout default is the requested capture duration plus 30 seconds so xctrace can finalize and save the bundle. The provider preserves stdout, stderr, argv, exit status, timeouts, source status, and target-verification evidence under its run folder, including run-relative TOC, target-binding, and trace-bundle inventory files for `.trace` directory captures. Android and iOS remain diagnostic-only after-capture lanes: they can be complete enough for diagnosis when target/window checks succeed, but they are not sufficient for comparison claims without structured native performance samples and trusted baselines.
 
 When `--wait-ms` is omitted from profile-session live capture, ASL derives the final adb or simctl evidence window from the scenario execution steps and cycle count. Pass `--wait-ms` only when a target app needs an explicit override.
 
@@ -99,8 +109,13 @@ ASL_IOS_UDID=<simulator-udid>
 ASL_ANDROID_APP_ID=<package-name>
 ASL_IOS_APP_ID=<bundle-id>
 ASL_NATIVE_PERFORMANCE_ANDROID_CAPTURE=1
+ASL_NATIVE_PERFORMANCE_IOS_CAPTURE=1
 ASL_NATIVE_PERFORMANCE_COMMAND_TIMEOUT_MS=10000
+ASL_NATIVE_PERFORMANCE_IOS_COMMAND_TIMEOUT_MS=40000
 ASL_ADB_PATH=adb
+ASL_XCRUN_PATH=xcrun
+ASL_NATIVE_PERFORMANCE_IOS_CAPTURE_DURATION_SECONDS=10
+ASL_NATIVE_PERFORMANCE_IOS_XCTRACE_TEMPLATE="Time Profiler"
 ASL_IOS_DEV_CLIENT_URL=<dev-client-url>
 ASL_ARGENT_BIN=pnpm
 ASL_ARGENT_BASE_ARGS="dlx @swmansion/argent run"
