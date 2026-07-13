@@ -425,6 +425,114 @@ test('profile-ios preserves captured provider evidence when another required out
   assert.match(agentSummary, /Next action `use_partial_provider_evidence_for_diagnosis`/u);
 });
 
+test('profile-ios accepts current durable comparison-ready native performance evidence', async (t: TestContext) => {
+  const artifactRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-ios-comparison-ready-'));
+  const providerRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-provider-ios-comparison-ready-'));
+  t.after(async () => {
+    await fsp.rm(artifactRoot, { recursive: true, force: true });
+    await fsp.rm(providerRoot, { recursive: true, force: true });
+  });
+
+  const providerId = 'ios-comparison-ready-provider';
+  const providerScript = path.join(providerRoot, 'write-comparison-evidence.js');
+  await fsp.writeFile(
+    providerScript,
+    [
+      "const fs = require('node:fs');",
+      "const path = require('node:path');",
+      'const [evidencePath, targetPath, runId, scenarioId, targetEvidencePath] = process.argv.slice(2);',
+      'fs.mkdirSync(path.dirname(evidencePath), { recursive: true });',
+      "fs.writeFileSync(targetPath, JSON.stringify({ appId: 'dev.agent-scenario-loop.example', deviceId: 'SIM-123', platform: 'ios' }) + '\\n');",
+      'fs.writeFileSync(evidencePath, JSON.stringify({',
+      "  schemaVersion: '1.0.0',",
+      `  providerId: '${providerId}',`,
+      "  platform: 'ios',",
+      '  runId,',
+      '  scenarioId,',
+      "  tool: { name: 'ios-native-provider' },",
+      "  capturedAt: '2026-07-13T12:00:01.000Z',",
+      "  captureMode: 'session',",
+      "  clockDomain: 'host',",
+      "  completenessStatus: 'complete',",
+      "  comparability: { status: 'comparable', policy: 'release-native-baseline-v1' },",
+      "  claimSufficiency: { status: 'sufficient-for-comparison', supportingEvidence: ['bounded xctrace summary'] },",
+      "  diagnosticSources: [{ sourceId: 'xctrace', status: 'captured', dataClasses: ['frames', 'jank'] }],",
+      "  frames: { frameCount: 120, hitchCount: 2, p95FrameMs: 18 },",
+      "  lifecycle: { phase: 'activeLoop', startedAt: '2026-07-13T12:00:00.000Z', endedAt: '2026-07-13T12:00:01.000Z', durationMs: 1000, perturbsTiming: false },",
+      "  targetBinding: { status: 'verified', appId: 'dev.agent-scenario-loop.example', deviceId: 'SIM-123', source: 'provider-session-status', candidateTargets: [{ bindingStatus: 'observed', platform: 'ios', appId: 'dev.agent-scenario-loop.example', deviceId: 'SIM-123', source: 'provider-session-status', evidencePath: targetEvidencePath }] }",
+      "}) + '\\n');",
+    ].join('\n'),
+    'utf8',
+  );
+  const providerManifestPath = path.join(providerRoot, 'provider.json');
+  await fsp.writeFile(
+    providerManifestPath,
+    `${JSON.stringify({
+      schemaVersion: '1.0.0',
+      runnerId: providerId,
+      kind: 'evidenceProvider',
+      platforms: ['ios'],
+      capabilities: ['nativePerformance'],
+      artifactOutputs: ['nativePerformance'],
+      lifecycle: ['capture'],
+      providerCommands: [
+        {
+          id: 'capture-native-performance',
+          phase: 'capture',
+          command: process.execPath,
+          args: [
+            providerScript,
+            '{providerDir}/native-performance.json',
+            '{providerDir}/target.json',
+            '{runId}',
+            '{scenarioId}',
+            `raw/providers/${providerId}/target.json`,
+          ],
+          outputs: [
+            {
+              channel: 'provider',
+              kind: 'nativePerformance',
+              path: '{providerDir}/native-performance.json',
+              required: true,
+            },
+          ],
+        },
+      ],
+    }, null, 2)}\n`,
+    'utf8',
+  );
+
+  const { stdout } = await execFileAsync(process.execPath, [
+    PROFILE_IOS,
+    '--config',
+    fixturePath('core/config-template.json'),
+    '--scenario',
+    fixturePath('examples/scenarios/ios/app-startup.json'),
+    '--events',
+    fixturePath('examples/event-logs/app-startup-baseline.log'),
+    '--provider',
+    providerManifestPath,
+    '--out',
+    artifactRoot,
+    '--run-id',
+    'demo-baseline',
+  ]);
+
+  const runDir = stdout.trim();
+  const health = readJson(path.join(runDir, 'health.json')) as Record<string, any>;
+  const manifest = readJson(path.join(runDir, 'manifest.json'));
+  const diagnostics = (manifest.artifacts as { diagnostics: Array<Record<string, unknown>> }).diagnostics;
+  const nativePerformanceDiagnostic = diagnostics.find((entry) => entry.kind === 'nativePerformance');
+
+  assert.equal(nativePerformanceDiagnostic?.availability, 'captured');
+  assert.equal(nativePerformanceDiagnostic?.required, true);
+  assert.equal(health.healthStatus, 'passed');
+  assert.equal(
+    (health.checks as Array<{ code: string }>).some((check) => check.code === 'required_diagnostic_not_captured'),
+    false,
+  );
+});
+
 test('profile-ios profiles public scenario ids and milestone budgets', async (t: TestContext) => {
   const tempRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-ios-public-scenario-'));
   t.after(async () => {

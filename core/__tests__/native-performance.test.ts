@@ -4,12 +4,39 @@ const test = require('node:test');
 const {
   buildAndroidNativePerformanceEvidence,
   buildIosNativePerformanceEvidence,
+  classifyNativePerformanceComparisonReadiness,
   parseAndroidFramestatsSummary,
   parseAndroidGfxinfoSummary,
   parseAndroidMeminfoSummary,
   parseIosMetricKitSummaryText,
   parseIosXctraceSummaryText,
 } = require('../native-performance');
+
+function comparisonContext({
+  artifactPath,
+  platform,
+  providerId,
+  runId,
+  scenarioId,
+  targetPath,
+}: {
+  artifactPath: string;
+  platform: 'android' | 'ios';
+  providerId: string;
+  runId: string;
+  scenarioId: string;
+  targetPath: string;
+}) {
+  const durablePaths = new Set([artifactPath, targetPath]);
+  return {
+    artifactPath,
+    evidencePathExists: (runRelativePath: string) => durablePaths.has(runRelativePath),
+    expectedPlatform: platform,
+    expectedProviderId: providerId,
+    expectedRunId: runId,
+    expectedScenarioId: scenarioId,
+  };
+}
 
 test('parses Android gfxinfo headline summary fields', () => {
   const summary = parseAndroidGfxinfoSummary(`
@@ -186,7 +213,7 @@ test('builds iOS native-performance evidence from parsed text summaries', () => 
 
   assert.equal(evidence.evidenceKind, 'mixed');
   assert.equal(evidence.claimSufficiency.status, 'sufficient-for-diagnosis');
-  assert.equal(evidence.targetBinding.status, 'verified');
+  assert.equal(evidence.targetBinding.status, 'unverified');
   assert.equal(evidence.frames.totalFrameCount, 600);
   assert.equal(evidence.frames.hitchCount, 2);
   assert.equal(evidence.frames.p95FrameMs, 36);
@@ -239,7 +266,7 @@ test('builds diagnostic-only Android native-performance evidence from platform s
   assert.deepEqual(evidence.dataClasses, ['frames', 'jank', 'render', 'memory']);
   assert.equal(evidence.comparability.status, 'diagnostic-only');
   assert.equal(evidence.claimSufficiency.status, 'sufficient-for-diagnosis');
-  assert.equal(evidence.targetBinding.status, 'verified');
+  assert.equal(evidence.targetBinding.status, 'unverified');
   assert.deepEqual(
     evidence.diagnosticSources.map((source: { path?: string; sourceId: string; status: string }) => ({
       path: source.path,
@@ -668,9 +695,12 @@ test('rejects Android comparison sufficiency without comparable complete verifie
   );
 });
 
-test('accepts Android comparison sufficiency when completeness, comparability, and target binding are verified', () => {
+test('classifies Android evidence as comparison-ready only with captured source, bounded window, and observed target proof', () => {
+  const artifactPath = 'raw/providers/native-provider/native-performance.json';
+  const targetPath = 'raw/providers/native-provider/android-target.json';
   const evidence = buildAndroidNativePerformanceEvidence({
     appId: 'com.example.app',
+    capturedAt: '2026-07-13T12:00:12.000Z',
     claimSufficiency: {
       status: 'sufficient-for-comparison',
       claim: 'android-native-frame-budget',
@@ -687,12 +717,28 @@ test('accepts Android comparison sufficiency when completeness, comparability, a
     providerId: 'native-provider',
     runId: 'run-android-comparable',
     scenarioId: 'feed-scroll',
+    targetBinding: {
+      status: 'verified',
+      source: 'provider-session-status',
+      candidateTargets: [
+        {
+          appId: 'com.example.app',
+          bindingStatus: 'observed',
+          deviceId: 'emulator-5554',
+          evidencePath: targetPath,
+          platform: 'android',
+          source: 'provider-session-status',
+        },
+      ],
+    },
     traceProcessorSummary: {
       durationMs: 12000,
       frameCount: 100,
       jankyFrameCount: 1,
       p95FrameMs: 18,
       traceId: 'trace-1',
+      windowEndMs: 12000,
+      windowStartMs: 0,
     },
   });
 
@@ -700,6 +746,333 @@ test('accepts Android comparison sufficiency when completeness, comparability, a
   assert.equal(evidence.comparability.status, 'comparable');
   assert.equal(evidence.completenessStatus, 'complete');
   assert.equal(evidence.targetBinding.status, 'verified');
+  assert.equal(evidence.targetBinding.reason, undefined);
+  const context = comparisonContext({
+    artifactPath,
+    platform: 'android',
+    providerId: 'native-provider',
+    runId: 'run-android-comparable',
+    scenarioId: 'feed-scroll',
+    targetPath,
+  });
+  assert.deepEqual(classifyNativePerformanceComparisonReadiness(evidence, context), {
+    missingEvidence: [],
+    status: 'comparison-ready',
+  });
+
+  const mismatchedPlatformEvidence = {
+    ...evidence,
+    targetBinding: {
+      ...evidence.targetBinding,
+      candidateTargets: evidence.targetBinding.candidateTargets.map((candidate: Record<string, unknown>) => ({
+        ...candidate,
+        platform: 'ios',
+      })),
+    },
+  };
+  assert.deepEqual(classifyNativePerformanceComparisonReadiness(mismatchedPlatformEvidence, context), {
+    missingEvidence: ['observed-target-binding'],
+    status: 'diagnostic-only',
+  });
+
+  const mismatchedAppEvidence = {
+    ...evidence,
+    targetBinding: {
+      ...evidence.targetBinding,
+      candidateTargets: evidence.targetBinding.candidateTargets.map((candidate: Record<string, unknown>) => ({
+        ...candidate,
+        appId: 'com.example.other',
+      })),
+    },
+  };
+  assert.deepEqual(classifyNativePerformanceComparisonReadiness(mismatchedAppEvidence, context), {
+    missingEvidence: ['observed-target-binding'],
+    status: 'diagnostic-only',
+  });
+
+  const conflictingTargetEvidence = {
+    ...evidence,
+    targetBinding: {
+      ...evidence.targetBinding,
+      candidateTargets: [
+        ...evidence.targetBinding.candidateTargets,
+        {
+          appId: 'com.example.other',
+          bindingStatus: 'conflicting',
+          deviceId: 'emulator-9999',
+          evidencePath: targetPath,
+          platform: 'android',
+          source: 'provider-session-status',
+        },
+      ],
+    },
+  };
+  assert.deepEqual(classifyNativePerformanceComparisonReadiness(conflictingTargetEvidence, context), {
+    missingEvidence: ['observed-target-binding'],
+    status: 'diagnostic-only',
+  });
+
+  const durableSourcePath = 'raw/providers/native-provider/gfxinfo-summary.json';
+  const durableSourceEvidence = {
+    ...evidence,
+    diagnosticSources: evidence.diagnosticSources.map((source: Record<string, unknown>) => ({
+      ...source,
+      ...(source.status === 'captured' ? { path: durableSourcePath } : {}),
+    })),
+  };
+  assert.deepEqual(classifyNativePerformanceComparisonReadiness(durableSourceEvidence, {
+    ...context,
+    evidencePathExists: (runRelativePath: string) => (
+      runRelativePath === durableSourcePath || runRelativePath === targetPath
+    ),
+  }), {
+    missingEvidence: ['captured-source'],
+    status: 'diagnostic-only',
+  });
+
+  const policyBoundaryCases: Array<{
+    evidence: Record<string, unknown>;
+    expectedGap: string;
+    name: string;
+  }> = [
+    {
+      evidence: { ...evidence, completenessStatus: 'partial' },
+      expectedGap: 'complete-evidence',
+      name: 'partial completeness',
+    },
+    {
+      evidence: { ...evidence, claimSufficiency: { status: 'sufficient-for-comparison', supportingEvidence: [] } },
+      expectedGap: 'comparison-claim',
+      name: 'unsupported comparison claim',
+    },
+    {
+      evidence: { ...evidence, comparability: { status: 'comparable' } },
+      expectedGap: 'comparable-policy',
+      name: 'missing comparable policy',
+    },
+    {
+      evidence: { ...evidence, capturedAt: '1970-01-01T00:00:00.000Z' },
+      expectedGap: 'capture-timestamp',
+      name: 'placeholder capture timestamp',
+    },
+    {
+      evidence: { ...evidence, clockDomain: '' },
+      expectedGap: 'clock-domain',
+      name: 'missing clock domain',
+    },
+    {
+      evidence: {
+        ...evidence,
+        events: [{ timestampMs: 1 }],
+        frames: undefined,
+        memory: undefined,
+        metrics: undefined,
+      },
+      expectedGap: 'measurable-samples',
+      name: 'event timestamp metadata without performance samples',
+    },
+    {
+      evidence: {
+        ...evidence,
+        events: undefined,
+        frames: { timestampMs: 1 },
+        memory: undefined,
+        metrics: undefined,
+      },
+      expectedGap: 'measurable-samples',
+      name: 'frame timestamp metadata without performance samples',
+    },
+    {
+      evidence: {
+        ...evidence,
+        events: undefined,
+        frames: undefined,
+        memory: { timestampMs: 1 },
+        metrics: undefined,
+      },
+      expectedGap: 'measurable-samples',
+      name: 'memory timestamp metadata without performance samples',
+    },
+    {
+      evidence: {
+        ...evidence,
+        events: undefined,
+        frames: undefined,
+        memory: undefined,
+        metrics: { timestampMs: 1 },
+      },
+      expectedGap: 'measurable-samples',
+      name: 'metric timestamp metadata without performance samples',
+    },
+    {
+      evidence: {
+        ...evidence,
+        traces: evidence.traces.map((trace: Record<string, unknown>) => ({
+          ...trace,
+          durationMs: 1000,
+        })),
+      },
+      expectedGap: 'bounded-capture-window',
+      name: 'inconsistent trace duration',
+    },
+  ];
+  for (const policyCase of policyBoundaryCases) {
+    const readiness = classifyNativePerformanceComparisonReadiness(policyCase.evidence, context);
+    assert.equal(readiness.status, 'diagnostic-only', policyCase.name);
+    assert.ok(readiness.missingEvidence.includes(policyCase.expectedGap), policyCase.name);
+  }
+
+  const wrongRunReadiness = classifyNativePerformanceComparisonReadiness(evidence, {
+    ...context,
+    expectedRunId: 'another-run',
+  });
+  assert.deepEqual(wrongRunReadiness, {
+    missingEvidence: ['artifact-identity'],
+    status: 'diagnostic-only',
+  });
+
+  const missingFilesReadiness = classifyNativePerformanceComparisonReadiness(evidence, {
+    ...context,
+    evidencePathExists: () => false,
+  });
+  assert.deepEqual(missingFilesReadiness, {
+    missingEvidence: ['captured-source', 'observed-target-binding'],
+    status: 'diagnostic-only',
+  });
+});
+
+test('downgrades self-attested comparison evidence without durable source, window, or observed target proof', () => {
+  const evidence = {
+    capturedAt: '2026-07-13T12:00:12.000Z',
+    clockDomain: 'host',
+    claimSufficiency: {
+      status: 'sufficient-for-comparison',
+      supportingEvidence: ['provider summary'],
+    },
+    comparability: {
+      status: 'comparable',
+      policy: 'same declared cohort',
+    },
+    completenessStatus: 'complete',
+    diagnosticSources: [
+      {
+        path: '/tmp/provider-summary.txt',
+        sourceId: 'diagnostic-summary',
+        status: 'captured',
+      },
+    ],
+    platform: 'android',
+    providerId: 'native-provider',
+    runId: 'run-self-attested',
+    scenarioId: 'feed-scroll',
+    summary: 'Provider declared the evidence comparison-ready.',
+    targetBinding: {
+      appId: 'com.example.app',
+      deviceId: 'emulator-5554',
+      source: 'provider',
+      status: 'verified',
+    },
+  };
+  const context = comparisonContext({
+    artifactPath: 'raw/providers/native-provider/native-performance.json',
+    platform: 'android',
+    providerId: 'native-provider',
+    runId: 'run-self-attested',
+    scenarioId: 'feed-scroll',
+    targetPath: 'raw/providers/native-provider/target.json',
+  });
+  const readiness = classifyNativePerformanceComparisonReadiness(evidence, {
+    ...context,
+    evidencePathExists: () => false,
+  });
+
+  assert.deepEqual(readiness, {
+    missingEvidence: ['captured-source', 'measurable-samples', 'bounded-capture-window', 'observed-target-binding'],
+    status: 'diagnostic-only',
+  });
+});
+
+test('requires every caller-owned native-performance identity expectation', () => {
+  const artifactPath = 'raw/providers/native-provider/native-performance.json';
+  const targetPath = 'raw/providers/native-provider/target.json';
+  const context = comparisonContext({
+    artifactPath,
+    platform: 'android',
+    providerId: 'native-provider',
+    runId: 'run-identity',
+    scenarioId: 'feed-scroll',
+    targetPath,
+  });
+  const evidence = {
+    capturedAt: '2026-07-13T12:00:12.000Z',
+    clockDomain: 'host',
+    claimSufficiency: {
+      status: 'sufficient-for-comparison',
+      supportingEvidence: ['provider summary'],
+    },
+    comparability: {
+      policy: 'same captured cohort',
+      status: 'comparable',
+    },
+    completenessStatus: 'complete',
+    diagnosticSources: [
+      {
+        path: artifactPath,
+        sourceId: 'trace-processor',
+        status: 'captured',
+      },
+    ],
+    frames: {
+      totalFrameCount: 60,
+    },
+    platform: 'android',
+    providerId: 'native-provider',
+    runId: 'run-identity',
+    scenarioId: 'feed-scroll',
+    targetBinding: {
+      appId: 'com.example.app',
+      candidateTargets: [
+        {
+          appId: 'com.example.app',
+          bindingStatus: 'observed',
+          deviceId: 'emulator-5554',
+          evidencePath: targetPath,
+          platform: 'android',
+          source: 'provider-session-status',
+        },
+      ],
+      deviceId: 'emulator-5554',
+      source: 'provider-session-status',
+      status: 'verified',
+    },
+    traces: [
+      {
+        durationMs: 1000,
+        traceId: 'trace-identity',
+        windowEndMs: 1000,
+        windowStartMs: 0,
+      },
+    ],
+  };
+
+  assert.equal(classifyNativePerformanceComparisonReadiness(evidence, context).status, 'comparison-ready');
+  for (const key of [
+    'expectedPlatform',
+    'expectedProviderId',
+    'expectedRunId',
+    'expectedScenarioId',
+  ] as const) {
+    const incompleteContext = { ...context } as Record<string, unknown>;
+    delete incompleteContext[key];
+    const readiness = classifyNativePerformanceComparisonReadiness(evidence, incompleteContext);
+    assert.equal(readiness.status, 'diagnostic-only', key);
+    assert.ok(readiness.missingEvidence.includes('artifact-identity'), key);
+  }
+
+  assert.deepEqual(classifyNativePerformanceComparisonReadiness(evidence, undefined), {
+    missingEvidence: ['artifact-identity', 'captured-source', 'observed-target-binding'],
+    status: 'diagnostic-only',
+  });
 });
 
 test('builds diagnostic-only iOS native-performance evidence from provider summaries', () => {
@@ -747,7 +1120,7 @@ test('builds diagnostic-only iOS native-performance evidence from provider summa
   assert.deepEqual(evidence.dataClasses, ['frames', 'jank', 'render', 'memory', 'cpu', 'thread-scheduling', 'thermal', 'battery', 'native-trace']);
   assert.equal(evidence.comparability.status, 'diagnostic-only');
   assert.equal(evidence.claimSufficiency.status, 'sufficient-for-diagnosis');
-  assert.equal(evidence.targetBinding.status, 'verified');
+  assert.equal(evidence.targetBinding.status, 'unverified');
   assert.equal(evidence.tool.command, 'xctrace / MetricKit');
   assert.deepEqual(
     evidence.diagnosticSources.map((source: { path?: string; sourceId: string; status: string }) => ({
@@ -807,6 +1180,74 @@ test('builds diagnostic-only iOS native-performance evidence from provider summa
       windowStartMs: 0,
     },
   ]);
+});
+
+test('classifies iOS evidence as comparison-ready under the shared native-performance trust gate', () => {
+  const artifactPath = 'raw/providers/native-provider/native-performance.json';
+  const targetPath = 'raw/providers/native-provider/ios-target.json';
+  const evidence = buildIosNativePerformanceEvidence({
+    bundleId: 'com.example.app',
+    capturedAt: '2026-07-13T12:00:12.000Z',
+    claimSufficiency: {
+      status: 'sufficient-for-comparison',
+      claim: 'ios-native-frame-budget',
+      reason: 'Provider captured a complete comparable xctrace window against the observed target.',
+      supportingEvidence: ['bounded xctrace summary'],
+    },
+    comparability: {
+      status: 'comparable',
+      reason: 'The provider used the release-gated iOS baseline policy.',
+      policy: 'release-native-baseline-v1',
+    },
+    completenessStatus: 'complete',
+    deviceId: 'SIM-123',
+    providerId: 'native-provider',
+    runId: 'run-ios-comparable',
+    scenarioId: 'feed-scroll',
+    targetBinding: {
+      status: 'verified',
+      source: 'provider-session-status',
+      candidateTargets: [
+        {
+          appId: 'com.example.app',
+          bindingStatus: 'observed',
+          deviceId: 'SIM-123',
+          evidencePath: targetPath,
+          platform: 'ios',
+          source: 'provider-session-status',
+        },
+      ],
+    },
+    xctraceSummary: {
+      durationMs: 12000,
+      frameCount: 720,
+      p95FrameMs: 20,
+      traceId: 'ios-trace-1',
+      windowEndMs: 12000,
+      windowStartMs: 0,
+    },
+  });
+
+  const context = comparisonContext({
+    artifactPath,
+    platform: 'ios',
+    providerId: 'native-provider',
+    runId: 'run-ios-comparable',
+    scenarioId: 'feed-scroll',
+    targetPath,
+  });
+  assert.deepEqual(classifyNativePerformanceComparisonReadiness(evidence, context), {
+    missingEvidence: [],
+    status: 'comparison-ready',
+  });
+
+  assert.deepEqual(classifyNativePerformanceComparisonReadiness(evidence, {
+    ...context,
+    expectedPlatform: 'android',
+  }), {
+    missingEvidence: ['artifact-identity'],
+    status: 'diagnostic-only',
+  });
 });
 
 test('builds iOS native-performance evidence from a raw native trace attachment', () => {
