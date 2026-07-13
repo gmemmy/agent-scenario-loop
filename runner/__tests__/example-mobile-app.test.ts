@@ -535,7 +535,7 @@ test('example mobile app provider manifest writes stable evidence attachments', 
       ]);
     } else {
       assert.equal(nativePerformanceEvidence.claimSufficiency?.status, 'sufficient-for-diagnosis');
-      assert.equal(nativePerformanceEvidence.targetBinding?.status, 'verified');
+      assert.equal(nativePerformanceEvidence.targetBinding?.status, 'unverified');
       assert.deepEqual(nativePerformanceEvidence.dataClasses, ['frames', 'jank', 'render', 'memory', 'cpu', 'thread-scheduling', 'thermal', 'battery', 'native-trace']);
       assert.deepEqual(nativePerformanceEvidence.frames, {
         hitchCount: 2,

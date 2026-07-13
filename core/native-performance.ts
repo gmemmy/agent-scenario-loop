@@ -94,6 +94,37 @@ type NativePerformanceComparabilityOverride = {
 
 type NativePerformanceCompletenessStatus = 'complete' | 'failed' | 'partial' | 'truncated' | 'unknown';
 
+type NativePerformanceComparisonEvidenceGap =
+  | 'artifact-identity'
+  | 'bounded-capture-window'
+  | 'capture-timestamp'
+  | 'captured-source'
+  | 'clock-domain'
+  | 'comparable-policy'
+  | 'comparison-claim'
+  | 'complete-evidence'
+  | 'measurable-samples'
+  | 'observed-target-binding';
+
+type NativePerformanceComparisonContext = {
+  artifactPath: string;
+  evidencePathExists: (runRelativePath: string) => boolean;
+  expectedPlatform: 'android' | 'ios';
+  expectedProviderId: string;
+  expectedRunId: string;
+  expectedScenarioId: string;
+};
+
+type NativePerformanceComparisonReadiness =
+  | {
+      missingEvidence: [];
+      status: 'comparison-ready';
+    }
+  | {
+      missingEvidence: NativePerformanceComparisonEvidenceGap[];
+      status: 'diagnostic-only';
+    };
+
 type NativePerformanceTargetBindingStatus = 'ambiguous' | 'mismatch' | 'unknown' | 'unverified' | 'verified';
 
 type NativePerformanceTargetCandidate = {
@@ -259,6 +290,62 @@ type IosNativePerformanceSourceSummary = {
 };
 
 type IosNativePerformanceEvidenceSource = IosNativePerformanceSourceSummary['sourceId'] | 'native-trace';
+
+const NATIVE_PERFORMANCE_SAMPLE_KEYS = new Set([
+  'activities',
+  'averageFrameMs',
+  'batteryImpact',
+  'cpuMs',
+  'cpuPercent',
+  'droppedFrameCount',
+  'droppedFramePercent',
+  'expectedFrameCount',
+  'flaggedFrameCount',
+  'frameCount',
+  'frameDeadlineMissed',
+  'frameDurationMs',
+  'frameHitchCount',
+  'gpuMs',
+  'gpuPercent',
+  'hitchCount',
+  'ioReadBytes',
+  'ioWriteBytes',
+  'janky',
+  'jankyFrameCount',
+  'jankyPercent',
+  'mainThreadCpuMs',
+  'memoryPeakBytes',
+  'missedDeadlineFrameCount',
+  'missedVsync',
+  'nativeHeapAllocKb',
+  'nativeHeapPssKb',
+  'networkReceivedBytes',
+  'networkSentBytes',
+  'p50FrameMs',
+  'p50Ms',
+  'p90FrameMs',
+  'p90Ms',
+  'p95FrameMs',
+  'p95Ms',
+  'p99FrameMs',
+  'p99Ms',
+  'peakResidentMemoryKb',
+  'physicalFootprintBytes',
+  'renderDurationMs',
+  'renderThreadCpuMs',
+  'residentSizeBytes',
+  'slowBitmapUploads',
+  'slowFrameCount',
+  'slowIssueDrawCommands',
+  'slowUiThread',
+  'threadSchedulingDelayMs',
+  'total',
+  'totalFrameCount',
+  'totalPssKb',
+  'views',
+  'webViews',
+  'worstFrameMs',
+]);
 
 /**
  * Reads an integer token that may contain thousands separators.
@@ -988,6 +1075,371 @@ function copyStringList(values: string[] | undefined): string[] | undefined {
 }
 
 /**
+ * Narrows unknown JSON input to an object record.
+ *
+ * @param {unknown} value
+ * @returns {JsonRecord | null}
+ */
+function readJsonRecord(value: unknown): JsonRecord | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as JsonRecord
+    : null;
+}
+
+/**
+ * Returns true when an evidence path is run-relative and cannot traverse out of the run.
+ *
+ * @param {unknown} value
+ * @returns {value is string}
+ */
+function isRunRelativeEvidencePath(value: unknown): value is string {
+  if (!isNonEmptyString(value)) {
+    return false;
+  }
+
+  const normalized = value.trim();
+  if (
+    normalized.startsWith('/') ||
+    normalized.startsWith('\\\\') ||
+    /^[A-Za-z]:[\\/]/u.test(normalized)
+  ) {
+    return false;
+  }
+
+  return !normalized.split(/[\\/]/u).includes('..');
+}
+
+/**
+ * Resolves a run-relative evidence claim through the caller-owned artifact boundary.
+ *
+ * @param {unknown} value
+ * @param {NativePerformanceComparisonContext} context
+ * @returns {boolean}
+ */
+function isDurableEvidencePath(
+  value: unknown,
+  context: Partial<NativePerformanceComparisonContext>,
+): boolean {
+  if (!isRunRelativeEvidencePath(value) || typeof context.evidencePathExists !== 'function') {
+    return false;
+  }
+
+  try {
+    return context.evidencePathExists(value);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Returns true for a real capture timestamp rather than the helper's epoch placeholder.
+ *
+ * @param {unknown} value
+ * @returns {boolean}
+ */
+function hasCaptureTimestamp(value: unknown): boolean {
+  if (!isNonEmptyString(value)) {
+    return false;
+  }
+
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) && timestamp > 0;
+}
+
+/**
+ * Returns true when the evidence envelope contains structured native-performance output.
+ *
+ * @param {JsonRecord} evidence
+ * @returns {boolean}
+ */
+function hasStructuredNativePerformanceContent(evidence: JsonRecord): boolean {
+  for (const key of ['frames', 'memory', 'metrics']) {
+    const content = readJsonRecord(evidence[key]);
+    if (content && hasFields(content)) {
+      return true;
+    }
+  }
+
+  return ['events', 'traces'].some((key) => Array.isArray(evidence[key]) && evidence[key].length > 0);
+}
+
+/**
+ * Returns true when the envelope contains at least one finite native-performance sample.
+ * Capture-window metadata alone is not a performance sample.
+ *
+ * @param {JsonRecord} evidence
+ * @returns {boolean}
+ */
+function hasMeasurableNativePerformanceSamples(evidence: JsonRecord): boolean {
+  const hasFiniteNativePerformanceMetric = (value: unknown): boolean => {
+    const record = readJsonRecord(value);
+    if (!record) {
+      return false;
+    }
+
+    return Object.entries(record).some(
+      ([key, entry]) => (
+        NATIVE_PERFORMANCE_SAMPLE_KEYS.has(key) &&
+        typeof entry === 'number' &&
+        Number.isFinite(entry)
+      ),
+    );
+  };
+
+  if (['frames', 'memory', 'metrics'].some((key) => hasFiniteNativePerformanceMetric(evidence[key]))) {
+    return true;
+  }
+
+  return Array.isArray(evidence.events) && evidence.events.some(
+    (event) => hasFiniteNativePerformanceMetric(event),
+  );
+}
+
+/**
+ * Returns true when at least one source is captured and backed by durable or structured output.
+ *
+ * @param {JsonRecord} evidence
+ * @param {NativePerformanceComparisonContext} context
+ * @returns {boolean}
+ */
+function hasCapturedNativePerformanceSource(
+  evidence: JsonRecord,
+  context: Partial<NativePerformanceComparisonContext>,
+): boolean {
+  if (
+    !isDurableEvidencePath(context.artifactPath, context) ||
+    !Array.isArray(evidence.diagnosticSources)
+  ) {
+    return false;
+  }
+
+  const hasDurableStructuredContent = hasStructuredNativePerformanceContent(evidence);
+  return evidence.diagnosticSources.some((source) => {
+    const sourceRecord = readJsonRecord(source);
+    return sourceRecord?.status === 'captured' &&
+      (isDurableEvidencePath(sourceRecord.path, context) || hasDurableStructuredContent);
+  });
+}
+
+/**
+ * Returns true when the envelope identity matches every caller-owned run expectation.
+ *
+ * @param {JsonRecord} evidence
+ * @param {NativePerformanceComparisonContext} context
+ * @returns {boolean}
+ */
+function hasExpectedNativePerformanceIdentity(
+  evidence: JsonRecord,
+  context: Partial<NativePerformanceComparisonContext>,
+): boolean {
+  return (context.expectedPlatform === 'android' || context.expectedPlatform === 'ios') &&
+    isNonEmptyString(context.expectedProviderId) &&
+    isNonEmptyString(context.expectedRunId) &&
+    isNonEmptyString(context.expectedScenarioId) &&
+    evidence.platform === context.expectedPlatform &&
+    evidence.providerId === context.expectedProviderId &&
+    evidence.runId === context.expectedRunId &&
+    evidence.scenarioId === context.expectedScenarioId;
+}
+
+/**
+ * Allows small clock rounding while rejecting contradictory duration metadata.
+ *
+ * @param {number} durationMs
+ * @param {number} elapsedMs
+ * @returns {boolean}
+ */
+function hasConsistentDuration(durationMs: number, elapsedMs: number): boolean {
+  const toleranceMs = Math.max(1, elapsedMs * 0.01);
+  return Math.abs(durationMs - elapsedMs) <= toleranceMs;
+}
+
+/**
+ * Returns true when lifecycle metadata describes a positive bounded wall-clock window.
+ *
+ * @param {unknown} value
+ * @returns {boolean}
+ */
+function hasBoundedLifecycleWindow(value: unknown): boolean {
+  const lifecycle = readJsonRecord(value);
+  if (!lifecycle || !isNonEmptyString(lifecycle.startedAt) || !isNonEmptyString(lifecycle.endedAt)) {
+    return false;
+  }
+
+  const startedAt = Date.parse(lifecycle.startedAt);
+  const endedAt = Date.parse(lifecycle.endedAt);
+  return Number.isFinite(startedAt) &&
+    Number.isFinite(endedAt) &&
+    endedAt > startedAt &&
+    typeof lifecycle.durationMs === 'number' &&
+    Number.isFinite(lifecycle.durationMs) &&
+    lifecycle.durationMs > 0 &&
+    hasConsistentDuration(lifecycle.durationMs, endedAt - startedAt);
+}
+
+/**
+ * Returns true when a structured trace carries a positive bounded capture window.
+ *
+ * @param {unknown} value
+ * @returns {boolean}
+ */
+function hasBoundedTraceWindow(value: unknown): boolean {
+  if (!Array.isArray(value)) {
+    return false;
+  }
+
+  return value.some((trace) => {
+    const traceRecord = readJsonRecord(trace);
+    if (!traceRecord) {
+      return false;
+    }
+
+    const windowStartMs = traceRecord.windowStartMs;
+    const windowEndMs = traceRecord.windowEndMs;
+    const durationMs = traceRecord.durationMs;
+    return typeof windowStartMs === 'number' &&
+      Number.isFinite(windowStartMs) &&
+      typeof windowEndMs === 'number' &&
+      Number.isFinite(windowEndMs) &&
+      windowEndMs > windowStartMs &&
+      typeof durationMs === 'number' &&
+      Number.isFinite(durationMs) &&
+      durationMs > 0 &&
+      hasConsistentDuration(durationMs, windowEndMs - windowStartMs);
+  });
+}
+
+/**
+ * Returns true when the provider preserved observed target proof matching the declared binding.
+ *
+ * @param {unknown} value
+ * @param {unknown} platform
+ * @param {NativePerformanceComparisonContext} context
+ * @returns {boolean}
+ */
+function hasObservedTargetBinding(
+  value: unknown,
+  platform: unknown,
+  context: Partial<NativePerformanceComparisonContext>,
+): boolean {
+  const targetBinding = readJsonRecord(value);
+  if (
+    (platform !== 'android' && platform !== 'ios') ||
+    targetBinding?.status !== 'verified' ||
+    !isNonEmptyString(targetBinding.appId) ||
+    !isNonEmptyString(targetBinding.deviceId) ||
+    !isNonEmptyString(targetBinding.source) ||
+    !Array.isArray(targetBinding.candidateTargets)
+  ) {
+    return false;
+  }
+
+  let hasMatchingObservedTarget = false;
+  for (const candidate of targetBinding.candidateTargets) {
+    const candidateRecord = readJsonRecord(candidate);
+    if (!candidateRecord) {
+      return false;
+    }
+
+    if (
+      candidateRecord.bindingStatus === 'conflicting' ||
+      candidateRecord.bindingStatus === 'unknown' ||
+      candidateRecord.bindingStatus === 'unverified'
+    ) {
+      return false;
+    }
+
+    const candidateIdentityMatches =
+      (candidateRecord.platform === undefined || candidateRecord.platform === platform) &&
+      (candidateRecord.appId === undefined || candidateRecord.appId === targetBinding.appId) &&
+      (candidateRecord.deviceId === undefined || candidateRecord.deviceId === targetBinding.deviceId);
+    if (!candidateIdentityMatches) {
+      return false;
+    }
+
+    if (candidateRecord.bindingStatus === 'observed') {
+      if (
+        candidateRecord.platform !== platform ||
+        candidateRecord.appId !== targetBinding.appId ||
+        candidateRecord.deviceId !== targetBinding.deviceId ||
+        !isDurableEvidencePath(candidateRecord.evidencePath, context)
+      ) {
+        return false;
+      }
+      hasMatchingObservedTarget = true;
+    }
+  }
+
+  return hasMatchingObservedTarget;
+}
+
+/**
+ * Classifies whether native-performance evidence can support comparison claims.
+ * Structurally valid evidence that lacks semantic proof remains diagnostic-only.
+ *
+ * @param {unknown} value
+ * @param {NativePerformanceComparisonContext} context
+ * @returns {NativePerformanceComparisonReadiness}
+ */
+function classifyNativePerformanceComparisonReadiness(
+  value: unknown,
+  context: NativePerformanceComparisonContext | undefined,
+): NativePerformanceComparisonReadiness {
+  const evidence = readJsonRecord(value) ?? {};
+  const comparisonContext: Partial<NativePerformanceComparisonContext> = context ?? {};
+  const missingEvidence: NativePerformanceComparisonEvidenceGap[] = [];
+  const claimSufficiency = readJsonRecord(evidence.claimSufficiency);
+  const comparability = readJsonRecord(evidence.comparability);
+
+  if (evidence.completenessStatus !== 'complete') {
+    missingEvidence.push('complete-evidence');
+  }
+  if (!hasExpectedNativePerformanceIdentity(evidence, comparisonContext)) {
+    missingEvidence.push('artifact-identity');
+  }
+  if (
+    claimSufficiency?.status !== 'sufficient-for-comparison' ||
+    !Array.isArray(claimSufficiency.supportingEvidence) ||
+    !claimSufficiency.supportingEvidence.some(isNonEmptyString)
+  ) {
+    missingEvidence.push('comparison-claim');
+  }
+  if (comparability?.status !== 'comparable' || !isNonEmptyString(comparability.policy)) {
+    missingEvidence.push('comparable-policy');
+  }
+  if (!hasCaptureTimestamp(evidence.capturedAt)) {
+    missingEvidence.push('capture-timestamp');
+  }
+  if (!isNonEmptyString(evidence.clockDomain)) {
+    missingEvidence.push('clock-domain');
+  }
+  if (!hasCapturedNativePerformanceSource(evidence, comparisonContext)) {
+    missingEvidence.push('captured-source');
+  }
+  if (!hasMeasurableNativePerformanceSamples(evidence)) {
+    missingEvidence.push('measurable-samples');
+  }
+  if (!hasBoundedLifecycleWindow(evidence.lifecycle) && !hasBoundedTraceWindow(evidence.traces)) {
+    missingEvidence.push('bounded-capture-window');
+  }
+  if (!hasObservedTargetBinding(evidence.targetBinding, evidence.platform, comparisonContext)) {
+    missingEvidence.push('observed-target-binding');
+  }
+
+  if (missingEvidence.length > 0) {
+    return {
+      missingEvidence,
+      status: 'diagnostic-only',
+    };
+  }
+
+  return {
+    missingEvidence: [],
+    status: 'comparison-ready',
+  };
+}
+
+/**
  * Applies an explicit provider claim-sufficiency classification to the helper default.
  *
  * @param {Record<string, unknown>} defaultClaimSufficiency
@@ -1061,7 +1513,11 @@ function applyTargetBindingOverride(
   setDefined(targetBinding, 'bundleId', override.bundleId);
   setDefined(targetBinding, 'deviceId', override.deviceId);
   setDefined(targetBinding, 'source', override.source);
-  setDefined(targetBinding, 'reason', override.reason);
+  if (isNonEmptyString(override.reason)) {
+    targetBinding.reason = override.reason;
+  } else if (override.status !== defaultTargetBinding.status) {
+    delete targetBinding.reason;
+  }
   if (Array.isArray(override.candidateTargets) && override.candidateTargets.length > 0) {
     targetBinding.candidateTargets = override.candidateTargets.map((candidate) => ({ ...candidate }));
   }
@@ -1263,12 +1719,12 @@ function buildAndroidToolCommand(commands: string[]): string {
  * @returns {Record<string, unknown>}
  */
 function buildAndroidTargetBinding(input: AndroidNativePerformanceEvidenceInput): JsonRecord {
-  const targetBinding: JsonRecord = {};
+  const targetBinding: JsonRecord = {
+    status: 'unverified',
+  };
   if (input.appId && input.deviceId) {
-    targetBinding.status = 'verified';
-    targetBinding.reason = 'Provider supplied both Android package id and device id for this evidence envelope.';
+    targetBinding.reason = 'Provider supplied Android package and device ids, but did not attach observed matching target proof.';
   } else {
-    targetBinding.status = 'unverified';
     targetBinding.reason = 'Provider did not supply both Android package id and device id.';
   }
   setDefined(targetBinding, 'appId', input.appId);
@@ -1697,13 +2153,13 @@ function buildIosToolCommands(summaries: IosNativePerformanceSourceSummary[]): s
  * @returns {JsonRecord}
  */
 function buildIosTargetBinding(input: IosNativePerformanceEvidenceInput): JsonRecord {
-  const targetBinding: JsonRecord = {};
+  const targetBinding: JsonRecord = {
+    status: 'unverified',
+  };
   const appId = input.appId ?? input.bundleId;
   if (appId && input.deviceId) {
-    targetBinding.status = 'verified';
-    targetBinding.reason = 'Provider supplied both iOS bundle id and device id for this evidence envelope.';
+    targetBinding.reason = 'Provider supplied iOS bundle and device ids, but did not attach observed matching target proof.';
   } else {
-    targetBinding.status = 'unverified';
     targetBinding.reason = 'Provider did not supply both iOS bundle id and device id.';
   }
   setDefined(targetBinding, 'appId', appId);
@@ -1947,6 +2403,7 @@ function buildAndroidNativePerformanceEvidence(input: AndroidNativePerformanceEv
 
 export {
   buildAndroidNativePerformanceEvidence,
+  classifyNativePerformanceComparisonReadiness,
   parseAndroidFramestatsSummary,
   buildIosNativePerformanceEvidence,
   parseAndroidGfxinfoSummary,
@@ -1967,6 +2424,9 @@ export type {
   NativePerformanceAttachment,
   NativePerformanceClaimSufficiencyOverride,
   NativePerformanceClaimSufficiencyStatus,
+  NativePerformanceComparisonContext,
+  NativePerformanceComparisonEvidenceGap,
+  NativePerformanceComparisonReadiness,
   NativePerformanceComparabilityOverride,
   NativePerformanceComparabilityStatus,
   NativePerformanceCompletenessStatus,

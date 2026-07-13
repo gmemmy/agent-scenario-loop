@@ -2176,7 +2176,7 @@ test('profile-android fails health for malformed native performance provider evi
   assert.match(agentSummary, /fix_provider_evidence_output/u);
 });
 
-test('profile-android keeps diagnostic-only native performance from satisfying required diagnostics', async (t: TestContext) => {
+test('profile-android keeps self-attested comparison evidence from satisfying required diagnostics', async (t: TestContext) => {
   const artifactRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-android-provider-required-'));
   const providerRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-provider-required-'));
   t.after(async () => {
@@ -2201,13 +2201,16 @@ test('profile-android keeps diagnostic-only native performance from satisfying r
       "  runId: 'android-provider-required',",
       "  scenarioId: 'app-startup',",
       "  tool: { name: 'adb', command: 'dumpsys gfxinfo' },",
+      "  capturedAt: '2026-07-13T12:00:12.000Z',",
       "  captureMode: 'afterCapture',",
+      "  clockDomain: 'host',",
       "  evidenceKind: 'gfxinfo',",
       "  dataClasses: ['frames', 'jank'],",
       "  completenessStatus: 'complete',",
-      "  targetBinding: { status: 'verified', deviceId: 'emulator-5554', appId: 'dev.agent-scenario-loop.example' },",
-      "  comparability: { status: 'diagnostic-only', reason: 'Provider evidence was captured after the profile loop.' },",
-      "  claimSufficiency: { status: 'sufficient-for-diagnosis', reason: 'Captured for diagnosis, not comparison.' },",
+      "  targetBinding: { status: 'verified', deviceId: 'emulator-5554', appId: 'dev.agent-scenario-loop.example', source: 'provider' },",
+      "  comparability: { status: 'comparable', reason: 'Provider declared the evidence comparable.', policy: 'same-device-declared-cohort' },",
+      "  claimSufficiency: { status: 'sufficient-for-comparison', reason: 'Provider declared comparison sufficiency.', supportingEvidence: ['frames'] },",
+      "  diagnosticSources: [{ sourceId: 'gfxinfo', status: 'captured', dataClasses: ['frames', 'jank'] }],",
       "  frames: { janky: 0 }",
       "}) + '\\n');",
     ].join('\n'),
@@ -2314,6 +2317,392 @@ test('profile-android keeps diagnostic-only native performance from satisfying r
       ),
     ),
   );
+});
+
+test('profile-android accepts current durable comparison-ready native performance evidence', async (t: TestContext) => {
+  const artifactRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-android-comparison-ready-'));
+  const providerRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-provider-android-comparison-ready-'));
+  t.after(async () => {
+    await fsp.rm(artifactRoot, { recursive: true, force: true });
+    await fsp.rm(providerRoot, { recursive: true, force: true });
+  });
+
+  const providerId = 'android-comparison-ready-provider';
+  const externalProviderDirectory = path.join(providerRoot, 'external-provider-directory');
+  const providerScript = path.join(providerRoot, 'write-comparison-evidence.js');
+  await fsp.writeFile(
+    providerScript,
+    [
+      "const fs = require('node:fs');",
+      "const path = require('node:path');",
+      'const [evidencePath, targetPath, runId, scenarioId, targetEvidencePath, targetMode, externalTargetPath, providerDestinationMode, externalProviderDirectory, sampleMode] = process.argv.slice(2);',
+      'const providerDirectory = path.dirname(evidencePath);',
+      "if (providerDestinationMode === 'ancestor-symlink') {",
+      '  fs.rmSync(providerDirectory, { recursive: true, force: true });',
+      '  fs.mkdirSync(externalProviderDirectory, { recursive: true });',
+      "  fs.symlinkSync(externalProviderDirectory, providerDirectory, 'dir');",
+      '} else {',
+      '  fs.mkdirSync(providerDirectory, { recursive: true });',
+      '}',
+      "const targetEvidence = JSON.stringify({ appId: 'dev.agent-scenario-loop.example', deviceId: 'emulator-5554', platform: 'android' }) + '\\n';",
+      "if (targetMode === 'symlink') {",
+      '  fs.writeFileSync(externalTargetPath, targetEvidence);',
+      '  fs.symlinkSync(externalTargetPath, targetPath);',
+      '} else {',
+      '  fs.writeFileSync(targetPath, targetEvidence);',
+      '}',
+      "const frames = sampleMode === 'timestamp-only'",
+      '  ? { timestampMs: 1 }',
+      '  : { total: 120, janky: 2, p95Ms: 18 };',
+      'fs.writeFileSync(evidencePath, JSON.stringify({',
+      "  schemaVersion: '1.0.0',",
+      `  providerId: '${providerId}',`,
+      "  platform: 'android',",
+      '  runId,',
+      '  scenarioId,',
+      "  tool: { name: 'android-native-provider' },",
+      "  capturedAt: '2026-07-13T12:00:01.000Z',",
+      "  captureMode: 'session',",
+      "  clockDomain: 'host',",
+      "  completenessStatus: 'complete',",
+      "  comparability: { status: 'comparable', policy: 'release-native-baseline-v1' },",
+      "  claimSufficiency: { status: 'sufficient-for-comparison', supportingEvidence: ['bounded gfxinfo summary'] },",
+      "  diagnosticSources: [{ sourceId: 'gfxinfo', status: 'captured', dataClasses: ['frames', 'jank'] }],",
+      '  frames,',
+      "  lifecycle: { phase: 'activeLoop', startedAt: '2026-07-13T12:00:00.000Z', endedAt: '2026-07-13T12:00:01.000Z', durationMs: 1000, perturbsTiming: false },",
+      "  targetBinding: { status: 'verified', appId: 'dev.agent-scenario-loop.example', deviceId: 'emulator-5554', source: 'provider-session-status', candidateTargets: [{ bindingStatus: 'observed', platform: 'android', appId: 'dev.agent-scenario-loop.example', deviceId: 'emulator-5554', source: 'provider-session-status', evidencePath: targetEvidencePath }] }",
+      "}) + '\\n');",
+    ].join('\n'),
+    'utf8',
+  );
+  const providerManifestPath = path.join(providerRoot, 'provider.json');
+  await fsp.writeFile(
+    providerManifestPath,
+    `${JSON.stringify({
+      schemaVersion: '1.0.0',
+      runnerId: providerId,
+      kind: 'evidenceProvider',
+      platforms: ['android'],
+      capabilities: ['nativePerformance'],
+      artifactOutputs: ['nativePerformance'],
+      lifecycle: ['capture'],
+      providerCommands: [
+        {
+          id: 'capture-native-performance',
+          phase: 'capture',
+          command: process.execPath,
+          args: [
+            providerScript,
+            '{providerDir}/native-performance.json',
+            '{providerDir}/target.json',
+            '{runId}',
+            '{scenarioId}',
+            `raw/providers/${providerId}/target.json`,
+            'file',
+            path.join(providerRoot, 'external-target.json'),
+            'inside-run',
+            externalProviderDirectory,
+            'performance-samples',
+          ],
+          outputs: [
+            {
+              channel: 'provider',
+              kind: 'nativePerformance',
+              path: '{providerDir}/native-performance.json',
+              required: true,
+            },
+          ],
+        },
+      ],
+    }, null, 2)}\n`,
+    'utf8',
+  );
+
+  const { stdout } = await execFileAsync(process.execPath, [
+    PROFILE_ANDROID,
+    '--config',
+    fixturePath('examples/mobile-app/asl.config.json'),
+    '--scenario',
+    fixturePath('examples/mobile-app/scenarios/android/app-startup.json'),
+    '--events',
+    fixturePath('examples/mobile-app/event-logs/android-app-startup.log'),
+    '--provider',
+    providerManifestPath,
+    '--out',
+    artifactRoot,
+    '--run-id',
+    'android-example-startup',
+  ]);
+
+  const runDir = stdout.trim();
+  const health = readJson(path.join(runDir, 'health.json')) as Record<string, any>;
+  const manifest = readJson(path.join(runDir, 'manifest.json'));
+  const diagnostics = (manifest.artifacts as { diagnostics: TestDiagnosticEntry[] }).diagnostics;
+  const nativePerformanceDiagnostic = diagnostics.find((entry) => entry.kind === 'nativePerformance');
+
+  assert.equal(nativePerformanceDiagnostic?.availability, 'captured');
+  assert.equal(nativePerformanceDiagnostic?.required, true);
+  assert.equal(health.healthStatus, 'passed');
+  assert.equal(
+    (health.checks as Array<{ code: string }>).some((check) => check.code === 'required_diagnostic_not_captured'),
+    false,
+  );
+
+  const staleArtifactRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-android-stale-comparison-'));
+  t.after(async () => {
+    await fsp.rm(staleArtifactRoot, { recursive: true, force: true });
+  });
+  const staleProviderManifest = readJson(providerManifestPath) as Record<string, any>;
+  staleProviderManifest.providerCommands[0].args[3] = 'stale-run';
+  await fsp.writeFile(providerManifestPath, `${JSON.stringify(staleProviderManifest, null, 2)}\n`, 'utf8');
+
+  const { stdout: staleStdout } = await execFileAsync(process.execPath, [
+    PROFILE_ANDROID,
+    '--config',
+    fixturePath('examples/mobile-app/asl.config.json'),
+    '--scenario',
+    fixturePath('examples/mobile-app/scenarios/android/app-startup.json'),
+    '--events',
+    fixturePath('examples/mobile-app/event-logs/android-app-startup.log'),
+    '--provider',
+    providerManifestPath,
+    '--out',
+    staleArtifactRoot,
+    '--run-id',
+    'android-example-startup',
+  ]);
+  const staleRunDir = staleStdout.trim();
+  const staleHealth = readJson(path.join(staleRunDir, 'health.json')) as Record<string, any>;
+  const staleManifest = readJson(path.join(staleRunDir, 'manifest.json'));
+  const staleDiagnostics = (staleManifest.artifacts as { diagnostics: TestDiagnosticEntry[] }).diagnostics;
+  const staleNativePerformanceDiagnostic = staleDiagnostics.find((entry) => entry.kind === 'nativePerformance');
+
+  assert.equal(staleNativePerformanceDiagnostic?.availability, 'captured-diagnostic-only');
+  assert.equal(staleHealth.healthStatus, 'failed');
+
+  const symlinkArtifactRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-android-symlink-comparison-'));
+  t.after(async () => {
+    await fsp.rm(symlinkArtifactRoot, { recursive: true, force: true });
+  });
+  staleProviderManifest.providerCommands[0].args[3] = '{runId}';
+  staleProviderManifest.providerCommands[0].args[6] = 'symlink';
+  await fsp.writeFile(providerManifestPath, `${JSON.stringify(staleProviderManifest, null, 2)}\n`, 'utf8');
+
+  const { stdout: symlinkStdout } = await execFileAsync(process.execPath, [
+    PROFILE_ANDROID,
+    '--config',
+    fixturePath('examples/mobile-app/asl.config.json'),
+    '--scenario',
+    fixturePath('examples/mobile-app/scenarios/android/app-startup.json'),
+    '--events',
+    fixturePath('examples/mobile-app/event-logs/android-app-startup.log'),
+    '--provider',
+    providerManifestPath,
+    '--out',
+    symlinkArtifactRoot,
+    '--run-id',
+    'android-example-startup',
+  ]);
+  const symlinkRunDir = symlinkStdout.trim();
+  const symlinkHealth = readJson(path.join(symlinkRunDir, 'health.json')) as Record<string, any>;
+  const symlinkManifest = readJson(path.join(symlinkRunDir, 'manifest.json'));
+  const symlinkDiagnostics = (symlinkManifest.artifacts as { diagnostics: TestDiagnosticEntry[] }).diagnostics;
+  const symlinkNativePerformanceDiagnostic = symlinkDiagnostics.find((entry) => entry.kind === 'nativePerformance');
+
+  assert.equal(symlinkNativePerformanceDiagnostic?.availability, 'captured-diagnostic-only');
+  assert.equal(symlinkHealth.healthStatus, 'failed');
+
+  const ancestorSymlinkArtifactRoot = await fsp.mkdtemp(
+    path.join(os.tmpdir(), 'asl-profile-android-ancestor-symlink-comparison-'),
+  );
+  t.after(async () => {
+    await fsp.rm(ancestorSymlinkArtifactRoot, { recursive: true, force: true });
+  });
+  staleProviderManifest.providerCommands[0].args[6] = 'file';
+  staleProviderManifest.providerCommands[0].args[8] = 'ancestor-symlink';
+  await fsp.writeFile(providerManifestPath, `${JSON.stringify(staleProviderManifest, null, 2)}\n`, 'utf8');
+
+  const { stdout: ancestorSymlinkStdout } = await execFileAsync(process.execPath, [
+    PROFILE_ANDROID,
+    '--config',
+    fixturePath('examples/mobile-app/asl.config.json'),
+    '--scenario',
+    fixturePath('examples/mobile-app/scenarios/android/app-startup.json'),
+    '--events',
+    fixturePath('examples/mobile-app/event-logs/android-app-startup.log'),
+    '--provider',
+    providerManifestPath,
+    '--out',
+    ancestorSymlinkArtifactRoot,
+    '--run-id',
+    'android-example-startup',
+  ]);
+  const ancestorSymlinkRunDir = ancestorSymlinkStdout.trim();
+  const ancestorSymlinkHealth = readJson(path.join(ancestorSymlinkRunDir, 'health.json')) as Record<string, any>;
+  const escapedProviderDirectory = path.join(ancestorSymlinkRunDir, 'raw', 'providers', providerId);
+
+  assert.equal(fs.lstatSync(escapedProviderDirectory).isSymbolicLink(), true);
+  assert.equal(fs.realpathSync(escapedProviderDirectory), fs.realpathSync(externalProviderDirectory));
+  assert.equal(ancestorSymlinkHealth.healthStatus, 'failed');
+  assert.ok(
+    (ancestorSymlinkHealth.checks as Array<{ code: string }>).some(
+      (check) => check.code === 'provider_evidence_copy_failed',
+    ),
+  );
+  assert.equal(fs.existsSync(path.join(ancestorSymlinkRunDir, 'manifest.json')), false);
+
+  const timestampOnlyArtifactRoot = await fsp.mkdtemp(
+    path.join(os.tmpdir(), 'asl-profile-android-timestamp-only-comparison-'),
+  );
+  t.after(async () => {
+    await fsp.rm(timestampOnlyArtifactRoot, { recursive: true, force: true });
+  });
+  staleProviderManifest.providerCommands[0].args[8] = 'inside-run';
+  staleProviderManifest.providerCommands[0].args[10] = 'timestamp-only';
+  await fsp.writeFile(providerManifestPath, `${JSON.stringify(staleProviderManifest, null, 2)}\n`, 'utf8');
+
+  const { stdout: timestampOnlyStdout } = await execFileAsync(process.execPath, [
+    PROFILE_ANDROID,
+    '--config',
+    fixturePath('examples/mobile-app/asl.config.json'),
+    '--scenario',
+    fixturePath('examples/mobile-app/scenarios/android/app-startup.json'),
+    '--events',
+    fixturePath('examples/mobile-app/event-logs/android-app-startup.log'),
+    '--provider',
+    providerManifestPath,
+    '--out',
+    timestampOnlyArtifactRoot,
+    '--run-id',
+    'android-example-startup',
+  ]);
+  const timestampOnlyRunDir = timestampOnlyStdout.trim();
+  const timestampOnlyHealth = readJson(path.join(timestampOnlyRunDir, 'health.json')) as Record<string, any>;
+  const timestampOnlyManifest = readJson(path.join(timestampOnlyRunDir, 'manifest.json'));
+  const timestampOnlyDiagnostics = (
+    timestampOnlyManifest.artifacts as { diagnostics: TestDiagnosticEntry[] }
+  ).diagnostics;
+  const timestampOnlyNativePerformanceDiagnostic = timestampOnlyDiagnostics.find(
+    (entry) => entry.kind === 'nativePerformance',
+  );
+
+  assert.equal(timestampOnlyNativePerformanceDiagnostic?.availability, 'captured-diagnostic-only');
+  assert.equal(timestampOnlyHealth.healthStatus, 'failed');
+  assert.ok(
+    (timestampOnlyHealth.checks as Array<{ code: string }>).some(
+      (check) => check.code === 'required_diagnostic_not_captured',
+    ),
+  );
+});
+
+test('profile-android reports structured health when attached evidence cannot be copied durably', async (t: TestContext) => {
+  const artifactRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-android-copy-failure-'));
+  const providerRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-provider-android-copy-failure-'));
+  t.after(async () => {
+    await fsp.rm(artifactRoot, { recursive: true, force: true });
+    await fsp.rm(providerRoot, { recursive: true, force: true });
+  });
+
+  const providerId = 'android-copy-failure-provider';
+  const providerScript = path.join(providerRoot, 'write-copy-failure-evidence.js');
+  await fsp.writeFile(
+    providerScript,
+    [
+      "const fs = require('node:fs');",
+      "const path = require('node:path');",
+      'const [sourcePath, destinationPath, memorySourcePath, runId, scenarioId] = process.argv.slice(2);',
+      'fs.mkdirSync(path.dirname(sourcePath), { recursive: true });',
+      'fs.mkdirSync(destinationPath, { recursive: true });',
+      "fs.writeFileSync(memorySourcePath, JSON.stringify({ totalPssKb: 1024 }) + '\\n');",
+      'fs.writeFileSync(sourcePath, JSON.stringify({',
+      "  schemaVersion: '1.0.0',",
+      `  providerId: '${providerId}',`,
+      "  platform: 'android',",
+      '  runId,',
+      '  scenarioId,',
+      "  tool: { name: 'android-native-provider' },",
+      "  captureMode: 'afterCapture',",
+      "  completenessStatus: 'partial',",
+      "  comparability: { status: 'diagnostic-only', reason: 'copy failure fixture' },",
+      "  targetBinding: { status: 'unverified', reason: 'copy failure fixture' },",
+      "  frames: { totalFrameCount: 1 }",
+      "}) + '\\n');",
+    ].join('\n'),
+    'utf8',
+  );
+  const providerManifestPath = path.join(providerRoot, 'provider.json');
+  await fsp.writeFile(
+    providerManifestPath,
+    `${JSON.stringify({
+      schemaVersion: '1.0.0',
+      runnerId: providerId,
+      kind: 'evidenceProvider',
+      platforms: ['android'],
+      capabilities: ['memory', 'nativePerformance'],
+      artifactOutputs: ['memory', 'nativePerformance'],
+      lifecycle: ['capture'],
+      providerCommands: [
+        {
+          id: 'capture-native-performance',
+          phase: 'capture',
+          command: process.execPath,
+          args: [
+            providerScript,
+            '{runDir}/external-native-performance.json',
+            '{providerDir}/external-native-performance.json',
+            '{runDir}/external-memory.json',
+            '{runId}',
+            '{scenarioId}',
+          ],
+          outputs: [
+            {
+              channel: 'provider',
+              kind: 'nativePerformance',
+              path: '{runDir}/external-native-performance.json',
+              required: true,
+            },
+            {
+              channel: 'signal',
+              kind: 'memory',
+              path: '{runDir}/external-memory.json',
+            },
+          ],
+        },
+      ],
+    }, null, 2)}\n`,
+    'utf8',
+  );
+
+  const { stdout } = await execFileAsync(process.execPath, [
+    PROFILE_ANDROID,
+    '--config',
+    fixturePath('examples/mobile-app/asl.config.json'),
+    '--scenario',
+    fixturePath('examples/mobile-app/scenarios/android/app-startup.json'),
+    '--events',
+    fixturePath('examples/mobile-app/event-logs/android-app-startup.log'),
+    '--provider',
+    providerManifestPath,
+    '--out',
+    artifactRoot,
+    '--run-id',
+    'android-example-startup',
+  ]);
+  const runDir = stdout.trim();
+  const health = readJson(path.join(runDir, 'health.json')) as Record<string, any>;
+  const verdict = readJson(path.join(runDir, 'verdict.json')) as Record<string, any>;
+
+  assert.equal(health.healthStatus, 'failed');
+  assert.equal(health.checks[0].code, 'provider_evidence_copy_failed');
+  assert.ok(
+    (health.checks as Array<{ code: string; metadata?: { capturedPaths?: string } }>).some(
+      (check) => check.code === 'partial_provider_evidence_preserved' &&
+        check.metadata?.capturedPaths === 'signals/memory/external-memory.json',
+    ),
+  );
+  assert.equal(verdict.verdictStatus, 'inconclusive');
+  assert.equal(fs.existsSync(path.join(runDir, 'signals', 'memory', 'external-memory.json')), true);
+  assert.equal(fs.existsSync(path.join(runDir, 'manifest.json')), false);
 });
 
 test('profile-android rejects duplicate evidence provider command ids', async (t: TestContext) => {

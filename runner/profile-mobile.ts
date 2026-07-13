@@ -8,6 +8,7 @@ const crypto = require('node:crypto');
 const { buildAgentSummaryMarkdown } = require('../core/agent-summary');
 const { createArtifactLayout } = require('../core/artifact-layout');
 const { writeJsonArtifact, writeTextArtifact } = require('../core/artifact-writer');
+const { classifyNativePerformanceComparisonReadiness } = require('../core/native-performance');
 const {
   buildCompatibilityHealth,
   buildUnevaluatedVerdict,
@@ -155,6 +156,21 @@ type EvidenceAttachment = {
   sizeBytes: number;
   transformations: readonly ['copied'];
 };
+type EvidenceCopyFailure = {
+  attachment: EvidenceAttachment;
+  message: string;
+};
+type EvidenceCopyResult =
+  | {
+      failures: [];
+      preservedAttachments: EvidenceAttachment[];
+      status: 'complete';
+    }
+  | {
+      failures: EvidenceCopyFailure[];
+      preservedAttachments: EvidenceAttachment[];
+      status: 'failed' | 'partial';
+    };
 type EvidenceAttachmentInput = {
   channel: EvidenceChannel;
   destinationPath: string;
@@ -1431,17 +1447,67 @@ async function resolveAttachedEvidence({
 /**
  * Copies validated provider artifacts into the run artifact folder.
  *
- * @param {EvidenceAttachment[]} copies
- * @returns {Promise<void>}
+ * @param {{copies: EvidenceAttachment[], runDir: string}} options
+ * @returns {Promise<EvidenceCopyResult>}
  */
-async function copyAttachedEvidence(copies: EvidenceAttachment[]): Promise<void> {
+async function copyAttachedEvidence({
+  copies,
+  runDir,
+}: {
+  copies: EvidenceAttachment[];
+  runDir: string;
+}): Promise<EvidenceCopyResult> {
+  const failures: EvidenceCopyFailure[] = [];
+  const preservedAttachments: EvidenceAttachment[] = [];
   for (const copy of copies) {
-    if (path.resolve(copy.sourcePath) === path.resolve(copy.destinationPath)) {
-      continue;
-    }
+    try {
+      if (path.resolve(copy.sourcePath) !== path.resolve(copy.destinationPath)) {
+        await fsp.copyFile(copy.sourcePath, copy.destinationPath);
+      }
 
-    await fsp.copyFile(copy.sourcePath, copy.destinationPath);
+      if (
+        path.resolve(runDir, copy.manifestPath) !== path.resolve(copy.destinationPath) ||
+        !isRunEvidenceFile({ runDir, runRelativePath: copy.manifestPath })
+      ) {
+        failures.push({
+          attachment: copy,
+          message: `Evidence destination is not a durable run-contained regular file: ${copy.destinationPath}`,
+        });
+        continue;
+      }
+
+      const destinationStatus = await fsp.lstat(copy.destinationPath);
+      const destinationSha256 = await hashFileSha256(copy.destinationPath);
+      if (destinationStatus.size !== copy.sizeBytes || destinationSha256 !== copy.sha256) {
+        failures.push({
+          attachment: copy,
+          message: `Evidence destination does not match the validated source bytes: ${copy.destinationPath}`,
+        });
+        continue;
+      }
+
+      preservedAttachments.push(copy);
+    } catch (error) {
+      failures.push({
+        attachment: copy,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
+
+  if (failures.length > 0) {
+    return {
+      failures,
+      preservedAttachments,
+      status: preservedAttachments.length > 0 ? 'partial' : 'failed',
+    };
+  }
+
+  return {
+    failures: [],
+    preservedAttachments,
+    status: 'complete',
+  };
 }
 
 /**
@@ -2115,14 +2181,49 @@ function readJsonRecordIfAvailable(filePath: string): Record<string, any> | null
   }
 }
 
-function isComparisonReadyNativePerformanceEvidence(evidence: Record<string, any>): boolean {
-  return evidence.completenessStatus === 'complete' &&
-    evidence.claimSufficiency?.status === 'sufficient-for-comparison' &&
-    evidence.comparability?.status === 'comparable' &&
-    evidence.targetBinding?.status === 'verified';
+function isRunEvidenceFile({
+  runDir,
+  runRelativePath,
+}: {
+  runDir: string;
+  runRelativePath: string;
+}): boolean {
+  try {
+    const absolutePath = path.resolve(runDir, runRelativePath);
+    const relativePath = path.relative(runDir, absolutePath);
+    if (relativePath.length === 0 || relativePath.startsWith('..') || path.isAbsolute(relativePath)) {
+      return false;
+    }
+
+    const pathStatus = fs.lstatSync(absolutePath);
+    if (pathStatus.isSymbolicLink() || !pathStatus.isFile()) {
+      return false;
+    }
+
+    const realRunDir = fs.realpathSync(runDir);
+    const realEvidencePath = fs.realpathSync(absolutePath);
+    const realRelativePath = path.relative(realRunDir, realEvidencePath);
+    return realRelativePath.length > 0 &&
+      !realRelativePath.startsWith('..') &&
+      !path.isAbsolute(realRelativePath);
+  } catch {
+    return false;
+  }
 }
 
-function isDiagnosticOnlyProviderAttachment(attachment: EvidenceAttachment | undefined): boolean {
+function isDiagnosticOnlyProviderAttachment({
+  attachment,
+  platform,
+  runDir,
+  runId,
+  scenarioId,
+}: {
+  attachment: EvidenceAttachment | undefined;
+  platform: ProfilePlatform;
+  runDir: string;
+  runId: string;
+  scenarioId: string;
+}): boolean {
   if (!attachment) {
     return false;
   }
@@ -2131,8 +2232,22 @@ function isDiagnosticOnlyProviderAttachment(attachment: EvidenceAttachment | und
     return false;
   }
 
-  const evidence = readJsonRecordIfAvailable(attachment.sourcePath);
-  return !evidence || !isComparisonReadyNativePerformanceEvidence(evidence);
+  if (!attachment.providerId) {
+    return true;
+  }
+
+  const evidence = readJsonRecordIfAvailable(attachment.destinationPath);
+  return !evidence || classifyNativePerformanceComparisonReadiness(evidence, {
+    artifactPath: attachment.manifestPath,
+    evidencePathExists: (runRelativePath: string) => isRunEvidenceFile({
+      runDir,
+      runRelativePath,
+    }),
+    expectedPlatform: platform,
+    expectedProviderId: attachment.providerId,
+    expectedRunId: runId,
+    expectedScenarioId: scenarioId,
+  }).status !== 'comparison-ready';
 }
 
 function resolveProviderDiagnosticProvider(
@@ -2293,7 +2408,7 @@ function resolveSignalDiagnosticProvider(
 /**
  * Builds the product-neutral diagnostic inventory for a profile run.
  *
- * @param {{args: CliArgs, attachedEvidence: AttachedEvidence, eventLogPath: string | null, platform: ProfilePlatform, profileSessionEntriesPath: string | null, providerFailures?: ProviderCommandFailure[], providerOutputStatuses?: ProviderOutputStatus[], runDir: string, scenario: Record<string, unknown>}} options
+ * @param {{args: CliArgs, attachedEvidence: AttachedEvidence, eventLogPath: string | null, platform: ProfilePlatform, profileSessionEntriesPath: string | null, providerFailures?: ProviderCommandFailure[], providerOutputStatuses?: ProviderOutputStatus[], runDir: string, runId: string, scenario: Record<string, unknown>, scenarioId: string}} options
  * @returns {DiagnosticInventoryEntry[]}
  */
 function buildDiagnosticInventory({
@@ -2305,7 +2420,9 @@ function buildDiagnosticInventory({
   providerFailures = [],
   providerOutputStatuses = [],
   runDir,
+  runId,
   scenario,
+  scenarioId,
 }: {
   args: CliArgs;
   attachedEvidence: AttachedEvidence;
@@ -2315,7 +2432,9 @@ function buildDiagnosticInventory({
   providerFailures?: ProviderCommandFailure[];
   providerOutputStatuses?: ProviderOutputStatus[];
   runDir: string;
+  runId: string;
   scenario: Record<string, any>;
+  scenarioId: string;
 }): DiagnosticInventoryEntry[] {
   const requestedDiagnosticDemand = resolveRequestedDiagnosticDemand({
     providerOutputs: providerOutputStatuses.map((output) => ({
@@ -2531,7 +2650,13 @@ function buildDiagnosticInventory({
     const status = resolveProviderDiagnosticStatus(attachment, missingProviderOutput);
     const reason = resolveProviderDiagnosticReason(kind, attachment, missingProviderOutput);
     pushDiagnostic(kind, {
-      ...(isDiagnosticOnlyProviderAttachment(attachment) ? { diagnosticOnly: true } : {}),
+      ...(isDiagnosticOnlyProviderAttachment({
+        attachment,
+        platform,
+        runDir,
+        runId,
+        scenarioId,
+      }) ? { diagnosticOnly: true } : {}),
       ...(provider ? { provider } : {}),
       status,
       ...(attachment ? { path: attachment.manifestPath } : {}),
@@ -2859,6 +2984,37 @@ function buildProviderCommandFailureChecks(failures: ProviderCommandFailure[] = 
       ...(failure.rawPath ? { rawPath: failure.rawPath } : {}),
     },
   }));
+}
+
+/**
+ * Inventories evidence that was copied successfully before another attachment failed.
+ *
+ * @param {EvidenceAttachment[]} attachments
+ * @returns {Record<string, unknown>[]}
+ */
+function buildPreservedEvidenceCopyChecks(attachments: EvidenceAttachment[] = []): Record<string, unknown>[] {
+  if (attachments.length === 0) {
+    return [];
+  }
+
+  const capturedKinds = [...new Set(attachments.map((attachment) => attachment.kind))].sort();
+  const capturedPaths = attachments.map((attachment) => attachment.manifestPath).sort();
+  return [
+    {
+      name: 'evidence_copy_partial_artifacts_preserved',
+      status: 'warning',
+      source: 'evidence',
+      code: 'partial_provider_evidence_preserved',
+      message: 'Some validated evidence attachments were copied and preserved before another attachment failed.',
+      metadata: {
+        capturedKinds: capturedKinds.join(','),
+        capturedPaths: capturedPaths.join(','),
+        nextAction: 'Inspect the preserved evidence, fix the failed attachment copy, and rerun before making product claims.',
+        nextActionCode: 'fix_provider_evidence_copy',
+        nextActionOwner: 'provider_tooling',
+      },
+    },
+  ];
 }
 
 function runtimeIdentityHealthStatus(status: RuntimeIdentityVerification['status']): 'failed' | 'passed' {
@@ -3551,15 +3707,17 @@ function buildAttemptPartialArtifacts({
 /**
  * Builds failed scenario health from evidence-provider command failures.
  *
- * @param {{failures: ProviderCommandFailure[], runId: string, scenario: Record<string, unknown>}} options
+ * @param {{failures: ProviderCommandFailure[], preservedEvidence?: EvidenceAttachment[], runId: string, scenario: Record<string, unknown>}} options
  * @returns {Record<string, unknown>}
  */
 function buildProviderCommandFailureHealth({
   failures,
+  preservedEvidence = [],
   runId,
   scenario,
 }: {
   failures: ProviderCommandFailure[];
+  preservedEvidence?: EvidenceAttachment[];
   runId: string;
   scenario: Record<string, any>;
 }): Record<string, unknown> {
@@ -3570,7 +3728,10 @@ function buildProviderCommandFailureHealth({
       ...(typeof scenario.flowId === 'string' ? { flowId: scenario.flowId } : {}),
       runId,
       healthStatus: 'failed',
-      checks: buildProviderCommandFailureChecks(failures),
+      checks: [
+        ...buildProviderCommandFailureChecks(failures),
+        ...buildPreservedEvidenceCopyChecks(preservedEvidence),
+      ],
     },
     SCHEMAS.health,
     'Health artifact',
@@ -5466,6 +5627,56 @@ async function runProfileMobile(args: CliArgs, options: ProfileMobileOptions): P
       verdict,
     };
   }
+  const evidenceCopyResult = await copyAttachedEvidence({
+    copies: attachedEvidence.copies,
+    runDir,
+  });
+  if (evidenceCopyResult.status !== 'complete') {
+    const health = buildProviderCommandFailureHealth({
+      failures: [
+        ...providerExecution.failures,
+        ...evidenceCopyResult.failures.map((failure) => ({
+          commandId: 'provider-evidence-copy',
+          code: 'provider_evidence_copy_failed',
+          exitCode: null,
+          message: failure.message,
+          name: 'evidence_provider_output_copied',
+          nextAction: 'Fix the provider output path or run artifact destination, then rerun the profile.',
+          nextActionCode: 'fix_provider_evidence_copy',
+          phase: 'afterCapture',
+          providerId: failure.attachment.providerId ?? 'unknown-provider',
+          rawPath: failure.attachment.manifestPath,
+        } satisfies ProviderCommandFailure)),
+      ],
+      preservedEvidence: evidenceCopyResult.preservedAttachments,
+      runId,
+      scenario: profileScenario,
+    });
+    const verdict = buildProfileVerdict({ scenario: profileScenario, runId, health, metrics: {} });
+    const agentSummary = buildAgentSummaryMarkdown({ health, verdict });
+    await writeJsonArtifact({
+      filePath: layout.health,
+      value: health,
+      schema: SCHEMAS.health,
+      label: 'Health artifact',
+    });
+    await writeJsonArtifact({
+      filePath: layout.verdict,
+      value: verdict,
+      schema: SCHEMAS.verdict,
+      label: 'Verdict artifact',
+    });
+    await writeTextArtifact({
+      filePath: layout.agentSummary,
+      content: agentSummary,
+    });
+
+    return {
+      runDir,
+      health,
+      verdict,
+    };
+  }
   if (
     providerExecution.failures.length > 0 &&
     providerExecution.inputs.length === 0 &&
@@ -5616,7 +5827,9 @@ async function runProfileMobile(args: CliArgs, options: ProfileMobileOptions): P
       providerFailures: providerExecution.failures,
       providerOutputStatuses: providerExecution.outputStatuses,
       runDir,
+      runId,
       scenario: profileScenario,
+      scenarioId: scenarioName,
     }),
   };
   const appId = resolveAppId({ config, platform: options.platform });
@@ -5762,8 +5975,6 @@ async function runProfileMobile(args: CliArgs, options: ProfileMobileOptions): P
   if (profileSessionEntriesPath) {
     await fsp.copyFile(profileSessionEntriesPath, path.join(rawDir, path.basename(profileSessionEntriesPath)));
   }
-  await copyAttachedEvidence(attachedEvidence.copies);
-
   return {
     runDir,
     health: finalHealth,
