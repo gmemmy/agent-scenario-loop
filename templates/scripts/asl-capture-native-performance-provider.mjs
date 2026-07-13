@@ -71,6 +71,20 @@ function parsePositiveInteger(value, fallback) {
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : fallback;
 }
 
+function parseStrictPositiveInteger(value, fallback, label) {
+  if (typeof value !== 'string' || value.length === 0) {
+    return fallback;
+  }
+  if (!/^\d+$/u.test(value)) {
+    throw new Error(`${label} must be a positive integer.`);
+  }
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isSafeInteger(parsed) || parsed <= 0) {
+    throw new Error(`${label} must be a positive integer.`);
+  }
+  return parsed;
+}
+
 function toPortablePath(value) {
   return value.split(path.sep).join('/');
 }
@@ -213,15 +227,17 @@ function writeTextArtifact(outPath, value) {
   fs.writeFileSync(outPath, value, 'utf8');
 }
 
-function writeAndroidCommandArtifacts({ captureDir, id, result }) {
+function writeCommandArtifacts({ captureDir, id, result, runDir }) {
   const stdoutPath = path.join(captureDir, `${id}.stdout.txt`);
   const stderrPath = path.join(captureDir, `${id}.stderr.txt`);
   const recordPath = path.join(captureDir, `${id}.command.json`);
   writeTextArtifact(stdoutPath, result.stdout);
   writeTextArtifact(stderrPath, result.stderr);
   writeJsonArtifact(recordPath, {
-    args: result.args,
-    command: result.command,
+    args: runDir
+      ? result.args.map((arg) => normalizeCommandArgForEvidence(runDir, arg))
+      : result.args,
+    command: runDir ? path.basename(result.command) : result.command,
     errorCode: result.errorCode,
     errorMessage: result.errorMessage,
     exitCode: result.exitCode,
@@ -296,7 +312,7 @@ async function captureAndroidAdbEvidence({ args, outPath, runId, scenarioId }) {
     const result = await runCommand(adbPath, definition.args, timeoutMs);
     captures.set(definition.id, {
       result,
-      paths: writeAndroidCommandArtifacts({ captureDir, id: definition.id, result }),
+      paths: writeCommandArtifacts({ captureDir, id: definition.id, result, runDir }),
     });
   }
 
@@ -446,6 +462,625 @@ async function captureAndroidAdbEvidence({ args, outPath, runId, scenarioId }) {
   });
   writeJsonArtifact(outPath, evidence);
   if (captureFailed) {
+    process.exitCode = 1;
+  }
+}
+
+function firstMatch(text, patterns) {
+  for (const pattern of patterns) {
+    const match = pattern.exec(text);
+    if (match && typeof match[1] === 'string' && match[1].trim().length > 0) {
+      return match[1].trim();
+    }
+  }
+  return undefined;
+}
+
+function parseDurationMs(value) {
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  if (trimmed.length === 0) {
+    return undefined;
+  }
+  const isoMatch = /^PT([\d.]+)S$/iu.exec(trimmed);
+  if (isoMatch) {
+    const seconds = Number.parseFloat(isoMatch[1]);
+    return Number.isFinite(seconds) && seconds >= 0 ? Math.round(seconds * 1000) : undefined;
+  }
+  const durationMatch = /^([\d.]+)\s*(ms|s|sec|secs|seconds?)?$/iu.exec(trimmed);
+  if (!durationMatch) {
+    return undefined;
+  }
+  const numeric = Number.parseFloat(durationMatch[1]);
+  if (!Number.isFinite(numeric) || numeric < 0) {
+    return undefined;
+  }
+  const unit = durationMatch[2]?.toLowerCase() ?? 'ms';
+  if (unit === 'ms') {
+    return Math.round(numeric);
+  }
+  return Math.round(numeric * 1000);
+}
+
+function parseIsoTimestamp(value) {
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    return undefined;
+  }
+  const parsedMs = Date.parse(value.trim());
+  if (!Number.isFinite(parsedMs)) {
+    return undefined;
+  }
+  return new Date(parsedMs).toISOString();
+}
+
+function parseXctraceTocSummary(tocText) {
+  const startAt = parseIsoTimestamp(firstMatch(tocText, [
+    /<start[-_ ](?:date|time)?[^>]*>([^<]+)<\/start[-_ ](?:date|time)?>/iu,
+    /\bstart(?:Date|Time)?\s*=\s*"([^"]+)"/iu,
+  ]));
+  const endAt = parseIsoTimestamp(firstMatch(tocText, [
+    /<end[-_ ](?:date|time)?[^>]*>([^<]+)<\/end[-_ ](?:date|time)?>/iu,
+    /\bend(?:Date|Time)?\s*=\s*"([^"]+)"/iu,
+  ]));
+  const durationElement = firstMatch(tocText, [/<duration[^>]*>([^<]+)<\/duration>/iu]);
+  const durationFromElement = durationElement ? parseDurationMs(`${durationElement}s`) : undefined;
+  const durationFromAttribute = parseDurationMs(firstMatch(tocText, [
+    /\bdurationMs\s*=\s*"([^"]+)"/iu,
+    /<trace-window[^>]*\bduration\s*=\s*"([^"]+)"/iu,
+  ]));
+  const startMs = startAt ? Date.parse(startAt) : undefined;
+  const endMs = endAt ? Date.parse(endAt) : undefined;
+  let durationMs = durationFromElement ?? durationFromAttribute;
+  if (durationMs === undefined && Number.isFinite(startMs) && Number.isFinite(endMs) && endMs >= startMs) {
+    durationMs = Math.round(endMs - startMs);
+  }
+
+  const processPid = Number.parseInt(firstMatch(tocText, [
+    /<(?:target-process|process)[^>]*\bpid\s*=\s*"(\d+)"/iu,
+    /\bprocessPid\s*=\s*"(\d+)"/iu,
+    /<pid[^>]*>(\d+)<\/pid>/iu,
+  ]) ?? '', 10);
+  const parsedPid = Number.isSafeInteger(processPid) && processPid > 0 ? processPid : undefined;
+
+  return {
+    startAt,
+    endAt,
+    durationMs,
+    windowStartMs: durationMs !== undefined ? 0 : undefined,
+    windowEndMs: durationMs,
+    toolVersion: firstMatch(tocText, [
+      /<instruments-version[^>]*>([^<]+)<\/instruments-version>/iu,
+      /<(?:instruments|tool)[^>]*\bversion\s*=\s*"([^"]+)"/iu,
+      /\btoolVersion\s*=\s*"([^"]+)"/iu,
+    ]),
+    template: firstMatch(tocText, [
+      /<template-name[^>]*>([^<]+)<\/template-name>/iu,
+      /<(?:trace-template|template)[^>]*\bname\s*=\s*"([^"]+)"/iu,
+      /\btemplate(?:Name)?\s*=\s*"([^"]+)"/iu,
+    ]),
+    endReason: firstMatch(tocText, [
+      /<(?:trace-window|recording)[^>]*\bend(?:-reason|Reason)\s*=\s*"([^"]+)"/iu,
+      /<end-reason[^>]*>([^<]+)<\/end-reason>/iu,
+    ]),
+    deviceId: firstMatch(tocText, [
+      /<(?:target-device|device)[^>]*\b(?:udid|uuid|identifier|device-id)\s*=\s*"([^"]+)"/iu,
+      /\bdevice(?:Udid|Id|Identifier)\s*=\s*"([^"]+)"/iu,
+    ]),
+    devicePlatform: firstMatch(tocText, [
+      /<(?:target-device|device)[^>]*\bplatform\s*=\s*"([^"]+)"/iu,
+      /\bdevicePlatform\s*=\s*"([^"]+)"/iu,
+    ]),
+    processPid: parsedPid,
+    processName: firstMatch(tocText, [
+      /<(?:target-process|process)[^>]*\bname\s*=\s*"([^"]+)"/iu,
+      /\bprocessName\s*=\s*"([^"]+)"/iu,
+    ]),
+  };
+}
+
+function readBootedDeviceObservation(devicesJsonText, requestedDeviceId) {
+  try {
+    const parsed = JSON.parse(devicesJsonText);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return { status: 'failed' };
+    }
+    const runtimes = parsed.devices;
+    if (!runtimes || typeof runtimes !== 'object' || Array.isArray(runtimes)) {
+      return { status: 'failed' };
+    }
+    for (const [runtime, devices] of Object.entries(runtimes)) {
+      if (!Array.isArray(devices)) {
+        continue;
+      }
+      for (const entry of devices) {
+        if (!entry || typeof entry !== 'object') {
+          continue;
+        }
+        if (entry.udid === requestedDeviceId) {
+          return {
+            status: 'observed',
+            matchesRequestedDevice: entry.state === 'Booted',
+            state: typeof entry.state === 'string' ? entry.state : null,
+            name: typeof entry.name === 'string' ? entry.name : null,
+            runtime,
+          };
+        }
+      }
+    }
+  } catch {
+    return { status: 'failed' };
+  }
+  return { status: 'missing' };
+}
+
+function readLaunchctlProcessObservation(launchctlText, bundleId) {
+  for (const line of launchctlText.split(/\r?\n/u)) {
+    const tokens = line.trim().split(/\s+/u);
+    if (tokens.length < 3) {
+      continue;
+    }
+    const label = tokens[tokens.length - 1];
+    const labelMatchesBundle = label === bundleId || label.includes(`:${bundleId}[`);
+    if (!labelMatchesBundle) {
+      continue;
+    }
+    const pid = Number.parseInt(tokens[0], 10);
+    if (Number.isSafeInteger(pid) && pid > 0) {
+      return { status: 'observed', pid, label };
+    }
+  }
+  return { status: 'missing' };
+}
+
+function buildTraceBundleInventory(traceBundlePath) {
+  if (!fs.existsSync(traceBundlePath)) {
+    return {
+      exists: false,
+      files: [],
+      kind: 'xctrace-trace-bundle-inventory',
+      traceBundle: path.basename(traceBundlePath),
+      fileCount: 0,
+      totalSizeBytes: 0,
+    };
+  }
+  if (!fs.statSync(traceBundlePath).isDirectory()) {
+    return {
+      exists: true,
+      files: [],
+      kind: 'xctrace-trace-bundle-inventory',
+      traceBundle: path.basename(traceBundlePath),
+      fileCount: 0,
+      totalSizeBytes: 0,
+      reason: 'Expected a directory-backed .trace bundle.',
+    };
+  }
+
+  const files = [];
+  const pending = [''];
+  while (pending.length > 0) {
+    const relativeDir = pending.pop();
+    const absoluteDir = path.join(traceBundlePath, relativeDir);
+    for (const entry of fs.readdirSync(absoluteDir, { withFileTypes: true })) {
+      const relativePath = path.join(relativeDir, entry.name);
+      const absolutePath = path.join(traceBundlePath, relativePath);
+      if (entry.isDirectory()) {
+        pending.push(relativePath);
+        continue;
+      }
+      if (!entry.isFile()) {
+        continue;
+      }
+      files.push({
+        path: toPortablePath(relativePath),
+        sizeBytes: fs.statSync(absolutePath).size,
+      });
+    }
+  }
+
+  files.sort((left, right) => left.path.localeCompare(right.path));
+  const totalSizeBytes = files.reduce((sum, entry) => sum + entry.sizeBytes, 0);
+  return {
+    exists: true,
+    files,
+    kind: 'xctrace-trace-bundle-inventory',
+    traceBundle: path.basename(traceBundlePath),
+    fileCount: files.length,
+    totalSizeBytes,
+  };
+}
+
+function normalizeCommandArgForEvidence(runDir, arg) {
+  if (!path.isAbsolute(arg)) {
+    return arg;
+  }
+  try {
+    return toRunRelativePath(runDir, arg);
+  } catch {
+    return path.basename(arg);
+  }
+}
+
+function buildIosDiagnosticSource({ commandResults, dataClasses, path: sourcePath, reason, runDir, sourceId, status, toolName }) {
+  const command = commandResults
+    .map((result) => [
+      path.basename(result.command),
+      ...result.args.map((arg) => normalizeCommandArgForEvidence(runDir, arg)),
+    ].join(' '))
+    .join(' / ');
+  return {
+    sourceId,
+    status,
+    tool: {
+      name: toolName,
+      command,
+    },
+    dataClasses,
+    ...(sourcePath
+      ? { path: toRunRelativePath(runDir, sourcePath) }
+      : {}),
+    ...(status === 'captured'
+      ? {}
+      : {
+          reason,
+          nextAction: 'Inspect provider command records, repair simctl/xctrace capture, and rerun the provider.',
+        }),
+  };
+}
+
+function combinedCommandStatus(results, evidenceValid) {
+  if (results.some((result) => result.timedOut)) {
+    return 'timeout';
+  }
+  if (results.some((result) => !commandSucceeded(result))) {
+    return 'failed';
+  }
+  return evidenceValid ? 'captured' : 'partial';
+}
+
+async function captureIosXctraceEvidence({ args, outPath, runId, scenarioId }) {
+  const bundleId = optionalStringArg(args, 'bundle', 'ASL_IOS_APP_ID');
+  const deviceId = optionalStringArg(args, 'device', 'ASL_IOS_UDID');
+  if (!bundleId || !deviceId) {
+    throw new Error('iOS xctrace capture requires --bundle/ASL_IOS_APP_ID and --device/ASL_IOS_UDID.');
+  }
+
+  const runDir = optionalStringArg(args, 'run-dir', 'ASL_RUN_DIR');
+  if (!runDir) {
+    throw new Error('iOS xctrace capture requires --run-dir so evidence paths can remain durable and run-relative.');
+  }
+  toRunRelativePath(runDir, outPath);
+  const xcrunPath = optionalStringArg(args, 'xcrun', 'ASL_XCRUN_PATH') ?? 'xcrun';
+  const captureDurationSeconds = parseStrictPositiveInteger(
+    optionalStringArg(args, 'ios-capture-duration-seconds', 'ASL_NATIVE_PERFORMANCE_IOS_CAPTURE_DURATION_SECONDS'),
+    10,
+    '--ios-capture-duration-seconds/ASL_NATIVE_PERFORMANCE_IOS_CAPTURE_DURATION_SECONDS',
+  );
+  const timeoutValue = optionalStringArg(args, 'ios-command-timeout-ms', 'ASL_NATIVE_PERFORMANCE_IOS_COMMAND_TIMEOUT_MS');
+  const timeoutMs = parseStrictPositiveInteger(
+    timeoutValue,
+    (captureDurationSeconds * 1_000) + 30_000,
+    '--ios-command-timeout-ms/ASL_NATIVE_PERFORMANCE_IOS_COMMAND_TIMEOUT_MS',
+  );
+  const xctraceTemplate = optionalStringArg(args, 'ios-xctrace-template', 'ASL_NATIVE_PERFORMANCE_IOS_XCTRACE_TEMPLATE') ?? 'Time Profiler';
+  const captureDir = path.join(path.dirname(outPath), 'ios-xctrace');
+  fs.mkdirSync(captureDir, { recursive: true });
+  const traceBundlePath = path.join(captureDir, 'capture.trace');
+
+  const captures = new Map();
+  const preflightDefinitions = [
+    { id: 'simctl-list-devices', args: ['simctl', 'list', 'devices', '--json'] },
+    { id: 'simctl-get-app-container', args: ['simctl', 'get_app_container', deviceId, bundleId, 'app'] },
+    { id: 'simctl-launchctl-list', args: ['simctl', 'spawn', deviceId, 'launchctl', 'list'] },
+  ];
+  for (const definition of preflightDefinitions) {
+    const result = await runCommand(xcrunPath, definition.args, timeoutMs);
+    captures.set(definition.id, {
+      result,
+      paths: writeCommandArtifacts({ captureDir, id: definition.id, result, runDir }),
+    });
+  }
+
+  const bootedDeviceCapture = captures.get('simctl-list-devices').result;
+  const appContainerCapture = captures.get('simctl-get-app-container').result;
+  const launchctlCapture = captures.get('simctl-launchctl-list').result;
+  const bootedDeviceObservation = commandSucceeded(bootedDeviceCapture)
+    ? readBootedDeviceObservation(bootedDeviceCapture.stdout, deviceId)
+    : { status: 'failed' };
+  const appContainerAvailable = commandSucceeded(appContainerCapture) && appContainerCapture.stdout.trim().length > 0;
+  const launchctlProcess = commandSucceeded(launchctlCapture)
+    ? readLaunchctlProcessObservation(launchctlCapture.stdout, bundleId)
+    : { status: 'failed' };
+  const requestedPid = launchctlProcess.status === 'observed' ? launchctlProcess.pid : 0;
+
+  const recordArgs = [
+    'xctrace',
+    'record',
+    '--template',
+    xctraceTemplate,
+    '--device',
+    deviceId,
+    '--attach',
+    String(requestedPid),
+    '--time-limit',
+    `${captureDurationSeconds}s`,
+    '--output',
+    traceBundlePath,
+    '--no-prompt',
+  ];
+  const recordResult = await runCommand(xcrunPath, recordArgs, timeoutMs);
+  captures.set('xctrace-record', {
+    result: recordResult,
+    paths: writeCommandArtifacts({ captureDir, id: 'xctrace-record', result: recordResult, runDir }),
+  });
+
+  const exportArgs = ['xctrace', 'export', '--input', traceBundlePath, '--toc'];
+  const exportResult = await runCommand(xcrunPath, exportArgs, timeoutMs);
+  captures.set('xctrace-export-toc', {
+    result: exportResult,
+    paths: writeCommandArtifacts({ captureDir, id: 'xctrace-export-toc', result: exportResult, runDir }),
+  });
+
+  const tocPath = path.join(captureDir, 'xctrace-toc.xml');
+  writeTextArtifact(tocPath, exportResult.stdout);
+  const traceInventoryPath = path.join(captureDir, 'trace-bundle-inventory.json');
+  const traceInventory = {
+    ...buildTraceBundleInventory(traceBundlePath),
+    traceBundlePath: toRunRelativePath(runDir, traceBundlePath),
+  };
+  writeJsonArtifact(traceInventoryPath, traceInventory);
+
+  const tocSummary = commandSucceeded(exportResult) && exportResult.stdout.trim().length > 0
+    ? parseXctraceTocSummary(exportResult.stdout)
+    : {};
+  const tocVerified = Boolean(
+    tocSummary.startAt
+      && tocSummary.endAt
+      && tocSummary.durationMs !== undefined
+      && tocSummary.template
+      && tocSummary.toolVersion
+      && tocSummary.endReason
+      && tocSummary.deviceId
+      && tocSummary.processPid !== undefined
+      && tocSummary.processName,
+  );
+  const startMs = tocSummary.startAt ? Date.parse(tocSummary.startAt) : Number.NaN;
+  const endMs = tocSummary.endAt ? Date.parse(tocSummary.endAt) : Number.NaN;
+  const elapsedMs = endMs - startMs;
+  const durationToleranceMs = Math.max(1, elapsedMs * 0.01);
+  const requestedDurationMs = captureDurationSeconds * 1_000;
+  const captureLimitToleranceMs = Math.max(2_000, requestedDurationMs * 0.1);
+  const windowVerified = tocVerified
+    && Number.isFinite(elapsedMs)
+    && elapsedMs > 0
+    && tocSummary.durationMs > 0
+    && tocSummary.durationMs <= requestedDurationMs + captureLimitToleranceMs
+    && Math.abs(tocSummary.durationMs - elapsedMs) <= durationToleranceMs;
+  const observedDeviceId = typeof tocSummary.deviceId === 'string' ? tocSummary.deviceId : null;
+  const observedPid = Number.isSafeInteger(tocSummary.processPid) ? tocSummary.processPid : null;
+  const observedProcessName = typeof tocSummary.processName === 'string' ? tocSummary.processName : null;
+  const recordedSimulator = typeof tocSummary.devicePlatform === 'string' && /simulator/iu.test(tocSummary.devicePlatform);
+  const deviceMismatch = observedDeviceId && observedDeviceId !== deviceId;
+  const pidMismatch = launchctlProcess.status === 'observed'
+    && observedPid !== null
+    && observedPid !== requestedPid;
+
+  let targetStatus = 'unverified';
+  if (
+    commandSucceeded(recordResult)
+    && commandSucceeded(exportResult)
+    && bootedDeviceObservation.status === 'observed'
+    && bootedDeviceObservation.matchesRequestedDevice === true
+    && appContainerAvailable
+    && launchctlProcess.status === 'observed'
+    && windowVerified
+    && recordedSimulator
+    && !deviceMismatch
+    && !pidMismatch
+  ) {
+    targetStatus = 'verified';
+  } else if (deviceMismatch || pidMismatch) {
+    targetStatus = 'mismatch';
+  }
+
+  const targetProofPath = path.join(captureDir, 'target-binding.json');
+  writeJsonArtifact(targetProofPath, {
+    appId: bundleId,
+    bundleId,
+    capturedAt: new Date().toISOString(),
+    requestedDeviceId: deviceId,
+    requestedPid,
+    observedDevice: bootedDeviceObservation,
+    observedAppContainerName: appContainerAvailable ? path.basename(appContainerCapture.stdout.trim()) : null,
+    observedLaunchctlProcess: launchctlProcess,
+    recordedDeviceId: observedDeviceId,
+    recordedDevicePlatform: tocSummary.devicePlatform ?? null,
+    recordedProcessName: observedProcessName,
+    recordedProcessPid: observedPid,
+    status: targetStatus,
+    template: tocSummary.template ?? null,
+    toolVersion: tocSummary.toolVersion ?? null,
+    endReason: tocSummary.endReason ?? null,
+    sourceCommands: [
+      'simctl-list-devices',
+      'simctl-get-app-container',
+      'simctl-launchctl-list',
+      'xctrace-record',
+      'xctrace-export-toc',
+    ].map((sourceId) => ({
+      sourceId,
+      args: captures.get(sourceId).result.args.map((arg) => normalizeCommandArgForEvidence(runDir, arg)),
+      exitCode: captures.get(sourceId).result.exitCode,
+      status: commandStatus(captures.get(sourceId).result),
+    })),
+    tocVerified,
+    windowVerified,
+    traceBundleObserved: traceInventory.exists && traceInventory.fileCount > 0,
+  });
+
+  const attachmentEntries = [
+    { kind: 'xctrace-export', path: tocPath },
+    { kind: 'ios-target-binding', path: targetProofPath },
+    { kind: 'xctrace-trace-bundle-inventory', path: traceInventoryPath },
+  ];
+  const attachments = attachmentEntries.map((entry) => ({
+    kind: entry.kind,
+    path: toRunRelativePath(runDir, entry.path),
+    sizeBytes: fs.statSync(entry.path).size,
+  }));
+
+  const xctraceCaptured = commandSucceeded(recordResult)
+    && commandSucceeded(exportResult)
+    && windowVerified
+    && recordedSimulator
+    && traceInventory.exists
+    && traceInventory.fileCount > 0;
+  const simctlCaptured = commandSucceeded(bootedDeviceCapture)
+    && commandSucceeded(appContainerCapture)
+    && commandSucceeded(launchctlCapture)
+    && bootedDeviceObservation.status === 'observed'
+    && bootedDeviceObservation.matchesRequestedDevice === true
+    && appContainerAvailable
+    && launchctlProcess.status === 'observed';
+
+  const diagnosticSources = [
+    buildIosDiagnosticSource({
+      commandResults: [recordResult, exportResult],
+      dataClasses: ['cpu', 'thread-scheduling', 'native-trace'],
+      path: tocPath,
+      reason: tocVerified
+        ? 'The provider captured xctrace output but did not verify full target/window binding.'
+        : 'The provider could not verify bounded xctrace TOC facts for target/window evidence.',
+      runDir,
+      sourceId: 'xctrace',
+      status: combinedCommandStatus([recordResult, exportResult], xctraceCaptured),
+      toolName: 'xctrace',
+    }),
+    buildIosDiagnosticSource({
+      commandResults: [bootedDeviceCapture, appContainerCapture, launchctlCapture],
+      dataClasses: ['unknown'],
+      path: targetProofPath,
+      reason: 'The provider could not verify the requested simulator, installed app container, and launchctl process binding.',
+      runDir,
+      sourceId: 'simctl',
+      status: combinedCommandStatus([bootedDeviceCapture, appContainerCapture, launchctlCapture], simctlCaptured),
+      toolName: 'xcrun simctl',
+    }),
+  ];
+
+  let targetBinding;
+  const targetEvidencePath = toRunRelativePath(runDir, targetProofPath);
+  if (targetStatus === 'verified') {
+    targetBinding = {
+      status: 'verified',
+      appId: bundleId,
+      deviceId,
+      source: 'provider simctl/xctrace target verification',
+      candidateTargets: [{
+        appId: bundleId,
+        bindingStatus: 'observed',
+        deviceId,
+        evidencePath: targetEvidencePath,
+        platform: 'ios',
+        source: 'simctl launchctl list plus xctrace TOC verification',
+      }],
+    };
+  } else if (targetStatus === 'mismatch') {
+    targetBinding = {
+      status: 'mismatch',
+      appId: bundleId,
+      deviceId,
+      source: 'provider simctl/xctrace target verification',
+      reason: 'xctrace recorded a device or pid that does not match the requested simulator launchctl target.',
+      candidateTargets: [
+        {
+          appId: bundleId,
+          bindingStatus: 'expected',
+          deviceId,
+          evidencePath: targetEvidencePath,
+          platform: 'ios',
+          source: 'provider request',
+        },
+        {
+          bindingStatus: 'observed',
+          ...(observedDeviceId ? { deviceId: observedDeviceId } : {}),
+          evidencePath: targetEvidencePath,
+          platform: 'ios',
+          source: 'xctrace TOC',
+        },
+      ],
+    };
+  } else {
+    targetBinding = {
+      status: 'unverified',
+      appId: bundleId,
+      deviceId,
+      source: 'provider simctl/xctrace target verification',
+      reason: 'The provider could not verify all requested simulator/app/process/xctrace binding surfaces.',
+    };
+  }
+
+  const allCommandsSucceeded = Array.from(captures.values()).every(({ result }) => commandSucceeded(result));
+  const captureSucceeded = allCommandsSucceeded && xctraceCaptured && simctlCaptured && targetStatus === 'verified';
+  const evidence = buildIosNativePerformanceEvidence({
+    appId: bundleId,
+    attachments,
+    bundleId,
+    captureMode: 'session',
+    capturedAt: tocSummary.startAt ?? new Date().toISOString(),
+    claimSufficiency: captureSucceeded
+      ? {
+          status: 'sufficient-for-diagnosis',
+          claim: 'iOS simulator native-performance diagnosis from bounded xctrace capture.',
+          reason: 'The provider verified simulator/app/process/window ownership but did not export structured comparison metrics.',
+          supportingEvidence: ['xctrace', 'simctl', 'targetBinding'],
+          missingEvidence: ['structured performance sample suitable for comparison baselines'],
+          nextAction: 'Export structured xctrace performance samples before making comparison or release claims.',
+        }
+      : {
+          status: 'insufficient-for-claim',
+          claim: 'iOS simulator native-performance diagnosis from bounded xctrace capture.',
+          reason: 'One or more bounded simctl/xctrace capture, export, or binding verification steps failed or remained unverified.',
+          supportingEvidence: ['xctrace-toc', 'target-binding'],
+          missingEvidence: ['verified simulator/app/process binding', 'verified bounded xctrace TOC metadata'],
+          nextAction: 'Repair the failed step, rerun capture, and inspect preserved command records and raw outputs.',
+        },
+    comparability: {
+      status: 'diagnostic-only',
+      reason: 'Trace-window metadata and target proof alone do not provide structured comparable native-performance samples.',
+      policy: 'Use this capture for diagnosis and target/window trust checks, not baseline comparison selection.',
+    },
+    completenessStatus: captureSucceeded ? 'complete' : 'partial',
+    deviceId,
+    diagnosticSources,
+    lifecycle: xctraceCaptured
+      ? {
+          durationMs: tocSummary.durationMs,
+          endedAt: tocSummary.endAt,
+          perturbsTiming: true,
+          phase: 'afterCapture',
+          startedAt: tocSummary.startAt,
+        }
+      : {
+          perturbsTiming: true,
+          phase: 'afterCapture',
+        },
+    providerId: 'example-evidence-provider',
+    runId,
+    scenarioId,
+    targetBinding,
+    xctraceSummary: xctraceCaptured
+      ? {
+          durationMs: tocSummary.durationMs,
+          traceId: `${runId}-xctrace`,
+          windowEndMs: tocSummary.windowEndMs,
+          windowStartMs: tocSummary.windowStartMs,
+        }
+      : undefined,
+  });
+  writeJsonArtifact(outPath, evidence);
+  if (!captureSucceeded) {
     process.exitCode = 1;
   }
 }
@@ -724,6 +1359,11 @@ async function main() {
   }
 
   if (platform === 'ios') {
+    const liveXctraceCapture = args['capture-ios-xctrace'] === true || process.env.ASL_NATIVE_PERFORMANCE_IOS_CAPTURE === '1';
+    if (liveXctraceCapture) {
+      await captureIosXctraceEvidence({ args, outPath, runId, scenarioId });
+      return;
+    }
     const metricKitText = readOptionalText(args, 'metrickit-summary');
     const xctraceText = readOptionalText(args, 'xctrace-summary');
     writeJsonArtifact(outPath, buildIosNativePerformanceEvidence({

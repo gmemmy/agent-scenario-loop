@@ -1250,6 +1250,31 @@ test('classifies iOS evidence as comparison-ready under the shared native-perfor
   });
 });
 
+test('preserves provider-owned iOS capture session lifecycle metadata', () => {
+  const evidence = buildIosNativePerformanceEvidence({
+    captureMode: 'session',
+    lifecycle: {
+      durationMs: 10000,
+      endedAt: '2026-07-13T12:00:10.000Z',
+      perturbsTiming: true,
+      phase: 'afterCapture',
+      startedAt: '2026-07-13T12:00:00.000Z',
+    },
+    providerId: 'native-provider',
+    runId: 'run-ios-session',
+    scenarioId: 'feed-scroll',
+  });
+
+  assert.equal(evidence.captureMode, 'session');
+  assert.deepEqual(evidence.lifecycle, {
+    durationMs: 10000,
+    endedAt: '2026-07-13T12:00:10.000Z',
+    perturbsTiming: true,
+    phase: 'afterCapture',
+    startedAt: '2026-07-13T12:00:00.000Z',
+  });
+});
+
 test('builds iOS native-performance evidence from a raw native trace attachment', () => {
   const evidence = buildIosNativePerformanceEvidence({
     attachments: [

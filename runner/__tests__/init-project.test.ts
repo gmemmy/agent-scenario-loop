@@ -150,6 +150,8 @@ test('init-project scaffolds templates into a consuming app layout', async (t: T
   const nativePerformanceProviderScript = fs.readFileSync(path.join(targetDir, 'scripts', 'asl-capture-native-performance-provider.mjs'), 'utf8');
   assert.match(nativePerformanceProviderScript, /ASL_NATIVE_PERFORMANCE_ANDROID_CAPTURE/u);
   assert.match(nativePerformanceProviderScript, /captureAndroidAdbEvidence/u);
+  assert.match(nativePerformanceProviderScript, /ASL_NATIVE_PERFORMANCE_IOS_CAPTURE/u);
+  assert.match(nativePerformanceProviderScript, /captureIosXctraceEvidence/u);
   const evidenceProviderManifest = readJson(path.join(targetDir, 'runner-manifests', 'evidence-provider.json')) as {
     providerCommands: Array<{args?: string[]; id: string}>;
   };
