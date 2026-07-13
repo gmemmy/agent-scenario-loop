@@ -5,6 +5,7 @@ const path = require('node:path');
 const test = require('node:test');
 
 const {
+  parseArgs,
   publishRelease,
   resolveReleaseProofPath,
   writeReleaseProof,
@@ -16,6 +17,12 @@ type FakeReleaseRepo = {
   repoRoot: string;
   tempRoot: string;
 };
+
+test('release publish accepts the pnpm argument separator before resume upload', () => {
+  assert.deepEqual(parseArgs(['--', '--resume-upload']), {
+    resumeUpload: true,
+  });
+});
 
 async function writeExecutable(filePath: string, source: string): Promise<void> {
   await fsp.writeFile(filePath, source, { mode: 0o755 });

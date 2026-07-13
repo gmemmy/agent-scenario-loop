@@ -54,6 +54,8 @@ function parseArgs(args: string[]): ReleasePublishArgs {
 
   for (const arg of args) {
     switch (arg) {
+      case '--':
+        break;
       case '--resume-upload':
         parsed.resumeUpload = true;
         break;
