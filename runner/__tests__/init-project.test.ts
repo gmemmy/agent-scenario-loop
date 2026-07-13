@@ -148,6 +148,12 @@ test('init-project scaffolds templates into a consuming app layout', async (t: T
   assert.match(accessibilityProviderScript, /writeAccessibilityEvidence/u);
   assert.match(accessibilityProviderScript, /violations/u);
   const nativePerformanceProviderScript = fs.readFileSync(path.join(targetDir, 'scripts', 'asl-capture-native-performance-provider.mjs'), 'utf8');
+  assert.match(nativePerformanceProviderScript, /ASL_NATIVE_PERFORMANCE_ANDROID_CAPTURE/u);
+  assert.match(nativePerformanceProviderScript, /captureAndroidAdbEvidence/u);
+  const evidenceProviderManifest = readJson(path.join(targetDir, 'runner-manifests', 'evidence-provider.json')) as {
+    providerCommands: Array<{args?: string[]; id: string}>;
+  };
+  assert.equal(evidenceProviderManifest.providerCommands.find((command) => command.id === 'capture-native-performance')?.args?.includes('{runDir}'), true);
   assert.match(nativePerformanceProviderScript, /buildAndroidNativePerformanceEvidence/u);
   assert.match(nativePerformanceProviderScript, /diagnostic-only/u);
   assert.match(nativePerformanceProviderScript, /diagnosticSources/u);

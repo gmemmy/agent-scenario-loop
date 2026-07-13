@@ -88,6 +88,8 @@
         "{scenarioId}",
         "--run-id",
         "{runId}",
+        "--run-dir",
+        "{runDir}",
         "--out",
         "{providerDir}/native-performance.json"
       ],

@@ -57,9 +57,23 @@ asl-profile-ios --config asl.config.json --scenario scenarios/mobile/{{SCENARIO_
 asl-profile-android --config asl.config.json --scenario scenarios/mobile/{{SCENARIO_ID}}.json --adb-capture --profile-session --clear-logcat --launch --comparison-lane {{SCENARIO_ID}}-android-live --out artifacts/asl/android --run-id {{SCENARIO_ID}}-android-live
 ```
 
-Those commands write `health.json`, `verdict.json`, `agent-summary.md`, `metrics.json`, `causal-run.json`, and raw evidence under the printed run directory. The `*:provider` scripts also execute the starter provider commands through `runner-manifests/evidence-provider.json`, then inventory the generated accessibility, native-performance, profiler, memory, and network evidence in `manifest.artifacts.evidenceAttachments`. Compare a trusted current run with an explicit artifact path:
+Those commands write `health.json`, `verdict.json`, `agent-summary.md`, `metrics.json`, `causal-run.json`, and raw evidence under the printed run directory. The `*:provider` scripts also execute the starter provider commands through `runner-manifests/evidence-provider.json`, then inventory the generated accessibility, native-performance, profiler, memory, and network evidence in `manifest.artifacts.evidenceAttachments`.
+
+The generated native-performance provider keeps native tool capture opt-in. On Android, it can run bounded, package-scoped `adb dumpsys gfxinfo`, framestats, and meminfo commands after the profile evidence source is available:
+
+```bash
+ASL_NATIVE_PERFORMANCE_ANDROID_CAPTURE=1 \
+ASL_ANDROID_SERIAL=<emulator-or-device-serial> \
+ASL_ANDROID_APP_ID=<package-name> \
+ASL_PROFILE_ANDROID_EVENTS=event-logs/{{SCENARIO_ID}}-android.log \
+pnpm asl:profile:android:provider
+```
+
+Set `ASL_ADB_PATH` when `adb` is not on `PATH`, and use `ASL_NATIVE_PERFORMANCE_COMMAND_TIMEOUT_MS` only when the default 10-second per-command bound is unsuitable. The provider preserves stdout, stderr, argv, exit status, timeouts, source status, and target-verification evidence under its run folder. It deliberately marks this after-capture evidence `diagnostic-only`, `partial`, and `insufficient-for-claim`: gfxinfo and meminfo summaries do not prove a bounded native measurement window. iOS remains a scaffold/input-ingest path until a provider-owned bounded Instruments, xctrace, MetricKit, or equivalent capture path is added; Android capture alone is not mobile completion.
 
 When `--wait-ms` is omitted from profile-session live capture, ASL derives the final adb or simctl evidence window from the scenario execution steps and cycle count. Pass `--wait-ms` only when a target app needs an explicit override.
+
+Compare a trusted current run with an explicit artifact path:
 
 ```bash
 ASL_COMPARE_IOS_CURRENT=artifacts/asl/ios/{{SCENARIO_ID}}/{{SCENARIO_ID}}-ios-live pnpm asl:compare:ios
@@ -84,6 +98,9 @@ ASL_ANDROID_SERIAL=<emulator-or-device-serial>
 ASL_IOS_UDID=<simulator-udid>
 ASL_ANDROID_APP_ID=<package-name>
 ASL_IOS_APP_ID=<bundle-id>
+ASL_NATIVE_PERFORMANCE_ANDROID_CAPTURE=1
+ASL_NATIVE_PERFORMANCE_COMMAND_TIMEOUT_MS=10000
+ASL_ADB_PATH=adb
 ASL_IOS_DEV_CLIENT_URL=<dev-client-url>
 ASL_ARGENT_BIN=pnpm
 ASL_ARGENT_BASE_ARGS="dlx @swmansion/argent run"
