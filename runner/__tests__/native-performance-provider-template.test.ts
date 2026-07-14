@@ -33,9 +33,10 @@ function execFileResult(command: string, args: string[], options: Record<string,
   });
 }
 
-async function createGeneratedProvider(t: TestContext): Promise<{
+async function createGeneratedProvider(t: TestContext, providerId = 'example-evidence-provider'): Promise<{
   fakeAdbPath: string;
   fakeXcrunPath: string;
+  providerId: string;
   runDir: string;
   scriptPath: string;
   targetDir: string;
@@ -171,23 +172,24 @@ process.exit(2);
 `, 'utf8');
   await fsp.chmod(fakeXcrunPath, 0o755);
   const runDir = path.join(targetDir, 'artifacts', 'run-1');
-  await fsp.mkdir(path.join(runDir, 'raw', 'providers', 'example-evidence-provider'), { recursive: true });
+  await fsp.mkdir(path.join(runDir, 'raw', 'providers', providerId), { recursive: true });
   return {
     fakeAdbPath,
     fakeXcrunPath,
+    providerId,
     runDir,
     scriptPath: path.join(targetDir, 'scripts', 'asl-capture-native-performance-provider.mjs'),
     targetDir,
   };
 }
 
-function providerArgs(options: {fakeAdbPath: string; runDir: string; scriptPath: string}, extra: string[] = []): string[] {
+function providerArgs(options: {fakeAdbPath: string; providerId: string; runDir: string; scriptPath: string}, extra: string[] = []): string[] {
   return [
     options.scriptPath,
     '--platform', 'android',
     '--scenario', 'native-capture',
     '--run-id', 'run-1',
-    '--out', path.join(options.runDir, 'raw', 'providers', 'example-evidence-provider', 'native-performance.json'),
+    '--out', path.join(options.runDir, 'raw', 'providers', options.providerId, 'native-performance.json'),
     '--run-dir', options.runDir,
     '--adb', options.fakeAdbPath,
     '--app', 'com.example.app',
@@ -196,13 +198,13 @@ function providerArgs(options: {fakeAdbPath: string; runDir: string; scriptPath:
   ];
 }
 
-function iosProviderArgs(options: {fakeXcrunPath: string; runDir: string; scriptPath: string}, extra: string[] = []): string[] {
+function iosProviderArgs(options: {fakeXcrunPath: string; providerId: string; runDir: string; scriptPath: string}, extra: string[] = []): string[] {
   return [
     options.scriptPath,
     '--platform', 'ios',
     '--scenario', 'native-capture',
     '--run-id', 'run-1',
-    '--out', path.join(options.runDir, 'raw', 'providers', 'example-evidence-provider', 'native-performance.json'),
+    '--out', path.join(options.runDir, 'raw', 'providers', options.providerId, 'native-performance.json'),
     '--run-dir', options.runDir,
     '--xcrun', options.fakeXcrunPath,
     '--bundle', 'com.example.ios',
@@ -221,8 +223,47 @@ test('generated provider keeps Android adb capture opt-in', async (t: TestContex
   assert.equal(result.exitCode, 0, result.stderr);
   assert.equal(fs.existsSync(commandLog), false);
   const evidence = JSON.parse(await fsp.readFile(path.join(provider.runDir, 'raw', 'providers', 'example-evidence-provider', 'native-performance.json'), 'utf8'));
+  assert.equal(evidence.providerId, 'example-evidence-provider');
   assert.equal(evidence.targetBinding.status, 'unverified');
   assert.equal(evidence.comparability.status, 'diagnostic-only');
+});
+
+test('generated provider emits the configured provider identity from its runner-owned output path', async (t: TestContext) => {
+  const provider = await createGeneratedProvider(t, 'configured-native-provider');
+  const result = await execFileResult(process.execPath, providerArgs(provider), {
+    cwd: provider.targetDir,
+    env: process.env,
+  });
+  assert.equal(result.exitCode, 0, result.stderr);
+  const evidencePath = path.join(provider.runDir, 'raw', 'providers', provider.providerId, 'native-performance.json');
+  const evidence = JSON.parse(await fsp.readFile(evidencePath, 'utf8'));
+  assert.equal(evidence.providerId, provider.providerId);
+});
+
+test('generated provider rejects an invalid provider identity before writing evidence', async (t: TestContext) => {
+  const provider = await createGeneratedProvider(t, 'Invalid Provider');
+  const evidencePath = path.join(provider.runDir, 'raw', 'providers', provider.providerId, 'native-performance.json');
+  const result = await execFileResult(process.execPath, providerArgs(provider), {
+    cwd: provider.targetDir,
+    env: process.env,
+  });
+  assert.equal(result.exitCode, 1);
+  assert.match(result.stderr, /provider identity "Invalid Provider" is invalid/u);
+  assert.equal(fs.existsSync(evidencePath), false);
+});
+
+test('generated provider rejects an output path with no provider identity directory', async (t: TestContext) => {
+  const provider = await createGeneratedProvider(t);
+  const evidencePath = path.join(provider.runDir, 'raw', 'providers', 'native-performance.json');
+  const args = providerArgs(provider);
+  args[args.indexOf('--out') + 1] = evidencePath;
+  const result = await execFileResult(process.execPath, args, {
+    cwd: provider.targetDir,
+    env: process.env,
+  });
+  assert.equal(result.exitCode, 1);
+  assert.match(result.stderr, /missing its provider identity directory/u);
+  assert.equal(fs.existsSync(evidencePath), false);
 });
 
 test('generated provider keeps iOS xctrace capture opt-in', async (t: TestContext) => {
