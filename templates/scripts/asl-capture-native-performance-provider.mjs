@@ -97,6 +97,39 @@ function toRunRelativePath(runDir, value) {
   return toPortablePath(relativePath);
 }
 
+/**
+ * Resolves the selected provider identity from the runner-owned output path.
+ *
+ * Generated provider commands write beneath
+ * `<runDir>/raw/providers/<providerId>/...`, where `<providerId>` comes from
+ * the validated provider manifest `runnerId`.
+ *
+ * @param {{outPath: string, runDir: string}} options
+ * @returns {string}
+ */
+function resolveProviderId({ outPath, runDir }) {
+  const providersDir = path.resolve(runDir, 'raw', 'providers');
+  const relativePath = path.relative(providersDir, path.resolve(outPath));
+  if (
+    relativePath.length === 0
+    || relativePath === '..'
+    || relativePath.startsWith(`..${path.sep}`)
+    || path.isAbsolute(relativePath)
+  ) {
+    throw new Error('Native-performance provider output must identify a provider beneath <run-dir>/raw/providers/.');
+  }
+
+  const segments = relativePath.split(path.sep);
+  const providerId = segments.length > 1 ? segments[0] : undefined;
+  if (!providerId) {
+    throw new Error('Native-performance provider output is missing its provider identity directory.');
+  }
+  if (!/^[a-z0-9][a-z0-9-]*$/u.test(providerId)) {
+    throw new Error(`Native-performance provider identity "${providerId}" is invalid.`);
+  }
+  return providerId;
+}
+
 function runCommand(command, args, timeoutMs) {
   return new Promise((resolve) => {
     const maxBufferBytes = 8 * 1024 * 1024;
@@ -280,7 +313,7 @@ function buildCapturedSource({ dataClasses, id, result, runDir, stdoutPath, tool
   };
 }
 
-async function captureAndroidAdbEvidence({ args, outPath, runId, scenarioId }) {
+async function captureAndroidAdbEvidence({ args, outPath, providerId, runId, scenarioId }) {
   const appId = optionalStringArg(args, 'app', 'ASL_ANDROID_APP_ID');
   const deviceId = optionalStringArg(args, 'device', 'ASL_ANDROID_SERIAL');
   if (!appId || !deviceId) {
@@ -455,7 +488,7 @@ async function captureAndroidAdbEvidence({ args, outPath, runId, scenarioId }) {
     framestatsText: commandSucceeded(sourceCapture.framestats.result) ? sourceCapture.framestats.result.stdout : undefined,
     gfxinfoText: commandSucceeded(sourceCapture.gfxinfo.result) ? sourceCapture.gfxinfo.result.stdout : undefined,
     meminfoText: commandSucceeded(sourceCapture.meminfo.result) ? sourceCapture.meminfo.result.stdout : undefined,
-    providerId: 'example-evidence-provider',
+    providerId,
     runId,
     scenarioId,
     targetBinding,
@@ -739,7 +772,7 @@ function combinedCommandStatus(results, evidenceValid) {
   return evidenceValid ? 'captured' : 'partial';
 }
 
-async function captureIosXctraceEvidence({ args, outPath, runId, scenarioId }) {
+async function captureIosXctraceEvidence({ args, outPath, providerId, runId, scenarioId }) {
   const bundleId = optionalStringArg(args, 'bundle', 'ASL_IOS_APP_ID');
   const deviceId = optionalStringArg(args, 'device', 'ASL_IOS_UDID');
   if (!bundleId || !deviceId) {
@@ -1066,7 +1099,7 @@ async function captureIosXctraceEvidence({ args, outPath, runId, scenarioId }) {
           perturbsTiming: true,
           phase: 'afterCapture',
         },
-    providerId: 'example-evidence-provider',
+    providerId,
     runId,
     scenarioId,
     targetBinding,
@@ -1262,12 +1295,13 @@ function buildNativePerformanceAttachments(args) {
 /**
  * Writes deterministic scaffold native-performance evidence for uncaptured lanes.
  *
- * @param {{outPath: string, platform: string, runId: string, scenarioId: string}} options
+ * @param {{outPath: string, platform: string, providerId: string, runId: string, scenarioId: string}} options
  * @returns {void}
  */
 function writeNativePerformanceScaffold({
   outPath,
   platform,
+  providerId,
   runId,
   scenarioId,
 }) {
@@ -1275,7 +1309,7 @@ function writeNativePerformanceScaffold({
   const diagnosticSources = buildDiagnosticSources(normalizedPlatform);
   writeJsonArtifact(outPath, {
     schemaVersion: '1.0.0',
-    providerId: 'example-evidence-provider',
+    providerId,
     platform: normalizedPlatform,
     runId,
     scenarioId,
@@ -1335,12 +1369,14 @@ async function main() {
   const args = parseArgs(process.argv.slice(2));
   const platform = requireStringArg(args, 'platform');
   const outPath = requireStringArg(args, 'out');
+  const runDir = requireStringArg(args, 'run-dir');
+  const providerId = resolveProviderId({ outPath, runDir });
   const runId = requireStringArg(args, 'run-id');
   const scenarioId = requireStringArg(args, 'scenario');
   if (platform === 'android') {
     const liveAdbCapture = args['capture-android-adb'] === true || process.env.ASL_NATIVE_PERFORMANCE_ANDROID_CAPTURE === '1';
     if (liveAdbCapture) {
-      await captureAndroidAdbEvidence({ args, outPath, runId, scenarioId });
+      await captureAndroidAdbEvidence({ args, outPath, providerId, runId, scenarioId });
       return;
     }
     writeJsonArtifact(outPath, buildAndroidNativePerformanceEvidence({
@@ -1350,7 +1386,7 @@ async function main() {
       framestatsText: readOptionalText(args, 'framestats'),
       gfxinfoText: readOptionalText(args, 'gfxinfo'),
       meminfoText: readOptionalText(args, 'meminfo'),
-      providerId: 'example-evidence-provider',
+      providerId,
       runId,
       scenarioId,
       traceProcessorSummary: readOptionalJsonObject(args, 'trace-processor-summary'),
@@ -1361,7 +1397,7 @@ async function main() {
   if (platform === 'ios') {
     const liveXctraceCapture = args['capture-ios-xctrace'] === true || process.env.ASL_NATIVE_PERFORMANCE_IOS_CAPTURE === '1';
     if (liveXctraceCapture) {
-      await captureIosXctraceEvidence({ args, outPath, runId, scenarioId });
+      await captureIosXctraceEvidence({ args, outPath, providerId, runId, scenarioId });
       return;
     }
     const metricKitText = readOptionalText(args, 'metrickit-summary');
@@ -1372,7 +1408,7 @@ async function main() {
       bundleId: typeof args.bundle === 'string' ? args.bundle : undefined,
       deviceId: typeof args.device === 'string' ? args.device : undefined,
       metricKitSummary: metricKitText ? parseIosMetricKitSummaryText(metricKitText) : undefined,
-      providerId: 'example-evidence-provider',
+      providerId,
       runId,
       scenarioId,
       xctraceSummary: xctraceText ? parseIosXctraceSummaryText(xctraceText) : undefined,
@@ -1383,6 +1419,7 @@ async function main() {
   writeNativePerformanceScaffold({
     outPath,
     platform,
+    providerId,
     runId,
     scenarioId,
   });

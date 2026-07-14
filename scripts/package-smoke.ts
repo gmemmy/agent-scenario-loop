@@ -1118,6 +1118,34 @@ function main(): void {
     );
     assert.equal(fs.existsSync(path.join(initOutputDir, 'scripts', 'asl-capture-accessibility-provider.mjs')), true);
     assert.equal(fs.existsSync(path.join(initOutputDir, 'scripts', 'asl-capture-profiler-provider.mjs')), true);
+    const packedProviderId = 'packed-template-provider';
+    const packedProviderRunDir = path.join(initOutputDir, 'artifacts', 'asl', 'packed-provider-run');
+    const packedProviderEvidencePath = path.join(
+      packedProviderRunDir,
+      'raw',
+      'providers',
+      packedProviderId,
+      'native-performance.json',
+    );
+    fs.mkdirSync(path.join(initOutputDir, 'node_modules'), { recursive: true });
+    fs.symlinkSync(packageRoot, path.join(initOutputDir, 'node_modules', 'agent-scenario-loop'), 'dir');
+    run(process.execPath, [
+      path.join(initOutputDir, 'scripts', 'asl-capture-native-performance-provider.mjs'),
+      '--platform',
+      'android',
+      '--scenario',
+      'checkout-submit',
+      '--run-id',
+      'packed-provider-run',
+      '--run-dir',
+      packedProviderRunDir,
+      '--out',
+      packedProviderEvidencePath,
+    ], {
+      cwd: initOutputDir,
+      env,
+    });
+    assert.equal(JSON.parse(fs.readFileSync(packedProviderEvidencePath, 'utf8')).providerId, packedProviderId);
     for (const platform of ['ios', 'android']) {
       run(packageBinPath(installDir, 'asl-check-plan'), [
         '--scenario',
