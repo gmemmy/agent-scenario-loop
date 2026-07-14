@@ -17,6 +17,7 @@ const { checkArgentAvailability, parseBaseArgs } = require('./argent');
 const { hasHelpFlag, writeUsage } = require('./cli');
 const { runIosSimctlCapture } = require('./ios-simctl');
 const { loadAslLocalEnv, readStringArgOrEnv } = require('./local-env');
+const { findExclusiveProcessMatches } = require('./host-process-matching');
 
 type HostDoctorRequirement = 'agent-device' | 'android' | 'argent' | 'ios';
 type CliArgs = {
@@ -1050,12 +1051,10 @@ async function probeExclusiveProcess(target: ExclusiveProcessTarget): Promise<Ex
       timeout: 5_000,
       maxBuffer: 1024 * 1024,
     });
-    const pattern = target.pattern.toLowerCase();
-    const matches = parseProcessList(stdout)
-      .filter((processInfo) => (
-        processInfo.pid !== process.pid &&
-        processInfo.command.toLowerCase().includes(pattern)
-      ));
+    const matches = findExclusiveProcessMatches({
+      processListText: stdout,
+      target,
+    });
     return {
       ...(matches.length > 0 ? { matches } : {}),
       status: matches.length > 0 ? 'failed' : 'passed',

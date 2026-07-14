@@ -14,6 +14,7 @@ const {
   parseRequirements,
   runHostDoctor,
 } = require('../host-doctor');
+const { findExclusiveProcessMatches } = require('../host-process-matching');
 
 type TestContext = import('node:test').TestContext;
 
@@ -76,6 +77,215 @@ function childPreflight({
     },
   };
 }
+
+test('exclusive process matcher ignores current pid when it is the only candidate', () => {
+  const target = { label: 'xctrace', pattern: 'xctrace' };
+  const fixture = '710 xctrace record --template Time\\ Profiler';
+  assert.deepEqual(findExclusiveProcessMatches({
+    currentPid: 710,
+    processListText: fixture,
+    target,
+  }), []);
+});
+
+test('exclusive process matcher suppresses host-doctor echoes across supported command-position forms', () => {
+  const target = { label: 'xctrace', pattern: 'xctrace' };
+  const fixtures = [
+    '400 asl-host-doctor --exclusive-process xctrace:xctrace --out artifacts/asl/host-doctor',
+    '401 pnpm asl-host-doctor --exclusive-process xctrace:xctrace --out artifacts/asl/host-doctor',
+    '402 pnpm exec asl-host-doctor --exclusive-process xctrace:xctrace --out artifacts/asl/host-doctor',
+    '403 node dist/runner/host-doctor.js --exclusive-process xctrace:xctrace --out artifacts/asl/host-doctor',
+    '404 sh -lc pnpm asl-host-doctor --exclusive-process xctrace:xctrace --out artifacts/asl/host-doctor',
+    '405 sh -lc "pnpm asl-host-doctor --exclusive-process xctrace:xctrace --out artifacts/asl/host-doctor"',
+    '406 ASL_HOST_DOCTOR_EXCLUSIVE_PROCESSES=xctrace:xctrace pnpm exec asl-host-doctor --out artifacts/asl/host-doctor',
+  ];
+  assert.deepEqual(findExclusiveProcessMatches({
+    currentPid: 999,
+    processListText: fixtures.join('\n'),
+    target,
+  }), []);
+});
+
+test('exclusive process matcher suppresses wrapper-only host-doctor --exclusive-process echoes', () => {
+  const target = { label: 'xctrace', pattern: 'xctrace' };
+  const wrapperOnlyFixture = [
+    '410 /bin/sh -lc pnpm asl-host-doctor --exclusive-process xctrace:xctrace --out artifacts/asl/host-doctor',
+    '411 node runner/host-doctor.js --exclusive-process xctrace:xctrace --run-id host-doctor',
+  ].join('\n');
+  const oldPolicyMatches = wrapperOnlyFixture
+    .split('\n')
+    .filter(Boolean)
+    .filter((line) => line.toLowerCase().includes(target.pattern.toLowerCase()));
+  assert.equal(oldPolicyMatches.length, 2);
+  assert.deepEqual(findExclusiveProcessMatches({
+    currentPid: 999,
+    processListText: wrapperOnlyFixture,
+    target,
+  }), []);
+});
+
+test('exclusive process matcher suppresses quoted host-doctor --exclusive-process echoes', () => {
+  const target = { label: 'xctrace', pattern: 'xctrace' };
+  assert.deepEqual(findExclusiveProcessMatches({
+    currentPid: 777,
+    processListText: [
+      '610 /bin/sh -lc pnpm asl-host-doctor --exclusive-process xctrace:xctrace',
+      '611 bash -lc node runner/host-doctor.js --exclusive-process "xctrace:xctrace"',
+    ].join('\n'),
+    target,
+  }), []);
+});
+
+test('exclusive process matcher keeps one genuine non-wrapper match', () => {
+  const target = { label: 'xctrace', pattern: 'xctrace' };
+  assert.deepEqual(findExclusiveProcessMatches({
+    currentPid: 710,
+    processListText: [
+      '710 xctrace record --template Time\\ Profiler',
+      '711 xctrace screenshot --output /tmp/frame.png',
+    ].join('\n'),
+    target,
+  }), [
+    { command: 'xctrace screenshot --output /tmp/frame.png', pid: 711 },
+  ]);
+});
+
+test('exclusive process matcher keeps multiple genuine matches and ignores malformed rows', () => {
+  const target = { label: 'xctrace', pattern: 'xctrace' };
+  const fixture = [
+    'not-a-process-line',
+    '510 /bin/sh -lc pnpm asl-host-doctor --exclusive-process xctrace:xctrace',
+    '511 xctrace record --template Time\\ Profiler',
+    '512 xctrace screenshot --output /tmp/frame.png',
+    '513 xctrace record --template Time\\ Profiler --note xctrace:xctrace',
+  ].join('\n');
+  assert.deepEqual(findExclusiveProcessMatches({
+    currentPid: 511,
+    processListText: fixture,
+    target,
+  }), [
+    { command: 'xctrace screenshot --output /tmp/frame.png', pid: 512 },
+    { command: 'xctrace record --template Time\\ Profiler --note xctrace:xctrace', pid: 513 },
+  ]);
+});
+
+test('exclusive process matcher keeps unrelated literal hits outside host-doctor carriers', () => {
+  const target = { label: 'xctrace', pattern: 'xctrace' };
+  const fixture = [
+    '801 xctrace:xctrace',
+  ].join('\n');
+  assert.deepEqual(findExclusiveProcessMatches({
+    currentPid: 999,
+    processListText: fixture,
+    target,
+  }), [
+    { command: 'xctrace:xctrace', pid: 801 },
+  ]);
+});
+
+test('exclusive process matcher does not sanitize non-host config text containing host-doctor literals', () => {
+  const target = { label: 'xctrace', pattern: 'xctrace' };
+  const fixture = [
+    '801 other-cli --config asl-host-doctor --exclusive-process xctrace:xctrace',
+    '802 other-cli --config host-doctor.js --exclusive-process xctrace:xctrace',
+    '803 node tools/other-cli.js --exclusive-process xctrace:xctrace --config host-doctor-notes',
+    '804 node tools/other-cli.js --exclusive-process xctrace:xctrace --config host-doctor.js',
+    '805 node tools/other-cli.js --config node host-doctor.js --exclusive-process xctrace:xctrace',
+  ].join('\n');
+  assert.deepEqual(findExclusiveProcessMatches({
+    currentPid: 999,
+    processListText: fixture,
+    target,
+  }), [
+    { command: 'other-cli --config asl-host-doctor --exclusive-process xctrace:xctrace', pid: 801 },
+    { command: 'other-cli --config host-doctor.js --exclusive-process xctrace:xctrace', pid: 802 },
+    { command: 'node tools/other-cli.js --exclusive-process xctrace:xctrace --config host-doctor-notes', pid: 803 },
+    { command: 'node tools/other-cli.js --exclusive-process xctrace:xctrace --config host-doctor.js', pid: 804 },
+    { command: 'node tools/other-cli.js --config node host-doctor.js --exclusive-process xctrace:xctrace', pid: 805 },
+  ]);
+});
+
+test('exclusive process matcher strips only the exact configured entry from quoted list carriers', () => {
+  const target = { label: 'xctrace', pattern: 'xctrace record' };
+  const fixture = [
+    '804 node runner/host-doctor.js --exclusive-process "perfetto:perfetto,xctrace:xctrace record"',
+  ].join('\n');
+  assert.deepEqual(findExclusiveProcessMatches({
+    currentPid: 999,
+    processListText: fixture,
+    target,
+  }), []);
+});
+
+test('exclusive process matcher strips ASL_HOST_DOCTOR_EXCLUSIVE_PROCESSES on real host-doctor invocation', () => {
+  const target = { label: 'xctrace', pattern: 'xctrace' };
+  const fixture = [
+    '805 ASL_HOST_DOCTOR_EXCLUSIVE_PROCESSES=xctrace:xctrace pnpm exec asl-host-doctor --out artifacts/host-doctor',
+  ].join('\n');
+  assert.deepEqual(findExclusiveProcessMatches({
+    currentPid: 999,
+    processListText: fixture,
+    target,
+  }), []);
+});
+
+test('exclusive process matcher keeps pnpm --dir command matches as genuine processes', () => {
+  const target = { label: 'xctrace', pattern: 'xctrace' };
+  const fixture = [
+    '806 pnpm --dir asl-host-doctor --exclusive-process xctrace:xctrace',
+  ].join('\n');
+  assert.deepEqual(findExclusiveProcessMatches({
+    currentPid: 999,
+    processListText: fixture,
+    target,
+  }), [
+    { command: 'pnpm --dir asl-host-doctor --exclusive-process xctrace:xctrace', pid: 806 },
+  ]);
+});
+
+test('exclusive process matcher treats pnpm --filter invocation as non-host command', () => {
+  const target = { label: 'xctrace', pattern: 'xctrace' };
+  const fixture = [
+    '807 pnpm --filter asl-host-doctor --exclusive-process xctrace:xctrace',
+  ].join('\n');
+  assert.deepEqual(findExclusiveProcessMatches({
+    currentPid: 999,
+    processListText: fixture,
+    target,
+  }), [
+    { command: 'pnpm --filter asl-host-doctor --exclusive-process xctrace:xctrace', pid: 807 },
+  ]);
+});
+
+test('exclusive process matcher keeps genuine command matches plus host-doctor config echoes', () => {
+  const target = { label: 'xctrace', pattern: 'xctrace' };
+  const fixture = [
+    '901 xctrace record --template Time\\ Profiler && pnpm asl-host-doctor --exclusive-process xctrace:xctrace',
+  ].join('\n');
+  assert.deepEqual(findExclusiveProcessMatches({
+    currentPid: 999,
+    processListText: fixture,
+    target,
+  }), [
+    {
+      command: 'xctrace record --template Time\\ Profiler && pnpm asl-host-doctor --exclusive-process xctrace:xctrace',
+      pid: 901,
+    },
+  ]);
+});
+
+test('exclusive process matcher returns no matches when no command contains pattern', () => {
+  const target = { label: 'xctrace', pattern: 'xctrace' };
+  const fixture = [
+    '1001 perfetto --version',
+    '1002 trace_processor_shell --httpd',
+  ].join('\n');
+  assert.deepEqual(findExclusiveProcessMatches({
+    currentPid: 999,
+    processListText: fixture,
+    target,
+  }), []);
+});
 
 test('host doctor writes passed ASL artifacts for requested host lanes', async (t: TestContext) => {
   const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-host-doctor-passed-'));
