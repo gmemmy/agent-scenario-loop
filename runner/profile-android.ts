@@ -21,6 +21,7 @@ const {
 } = require('./profile-mobile');
 const { isAndroidAdbPressKey } = require('../core/android-adb-press-keys') as typeof import('../core/android-adb-press-keys');
 const { buildScenarioExecutionPlan } = require('../core/execution-plan');
+const { alignProfileCommandsWithPortablePolicy } = require('../core/profile-command-policy') as typeof import('../core/profile-command-policy');
 const { PROFILE_SESSION_STORAGE_KEYS } = require('../profile-session-storage');
 const { runAgentDeviceCapture } = require('./agent-device');
 const { assertConcreteMobileAppId } = require('./app-identity');
@@ -36,9 +37,11 @@ type AndroidProfileOptions = {
 type AndroidAdbProfileCommand = {
   command: string;
   commandId?: string;
+  dependsOnMilestones?: string[];
   label?: string;
   queueId?: string;
   sequence?: number;
+  stopOnFailure?: boolean;
   waitForMilestone?: string;
   waitMs?: number;
   waitTimeoutMs?: number;
@@ -52,6 +55,7 @@ type AndroidAdbProfileResult = Awaited<ReturnType<typeof runAndroidAdbPreflight>
 const PROFILE_SESSION_CAPTURE_BOOTSTRAP_MS = 1000;
 const PROFILE_SESSION_STORAGE_CAPTURE_BOOTSTRAP_MS = 15000;
 const PROFILE_SESSION_CAPTURE_MAX_MS = 120000;
+const DEFAULT_PROFILE_COMMAND_MILESTONE_TIMEOUT_MS = 30000;
 const PROFILE_SESSION_LOGCAT_MIN_LINES = 1000;
 const PROFILE_SESSION_LOGCAT_MAX_LINES = 20000;
 const PROFILE_SESSION_LOGCAT_LINES_PER_COMMAND = 300;
@@ -116,6 +120,10 @@ function readPositiveInteger(value: unknown, fallback: number): number {
   return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : fallback;
 }
 
+function readNonNegativeInteger(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0 ? value : undefined;
+}
+
 /**
  * Resolves the lifecycle phase this runner is prepared to assert.
  *
@@ -143,6 +151,20 @@ function resolveManifestLifecyclePhase(args: import('./profile-mobile').CliArgs)
  */
 function readScenarioIterationCount(scenario: Record<string, any>): number {
   return readPositiveInteger(scenario.defaultIterations, readPositiveInteger(scenario.cycles?.iterations, 1));
+}
+
+function readScenarioStopOnFailure(scenario: Record<string, any>): boolean {
+  return scenario?.cycles?.stopOnFailure !== false;
+}
+
+function readStableAdapterCommandId(command: Record<string, unknown>): string {
+  const commandId = typeof command.id === 'string'
+    ? command.id
+    : (typeof command.commandId === 'string' ? command.commandId : '');
+  if (commandId.length === 0) {
+    throw new Error('Android adapter profile commands require a stable id. Labels and command text are not identities.');
+  }
+  return commandId;
 }
 
 /**
@@ -354,10 +376,12 @@ function buildProfileSessionUrl({
   command,
   commandId,
   config,
+  dependsOnMilestones,
   queueId,
   runId,
   scenario,
   sequence,
+  stopOnFailure,
   waitForMilestone,
   waitMs,
   waitTimeoutMs,
@@ -366,10 +390,12 @@ function buildProfileSessionUrl({
   command?: string;
   commandId?: string;
   config: Record<string, any>;
+  dependsOnMilestones?: string[];
   queueId?: string;
   runId: string;
   scenario: string;
   sequence?: number;
+  stopOnFailure?: boolean;
   waitForMilestone?: string;
   waitMs?: number;
   waitTimeoutMs?: number;
@@ -385,6 +411,9 @@ function buildProfileSessionUrl({
     if (commandId) {
       params.set('commandId', commandId);
     }
+    if (Array.isArray(dependsOnMilestones) && dependsOnMilestones.length > 0) {
+      params.set('dependsOnMilestones', dependsOnMilestones.join(','));
+    }
     if (typeof sequence === 'number') {
       params.set('sequence', String(sequence));
     }
@@ -399,6 +428,9 @@ function buildProfileSessionUrl({
     }
     if (typeof waitTimeoutMs === 'number') {
       params.set('waitTimeoutMs', String(waitTimeoutMs));
+    }
+    if (typeof stopOnFailure === 'boolean') {
+      params.set('stopOnFailure', String(stopOnFailure));
     }
   }
 
@@ -434,11 +466,17 @@ function buildProfileSessionStorageWrites({
       runId,
       command: profileCommand.command,
       ...(typeof profileCommand.commandId === 'string' ? { commandId: profileCommand.commandId } : {}),
+      ...(Array.isArray(profileCommand.dependsOnMilestones) && profileCommand.dependsOnMilestones.length > 0
+        ? { dependsOnMilestones: profileCommand.dependsOnMilestones }
+        : {}),
       ...(typeof profileCommand.sequence === 'number' ? { sequence: profileCommand.sequence } : {}),
       ...(typeof profileCommand.queueId === 'string' ? { queueId: profileCommand.queueId } : {}),
       ...(typeof profileCommand.waitForMilestone === 'string' ? { waitForMilestone: profileCommand.waitForMilestone } : {}),
       ...(typeof profileCommand.waitMs === 'number' ? { waitMs: profileCommand.waitMs } : {}),
       ...(typeof profileCommand.waitTimeoutMs === 'number' ? { waitTimeoutMs: profileCommand.waitTimeoutMs } : {}),
+      ...(typeof profileCommand.stopOnFailure === 'boolean'
+        ? { stopOnFailure: profileCommand.stopOnFailure }
+        : {}),
       timestamp: timestampPlaceholder,
     };
   });
@@ -505,7 +543,7 @@ function readStepWaitMs(step: ScenarioExecutionStep): number {
     return androidAdbWaitMs;
   }
 
-  return readPositiveInteger(step.timeoutMs, 0);
+  return 0;
 }
 
 /**
@@ -568,7 +606,8 @@ function resolveAndroidAdbRawFileName({
 }
 
 /**
- * Sums the command-side pacing and milestone-gate windows the app helper can spend before command evidence appears.
+ * Sums the bounded command windows the app helper can spend before command
+ * evidence appears. Minimum settle and readiness overlap for gated commands.
  *
  * @param {AndroidAdbProfileCommand[]} commands
  * @returns {number}
@@ -579,8 +618,33 @@ function deriveProfileCommandCaptureBudgetMs(commands: AndroidAdbProfileCommand[
     const waitTimeoutMs = typeof command.waitTimeoutMs === 'number' && command.waitTimeoutMs > 0
       ? command.waitTimeoutMs
       : 0;
-    return total + waitMs + waitTimeoutMs;
+    return total + (waitTimeoutMs > 0 ? Math.max(waitMs, waitTimeoutMs) : waitMs);
   }, 0);
+}
+
+/**
+ * Sums readiness waits that are not already attached to a profile command.
+ *
+ * @param {Record<string, unknown>} scenario
+ * @returns {number}
+ */
+function deriveUnattachedExecutionWaitMs(scenario: Record<string, any>): number {
+  const executionPlan = buildScenarioExecutionPlan(scenario);
+  const iterations = readScenarioIterationCount(scenario);
+  const perIterationWaitMs = executionPlan.steps.reduce((total: number, step: ScenarioExecutionStep, index: number) => {
+    if (step.portMethod !== 'waitForTruthEvent') {
+      return total;
+    }
+
+    const previousStep = executionPlan.steps[index - 1];
+    if (previousStep?.kind === 'command' && typeof previousStep.command === 'string') {
+      return total;
+    }
+
+    return total + readPositiveInteger(step.timeoutMs, 0);
+  }, 0);
+
+  return perIterationWaitMs * iterations;
 }
 
 /**
@@ -594,21 +658,9 @@ function deriveProfileSessionCaptureWaitMs(
   scenario: Record<string, any>,
   options: { bootstrapMs?: number; commands?: AndroidAdbProfileCommand[] } = {},
 ): number {
-  const executionPlan = buildScenarioExecutionPlan(scenario);
-  const iterations = readScenarioIterationCount(scenario);
   const bootstrapMs = readPositiveInteger(options.bootstrapMs, PROFILE_SESSION_CAPTURE_BOOTSTRAP_MS);
-  const perIterationWaitMs = executionPlan.steps.reduce((total: number, step: ScenarioExecutionStep) => {
-    if (step.kind === 'command') {
-      return total + readStepWaitMs(step);
-    }
-    if (step.portMethod === 'waitForTruthEvent') {
-      return total + readPositiveInteger(step.timeoutMs, 0);
-    }
-    return total;
-  }, 0);
-  const planWaitMs = perIterationWaitMs * iterations;
   const commandWaitMs = deriveProfileCommandCaptureBudgetMs(options.commands ?? resolveAndroidAdbProfileCommands(scenario));
-  const derivedWaitMs = bootstrapMs + Math.max(planWaitMs, commandWaitMs);
+  const derivedWaitMs = bootstrapMs + commandWaitMs + deriveUnattachedExecutionWaitMs(scenario);
 
   return Math.min(Math.max(derivedWaitMs, bootstrapMs), PROFILE_SESSION_CAPTURE_MAX_MS);
 }
@@ -758,23 +810,35 @@ function appendCaptureArg({
 function resolveExecutionPlanProfileCommands(scenario: Record<string, any>): AndroidAdbProfileCommand[] {
   const executionPlan = buildScenarioExecutionPlan(scenario);
   const repeat = readPositiveInteger(scenario.defaultIterations, readPositiveInteger(scenario.cycles?.iterations, 1));
+  const stopOnFailure = readScenarioStopOnFailure(scenario);
   const commands: AndroidAdbProfileCommand[] = [];
+  const dependencies: string[] = [];
   for (const [index, step] of executionPlan.steps.entries()) {
+    if (step.portMethod === 'waitForTruthEvent' && typeof step.milestone === 'string') {
+      dependencies.push(resolveMilestoneEventName(scenario, step.milestone));
+      continue;
+    }
     if (step.portMethod !== 'executeStep' || typeof step.command !== 'string') {
       continue;
     }
 
     const nextStep = executionPlan.steps[index + 1];
+    const commandDependencies = dependencies.length > 0 ? Array.from(new Set(dependencies)) : [];
     commands.push({
       command: step.command as string,
       commandId: step.id,
+      ...(commandDependencies.length > 0 ? { dependsOnMilestones: commandDependencies } : {}),
       label: step.id,
       queueId: scenario.id ?? scenario.name,
+      ...(stopOnFailure === false ? { stopOnFailure: false } : {}),
       waitMs: readStepWaitMs(step),
       ...(nextStep?.portMethod === 'waitForTruthEvent' && typeof nextStep.milestone === 'string'
         ? {
             waitForMilestone: resolveMilestoneEventName(scenario, nextStep.milestone),
-            waitTimeoutMs: readPositiveInteger(nextStep.timeoutMs, 0),
+            waitTimeoutMs: readPositiveInteger(
+              nextStep.timeoutMs,
+              DEFAULT_PROFILE_COMMAND_MILESTONE_TIMEOUT_MS,
+            ),
           }
         : {}),
     });
@@ -959,33 +1023,45 @@ function resolveScenarioReadinessEvent(scenario: Record<string, any>): string | 
 }
 
 /**
- * Applies wait gates from the normalized execution plan to platform-declared commands.
+ * Applies normalized cadence, readiness, dependency, and failure policy to platform commands.
  *
  * @param {Record<string, unknown>} scenario
  * @param {AndroidAdbProfileCommand[]} commands
  * @returns {AndroidAdbProfileCommand[]}
  */
-function applyExecutionPlanCommandGates(
+function applyExecutionPlanCommandPolicy(
   scenario: Record<string, any>,
   commands: AndroidAdbProfileCommand[],
 ): AndroidAdbProfileCommand[] {
   const planCommands = resolveExecutionPlanProfileCommands(scenario);
-  if (planCommands.length === 0) {
-    return commands;
-  }
-
-  return commands.map((command, index) => {
-    const planCommand = planCommands[index];
-    if (!planCommand || typeof planCommand.waitForMilestone !== 'string' || typeof command.waitForMilestone === 'string') {
-      return command;
-    }
+  return alignProfileCommandsWithPortablePolicy('Android', commands, planCommands).map(({ command, planCommand }) => {
+    const inheritedDependencies = (
+      !Array.isArray(command.dependsOnMilestones) &&
+      Array.isArray(planCommand.dependsOnMilestones) &&
+      planCommand.dependsOnMilestones.length > 0
+    ) ? { dependsOnMilestones: planCommand.dependsOnMilestones } : {};
+    const waitForMilestone = typeof command.waitForMilestone === 'string'
+      ? command.waitForMilestone
+      : planCommand.waitForMilestone;
+    const commandTimeoutMs = readPositiveInteger(command.waitTimeoutMs, 0);
+    const planTimeoutMs = readPositiveInteger(planCommand.waitTimeoutMs, 0);
+    const waitTimeoutMs = typeof waitForMilestone === 'string'
+      ? (commandTimeoutMs || planTimeoutMs || DEFAULT_PROFILE_COMMAND_MILESTONE_TIMEOUT_MS)
+      : undefined;
 
     return {
       ...command,
-      waitForMilestone: planCommand.waitForMilestone,
-      ...(typeof command.waitTimeoutMs === 'number'
+      ...inheritedDependencies,
+      ...(typeof waitForMilestone === 'string' ? { waitForMilestone } : {}),
+      ...(typeof command.waitMs === 'number'
         ? {}
-        : { waitTimeoutMs: readPositiveInteger(planCommand.waitTimeoutMs, 0) }),
+        : (typeof planCommand.waitMs === 'number'
+            ? { waitMs: readPositiveInteger(planCommand.waitMs, 0) }
+            : {})),
+      ...(typeof waitTimeoutMs === 'number' ? { waitTimeoutMs } : {}),
+      ...(typeof command.stopOnFailure === 'boolean'
+        ? {}
+        : (planCommand.stopOnFailure === false ? { stopOnFailure: false } : {})),
     };
   });
 }
@@ -1135,32 +1211,44 @@ function resolveAndroidAdbProfileCommands(scenario: Record<string, any>): Androi
     return resolveExecutionPlanProfileCommands(scenario);
   }
 
-  const repeat = readPositiveInteger(androidAdbOptions.repeat, readPositiveInteger(scenario.defaultIterations, 1));
+  const repeat = readPositiveInteger(androidAdbOptions.repeat, readScenarioIterationCount(scenario));
+  const stopOnFailure = readScenarioStopOnFailure(scenario);
   const commands: AndroidAdbProfileCommand[] = [];
   for (let iteration = 0; iteration < repeat; iteration += 1) {
     for (const command of androidAdbOptions.commands) {
       if (!command || typeof command.command !== 'string') {
         continue;
       }
+      const waitMs = readNonNegativeInteger(command.waitMs);
 
       commands.push({
         command: command.command,
-        commandId: typeof command.id === 'string'
-          ? command.id
-          : typeof command.commandId === 'string'
-            ? command.commandId
-            : typeof command.label === 'string'
-              ? command.label
-              : command.command,
+        commandId: readStableAdapterCommandId(command),
+        ...(Array.isArray(command.dependsOnMilestones) && command.dependsOnMilestones.length > 0
+          ? {
+              dependsOnMilestones: command.dependsOnMilestones.filter((milestone: unknown): milestone is string => (
+                typeof milestone === 'string' && milestone.length > 0
+              )),
+          }
+          : {}),
         ...(typeof command.label === 'string' ? { label: command.label } : {}),
         queueId: scenario.id ?? scenario.name,
         sequence: commands.length + 1,
-        waitMs: readPositiveInteger(command.waitMs, 0),
+        ...(typeof command.stopOnFailure === 'boolean'
+          ? { stopOnFailure: command.stopOnFailure }
+          : (stopOnFailure === false ? { stopOnFailure: false } : {})),
+        ...(waitMs !== undefined ? { waitMs } : {}),
+        ...(typeof command.waitForMilestone === 'string' && command.waitForMilestone.length > 0
+          ? { waitForMilestone: command.waitForMilestone }
+          : {}),
+        ...(readPositiveInteger(command.waitTimeoutMs, 0) > 0
+          ? { waitTimeoutMs: readPositiveInteger(command.waitTimeoutMs, 0) }
+          : {}),
       });
     }
   }
 
-  return applyExecutionPlanCommandGates(scenario, commands);
+  return applyExecutionPlanCommandPolicy(scenario, commands);
 }
 
 /**
@@ -1375,6 +1463,9 @@ async function runProfileAndroid(
             action: 'command',
             command: profileCommand.command,
             ...(typeof profileCommand.commandId === 'string' ? { commandId: profileCommand.commandId } : {}),
+            ...(Array.isArray(profileCommand.dependsOnMilestones) && profileCommand.dependsOnMilestones.length > 0
+              ? { dependsOnMilestones: profileCommand.dependsOnMilestones }
+              : {}),
             config,
             runId,
             scenario: scenarioName,
@@ -1383,6 +1474,9 @@ async function runProfileAndroid(
             ...(typeof profileCommand.waitForMilestone === 'string' ? { waitForMilestone: profileCommand.waitForMilestone } : {}),
             ...(typeof profileCommand.waitMs === 'number' ? { waitMs: profileCommand.waitMs } : {}),
             ...(typeof profileCommand.waitTimeoutMs === 'number' ? { waitTimeoutMs: profileCommand.waitTimeoutMs } : {}),
+            ...(typeof profileCommand.stopOnFailure === 'boolean'
+              ? { stopOnFailure: profileCommand.stopOnFailure }
+              : {}),
           }),
           waitMs: profileCommand.waitMs,
         })),

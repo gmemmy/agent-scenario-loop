@@ -66,6 +66,9 @@
     "warmupIterations": 0,
     "stopOnFailure": true
   },
+  "cadence": {
+    "commandSettleMs": 300
+  },
   "budgets": [
     {
       "name": "journey p95",
@@ -129,8 +132,8 @@
       "commands": [
         {
           "command": "activate-target:first-journey",
-          "label": "start first journey",
-          "waitMs": 300
+          "id": "start-journey",
+          "label": "start first journey"
         }
       ]
     },
@@ -138,8 +141,8 @@
       "commands": [
         {
           "command": "activate-target:first-journey",
-          "label": "start first journey",
-          "waitMs": 300
+          "id": "start-journey",
+          "label": "start first journey"
         }
       ],
       "repeat": 3

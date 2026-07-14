@@ -6,3 +6,5 @@ export {
   useProfileSession,
   useProfileSessionBootstrap,
 } from '../../../../app/profile-session';
+
+export type { ProfileSessionCommand } from '../../../../app/profile-session';

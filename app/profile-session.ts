@@ -8,6 +8,13 @@ import {
   doesProfileEventReleaseCommandGate,
   hasObservedProfileCommandDependencies,
   hasObservedProfileCommandMilestone,
+  resolveProfileCommandCadenceOutcome,
+  resolveProfileCommandMilestoneTimeoutOutcome,
+  resolveProfileCommandQueueBlocker,
+  resolveProfileCommandTimeoutQueueTransition,
+  resolveProfileCommandSettleOutcome,
+  resolveRemainingProfileCommandSettleMs,
+  takeNextProfileCommand,
   type ProfileCommandMilestoneGate as BaseProfileCommandMilestoneGate,
 } from './profile-session-command-ordering';
 import { PROFILE_SESSION_STORAGE_KEYS as PROFILE_SESSION_STORAGE_KEY_VALUES } from './profile-session-storage';
@@ -28,6 +35,7 @@ export type ProfileSessionCommand = {
   command: string;
   queueId?: string;
   sequence?: number;
+  stopOnFailure?: boolean;
   source?: 'deeplink' | 'storage';
   timestamp: number;
   waitForMilestone?: string;
@@ -92,18 +100,43 @@ type StoredProfileSessionEntry = {
   sequence?: number;
   source?: 'deeplink' | 'storage';
   status?: 'received' | 'queued' | 'delivered' | 'completed' | 'skipped';
+  stopOnFailure?: boolean;
+  continuationReason?: string;
   waitForMilestone?: string;
+  minimumSettleMs?: number;
+  plannedSettleMs?: number;
+  maxReadinessWaitMs?: number;
+  readinessWaitMs?: number;
+  actualWaitMs?: number;
+  settleOverlapSavedMs?: number;
+  timeoutAvoided?: boolean;
   waitMs?: number;
   waitTimeoutMs?: number;
 };
 
 type StoredProfileSignals = Record<ProfileSignalKind, Record<string, unknown>>;
 type ProfileCommandMilestoneGate = BaseProfileCommandMilestoneGate & {
+  command: ProfileSessionCommand;
+  commandReleasedAtMs: number;
   timeoutId?: ReturnType<typeof setTimeout>;
 };
+type ProfileCommandCadenceObservation =
+  | {
+      kind: 'readiness';
+      command: ProfileSessionCommand;
+      commandReleasedAtMs: number;
+      readinessObservedAtMs: number;
+    }
+  | {
+      kind: 'settle-only';
+      command: ProfileSessionCommand;
+      commandReleasedAtMs: number;
+    };
 type ProfileCommandClearStoragePolicy = 'preserve-storage' | 'remove-storage';
+type ProfileCommandDispatchOutcome = 'dispatched' | 'queued' | 'skipped';
 
-export const PROFILE_SESSION_HELPER_VERSION = '1.0.0';
+export const PROFILE_SESSION_HELPER_VERSION = '1.1.0';
+const PROFILE_SESSION_DEFAULT_STOP_ON_FAILURE = true;
 
 const INITIAL_STATE: ProfileSessionState = {
   active: false,
@@ -136,7 +169,7 @@ let profileSessionState: ProfileSessionState = INITIAL_STATE;
 let profileStorageWriteChain = Promise.resolve();
 const listeners = new Set<() => void>();
 const profileCommandListeners = new Set<(command: ProfileSessionCommand) => void>();
-const profileCommandTargetHandlers = new Map<string, () => void>();
+const profileCommandTargetHandlers = new Map<string, (command: ProfileSessionCommand) => void>();
 const pendingProfileCommands: ProfileSessionCommand[] = [];
 const sequencedProfileCommands: ProfileSessionCommand[] = [];
 const observedProfileEvents: StoredProfileEvent[] = [];
@@ -147,6 +180,7 @@ let profileCommandMilestoneGate: ProfileCommandMilestoneGate | null = null;
 let profileCommandProcessingScheduled = false;
 let profileCommandProcessingTimeoutId: ReturnType<typeof setTimeout> | null = null;
 let profileCommandProcessingAvailableAt = 0;
+let profileCommandCadenceObservation: ProfileCommandCadenceObservation | null = null;
 
 function writeProfileLog(line: string) {
   if (Platform.OS === 'ios') {
@@ -430,6 +464,12 @@ function logProfileSession(kind: 'start' | 'stop' | 'command', payload: Record<s
     ) {
       entry.status = payload.status;
     }
+    if (typeof payload.stopOnFailure === 'boolean') {
+      entry.stopOnFailure = payload.stopOnFailure;
+    }
+    if (typeof payload.continuationReason === 'string') {
+      entry.continuationReason = payload.continuationReason;
+    }
     if (typeof payload.reason === 'string') {
       entry.reason = payload.reason;
     }
@@ -438,6 +478,27 @@ function logProfileSession(kind: 'start' | 'stop' | 'command', payload: Record<s
     }
     if (typeof payload.waitForMilestone === 'string') {
       entry.waitForMilestone = payload.waitForMilestone;
+    }
+    if (typeof payload.minimumSettleMs === 'number') {
+      entry.minimumSettleMs = payload.minimumSettleMs;
+    }
+    if (typeof payload.plannedSettleMs === 'number') {
+      entry.plannedSettleMs = payload.plannedSettleMs;
+    }
+    if (typeof payload.maxReadinessWaitMs === 'number') {
+      entry.maxReadinessWaitMs = payload.maxReadinessWaitMs;
+    }
+    if (typeof payload.readinessWaitMs === 'number') {
+      entry.readinessWaitMs = payload.readinessWaitMs;
+    }
+    if (typeof payload.actualWaitMs === 'number') {
+      entry.actualWaitMs = payload.actualWaitMs;
+    }
+    if (typeof payload.settleOverlapSavedMs === 'number') {
+      entry.settleOverlapSavedMs = payload.settleOverlapSavedMs;
+    }
+    if (typeof payload.timeoutAvoided === 'boolean') {
+      entry.timeoutAvoided = payload.timeoutAvoided;
     }
     if (typeof payload.waitMs === 'number') {
       entry.waitMs = payload.waitMs;
@@ -456,8 +517,10 @@ function getProfileSessionRoute(url: string): {
   runId?: string;
   command?: string;
   commandId?: string;
+  dependsOnMilestones?: string[];
   queueId?: string;
   sequence?: number;
+  stopOnFailure?: boolean;
   waitForMilestone?: string;
   waitMs?: number;
   waitTimeoutMs?: number;
@@ -500,15 +563,63 @@ function getProfileSessionRoute(url: string): {
     typeof parsed.queryParams?.waitMs === 'string' && Number.isInteger(Number(parsed.queryParams.waitMs))
       ? Number(parsed.queryParams.waitMs)
       : undefined;
+  const dependsOnMilestones = (
+    Array.isArray(parsed.queryParams?.dependsOnMilestones)
+      ? parsed.queryParams.dependsOnMilestones
+      : (typeof parsed.queryParams?.dependsOnMilestones === 'string'
+          ? parsed.queryParams.dependsOnMilestones.split(',')
+          : [])
+  ).filter((milestone): milestone is string => typeof milestone === 'string' && milestone.length > 0);
+  const stopOnFailure =
+    parsed.queryParams?.stopOnFailure === 'true'
+      ? true
+      : parsed.queryParams?.stopOnFailure === 'false'
+        ? false
+        : undefined;
 
-  return { action, scenario, runId, command, commandId, queueId, sequence, waitForMilestone, waitMs, waitTimeoutMs };
+  return {
+    action,
+    scenario,
+    runId,
+    command,
+    commandId,
+    ...(dependsOnMilestones.length > 0 ? { dependsOnMilestones } : {}),
+    queueId,
+    sequence,
+    stopOnFailure,
+    waitForMilestone,
+    waitMs,
+    waitTimeoutMs,
+  };
+}
+
+function persistPendingProfileCommands() {
+  const commands = [...pendingProfileCommands];
+  queueProfileStorageMutation(async () => {
+    if (commands.length === 0) {
+      await AsyncStorage.removeItem(PROFILE_COMMAND_STORAGE_KEY);
+      return;
+    }
+    await writeStoredJson(PROFILE_COMMAND_STORAGE_KEY, commands);
+  });
 }
 
 function queuePendingProfileCommand(command: ProfileSessionCommand) {
   pendingProfileCommands.push(command);
-  queueProfileStorageMutation(async () => {
-    await writeStoredJson(PROFILE_COMMAND_STORAGE_KEY, pendingProfileCommands);
-  });
+  persistPendingProfileCommands();
+}
+
+function takeNextPendingProfileCommand(): ProfileSessionCommand | undefined {
+  const transition = takeNextProfileCommand(pendingProfileCommands);
+  pendingProfileCommands.length = 0;
+  pendingProfileCommands.push(...transition.remainingCommands);
+  persistPendingProfileCommands();
+  return transition.command ?? undefined;
+}
+
+function restorePendingProfileCommand(command: ProfileSessionCommand) {
+  pendingProfileCommands.unshift(command);
+  persistPendingProfileCommands();
 }
 
 /**
@@ -534,7 +645,35 @@ function dispatchProfileCommandTarget(command: ProfileSessionCommand) {
     return false;
   }
 
-  handler();
+  handler(command);
+  return true;
+}
+
+function dispatchProfileCommand(command: ProfileSessionCommand): boolean {
+  const targetDispatched = dispatchProfileCommandTarget(command);
+  if (targetDispatched) {
+    logProfileSession('command', {
+      ...command,
+      status: 'delivered',
+      result: 'target-dispatched',
+      stopOnFailure: resolveProfileCommandStopOnFailure(command.stopOnFailure),
+    });
+    return true;
+  }
+
+  if (profileCommandListeners.size === 0) {
+    return false;
+  }
+
+  for (const listener of profileCommandListeners) {
+    listener(command);
+  }
+  logProfileSession('command', {
+    ...command,
+    status: 'delivered',
+    result: 'listener-notified',
+    stopOnFailure: resolveProfileCommandStopOnFailure(command.stopOnFailure),
+  });
   return true;
 }
 
@@ -615,6 +754,83 @@ function clearProfileCommandProcessingSchedule() {
   profileCommandProcessingTimeoutId = null;
   profileCommandProcessingScheduled = false;
   profileCommandProcessingAvailableAt = 0;
+  profileCommandCadenceObservation = null;
+}
+
+function resolveProfileCommandStopOnFailure(value: unknown): boolean {
+  return typeof value === 'boolean' ? value : PROFILE_SESSION_DEFAULT_STOP_ON_FAILURE;
+}
+
+function installProfileCommandWait(
+  command: ProfileSessionCommand,
+  gate: BaseProfileCommandMilestoneGate | null,
+  commandReleasedAtMs: number,
+) {
+  profileCommandMilestoneGate = gate
+    ? { ...gate, command, commandReleasedAtMs }
+    : null;
+  startProfileCommandMilestoneTimeout(command);
+}
+
+function scheduleProfileCommandSettle(
+  command: ProfileSessionCommand,
+  commandReleasedAtMs: number,
+) {
+  profileCommandCadenceObservation = typeof command.waitForMilestone === 'string'
+    ? {
+        kind: 'readiness',
+        command,
+        commandReleasedAtMs,
+        readinessObservedAtMs: commandReleasedAtMs,
+      }
+    : {
+        kind: 'settle-only',
+        command,
+        commandReleasedAtMs,
+      };
+  scheduleProfileCommandProcessing(
+    typeof command.waitMs === 'number' && command.waitMs > 0
+      ? command.waitMs
+      : 0,
+  );
+}
+
+function logProfileCommandCadenceObservation(
+  observation: ProfileCommandCadenceObservation,
+  continuationObservedAtMs: number,
+) {
+  const outcome = observation.kind === 'readiness'
+    ? resolveProfileCommandCadenceOutcome({
+        minimumSettleMs: observation.command.waitMs,
+        commandReleasedAtMs: observation.commandReleasedAtMs,
+        readinessObservedAtMs: observation.readinessObservedAtMs,
+        continuationObservedAtMs,
+        maxReadinessWaitMs: observation.command.waitTimeoutMs,
+      })
+    : resolveProfileCommandSettleOutcome({
+        minimumSettleMs: observation.command.waitMs,
+        commandReleasedAtMs: observation.commandReleasedAtMs,
+        continuationObservedAtMs,
+      });
+
+  logProfileSession('command', {
+    ...observation.command,
+    status: 'completed',
+    result: 'cadence-settled',
+    continuationReason: outcome.reason,
+    stopOnFailure: resolveProfileCommandStopOnFailure(observation.command.stopOnFailure),
+    minimumSettleMs: outcome.telemetry.minimumSettleMs,
+    plannedSettleMs: outcome.telemetry.minimumSettleMs,
+    ...(typeof outcome.telemetry.maxReadinessWaitMs === 'number'
+      ? { maxReadinessWaitMs: outcome.telemetry.maxReadinessWaitMs }
+      : {}),
+    readinessWaitMs: outcome.telemetry.readinessWaitMs,
+    actualWaitMs: outcome.telemetry.actualWaitMs,
+    settleOverlapSavedMs: outcome.telemetry.settleOverlapSavedMs,
+    ...(typeof outcome.telemetry.timeoutAvoided === 'boolean'
+      ? { timeoutAvoided: outcome.telemetry.timeoutAvoided }
+      : {}),
+  });
 }
 
 function startProfileCommandMilestoneTimeout(command: ProfileSessionCommand) {
@@ -631,12 +847,59 @@ function startProfileCommandMilestoneTimeout(command: ProfileSessionCommand) {
       return;
     }
 
+    const timeoutAtMs = Date.now();
+    const timeoutOutcome = resolveProfileCommandMilestoneTimeoutOutcome({
+      commandReleasedAtMs: profileCommandMilestoneGate.commandReleasedAtMs,
+      timeoutObservedAtMs: timeoutAtMs,
+      minimumSettleMs: profileCommandMilestoneGate.waitMs,
+      maxReadinessWaitMs: profileCommandMilestoneGate.waitTimeoutMs,
+      stopOnFailure: resolveProfileCommandStopOnFailure(profileCommandMilestoneGate.stopOnFailure),
+    });
+
     logProfileSession('command', {
       ...command,
       status: 'skipped',
       reason: 'wait-for-milestone-timeout',
+      continuationReason: timeoutOutcome.reason,
+      minimumSettleMs: timeoutOutcome.telemetry.minimumSettleMs,
+      plannedSettleMs: timeoutOutcome.telemetry.minimumSettleMs,
+      maxReadinessWaitMs: timeoutOutcome.telemetry.maxReadinessWaitMs,
+      readinessWaitMs: timeoutOutcome.telemetry.readinessWaitMs,
+      actualWaitMs: timeoutOutcome.telemetry.actualWaitMs,
+      settleOverlapSavedMs: timeoutOutcome.telemetry.settleOverlapSavedMs,
+      timeoutAvoided: timeoutOutcome.telemetry.timeoutAvoided,
+    });
+
+    const queueTransition = resolveProfileCommandTimeoutQueueTransition({
+      activeGateId: profileCommandMilestoneGate.id,
+      pendingCommands: pendingProfileCommands,
+      sequencedCommands: sequencedProfileCommands,
+      stopOnFailure: timeoutOutcome.kind === 'terminal',
     });
     clearProfileCommandMilestoneGate();
+    pendingProfileCommands.length = 0;
+    pendingProfileCommands.push(...queueTransition.pendingCommands);
+    sequencedProfileCommands.length = 0;
+    sequencedProfileCommands.push(...queueTransition.sequencedCommands);
+
+    if (timeoutOutcome.kind === 'terminal') {
+      for (const remainingCommand of queueTransition.skippedCommands) {
+        if (!remainingCommand) {
+          continue;
+        }
+        logProfileSession('command', {
+          ...remainingCommand,
+          status: 'skipped',
+          reason: 'prior-command-failure',
+          continuationReason: 'milestone-timeout-stop',
+        });
+        markProfileCommandIdProcessed(remainingCommand);
+      }
+      clearProfileCommandProcessingSchedule();
+      persistPendingProfileCommands();
+      return;
+    }
+
     processSequencedProfileCommands();
   }, command.waitTimeoutMs);
 }
@@ -664,6 +927,11 @@ function scheduleProfileCommandProcessing(waitMs = 0) {
     }
     profileCommandProcessingAvailableAt = 0;
     profileCommandProcessingScheduled = false;
+    const cadenceObservation = profileCommandCadenceObservation;
+    profileCommandCadenceObservation = null;
+    if (cadenceObservation) {
+      logProfileCommandCadenceObservation(cadenceObservation, Date.now());
+    }
     processSequencedProfileCommands();
   };
 
@@ -680,60 +948,54 @@ function scheduleProfileCommandProcessing(waitMs = 0) {
   Promise.resolve().then(run);
 }
 
-function notifyProfileCommandListeners(command: ProfileSessionCommand) {
+function notifyProfileCommandListeners(command: ProfileSessionCommand): ProfileCommandDispatchOutcome {
   const commandTimestamp = Number.isFinite(command.timestamp) ? command.timestamp : Date.now();
   if (shouldSkipProfileCommandForDuplicateWindow(command, commandTimestamp)) {
     logProfileSession('command', {
       ...command,
       status: 'skipped',
       reason: 'duplicate-command-window',
+      stopOnFailure: resolveProfileCommandStopOnFailure(command.stopOnFailure),
     });
-    return;
+    return 'skipped';
   }
 
   lastProfileCommandSignature = getProfileCommandSignature(command);
   lastProfileCommandTimestamp = commandTimestamp;
 
-  const targetDispatched = dispatchProfileCommandTarget(command);
-  if (targetDispatched) {
-    logProfileSession('command', {
-      ...command,
-      status: 'completed',
-      result: 'target-dispatched',
-    });
-    return;
+  if (dispatchProfileCommand(command)) {
+    return 'dispatched';
   }
 
-  if (profileCommandListeners.size === 0) {
-    queuePendingProfileCommand(command);
-    logProfileSession('command', {
-      ...command,
-      status: 'queued',
-      reason: 'no-command-listener',
-    });
-    return;
-  }
-
-  for (const listener of profileCommandListeners) {
-    listener(command);
-  }
+  queuePendingProfileCommand(command);
   logProfileSession('command', {
     ...command,
-    status: 'delivered',
-    result: 'listener-notified',
+    status: 'queued',
+    reason: 'no-command-listener',
+    stopOnFailure: resolveProfileCommandStopOnFailure(command.stopOnFailure),
   });
+  return 'queued';
 }
 
 function processSequencedProfileCommands() {
-  if (profileCommandProcessingScheduled) {
-    return;
-  }
   const remainingMs = Math.max(0, profileCommandProcessingAvailableAt - Date.now());
-  if (remainingMs > 0) {
-    scheduleProfileCommandProcessing(remainingMs);
-    return;
+  const queueBlocker = resolveProfileCommandQueueBlocker({
+    hasActiveGate: profileCommandMilestoneGate !== null,
+    processingScheduled: profileCommandProcessingScheduled,
+    remainingSettleMs: remainingMs,
+  });
+  switch (queueBlocker) {
+    case 'remaining-settle':
+      scheduleProfileCommandProcessing(remainingMs);
+      return;
+    case 'active-readiness-gate':
+    case 'scheduled-settle':
+      return;
+    case null:
+      break;
   }
-  if (profileCommandMilestoneGate) {
+  if (pendingProfileCommands.length > 0) {
+    flushPendingProfileCommands();
     return;
   }
 
@@ -753,21 +1015,44 @@ function processSequencedProfileCommands() {
     const nextGate = hasObservedProfileCommandMilestone(command, observedProfileEvents)
       ? null
       : buildProfileCommandMilestoneGate(command);
-    profileCommandMilestoneGate = nextGate;
+    const resolvedCommand = nextGate && (
+      typeof command.waitTimeoutMs !== 'number' || command.waitTimeoutMs <= 0
+    )
+      ? { ...command, waitTimeoutMs: nextGate.waitTimeoutMs }
+      : command;
     logProfileSession('command', {
-      ...command,
+      ...resolvedCommand,
       status: 'received',
+      stopOnFailure: resolveProfileCommandStopOnFailure(resolvedCommand.stopOnFailure),
+      ...(typeof resolvedCommand.waitMs === 'number' && resolvedCommand.waitMs > 0
+        ? {
+            minimumSettleMs: resolvedCommand.waitMs,
+            plannedSettleMs: resolvedCommand.waitMs,
+          }
+        : {}),
+      ...(typeof resolvedCommand.waitTimeoutMs === 'number' && resolvedCommand.waitTimeoutMs > 0
+        ? { maxReadinessWaitMs: resolvedCommand.waitTimeoutMs }
+        : {}),
     });
-    startProfileCommandMilestoneTimeout(command);
-    notifyProfileCommandListeners(command);
+    const commandReleasedAtMs = Date.now();
+    installProfileCommandWait(resolvedCommand, nextGate, commandReleasedAtMs);
+    const dispatchOutcome = notifyProfileCommandListeners(resolvedCommand);
 
-    if (profileCommandMilestoneGate) {
+    if (dispatchOutcome === 'skipped') {
+      clearProfileCommandMilestoneGate();
+      continue;
+    }
+
+    if (dispatchOutcome === 'queued') {
+      clearProfileCommandMilestoneGate();
       return;
     }
-    if (typeof command.waitMs === 'number' && command.waitMs > 0) {
-      scheduleProfileCommandProcessing(command.waitMs);
+
+    if (nextGate) {
       return;
     }
+    scheduleProfileCommandSettle(resolvedCommand, commandReleasedAtMs);
+    return;
   }
 }
 
@@ -790,24 +1075,46 @@ function releaseProfileCommandMilestoneGate(eventPayload: StoredProfileEvent) {
     return;
   }
 
-  const waitMs = typeof profileCommandMilestoneGate.waitMs === 'number'
-    ? profileCommandMilestoneGate.waitMs
-    : 0;
+  const readinessObservedAtMs = Date.now();
+  const remainingSettleMs = resolveRemainingProfileCommandSettleMs(
+    profileCommandMilestoneGate.waitMs,
+    profileCommandMilestoneGate.commandReleasedAtMs,
+    readinessObservedAtMs,
+  );
+  profileCommandCadenceObservation = {
+    kind: 'readiness',
+    command: profileCommandMilestoneGate.command,
+    commandReleasedAtMs: profileCommandMilestoneGate.commandReleasedAtMs,
+    readinessObservedAtMs,
+  };
   clearProfileCommandMilestoneGate();
-  scheduleProfileCommandProcessing(waitMs);
+  scheduleProfileCommandProcessing(remainingSettleMs);
 }
 
-function flushPendingProfileCommands(listener: (command: ProfileSessionCommand) => void) {
+function flushPendingProfileCommands() {
   if (pendingProfileCommands.length === 0) {
     return;
   }
 
-  const queuedCommands = [...pendingProfileCommands];
-  clearPendingProfileCommands();
-
-  for (const command of queuedCommands) {
-    listener(command);
+  const command = takeNextPendingProfileCommand();
+  if (!command) {
+    return;
   }
+
+  const nextGate = hasObservedProfileCommandMilestone(command, observedProfileEvents)
+    ? null
+    : buildProfileCommandMilestoneGate(command);
+  const commandReleasedAtMs = Date.now();
+  installProfileCommandWait(command, nextGate, commandReleasedAtMs);
+  if (!dispatchProfileCommand(command)) {
+    clearProfileCommandMilestoneGate();
+    restorePendingProfileCommand(command);
+    return;
+  }
+  if (nextGate) {
+    return;
+  }
+  scheduleProfileCommandSettle(command, commandReleasedAtMs);
 }
 
 function startProfileSessionInternal(
@@ -892,8 +1199,12 @@ export function applyProfileSessionUrl(url: string | null | undefined): boolean 
       runId: route.runId,
       command: route.command,
       ...(route.commandId ? { commandId: route.commandId } : {}),
+      ...(Array.isArray(route.dependsOnMilestones) && route.dependsOnMilestones.length > 0
+        ? { dependsOnMilestones: route.dependsOnMilestones }
+        : {}),
       ...(route.queueId ? { queueId: route.queueId } : {}),
       ...(typeof route.sequence === 'number' ? { sequence: route.sequence } : {}),
+      stopOnFailure: resolveProfileCommandStopOnFailure(route.stopOnFailure),
       source: 'deeplink' as const,
       timestamp,
       ...(route.waitForMilestone ? { waitForMilestone: route.waitForMilestone } : {}),
@@ -1008,7 +1319,7 @@ export function useProfileSession(): ProfileSessionState {
  */
 export function subscribeToProfileCommands(listener: (command: ProfileSessionCommand) => void): () => void {
   profileCommandListeners.add(listener);
-  flushPendingProfileCommands(listener);
+  processSequencedProfileCommands();
   return () => {
     profileCommandListeners.delete(listener);
   };
@@ -1017,8 +1328,12 @@ export function subscribeToProfileCommands(listener: (command: ProfileSessionCom
 /**
  * Registers a named command target for `activate-target:<targetId>` commands.
  */
-export function registerProfileCommandTargetHandler(targetId: string, handler: () => void): () => void {
+export function registerProfileCommandTargetHandler(
+  targetId: string,
+  handler: (command: ProfileSessionCommand) => void,
+): () => void {
   profileCommandTargetHandlers.set(targetId, handler);
+  processSequencedProfileCommands();
   return () => {
     const currentHandler = profileCommandTargetHandlers.get(targetId);
     if (currentHandler === handler) {
@@ -1108,6 +1423,7 @@ export function useProfileSessionBootstrap(): void {
 
         const storageCommand = {
           ...command,
+          stopOnFailure: resolveProfileCommandStopOnFailure(command.stopOnFailure),
           source: 'storage' as const,
         };
 

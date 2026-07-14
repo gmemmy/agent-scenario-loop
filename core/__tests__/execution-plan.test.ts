@@ -168,4 +168,26 @@ test('rejects malformed execution steps before adapter execution', () => {
     () => buildScenarioExecutionPlan({ id: 'bad', steps: [null] }),
     /must be an object/u,
   );
+  assert.throws(
+    () => buildScenarioExecutionPlan({
+      id: 'duplicate-step-identity',
+      steps: [
+        { command: 'open', id: 'toggle-surface', kind: 'command' },
+        { command: 'close', id: 'toggle-surface', kind: 'command' },
+      ],
+    }),
+    /step ids must be unique before cycle expansion/u,
+  );
+});
+
+test('keeps repeated cycle occurrences valid when the source step id is unique', () => {
+  const plan = buildScenarioExecutionPlan({
+    cycles: { bodyStepIds: ['toggle-surface'], iterations: 3 },
+    id: 'repeated-step-identity',
+    steps: [
+      { command: 'toggle', id: 'toggle-surface', kind: 'command' },
+    ],
+  });
+
+  assert.deepEqual(plan.steps.map((step: { id: string }) => step.id), ['toggle-surface']);
 });

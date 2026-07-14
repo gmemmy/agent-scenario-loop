@@ -275,7 +275,53 @@ function isPositiveInteger(value: unknown): boolean {
  * @returns {string}
  */
 function getScenarioStepId(step: ScenarioStep, index: number): string {
-  return typeof step.id === 'string' && step.id.length > 0 ? step.id : `step-${index + 1}`;
+  if (typeof step.id === 'string' && step.id.length > 0) {
+    return step.id;
+  }
+
+  const kind = typeof step.kind === 'string' && step.kind.length > 0 ? step.kind : 'step';
+  return `${String(index + 1).padStart(2, '0')}-${kind}`;
+}
+
+/**
+ * Rejects ambiguous scenario step identity before cycle expansion.
+ * Repeated cycle occurrences remain valid because they originate from one
+ * uniquely identified source step.
+ *
+ * @param {Record<string, unknown>} scenario
+ * @returns {PlannerIssue[]}
+ */
+function collectScenarioStepIdentityErrors(scenario: ScenarioManifest): PlannerIssue[] {
+  const firstIndexById = new Map<string, number>();
+  const errors: PlannerIssue[] = [];
+  const steps = Array.isArray(scenario.steps) ? scenario.steps : [];
+
+  for (let index = 0; index < steps.length; index += 1) {
+    const step = steps[index];
+    if (!step || typeof step !== 'object' || Array.isArray(step)) {
+      continue;
+    }
+
+    const stepId = getScenarioStepId(step, index);
+    const firstIndex = firstIndexById.get(stepId);
+    if (firstIndex === undefined) {
+      firstIndexById.set(stepId, index);
+      continue;
+    }
+
+    errors.push(createIssue(
+      'duplicate_scenario_step_id',
+      `Scenario step id \`${stepId}\` is declared more than once; step ids must be unique before cycle expansion.`,
+      {
+        firstStepIndex: firstIndex,
+        scenarioId: getScenarioId(scenario),
+        stepId,
+        stepIndex: index,
+      },
+    ));
+  }
+
+  return errors;
 }
 
 /**
@@ -1499,6 +1545,7 @@ function evaluateRunnerCompatibility({
   }
 
   const effectivePlatforms = resolveEffectivePlatforms({ scenario, runner: primaryRunner, platform, errors });
+  errors.push(...collectScenarioStepIdentityErrors(scenario));
   validateScenarioAdapterOptions({ effectivePlatforms, errors, runner: primaryRunner, scenario });
   const runnerCapabilities = uniqueSorted(asArray(primaryRunner.capabilities));
   const missingRequiredCapabilities = includesAll(
@@ -1758,6 +1805,7 @@ export {
   buildUnevaluatedVerdict,
   collectProvidedDriverActions,
   collectProvidedUiContexts,
+  collectScenarioStepIdentityErrors,
   collectScenarioDriverActions,
   collectScenarioUiContexts,
   evaluateRunnerCompatibility,

@@ -8,6 +8,7 @@ import {
   useProfileSession,
   useProfileSessionBootstrap,
 } from './devtools/profile-session';
+import type { ProfileSessionCommand } from './devtools/profile-session';
 
 const CARDS = [
   'Profile session control',
@@ -24,12 +25,15 @@ const CARDS = [
  * @param {number} iteration
  * @returns {void}
  */
-function mark(event: string, iteration = 1): void {
+function mark(event: string, iteration = 1, command?: ProfileSessionCommand): void {
   emitProfileEvent(event, {
+    ...(typeof command?.commandId === 'string' ? { commandId: command.commandId } : {}),
     flowId: 'example-mobile-app',
     iteration,
     owner: 'example-mobile-app',
+    ...(typeof command?.queueId === 'string' ? { queueId: command.queueId } : {}),
     route: 'home',
+    ...(typeof command?.sequence === 'number' ? { sequence: command.sequence } : {}),
   });
 }
 
@@ -51,35 +55,39 @@ export function ExampleScreen(): React.ReactElement {
   const selectedIterationRef = useRef(1);
   const startupRunKeyRef = useRef<string | null>(null);
 
-  const openCard = useCallback((index: number, iterationOverride?: number) => {
+  const openCard = useCallback((
+    index: number,
+    iterationOverride?: number,
+    command?: ProfileSessionCommand,
+  ) => {
     const card = CARDS[index] ?? CARDS[0];
     const iteration = iterationOverride ?? index + 1;
-    mark('card_open_requested', iteration);
+    mark('card_open_requested', iteration, command);
     selectedIterationRef.current = iteration;
     setSelectedCard(card);
     requestAnimationFrame(() => {
-      mark('card_opened', iteration);
+      mark('card_opened', iteration, command);
     });
   }, []);
 
-  const closeCard = useCallback(() => {
+  const closeCard = useCallback((command?: ProfileSessionCommand) => {
     const iteration = selectedIterationRef.current;
-    mark('card_close_requested', iteration);
+    mark('card_close_requested', iteration, command);
     setSelectedCard(null);
     requestAnimationFrame(() => {
-      mark('card_dismissed', iteration);
+      mark('card_dismissed', iteration, command);
     });
   }, []);
 
-  const runScrollSettle = useCallback((iteration = 1) => {
+  const runScrollSettle = useCallback((iteration = 1, command?: ProfileSessionCommand) => {
     setScrollSettled(false);
-    mark('feed_scroll_started', iteration);
+    mark('feed_scroll_started', iteration, command);
     ignoredMomentumEndsRef.current += 1;
     scrollViewRef.current?.scrollTo({ animated: true, y: 360 });
     requestAnimationFrame(() => {
-      mark('feed_first_content_visible', iteration);
-      mark('feed_scroll_settle_requested', iteration);
-      mark('feed_scroll_settled', iteration);
+      mark('feed_first_content_visible', iteration, command);
+      mark('feed_scroll_settle_requested', iteration, command);
+      mark('feed_scroll_settled', iteration, command);
       setScrollSettled(true);
     });
   }, []);
@@ -117,15 +125,15 @@ export function ExampleScreen(): React.ReactElement {
   ]);
 
   useEffect(() => {
-    const unregisterOpen = registerProfileCommandTargetHandler('example-card-1', () => {
-      openCard(0, commandIterationRef.current);
+    const unregisterOpen = registerProfileCommandTargetHandler('example-card-1', (command) => {
+      openCard(0, commandIterationRef.current, command);
     });
-    const unregisterClose = registerProfileCommandTargetHandler('close-card', () => {
-      closeCard();
+    const unregisterClose = registerProfileCommandTargetHandler('close-card', (command) => {
+      closeCard(command);
       commandIterationRef.current += 1;
     });
-    const unregisterScroll = registerProfileCommandTargetHandler('scroll-feed', () => {
-      runScrollSettle(commandIterationRef.current);
+    const unregisterScroll = registerProfileCommandTargetHandler('scroll-feed', (command) => {
+      runScrollSettle(commandIterationRef.current, command);
       commandIterationRef.current += 1;
     });
 

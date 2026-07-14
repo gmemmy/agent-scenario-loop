@@ -30,7 +30,7 @@ test('profile-session helper keeps storage-backed command control safeguards', (
   assert.match(source, /const PROFILE_SESSION_STORAGE_KEY = PROFILE_SESSION_STORAGE_KEY_VALUES\.session;/u);
   assert.match(source, /const PROFILE_SESSION_ENTRIES_STORAGE_KEY = PROFILE_SESSION_STORAGE_KEY_VALUES\.sessionEntries;/u);
   assert.match(source, /export const PROFILE_SESSION_STORAGE_KEYS = Object\.freeze/u);
-  assert.match(source, /export const PROFILE_SESSION_HELPER_VERSION = '1\.0\.0';/u);
+  assert.match(source, /export const PROFILE_SESSION_HELPER_VERSION = '1\.1\.0';/u);
   assert.match(source, /const PROFILE_COMMAND_DUPLICATE_WINDOW_MS = 750;/u);
   assert.match(source, /reason: 'duplicate-command-window'/u);
   assert.match(source, /command\.queueId \?\? ''/u);
@@ -46,6 +46,15 @@ test('profile-session helper keeps storage-backed command control safeguards', (
   assert.match(source, /entry\.queueId = payload\.queueId;/u);
   assert.match(source, /entry\.sequence = payload\.sequence;/u);
   assert.match(source, /entry\.waitForMilestone = payload\.waitForMilestone;/u);
+  assert.match(source, /entry\.stopOnFailure = payload\.stopOnFailure;/u);
+  assert.match(source, /entry\.continuationReason = payload\.continuationReason;/u);
+  assert.match(source, /entry\.minimumSettleMs = payload\.minimumSettleMs;/u);
+  assert.match(source, /entry\.plannedSettleMs = payload\.plannedSettleMs;/u);
+  assert.match(source, /entry\.maxReadinessWaitMs = payload\.maxReadinessWaitMs;/u);
+  assert.match(source, /entry\.readinessWaitMs = payload\.readinessWaitMs;/u);
+  assert.match(source, /entry\.actualWaitMs = payload\.actualWaitMs;/u);
+  assert.match(source, /entry\.settleOverlapSavedMs = payload\.settleOverlapSavedMs;/u);
+  assert.match(source, /entry\.timeoutAvoided = payload\.timeoutAvoided;/u);
   assert.match(source, /entry\.waitMs = payload\.waitMs;/u);
   assert.match(source, /entry\.waitTimeoutMs = payload\.waitTimeoutMs;/u);
   assert.match(source, /const sessionStartedAt = readProfileSessionStartedAt\(profileSessionState\);/u);
@@ -60,6 +69,10 @@ test('profile-session helper keeps storage-backed command control safeguards', (
   assert.match(source, /status: 'completed'/u);
   assert.match(source, /result: 'target-dispatched'/u);
   assert.match(source, /result: 'listener-notified'/u);
+  assert.match(source, /type ProfileCommandDispatchOutcome = 'dispatched' \| 'queued' \| 'skipped';/u);
+  assert.match(source, /handler\(command\);/u);
+  assert.match(source, /function dispatchProfileCommand\(command: ProfileSessionCommand\): boolean/u);
+  assert.match(source, /if \(dispatchOutcome === 'skipped'\)/u);
   assert.match(
     source,
     /source: 'deeplink' as const/u,
@@ -70,17 +83,28 @@ test('profile-session helper keeps storage-backed command control safeguards', (
   assert.match(source, /let profileCommandProcessingTimeoutId: ReturnType<typeof setTimeout> \| null = null;/u);
   assert.match(source, /let profileCommandProcessingAvailableAt = 0;/u);
   assert.match(source, /from '\.\/profile-session-command-ordering';/u);
+  assert.match(source, /resolveRemainingProfileCommandSettleMs/u);
   assert.match(source, /hasObservedProfileCommandDependencies\(command, observedProfileEvents\)/u);
   assert.match(source, /sequencedProfileCommands\.sort\(compareProfileCommands\);/u);
   assert.match(source, /function processSequencedProfileCommands/u);
-  assert.match(source, /profileCommandMilestoneGate = nextGate;/u);
+  assert.match(source, /const queueBlocker = resolveProfileCommandQueueBlocker/u);
+  assert.match(source, /case 'active-readiness-gate':\s+case 'scheduled-settle':\s+return;/u);
+  assert.match(source, /installProfileCommandWait\(resolvedCommand, nextGate, commandReleasedAtMs\);/u);
+  assert.match(source, /typeof command\.waitTimeoutMs !== 'number' \|\| command\.waitTimeoutMs <= 0/u);
+  assert.match(source, /const dispatchOutcome = notifyProfileCommandListeners\(resolvedCommand\);/u);
+  assert.match(source, /if \(dispatchOutcome === 'skipped'\) \{\s+clearProfileCommandMilestoneGate\(\);\s+continue;\s+\}/u);
+  assert.match(source, /if \(dispatchOutcome === 'queued'\) \{\s+clearProfileCommandMilestoneGate\(\);\s+return;\s+\}/u);
+  assert.match(source, /if \(nextGate\) \{\s+return;\s+\}/u);
+  assert.match(source, /function installProfileCommandWait/u);
+  assert.match(source, /function scheduleProfileCommandSettle/u);
   assert.match(orderingSource, /typeof command\.sequence === 'number' && command\.sequence > 1/u);
   assert.match(orderingSource, /export function hasObservedProfileCommandDependencies/u);
   assert.match(orderingSource, /doesProfileEventMatchCommandDependency/u);
   assert.match(source, /hasObservedProfileCommandMilestone\(command, observedProfileEvents\)/u);
   assert.match(source, /observedProfileEvents\.push\(eventPayload\);/u);
-  assert.match(declarationSource, /export const PROFILE_SESSION_HELPER_VERSION: '1\.0\.0';/u);
+  assert.match(declarationSource, /export const PROFILE_SESSION_HELPER_VERSION: '1\.1\.0';/u);
   assert.match(declarationSource, /dependsOnMilestones\?: string\[\];/u);
+  assert.match(declarationSource, /handler: \(command: ProfileSessionCommand\) => void/u);
   assert.match(source, /observedProfileEvents\.length = 0;/u);
   assert.doesNotMatch(source, /command\.timestamp < activeSession\.startedAt/u);
   assert.match(source, /runId\?: string;/u);
@@ -94,16 +118,32 @@ test('profile-session helper keeps storage-backed command control safeguards', (
   assert.match(source, /profileCommandProcessingTimeoutId = setTimeout\(run, delayMs\);/u);
   assert.match(source, /queueMicrotask\(run\);/u);
   assert.match(source, /releaseProfileCommandMilestoneGate\(eventPayload\);/u);
-  assert.match(source, /scheduleProfileCommandProcessing\(command\.waitMs\);/u);
-  assert.match(source, /scheduleProfileCommandProcessing\(waitMs\);/u);
+  assert.match(source, /scheduleProfileCommandSettle\(resolvedCommand, commandReleasedAtMs\);/u);
+  assert.match(source, /const commandReleasedAtMs = Date\.now\(\);/u);
+  assert.match(source, /scheduleProfileCommandProcessing\(remainingSettleMs\);/u);
   assert.match(source, /enqueueSequencedProfileCommands\(nextCommands\);/u);
   assert.match(source, /function startProfileCommandMilestoneTimeout/u);
   assert.match(source, /reason: 'wait-for-milestone-timeout'/u);
+  assert.match(source, /reason: 'prior-command-failure'/u);
+  assert.match(source, /resolveProfileCommandMilestoneTimeoutOutcome/u);
+  assert.match(source, /resolveProfileCommandCadenceOutcome/u);
+  assert.match(source, /resolveProfileCommandSettleOutcome/u);
+  assert.match(source, /result: 'cadence-settled'/u);
+  assert.match(source, /logProfileCommandCadenceObservation\(cadenceObservation, Date\.now\(\)\)/u);
   assert.match(source, /clearProfileCommandMilestoneGate\(\);/u);
+  assert.match(source, /const queueTransition = resolveProfileCommandTimeoutQueueTransition/u);
+  assert.match(source, /stopOnFailure: timeoutOutcome\.kind === 'terminal'/u);
+  assert.match(source, /clearProfileCommandMilestoneGate\(\);\s+pendingProfileCommands\.length = 0;/u);
+  assert.match(source, /const command = takeNextPendingProfileCommand\(\);/u);
+  assert.match(source, /restorePendingProfileCommand\(command\);/u);
+  assert.match(source, /if \(pendingProfileCommands\.length > 0\) \{\s+flushPendingProfileCommands\(\);\s+return;\s+\}/u);
   assert.match(source, /type ProfileCommandClearStoragePolicy = 'preserve-storage' \| 'remove-storage';/u);
   assert.match(source, /clearPendingProfileCommands\(storagePolicy: ProfileCommandClearStoragePolicy = 'remove-storage'\)/u);
   assert.match(source, /if \(storagePolicy === 'preserve-storage'\) \{\s+return;\s+\}/u);
   assert.match(source, /\{ commandStoragePolicy: 'preserve-storage' \}/u);
+  assert.match(source, /profileCommandListeners\.add\(listener\);\s+processSequencedProfileCommands\(\);/u);
+  assert.match(source, /profileCommandTargetHandlers\.set\(targetId, handler\);\s+processSequencedProfileCommands\(\);/u);
+  assert.doesNotMatch(source, /profileCommandListeners\.add\(listener\);\s+flushPendingProfileCommands\(\);/u);
 });
 
 test('runner default profile-session storage keys match the app helper contract', () => {

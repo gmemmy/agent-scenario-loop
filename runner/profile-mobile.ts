@@ -408,7 +408,7 @@ const PROVIDER_EVIDENCE_KINDS = new Set(['accessibility', 'logs', 'nativePerform
 const SIGNAL_EVIDENCE_KINDS = new Set(['js', 'memory', 'network']);
 const DEFAULT_PROVIDER_COMMAND_TIMEOUT_MS = 180_000;
 const PLACEHOLDER_APP_IDS = new Set(['com.example.app']);
-const EXPECTED_PROFILE_SESSION_HELPER_VERSION = '1.0.0';
+const EXPECTED_PROFILE_SESSION_HELPER_VERSION = '1.1.0';
 
 /**
  * Prints CLI usage to stderr.
@@ -3077,12 +3077,14 @@ function buildRuntimeIdentityHealthChecks(runtimeIdentity: RuntimeIdentityVerifi
  * @param {ProfileHelperVersionCheck['status']} status
  * @returns {'failed' | 'passed' | 'warning'}
  */
-function profileHelperVersionHealthStatus(status: ProfileHelperVersionCheck['status']): 'failed' | 'passed' | 'warning' {
+function profileHelperVersionHealthStatus(
+  status: ProfileHelperVersionCheck['status'],
+): 'failed' | 'passed' | 'warning' {
   switch (status) {
     case 'matched':
       return 'passed';
     case 'missing':
-      return 'warning';
+      return 'failed';
     case 'mismatched':
       return 'failed';
   }
@@ -3140,7 +3142,9 @@ function profileHelperVersionNextAction(status: ProfileHelperVersionCheck['statu
  * @param {ProfileHelperVersionCheck | null} helperVersion
  * @returns {Record<string, unknown>[]}
  */
-function buildProfileHelperVersionHealthChecks(helperVersion: ProfileHelperVersionCheck | null = null): Record<string, unknown>[] {
+function buildProfileHelperVersionHealthChecks(
+  helperVersion: ProfileHelperVersionCheck | null = null,
+): Record<string, unknown>[] {
   if (!helperVersion) {
     return [];
   }
@@ -4238,11 +4242,10 @@ function resolveProfileHelperVersionCheck({
     return null;
   }
 
-  const observedVersions = uniqueStrings([
-    ...events.map((event) => readTrimmedString(event.helperVersion)),
-    ...sessionEntries.map((entry) => readTrimmedString(entry.helperVersion)),
-  ]);
-  if (observedVersions.length === 0) {
+  const evidenceRecords = [...events, ...sessionEntries];
+  const recordVersions = evidenceRecords.map((record) => readTrimmedString(record.helperVersion));
+  const observedVersions = uniqueStrings(recordVersions);
+  if (recordVersions.some((version) => !version)) {
     return {
       expectedVersion: EXPECTED_PROFILE_SESSION_HELPER_VERSION,
       observedVersions,
@@ -6029,6 +6032,7 @@ export {
   resolveEventLogPath,
   resolveInteractionDriver,
   resolveProfileScenarioName,
+  resolveProfileHelperVersionCheck,
   runProfileCompatibilityPreflight,
   runProfileCli,
   runProfileMobile,

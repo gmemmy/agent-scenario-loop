@@ -7,6 +7,7 @@ const test = require('node:test');
 const {
   buildAndroidProfileSessionSidecarObservationChecks,
   buildProfileHealth,
+  resolveProfileHelperVersionCheck,
   resolveProfileBudgetStatus,
   resolveProfileVerdictStatus,
   resolveProfileVerdictSummary,
@@ -609,9 +610,9 @@ test('profile health fails when app helper version mismatches the runner contrac
       timeouts: 0,
     },
     helperVersion: {
-      expectedVersion: '1.0.0',
+      expectedVersion: '1.1.0',
       observedVersions: ['0.9.0'],
-      reason: 'Profile evidence was emitted by app helper version 0.9.0, but this runner expects 1.0.0.',
+      reason: 'Profile evidence was emitted by app helper version 0.9.0, but this runner expects 1.1.0.',
       status: 'mismatched',
     },
   });
@@ -622,9 +623,9 @@ test('profile health fails when app helper version mismatches the runner contrac
     status: 'failed',
     source: 'runner',
     code: 'profile_session_helper_version_mismatch',
-    message: 'Profile evidence was emitted by app helper version 0.9.0, but this runner expects 1.0.0.',
+    message: 'Profile evidence was emitted by app helper version 0.9.0, but this runner expects 1.1.0.',
     metadata: {
-      expectedVersion: '1.0.0',
+      expectedVersion: '1.1.0',
       observedVersions: '0.9.0',
       observedVersionCount: 1,
       nextAction: 'Update the app-side profile-session helper to the package version used by the runner, then rerun before trusting timing evidence.',
@@ -633,7 +634,7 @@ test('profile health fails when app helper version mismatches the runner contrac
   });
 });
 
-test('profile health warns when app helper version is missing from profile evidence', () => {
+test('profile health fails when app helper version is missing from profile evidence', () => {
   const health = buildProfileHealth({
     scenario: {
       name: 'mobile-helper-version',
@@ -646,26 +647,43 @@ test('profile health warns when app helper version is missing from profile evide
       timeouts: 0,
     },
     helperVersion: {
-      expectedVersion: '1.0.0',
+      expectedVersion: '1.1.0',
       observedVersions: [],
       reason: 'Profile evidence did not include app helper version metadata.',
       status: 'missing',
     },
   });
 
-  assert.equal(health.healthStatus, 'passed');
+  assert.equal(health.healthStatus, 'failed');
   assert.deepEqual(health.checks[1], {
     name: 'profile_session_helper_version',
-    status: 'warning',
+    status: 'failed',
     source: 'runner',
     code: 'profile_session_helper_version_missing',
     message: 'Profile evidence did not include app helper version metadata.',
     metadata: {
-      expectedVersion: '1.0.0',
+      expectedVersion: '1.1.0',
       observedVersions: '',
       observedVersionCount: 0,
       nextAction: 'Use an app-side profile-session helper that emits helperVersion in session entries and profile events so ASL can verify helper/package compatibility.',
       nextActionCode: 'emit_profile_session_helper_version',
     },
+  });
+});
+
+test('profile helper version evidence rejects mixed versioned and unversioned records', () => {
+  assert.deepEqual(resolveProfileHelperVersionCheck({
+    events: [
+      { event: 'surface_opened', helperVersion: '1.1.0' },
+      { event: 'surface_closed' },
+    ],
+    sessionEntries: [
+      { helperVersion: '1.1.0', kind: 'start' },
+    ],
+  }), {
+    expectedVersion: '1.1.0',
+    observedVersions: ['1.1.0'],
+    reason: 'Profile evidence did not include app helper version metadata.',
+    status: 'missing',
   });
 });

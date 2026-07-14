@@ -548,12 +548,12 @@ test('profile-ios profiles public scenario ids and milestone budgets', async (t:
   await fsp.writeFile(
     eventLogPath,
     [
-      '2026-01-01T00:00:00.000Z public-ios [profile-event] {"event":"first_journey_started","scenario":"public-journey","runId":"public-journey-ios","iteration":1,"atMs":0}',
-      '2026-01-01T00:00:00.700Z public-ios [profile-event] {"event":"first_journey_completed","scenario":"public-journey","runId":"public-journey-ios","iteration":1,"atMs":700}',
-      '2026-01-01T00:00:01.000Z public-ios [profile-event] {"event":"first_journey_started","scenario":"public-journey","runId":"public-journey-ios","iteration":2,"atMs":1000}',
-      '2026-01-01T00:00:01.760Z public-ios [profile-event] {"event":"first_journey_completed","scenario":"public-journey","runId":"public-journey-ios","iteration":2,"atMs":1760}',
-      '2026-01-01T00:00:02.000Z public-ios [profile-event] {"event":"first_journey_started","scenario":"public-journey","runId":"public-journey-ios","iteration":3,"atMs":2000}',
-      '2026-01-01T00:00:02.830Z public-ios [profile-event] {"event":"first_journey_completed","scenario":"public-journey","runId":"public-journey-ios","iteration":3,"atMs":2830}',
+      '2026-01-01T00:00:00.000Z public-ios [profile-event] {"event":"first_journey_started","scenario":"public-journey","runId":"public-journey-ios","iteration":1,"atMs":0,"helperVersion":"1.1.0"}',
+      '2026-01-01T00:00:00.700Z public-ios [profile-event] {"event":"first_journey_completed","scenario":"public-journey","runId":"public-journey-ios","iteration":1,"atMs":700,"helperVersion":"1.1.0"}',
+      '2026-01-01T00:00:01.000Z public-ios [profile-event] {"event":"first_journey_started","scenario":"public-journey","runId":"public-journey-ios","iteration":2,"atMs":1000,"helperVersion":"1.1.0"}',
+      '2026-01-01T00:00:01.760Z public-ios [profile-event] {"event":"first_journey_completed","scenario":"public-journey","runId":"public-journey-ios","iteration":2,"atMs":1760,"helperVersion":"1.1.0"}',
+      '2026-01-01T00:00:02.000Z public-ios [profile-event] {"event":"first_journey_started","scenario":"public-journey","runId":"public-journey-ios","iteration":3,"atMs":2000,"helperVersion":"1.1.0"}',
+      '2026-01-01T00:00:02.830Z public-ios [profile-event] {"event":"first_journey_completed","scenario":"public-journey","runId":"public-journey-ios","iteration":3,"atMs":2830,"helperVersion":"1.1.0"}',
       '',
     ].join('\n'),
     'utf8',
@@ -636,16 +636,16 @@ test('profile-ios writes partial iteration accounting for incomplete repeated cy
   await fsp.writeFile(
     eventLogPath,
     [
-      '2026-01-01T00:10:00.000Z public-ios [profile-event] {"event":"surface_open_requested","scenario":"portable-open-close-partial","runId":"partial-iterations-ios","iteration":1,"atMs":0,"sequence":1,"queueId":"portable-open-close-partial"}',
-      '2026-01-01T00:10:00.120Z public-ios [profile-event] {"event":"surface_opened","scenario":"portable-open-close-partial","runId":"partial-iterations-ios","iteration":1,"atMs":120,"sequence":1,"queueId":"portable-open-close-partial"}',
-      '2026-01-01T00:10:00.220Z public-ios [profile-event] {"event":"surface_close_requested","scenario":"portable-open-close-partial","runId":"partial-iterations-ios","iteration":1,"atMs":220,"sequence":2,"queueId":"portable-open-close-partial"}',
-      '2026-01-01T00:10:00.340Z public-ios [profile-event] {"event":"surface_dismissed","scenario":"portable-open-close-partial","runId":"partial-iterations-ios","iteration":1,"atMs":340,"sequence":2,"queueId":"portable-open-close-partial"}',
-      '2026-01-01T00:10:01.000Z public-ios [profile-event] {"event":"surface_open_requested","scenario":"portable-open-close-partial","runId":"partial-iterations-ios","iteration":2,"atMs":1000,"sequence":3,"queueId":"portable-open-close-partial"}',
-      '2026-01-01T00:10:01.140Z public-ios [profile-event] {"event":"surface_opened","scenario":"portable-open-close-partial","runId":"partial-iterations-ios","iteration":2,"atMs":1140,"sequence":3,"queueId":"portable-open-close-partial"}',
-      '2026-01-01T00:10:02.000Z public-ios [profile-event] {"event":"surface_open_requested","scenario":"portable-open-close-partial","runId":"partial-iterations-ios","iteration":3,"atMs":2000,"sequence":5,"queueId":"portable-open-close-partial"}',
-      '2026-01-01T00:10:02.130Z public-ios [profile-event] {"event":"surface_opened","scenario":"portable-open-close-partial","runId":"partial-iterations-ios","iteration":3,"atMs":2130,"sequence":5,"queueId":"portable-open-close-partial"}',
-      '2026-01-01T00:10:02.260Z public-ios [profile-event] {"event":"surface_close_requested","scenario":"portable-open-close-partial","runId":"partial-iterations-ios","iteration":3,"atMs":2260,"sequence":6,"queueId":"portable-open-close-partial"}',
-      '2026-01-01T00:10:02.390Z public-ios [profile-event] {"event":"surface_dismissed","scenario":"portable-open-close-partial","runId":"partial-iterations-ios","iteration":3,"atMs":2390,"sequence":6,"queueId":"portable-open-close-partial"}',
+      '2026-01-01T00:10:00.000Z public-ios [profile-event] {"event":"surface_open_requested","scenario":"portable-open-close-partial","runId":"partial-iterations-ios","iteration":1,"atMs":0,"sequence":1,"queueId":"portable-open-close-partial","helperVersion":"1.1.0"}',
+      '2026-01-01T00:10:00.120Z public-ios [profile-event] {"event":"surface_opened","scenario":"portable-open-close-partial","runId":"partial-iterations-ios","iteration":1,"atMs":120,"sequence":1,"queueId":"portable-open-close-partial","helperVersion":"1.1.0"}',
+      '2026-01-01T00:10:00.220Z public-ios [profile-event] {"event":"surface_close_requested","scenario":"portable-open-close-partial","runId":"partial-iterations-ios","iteration":1,"atMs":220,"sequence":2,"queueId":"portable-open-close-partial","helperVersion":"1.1.0"}',
+      '2026-01-01T00:10:00.340Z public-ios [profile-event] {"event":"surface_dismissed","scenario":"portable-open-close-partial","runId":"partial-iterations-ios","iteration":1,"atMs":340,"sequence":2,"queueId":"portable-open-close-partial","helperVersion":"1.1.0"}',
+      '2026-01-01T00:10:01.000Z public-ios [profile-event] {"event":"surface_open_requested","scenario":"portable-open-close-partial","runId":"partial-iterations-ios","iteration":2,"atMs":1000,"sequence":3,"queueId":"portable-open-close-partial","helperVersion":"1.1.0"}',
+      '2026-01-01T00:10:01.140Z public-ios [profile-event] {"event":"surface_opened","scenario":"portable-open-close-partial","runId":"partial-iterations-ios","iteration":2,"atMs":1140,"sequence":3,"queueId":"portable-open-close-partial","helperVersion":"1.1.0"}',
+      '2026-01-01T00:10:02.000Z public-ios [profile-event] {"event":"surface_open_requested","scenario":"portable-open-close-partial","runId":"partial-iterations-ios","iteration":3,"atMs":2000,"sequence":5,"queueId":"portable-open-close-partial","helperVersion":"1.1.0"}',
+      '2026-01-01T00:10:02.130Z public-ios [profile-event] {"event":"surface_opened","scenario":"portable-open-close-partial","runId":"partial-iterations-ios","iteration":3,"atMs":2130,"sequence":5,"queueId":"portable-open-close-partial","helperVersion":"1.1.0"}',
+      '2026-01-01T00:10:02.260Z public-ios [profile-event] {"event":"surface_close_requested","scenario":"portable-open-close-partial","runId":"partial-iterations-ios","iteration":3,"atMs":2260,"sequence":6,"queueId":"portable-open-close-partial","helperVersion":"1.1.0"}',
+      '2026-01-01T00:10:02.390Z public-ios [profile-event] {"event":"surface_dismissed","scenario":"portable-open-close-partial","runId":"partial-iterations-ios","iteration":3,"atMs":2390,"sequence":6,"queueId":"portable-open-close-partial","helperVersion":"1.1.0"}',
       '',
     ].join('\n'),
     'utf8',
@@ -704,12 +704,12 @@ test('profile-ios rehydrates simctl sidecar events when enriched run id differs'
   await fsp.writeFile(
     path.join(sidecarRoot, 'raw', 'ios-profile-events.log'),
     [
-      '2026-01-01T00:00:00.000Z public-ios [profile-event] {"event":"first_journey_started","scenario":"public-journey","runId":"source-public-journey-ios","iteration":1,"atMs":0}',
-      '2026-01-01T00:00:00.700Z public-ios [profile-event] {"event":"first_journey_completed","scenario":"public-journey","runId":"source-public-journey-ios","iteration":1,"atMs":700}',
-      '2026-01-01T00:00:01.000Z public-ios [profile-event] {"event":"first_journey_started","scenario":"public-journey","runId":"source-public-journey-ios","iteration":2,"atMs":1000}',
-      '2026-01-01T00:00:01.760Z public-ios [profile-event] {"event":"first_journey_completed","scenario":"public-journey","runId":"source-public-journey-ios","iteration":2,"atMs":1760}',
-      '2026-01-01T00:00:02.000Z public-ios [profile-event] {"event":"first_journey_started","scenario":"public-journey","runId":"source-public-journey-ios","iteration":3,"atMs":2000}',
-      '2026-01-01T00:00:02.830Z public-ios [profile-event] {"event":"first_journey_completed","scenario":"public-journey","runId":"source-public-journey-ios","iteration":3,"atMs":2830}',
+      '2026-01-01T00:00:00.000Z public-ios [profile-event] {"event":"first_journey_started","scenario":"public-journey","runId":"source-public-journey-ios","iteration":1,"atMs":0,"helperVersion":"1.1.0"}',
+      '2026-01-01T00:00:00.700Z public-ios [profile-event] {"event":"first_journey_completed","scenario":"public-journey","runId":"source-public-journey-ios","iteration":1,"atMs":700,"helperVersion":"1.1.0"}',
+      '2026-01-01T00:00:01.000Z public-ios [profile-event] {"event":"first_journey_started","scenario":"public-journey","runId":"source-public-journey-ios","iteration":2,"atMs":1000,"helperVersion":"1.1.0"}',
+      '2026-01-01T00:00:01.760Z public-ios [profile-event] {"event":"first_journey_completed","scenario":"public-journey","runId":"source-public-journey-ios","iteration":2,"atMs":1760,"helperVersion":"1.1.0"}',
+      '2026-01-01T00:00:02.000Z public-ios [profile-event] {"event":"first_journey_started","scenario":"public-journey","runId":"source-public-journey-ios","iteration":3,"atMs":2000,"helperVersion":"1.1.0"}',
+      '2026-01-01T00:00:02.830Z public-ios [profile-event] {"event":"first_journey_completed","scenario":"public-journey","runId":"source-public-journey-ios","iteration":3,"atMs":2830,"helperVersion":"1.1.0"}',
       '',
     ].join('\n'),
     'utf8',
@@ -778,10 +778,10 @@ test('profile-ios fails health when rehydrated simctl sidecar has ambiguous sour
   await fsp.writeFile(
     path.join(sidecarRoot, 'raw', 'ios-profile-events.log'),
     [
-      '2026-01-01T00:00:00.000Z public-ios [profile-event] {"event":"first_journey_started","scenario":"public-journey","runId":"source-public-journey-ios-a","iteration":1,"atMs":0}',
-      '2026-01-01T00:00:00.700Z public-ios [profile-event] {"event":"first_journey_completed","scenario":"public-journey","runId":"source-public-journey-ios-a","iteration":1,"atMs":700}',
-      '2026-01-01T00:01:00.000Z public-ios [profile-event] {"event":"first_journey_started","scenario":"public-journey","runId":"source-public-journey-ios-b","iteration":1,"atMs":0}',
-      '2026-01-01T00:01:00.710Z public-ios [profile-event] {"event":"first_journey_completed","scenario":"public-journey","runId":"source-public-journey-ios-b","iteration":1,"atMs":710}',
+      '2026-01-01T00:00:00.000Z public-ios [profile-event] {"event":"first_journey_started","scenario":"public-journey","runId":"source-public-journey-ios-a","iteration":1,"atMs":0,"helperVersion":"1.1.0"}',
+      '2026-01-01T00:00:00.700Z public-ios [profile-event] {"event":"first_journey_completed","scenario":"public-journey","runId":"source-public-journey-ios-a","iteration":1,"atMs":700,"helperVersion":"1.1.0"}',
+      '2026-01-01T00:01:00.000Z public-ios [profile-event] {"event":"first_journey_started","scenario":"public-journey","runId":"source-public-journey-ios-b","iteration":1,"atMs":0,"helperVersion":"1.1.0"}',
+      '2026-01-01T00:01:00.710Z public-ios [profile-event] {"event":"first_journey_completed","scenario":"public-journey","runId":"source-public-journey-ios-b","iteration":1,"atMs":710,"helperVersion":"1.1.0"}',
       '',
     ].join('\n'),
     'utf8',
@@ -837,12 +837,12 @@ test('profile-ios fails health when simctl sidecar bundle mismatches expected bu
   await fsp.writeFile(
     path.join(sidecarRoot, 'raw', 'ios-profile-events.log'),
     [
-      '2026-01-01T00:00:00.000Z public-ios [profile-event] {"event":"first_journey_started","scenario":"public-journey","runId":"source-public-journey-ios","iteration":1,"atMs":0}',
-      '2026-01-01T00:00:00.700Z public-ios [profile-event] {"event":"first_journey_completed","scenario":"public-journey","runId":"source-public-journey-ios","iteration":1,"atMs":700}',
-      '2026-01-01T00:00:01.000Z public-ios [profile-event] {"event":"first_journey_started","scenario":"public-journey","runId":"source-public-journey-ios","iteration":2,"atMs":1000}',
-      '2026-01-01T00:00:01.760Z public-ios [profile-event] {"event":"first_journey_completed","scenario":"public-journey","runId":"source-public-journey-ios","iteration":2,"atMs":1760}',
-      '2026-01-01T00:00:02.000Z public-ios [profile-event] {"event":"first_journey_started","scenario":"public-journey","runId":"source-public-journey-ios","iteration":3,"atMs":2000}',
-      '2026-01-01T00:00:02.830Z public-ios [profile-event] {"event":"first_journey_completed","scenario":"public-journey","runId":"source-public-journey-ios","iteration":3,"atMs":2830}',
+      '2026-01-01T00:00:00.000Z public-ios [profile-event] {"event":"first_journey_started","scenario":"public-journey","runId":"source-public-journey-ios","iteration":1,"atMs":0,"helperVersion":"1.1.0"}',
+      '2026-01-01T00:00:00.700Z public-ios [profile-event] {"event":"first_journey_completed","scenario":"public-journey","runId":"source-public-journey-ios","iteration":1,"atMs":700,"helperVersion":"1.1.0"}',
+      '2026-01-01T00:00:01.000Z public-ios [profile-event] {"event":"first_journey_started","scenario":"public-journey","runId":"source-public-journey-ios","iteration":2,"atMs":1000,"helperVersion":"1.1.0"}',
+      '2026-01-01T00:00:01.760Z public-ios [profile-event] {"event":"first_journey_completed","scenario":"public-journey","runId":"source-public-journey-ios","iteration":2,"atMs":1760,"helperVersion":"1.1.0"}',
+      '2026-01-01T00:00:02.000Z public-ios [profile-event] {"event":"first_journey_started","scenario":"public-journey","runId":"source-public-journey-ios","iteration":3,"atMs":2000,"helperVersion":"1.1.0"}',
+      '2026-01-01T00:00:02.830Z public-ios [profile-event] {"event":"first_journey_completed","scenario":"public-journey","runId":"source-public-journey-ios","iteration":3,"atMs":2830,"helperVersion":"1.1.0"}',
       '',
     ].join('\n'),
     'utf8',
@@ -924,12 +924,12 @@ test('profile-ios falls back to bundled simctl driver metadata when no host driv
   await fsp.writeFile(
     eventLogPath,
     [
-      '2026-01-01T00:00:00.000Z neutral-ios [profile-event] {"event":"first_journey_started","scenario":"neutral-journey","runId":"neutral-journey-ios","iteration":1,"atMs":0}',
-      '2026-01-01T00:00:00.700Z neutral-ios [profile-event] {"event":"first_journey_completed","scenario":"neutral-journey","runId":"neutral-journey-ios","iteration":1,"atMs":700}',
-      '2026-01-01T00:00:01.000Z neutral-ios [profile-event] {"event":"first_journey_started","scenario":"neutral-journey","runId":"neutral-journey-ios","iteration":2,"atMs":1000}',
-      '2026-01-01T00:00:01.760Z neutral-ios [profile-event] {"event":"first_journey_completed","scenario":"neutral-journey","runId":"neutral-journey-ios","iteration":2,"atMs":1760}',
-      '2026-01-01T00:00:02.000Z neutral-ios [profile-event] {"event":"first_journey_started","scenario":"neutral-journey","runId":"neutral-journey-ios","iteration":3,"atMs":2000}',
-      '2026-01-01T00:00:02.830Z neutral-ios [profile-event] {"event":"first_journey_completed","scenario":"neutral-journey","runId":"neutral-journey-ios","iteration":3,"atMs":2830}',
+      '2026-01-01T00:00:00.000Z neutral-ios [profile-event] {"event":"first_journey_started","scenario":"neutral-journey","runId":"neutral-journey-ios","iteration":1,"atMs":0,"helperVersion":"1.1.0"}',
+      '2026-01-01T00:00:00.700Z neutral-ios [profile-event] {"event":"first_journey_completed","scenario":"neutral-journey","runId":"neutral-journey-ios","iteration":1,"atMs":700,"helperVersion":"1.1.0"}',
+      '2026-01-01T00:00:01.000Z neutral-ios [profile-event] {"event":"first_journey_started","scenario":"neutral-journey","runId":"neutral-journey-ios","iteration":2,"atMs":1000,"helperVersion":"1.1.0"}',
+      '2026-01-01T00:00:01.760Z neutral-ios [profile-event] {"event":"first_journey_completed","scenario":"neutral-journey","runId":"neutral-journey-ios","iteration":2,"atMs":1760,"helperVersion":"1.1.0"}',
+      '2026-01-01T00:00:02.000Z neutral-ios [profile-event] {"event":"first_journey_started","scenario":"neutral-journey","runId":"neutral-journey-ios","iteration":3,"atMs":2000,"helperVersion":"1.1.0"}',
+      '2026-01-01T00:00:02.830Z neutral-ios [profile-event] {"event":"first_journey_completed","scenario":"neutral-journey","runId":"neutral-journey-ios","iteration":3,"atMs":2830,"helperVersion":"1.1.0"}',
       '',
     ].join('\n'),
     'utf8',
@@ -1011,14 +1011,14 @@ test('profile-ios reports schema-era open and close interval budgets', async (t:
   await fsp.writeFile(
     eventLogPath,
     [
-      '2026-01-01T00:00:00.000Z public-ios [profile-event] {"event":"card_open_requested","scenario":"portable-open-close","runId":"portable-open-close-ios","iteration":1,"atMs":0}',
-      '2026-01-01T00:00:00.110Z public-ios [profile-event] {"event":"card_opened","scenario":"portable-open-close","runId":"portable-open-close-ios","iteration":1,"atMs":110}',
-      '2026-01-01T00:00:00.390Z public-ios [profile-event] {"event":"card_close_requested","scenario":"portable-open-close","runId":"portable-open-close-ios","iteration":1,"atMs":390}',
-      '2026-01-01T00:00:00.470Z public-ios [profile-event] {"event":"card_dismissed","scenario":"portable-open-close","runId":"portable-open-close-ios","iteration":1,"atMs":470}',
-      '2026-01-01T00:00:01.000Z public-ios [profile-event] {"event":"card_open_requested","scenario":"portable-open-close","runId":"portable-open-close-ios","iteration":2,"atMs":1000}',
-      '2026-01-01T00:00:01.125Z public-ios [profile-event] {"event":"card_opened","scenario":"portable-open-close","runId":"portable-open-close-ios","iteration":2,"atMs":1125}',
-      '2026-01-01T00:00:01.410Z public-ios [profile-event] {"event":"card_close_requested","scenario":"portable-open-close","runId":"portable-open-close-ios","iteration":2,"atMs":1410}',
-      '2026-01-01T00:00:01.500Z public-ios [profile-event] {"event":"card_dismissed","scenario":"portable-open-close","runId":"portable-open-close-ios","iteration":2,"atMs":1500}',
+      '2026-01-01T00:00:00.000Z public-ios [profile-event] {"event":"card_open_requested","scenario":"portable-open-close","runId":"portable-open-close-ios","iteration":1,"atMs":0,"helperVersion":"1.1.0"}',
+      '2026-01-01T00:00:00.110Z public-ios [profile-event] {"event":"card_opened","scenario":"portable-open-close","runId":"portable-open-close-ios","iteration":1,"atMs":110,"helperVersion":"1.1.0"}',
+      '2026-01-01T00:00:00.390Z public-ios [profile-event] {"event":"card_close_requested","scenario":"portable-open-close","runId":"portable-open-close-ios","iteration":1,"atMs":390,"helperVersion":"1.1.0"}',
+      '2026-01-01T00:00:00.470Z public-ios [profile-event] {"event":"card_dismissed","scenario":"portable-open-close","runId":"portable-open-close-ios","iteration":1,"atMs":470,"helperVersion":"1.1.0"}',
+      '2026-01-01T00:00:01.000Z public-ios [profile-event] {"event":"card_open_requested","scenario":"portable-open-close","runId":"portable-open-close-ios","iteration":2,"atMs":1000,"helperVersion":"1.1.0"}',
+      '2026-01-01T00:00:01.125Z public-ios [profile-event] {"event":"card_opened","scenario":"portable-open-close","runId":"portable-open-close-ios","iteration":2,"atMs":1125,"helperVersion":"1.1.0"}',
+      '2026-01-01T00:00:01.410Z public-ios [profile-event] {"event":"card_close_requested","scenario":"portable-open-close","runId":"portable-open-close-ios","iteration":2,"atMs":1410,"helperVersion":"1.1.0"}',
+      '2026-01-01T00:00:01.500Z public-ios [profile-event] {"event":"card_dismissed","scenario":"portable-open-close","runId":"portable-open-close-ios","iteration":2,"atMs":1500,"helperVersion":"1.1.0"}',
       '',
     ].join('\n'),
     'utf8',
@@ -1352,6 +1352,7 @@ test('profile-ios can seed and profile stored iOS app truth events', async (t: T
       manifest['agent-scenario-loop.profile-events.1'] = JSON.stringify(manifest['agent-scenario-loop.profile-events.1']);
       manifest['agent-scenario-loop.profile-session-entries.1'] = JSON.stringify([
         {
+          helperVersion: '1.1.0',
           kind: 'command',
           scenario: 'app-startup',
           runId: 'ios-live-startup',
@@ -1473,13 +1474,14 @@ test('profile-ios seeds iOS scenario commands through app storage', async (t: Te
       assert.equal(commands[0].sequence, 1);
       assert.equal(commands[5].sequence, 6);
       assert.equal(commands[0].queueId, 'open-close-cycle');
-      assert.equal(commands[0].commandId, 'open first example card');
-      assert.equal(commands[1].commandId, 'close example card');
+      assert.equal(commands[0].commandId, 'open-card');
+      assert.equal(commands[1].commandId, 'close-card');
       manifest['agent-scenario-loop.profile-session-entries.1'] = JSON.stringify([
         {
           atMs: 40,
           command: 'activate-target:example-card-1',
           commandId: 'open-card',
+          helperVersion: '1.1.0',
           kind: 'command',
           queueId: 'open-close-cycle',
           runId: 'ios-live-open-close',
@@ -1492,25 +1494,76 @@ test('profile-ios seeds iOS scenario commands through app storage', async (t: Te
           waitTimeoutMs: 1500,
         },
         {
-          atMs: 75,
+          actualWaitMs: 340,
+          atMs: 380,
           command: 'activate-target:example-card-1',
           commandId: 'open-card',
+          continuationReason: 'readiness-and-settle-satisfied',
+          helperVersion: '1.1.0',
           kind: 'command',
+          maxReadinessWaitMs: 1500,
+          minimumSettleMs: 300,
+          plannedSettleMs: 300,
           queueId: 'open-close-cycle',
-          result: 'target-dispatched',
+          readinessWaitMs: 340,
+          result: 'cadence-settled',
           runId: 'ios-live-open-close',
           scenario: 'open-close-cycle',
           sequence: 1,
           source: 'storage',
           status: 'completed',
+          settleOverlapSavedMs: 300,
+          timeoutAvoided: true,
           waitForMilestone: 'card_opened',
           waitMs: 300,
           waitTimeoutMs: 1500,
+        },
+        {
+          atMs: 760,
+          command: 'activate-target:close-card',
+          commandId: 'close-card',
+          helperVersion: '1.1.0',
+          kind: 'command',
+          queueId: 'open-close-cycle',
+          runId: 'ios-live-open-close',
+          scenario: 'open-close-cycle',
+          sequence: 2,
+          source: 'storage',
+          status: 'received',
+          waitForMilestone: 'card_dismissed',
+          waitMs: 300,
+          waitTimeoutMs: 1200,
+        },
+        {
+          actualWaitMs: 300,
+          atMs: 1060,
+          command: 'activate-target:close-card',
+          commandId: 'close-card',
+          continuationReason: 'readiness-released-before-settle-complete',
+          helperVersion: '1.1.0',
+          kind: 'command',
+          maxReadinessWaitMs: 1200,
+          minimumSettleMs: 300,
+          plannedSettleMs: 300,
+          queueId: 'open-close-cycle',
+          readinessWaitMs: 280,
+          result: 'cadence-settled',
+          runId: 'ios-live-open-close',
+          scenario: 'open-close-cycle',
+          sequence: 2,
+          source: 'storage',
+          status: 'completed',
+          settleOverlapSavedMs: 280,
+          timeoutAvoided: true,
+          waitForMilestone: 'card_dismissed',
+          waitMs: 300,
+          waitTimeoutMs: 1200,
         },
         {
           atMs: 2020,
           command: 'activate-target:example-card-1',
           commandId: 'open-card',
+          helperVersion: '1.1.0',
           kind: 'command',
           queueId: 'open-close-cycle',
           runId: 'ios-live-open-close',
@@ -1523,17 +1576,26 @@ test('profile-ios seeds iOS scenario commands through app storage', async (t: Te
           waitTimeoutMs: 1500,
         },
         {
-          atMs: 2055,
+          actualWaitMs: 390,
+          atMs: 2410,
           command: 'activate-target:example-card-1',
           commandId: 'open-card',
+          continuationReason: 'readiness-and-settle-satisfied',
+          helperVersion: '1.1.0',
           kind: 'command',
+          maxReadinessWaitMs: 1500,
+          minimumSettleMs: 300,
+          plannedSettleMs: 300,
           queueId: 'open-close-cycle',
-          result: 'target-dispatched',
+          readinessWaitMs: 390,
+          result: 'cadence-settled',
           runId: 'ios-live-open-close',
           scenario: 'open-close-cycle',
           sequence: 3,
           source: 'storage',
           status: 'completed',
+          settleOverlapSavedMs: 300,
+          timeoutAvoided: true,
           waitForMilestone: 'card_opened',
           waitMs: 300,
           waitTimeoutMs: 1500,
@@ -1542,6 +1604,7 @@ test('profile-ios seeds iOS scenario commands through app storage', async (t: Te
           atMs: 2810,
           command: 'activate-target:close-card',
           commandId: 'close-card',
+          helperVersion: '1.1.0',
           kind: 'command',
           queueId: 'open-close-cycle',
           runId: 'ios-live-open-close',
@@ -1549,48 +1612,34 @@ test('profile-ios seeds iOS scenario commands through app storage', async (t: Te
           sequence: 4,
           source: 'storage',
           status: 'received',
+          waitForMilestone: 'card_dismissed',
           waitMs: 300,
+          waitTimeoutMs: 1200,
         },
         {
-          atMs: 2845,
+          actualWaitMs: 310,
+          atMs: 3120,
           command: 'activate-target:close-card',
           commandId: 'close-card',
+          continuationReason: 'readiness-and-settle-satisfied',
+          helperVersion: '1.1.0',
           kind: 'command',
+          maxReadinessWaitMs: 1200,
+          minimumSettleMs: 300,
+          plannedSettleMs: 300,
           queueId: 'open-close-cycle',
-          result: 'target-dispatched',
+          readinessWaitMs: 310,
+          result: 'cadence-settled',
           runId: 'ios-live-open-close',
           scenario: 'open-close-cycle',
           sequence: 4,
           source: 'storage',
           status: 'completed',
+          settleOverlapSavedMs: 300,
+          timeoutAvoided: true,
+          waitForMilestone: 'card_dismissed',
           waitMs: 300,
-        },
-        {
-          atMs: 760,
-          command: 'activate-target:close-card',
-          commandId: 'close-card',
-          kind: 'command',
-          queueId: 'open-close-cycle',
-          runId: 'ios-live-open-close',
-          scenario: 'open-close-cycle',
-          sequence: 2,
-          source: 'storage',
-          status: 'received',
-          waitMs: 300,
-        },
-        {
-          atMs: 795,
-          command: 'activate-target:close-card',
-          commandId: 'close-card',
-          kind: 'command',
-          queueId: 'open-close-cycle',
-          result: 'target-dispatched',
-          runId: 'ios-live-open-close',
-          scenario: 'open-close-cycle',
-          sequence: 2,
-          source: 'storage',
-          status: 'completed',
-          waitMs: 300,
+          waitTimeoutMs: 1200,
         },
       ]);
       manifest['agent-scenario-loop.profile-events.1'] = fs
@@ -1633,15 +1682,15 @@ test('profile-ios seeds iOS scenario commands through app storage', async (t: Te
     }));
   assert.deepEqual(sequencingEvidence, [
     { atMs: 40, commandId: 'open-card', name: 'profile_command_received', sequence: 1 },
-    { atMs: 75, commandId: 'open-card', name: 'profile_command_completed', sequence: 1 },
-    { atMs: 380, commandId: undefined, name: 'card_opened', sequence: undefined },
+    { atMs: 380, commandId: undefined, name: 'card_opened', sequence: 1 },
+    { atMs: 380, commandId: 'open-card', name: 'profile_command_completed', sequence: 1 },
     { atMs: 760, commandId: 'close-card', name: 'profile_command_received', sequence: 2 },
-    { atMs: 795, commandId: 'close-card', name: 'profile_command_completed', sequence: 2 },
+    { atMs: 1060, commandId: 'close-card', name: 'profile_command_completed', sequence: 2 },
     { atMs: 2020, commandId: 'open-card', name: 'profile_command_received', sequence: 3 },
-    { atMs: 2055, commandId: 'open-card', name: 'profile_command_completed', sequence: 3 },
-    { atMs: 2410, commandId: undefined, name: 'card_opened', sequence: undefined },
+    { atMs: 2410, commandId: undefined, name: 'card_opened', sequence: 3 },
+    { atMs: 2410, commandId: 'open-card', name: 'profile_command_completed', sequence: 3 },
     { atMs: 2810, commandId: 'close-card', name: 'profile_command_received', sequence: 4 },
-    { atMs: 2845, commandId: 'close-card', name: 'profile_command_completed', sequence: 4 },
+    { atMs: 3120, commandId: 'close-card', name: 'profile_command_completed', sequence: 4 },
   ]);
   const firstCardOpened = causalRun.timeline.find((event: Record<string, any>) => (
     event.name === 'card_opened' && event.metadata?.iteration === 1
@@ -1698,18 +1747,18 @@ test('profile-ios seeds iOS scenario commands through app storage', async (t: Te
       name: 'profile_command_received',
       sequence: 2,
       status: 'started',
-      waitForMilestone: undefined,
+      waitForMilestone: 'card_dismissed',
       waitMs: 300,
-      waitTimeoutMs: undefined,
+      waitTimeoutMs: 1200,
     },
     {
       commandId: 'close-card',
       name: 'profile_command_completed',
       sequence: 2,
       status: 'completed',
-      waitForMilestone: undefined,
+      waitForMilestone: 'card_dismissed',
       waitMs: 300,
-      waitTimeoutMs: undefined,
+      waitTimeoutMs: 1200,
     },
     {
       commandId: 'open-card',
@@ -1734,18 +1783,18 @@ test('profile-ios seeds iOS scenario commands through app storage', async (t: Te
       name: 'profile_command_received',
       sequence: 4,
       status: 'started',
-      waitForMilestone: undefined,
+      waitForMilestone: 'card_dismissed',
       waitMs: 300,
-      waitTimeoutMs: undefined,
+      waitTimeoutMs: 1200,
     },
     {
       commandId: 'close-card',
       name: 'profile_command_completed',
       sequence: 4,
       status: 'completed',
-      waitForMilestone: undefined,
+      waitForMilestone: 'card_dismissed',
       waitMs: 300,
-      waitTimeoutMs: undefined,
+      waitTimeoutMs: 1200,
     },
   ]);
   assert.equal(calls.some((call) => call.startsWith('simctl openurl ')), false);
@@ -1829,7 +1878,7 @@ test('profile-ios executes iOS scenario commands through deep links when storage
   assert.equal(openUrlCalls.length, 7);
   const firstCommandOpenUrl = openUrlCalls[1] as string;
   assert.match(firstCommandOpenUrl, /command=activate-target%3Aexample-card-1/u);
-  assert.match(firstCommandOpenUrl, /commandId=open\+first\+example\+card/u);
+  assert.match(firstCommandOpenUrl, /commandId=open-card/u);
   assert.match(firstCommandOpenUrl, /sequence=1/u);
   assert.match(firstCommandOpenUrl, /queueId=open-close-cycle/u);
   assert.match(openUrlCalls[2] as string, /command=activate-target%3Aclose-card/u);
@@ -1839,7 +1888,7 @@ test('profile-ios executes iOS scenario commands through deep links when storage
     exitCode: 0,
     label: 'open first example card',
     rawPath: 'raw/ios-deep-link-2.txt',
-    url: 'asl-example://profile-session/command?runId=ios-deep-link-open-close&scenario=open-close-cycle&command=activate-target%3Aexample-card-1&commandId=open+first+example+card&sequence=1&queueId=open-close-cycle&waitMs=300',
+    url: 'asl-example://profile-session/command?runId=ios-deep-link-open-close&scenario=open-close-cycle&command=activate-target%3Aexample-card-1&commandId=open-card&sequence=1&queueId=open-close-cycle&waitForMilestone=card_opened&waitMs=300&waitTimeoutMs=1500',
     waitMs: 300,
   });
   assert.ok(fs.existsSync(path.join(simctlCaptureRoot, 'raw', 'ios-deep-link-7.txt')));
@@ -1969,7 +2018,7 @@ test('profile-ios derives storage capture waits from scenario execution windows'
           },
         },
       },
-      { id: 'wait-opened', kind: 'waitForMilestone', milestone: 'opened', timeoutMs: 7000 },
+      { id: 'wait-opened', kind: 'waitForMilestone', milestone: 'opened' },
       {
         id: 'close-panel',
         kind: 'command',
@@ -1985,10 +2034,10 @@ test('profile-ios derives storage capture waits from scenario execution windows'
   };
 
   assert.equal(deriveProfileSessionCaptureWaitMs(startup), 11000);
-  assert.equal(deriveProfileSessionCaptureWaitMs(openClose), 22960);
-  assert.equal(deriveProfileSessionCaptureWaitMs(scroll), 12150);
+  assert.equal(deriveProfileSessionCaptureWaitMs(openClose), 20800);
+  assert.equal(deriveProfileSessionCaptureWaitMs(scroll), 11250);
   assert.equal(resolveIosSimctlProfileCommands(commandHeavyCycle).length, 13);
-  assert.equal(deriveProfileSessionCaptureWaitMs(commandHeavyCycle), 130540);
+  assert.equal(deriveProfileSessionCaptureWaitMs(commandHeavyCycle), 290500);
   assert.ok(deriveProfileSessionCaptureWaitMs(commandHeavyCycle) > 30000);
   assert.equal(resolveProfileSessionCaptureWaitMs({
     args: { 'wait-ms': '25' },
@@ -2002,16 +2051,69 @@ test('profile-ios derives storage capture waits from scenario execution windows'
   }), 0);
 });
 
+test('profile-ios budgets adapter-only gates and non-command readiness waits', () => {
+  const adapterGateScenario = {
+    id: 'ios-adapter-gate',
+    adapterOptions: {
+      iosSimctl: {
+        commands: [{
+          command: 'open-surface',
+          id: 'open-surface',
+          waitForMilestone: 'surface_opened',
+          waitMs: 400,
+        }],
+      },
+    },
+    steps: [{ command: 'open-surface', id: 'open-surface', kind: 'command' }],
+  };
+  const gestureGateScenario = {
+    id: 'ios-gesture-gate',
+    steps: [
+      { driverAction: 'tap', id: 'tap-surface', kind: 'gesture' },
+      { id: 'wait-opened', kind: 'waitForMilestone', milestone: 'surface_opened', timeoutMs: 5000 },
+    ],
+  };
+
+  assert.deepEqual(resolveIosSimctlProfileCommands(adapterGateScenario), [{
+    command: 'open-surface',
+    commandId: 'open-surface',
+    queueId: 'ios-adapter-gate',
+    sequence: 1,
+    waitForMilestone: 'surface_opened',
+    waitMs: 400,
+    waitTimeoutMs: 30000,
+  }]);
+  assert.equal(deriveProfileSessionCaptureWaitMs(adapterGateScenario), 37300);
+  assert.equal(deriveProfileSessionCaptureWaitMs(gestureGateScenario), 8000);
+});
+
+test('profile-ios expands explicit adapter commands from portable cycle iterations', () => {
+  const scenario = readJson(fixturePath('templates/mobile-scenario.json'));
+  delete scenario.adapterOptions.iosSimctl.repeat;
+
+  const commands = resolveIosSimctlProfileCommands(scenario);
+
+  assert.equal(commands.length, 3);
+  assert.deepEqual(commands.map((command: { commandId?: string; sequence?: number }) => ({
+    commandId: command.commandId,
+    sequence: command.sequence,
+  })), [
+    { commandId: 'start-journey', sequence: 1 },
+    { commandId: 'start-journey', sequence: 2 },
+    { commandId: 'start-journey', sequence: 3 },
+  ]);
+});
+
 test('profile-ios derives simctl commands from scenario adapter metadata', () => {
   const scenario = readJson(fixturePath('examples/mobile-app/scenarios/ios/open-close-cycle.json'));
 
   assert.deepEqual(resolveIosSimctlProfileCommands(scenario), [
-    { command: 'activate-target:example-card-1', commandId: 'open first example card', label: 'open first example card', queueId: 'open-close-cycle', sequence: 1, waitMs: 300 },
-    { command: 'activate-target:close-card', commandId: 'close example card', label: 'close example card', queueId: 'open-close-cycle', sequence: 2, waitMs: 300 },
-    { command: 'activate-target:example-card-1', commandId: 'open first example card', label: 'open first example card', queueId: 'open-close-cycle', sequence: 3, waitMs: 300 },
-    { command: 'activate-target:close-card', commandId: 'close example card', label: 'close example card', queueId: 'open-close-cycle', sequence: 4, waitMs: 300 },
-    { command: 'activate-target:example-card-1', commandId: 'open first example card', label: 'open first example card', queueId: 'open-close-cycle', sequence: 5, waitMs: 300 },
-    { command: 'activate-target:close-card', commandId: 'close example card', label: 'close example card', queueId: 'open-close-cycle', sequence: 6, waitMs: 300 },
+    { command: 'activate-target:example-card-1', commandId: 'open-card', label: 'open first example card', queueId: 'open-close-cycle', sequence: 1, waitForMilestone: 'card_opened', waitMs: 300, waitTimeoutMs: 1500 },
+    { command: 'activate-target:close-card', commandId: 'close-card', dependsOnMilestones: ['card_opened'], label: 'close example card', queueId: 'open-close-cycle', sequence: 2, waitForMilestone: 'card_dismissed', waitMs: 300, waitTimeoutMs: 1200 },
+    { command: 'activate-target:example-card-1', commandId: 'open-card', label: 'open first example card', queueId: 'open-close-cycle', sequence: 3, waitForMilestone: 'card_opened', waitMs: 300, waitTimeoutMs: 1500 },
+    { command: 'activate-target:close-card', commandId: 'close-card', dependsOnMilestones: ['card_opened'], label: 'close example card', queueId: 'open-close-cycle', sequence: 4, waitForMilestone: 'card_dismissed', waitMs: 300, waitTimeoutMs: 1200 },
+    { command: 'activate-target:example-card-1', commandId: 'open-card', label: 'open first example card', queueId: 'open-close-cycle', sequence: 5, waitForMilestone: 'card_opened', waitMs: 300, waitTimeoutMs: 1500 },
+    { command: 'activate-target:close-card', commandId: 'close-card', dependsOnMilestones: ['card_opened'], label: 'close example card', queueId: 'open-close-cycle', sequence: 6, waitForMilestone: 'card_dismissed', waitMs: 300, waitTimeoutMs: 1200 },
   ]);
 
   delete scenario.adapterOptions;
@@ -2041,10 +2143,10 @@ test('profile-ios derives simctl commands from scenario adapter metadata', () =>
     },
   ];
   assert.deepEqual(resolveIosSimctlProfileCommands(scenario), [
-    { command: 'activate-target:example-card-1', commandId: 'open-card', label: 'open-card', queueId: 'open-close-cycle', sequence: 1, waitForMilestone: 'card_opened', waitMs: 125, waitTimeoutMs: 1500 },
-    { command: 'activate-target:close-card', commandId: 'close-card', dependsOnMilestones: ['card_opened'], label: 'close-card', queueId: 'open-close-cycle', sequence: 2, waitMs: 225 },
-    { command: 'activate-target:example-card-1', commandId: 'open-card', label: 'open-card', queueId: 'open-close-cycle', sequence: 3, waitForMilestone: 'card_opened', waitMs: 125, waitTimeoutMs: 1500 },
-    { command: 'activate-target:close-card', commandId: 'close-card', dependsOnMilestones: ['card_opened'], label: 'close-card', queueId: 'open-close-cycle', sequence: 4, waitMs: 225 },
+    { command: 'activate-target:example-card-1', commandId: 'open-card', label: 'open-card', queueId: 'open-close-cycle', sequence: 1, waitForMilestone: 'card_opened', waitMs: 300, waitTimeoutMs: 1500 },
+    { command: 'activate-target:close-card', commandId: 'close-card', dependsOnMilestones: ['card_opened'], label: 'close-card', queueId: 'open-close-cycle', sequence: 2, waitMs: 300 },
+    { command: 'activate-target:example-card-1', commandId: 'open-card', label: 'open-card', queueId: 'open-close-cycle', sequence: 3, waitForMilestone: 'card_opened', waitMs: 300, waitTimeoutMs: 1500 },
+    { command: 'activate-target:close-card', commandId: 'close-card', dependsOnMilestones: ['card_opened'], label: 'close-card', queueId: 'open-close-cycle', sequence: 4, waitMs: 300 },
   ]);
 });
 
@@ -2181,11 +2283,13 @@ test('profile-ios applies execution-plan wait gates to simctl adapter commands',
   scenario.adapterOptions.iosSimctl.commands = [
     {
       command: 'activate-target:example-card-1',
+      id: 'open-card',
       label: 'open first example card',
       waitMs: 300,
     },
     {
       command: 'activate-target:close-card',
+      id: 'close-card',
       label: 'close example card',
       waitMs: 300,
     },
@@ -2220,10 +2324,10 @@ test('profile-ios applies execution-plan wait gates to simctl adapter commands',
   ];
 
   assert.deepEqual(resolveIosSimctlProfileCommands(scenario), [
-    { command: 'activate-target:example-card-1', commandId: 'open first example card', label: 'open first example card', queueId: 'open-close-cycle', sequence: 1, waitForMilestone: 'card_opened', waitMs: 300, waitTimeoutMs: 1500 },
-    { command: 'activate-target:close-card', commandId: 'close example card', dependsOnMilestones: ['card_opened'], label: 'close example card', queueId: 'open-close-cycle', sequence: 2, waitForMilestone: 'card_dismissed', waitMs: 300, waitTimeoutMs: 1200 },
-    { command: 'activate-target:example-card-1', commandId: 'open first example card', label: 'open first example card', queueId: 'open-close-cycle', sequence: 3, waitForMilestone: 'card_opened', waitMs: 300, waitTimeoutMs: 1500 },
-    { command: 'activate-target:close-card', commandId: 'close example card', dependsOnMilestones: ['card_opened'], label: 'close example card', queueId: 'open-close-cycle', sequence: 4, waitForMilestone: 'card_dismissed', waitMs: 300, waitTimeoutMs: 1200 },
+    { command: 'activate-target:example-card-1', commandId: 'open-card', label: 'open first example card', queueId: 'open-close-cycle', sequence: 1, waitForMilestone: 'card_opened', waitMs: 300, waitTimeoutMs: 1500 },
+    { command: 'activate-target:close-card', commandId: 'close-card', dependsOnMilestones: ['card_opened'], label: 'close example card', queueId: 'open-close-cycle', sequence: 2, waitForMilestone: 'card_dismissed', waitMs: 300, waitTimeoutMs: 1200 },
+    { command: 'activate-target:example-card-1', commandId: 'open-card', label: 'open first example card', queueId: 'open-close-cycle', sequence: 3, waitForMilestone: 'card_opened', waitMs: 300, waitTimeoutMs: 1500 },
+    { command: 'activate-target:close-card', commandId: 'close-card', dependsOnMilestones: ['card_opened'], label: 'close example card', queueId: 'open-close-cycle', sequence: 4, waitForMilestone: 'card_dismissed', waitMs: 300, waitTimeoutMs: 1200 },
   ]);
 });
 
@@ -2270,5 +2374,112 @@ test('profile-ios applies scenario cadence to profile-session command pacing', (
   assert.deepEqual(resolveIosSimctlProfileCommands(scenario), [
     { command: 'comments:open-sheet', commandId: 'open-comments-sheet', label: 'open-comments-sheet', queueId: 'composer-flow', sequence: 1, waitForMilestone: 'comments_sheet_opened', waitMs: 200, waitTimeoutMs: 1500 },
     { command: 'comments:expand-composer', commandId: 'expand-composer', dependsOnMilestones: ['comments_sheet_opened'], label: 'expand-composer', queueId: 'composer-flow', sequence: 2, waitForMilestone: 'comments_composer_expanded', waitMs: 650, waitTimeoutMs: 2000 },
+  ]);
+});
+
+test('profile-ios preserves explicit zero settle over portable cadence', () => {
+  const commands = resolveIosSimctlProfileCommands({
+    cadence: { commandSettleMs: 500 },
+    id: 'ios-zero-settle',
+    adapterOptions: {
+      iosSimctl: {
+        commands: [{ command: 'open-surface', id: 'open-surface', waitMs: 0 }],
+      },
+    },
+    steps: [{ command: 'open-surface', id: 'open-surface', kind: 'command' }],
+  });
+
+  assert.equal(commands[0]?.waitMs, 0);
+});
+
+test('profile-ios inherits execution-plan gates and fail-fast policy only when adapter values are absent', () => {
+  const scenario = {
+    cadence: {
+      commandSettleMs: 220,
+    },
+    cycles: {
+      iterations: 1,
+      stopOnFailure: false,
+    },
+    id: 'ios-inheritance',
+    milestones: [
+      { id: 'ready', event: 'surface_ready' },
+      { id: 'opened', event: 'surface_opened' },
+    ],
+    adapterOptions: {
+      iosSimctl: {
+        commands: [
+          { command: 'reset-surface', id: 'reset-surface', label: 'reset-surface' },
+          { command: 'open-surface', id: 'open-surface', label: 'open-surface', waitMs: 400 },
+        ],
+      },
+    },
+    steps: [
+      { id: 'wait-ready', kind: 'waitForMilestone', milestone: 'ready', timeoutMs: 5000 },
+      { id: 'reset-surface', kind: 'command', command: 'reset-surface' },
+      { id: 'wait-opened', kind: 'waitForMilestone', milestone: 'opened' },
+      { id: 'open-surface', kind: 'command', command: 'open-surface' },
+    ],
+  };
+
+  assert.deepEqual(resolveIosSimctlProfileCommands(scenario), [
+    {
+      command: 'reset-surface',
+      commandId: 'reset-surface',
+      dependsOnMilestones: ['surface_ready'],
+      label: 'reset-surface',
+      queueId: 'ios-inheritance',
+      sequence: 1,
+      stopOnFailure: false,
+      waitForMilestone: 'surface_opened',
+      waitMs: 220,
+      waitTimeoutMs: 30000,
+    },
+    {
+      command: 'open-surface',
+      commandId: 'open-surface',
+      dependsOnMilestones: ['surface_ready', 'surface_opened'],
+      label: 'open-surface',
+      queueId: 'ios-inheritance',
+      sequence: 2,
+      stopOnFailure: false,
+      waitMs: 400,
+    },
+  ]);
+});
+
+test('profile-ios aligns reordered adapter commands by stable identity', () => {
+  const commands = resolveIosSimctlProfileCommands({
+    cadence: { commandSettleMs: 100 },
+    id: 'ios-command-reorder',
+    adapterOptions: {
+      iosSimctl: {
+        commands: [
+          { command: 'close-surface', commandId: 'close-surface' },
+          { command: 'open-surface', commandId: 'open-surface' },
+        ],
+      },
+    },
+    milestones: [
+      { id: 'opened', event: 'surface_opened' },
+    ],
+    steps: [
+      { id: 'open-surface', kind: 'command', command: 'open-surface' },
+      { id: 'wait-opened', kind: 'waitForMilestone', milestone: 'opened', timeoutMs: 1500 },
+      { id: 'close-surface', kind: 'command', command: 'close-surface' },
+    ],
+  });
+
+  assert.deepEqual(commands.map((command: {
+    commandId?: string;
+    waitForMilestone?: string;
+    waitTimeoutMs?: number;
+  }) => ({
+    commandId: command.commandId,
+    waitForMilestone: command.waitForMilestone,
+    waitTimeoutMs: command.waitTimeoutMs,
+  })), [
+    { commandId: 'close-surface', waitForMilestone: undefined, waitTimeoutMs: undefined },
+    { commandId: 'open-surface', waitForMilestone: 'surface_opened', waitTimeoutMs: 1500 },
   ]);
 });
