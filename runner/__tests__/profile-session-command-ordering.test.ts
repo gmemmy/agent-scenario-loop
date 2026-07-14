@@ -7,6 +7,7 @@ const {
   doesProfileEventReleaseCommandGate,
   hasObservedProfileCommandDependencies,
   hasObservedProfileCommandMilestone,
+  resolveRemainingProfileCommandSettleMs,
 } = require('../../profile-session-command-ordering');
 
 test('profile-session command ordering sorts sequence before timestamp', () => {
@@ -54,6 +55,36 @@ test('profile-session command ordering builds scoped milestone gates', () => {
     sequence: 2,
     waitMs: 125,
   });
+});
+
+test('profile-session command ordering overlaps minimum settle with readiness waits', () => {
+  const commandReleasedAtMs = 1_000;
+
+  assert.equal(
+    resolveRemainingProfileCommandSettleMs(300, commandReleasedAtMs, 1_100),
+    200,
+    'fast readiness leaves only the unspent settle window',
+  );
+  assert.equal(
+    resolveRemainingProfileCommandSettleMs(300, commandReleasedAtMs, 1_300),
+    0,
+    'readiness on the settle boundary continues immediately',
+  );
+  assert.equal(
+    resolveRemainingProfileCommandSettleMs(300, commandReleasedAtMs, 1_700),
+    0,
+    'slow readiness does not add a fixed sleep',
+  );
+  assert.equal(
+    resolveRemainingProfileCommandSettleMs(undefined, commandReleasedAtMs, 1_100),
+    0,
+    'commands without cadence remain readiness-driven',
+  );
+  assert.equal(
+    resolveRemainingProfileCommandSettleMs(300, commandReleasedAtMs, 900),
+    300,
+    'clock rollback cannot erase the declared minimum settle',
+  );
 });
 
 test('profile-session command ordering only reuses observed readiness for first sequenced commands', () => {

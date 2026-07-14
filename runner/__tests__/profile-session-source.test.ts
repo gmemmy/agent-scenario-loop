@@ -70,10 +70,12 @@ test('profile-session helper keeps storage-backed command control safeguards', (
   assert.match(source, /let profileCommandProcessingTimeoutId: ReturnType<typeof setTimeout> \| null = null;/u);
   assert.match(source, /let profileCommandProcessingAvailableAt = 0;/u);
   assert.match(source, /from '\.\/profile-session-command-ordering';/u);
+  assert.match(source, /resolveRemainingProfileCommandSettleMs/u);
   assert.match(source, /hasObservedProfileCommandDependencies\(command, observedProfileEvents\)/u);
   assert.match(source, /sequencedProfileCommands\.sort\(compareProfileCommands\);/u);
   assert.match(source, /function processSequencedProfileCommands/u);
-  assert.match(source, /profileCommandMilestoneGate = nextGate;/u);
+  assert.match(source, /profileCommandMilestoneGate = nextGate\s+\? \{ \.\.\.nextGate, commandReleasedAtMs: Date\.now\(\) \}/u);
+  assert.match(source, /notifyProfileCommandListeners\(command\);\s+if \(nextGate\) \{\s+return;\s+\}/u);
   assert.match(orderingSource, /typeof command\.sequence === 'number' && command\.sequence > 1/u);
   assert.match(orderingSource, /export function hasObservedProfileCommandDependencies/u);
   assert.match(orderingSource, /doesProfileEventMatchCommandDependency/u);
@@ -95,7 +97,8 @@ test('profile-session helper keeps storage-backed command control safeguards', (
   assert.match(source, /queueMicrotask\(run\);/u);
   assert.match(source, /releaseProfileCommandMilestoneGate\(eventPayload\);/u);
   assert.match(source, /scheduleProfileCommandProcessing\(command\.waitMs\);/u);
-  assert.match(source, /scheduleProfileCommandProcessing\(waitMs\);/u);
+  assert.match(source, /commandReleasedAtMs: Date\.now\(\)/u);
+  assert.match(source, /scheduleProfileCommandProcessing\(remainingSettleMs\);/u);
   assert.match(source, /enqueueSequencedProfileCommands\(nextCommands\);/u);
   assert.match(source, /function startProfileCommandMilestoneTimeout/u);
   assert.match(source, /reason: 'wait-for-milestone-timeout'/u);

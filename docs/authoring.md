@@ -173,6 +173,14 @@ execution plans preserve resolved cadence with the source (`step`,
 `scenario-kind`, or `scenario-default`) so artifact readers can distinguish
 author-chosen pacing from adapter-specific waits.
 
+For an ordered command followed by `waitForMilestone`, cadence is a minimum
+settle window measured from command release, not an extra sleep after readiness.
+The next command continues when both conditions are satisfied: the milestone
+has arrived and the minimum settle window has elapsed. A fast milestone waits
+only the remaining cadence; a slow milestone continues immediately instead of
+paying the fixed delay again. `timeoutMs` remains the maximum correctness wait
+and is not extended by cadence.
+
 ## Truth Events
 
 Treat truth events as app-owned facts, not runner observations. The app should emit them from the code path that actually represents the journey state.

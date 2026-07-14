@@ -8,6 +8,7 @@ import {
   doesProfileEventReleaseCommandGate,
   hasObservedProfileCommandDependencies,
   hasObservedProfileCommandMilestone,
+  resolveRemainingProfileCommandSettleMs,
   type ProfileCommandMilestoneGate as BaseProfileCommandMilestoneGate,
 } from './profile-session-command-ordering';
 import { PROFILE_SESSION_STORAGE_KEYS as PROFILE_SESSION_STORAGE_KEY_VALUES } from './profile-session-storage';
@@ -99,6 +100,7 @@ type StoredProfileSessionEntry = {
 
 type StoredProfileSignals = Record<ProfileSignalKind, Record<string, unknown>>;
 type ProfileCommandMilestoneGate = BaseProfileCommandMilestoneGate & {
+  commandReleasedAtMs: number;
   timeoutId?: ReturnType<typeof setTimeout>;
 };
 type ProfileCommandClearStoragePolicy = 'preserve-storage' | 'remove-storage';
@@ -753,15 +755,17 @@ function processSequencedProfileCommands() {
     const nextGate = hasObservedProfileCommandMilestone(command, observedProfileEvents)
       ? null
       : buildProfileCommandMilestoneGate(command);
-    profileCommandMilestoneGate = nextGate;
     logProfileSession('command', {
       ...command,
       status: 'received',
     });
+    profileCommandMilestoneGate = nextGate
+      ? { ...nextGate, commandReleasedAtMs: Date.now() }
+      : null;
     startProfileCommandMilestoneTimeout(command);
     notifyProfileCommandListeners(command);
 
-    if (profileCommandMilestoneGate) {
+    if (nextGate) {
       return;
     }
     if (typeof command.waitMs === 'number' && command.waitMs > 0) {
@@ -790,11 +794,13 @@ function releaseProfileCommandMilestoneGate(eventPayload: StoredProfileEvent) {
     return;
   }
 
-  const waitMs = typeof profileCommandMilestoneGate.waitMs === 'number'
-    ? profileCommandMilestoneGate.waitMs
-    : 0;
+  const remainingSettleMs = resolveRemainingProfileCommandSettleMs(
+    profileCommandMilestoneGate.waitMs,
+    profileCommandMilestoneGate.commandReleasedAtMs,
+    Date.now(),
+  );
   clearProfileCommandMilestoneGate();
-  scheduleProfileCommandProcessing(waitMs);
+  scheduleProfileCommandProcessing(remainingSettleMs);
 }
 
 function flushPendingProfileCommands(listener: (command: ProfileSessionCommand) => void) {

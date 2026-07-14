@@ -4,6 +4,7 @@ export {
   doesProfileEventReleaseCommandGate,
   hasObservedProfileCommandDependencies,
   hasObservedProfileCommandMilestone,
+  resolveRemainingProfileCommandSettleMs,
 } from './app/profile-session-command-ordering';
 
 export type {

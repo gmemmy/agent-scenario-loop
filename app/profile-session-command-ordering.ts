@@ -63,6 +63,33 @@ export function buildProfileCommandMilestoneGate(
   };
 }
 
+/**
+ * Resolves the cadence still owed after a readiness milestone arrives.
+ *
+ * Cadence is a minimum settle window measured from command release. Readiness
+ * and cadence therefore overlap instead of becoming two consecutive waits.
+ */
+export function resolveRemainingProfileCommandSettleMs(
+  minimumSettleMs: number | undefined,
+  commandReleasedAtMs: number,
+  readinessObservedAtMs: number,
+): number {
+  if (
+    typeof minimumSettleMs !== 'number' ||
+    !Number.isFinite(minimumSettleMs) ||
+    minimumSettleMs <= 0
+  ) {
+    return 0;
+  }
+
+  if (!Number.isFinite(commandReleasedAtMs) || !Number.isFinite(readinessObservedAtMs)) {
+    return minimumSettleMs;
+  }
+
+  const readinessWaitMs = Math.max(0, readinessObservedAtMs - commandReleasedAtMs);
+  return Math.max(0, minimumSettleMs - readinessWaitMs);
+}
+
 function optionalStringScopeMatches(expected: string | undefined, actual: string | undefined): boolean {
   return typeof expected !== 'string' || typeof actual !== 'string' || expected === actual;
 }

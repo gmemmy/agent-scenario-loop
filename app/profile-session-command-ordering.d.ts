@@ -40,6 +40,12 @@ export declare function buildProfileCommandMilestoneGate(
   command: ProfileSessionOrderedCommand,
 ): ProfileCommandMilestoneGate | null;
 
+export declare function resolveRemainingProfileCommandSettleMs(
+  minimumSettleMs: number | undefined,
+  commandReleasedAtMs: number,
+  readinessObservedAtMs: number,
+): number;
+
 export declare function doesProfileEventReleaseCommandGate(
   gate: ProfileCommandMilestoneGate,
   eventPayload: ProfileSessionObservedEvent,
