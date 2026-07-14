@@ -135,6 +135,20 @@ test('accepts a compatible primary runner for a canonical scenario', () => {
   ]);
 });
 
+test('rejects duplicate scenario step ids before cycle expansion', () => {
+  const scenario = readJson('examples/scenarios/mobile/open-close-cycle.json');
+  const runner = readJson('examples/runners/xcodebuildmcp-ios.json');
+  scenario.steps[3].id = scenario.steps[1].id;
+
+  const result = evaluateRunnerCompatibility({ scenario, runner, platform: 'ios' });
+
+  assert.equal(result.compatible, false);
+  assert.ok(result.errors.some((error: PlannerIssue) => (
+    error.code === 'duplicate_scenario_step_id'
+      && error.stepId === scenario.steps[1].id
+  )));
+});
+
 test('fails when a runner is missing a required capability', () => {
   const scenario = readJson('examples/scenarios/mobile/open-close-cycle.json');
   const runner = readJson('examples/runners/xcodebuildmcp-ios.json');

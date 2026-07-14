@@ -74,7 +74,7 @@ Minimal fields:
 - `platforms`: `ios`, `android`, or both
 - `requiredCapabilities`: lifecycle and evidence ownership needed for the run
 - `truthEvents`: app-owned events that make the scenario trustworthy
-- `steps`: launch, command, wait, gesture, assertion, or evidence capture steps
+- `steps`: launch, command, wait, gesture, assertion, or evidence capture steps; normalized step ids must be unique before cycle expansion
 
 Preferred fields:
 
@@ -179,7 +179,10 @@ The next command continues when both conditions are satisfied: the milestone
 has arrived and the minimum settle window has elapsed. A fast milestone waits
 only the remaining cadence; a slow milestone continues immediately instead of
 paying the fixed delay again. `timeoutMs` remains the maximum correctness wait
-and is not extended by cadence.
+and is not extended by cadence. When a milestone wait omits or supplies a
+non-positive timeout, the profile runners and app helper impose a 30,000 ms correctness
+bound; authors should declare a smaller feature-appropriate bound when the
+expected readiness window is known.
 
 ## Truth Events
 
@@ -244,6 +247,46 @@ Input actions and observable results are separate. `longPress` is a held press, 
 Use `customGesture` only for a named adapter-owned gesture whose full inputs are declared in `adapterOptions` and whose runner transcript records the resolved command, target binding, timeout, stdout/stderr, and unsupported/failed reason. Use `runSequence` only for a static list of known actions that can run without observing intermediate UI state; if step two depends on what step one reveals, model the steps separately with an assertion or milestone between them.
 
 For profile-session command transport, platform `waitMs` metadata is queue pacing. ASL preserves it in storage and deep-link command envelopes and waits before releasing the next queued command. App-owned milestones still provide the truth that a command produced the intended product state.
+
+Portable cadence owns pacing defaults. ASL does not convert command `timeoutMs`
+into `waitMs` fallback sleeps. Keep `timeoutMs` for correctness deadlines and
+use `cadence` (scenario or step) for perceptual settle pacing.
+
+Platform command envelopes inherit portable execution-plan gates when adapter
+values are absent: `waitMs`, `waitForMilestone`, `waitTimeoutMs`,
+`dependsOnMilestones`, and cycle failure policy. Explicit adapter command
+values remain authoritative. Platform command lists must map one-to-one to the
+portable command plan by stable command id. Every adapter command must declare
+`id` or `commandId`; labels and command text are not identity fallbacks.
+Reordered commands retain their own policy; extra, omitted, or mismatched
+commands fail planning instead of borrowing policy by array position.
+
+`cycles.stopOnFailure` defaults to `true`. Profile-session helpers fail fast on
+milestone timeout by default: the timed-out command is skipped, remaining queued
+commands are skipped with `prior-command-failure`, and the queue stops.
+Set `cycles.stopOnFailure: false` to continue after a timeout.
+
+Treat each interaction as one bounded settle transition. The journey and step
+describe intent; an app-owned milestone describes readiness (including stable
+readiness when that is what the event contract asserts); cadence supplies the
+minimum perceptual observation window; and the milestone `timeoutMs` supplies
+the maximum correctness wait. Readiness and cadence run concurrently, so early
+readiness waits only for the unspent settle window and late readiness does not
+add a fixed post-readiness sleep. A timer alone is not proof that the product is
+stable: scenarios that require stability must name an app-owned stable-readiness
+milestone.
+
+When a queued profile command declares `queueId` and `sequence`, every truth
+event used to release that command must echo those correlation values. Target
+handlers receive the full command envelope so apps can attach `commandId`,
+`queueId`, and `sequence` to the resulting app-owned milestone. Missing
+correlation does not release a scoped gate.
+
+Profile-session command acknowledgements record the resolved minimum settle,
+maximum readiness wait, readiness wait, actual wait at continuation, overlap
+saved versus sequential waits, whether the timeout was avoided, and the
+continuation reason. Queue execution does not invent retries. Cross-run retry
+count and terminal lineage remain owned by `manifest.attempt`.
 
 For deep-link profile-session transport, the app helper suppresses exact duplicate commands that arrive inside the short native handoff window. The duplicate key includes scenario, run id, queue id, command id or command envelope id, sequence, and command text, so repeated scenario-cycle commands with distinct sequence or command identity remain valid commands. Unsequenced repeated commands should use storage transport or explicit command ids when the scenario expects multiple deliveries of the same semantic command.
 

@@ -6,9 +6,11 @@ export type ProfileSessionOrderedCommand = {
   runId?: string;
   queueId?: string;
   sequence?: number;
+  stopOnFailure?: boolean;
   timestamp: number;
   waitForMilestone?: string;
   waitMs?: number;
+  waitTimeoutMs?: number;
 };
 
 export type ProfileSessionObservedEvent = {
@@ -28,8 +30,102 @@ export type ProfileCommandMilestoneGate = {
   runId?: string;
   scenario?: string;
   sequence?: number;
+  stopOnFailure?: boolean;
   waitMs?: number;
+  waitTimeoutMs?: number;
 };
+
+export type ProfileCommandCadenceTelemetry = {
+  actualWaitMs: number;
+  maxReadinessWaitMs?: number;
+  minimumSettleMs: number;
+  readinessWaitMs: number;
+  settleOverlapSavedMs: number;
+  timeoutAvoided?: boolean;
+};
+
+export type ProfileCommandCadenceOutcome =
+  | {
+      kind: 'continue';
+      reason:
+        | 'minimum-settle-satisfied'
+        | 'readiness-and-settle-satisfied'
+        | 'readiness-released-before-settle-complete';
+      remainingSettleMs: number;
+      telemetry: ProfileCommandCadenceTelemetry;
+    }
+  | {
+      kind: 'terminal' | 'continue';
+      reason: 'milestone-timeout-stop' | 'milestone-timeout-continue';
+      telemetry: ProfileCommandCadenceTelemetry;
+    };
+
+export type ProfileCommandPendingTransition<Command> = {
+  command: Command | null;
+  remainingCommands: Command[];
+};
+
+export type ProfileCommandTimeoutQueueTransition<Command> = {
+  activeGateId: null;
+  pendingCommands: Command[];
+  sequencedCommands: Command[];
+  skippedCommands: Command[];
+};
+
+export type ProfileCommandQueueBlocker =
+  | 'active-readiness-gate'
+  | 'remaining-settle'
+  | 'scheduled-settle'
+  | null;
+
+const DEFAULT_PROFILE_COMMAND_MILESTONE_TIMEOUT_MS = 30000;
+
+export function resolveProfileCommandQueueBlocker(options: {
+  hasActiveGate: boolean;
+  processingScheduled: boolean;
+  remainingSettleMs: number;
+}): ProfileCommandQueueBlocker {
+  if (options.processingScheduled) {
+    return 'scheduled-settle';
+  }
+  if (options.remainingSettleMs > 0) {
+    return 'remaining-settle';
+  }
+  return options.hasActiveGate ? 'active-readiness-gate' : null;
+}
+
+export function takeNextProfileCommand<Command>(
+  commands: readonly Command[],
+): ProfileCommandPendingTransition<Command> {
+  const command = commands[0] ?? null;
+  return {
+    command,
+    remainingCommands: command ? commands.slice(1) : [],
+  };
+}
+
+export function resolveProfileCommandTimeoutQueueTransition<Command>(options: {
+  activeGateId: string;
+  pendingCommands: readonly Command[];
+  sequencedCommands: readonly Command[];
+  stopOnFailure: boolean;
+}): ProfileCommandTimeoutQueueTransition<Command> {
+  if (!options.stopOnFailure) {
+    return {
+      activeGateId: null,
+      pendingCommands: [...options.pendingCommands],
+      sequencedCommands: [...options.sequencedCommands],
+      skippedCommands: [],
+    };
+  }
+
+  return {
+    activeGateId: null,
+    pendingCommands: [],
+    sequencedCommands: [],
+    skippedCommands: [...options.pendingCommands, ...options.sequencedCommands],
+  };
+}
 
 export function compareProfileCommands(
   left: ProfileSessionOrderedCommand,
@@ -59,7 +155,11 @@ export function buildProfileCommandMilestoneGate(
     ...(typeof command.runId === 'string' ? { runId: command.runId } : {}),
     ...(typeof command.scenario === 'string' ? { scenario: command.scenario } : {}),
     ...(typeof command.sequence === 'number' ? { sequence: command.sequence } : {}),
+    ...(typeof command.stopOnFailure === 'boolean' ? { stopOnFailure: command.stopOnFailure } : {}),
     ...(typeof command.waitMs === 'number' && command.waitMs > 0 ? { waitMs: command.waitMs } : {}),
+    waitTimeoutMs: typeof command.waitTimeoutMs === 'number' && command.waitTimeoutMs > 0
+      ? command.waitTimeoutMs
+      : DEFAULT_PROFILE_COMMAND_MILESTONE_TIMEOUT_MS,
   };
 }
 
@@ -90,12 +190,151 @@ export function resolveRemainingProfileCommandSettleMs(
   return Math.max(0, minimumSettleMs - readinessWaitMs);
 }
 
+export function resolveProfileCommandCadenceOutcome({
+  minimumSettleMs,
+  commandReleasedAtMs,
+  readinessObservedAtMs,
+  continuationObservedAtMs,
+  maxReadinessWaitMs,
+}: {
+  minimumSettleMs: number | undefined;
+  commandReleasedAtMs: number;
+  readinessObservedAtMs: number;
+  continuationObservedAtMs?: number;
+  maxReadinessWaitMs?: number;
+}): Extract<ProfileCommandCadenceOutcome, { kind: 'continue' }> {
+  const minimumSettle = (
+    typeof minimumSettleMs === 'number' &&
+    Number.isFinite(minimumSettleMs) &&
+    minimumSettleMs > 0
+  ) ? minimumSettleMs : 0;
+  const readinessWaitMs = (
+    Number.isFinite(commandReleasedAtMs) &&
+    Number.isFinite(readinessObservedAtMs)
+  )
+    ? Math.max(0, readinessObservedAtMs - commandReleasedAtMs)
+    : 0;
+  const remainingSettleMs = Math.max(0, minimumSettle - readinessWaitMs);
+  const minimumContinuationAtMs = commandReleasedAtMs + readinessWaitMs + remainingSettleMs;
+  const actualWaitMs = (
+    typeof continuationObservedAtMs === 'number' &&
+    Number.isFinite(continuationObservedAtMs) &&
+    Number.isFinite(commandReleasedAtMs)
+  )
+    ? Math.max(0, continuationObservedAtMs - commandReleasedAtMs)
+    : Math.max(0, minimumContinuationAtMs - commandReleasedAtMs);
+  const settleOverlapSavedMs = Math.min(minimumSettle, readinessWaitMs);
+  const timeoutLimitMs = (
+    typeof maxReadinessWaitMs === 'number' &&
+    Number.isFinite(maxReadinessWaitMs) &&
+    maxReadinessWaitMs > 0
+  ) ? maxReadinessWaitMs : undefined;
+
+  return {
+    kind: 'continue',
+    reason: remainingSettleMs > 0
+      ? 'readiness-released-before-settle-complete'
+      : 'readiness-and-settle-satisfied',
+    remainingSettleMs,
+    telemetry: {
+      actualWaitMs,
+      minimumSettleMs: minimumSettle,
+      readinessWaitMs,
+      settleOverlapSavedMs,
+      ...(typeof timeoutLimitMs === 'number'
+        ? {
+            maxReadinessWaitMs: timeoutLimitMs,
+            timeoutAvoided: readinessWaitMs <= timeoutLimitMs,
+          }
+        : {}),
+    },
+  };
+}
+
+export function resolveProfileCommandSettleOutcome({
+  minimumSettleMs,
+  commandReleasedAtMs,
+  continuationObservedAtMs,
+}: {
+  minimumSettleMs: number | undefined;
+  commandReleasedAtMs: number;
+  continuationObservedAtMs: number;
+}): Extract<ProfileCommandCadenceOutcome, { kind: 'continue' }> {
+  const minimumSettle = (
+    typeof minimumSettleMs === 'number' &&
+    Number.isFinite(minimumSettleMs) &&
+    minimumSettleMs > 0
+  ) ? minimumSettleMs : 0;
+  const actualWaitMs = (
+    Number.isFinite(commandReleasedAtMs) &&
+    Number.isFinite(continuationObservedAtMs)
+  )
+    ? Math.max(0, continuationObservedAtMs - commandReleasedAtMs)
+    : minimumSettle;
+
+  return {
+    kind: 'continue',
+    reason: 'minimum-settle-satisfied',
+    remainingSettleMs: 0,
+    telemetry: {
+      actualWaitMs,
+      minimumSettleMs: minimumSettle,
+      readinessWaitMs: 0,
+      settleOverlapSavedMs: 0,
+    },
+  };
+}
+
+export function resolveProfileCommandMilestoneTimeoutOutcome({
+  commandReleasedAtMs,
+  timeoutObservedAtMs,
+  minimumSettleMs,
+  maxReadinessWaitMs,
+  stopOnFailure,
+}: {
+  commandReleasedAtMs: number;
+  timeoutObservedAtMs: number;
+  minimumSettleMs: number | undefined;
+  maxReadinessWaitMs?: number;
+  stopOnFailure?: boolean;
+}): Extract<ProfileCommandCadenceOutcome, { reason: 'milestone-timeout-stop' | 'milestone-timeout-continue' }> {
+  const minimumSettle = (
+    typeof minimumSettleMs === 'number' &&
+    Number.isFinite(minimumSettleMs) &&
+    minimumSettleMs > 0
+  ) ? minimumSettleMs : 0;
+  const timeoutLimitMs = (
+    typeof maxReadinessWaitMs === 'number' &&
+    Number.isFinite(maxReadinessWaitMs) &&
+    maxReadinessWaitMs > 0
+  ) ? maxReadinessWaitMs : DEFAULT_PROFILE_COMMAND_MILESTONE_TIMEOUT_MS;
+  const readinessWaitMs = (
+    Number.isFinite(commandReleasedAtMs) &&
+    Number.isFinite(timeoutObservedAtMs)
+  )
+    ? Math.max(0, timeoutObservedAtMs - commandReleasedAtMs)
+    : timeoutLimitMs;
+
+  return {
+    kind: stopOnFailure === false ? 'continue' : 'terminal',
+    reason: stopOnFailure === false ? 'milestone-timeout-continue' : 'milestone-timeout-stop',
+    telemetry: {
+      actualWaitMs: readinessWaitMs,
+      maxReadinessWaitMs: timeoutLimitMs,
+      minimumSettleMs: minimumSettle,
+      readinessWaitMs,
+      settleOverlapSavedMs: Math.min(minimumSettle, readinessWaitMs),
+      timeoutAvoided: false,
+    },
+  };
+}
+
 function optionalStringScopeMatches(expected: string | undefined, actual: string | undefined): boolean {
-  return typeof expected !== 'string' || typeof actual !== 'string' || expected === actual;
+  return typeof expected !== 'string' || expected === actual;
 }
 
 function optionalNumberScopeMatches(expected: number | undefined, actual: number | undefined): boolean {
-  return typeof expected !== 'number' || typeof actual !== 'number' || expected === actual;
+  return typeof expected !== 'number' || expected === actual;
 }
 
 function doesProfileEventMatchCommandScope(

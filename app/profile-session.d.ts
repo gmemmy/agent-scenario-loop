@@ -14,6 +14,7 @@ export type ProfileSessionCommand = {
   command: string;
   queueId?: string;
   sequence?: number;
+  stopOnFailure?: boolean;
   source?: 'deeplink' | 'storage';
   timestamp: number;
   waitForMilestone?: string;
@@ -61,7 +62,7 @@ export declare const PROFILE_SESSION_STORAGE_KEYS: Readonly<{
   signal: string;
 }>;
 
-export const PROFILE_SESSION_HELPER_VERSION: '1.0.0';
+export const PROFILE_SESSION_HELPER_VERSION: '1.1.0';
 
 export function isProfileSessionFresh(
   session: Pick<ProfileSessionState, 'active' | 'startedAt'>,
@@ -87,6 +88,9 @@ export function useProfileSession(): ProfileSessionState;
 
 export function subscribeToProfileCommands(listener: (command: ProfileSessionCommand) => void): () => void;
 
-export function registerProfileCommandTargetHandler(targetId: string, handler: () => void): () => void;
+export function registerProfileCommandTargetHandler(
+  targetId: string,
+  handler: (command: ProfileSessionCommand) => void,
+): () => void;
 
 export function useProfileSessionBootstrap(): void;

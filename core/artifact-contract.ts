@@ -121,6 +121,22 @@ function coerceNumber(value: unknown): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function coerceBoolean(value: unknown): boolean | null {
+  if (typeof value === 'boolean') {
+    return value;
+  }
+  if (typeof value !== 'string') {
+    return null;
+  }
+  if (value === 'true') {
+    return true;
+  }
+  if (value === 'false') {
+    return false;
+  }
+  return null;
+}
+
 /**
  * Parses legacy key/value `[profile-event]` payloads into structured event objects.
  *
@@ -217,6 +233,14 @@ function parseKeyValueProfileSessionEntry(payload: string): ProfileSessionEntry 
   const sequence = coerceNumber(entry.sequence);
   const waitMs = coerceNumber(entry.waitMs);
   const waitTimeoutMs = coerceNumber(entry.waitTimeoutMs);
+  const minimumSettleMs = coerceNumber(entry.minimumSettleMs);
+  const plannedSettleMs = coerceNumber(entry.plannedSettleMs);
+  const maxReadinessWaitMs = coerceNumber(entry.maxReadinessWaitMs);
+  const readinessWaitMs = coerceNumber(entry.readinessWaitMs);
+  const actualWaitMs = coerceNumber(entry.actualWaitMs);
+  const settleOverlapSavedMs = coerceNumber(entry.settleOverlapSavedMs);
+  const stopOnFailure = coerceBoolean(entry.stopOnFailure);
+  const timeoutAvoided = coerceBoolean(entry.timeoutAvoided);
   if (atMs !== null) {
     entry.atMs = atMs;
   }
@@ -234,6 +258,30 @@ function parseKeyValueProfileSessionEntry(payload: string): ProfileSessionEntry 
   }
   if (waitTimeoutMs !== null) {
     entry.waitTimeoutMs = waitTimeoutMs;
+  }
+  if (minimumSettleMs !== null) {
+    entry.minimumSettleMs = minimumSettleMs;
+  }
+  if (plannedSettleMs !== null) {
+    entry.plannedSettleMs = plannedSettleMs;
+  }
+  if (maxReadinessWaitMs !== null) {
+    entry.maxReadinessWaitMs = maxReadinessWaitMs;
+  }
+  if (readinessWaitMs !== null) {
+    entry.readinessWaitMs = readinessWaitMs;
+  }
+  if (actualWaitMs !== null) {
+    entry.actualWaitMs = actualWaitMs;
+  }
+  if (settleOverlapSavedMs !== null) {
+    entry.settleOverlapSavedMs = settleOverlapSavedMs;
+  }
+  if (stopOnFailure !== null) {
+    entry.stopOnFailure = stopOnFailure;
+  }
+  if (timeoutAvoided !== null) {
+    entry.timeoutAvoided = timeoutAvoided;
   }
 
   return entry;
@@ -1530,7 +1578,22 @@ function buildCommandAcknowledgementTimeline({
         commandStatus,
         ...(typeof entry.result === 'string' ? { result: entry.result } : {}),
         ...(typeof entry.reason === 'string' ? { reason: entry.reason } : {}),
+        ...(typeof entry.continuationReason === 'string'
+          ? { continuationReason: entry.continuationReason }
+          : {}),
         ...(typeof entry.waitForMilestone === 'string' ? { waitForMilestone: entry.waitForMilestone } : {}),
+        ...(typeof entry.minimumSettleMs === 'number' ? { minimumSettleMs: entry.minimumSettleMs } : {}),
+        ...(typeof entry.plannedSettleMs === 'number' ? { plannedSettleMs: entry.plannedSettleMs } : {}),
+        ...(typeof entry.maxReadinessWaitMs === 'number'
+          ? { maxReadinessWaitMs: entry.maxReadinessWaitMs }
+          : {}),
+        ...(typeof entry.readinessWaitMs === 'number' ? { readinessWaitMs: entry.readinessWaitMs } : {}),
+        ...(typeof entry.actualWaitMs === 'number' ? { actualWaitMs: entry.actualWaitMs } : {}),
+        ...(typeof entry.settleOverlapSavedMs === 'number'
+          ? { settleOverlapSavedMs: entry.settleOverlapSavedMs }
+          : {}),
+        ...(typeof entry.stopOnFailure === 'boolean' ? { stopOnFailure: entry.stopOnFailure } : {}),
+        ...(typeof entry.timeoutAvoided === 'boolean' ? { timeoutAvoided: entry.timeoutAvoided } : {}),
         ...(typeof entry.waitMs === 'number' ? { waitMs: entry.waitMs } : {}),
         ...(typeof entry.waitTimeoutMs === 'number' ? { waitTimeoutMs: entry.waitTimeoutMs } : {}),
       };

@@ -6,6 +6,7 @@ const path = require('node:path');
 
 const { hasHelpFlag } = require('./cli');
 const { buildScenarioExecutionPlan } = require('../core/execution-plan');
+const { alignProfileCommandsWithPortablePolicy } = require('../core/profile-command-policy') as typeof import('../core/profile-command-policy');
 const {
   buildProfileHealth,
   buildProfileVerdict,
@@ -39,6 +40,7 @@ type IosSimctlProfileCommand = {
   label?: string;
   queueId?: string;
   sequence?: number;
+  stopOnFailure?: boolean;
   waitForMilestone?: string;
   waitMs?: number;
   waitTimeoutMs?: number;
@@ -51,6 +53,7 @@ const PROFILE_SESSION_CAPTURE_COMMAND_OVERHEAD_MS = 250;
 const PROFILE_SESSION_CAPTURE_BUFFER_MIN_MS = 2000;
 const PROFILE_SESSION_CAPTURE_BUFFER_RATIO = 0.2;
 const PROFILE_SESSION_CAPTURE_MAX_MS = 10 * 60 * 1000;
+const DEFAULT_PROFILE_COMMAND_MILESTONE_TIMEOUT_MS = 30000;
 const DEFAULT_IOS_PROFILE_SESSION_STORAGE_KEY = PROFILE_SESSION_STORAGE_KEYS.session;
 const DEFAULT_IOS_PROFILE_COMMAND_STORAGE_KEY = PROFILE_SESSION_STORAGE_KEYS.command;
 const DEFAULT_IOS_PROFILE_EVENT_STORAGE_KEY = PROFILE_SESSION_STORAGE_KEYS.event;
@@ -115,6 +118,10 @@ function readPositiveInteger(value: unknown, fallback: number): number {
   return typeof parsed === 'number' && Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
 }
 
+function readNonNegativeInteger(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0 ? value : undefined;
+}
+
 /**
  * Resolves the lifecycle phase this runner is prepared to assert.
  *
@@ -142,6 +149,20 @@ function resolveManifestLifecyclePhase(args: import('./profile-mobile').CliArgs)
  */
 function readScenarioIterationCount(scenario: Record<string, any>): number {
   return readPositiveInteger(scenario.defaultIterations, readPositiveInteger(scenario.cycles?.iterations, 1));
+}
+
+function readScenarioStopOnFailure(scenario: Record<string, any>): boolean {
+  return scenario?.cycles?.stopOnFailure !== false;
+}
+
+function readStableAdapterCommandId(command: Record<string, unknown>): string {
+  const commandId = typeof command.id === 'string'
+    ? command.id
+    : (typeof command.commandId === 'string' ? command.commandId : '');
+  if (commandId.length === 0) {
+    throw new Error('iOS adapter profile commands require a stable id. Labels and command text are not identities.');
+  }
+  return commandId;
 }
 
 /**
@@ -245,10 +266,12 @@ function buildProfileSessionUrl({
   command,
   commandId,
   config,
+  dependsOnMilestones,
   queueId,
   runId,
   scenario,
   sequence,
+  stopOnFailure,
   waitForMilestone,
   waitMs,
   waitTimeoutMs,
@@ -257,10 +280,12 @@ function buildProfileSessionUrl({
   command?: string;
   commandId?: string;
   config: Record<string, any>;
+  dependsOnMilestones?: string[];
   queueId?: string;
   runId: string;
   scenario: string;
   sequence?: number;
+  stopOnFailure?: boolean;
   waitForMilestone?: string;
   waitMs?: number;
   waitTimeoutMs?: number;
@@ -276,6 +301,9 @@ function buildProfileSessionUrl({
     if (commandId) {
       params.set('commandId', commandId);
     }
+    if (Array.isArray(dependsOnMilestones) && dependsOnMilestones.length > 0) {
+      params.set('dependsOnMilestones', dependsOnMilestones.join(','));
+    }
     if (typeof sequence === 'number') {
       params.set('sequence', String(sequence));
     }
@@ -290,6 +318,9 @@ function buildProfileSessionUrl({
     }
     if (typeof waitTimeoutMs === 'number') {
       params.set('waitTimeoutMs', String(waitTimeoutMs));
+    }
+    if (typeof stopOnFailure === 'boolean') {
+      params.set('stopOnFailure', String(stopOnFailure));
     }
   }
 
@@ -316,7 +347,7 @@ function readStepWaitMs(step: ScenarioExecutionStep): number {
     }
   }
 
-  return readPositiveInteger(step.timeoutMs, 0);
+  return 0;
 }
 
 /**
@@ -326,9 +357,12 @@ function readStepWaitMs(step: ScenarioExecutionStep): number {
  * @returns {number}
  */
 function readProfileCommandWindowMs(command: IosSimctlProfileCommand): number {
-  return readPositiveInteger(command.waitMs, 0) +
-    readPositiveInteger(command.waitTimeoutMs, 0) +
-    PROFILE_SESSION_CAPTURE_COMMAND_OVERHEAD_MS;
+  const minimumSettleMs = readPositiveInteger(command.waitMs, 0);
+  const maxReadinessWaitMs = readPositiveInteger(command.waitTimeoutMs, 0);
+  const boundedCommandWaitMs = maxReadinessWaitMs > 0
+    ? Math.max(minimumSettleMs, maxReadinessWaitMs)
+    : minimumSettleMs;
+  return boundedCommandWaitMs + PROFILE_SESSION_CAPTURE_COMMAND_OVERHEAD_MS;
 }
 
 /**
@@ -346,7 +380,7 @@ function readUnattachedExecutionWaitMs(scenario: Record<string, any>): number {
     }
 
     const previousStep = executionPlan.steps[index - 1];
-    if (previousStep?.portMethod === 'executeStep') {
+    if (previousStep?.kind === 'command' && typeof previousStep.command === 'string') {
       return total;
     }
 
@@ -410,6 +444,7 @@ function resolveProfileSessionCaptureWaitMs({
 function resolveExecutionPlanProfileCommands(scenario: Record<string, any>): IosSimctlProfileCommand[] {
   const executionPlan = buildScenarioExecutionPlan(scenario);
   const repeat = readPositiveInteger(scenario.defaultIterations, readPositiveInteger(scenario.cycles?.iterations, 1));
+  const stopOnFailure = readScenarioStopOnFailure(scenario);
   const commands: IosSimctlProfileCommand[] = [];
   const dependencies: string[] = [];
   for (const [index, step] of executionPlan.steps.entries()) {
@@ -429,11 +464,15 @@ function resolveExecutionPlanProfileCommands(scenario: Record<string, any>): Ios
       ...(commandDependencies.length > 0 ? { dependsOnMilestones: commandDependencies } : {}),
       label: step.id,
       queueId: scenario.id ?? scenario.name,
+      ...(stopOnFailure === false ? { stopOnFailure: false } : {}),
       waitMs: readStepWaitMs(step),
       ...(nextStep?.portMethod === 'waitForTruthEvent' && typeof nextStep.milestone === 'string'
         ? {
             waitForMilestone: resolveMilestoneEventName(scenario, nextStep.milestone),
-            waitTimeoutMs: readPositiveInteger(nextStep.timeoutMs, 0),
+            waitTimeoutMs: readPositiveInteger(
+              nextStep.timeoutMs,
+              DEFAULT_PROFILE_COMMAND_MILESTONE_TIMEOUT_MS,
+            ),
           }
         : {}),
     });
@@ -618,36 +657,45 @@ function resolveScenarioReadinessEvent(scenario: Record<string, any>): string | 
 }
 
 /**
- * Applies wait gates from the normalized execution plan to platform-declared commands.
+ * Applies normalized cadence, readiness, dependency, and failure policy to platform commands.
  *
  * @param {Record<string, unknown>} scenario
  * @param {IosSimctlProfileCommand[]} commands
  * @returns {IosSimctlProfileCommand[]}
  */
-function applyExecutionPlanCommandGates(
+function applyExecutionPlanCommandPolicy(
   scenario: Record<string, any>,
   commands: IosSimctlProfileCommand[],
 ): IosSimctlProfileCommand[] {
   const planCommands = resolveExecutionPlanProfileCommands(scenario);
-  if (planCommands.length === 0) {
-    return commands;
-  }
-
-  return commands.map((command, index) => {
-    const planCommand = planCommands[index];
-    if (!planCommand || typeof planCommand.waitForMilestone !== 'string' || typeof command.waitForMilestone === 'string') {
-      return command;
-    }
+  return alignProfileCommandsWithPortablePolicy('iOS', commands, planCommands).map(({ command, planCommand }) => {
+    const inheritedDependencies = (
+      !Array.isArray(command.dependsOnMilestones) &&
+      Array.isArray(planCommand.dependsOnMilestones) &&
+      planCommand.dependsOnMilestones.length > 0
+    ) ? { dependsOnMilestones: planCommand.dependsOnMilestones } : {};
+    const waitForMilestone = typeof command.waitForMilestone === 'string'
+      ? command.waitForMilestone
+      : planCommand.waitForMilestone;
+    const commandTimeoutMs = readPositiveInteger(command.waitTimeoutMs, 0);
+    const planTimeoutMs = readPositiveInteger(planCommand.waitTimeoutMs, 0);
+    const waitTimeoutMs = typeof waitForMilestone === 'string'
+      ? (commandTimeoutMs || planTimeoutMs || DEFAULT_PROFILE_COMMAND_MILESTONE_TIMEOUT_MS)
+      : undefined;
 
     return {
       ...command,
-      ...(Array.isArray(planCommand.dependsOnMilestones) && planCommand.dependsOnMilestones.length > 0
-        ? { dependsOnMilestones: planCommand.dependsOnMilestones }
-        : {}),
-      waitForMilestone: planCommand.waitForMilestone,
-      ...(typeof command.waitTimeoutMs === 'number'
+      ...inheritedDependencies,
+      ...(typeof waitForMilestone === 'string' ? { waitForMilestone } : {}),
+      ...(typeof command.waitMs === 'number'
         ? {}
-        : { waitTimeoutMs: readPositiveInteger(planCommand.waitTimeoutMs, 0) }),
+        : (typeof planCommand.waitMs === 'number'
+            ? { waitMs: readPositiveInteger(planCommand.waitMs, 0) }
+            : {})),
+      ...(typeof waitTimeoutMs === 'number' ? { waitTimeoutMs } : {}),
+      ...(typeof command.stopOnFailure === 'boolean'
+        ? {}
+        : (planCommand.stopOnFailure === false ? { stopOnFailure: false } : {})),
     };
   });
 }
@@ -664,32 +712,44 @@ function resolveIosSimctlProfileCommands(scenario: Record<string, any>): IosSimc
     return resolveExecutionPlanProfileCommands(scenario);
   }
 
-  const repeat = readPositiveInteger(iosSimctlOptions.repeat, readPositiveInteger(scenario.defaultIterations, 1));
+  const repeat = readPositiveInteger(iosSimctlOptions.repeat, readScenarioIterationCount(scenario));
+  const stopOnFailure = readScenarioStopOnFailure(scenario);
   const commands: IosSimctlProfileCommand[] = [];
   for (let iteration = 0; iteration < repeat; iteration += 1) {
     for (const command of iosSimctlOptions.commands) {
       if (!command || typeof command.command !== 'string') {
         continue;
       }
+      const waitMs = readNonNegativeInteger(command.waitMs);
 
       commands.push({
         command: command.command,
-        commandId: typeof command.id === 'string'
-          ? command.id
-          : typeof command.commandId === 'string'
-            ? command.commandId
-            : typeof command.label === 'string'
-              ? command.label
-              : command.command,
+        commandId: readStableAdapterCommandId(command),
+        ...(Array.isArray(command.dependsOnMilestones) && command.dependsOnMilestones.length > 0
+          ? {
+              dependsOnMilestones: command.dependsOnMilestones.filter((milestone: unknown): milestone is string => (
+                typeof milestone === 'string' && milestone.length > 0
+              )),
+            }
+          : {}),
         ...(typeof command.label === 'string' ? { label: command.label } : {}),
         queueId: scenario.id ?? scenario.name,
         sequence: commands.length + 1,
-        waitMs: readPositiveInteger(command.waitMs, 0),
+        ...(typeof command.stopOnFailure === 'boolean'
+          ? { stopOnFailure: command.stopOnFailure }
+          : (stopOnFailure === false ? { stopOnFailure: false } : {})),
+        ...(waitMs !== undefined ? { waitMs } : {}),
+        ...(typeof command.waitForMilestone === 'string' && command.waitForMilestone.length > 0
+          ? { waitForMilestone: command.waitForMilestone }
+          : {}),
+        ...(readPositiveInteger(command.waitTimeoutMs, 0) > 0
+          ? { waitTimeoutMs: readPositiveInteger(command.waitTimeoutMs, 0) }
+          : {}),
       });
     }
   }
 
-  return applyExecutionPlanCommandGates(scenario, commands);
+  return applyExecutionPlanCommandPolicy(scenario, commands);
 }
 
 /**
@@ -920,6 +980,9 @@ async function runProfileIos(
             action: 'command',
             command: profileCommand.command,
             ...(typeof profileCommand.commandId === 'string' ? { commandId: profileCommand.commandId } : {}),
+            ...(Array.isArray(profileCommand.dependsOnMilestones) && profileCommand.dependsOnMilestones.length > 0
+              ? { dependsOnMilestones: profileCommand.dependsOnMilestones }
+              : {}),
             config,
             runId,
             scenario: scenarioName,
@@ -928,6 +991,9 @@ async function runProfileIos(
             ...(typeof profileCommand.waitForMilestone === 'string' ? { waitForMilestone: profileCommand.waitForMilestone } : {}),
             ...(typeof profileCommand.waitMs === 'number' ? { waitMs: profileCommand.waitMs } : {}),
             ...(typeof profileCommand.waitTimeoutMs === 'number' ? { waitTimeoutMs: profileCommand.waitTimeoutMs } : {}),
+            ...(typeof profileCommand.stopOnFailure === 'boolean'
+              ? { stopOnFailure: profileCommand.stopOnFailure }
+              : {}),
           }),
           waitMs: profileCommand.waitMs,
         })),
@@ -979,6 +1045,9 @@ async function runProfileIos(
                   ...(typeof profileCommand.waitForMilestone === 'string' ? { waitForMilestone: profileCommand.waitForMilestone } : {}),
                   ...(typeof profileCommand.waitMs === 'number' ? { waitMs: profileCommand.waitMs } : {}),
                   ...(typeof profileCommand.waitTimeoutMs === 'number' ? { waitTimeoutMs: profileCommand.waitTimeoutMs } : {}),
+                  ...(typeof profileCommand.stopOnFailure === 'boolean'
+                    ? { stopOnFailure: profileCommand.stopOnFailure }
+                    : {}),
                 })),
                 runId,
                 scenario: scenarioName,

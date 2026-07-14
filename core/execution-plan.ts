@@ -48,6 +48,25 @@ type ScenarioExecutionPlan = {
   };
 };
 
+/**
+ * Ensures normalized source steps have one-to-one identities before any runner
+ * expands them into repeated cycle occurrences.
+ *
+ * @param {ScenarioExecutionStep[]} steps
+ */
+function assertUniqueScenarioStepIds(steps: ScenarioExecutionStep[]): void {
+  const seen = new Set<string>();
+
+  for (const step of steps) {
+    if (seen.has(step.id)) {
+      throw new Error(
+        `Scenario step id \`${step.id}\` is declared more than once; step ids must be unique before cycle expansion.`,
+      );
+    }
+    seen.add(step.id);
+  }
+}
+
 const STEP_KIND_TO_PORT_METHOD: Record<ScenarioStepKind, RunnerPortMethod> = {
   assertUi: 'executeStep',
   captureEvidence: 'captureEvidence',
@@ -220,6 +239,7 @@ function buildScenarioExecutionPlan(scenario: ScenarioManifest): ScenarioExecuti
         return normalizeScenarioStep(step as Record<string, unknown>, index, scenarioCadence);
       })
     : [];
+  assertUniqueScenarioStepIds(steps);
 
   return {
     scenarioId: getScenarioId(scenario),
@@ -231,6 +251,7 @@ function buildScenarioExecutionPlan(scenario: ScenarioManifest): ScenarioExecuti
 
 export {
   STEP_KIND_TO_PORT_METHOD,
+  assertUniqueScenarioStepIds,
   buildScenarioExecutionPlan,
   resolveStepCadence,
   normalizeScenarioStep,

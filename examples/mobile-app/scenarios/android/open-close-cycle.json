@@ -8,18 +8,45 @@
     "kind": "tap",
     "label": "Tap the first example card from a stable home state."
   },
+  "cadence": {
+    "commandSettleMs": 300
+  },
+  "steps": [
+    {
+      "id": "open-card",
+      "kind": "command",
+      "command": "activate-target:example-card-1"
+    },
+    {
+      "id": "wait-for-card-open",
+      "kind": "waitForMilestone",
+      "milestone": "card_opened",
+      "timeoutMs": 1500
+    },
+    {
+      "id": "close-card",
+      "kind": "command",
+      "command": "activate-target:close-card"
+    },
+    {
+      "id": "wait-for-card-dismissal",
+      "kind": "waitForMilestone",
+      "milestone": "card_dismissed",
+      "timeoutMs": 1200
+    }
+  ],
   "adapterOptions": {
     "androidAdb": {
       "commands": [
         {
           "command": "activate-target:example-card-1",
-          "label": "open first example card",
-          "waitMs": 300
+          "id": "open-card",
+          "label": "open first example card"
         },
         {
           "command": "activate-target:close-card",
-          "label": "close example card",
-          "waitMs": 300
+          "id": "close-card",
+          "label": "close example card"
         }
       ],
       "repeat": 3

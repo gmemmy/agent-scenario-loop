@@ -7,8 +7,16 @@ const {
   doesProfileEventReleaseCommandGate,
   hasObservedProfileCommandDependencies,
   hasObservedProfileCommandMilestone,
+  resolveProfileCommandCadenceOutcome,
+  resolveProfileCommandMilestoneTimeoutOutcome,
+  resolveProfileCommandSettleOutcome,
   resolveRemainingProfileCommandSettleMs,
 } = require('../../profile-session-command-ordering');
+const {
+  resolveProfileCommandQueueBlocker,
+  resolveProfileCommandTimeoutQueueTransition,
+  takeNextProfileCommand,
+} = require('../../app/profile-session-command-ordering');
 
 test('profile-session command ordering sorts sequence before timestamp', () => {
   const commands = [
@@ -54,6 +62,7 @@ test('profile-session command ordering builds scoped milestone gates', () => {
     scenario: 'open-close-cycle',
     sequence: 2,
     waitMs: 125,
+    waitTimeoutMs: 30000,
   });
 });
 
@@ -85,6 +94,207 @@ test('profile-session command ordering overlaps minimum settle with readiness wa
     300,
     'clock rollback cannot erase the declared minimum settle',
   );
+});
+
+test('profile-session command ordering reports cadence overlap telemetry deterministically', () => {
+  assert.deepEqual(resolveProfileCommandCadenceOutcome({
+    minimumSettleMs: 300,
+    commandReleasedAtMs: 1_000,
+    readinessObservedAtMs: 1_100,
+    maxReadinessWaitMs: 1_500,
+  }), {
+    kind: 'continue',
+    reason: 'readiness-released-before-settle-complete',
+    remainingSettleMs: 200,
+    telemetry: {
+      actualWaitMs: 300,
+      maxReadinessWaitMs: 1500,
+      minimumSettleMs: 300,
+      readinessWaitMs: 100,
+      settleOverlapSavedMs: 100,
+      timeoutAvoided: true,
+    },
+  });
+
+  assert.deepEqual(resolveProfileCommandCadenceOutcome({
+    minimumSettleMs: 300,
+    commandReleasedAtMs: 1_000,
+    readinessObservedAtMs: 1_800,
+    maxReadinessWaitMs: 2_000,
+  }), {
+    kind: 'continue',
+    reason: 'readiness-and-settle-satisfied',
+    remainingSettleMs: 0,
+    telemetry: {
+      actualWaitMs: 800,
+      maxReadinessWaitMs: 2000,
+      minimumSettleMs: 300,
+      readinessWaitMs: 800,
+      settleOverlapSavedMs: 300,
+      timeoutAvoided: true,
+    },
+  });
+
+  assert.deepEqual(resolveProfileCommandCadenceOutcome({
+    minimumSettleMs: 100,
+    commandReleasedAtMs: 1_000,
+    readinessObservedAtMs: 1_050,
+  }).telemetry, {
+    actualWaitMs: 100,
+    minimumSettleMs: 100,
+    readinessWaitMs: 50,
+    settleOverlapSavedMs: 50,
+  }, 'telemetry does not manufacture a timeout when none was supplied');
+});
+
+test('profile-session command ordering records settle-only continuation at the observed boundary', () => {
+  assert.deepEqual(resolveProfileCommandSettleOutcome({
+    minimumSettleMs: 300,
+    commandReleasedAtMs: 1_000,
+    continuationObservedAtMs: 1_325,
+  }), {
+    kind: 'continue',
+    reason: 'minimum-settle-satisfied',
+    remainingSettleMs: 0,
+    telemetry: {
+      actualWaitMs: 325,
+      minimumSettleMs: 300,
+      readinessWaitMs: 0,
+      settleOverlapSavedMs: 0,
+    },
+  });
+
+  assert.equal(resolveProfileCommandCadenceOutcome({
+    minimumSettleMs: 300,
+    commandReleasedAtMs: 1_000,
+    readinessObservedAtMs: 1_100,
+    continuationObservedAtMs: 1_325,
+    maxReadinessWaitMs: 1_500,
+  }).telemetry.actualWaitMs, 325);
+});
+
+test('profile-session command ordering resolves stop policy from milestone timeout outcomes', () => {
+  assert.deepEqual(resolveProfileCommandMilestoneTimeoutOutcome({
+    commandReleasedAtMs: 1_000,
+    timeoutObservedAtMs: 2_500,
+    minimumSettleMs: 300,
+    maxReadinessWaitMs: 1500,
+    stopOnFailure: true,
+  }), {
+    kind: 'terminal',
+    reason: 'milestone-timeout-stop',
+    telemetry: {
+      actualWaitMs: 1500,
+      maxReadinessWaitMs: 1500,
+      minimumSettleMs: 300,
+      readinessWaitMs: 1500,
+      settleOverlapSavedMs: 300,
+      timeoutAvoided: false,
+    },
+  });
+
+  assert.deepEqual(resolveProfileCommandMilestoneTimeoutOutcome({
+    commandReleasedAtMs: 1_000,
+    timeoutObservedAtMs: 2_500,
+    minimumSettleMs: 300,
+    maxReadinessWaitMs: 1500,
+    stopOnFailure: false,
+  }), {
+    kind: 'continue',
+    reason: 'milestone-timeout-continue',
+    telemetry: {
+      actualWaitMs: 1500,
+      maxReadinessWaitMs: 1500,
+      minimumSettleMs: 300,
+      readinessWaitMs: 1500,
+      settleOverlapSavedMs: 300,
+      timeoutAvoided: false,
+    },
+  });
+});
+
+test('profile-session command runtime drains pending backlogs one transition at a time', () => {
+  const first = takeNextProfileCommand(['command-1', 'command-2', 'command-3']);
+  assert.deepEqual(first, {
+    command: 'command-1',
+    remainingCommands: ['command-2', 'command-3'],
+  });
+
+  const second = takeNextProfileCommand(first.remainingCommands);
+  assert.deepEqual(second, {
+    command: 'command-2',
+    remainingCommands: ['command-3'],
+  });
+
+  assert.deepEqual(takeNextProfileCommand(second.remainingCommands), {
+    command: 'command-3',
+    remainingCommands: [],
+  });
+});
+
+test('profile-session command runtime blocks registration-driven draining during readiness and settle', () => {
+  assert.equal(resolveProfileCommandQueueBlocker({
+    hasActiveGate: true,
+    processingScheduled: false,
+    remainingSettleMs: 0,
+  }), 'active-readiness-gate');
+  assert.equal(resolveProfileCommandQueueBlocker({
+    hasActiveGate: false,
+    processingScheduled: true,
+    remainingSettleMs: 200,
+  }), 'scheduled-settle');
+  assert.equal(resolveProfileCommandQueueBlocker({
+    hasActiveGate: false,
+    processingScheduled: false,
+    remainingSettleMs: 200,
+  }), 'remaining-settle');
+  assert.equal(resolveProfileCommandQueueBlocker({
+    hasActiveGate: false,
+    processingScheduled: false,
+    remainingSettleMs: 0,
+  }), null);
+});
+
+test('profile-session command runtime makes fail-fast timeout terminal before late readiness', () => {
+  const transition = resolveProfileCommandTimeoutQueueTransition({
+    activeGateId: 'command-1',
+    pendingCommands: ['command-2'],
+    sequencedCommands: ['command-3'],
+    stopOnFailure: true,
+  });
+
+  assert.deepEqual(transition, {
+    activeGateId: null,
+    pendingCommands: [],
+    sequencedCommands: [],
+    skippedCommands: ['command-2', 'command-3'],
+  });
+  const lateReadinessCouldRelease = transition.activeGateId === null
+    ? false
+    : doesProfileEventReleaseCommandGate({
+        id: transition.activeGateId,
+        milestone: 'surface_ready',
+      }, {
+        event: 'surface_ready',
+        runId: 'run-1',
+        scenario: 'scenario-1',
+        timestamp: 2_000,
+      });
+  assert.equal(lateReadinessCouldRelease, false);
+});
+
+test('profile-session command runtime preserves queued work when timeout policy continues', () => {
+  assert.deepEqual(resolveProfileCommandTimeoutQueueTransition({
+    activeGateId: 'command-1',
+    pendingCommands: ['command-2'],
+    sequencedCommands: ['command-3'],
+    stopOnFailure: false,
+  }), {
+    activeGateId: null,
+    pendingCommands: ['command-2'],
+    sequencedCommands: ['command-3'],
+    skippedCommands: [],
+  });
 });
 
 test('profile-session command ordering only reuses observed readiness for first sequenced commands', () => {
@@ -144,7 +354,7 @@ test('profile-session command ordering only reuses observed readiness for first 
   }, observedEvents), false);
 });
 
-test('profile-session command ordering keeps legacy readiness milestones compatible', () => {
+test('profile-session command ordering rejects readiness events missing required command scope', () => {
   const observedEvents = [
     {
       event: 'surface_ready',
@@ -163,7 +373,7 @@ test('profile-session command ordering keeps legacy readiness milestones compati
     sequence: 1,
     timestamp: 200,
     waitForMilestone: 'surface_ready',
-  }, observedEvents), true);
+  }, observedEvents), false);
 });
 
 test('profile-session command ordering releases gates only for matching run and scenario', () => {
@@ -242,7 +452,7 @@ test('profile-session command ordering releases gates only for matching command 
   }), true);
 });
 
-test('profile-session command ordering keeps legacy uncorrelated milestone events compatible', () => {
+test('profile-session command ordering rejects uncorrelated milestone events', () => {
   const gate = {
     id: 'command-3',
     milestone: 'surface_ready',
@@ -257,7 +467,7 @@ test('profile-session command ordering keeps legacy uncorrelated milestone event
     runId: 'run-1',
     scenario: 'startup',
     timestamp: 900,
-  }), true);
+  }), false);
 });
 
 test('profile-session command dependencies wait for setup milestones without sequence binding', () => {

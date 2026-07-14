@@ -8,13 +8,29 @@
     "kind": "gesture",
     "label": "Perform one deterministic feed scroll."
   },
+  "cadence": {
+    "commandSettleMs": 300
+  },
+  "steps": [
+    {
+      "id": "scroll-feed",
+      "kind": "command",
+      "command": "activate-target:scroll-feed"
+    },
+    {
+      "id": "wait-for-feed-settle",
+      "kind": "waitForMilestone",
+      "milestone": "feed_scroll_settled",
+      "timeoutMs": 1500
+    }
+  ],
   "adapterOptions": {
     "androidAdb": {
       "commands": [
         {
           "command": "activate-target:scroll-feed",
-          "label": "scroll example feed",
-          "waitMs": 300
+          "id": "scroll-feed",
+          "label": "scroll example feed"
         }
       ],
       "repeat": 3
