@@ -1,5 +1,6 @@
 const assert = require('node:assert/strict');
 const { execFile } = require('node:child_process');
+const { EventEmitter } = require('node:events');
 const fs = require('node:fs');
 const fsp = require('node:fs/promises');
 const os = require('node:os');
@@ -1141,9 +1142,22 @@ test('profile-ios can capture simctl logs and profile them in one run', async (t
     artifact: 'screenshot',
     driverAction: 'screenshot',
   });
+  scenario.steps.push({ id: 'capture-video', kind: 'captureEvidence', artifact: 'video', driverAction: 'record' });
   const scenarioPath = path.join(tempRoot, 'app-startup-screenshot.json');
   await fsp.writeFile(scenarioPath, `${JSON.stringify(scenario, null, 2)}\n`, 'utf8');
   const waits: number[] = [];
+  const recorder = new EventEmitter() as import('node:events').EventEmitter & {
+    kill: (signal: NodeJS.Signals) => boolean;
+    stderr: import('node:events').EventEmitter;
+    stdout: import('node:events').EventEmitter;
+  };
+  recorder.stderr = new EventEmitter(); recorder.stdout = new EventEmitter();
+  recorder.kill = () => {
+    const videoPath = path.join(simctlCaptureRoot, 'captures', 'ios-recording.mp4');
+    void fsp.writeFile(videoPath, Buffer.from('000000106674797069736f6d00000000', 'hex'))
+      .then(() => recorder.emit('close', 0, 'SIGINT'));
+    return true;
+  };
   const executor = async (command: string, args: string[]): Promise<CommandResult> => {
     const key = args.join(' ');
     const screenshotPath = path.join(simctlCaptureRoot, 'captures', 'ios-screenshot.png');
@@ -1208,6 +1222,7 @@ test('profile-ios can capture simctl logs and profile them in one run', async (t
       waits.push(ms);
     },
     executor,
+    recorderFactory: () => recorder,
   });
 
   const manifest = readJson(path.join(result.runDir, 'manifest.json'));
@@ -1256,6 +1271,8 @@ test('profile-ios can capture simctl logs and profile them in one run', async (t
   assert.deepEqual((manifest.artifacts as { captures: { screenshots: string[] } }).captures.screenshots, [
     'captures/ios-screenshot.png',
   ]);
+  assert.equal((manifest.artifacts as { captures: { video: string } }).captures.video, 'captures/ios-recording.mp4');
+  assert.ok(fs.existsSync(path.join(result.runDir, 'captures', 'ios-recording.mp4')));
   assert.equal(manifest.interactionDriver, 'ios-simctl');
   assert.equal((causalRun.scenario as { driver: string }).driver, 'ios-simctl');
   assert.equal((causalRun.artifacts as { screenshot: string }).screenshot, 'captures/ios-screenshot.png');

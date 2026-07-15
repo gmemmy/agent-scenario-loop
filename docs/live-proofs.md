@@ -172,6 +172,8 @@ Scenario command targets live in `adapterOptions.iosSimctl.commands`, while the 
 
 Attach independently produced provider evidence with `--signal <js|memory|network>[@redacted|@not-redacted|@unknown]:<path>` or `--capture <screenshot|video|uiTree>[@redacted|@not-redacted|@unknown]:<path>` so profile commands copy those files into stable run folders and inventory them in `manifest.artifacts.evidenceAttachments`. Omit the redaction suffix unless the operator owns that privacy declaration.
 
+An iOS scenario that requests the portable `record` action or `video` artifact starts a bounded `simctl` simulator recording around the active capture window. ASL stops and finalizes the recorder before publishing artifacts, captures recorder stdout/stderr plus exit signal metadata, validates MP4/QuickTime `ftyp` brands, and includes `captures.video` only when that validated file exists. Start failures, cancellation, finalization timeouts, and invalid output fail or partially degrade simctl sidecar health while preserving useful raw recorder diagnostics.
+
 ## Generic Mobile Proof
 
 Use the generic live runners in a consuming app after `asl-init` has created `asl.config.json`, `scenarios/mobile/<id>.json`, and the `asl:*` package-script snippets:
