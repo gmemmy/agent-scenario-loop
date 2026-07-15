@@ -195,7 +195,7 @@ type ProfileSessionStartForegroundProbe = {
   appInfoCaptured: boolean;
   applicationState: string | null;
   rawPath: string;
-  targetForeground: boolean;
+  targetForeground: boolean | null;
 };
 type ProfileSessionStartFailureClass =
   | 'dev_client_bundle_or_command_channel_not_ready'
@@ -812,6 +812,20 @@ function parseIosAppInfoApplicationState(output: string): string | null {
  */
 function isIosAppInfoForegroundState(state: string | null): boolean {
   return state === 'ForegroundRunning' || state === 'ForegroundSuspended';
+}
+
+function profileSessionStartTargetForeground({
+  appInfoCaptured,
+  applicationState,
+}: {
+  appInfoCaptured: boolean;
+  applicationState: string | null;
+}): boolean | null {
+  if (!appInfoCaptured || !applicationState) {
+    return null;
+  }
+
+  return isIosAppInfoForegroundState(applicationState);
 }
 
 /**
@@ -1750,11 +1764,11 @@ function profileSessionStartFailureClass({
     return 'ios_profile_session_start_missing';
   }
 
-  if (!foregroundProbe?.appInfoCaptured) {
+  if (!foregroundProbe?.appInfoCaptured || foregroundProbe.targetForeground === null) {
     return 'dev_client_bundle_or_command_channel_not_ready';
   }
 
-  if (!foregroundProbe.targetForeground) {
+  if (foregroundProbe.targetForeground === false) {
     return 'dev_client_not_foreground';
   }
 
@@ -1824,11 +1838,11 @@ function profileSessionStartReadinessDetail({
     return 'profile_session_start_missing_without_dev_client';
   }
 
-  if (!foregroundProbe?.appInfoCaptured) {
+  if (!foregroundProbe?.appInfoCaptured || foregroundProbe.targetForeground === null) {
     return 'dev_client_foreground_unknown';
   }
 
-  if (!foregroundProbe.targetForeground) {
+  if (foregroundProbe.targetForeground === false) {
     return 'dev_client_not_foreground';
   }
 
@@ -1861,7 +1875,7 @@ async function inspectProfileSessionStartForeground({
       appInfoCaptured,
       applicationState,
       rawPath: 'raw/ios-profile-session-start-app-info.txt',
-      targetForeground: appInfoCaptured && isIosAppInfoForegroundState(applicationState),
+      targetForeground: profileSessionStartTargetForeground({ appInfoCaptured, applicationState }),
     },
     rawContent,
   };
