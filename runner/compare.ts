@@ -3,7 +3,11 @@
 const path = require('node:path');
 
 const { buildAgentSummaryMarkdown } = require('../core/agent-summary');
-const { compareRunDirectories, readRunArtifacts } = require('../core/comparison');
+const {
+  compareRunDirectories,
+  readRunArtifacts,
+  resolveComparisonRegressionSource,
+} = require('../core/comparison');
 const { createArtifactLayout } = require('../core/artifact-layout');
 const { writeJsonArtifact, writeTextArtifact } = require('../core/artifact-writer');
 const { SCHEMAS } = require('../core/schema-validator');
@@ -28,7 +32,7 @@ function usage(output: { write: (message: string) => unknown } = process.stderr)
     '',
     'Without --out, prints comparison.json to stdout.',
     'When --out points at a directory, writes comparison.json and agent-summary.md there.',
-    'Use --fail-on-regression to exit nonzero after writing evidence when comparisonStatus is worse.',
+    'Use --fail-on-regression to exit nonzero after writing evidence when ordinary or trusted native-performance comparison regresses.',
   ], output);
 }
 
@@ -93,6 +97,21 @@ function isEnabledFlag(value: unknown): boolean {
   return value === true || value === 'true';
 }
 
+function describeRegressionSource(
+  regressionSource: ReturnType<typeof resolveComparisonRegressionSource>,
+): string {
+  switch (regressionSource) {
+    case 'ordinary':
+      return 'ordinary comparison';
+    case 'native-performance':
+      return 'native-performance comparison';
+    case 'both':
+      return 'ordinary and native-performance comparison';
+    default:
+      return 'comparison';
+  }
+}
+
 /**
  * Throws when a comparison result should fail a strict regression gate.
  *
@@ -106,13 +125,15 @@ function assertNoRegressedComparison({
   comparison: Record<string, unknown>;
   evidencePath?: string;
 }): void {
-  if (comparison.comparisonStatus !== 'worse') {
+  const regressionSource = resolveComparisonRegressionSource(comparison);
+  if (!regressionSource) {
     return;
   }
 
   const runId = typeof comparison.runId === 'string' ? comparison.runId : 'current run';
   const evidenceHint = evidencePath ? ` Inspect ${evidencePath}.` : '';
-  throw new Error(`Comparison regressed for ${runId}.${evidenceHint}`);
+  const sourceDetail = describeRegressionSource(regressionSource);
+  throw new Error(`Comparison regressed for ${runId} via ${sourceDetail}.${evidenceHint}`);
 }
 
 /**

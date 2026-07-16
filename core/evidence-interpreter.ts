@@ -212,8 +212,19 @@ function interpretEvidence({
       recommendations.push(`add interval anchors for unmeasurable budget ${check.name ?? 'unknown budget'}`);
     }
 
+    const nativeComparison = comparison?.nativePerformance;
+    const nativeRegressed = Boolean(
+      nativeComparison &&
+      typeof nativeComparison === 'object' &&
+      (nativeComparison as EvidenceRecord).status === 'regressed',
+    );
+
     if (comparison?.comparisonStatus === 'worse') {
       recommendations.push('investigate regression against baseline comparison');
+    }
+
+    if (nativeRegressed) {
+      recommendations.push('investigate native-performance regression against trusted same-condition baseline');
     }
 
     if (comparison?.comparisonStatus === 'mixed') {

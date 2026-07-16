@@ -2018,6 +2018,198 @@ test('profile-android executes declared evidence provider commands', async (t: T
   assert.match(summary, /provider\/accessibility/u);
 });
 
+test('profile-android stages raw run evidence before afterCapture provider command execution', async (t: TestContext) => {
+  const artifactRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-android-after-capture-order-'));
+  const providerRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-provider-after-capture-order-'));
+  t.after(async () => {
+    await fsp.rm(artifactRoot, { recursive: true, force: true });
+    await fsp.rm(providerRoot, { recursive: true, force: true });
+  });
+  const providerScript = path.join(providerRoot, 'write-after-capture-accessibility.js');
+  await fsp.writeFile(
+    providerScript,
+    [
+      "const fs = require('node:fs');",
+      "const path = require('node:path');",
+      "const [outputPath, expectedRawPath, orderPath] = process.argv.slice(2);",
+      "fs.mkdirSync(path.dirname(outputPath), { recursive: true });",
+      "fs.writeFileSync(outputPath, JSON.stringify({ violations: [] }) + '\\n');",
+      "fs.writeFileSync(orderPath, JSON.stringify({",
+      '  expectedRawExists: fs.existsSync(expectedRawPath),',
+      "  expectedRawPath,",
+      '  rawEntries: fs.readdirSync(path.dirname(expectedRawPath)).sort(),',
+      "}) + '\\n');",
+    ].join('\n'),
+    'utf8',
+  );
+  const providerManifestPath = path.join(providerRoot, 'provider.json');
+  const eventLogBasename = path.basename(fixturePath('examples/mobile-app/event-logs/android-app-startup.log'));
+  await fsp.writeFile(
+    providerManifestPath,
+    `${JSON.stringify({
+      schemaVersion: '1.0.0',
+      runnerId: 'after-capture-order-provider',
+      kind: 'evidenceProvider',
+      platforms: ['android'],
+      capabilities: ['accessibility'],
+      artifactOutputs: ['accessibility'],
+      lifecycle: ['afterCapture'],
+      providerCommands: [
+        {
+          id: 'capture-accessibility',
+          phase: 'afterCapture',
+          command: process.execPath,
+          args: [
+            providerScript,
+            '{providerDir}/accessibility.json',
+            `{runDir}/raw/${eventLogBasename}`,
+            '{providerDir}/after-capture-order.json',
+          ],
+          outputs: [
+            {
+              channel: 'provider',
+              kind: 'accessibility',
+              path: '{providerDir}/accessibility.json',
+              required: true,
+            },
+          ],
+        },
+      ],
+    }, null, 2)}\n`,
+    'utf8',
+  );
+
+  const { stdout } = await execFileAsync(process.execPath, [
+    PROFILE_ANDROID,
+    '--config',
+    fixturePath('examples/mobile-app/asl.config.json'),
+    '--scenario',
+    fixturePath('examples/mobile-app/scenarios/android/app-startup.json'),
+    '--events',
+    fixturePath('examples/mobile-app/event-logs/android-app-startup.log'),
+    '--provider',
+    providerManifestPath,
+    '--out',
+    artifactRoot,
+    '--run-id',
+    'android-after-capture-order',
+  ]);
+
+  const runDir = stdout.trim();
+  const commandRecord = readJson(
+    path.join(runDir, 'raw', 'provider-commands', 'after-capture-order-provider-capture-accessibility.json'),
+  );
+  const orderRecord = readJson(
+    path.join(runDir, 'raw', 'providers', 'after-capture-order-provider', 'after-capture-order.json'),
+  ) as {
+    expectedRawExists: boolean;
+    expectedRawPath: string;
+    rawEntries: string[];
+  };
+
+  assert.equal(commandRecord.phase, 'afterCapture');
+  assert.equal(commandRecord.exitCode, 0);
+  assert.equal(orderRecord.expectedRawExists, true);
+  assert.equal(orderRecord.expectedRawPath, path.join(runDir, 'raw', eventLogBasename));
+  assert.ok(orderRecord.rawEntries.includes(eventLogBasename));
+});
+
+test('profile-android treats legacy capture phase as an afterCapture alias for raw run evidence staging', async (t: TestContext) => {
+  const artifactRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-android-capture-alias-order-'));
+  const providerRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-provider-capture-alias-order-'));
+  t.after(async () => {
+    await fsp.rm(artifactRoot, { recursive: true, force: true });
+    await fsp.rm(providerRoot, { recursive: true, force: true });
+  });
+  const providerScript = path.join(providerRoot, 'write-capture-alias-accessibility.js');
+  await fsp.writeFile(
+    providerScript,
+    [
+      "const fs = require('node:fs');",
+      "const path = require('node:path');",
+      "const [outputPath, expectedRawPath, orderPath] = process.argv.slice(2);",
+      "fs.mkdirSync(path.dirname(outputPath), { recursive: true });",
+      "fs.writeFileSync(outputPath, JSON.stringify({ violations: [] }) + '\\n');",
+      "fs.writeFileSync(orderPath, JSON.stringify({",
+      '  expectedRawExists: fs.existsSync(expectedRawPath),',
+      "  expectedRawPath,",
+      '  rawEntries: fs.readdirSync(path.dirname(expectedRawPath)).sort(),',
+      "}) + '\\n');",
+    ].join('\n'),
+    'utf8',
+  );
+  const providerManifestPath = path.join(providerRoot, 'provider.json');
+  const eventLogBasename = path.basename(fixturePath('examples/mobile-app/event-logs/android-app-startup.log'));
+  await fsp.writeFile(
+    providerManifestPath,
+    `${JSON.stringify({
+      schemaVersion: '1.0.0',
+      runnerId: 'capture-alias-order-provider',
+      kind: 'evidenceProvider',
+      platforms: ['android'],
+      capabilities: ['accessibility'],
+      artifactOutputs: ['accessibility'],
+      lifecycle: ['capture'],
+      providerCommands: [
+        {
+          id: 'capture-accessibility',
+          phase: 'capture',
+          command: process.execPath,
+          args: [
+            providerScript,
+            '{providerDir}/accessibility.json',
+            `{runDir}/raw/${eventLogBasename}`,
+            '{providerDir}/capture-alias-order.json',
+          ],
+          outputs: [
+            {
+              channel: 'provider',
+              kind: 'accessibility',
+              path: '{providerDir}/accessibility.json',
+              required: true,
+            },
+          ],
+        },
+      ],
+    }, null, 2)}\n`,
+    'utf8',
+  );
+
+  const { stdout } = await execFileAsync(process.execPath, [
+    PROFILE_ANDROID,
+    '--config',
+    fixturePath('examples/mobile-app/asl.config.json'),
+    '--scenario',
+    fixturePath('examples/mobile-app/scenarios/android/app-startup.json'),
+    '--events',
+    fixturePath('examples/mobile-app/event-logs/android-app-startup.log'),
+    '--provider',
+    providerManifestPath,
+    '--out',
+    artifactRoot,
+    '--run-id',
+    'android-capture-alias-order',
+  ]);
+
+  const runDir = stdout.trim();
+  const commandRecord = readJson(
+    path.join(runDir, 'raw', 'provider-commands', 'capture-alias-order-provider-capture-accessibility.json'),
+  );
+  const orderRecord = readJson(
+    path.join(runDir, 'raw', 'providers', 'capture-alias-order-provider', 'capture-alias-order.json'),
+  ) as {
+    expectedRawExists: boolean;
+    expectedRawPath: string;
+    rawEntries: string[];
+  };
+
+  assert.equal(commandRecord.phase, 'capture');
+  assert.equal(commandRecord.exitCode, 0);
+  assert.equal(orderRecord.expectedRawExists, true);
+  assert.equal(orderRecord.expectedRawPath, path.join(runDir, 'raw', eventLogBasename));
+  assert.ok(orderRecord.rawEntries.includes(eventLogBasename));
+});
+
 test('profile-android fails health for malformed profiler provider evidence', async (t: TestContext) => {
   const artifactRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-android-provider-profiler-invalid-'));
   const providerRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-provider-profiler-invalid-'));
@@ -2335,7 +2527,7 @@ test('profile-android accepts current durable comparison-ready native performanc
     [
       "const fs = require('node:fs');",
       "const path = require('node:path');",
-      'const [evidencePath, targetPath, runId, scenarioId, targetEvidencePath, targetMode, externalTargetPath, providerDestinationMode, externalProviderDirectory, sampleMode] = process.argv.slice(2);',
+      'const [evidencePath, targetPath, runId, scenarioId, targetEvidencePath, sourceEvidencePath, targetMode, externalTargetPath, providerDestinationMode, externalProviderDirectory, sampleMode] = process.argv.slice(2);',
       'const providerDirectory = path.dirname(evidencePath);',
       "if (providerDestinationMode === 'ancestor-symlink') {",
       '  fs.rmSync(providerDirectory, { recursive: true, force: true });',
@@ -2351,23 +2543,41 @@ test('profile-android accepts current durable comparison-ready native performanc
       '} else {',
       '  fs.writeFileSync(targetPath, targetEvidence);',
       '}',
+      "fs.writeFileSync(path.join(providerDirectory, 'gfxinfo-summary.json'), JSON.stringify({ source: 'gfxinfo' }) + '\\n');",
       "const frames = sampleMode === 'timestamp-only'",
       '  ? { timestampMs: 1 }',
       '  : { total: 120, janky: 2, p95Ms: 18 };',
       'fs.writeFileSync(evidencePath, JSON.stringify({',
-      "  schemaVersion: '1.0.0',",
+      "  schemaVersion: '1.1.0',",
       `  providerId: '${providerId}',`,
       "  platform: 'android',",
       '  runId,',
       '  scenarioId,',
-      "  tool: { name: 'android-native-provider' },",
+      "  tool: { name: 'android-native-provider', version: '1.2.3' },",
       "  capturedAt: '2026-07-13T12:00:01.000Z',",
       "  captureMode: 'session',",
       "  clockDomain: 'host',",
       "  completenessStatus: 'complete',",
       "  comparability: { status: 'comparable', policy: 'release-native-baseline-v1' },",
       "  claimSufficiency: { status: 'sufficient-for-comparison', supportingEvidence: ['bounded gfxinfo summary'] },",
-      "  diagnosticSources: [{ sourceId: 'gfxinfo', status: 'captured', dataClasses: ['frames', 'jank'] }],",
+      "  comparisonPolicy: {",
+      "    policyId: 'release-native-baseline-v1',",
+      "    providerVersion: '1.2.3',",
+      "    window: { definitionId: 'app-startup-window', kind: 'bounded-duration', phase: 'activeLoop', durationMs: 1000 },",
+      "    target: { family: 'android-mobile-app', buildMode: 'debug' },",
+      "    environment: [{ name: 'device-class', value: 'emulator' }, { name: 'thermal-state', value: 'nominal' }]",
+      "  },",
+      "  comparisonMetrics: [{",
+      "    id: 'frame-p95',",
+      "    surface: 'frames',",
+      "    sample: 'p95Ms',",
+      "    unit: 'ms',",
+      "    aggregation: 'p95',",
+      "    direction: 'lower-is-better',",
+      "    tolerance: { absolute: 1, relative: 0.05 },",
+      "    budget: { operator: 'at-most', threshold: 20 }",
+      "  }],",
+      "  diagnosticSources: [{ sourceId: 'gfxinfo', status: 'captured', dataClasses: ['frames', 'jank'], path: sourceEvidencePath }],",
       '  frames,',
       "  lifecycle: { phase: 'activeLoop', startedAt: '2026-07-13T12:00:00.000Z', endedAt: '2026-07-13T12:00:01.000Z', durationMs: 1000, perturbsTiming: false },",
       "  targetBinding: { status: 'verified', appId: 'dev.agent-scenario-loop.example', deviceId: 'emulator-5554', source: 'provider-session-status', candidateTargets: [{ bindingStatus: 'observed', platform: 'android', appId: 'dev.agent-scenario-loop.example', deviceId: 'emulator-5554', source: 'provider-session-status', evidencePath: targetEvidencePath }] }",
@@ -2398,6 +2608,7 @@ test('profile-android accepts current durable comparison-ready native performanc
             '{runId}',
             '{scenarioId}',
             `raw/providers/${providerId}/target.json`,
+            `raw/providers/${providerId}/gfxinfo-summary.json`,
             'file',
             path.join(providerRoot, 'external-target.json'),
             'inside-run',
@@ -2485,7 +2696,7 @@ test('profile-android accepts current durable comparison-ready native performanc
     await fsp.rm(symlinkArtifactRoot, { recursive: true, force: true });
   });
   staleProviderManifest.providerCommands[0].args[3] = '{runId}';
-  staleProviderManifest.providerCommands[0].args[6] = 'symlink';
+  staleProviderManifest.providerCommands[0].args[7] = 'symlink';
   await fsp.writeFile(providerManifestPath, `${JSON.stringify(staleProviderManifest, null, 2)}\n`, 'utf8');
 
   const { stdout: symlinkStdout } = await execFileAsync(process.execPath, [
@@ -2518,8 +2729,8 @@ test('profile-android accepts current durable comparison-ready native performanc
   t.after(async () => {
     await fsp.rm(ancestorSymlinkArtifactRoot, { recursive: true, force: true });
   });
-  staleProviderManifest.providerCommands[0].args[6] = 'file';
-  staleProviderManifest.providerCommands[0].args[8] = 'ancestor-symlink';
+  staleProviderManifest.providerCommands[0].args[7] = 'file';
+  staleProviderManifest.providerCommands[0].args[9] = 'ancestor-symlink';
   await fsp.writeFile(providerManifestPath, `${JSON.stringify(staleProviderManifest, null, 2)}\n`, 'utf8');
 
   const { stdout: ancestorSymlinkStdout } = await execFileAsync(process.execPath, [
@@ -2557,8 +2768,8 @@ test('profile-android accepts current durable comparison-ready native performanc
   t.after(async () => {
     await fsp.rm(timestampOnlyArtifactRoot, { recursive: true, force: true });
   });
-  staleProviderManifest.providerCommands[0].args[8] = 'inside-run';
-  staleProviderManifest.providerCommands[0].args[10] = 'timestamp-only';
+  staleProviderManifest.providerCommands[0].args[9] = 'inside-run';
+  staleProviderManifest.providerCommands[0].args[11] = 'timestamp-only';
   await fsp.writeFile(providerManifestPath, `${JSON.stringify(staleProviderManifest, null, 2)}\n`, 'utf8');
 
   const { stdout: timestampOnlyStdout } = await execFileAsync(process.execPath, [
@@ -3016,6 +3227,88 @@ test('profile-android writes failed health when an evidence provider command fai
   );
   assert.match(summary, /Do not optimize from this run/u);
   assert.match(summary, /Next action `fix_provider_command`/u);
+});
+
+test('profile-android fails health when an evidence provider command fails after afterCapture staging', async (t: TestContext) => {
+  const artifactRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-android-provider-after-capture-failure-'));
+  const providerRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-provider-after-capture-failure-'));
+  t.after(async () => {
+    await fsp.rm(artifactRoot, { recursive: true, force: true });
+    await fsp.rm(providerRoot, { recursive: true, force: true });
+  });
+  const providerScript = path.join(providerRoot, 'fail-after-capture-provider.js');
+  await fsp.writeFile(
+    providerScript,
+    "process.stderr.write('afterCapture provider unavailable\\n'); process.exit(7);\n",
+    'utf8',
+  );
+  const providerManifestPath = path.join(providerRoot, 'provider.json');
+  await fsp.writeFile(
+    providerManifestPath,
+    `${JSON.stringify({
+      schemaVersion: '1.0.0',
+      runnerId: 'failing-after-capture-provider',
+      kind: 'evidenceProvider',
+      platforms: ['android'],
+      capabilities: ['accessibility'],
+      artifactOutputs: ['accessibility'],
+      lifecycle: ['afterCapture'],
+      providerCommands: [
+        {
+          id: 'capture-accessibility',
+          phase: 'afterCapture',
+          command: process.execPath,
+          args: [providerScript],
+          outputs: [
+            {
+              channel: 'provider',
+              kind: 'accessibility',
+              path: '{providerDir}/accessibility.json',
+              required: true,
+            },
+          ],
+        },
+      ],
+    }, null, 2)}\n`,
+    'utf8',
+  );
+
+  const { stdout } = await execFileAsync(process.execPath, [
+    PROFILE_ANDROID,
+    '--config',
+    fixturePath('examples/mobile-app/asl.config.json'),
+    '--scenario',
+    fixturePath('examples/mobile-app/scenarios/android/app-startup.json'),
+    '--events',
+    fixturePath('examples/mobile-app/event-logs/android-app-startup.log'),
+    '--provider',
+    providerManifestPath,
+    '--out',
+    artifactRoot,
+    '--run-id',
+    'android-provider-after-capture-failure',
+  ]);
+
+  const runDir = stdout.trim();
+  const commandRecord = readJson(
+    path.join(runDir, 'raw', 'provider-commands', 'failing-after-capture-provider-capture-accessibility.json'),
+  ) as Record<string, any>;
+  const health = readJson(path.join(runDir, 'health.json')) as Record<string, any>;
+  const verdict = readJson(path.join(runDir, 'verdict.json')) as Record<string, any>;
+
+  assert.equal(commandRecord.phase, 'afterCapture');
+  assert.equal(commandRecord.exitCode, 7);
+  assert.equal(health.healthStatus, 'failed');
+  assert.equal(verdict.verdictStatus, 'inconclusive');
+  assert.ok(
+    (health.checks as Array<{ code: string; metadata?: { phase?: string; providerId?: string } }>).some(
+      (check) => (
+        check.code === 'provider_command_failed' &&
+        check.metadata?.phase === 'afterCapture' &&
+        check.metadata?.providerId === 'failing-after-capture-provider'
+      ),
+    ),
+  );
 });
 
 test('profile-android preserves captured provider evidence when another required output fails', async (t: TestContext) => {

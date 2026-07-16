@@ -1785,6 +1785,42 @@ test('supports a fail-on-regression gate', () => {
   assert.equal(shouldFailOnRegression({ failOnRegression: false, proof }), false);
 });
 
+test('formats native-performance-only regressions as live-proof comparison truth', () => {
+  const proof = buildProof('unchanged') as ReturnType<typeof readLiveProof> & {
+    comparisonCounts: Record<string, number>;
+    comparisons: Array<Record<string, unknown>>;
+    comparisonStatus: string;
+    nextAction: Record<string, unknown>;
+  };
+  proof.comparisons[0] = {
+    ...proof.comparisons[0],
+    nativePerformanceStatus: 'regressed',
+    regressionSource: 'native-performance',
+    status: 'worse',
+  };
+  proof.comparisonCounts = {
+    better: 0,
+    inconclusive: 0,
+    low_confidence: 0,
+    mixed: 0,
+    skipped: 0,
+    unchanged: 0,
+    worse: 1,
+  };
+  proof.comparisonStatus = 'regressed';
+  proof.nextAction = {
+    code: 'inspect_regressions',
+    owner: 'product_optimization',
+    summary: 'Inspect linked evidence.',
+  };
+
+  const output = formatLiveProof(proof);
+
+  assert.match(output, /Comparison status: regressed/u);
+  assert.match(output, /startup \(app-startup\/android-live-startup\): worse native=regressed source=native-performance \(metrics better=0 worse=0 unchanged=1 inconclusive=0 low_confidence=0\)/u);
+  assert.equal(shouldFailOnRegression({ failOnRegression: true, proof }), true);
+});
+
 test('fails a live-proof set when any proof artifact failed', async (t: TestContext) => {
   const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-live-proof-set-failed-next-actions-'));
   t.after(async () => {

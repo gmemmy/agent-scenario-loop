@@ -726,6 +726,8 @@ function buildAgentSummaryMarkdown({ health, verdict, comparison = null, manifes
   const comparisonStatus = comparison
     ? firstString([comparison.comparisonStatus], 'inconclusive')
     : 'not_available';
+  const nativeComparison = comparison ? asSummaryRecord(comparison.nativePerformance) : {};
+  const nativeComparisonStatus = firstString([nativeComparison.status], '');
   const lines = [
     '# agent summary',
     '',
@@ -733,7 +735,7 @@ function buildAgentSummaryMarkdown({ health, verdict, comparison = null, manifes
     `- Run ID: ${code(runId)}`,
     `- Health: ${healthStatus}`,
     `- Verdict: ${verdictStatus}`,
-    `- Comparison: ${comparisonStatus}`,
+    `- Comparison: ${comparisonStatus}${nativeComparisonStatus ? `; native=${nativeComparisonStatus}` : ''}`,
     '',
     '## gate',
     '',

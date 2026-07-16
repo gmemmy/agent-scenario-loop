@@ -64,7 +64,7 @@ function usage(output: { write: (message: string) => unknown } = process.stderr)
     'Finds the latest trusted prior run for the scenario, then compares it with the current run.',
     'A trusted prior run must have passed health and passed verdict artifacts.',
     'The current run must pass scenario health before timing or budget comparison is allowed.',
-    'Use --fail-on-regression to exit nonzero after writing evidence when comparisonStatus is worse.',
+    'Use --fail-on-regression to exit nonzero after writing evidence when ordinary or trusted native-performance comparison regresses.',
   ], output);
 }
 

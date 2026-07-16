@@ -77,6 +77,34 @@
           }
         }
       }
+    },
+    {
+      "if": {
+        "properties": {
+          "schemaVersion": {
+            "const": "1.1.0"
+          },
+          "comparability": {
+            "type": "object",
+            "properties": {
+              "status": { "const": "comparable" }
+            },
+            "required": ["status"]
+          }
+        },
+        "required": ["schemaVersion", "comparability"]
+      },
+      "then": {
+        "required": ["comparisonPolicy", "comparisonMetrics"],
+        "properties": {
+          "comparisonPolicy": {
+            "required": ["policyId", "providerVersion", "window", "target", "environment"]
+          },
+          "comparisonMetrics": {
+            "minItems": 1
+          }
+        }
+      }
     }
   ],
   "anyOf": [
@@ -258,6 +286,141 @@
         "policy": {
           "type": "string",
           "minLength": 1
+        }
+      }
+    },
+    "comparisonPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["policyId", "providerVersion", "window", "target", "environment"],
+      "properties": {
+        "policyId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "providerVersion": {
+          "type": "string",
+          "minLength": 1
+        },
+        "window": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["definitionId", "kind", "phase", "durationMs"],
+          "properties": {
+            "definitionId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "kind": {
+              "type": "string",
+              "minLength": 1
+            },
+            "phase": {
+              "type": "string",
+              "minLength": 1
+            },
+            "durationMs": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            }
+          }
+        },
+        "target": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["family", "buildMode"],
+          "properties": {
+            "family": {
+              "type": "string",
+              "minLength": 1
+            },
+            "buildMode": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "environment": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "value"],
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "value": {
+                "type": ["string", "number", "boolean", "null"]
+              }
+            }
+          }
+        }
+      }
+    },
+    "comparisonMetrics": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "surface", "sample", "unit", "aggregation", "direction", "tolerance"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "surface": {
+            "type": "string",
+            "enum": ["frames", "memory", "metrics"]
+          },
+          "sample": {
+            "type": "string",
+            "minLength": 1
+          },
+          "unit": {
+            "type": "string",
+            "enum": ["ms", "count", "bytes", "percent"]
+          },
+          "aggregation": {
+            "type": "string",
+            "enum": ["count", "last", "max", "mean", "p50", "p90", "p95", "p99", "sum"]
+          },
+          "direction": {
+            "type": "string",
+            "enum": ["lower-is-better", "higher-is-better"]
+          },
+          "tolerance": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["absolute", "relative"],
+            "properties": {
+              "absolute": {
+                "type": "number",
+                "minimum": 0
+              },
+              "relative": {
+                "type": "number",
+                "minimum": 0
+              }
+            }
+          },
+          "budget": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["operator", "threshold"],
+            "properties": {
+              "operator": {
+                "type": "string",
+                "enum": ["at-most", "at-least"]
+              },
+              "threshold": {
+                "type": "number"
+              }
+            }
+          }
         }
       }
     },

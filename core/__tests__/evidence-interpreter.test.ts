@@ -78,6 +78,25 @@ test('emits a distinct hint for mixed comparison movement', () => {
   ]);
 });
 
+test('emits a native-performance regression hint without inventing an ordinary regression', () => {
+  const result = interpretEvidence({
+    health: {
+      healthStatus: 'passed',
+      checks: [{ name: 'truth_events_complete', status: 'passed' }],
+    },
+    comparison: {
+      comparisonStatus: 'unchanged',
+      nativePerformance: {
+        status: 'regressed',
+      },
+    },
+  });
+
+  assert.deepEqual(result.recommendations, [
+    'investigate native-performance regression against trusted same-condition baseline',
+  ]);
+});
+
 test('classifies preserved partial provider evidence as diagnostic only', () => {
   const result = interpretEvidence({
     health: {

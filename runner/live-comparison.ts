@@ -2,7 +2,11 @@ const path = require('node:path');
 
 const { createArtifactLayout } = require('../core/artifact-layout');
 const { buildAgentSummaryMarkdown } = require('../core/agent-summary');
-const { readRunArtifacts } = require('../core/comparison');
+const {
+  readRunArtifacts,
+  resolveComparisonRegressionSource,
+  resolveEffectiveComparisonStatus,
+} = require('../core/comparison');
 const { writeJsonArtifact, writeTextArtifact } = require('../core/artifact-writer');
 const { SCHEMAS } = require('../core/schema-validator');
 const { compareLatestTrustedRun } = require('./compare-latest');
@@ -35,7 +39,9 @@ type LiveComparisonResult = {
   comparisonDir: string | null;
   label: string;
   metricSummary?: ComparisonMetricSummary;
+  nativePerformanceStatus?: 'improved' | 'mixed' | 'not-comparable' | 'regressed' | 'unchanged';
   reason: string | null;
+  regressionSource?: 'both' | 'native-performance' | 'ordinary';
   runId: string;
   scenarioId: string;
   status: 'better' | 'worse' | 'unchanged' | 'mixed' | 'inconclusive' | 'low_confidence' | 'skipped';
@@ -158,16 +164,25 @@ async function compareLiveProfileToLatest({
     });
 
     const metricSummary = buildComparisonMetricSummary(result.comparison);
+    const nativePerformanceRecord = (
+      result.comparison.nativePerformance &&
+      typeof result.comparison.nativePerformance === 'object'
+    )
+      ? result.comparison.nativePerformance as { status?: LiveComparisonResult['nativePerformanceStatus'] }
+      : null;
+    const regressionSource = resolveComparisonRegressionSource(result.comparison);
 
     return {
       baselineDir: result.baselineDir,
       comparisonDir,
       label: profile.label,
       ...(metricSummary ? { metricSummary } : {}),
+      ...(nativePerformanceRecord?.status ? { nativePerformanceStatus: nativePerformanceRecord.status } : {}),
       reason: null,
+      ...(regressionSource ? { regressionSource } : {}),
       runId: profile.runId,
       scenarioId: profile.scenarioId,
-      status: String(result.comparison.comparisonStatus) as LiveComparisonResult['status'],
+      status: resolveEffectiveComparisonStatus(result.comparison) as LiveComparisonResult['status'],
       summaryPath: layout.agentSummary,
     };
   } catch (error) {

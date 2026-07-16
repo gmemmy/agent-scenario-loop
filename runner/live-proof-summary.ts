@@ -231,7 +231,9 @@ type LiveProofComparisonPointer = {
   comparisonDir: string | null;
   label: string;
   metricSummary?: LiveProofComparisonMetricSummary;
+  nativePerformanceStatus?: 'improved' | 'mixed' | 'not-comparable' | 'regressed' | 'unchanged';
   reason: string | null;
+  regressionSource?: 'both' | 'native-performance' | 'ordinary';
   runId: string;
   scenarioId: string;
   status: 'better' | 'worse' | 'unchanged' | 'mixed' | 'inconclusive' | 'low_confidence' | 'skipped';
@@ -1983,6 +1985,17 @@ function formatComparisonMetricSummary(comparison: LiveProofComparisonPointer): 
   return ` (${counts}${highlights})`;
 }
 
+function formatComparisonNativePerformance(comparison: LiveProofComparisonPointer): string {
+  if (!comparison.nativePerformanceStatus) {
+    return '';
+  }
+
+  const regressionSource = comparison.regressionSource
+    ? ` source=${comparison.regressionSource}`
+    : '';
+  return ` native=${comparison.nativePerformanceStatus}${regressionSource}`;
+}
+
 /**
  * Formats sidecar capture inventory for aggregate markdown.
  *
@@ -2570,7 +2583,7 @@ function buildLiveProofMarkdown(artifact: LiveProofArtifact): string {
       ...artifact.comparisons.map((comparison) => (
         comparison.status === 'skipped'
           ? `- ${comparison.label} (${comparison.scenarioId}): skipped - ${comparison.reason}`
-          : `- ${comparison.label} (${comparison.scenarioId}): ${comparison.status}${formatComparisonMetricSummary(comparison)} - ${comparison.summaryPath}`
+          : `- ${comparison.label} (${comparison.scenarioId}): ${comparison.status}${formatComparisonNativePerformance(comparison)}${formatComparisonMetricSummary(comparison)} - ${comparison.summaryPath}`
       )),
     );
   }
