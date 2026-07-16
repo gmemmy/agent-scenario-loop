@@ -1,4 +1,5 @@
 const assert = require('node:assert/strict');
+const { EventEmitter } = require('node:events');
 const fs = require('node:fs');
 const fsp = require('node:fs/promises');
 const os = require('node:os');
@@ -82,6 +83,31 @@ function createExecutor(responses: Record<string, Partial<CommandResult>>) {
       stdout: response.stdout ?? '',
     };
   };
+}
+
+const IOS_TEST_SIMULATOR_UDID = 'A692ED28-893E-453F-8866-C69331AE757F';
+const IOS_PROFILE_LOG_PREDICATE = 'eventMessage CONTAINS "[profile-event]" OR eventMessage CONTAINS "[profile-session]"';
+
+function createBootedSimctlExecutor(extraResponses: Record<string, Partial<CommandResult>> = {}) {
+  return createExecutor({
+    'simctl list devices': {
+      stdout: [
+        '== Devices ==',
+        '-- iOS 26.3 --',
+        `    iPhone 17 Pro Max (${IOS_TEST_SIMULATOR_UDID}) (Booted)`,
+      ].join('\n'),
+    },
+    [`simctl spawn ${IOS_TEST_SIMULATOR_UDID} launchctl getenv DYLD_INSERT_LIBRARIES`]: {
+      stdout: '',
+    },
+    [`simctl spawn ${IOS_TEST_SIMULATOR_UDID} launchctl getenv NATIVE_DEVTOOLS_IOS_CDP_SOCKET`]: {
+      stdout: '',
+    },
+    [`simctl spawn ${IOS_TEST_SIMULATOR_UDID} log show --style compact --last 2m --predicate ${IOS_PROFILE_LOG_PREDICATE}`]: {
+      stdout: 'Timestamp Ty Process[PID:TID]\n',
+    },
+    ...extraResponses,
+  });
 }
 
 async function captureMissingProfileSessionStartForApplicationState({
@@ -415,7 +441,7 @@ test('writes failed artifact set when iOS simctl executor never resolves after o
   const result = await runIosSimctlCapture({
     bundleId: 'dev.agent-scenario-loop.example',
     captureWatchdogMs: 50,
-    commandTimeoutMs: 50,
+    commandTimeoutMs: 1000,
     executor,
     launch: true,
     outputDir,
@@ -509,7 +535,6 @@ test('classifies missing iOS profile-session start after storage seed and dev-cl
     },
   });
   const waits: number[] = [];
-
   const result = await runIosSimctlCapture({
     bundleId: 'dev.agent-scenario-loop.example',
     collectProfileStorage: true,
@@ -856,6 +881,19 @@ test('captures bounded iOS simulator log evidence', async (t: TestContext) => {
     };
   };
   const waits: number[] = [];
+  const recorder = new EventEmitter() as import('node:events').EventEmitter & {
+    kill: (signal: NodeJS.Signals) => boolean;
+    stderr: import('node:events').EventEmitter;
+    stdout: import('node:events').EventEmitter;
+  };
+  recorder.stderr = new EventEmitter();
+  recorder.stdout = new EventEmitter();
+  recorder.kill = () => {
+    const videoPath = path.join(outputDir, 'captures', 'ios-recording.mp4');
+    void fsp.writeFile(videoPath, Buffer.from('000000106674797069736f6d00000000', 'hex'))
+      .then(() => recorder.emit('close', 0, 'SIGINT'));
+    return true;
+  };
 
   const result = await runIosSimctlCapture({
     bundleId: 'dev.agent-scenario-loop.example',
@@ -872,6 +910,11 @@ test('captures bounded iOS simulator log evidence', async (t: TestContext) => {
     launch: true,
     logLast: '1m',
     outputDir,
+    record: true,
+    recorderFactory: () => {
+      calls.push('recordVideo started');
+      return recorder;
+    },
     runId: 'ios-live',
     screenshot: true,
     screenshotDisplay: 'Internal-1',
@@ -889,6 +932,17 @@ test('captures bounded iOS simulator log evidence', async (t: TestContext) => {
   assertMetadataCapturePathsExist(outputDir, 'raw/ios-metadata.json');
   assert.deepEqual(waits, [250]);
   assert.equal(result.captures.screenshot, 'captures/ios-screenshot.jpeg');
+  assert.equal(result.captures.video, 'captures/ios-recording.mp4');
+  assert.ok(fs.existsSync(path.join(outputDir, 'captures', 'ios-recording.mp4')));
+  assert.deepEqual((result.metadata.video as Record<string, unknown>).cleanup, {
+    orphaned: false,
+    signals: ['SIGINT'],
+  });
+  assert.equal((result.metadata.video as Record<string, unknown>).state, 'finalized');
+  assert.ok(Array.isArray((result.metadata.video as Record<string, unknown>).timeline));
+  assert.deepEqual((result.metadata.video as Record<string, unknown>).args, [
+    'simctl', 'io', 'A692ED28-893E-453F-8866-C69331AE757F', 'recordVideo', 'captures/ios-recording.mp4',
+  ]);
   assert.deepEqual((result.metadata.deepLinkResults as Array<Record<string, unknown>>)[0], {
     args: [
       'simctl',
@@ -925,9 +979,225 @@ test('captures bounded iOS simulator log evidence', async (t: TestContext) => {
   assert.ok(fs.existsSync(path.join(outputDir, 'captures', 'ios-screenshot.jpeg')));
   assert.ok(fs.readFileSync(path.join(outputDir, 'raw', 'ios-simctl-log.txt'), 'utf8').includes('[profile-event]'));
   assert.ok(calls.indexOf('simctl launch A692ED28-893E-453F-8866-C69331AE757F dev.agent-scenario-loop.example') < calls.indexOf('simctl openurl A692ED28-893E-453F-8866-C69331AE757F asl-example://profile-session/start?scenario=app-startup&runId=ios-live'));
+  assert.ok(calls.indexOf('recordVideo started') < calls.indexOf('simctl launch A692ED28-893E-453F-8866-C69331AE757F dev.agent-scenario-loop.example'));
   assert.ok(
     (result.health.checks as Array<{ code: string }>).some((check) => check.code === 'ios_logs_captured'),
   );
+});
+
+test('reports start failure when iOS recorder cannot be created', async (t: TestContext) => {
+  const outputDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-ios-simctl-record-start-failed-'));
+  t.after(async () => {
+    await fsp.rm(outputDir, { recursive: true, force: true });
+  });
+
+  const result = await runIosSimctlCapture({
+    executor: createBootedSimctlExecutor(),
+    outputDir,
+    record: true,
+    recorderFactory: () => {
+      throw new Error('spawn failed');
+    },
+    runId: 'ios-record-start-failed',
+  });
+
+  const videoCheck = (result.health.checks as Array<{ code: string; status: string }>).find(
+    (check) => check.code.startsWith('ios_video_') && check.status === 'failed',
+  );
+  const videoRaw = fs.readFileSync(path.join(outputDir, 'raw', 'ios-record-video.txt'), 'utf8');
+
+  assert.equal(result.health.healthStatus, 'failed');
+  assert.equal(result.captures.video, null);
+  assert.equal(videoCheck?.status, 'failed');
+  assert.match(videoRaw, /spawn failed/u);
+  assert.match(videoRaw, /validationReason=missing/u);
+});
+
+test('records partial iOS video evidence when watchdog cancels active recorder', async (t: TestContext) => {
+  const outputDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-ios-simctl-record-watchdog-cancelled-'));
+  t.after(async () => {
+    await fsp.rm(outputDir, { recursive: true, force: true });
+  });
+
+  const signals: NodeJS.Signals[] = [];
+  const recorder = new EventEmitter() as import('node:events').EventEmitter & {
+    kill: (signal: NodeJS.Signals) => boolean;
+    stderr: import('node:events').EventEmitter;
+    stdout: import('node:events').EventEmitter;
+  };
+  recorder.stderr = new EventEmitter();
+  recorder.stdout = new EventEmitter();
+  recorder.kill = (signal: NodeJS.Signals) => {
+    signals.push(signal);
+    if (signal === 'SIGINT') {
+      const videoPath = path.join(outputDir, 'captures', 'ios-recording.mp4');
+      fs.writeFileSync(videoPath, Buffer.from('000000106674797069736f6d00000000', 'hex'));
+      recorder.emit('close', 0, 'SIGINT');
+    }
+    return true;
+  };
+
+  const executor = async (command: string, args: string[]): Promise<CommandResult> => {
+    const key = args.join(' ');
+    if (key === 'simctl list devices') {
+      return createBootedSimctlExecutor()('fake-xcrun', args);
+    }
+    if (
+      key === `simctl spawn ${IOS_TEST_SIMULATOR_UDID} launchctl getenv DYLD_INSERT_LIBRARIES` ||
+      key === `simctl spawn ${IOS_TEST_SIMULATOR_UDID} launchctl getenv NATIVE_DEVTOOLS_IOS_CDP_SOCKET`
+    ) {
+      return { args, command, exitCode: 0, stderr: '', stdout: '' };
+    }
+    if (key === `simctl get_app_container ${IOS_TEST_SIMULATOR_UDID} dev.agent-scenario-loop.example app`) {
+      return { args, command, exitCode: 0, stderr: '', stdout: '/tmp/ASLExampleMobile.app\n' };
+    }
+    return {
+      args,
+      command,
+      exitCode: 0,
+      stderr: '',
+      stdout: '',
+    };
+  };
+
+  const result = await runIosSimctlCapture({
+    bundleId: 'dev.agent-scenario-loop.example',
+    captureWatchdogMs: 500,
+    commandTimeoutMs: 50,
+    delay: () => new Promise<void>(() => {}),
+    executor,
+    outputDir,
+    record: true,
+    recorderFactory: () => recorder,
+    runId: 'ios-record-watchdog-cancelled',
+    waitMs: 1000,
+  });
+
+  const videoCheck = (result.health.checks as Array<{ code: string; status: string }>).find(
+    (check) => check.code === 'ios_video_cancelled_partial',
+  );
+  const metadata = JSON.parse(fs.readFileSync(path.join(outputDir, 'raw', 'ios-metadata.json'), 'utf8'));
+
+  assert.equal(result.health.healthStatus, 'failed');
+  assert.equal(result.captures.video, 'captures/ios-recording.mp4');
+  assert.deepEqual(signals, ['SIGINT']);
+  assert.equal(videoCheck?.status, 'partial');
+  assert.equal(metadata.video.state, 'cancelled');
+  assert.equal(metadata.video.capturePath, 'captures/ios-recording.mp4');
+  assert.equal(metadata.video.validation.reason, 'valid');
+});
+
+test('keeps validated early-stop iOS video as partial health evidence', async (t: TestContext) => {
+  const outputDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-ios-simctl-record-partial-health-'));
+  t.after(async () => {
+    await fsp.rm(outputDir, { recursive: true, force: true });
+  });
+
+  const recorder = new EventEmitter() as import('node:events').EventEmitter & {
+    kill: (signal: NodeJS.Signals) => boolean;
+    stderr: import('node:events').EventEmitter;
+    stdout: import('node:events').EventEmitter;
+  };
+  recorder.stderr = new EventEmitter();
+  recorder.stdout = new EventEmitter();
+  recorder.kill = () => true;
+
+  const videoPath = path.join(outputDir, 'captures', 'ios-recording.mp4');
+  const result = await runIosSimctlCapture({
+    executor: createBootedSimctlExecutor(),
+    outputDir,
+    record: true,
+    recorderFactory: () => {
+      queueMicrotask(() => {
+        fs.writeFileSync(videoPath, Buffer.from('000000106674797069736f6d00000000', 'hex'));
+        recorder.emit('close', 0, 'SIGINT');
+      });
+      return recorder;
+    },
+    runId: 'ios-record-partial-health',
+  });
+
+  const videoCheck = (result.health.checks as Array<{ code: string; status: string }>).find(
+    (check) => check.code === 'ios_video_failed_partial',
+  );
+
+  assert.equal(result.health.healthStatus, 'partial');
+  assert.equal(result.captures.video, 'captures/ios-recording.mp4');
+  assert.equal(videoCheck?.status, 'partial');
+});
+
+test('keeps zero-window direct recording as cancelled partial evidence', async (t: TestContext) => {
+  const outputDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-ios-simctl-record-zero-window-'));
+  t.after(async () => fsp.rm(outputDir, { recursive: true, force: true }));
+  const signals: NodeJS.Signals[] = [];
+  const recorder = new EventEmitter() as import('node:events').EventEmitter & {
+    kill: (signal: NodeJS.Signals) => boolean;
+    stderr: import('node:events').EventEmitter;
+    stdout: import('node:events').EventEmitter;
+  };
+  recorder.stderr = new EventEmitter();
+  recorder.stdout = new EventEmitter();
+  recorder.kill = (signal: NodeJS.Signals) => {
+    signals.push(signal);
+    fs.writeFileSync(
+      path.join(outputDir, 'captures', 'ios-recording.mp4'),
+      Buffer.from('000000106674797069736f6d00000000', 'hex'),
+    );
+    recorder.emit('close', 0, 'SIGINT');
+    return true;
+  };
+  const result = await runIosSimctlCapture({
+    executor: createBootedSimctlExecutor(), outputDir, record: true,
+    recorderFactory: () => recorder, runId: 'ios-record-zero-window', waitMs: 0,
+  });
+  const check = (result.health.checks as Array<{ code: string; status: string }>).find(
+    (entry) => entry.code === 'ios_video_cancelled_partial',
+  );
+  assert.equal(result.health.healthStatus, 'partial');
+  assert.equal(result.captures.video, 'captures/ios-recording.mp4');
+  assert.equal(check?.status, 'partial');
+  assert.deepEqual(signals, ['SIGINT']);
+  assert.equal((result.metadata.video as Record<string, unknown>).state, 'cancelled');
+});
+
+test('fails iOS video capture when recorder output is invalid media', async (t: TestContext) => {
+  const outputDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-ios-simctl-record-invalid-'));
+  t.after(async () => {
+    await fsp.rm(outputDir, { recursive: true, force: true });
+  });
+
+  const recorder = new EventEmitter() as import('node:events').EventEmitter & {
+    kill: (signal: NodeJS.Signals) => boolean;
+    stderr: import('node:events').EventEmitter;
+    stdout: import('node:events').EventEmitter;
+  };
+  recorder.stderr = new EventEmitter();
+  recorder.stdout = new EventEmitter();
+  recorder.kill = () => {
+    const videoPath = path.join(outputDir, 'captures', 'ios-recording.mp4');
+    fs.writeFileSync(videoPath, 'invalid-video-content-without-ftyp', 'utf8');
+    recorder.emit('close', 0, 'SIGINT');
+    return true;
+  };
+
+  const result = await runIosSimctlCapture({
+    executor: createBootedSimctlExecutor(),
+    outputDir,
+    record: true,
+    recorderFactory: () => recorder,
+    runId: 'ios-record-invalid',
+  });
+
+  const metadata = JSON.parse(fs.readFileSync(path.join(outputDir, 'raw', 'ios-metadata.json'), 'utf8'));
+  const videoCheck = (result.health.checks as Array<{ code: string; status: string }>).find(
+    (check) => check.code === 'ios_video_output_invalid',
+  );
+
+  assert.equal(result.health.healthStatus, 'failed');
+  assert.equal(result.captures.video, null);
+  assert.equal(videoCheck?.status, 'failed');
+  assert.equal(metadata.video.validation.reason, 'missing-ftyp');
+  assert.equal(metadata.video.capturePath, null);
 });
 
 test('fails iOS capture when launched app exits during the capture window', async (t: TestContext) => {

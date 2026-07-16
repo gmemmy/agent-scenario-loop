@@ -95,14 +95,14 @@ When a normalized step has a stable built-in driver-port action, use `dispatchDr
 The built-in adb and simctl adapters show the expected boundary:
 
 - `runner/android-adb-driver.ts`: adb-backed tap, scroll, assertion, UI tree, screenshot, record, and log actions
-- `runner/ios-simctl-driver.ts`: simctl-backed screenshot and log actions
+- `runner/ios-simctl-driver.ts`: simctl-backed screenshot, bounded video recording, and log actions; video is exposed only after MP4/QuickTime validation
 - `runner/argent.ts`: Argent-backed ASL artifact runner for launch, coordinate-backed gestures, screenshot requests, and UI descriptions
 - `runner/argent-driver.ts`: optional Argent-backed driver adapter without bundling Argent
 - `runner/profile-android.ts` and `runner/profile-ios.ts`: profile artifact pipelines that turn raw evidence into health, metrics, verdicts, and summaries
 
 External tools such as agent-device, Argent, XcodeBuildMCP, axe, profilers, and custom scripts should plug in behind the same shape. The tactical tool can change; the scenario and artifact contract should not.
 
-Prefer capability-based orchestration over forcing one tool to own every surface. Use adb and simctl as the primary live profile capture lanes for app launch, logs, screenshots, profile-session truth, and causal timelines. Attach heavier or tool-specific diagnostics after the active profile window through provider commands or rehydration. Agent Device is a good fit for Android snapshots and cross-platform network/performance evidence when its session is bound to the target. When Agent Device exposes `capabilities --json`, ASL uses that target inventory during `asl-agent-device --check`, maps known command ids into ASL capability and driver-action support in the raw availability artifact, and falls back to help-output discovery for older installs. Argent is a good fit for iOS accessibility descriptions when `describe` can return AXRuntime evidence; native hierarchy, video, trace, React DevTools, and long profiler captures should be explicit heavy lanes until a runner/provider maps them into stable ASL artifacts.
+Prefer capability-based orchestration over forcing one tool to own every surface. Use adb and simctl as the primary live profile capture lanes for app launch, logs, screenshots, bounded video, profile-session truth, and causal timelines. Attach heavier or tool-specific diagnostics after the active profile window through provider commands or rehydration. Agent Device is a good fit for Android snapshots and cross-platform network/performance evidence when its session is bound to the target. When Agent Device exposes `capabilities --json`, ASL uses that target inventory during `asl-agent-device --check`, maps known command ids into ASL capability and driver-action support in the raw availability artifact, and falls back to help-output discovery for older installs. Argent is a good fit for iOS accessibility descriptions when `describe` can return AXRuntime evidence; native hierarchy, trace, React DevTools, and long profiler captures should be explicit heavy lanes until a runner/provider maps them into stable ASL artifacts.
 
 ## Preserve Evidence
 

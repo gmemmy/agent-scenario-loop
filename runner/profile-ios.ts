@@ -31,6 +31,7 @@ type IosProfileOptions = {
   comparisonLane?: string;
   delay?: (ms: number) => Promise<void>;
   executor?: import('./ios-simctl').CommandExecutor;
+  recorderFactory?: import('./ios-simctl-driver').IosSimctlRecorderFactory;
 };
 
 type IosSimctlProfileCommand = {
@@ -80,8 +81,8 @@ const IOS_PROFILE_RUNNER_CAPABILITIES = {
   kind: 'primary',
   platforms: ['ios'],
   capabilities: ['launch', 'sessionControl', 'command', 'logCapture', 'artifactWrite'],
-  driverActions: ['tap', 'scroll', 'assertVisible', 'inspectTree', 'screenshot', 'readLogs'],
-  artifactOutputs: ['logs', 'signals', 'screenshot', 'uiTree'],
+  driverActions: ['tap', 'scroll', 'assertVisible', 'inspectTree', 'screenshot', 'record', 'readLogs'],
+  artifactOutputs: ['logs', 'signals', 'screenshot', 'video', 'uiTree'],
   uiContexts: ['app'],
   lifecycle: ['prepare', 'launch', 'startSession', 'executeStep', 'waitForTruthEvent', 'captureEvidence', 'stopSession', 'finalize'],
 };
@@ -432,7 +433,9 @@ function resolveProfileSessionCaptureWaitMs({
     return readPositiveInteger(explicitWaitMs, 0);
   }
 
-  return profileSessionEnabled ? deriveProfileSessionCaptureWaitMs(scenario) : 0;
+  return profileSessionEnabled || requiresIosSimctlVideo(scenario)
+    ? deriveProfileSessionCaptureWaitMs(scenario)
+    : 0;
 }
 
 /**
@@ -765,6 +768,13 @@ function requiresIosSimctlScreenshot(scenario: Record<string, any>): boolean {
   );
 }
 
+function requiresIosSimctlVideo(scenario: Record<string, any>): boolean {
+  const executionPlan = buildScenarioExecutionPlan(scenario);
+  return executionPlan.steps.some((step: ScenarioExecutionStep) =>
+    step.driverAction === 'record' || step.artifact === 'video',
+  );
+}
+
 /**
  * Appends one repeatable profile capture argument without losing caller-provided values.
  *
@@ -1019,6 +1029,7 @@ async function runProfileIos(
         ...(options.delay ? { delay: options.delay } : {}),
         ...(typeof args.device === 'string' ? { device: args.device } : {}),
         ...(options.executor ? { executor: options.executor } : {}),
+        ...(options.recorderFactory ? { recorderFactory: options.recorderFactory } : {}),
         launch: shouldLaunchWithSimctl,
         ...(typeof args['log-last'] === 'string' ? { logLast: args['log-last'] } : {}),
         outputDir: resolveSimctlCaptureOutputDir({ args, runId }),
@@ -1061,6 +1072,7 @@ async function runProfileIos(
               terminateBeforeLaunch: isEnabled(args['terminate-before-launch']),
             }),
         runId,
+        record: isEnabled(args.record) || isEnabled(args.video) || requiresIosSimctlVideo(scenario),
         screenshot: isEnabled(args.screenshot) || requiresIosSimctlScreenshot(scenario),
         waitMs: resolveProfileSessionCaptureWaitMs({
           args,
@@ -1114,6 +1126,12 @@ async function runProfileIos(
     baseProfileArgs.capture = appendCaptureArg({
       args,
       value: `screenshot:${path.join(simctlCapture.runDir, simctlCapture.captures.screenshot)}`,
+    });
+  }
+  if (simctlCapture?.captures.video) {
+    baseProfileArgs.capture = appendCaptureArg({
+      args: baseProfileArgs,
+      value: `video:${path.join(simctlCapture.runDir, simctlCapture.captures.video)}`,
     });
   }
   if (simctlCapture) {
@@ -1217,6 +1235,7 @@ export {
   resolveProfileSessionCaptureWaitMs,
   resolveSimctlCaptureOutputDir,
   requiresIosSimctlScreenshot,
+  requiresIosSimctlVideo,
   runProfileIos,
   summarizeFailedIosChecks,
   usage,

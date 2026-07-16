@@ -34,12 +34,14 @@ type CliArgs = {
   'profile-session-storage'?: string | boolean;
   'profile-session-storage-key'?: string | boolean;
   'profile-signal-storage-key'?: string | boolean;
+  record?: string | boolean;
   'run-id'?: string | boolean;
   screenshot?: string | boolean;
   'screenshot-display'?: string | boolean;
   'screenshot-mask'?: string | boolean;
   'screenshot-type'?: string | boolean;
   'terminate-before-launch'?: string | boolean;
+  video?: string | boolean;
   'wait-ms'?: string | boolean;
   xcrun?: string | boolean;
   [key: string]: string | boolean | undefined;
@@ -111,6 +113,8 @@ type IosSimctlCaptureOptions = {
   profileSessionStartWaitMs?: number;
   profileStorageKeys?: Partial<ProfileStorageKeys>;
   runId?: string;
+  record?: boolean;
+  recorderFactory?: import('./ios-simctl-driver').IosSimctlRecorderFactory;
   screenshot?: boolean;
   screenshotDisplay?: string;
   screenshotMask?: string;
@@ -124,6 +128,7 @@ type IosSimctlCaptureResult = {
   health: Record<string, unknown>;
   captures: {
     screenshot: string | null;
+    video: string | null;
   };
   metadata: Record<string, unknown>;
   raw: Record<string, string>;
@@ -131,6 +136,7 @@ type IosSimctlCaptureResult = {
   simulator: IosSimulator | null;
   verdict: Record<string, unknown>;
 };
+type IosVideoFinalizeResult = Awaited<ReturnType<import('./ios-simctl-driver').IosSimctlRecording['stop']>>;
 type AsyncStorageManifest = Record<string, string | null>;
 type NextActionHint = {
   nextAction: string;
@@ -406,6 +412,7 @@ function usage(output: { write: (message: string) => unknown } = process.stderr)
     'Checks iOS simulator readiness and writes health.json, verdict.json, agent-summary.md, and raw simctl evidence.',
     'Use --launch with --bundle <id> to launch the app before capturing a bounded simulator log window.',
     'Use --screenshot to save a simulator screenshot into captures/ios-screenshot.png.',
+    'Use --record (or --video) to capture bounded simulator video into captures/ios-recording.mp4 when output validates.',
     'Use --screenshot-type, --screenshot-display, or --screenshot-mask to pass supported simctl screenshot options.',
     'Use --profile-session-storage <scenario> with --bundle <id> to seed the app profile session before launch.',
     'Use --profile-session-start-wait-ms <ms> to bound how long storage-backed captures wait for same-run app evidence after launch/deep-link setup.',
@@ -515,6 +522,7 @@ function deriveIosSimctlCaptureWatchdogBudget({
   launch = false,
   profileSessionStorage = null,
   profileSessionStartWaitMs = 0,
+  record = false,
   screenshot = false,
   terminateBeforeLaunch = false,
   waitMs = 0,
@@ -553,7 +561,8 @@ function deriveIosSimctlCaptureWatchdogBudget({
     (launch ? 3 : 0) +
     deepLinks.length +
     (canRepairDevClientReadiness ? 1 : 0) +
-    (screenshot ? 1 : 0);
+    (screenshot ? 1 : 0) +
+    (record ? 1 : 0);
   const perCommandOverheadMs = Math.min(commandTimeoutMs, IOS_SIMCTL_CAPTURE_COMMAND_OVERHEAD_MS);
   const commandBudgetMs = Math.min(
     commandUnits * perCommandOverheadMs,
@@ -1368,6 +1377,118 @@ function nextActionHint(nextActionCode: string, nextAction: string): NextActionH
   };
 }
 
+function iosVideoCheckStatus({
+  hasValidCapture,
+  result,
+}: {
+  hasValidCapture: boolean;
+  result: IosVideoFinalizeResult;
+}): 'failed' | 'partial' | 'passed' {
+  if (result.state === 'finalized' && hasValidCapture) {
+    return 'passed';
+  }
+  if (hasValidCapture) {
+    return 'partial';
+  }
+  return 'failed';
+}
+
+function iosVideoCheckCode({
+  hasValidCapture,
+  result,
+  status,
+}: {
+  hasValidCapture: boolean;
+  result: IosVideoFinalizeResult;
+  status: 'failed' | 'partial' | 'passed';
+}): string {
+  if (status === 'passed') {
+    return 'ios_video_captured';
+  }
+  if (result.cleanup.orphaned) {
+    return 'ios_video_cleanup_orphaned';
+  }
+  if (result.state === 'timed_out') {
+    return 'ios_video_finalize_timeout';
+  }
+  if (result.validation.reason === 'missing') {
+    return 'ios_video_output_missing';
+  }
+  if (result.validation.reason === 'zero-bytes') {
+    return 'ios_video_output_empty';
+  }
+  if (result.validation.reason !== 'valid') {
+    return 'ios_video_output_invalid';
+  }
+  if (result.state === 'cancelled') {
+    return hasValidCapture ? 'ios_video_cancelled_partial' : 'ios_video_cancelled';
+  }
+  return status === 'partial' ? `ios_video_${result.state}_partial` : `ios_video_${result.state}`;
+}
+
+function iosVideoCheckMessage({
+  result,
+  status,
+}: {
+  result: IosVideoFinalizeResult;
+  status: 'failed' | 'partial' | 'passed';
+}): string {
+  if (status === 'passed') {
+    return 'Captured bounded iOS simulator video.';
+  }
+  if (status === 'partial') {
+    return `iOS simulator video ended with ${result.state} and preserved validated partial evidence.`;
+  }
+  if (result.cleanup.orphaned) {
+    return 'iOS simulator video recorder did not exit cleanly after bounded cleanup.';
+  }
+  if (result.validation.reason === 'missing') {
+    return 'iOS simulator video recording completed without creating an output file.';
+  }
+  if (result.validation.reason === 'zero-bytes') {
+    return 'iOS simulator video recording produced an empty output file.';
+  }
+  if (result.validation.reason !== 'valid') {
+    return `iOS simulator video output was invalid (${result.validation.reason}).`;
+  }
+  return `iOS simulator video ended with ${result.state} evidence.`;
+}
+
+function iosVideoCheckMetadata({
+  rawFileName,
+  result,
+  status,
+}: {
+  rawFileName: string;
+  result: IosVideoFinalizeResult;
+  status: 'failed' | 'partial' | 'passed';
+}): Record<string, unknown> | null {
+  if (status === 'passed') {
+    return null;
+  }
+
+  const actionHint = result.cleanup.orphaned
+    ? nextActionHint(
+        'inspect_ios_video_cleanup',
+        `Inspect raw/${rawFileName} for signal escalation and confirm no orphaned simulator recorder process remains before trusting video evidence.`,
+      )
+    : result.validation.reason === 'valid'
+      ? nextActionHint(
+          'inspect_ios_video',
+          `Inspect raw/${rawFileName} and the captures directory before trusting video evidence.`,
+        )
+      : nextActionHint(
+          'inspect_ios_video_output',
+          `Inspect raw/${rawFileName} and the generated captures directory to diagnose invalid or missing video output.`,
+        );
+  return {
+    ...actionHint,
+    cleanupOrphaned: result.cleanup.orphaned,
+    cleanupSignals: result.cleanup.signals.join(',') || 'none',
+    validationReason: result.validation.reason,
+  };
+}
+
 function iosAppLifecycleStatus({
   appLifecycleAmbiguousExit,
   appLifecycleCaptured,
@@ -1894,21 +2015,23 @@ function launchEnvironmentRawFileName(key: string): string {
 /**
  * Reports whether the requested capture path can mutate simulator app lifecycle.
  *
- * @param {{deepLinks: IosSimctlDeepLink[], launch: boolean, profileSessionStorage: IosProfileSessionStorageSeed | null, terminateBeforeLaunch: boolean}} options
+ * @param {{deepLinks: IosSimctlDeepLink[], launch: boolean, profileSessionStorage: IosProfileSessionStorageSeed | null, record: boolean, terminateBeforeLaunch: boolean}} options
  * @returns {boolean}
  */
 function mutatesSimulatorLifecycle({
   deepLinks,
   launch,
   profileSessionStorage,
+  record,
   terminateBeforeLaunch,
 }: {
   deepLinks: IosSimctlDeepLink[];
   launch: boolean;
   profileSessionStorage: IosProfileSessionStorageSeed | null;
+  record: boolean;
   terminateBeforeLaunch: boolean;
 }): boolean {
-  return launch || terminateBeforeLaunch || Boolean(profileSessionStorage) || deepLinks.length > 0;
+  return launch || terminateBeforeLaunch || Boolean(profileSessionStorage) || record || deepLinks.length > 0;
 }
 
 /**
@@ -1959,13 +2082,15 @@ async function inspectSimulatorLaunchEnvironment({
  */
 function buildIosSimctlHealth({ runId, checks }: { runId: string; checks: Record<string, unknown>[] }): Record<string, unknown> {
   const failed = checks.some((check) => check.status === 'failed');
+  const partial = checks.some((check) => check.status === 'partial');
+  const healthStatus = failed ? 'failed' : partial ? 'partial' : 'passed';
   return assertValidJson(
     {
       schemaVersion: '1.0.0',
       scenarioId: 'ios-simctl-capture',
       flowId: 'ios-simctl-capture',
       runId,
-      healthStatus: failed ? 'failed' : 'passed',
+      healthStatus,
       checks,
     },
     SCHEMAS.health,
@@ -2024,6 +2149,8 @@ async function runIosSimctlCapture(options: IosSimctlCaptureOptions = {}): Promi
     profileSessionStartWaitMs = profileSessionStorage ? DEFAULT_IOS_PROFILE_SESSION_START_WAIT_MS : 0,
     profileStorageKeys: profileStorageKeyOverrides,
     runId = createRunId(),
+    record = false,
+    recorderFactory,
     screenshot = false,
     screenshotDisplay,
     screenshotMask,
@@ -2043,8 +2170,9 @@ async function runIosSimctlCapture(options: IosSimctlCaptureOptions = {}): Promi
   const profileStorageKeys = resolveProfileStorageKeys(profileStorageKeyOverrides);
 
   const raw: Record<string, string> = {};
-  const captures: { screenshot: string | null } = {
+  const captures: { screenshot: string | null; video: string | null } = {
     screenshot: null,
+    video: null,
   };
   const checks: Record<string, unknown>[] = [];
   const deepLinkResults: Record<string, unknown>[] = [];
@@ -2074,6 +2202,7 @@ async function runIosSimctlCapture(options: IosSimctlCaptureOptions = {}): Promi
     launch,
     profileSessionStorage,
     profileSessionStartWaitMs,
+    record,
     screenshot,
     terminateBeforeLaunch,
     waitMs,
@@ -2105,6 +2234,7 @@ async function runIosSimctlCapture(options: IosSimctlCaptureOptions = {}): Promi
             scenario: profileSessionStorage.scenario,
           }
         : null,
+      record,
       screenshot,
       terminateBeforeLaunch,
       waitMs,
@@ -2148,6 +2278,7 @@ async function runIosSimctlCapture(options: IosSimctlCaptureOptions = {}): Promi
           startWaitMs: profileSessionStartWaitMs,
         }
       : null,
+    record,
     screenshot,
     selectedDevice,
     selectedSimulator: null,
@@ -2156,6 +2287,44 @@ async function runIosSimctlCapture(options: IosSimctlCaptureOptions = {}): Promi
     xcrunPath,
   };
   metadata.currentPhase = currentPhase;
+  let activeRecording: import('./ios-simctl-driver').IosSimctlRecording | null = null;
+  const finalizeRecording = async (reason: 'cancelled' | 'completed'): Promise<void> => {
+    if (!activeRecording) return;
+    setCurrentPhase('finalizing_video', { reason });
+    const result = await activeRecording.stop(reason);
+    raw[result.rawFileName] = `${JSON.stringify({ stderr: result.stderr, stdout: result.stdout }, null, 2)}\n`;
+    const relativeCapturePath = result.validation.valid && result.capturePath && fs.existsSync(result.capturePath)
+      ? `captures/${path.basename(result.capturePath)}`
+      : null;
+    if (relativeCapturePath) captures.video = relativeCapturePath;
+    const hasValidCapture = Boolean(relativeCapturePath);
+    const videoCheckStatus = iosVideoCheckStatus({ hasValidCapture, result });
+    const videoCheckMetadata = iosVideoCheckMetadata({
+      rawFileName: result.rawFileName,
+      result,
+      status: videoCheckStatus,
+    });
+    checks.push({
+      name: 'ios_video_captured',
+      status: videoCheckStatus,
+      source: 'runner',
+      code: iosVideoCheckCode({ hasValidCapture, result, status: videoCheckStatus }),
+      message: iosVideoCheckMessage({ result, status: videoCheckStatus }),
+      ...(videoCheckMetadata ? { metadata: videoCheckMetadata } : {}),
+    });
+    metadata.video = {
+      args: result.args.map((arg) => path.isAbsolute(arg) ? `captures/${path.basename(arg)}` : arg),
+      capturePath: relativeCapturePath,
+      cleanup: result.cleanup,
+      exitCode: result.exitCode,
+      rawPath: `raw/${result.rawFileName}`,
+      signal: result.signal ?? null,
+      state: result.state,
+      timeline: result.timeline,
+      validation: result.validation,
+    };
+    activeRecording = null;
+  };
   const runCaptureBody = async (): Promise<void> => {
     setCurrentPhase('listing_simulators', { device: selectedDevice });
     const devicesOutput = await executor(xcrunPath, ['simctl', 'list', 'devices']);
@@ -2207,6 +2376,7 @@ async function runIosSimctlCapture(options: IosSimctlCaptureOptions = {}): Promi
         deepLinks,
         launch,
         profileSessionStorage,
+        record,
         terminateBeforeLaunch,
       });
       const launchEnvironment = await inspectSimulatorLaunchEnvironment({
@@ -2252,6 +2422,7 @@ async function runIosSimctlCapture(options: IosSimctlCaptureOptions = {}): Promi
       const driver = createIosSimctlDriver({
         deviceUdid: simulator.udid,
         executor,
+        ...(recorderFactory ? { recorderFactory } : {}),
         xcrunPath,
       });
       let dataContainerPath: string | null = null;
@@ -2469,6 +2640,15 @@ async function runIosSimctlCapture(options: IosSimctlCaptureOptions = {}): Promi
             rawPath: 'raw/ios-profile-session-seed.json',
           };
         }
+      }
+
+      if (record && !hasInstalledConflictingBundle && !lifecycleMutationBlocked) {
+        setCurrentPhase('starting_video', { device: simulator.udid, waitMs });
+        const recording = await driver.startRecording({
+          outputPath: path.join(layout.captures, 'ios-recording.mp4'),
+        });
+        activeRecording = recording;
+        if (recording.state !== 'active') await finalizeRecording('completed');
       }
 
       if (launch && !hasInstalledConflictingBundle && !lifecycleMutationBlocked) {
@@ -2739,7 +2919,20 @@ async function runIosSimctlCapture(options: IosSimctlCaptureOptions = {}): Promi
         }));
         profileSessionStartReady = startWait.completed;
       }
-      if (waitMs > 0 && profileSessionStartReady) {
+      if (activeRecording && profileSessionStartReady && waitMs > 0) {
+        setCurrentPhase('waiting_for_capture_window', { recording: true, waitMs });
+        await wait(waitMs);
+        checks.push({
+          name: 'ios_capture_window_waited',
+          status: 'passed',
+          source: 'runner',
+          code: 'ios_capture_window_waited',
+          message: `Waited ${waitMs}ms while recording bounded iOS simulator video evidence.`,
+        });
+        await finalizeRecording('completed');
+      } else if (activeRecording) {
+        await finalizeRecording('cancelled');
+      } else if (waitMs > 0 && profileSessionStartReady) {
         setCurrentPhase('waiting_for_capture_window', { waitMs });
         await wait(waitMs);
         checks.push({
@@ -2748,6 +2941,23 @@ async function runIosSimctlCapture(options: IosSimctlCaptureOptions = {}): Promi
           source: 'runner',
           code: 'ios_capture_window_waited',
           message: `Waited ${waitMs}ms before capturing iOS simulator logs.`,
+        });
+      } else if (record && !profileSessionStartReady && !metadata.video) {
+        metadata.video = {
+          capturePath: null,
+          skipReason: 'profile_session_start_unready',
+          state: 'failed',
+        };
+        checks.push({
+          name: 'ios_video_captured',
+          status: 'failed',
+          source: 'runner',
+          code: 'ios_video_skipped_profile_session_start_unready',
+          message: 'Skipped iOS simulator video capture because profile-session start evidence was not ready.',
+          metadata: nextActionHint(
+            'repair_ios_profile_session_start',
+            'Repair profile-session start readiness before requesting bounded iOS simulator video capture.',
+          ),
         });
       }
 
@@ -2882,6 +3092,8 @@ async function runIosSimctlCapture(options: IosSimctlCaptureOptions = {}): Promi
           rawPath: `raw/${appInfoResult.rawFileName}`,
         };
       }
+
+      if (activeRecording) await finalizeRecording('completed');
 
       if (screenshot) {
         setCurrentPhase('capturing_screenshot', { bundleId, device: simulator.udid });
@@ -3056,7 +3268,7 @@ async function runIosSimctlCapture(options: IosSimctlCaptureOptions = {}): Promi
         }
       }
       setCurrentPhase('finalizing_artifacts', { rawArtifactCount: Object.keys(raw).length });
-    } else if (launch || terminateBeforeLaunch || profileSessionStorage || collectProfileStorage || deepLinks.length > 0) {
+    } else if (launch || terminateBeforeLaunch || profileSessionStorage || collectProfileStorage || record || deepLinks.length > 0) {
       checks.push({
         name: 'ios_capture_window_started',
         status: 'failed',
@@ -3065,7 +3277,7 @@ async function runIosSimctlCapture(options: IosSimctlCaptureOptions = {}): Promi
         message: 'iOS capture window setup was requested, but no booted simulator was selected.',
         metadata: nextActionHint(
           'boot_ios_simulator',
-          'Boot an iOS simulator or pass --device with a booted simulator UDID before requesting launch, storage, or deep-link capture.',
+          'Boot an iOS simulator or pass --device with a booted simulator UDID before requesting launch, storage, deep-link, or video capture.',
         ),
       });
     }
@@ -3077,6 +3289,7 @@ async function runIosSimctlCapture(options: IosSimctlCaptureOptions = {}): Promi
       watchdog: captureWatchdog,
     });
   } catch (error: unknown) {
+    await finalizeRecording('cancelled');
     const timedOut = isIosSimctlCaptureWatchdogError(error);
     const failure = normalizeIosRunnerFailure(error);
     if (timedOut) {
@@ -3210,6 +3423,7 @@ async function main(): Promise<void> {
           profileSessionStartWaitMs,
         }
       : {}),
+    record: args.record === true || args.record === 'true' || args.video === true || args.video === 'true',
     runId,
     screenshot: args.screenshot === true || args.screenshot === 'true',
     ...(typeof args['screenshot-display'] === 'string' ? { screenshotDisplay: args['screenshot-display'] } : {}),
