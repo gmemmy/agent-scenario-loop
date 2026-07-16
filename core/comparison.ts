@@ -149,6 +149,34 @@ type CompareRunDirectoriesOptions = {
 const MIN_MS_COMPARISON_TOLERANCE = 16;
 const RELATIVE_MS_COMPARISON_TOLERANCE = 0.05;
 
+function readNativePerformanceArtifact({
+  nativeAttachment,
+  runDir,
+}: {
+  nativeAttachment: NativePerformanceAttachmentRecord | undefined;
+  runDir: string;
+}): OptionalArtifactRecord {
+  if (!nativeAttachment?.path) {
+    return {};
+  }
+
+  const resolvedPath = resolveContainedRunArtifactPath({
+    runDir,
+    runRelativePath: nativeAttachment.path,
+  });
+  if (resolvedPath.filePath) {
+    return readOptionalArtifact(resolvedPath.filePath);
+  }
+
+  if (resolvedPath.error) {
+    return {
+      error: resolvedPath.error,
+    };
+  }
+
+  return {};
+}
+
 /**
  * Reads and validates the health and verdict artifacts from a run directory.
  *
@@ -163,18 +191,10 @@ function readRunArtifacts(runDir: string): ComparisonRunArtifacts {
   const manifest = manifestResult.value ?? null;
   const nativeAttachments = readNativePerformanceAttachments(manifest);
   const nativeAttachment = nativeAttachments.length === 1 ? nativeAttachments[0] : undefined;
-  const nativeAttachmentPath = nativeAttachment?.path
-    ? resolveContainedRunArtifactPath({ runDir, runRelativePath: nativeAttachment.path })
-    : {};
-  const nativeArtifact: OptionalArtifactRecord = nativeAttachment?.path
-    ? nativeAttachmentPath.filePath
-      ? readOptionalArtifact(nativeAttachmentPath.filePath)
-      : nativeAttachmentPath.error
-        ? {
-            error: nativeAttachmentPath.error,
-          }
-        : {}
-    : {};
+  const nativeArtifact = readNativePerformanceArtifact({
+    nativeAttachment,
+    runDir,
+  });
   let nativeValidationError: string | undefined;
   let nativeValue: ComparisonRecord | undefined;
   if (nativeArtifact.value) {

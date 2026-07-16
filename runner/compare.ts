@@ -97,6 +97,21 @@ function isEnabledFlag(value: unknown): boolean {
   return value === true || value === 'true';
 }
 
+function describeRegressionSource(
+  regressionSource: ReturnType<typeof resolveComparisonRegressionSource>,
+): string {
+  switch (regressionSource) {
+    case 'ordinary':
+      return 'ordinary comparison';
+    case 'native-performance':
+      return 'native-performance comparison';
+    case 'both':
+      return 'ordinary and native-performance comparison';
+    default:
+      return 'comparison';
+  }
+}
+
 /**
  * Throws when a comparison result should fail a strict regression gate.
  *
@@ -117,11 +132,7 @@ function assertNoRegressedComparison({
 
   const runId = typeof comparison.runId === 'string' ? comparison.runId : 'current run';
   const evidenceHint = evidencePath ? ` Inspect ${evidencePath}.` : '';
-  const sourceDetail = regressionSource === 'ordinary'
-    ? 'ordinary comparison'
-    : regressionSource === 'native-performance'
-      ? 'native-performance comparison'
-      : 'ordinary and native-performance comparison';
+  const sourceDetail = describeRegressionSource(regressionSource);
   throw new Error(`Comparison regressed for ${runId} via ${sourceDetail}.${evidenceHint}`);
 }
 

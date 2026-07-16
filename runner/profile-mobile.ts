@@ -1002,6 +1002,28 @@ function assertUniqueProviderCommandIds({
   }
 }
 
+function resolveProviderOutputReason({
+  commandFailed,
+  commandId,
+  exists,
+  providerId,
+}: {
+  commandFailed: boolean;
+  commandId: string;
+  exists: boolean;
+  providerId: string;
+}): string | undefined {
+  if (exists) {
+    return undefined;
+  }
+
+  if (commandFailed) {
+    return `Provider command ${providerId}/${commandId} exited before producing this output.`;
+  }
+
+  return `Provider command ${providerId}/${commandId} did not produce this declared output.`;
+}
+
 /**
  * Executes declared evidence-provider commands and returns their output attachments.
  *
@@ -1245,6 +1267,12 @@ async function executeProviderCommands({
       for (const output of providerCommand.outputs) {
         const sourcePath = resolveProviderPath({ context, manifestDir, value: output.path });
         const exists = Boolean((await fsp.stat(sourcePath).catch(() => null))?.isFile());
+        const reason = resolveProviderOutputReason({
+          commandFailed,
+          commandId: providerCommand.id,
+          exists,
+          providerId,
+        });
         outputStatuses.push({
           channel: output.channel,
           commandId: providerCommand.id,
@@ -1252,11 +1280,7 @@ async function executeProviderCommands({
           path: output.path,
           phase: providerCommand.phase,
           providerId,
-          ...(commandFailed && !exists
-            ? { reason: `Provider command ${providerId}/${providerCommand.id} exited before producing this output.` }
-            : !exists
-              ? { reason: `Provider command ${providerId}/${providerCommand.id} did not produce this declared output.` }
-              : {}),
+          ...(reason ? { reason } : {}),
           required: output.required === true,
           status: exists ? 'captured' : 'missing',
         });
@@ -1823,6 +1847,18 @@ function toSidecarEvidenceDependency({
     kind: 'sidecar',
     path: toRunPathReference({ runDir, targetPath }),
   };
+}
+
+function resolveSelectedSidecarRoot(args: CliArgs): string | null {
+  if (typeof args['adb-artifacts'] === 'string') {
+    return path.resolve(args['adb-artifacts']);
+  }
+
+  if (typeof args['simctl-artifacts'] === 'string') {
+    return path.resolve(args['simctl-artifacts']);
+  }
+
+  return null;
 }
 
 /**
@@ -2520,11 +2556,12 @@ function buildDiagnosticInventory({
       providerOutputByKind.set(output.kind, output);
     }
   }
-  const sidecarRoot = typeof args['adb-artifacts'] === 'string'
-    ? path.resolve(args['adb-artifacts'])
-    : typeof args['simctl-artifacts'] === 'string'
-      ? path.resolve(args['simctl-artifacts'])
-      : null;
+  type PendingDiagnosticEntry = Omit<DiagnosticInventoryEntry, 'kind' | 'requested' | 'required'> & {
+    diagnosticOnly?: boolean;
+    required?: boolean;
+    requested?: boolean;
+  };
+  const sidecarRoot = resolveSelectedSidecarRoot(args);
   const sidecarRootRef = sidecarRoot ? toRunPathReference({ runDir, targetPath: sidecarRoot }) : undefined;
   const adbScreenshotDependency = platform === 'android'
     ? resolveAndroidAdbScreenshotDependency({ runDir, sidecarRoot })
@@ -2579,95 +2616,109 @@ function buildDiagnosticInventory({
   const logCaptured = platform === 'ios'
     ? Boolean(copiedSimctlLogManifestPath || simctlRuntimeLogDependency || explicitIosRuntimeLogManifestPath)
     : Boolean(eventLogManifestPath);
-  pushDiagnostic('logs', {
+  const logEntry: PendingDiagnosticEntry = {
     name: platform === 'ios' ? 'simulator-runtime-log' : 'device-log',
-    ...(typeof args['adb-artifacts'] === 'string'
-      ? { provider: 'adb', runnerId: 'android-adb' }
-      : typeof args['simctl-artifacts'] === 'string'
-        ? { provider: 'simctl', runnerId: 'ios-simctl' }
-        : typeof args.events === 'string'
-          ? { provider: 'fixture-log-ingest' }
-          : {}),
     status: logCaptured ? 'captured' : 'unavailable',
-    ...(platform === 'ios'
-      ? copiedSimctlLogManifestPath
-        ? { path: copiedSimctlLogManifestPath }
-        : simctlRuntimeLogDependency
-          ? { path: simctlRuntimeLogDependency.path }
-          : explicitIosRuntimeLogManifestPath
-            ? { path: explicitIosRuntimeLogManifestPath }
-            : {}
-      : eventLogManifestPath
-        ? { path: eventLogManifestPath }
-        : {}),
-    ...(sidecarRootRef ? { sidecarRoot: sidecarRootRef } : {}),
-    ...(platform === 'ios'
-      ? simctlRuntimeLogDependency
-        ? { evidenceDependency: simctlRuntimeLogDependency }
-        : {}
-      : eventLogDependency
-        ? { evidenceDependency: eventLogDependency }
-        : {}),
-    ...(logCaptured
-      ? {
-          reason: platform === 'ios'
-            ? 'iOS simulator runtime log evidence was available from the simctl capture sidecar.'
-            : 'Device or fixture log evidence was available to the profile runner.',
-        }
-      : {
-          reason: platform === 'ios'
-            ? 'No iOS simulator runtime log was available in the selected simctl capture sidecar.'
-            : 'No device log source was supplied to this profile run.',
-          nextAction: platform === 'ios'
-            ? 'Run with --simctl-capture or provide --simctl-artifacts containing raw/ios-simctl-log.txt.'
-            : 'Run with --events, --adb-artifacts, --adb-capture, or provide a runtime log artifact.',
-        }),
-  });
-  pushDiagnostic('js', {
+  };
+  if (typeof args['adb-artifacts'] === 'string') {
+    logEntry.provider = 'adb';
+    logEntry.runnerId = 'android-adb';
+  } else if (typeof args['simctl-artifacts'] === 'string') {
+    logEntry.provider = 'simctl';
+    logEntry.runnerId = 'ios-simctl';
+  } else if (typeof args.events === 'string') {
+    logEntry.provider = 'fixture-log-ingest';
+  }
+  if (platform === 'ios') {
+    if (copiedSimctlLogManifestPath) {
+      logEntry.path = copiedSimctlLogManifestPath;
+    } else if (simctlRuntimeLogDependency) {
+      logEntry.path = simctlRuntimeLogDependency.path;
+    } else if (explicitIosRuntimeLogManifestPath) {
+      logEntry.path = explicitIosRuntimeLogManifestPath;
+    }
+  } else if (eventLogManifestPath) {
+    logEntry.path = eventLogManifestPath;
+  }
+  if (sidecarRootRef) {
+    logEntry.sidecarRoot = sidecarRootRef;
+  }
+  if (platform === 'ios') {
+    if (simctlRuntimeLogDependency) {
+      logEntry.evidenceDependency = simctlRuntimeLogDependency;
+    }
+  } else if (eventLogDependency) {
+    logEntry.evidenceDependency = eventLogDependency;
+  }
+  if (logCaptured) {
+    logEntry.reason = platform === 'ios'
+      ? 'iOS simulator runtime log evidence was available from the simctl capture sidecar.'
+      : 'Device or fixture log evidence was available to the profile runner.';
+  } else {
+    logEntry.reason = platform === 'ios'
+      ? 'No iOS simulator runtime log was available in the selected simctl capture sidecar.'
+      : 'No device log source was supplied to this profile run.';
+    logEntry.nextAction = platform === 'ios'
+      ? 'Run with --simctl-capture or provide --simctl-artifacts containing raw/ios-simctl-log.txt.'
+      : 'Run with --events, --adb-artifacts, --adb-capture, or provide a runtime log artifact.';
+  }
+  pushDiagnostic('logs', logEntry);
+
+  const hasJsEvidence = Boolean(eventLogManifestPath || attachedEvidence.signals.js.length > 0);
+  const jsEntry: PendingDiagnosticEntry = {
     name: 'profile-session-evidence',
-    status: eventLogManifestPath || attachedEvidence.signals.js.length > 0 ? 'captured' : 'unavailable',
-    ...(jsProfilePath ? { path: jsProfilePath } : {}),
-    ...(profileSessionEntriesManifestPath
-      ? {
-          evidenceDependency: {
-            kind: 'profile-session-entries',
-            path: profileSessionEntriesManifestPath,
-          },
-        }
-      : eventLogDependency
-        ? { evidenceDependency: eventLogDependency }
-        : {}),
-    ...(sidecarRootRef ? { sidecarRoot: sidecarRootRef } : {}),
-    ...(eventLogManifestPath || attachedEvidence.signals.js.length > 0
-      ? { reason: 'Profile or JS evidence was captured from runner input.' }
-      : {
-          reason: 'No profile-session event log or JS signal attachment was available.',
-          nextAction: 'Attach JS evidence with --signal js:<path> or run a profile-session capture that emits profile events.',
-        }),
-  });
+    status: hasJsEvidence ? 'captured' : 'unavailable',
+  };
+  if (jsProfilePath) {
+    jsEntry.path = jsProfilePath;
+  }
+  if (profileSessionEntriesManifestPath) {
+    jsEntry.evidenceDependency = {
+      kind: 'profile-session-entries',
+      path: profileSessionEntriesManifestPath,
+    };
+  } else if (eventLogDependency) {
+    jsEntry.evidenceDependency = eventLogDependency;
+  }
+  if (sidecarRootRef) {
+    jsEntry.sidecarRoot = sidecarRootRef;
+  }
+  if (hasJsEvidence) {
+    jsEntry.reason = 'Profile or JS evidence was captured from runner input.';
+  } else {
+    jsEntry.reason = 'No profile-session event log or JS signal attachment was available.';
+    jsEntry.nextAction = 'Attach JS evidence with --signal js:<path> or run a profile-session capture that emits profile events.';
+  }
+  pushDiagnostic('js', jsEntry);
+
   const attachedScreenshotPath = attachedEvidence.captures.screenshots[0];
   const sidecarScreenshotDependency = attachedScreenshotPath ? null : adbScreenshotDependency;
-  pushDiagnostic('screenshot', {
-    ...(sidecarScreenshotDependency ? { provider: 'adb', runnerId: 'android-adb' } : {}),
-    status: attachedScreenshotPath || sidecarScreenshotDependency ? 'captured' : 'unavailable',
-    ...(attachedScreenshotPath
-      ? { path: attachedScreenshotPath }
-      : sidecarScreenshotDependency
-        ? { path: sidecarScreenshotDependency.path }
-        : {}),
-    ...(sidecarScreenshotDependency && sidecarRootRef ? { sidecarRoot: sidecarRootRef } : {}),
-    ...(sidecarScreenshotDependency ? { evidenceDependency: sidecarScreenshotDependency.dependency } : {}),
-    ...(attachedScreenshotPath || sidecarScreenshotDependency
-      ? {
-          reason: sidecarScreenshotDependency
-            ? 'Screenshot evidence was available from the adb capture sidecar.'
-            : 'Screenshot capture was attached to the run.',
-        }
-      : {
-          reason: 'No screenshot capture was produced by the selected runner/provider set.',
-          nextAction: 'Use --capture screenshot:<path> or a runner/provider that produces screenshots.',
-        }),
-  });
+  const screenshotCaptured = Boolean(attachedScreenshotPath || sidecarScreenshotDependency);
+  const screenshotEntry: PendingDiagnosticEntry = {
+    status: screenshotCaptured ? 'captured' : 'unavailable',
+  };
+  if (sidecarScreenshotDependency) {
+    screenshotEntry.provider = 'adb';
+    screenshotEntry.runnerId = 'android-adb';
+    screenshotEntry.evidenceDependency = sidecarScreenshotDependency.dependency;
+    if (sidecarRootRef) {
+      screenshotEntry.sidecarRoot = sidecarRootRef;
+    }
+  }
+  if (attachedScreenshotPath) {
+    screenshotEntry.path = attachedScreenshotPath;
+  } else if (sidecarScreenshotDependency) {
+    screenshotEntry.path = sidecarScreenshotDependency.path;
+  }
+  if (screenshotCaptured) {
+    screenshotEntry.reason = sidecarScreenshotDependency
+      ? 'Screenshot evidence was available from the adb capture sidecar.'
+      : 'Screenshot capture was attached to the run.';
+  } else {
+    screenshotEntry.reason = 'No screenshot capture was produced by the selected runner/provider set.';
+    screenshotEntry.nextAction = 'Use --capture screenshot:<path> or a runner/provider that produces screenshots.';
+  }
+  pushDiagnostic('screenshot', screenshotEntry);
   const missingUiTreeProviderOutput = providerOutputByKind.get('uiTree');
   const uiTreeCaptured = Boolean(attachedEvidence.captures.uiTree);
   const uiTreeReason = resolveCaptureDiagnosticReason('uiTree', uiTreeCaptured, missingUiTreeProviderOutput);
@@ -5659,11 +5710,7 @@ async function stagePrimaryCaptureArtifacts({
   layout: ReturnType<typeof createArtifactLayout>;
   profileSessionEntriesPath: string | null;
 }): Promise<StagedPrimaryCaptureArtifacts> {
-  const sidecarRoot = typeof args['adb-artifacts'] === 'string'
-    ? path.resolve(args['adb-artifacts'])
-    : typeof args['simctl-artifacts'] === 'string'
-      ? path.resolve(args['simctl-artifacts'])
-      : null;
+  const sidecarRoot = resolveSelectedSidecarRoot(args);
   const excludedSourcePaths = new Set(
     [eventLogPath, profileSessionEntriesPath]
       .filter((candidate): candidate is string => typeof candidate === 'string')
