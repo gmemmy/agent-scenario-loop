@@ -261,6 +261,11 @@ type ProviderCommand = {
   phase: 'prepare' | 'startWindow' | 'capture' | 'stopWindow' | 'afterCapture' | 'postRun' | 'finalize';
 };
 const SUPPORTED_PROVIDER_COMMAND_PHASES = new Set<ProviderCommand['phase']>(['capture', 'afterCapture', 'postRun']);
+function resolveProviderCommandExecutionPhase(
+  phase: ProviderCommand['phase'],
+): 'afterCapture' | 'postRun' {
+  return phase === 'postRun' ? 'postRun' : 'afterCapture';
+}
 const PROFILE_SESSION_TERMINAL_COMMAND_STATUSES = new Set([
   'cancelled',
   'completed',
@@ -323,6 +328,18 @@ type ProviderCommandExecution = {
   inputs: EvidenceAttachmentInput[];
   outputStatuses: ProviderOutputStatus[];
   providers: Array<{ name: string; version?: string }>;
+};
+type ProviderCommandExecutionOptions = {
+  includeProviders?: boolean;
+  includeStaticFailures?: boolean;
+  phases?: ProviderCommand['phase'][];
+};
+type StagedArtifactCleanupEntry = {
+  filePath: string;
+  pruneRoot: string;
+};
+type StagedPrimaryCaptureArtifacts = {
+  temporaryCopies: StagedArtifactCleanupEntry[];
 };
 type RequestedDiagnosticDemand = {
   byKind: Map<DiagnosticKind, { requested: boolean; required: boolean }>;
@@ -995,21 +1012,30 @@ async function executeProviderCommands({
   args,
   layout,
   platform,
+  phases,
   runDir,
   runId,
   scenarioId,
+  includeProviders = true,
+  includeStaticFailures = true,
 }: {
   args: CliArgs;
   layout: ReturnType<typeof createArtifactLayout>;
   platform: ProfilePlatform;
+  phases?: ProviderCommand['phase'][];
   runDir: string;
   runId: string;
   scenarioId: string;
+  includeProviders?: boolean;
+  includeStaticFailures?: boolean;
 }): Promise<ProviderCommandExecution> {
   const failures: ProviderCommandFailure[] = [];
   const inputs: EvidenceAttachmentInput[] = [];
   const outputStatuses: ProviderOutputStatus[] = [];
   const providers: Array<{ name: string; version?: string }> = [];
+  const selectedPhases = Array.isArray(phases) && phases.length > 0
+    ? new Set(phases.map((phase) => resolveProviderCommandExecutionPhase(phase)))
+    : null;
   const providerManifestPaths = readRepeatableArgValues(args, 'provider');
   if (providerManifestPaths.length === 0) {
     return { failures, inputs, outputStatuses, providers };
@@ -1031,37 +1057,41 @@ async function executeProviderCommands({
     }
 
     const providerId = safeProviderSegment(String(provider.runnerId ?? path.basename(absoluteManifestPath, '.json')));
-    providers.push({
-      name: providerId,
-      ...(typeof provider.version === 'string' ? { version: provider.version } : {}),
-    });
-    if (Array.isArray(provider.platforms) && !provider.platforms.includes(platform)) {
-      for (const providerCommand of provider.providerCommands ?? []) {
-        for (const output of providerCommand.outputs ?? []) {
-          outputStatuses.push({
-            channel: output.channel,
-            commandId: providerCommand.id,
-            kind: output.kind,
-            path: output.path,
-            phase: providerCommand.phase,
-            providerId,
-            reason: `Evidence provider ${providerId} does not support selected platform "${platform}".`,
-            required: output.required === true,
-            status: 'unsupported',
-          });
-        }
-      }
-      failures.push({
-        commandId: 'platform-compatibility',
-        code: 'provider_platform_unsupported',
-        exitCode: null,
-        message: `Evidence provider ${providerId} does not support selected platform "${platform}".`,
-        name: 'evidence_provider_platform_supported',
-        nextAction: `Use a provider manifest whose platforms include "${platform}", or run this scenario on one of the provider's supported platforms.`,
-        nextActionCode: 'select_supported_provider_platform',
-        phase: 'prepare',
-        providerId,
+    if (includeProviders) {
+      providers.push({
+        name: providerId,
+        ...(typeof provider.version === 'string' ? { version: provider.version } : {}),
       });
+    }
+    if (Array.isArray(provider.platforms) && !provider.platforms.includes(platform)) {
+      if (includeStaticFailures) {
+        for (const providerCommand of provider.providerCommands ?? []) {
+          for (const output of providerCommand.outputs ?? []) {
+            outputStatuses.push({
+              channel: output.channel,
+              commandId: providerCommand.id,
+              kind: output.kind,
+              path: output.path,
+              phase: providerCommand.phase,
+              providerId,
+              reason: `Evidence provider ${providerId} does not support selected platform "${platform}".`,
+              required: output.required === true,
+              status: 'unsupported',
+            });
+          }
+        }
+        failures.push({
+          commandId: 'platform-compatibility',
+          code: 'provider_platform_unsupported',
+          exitCode: null,
+          message: `Evidence provider ${providerId} does not support selected platform "${platform}".`,
+          name: 'evidence_provider_platform_supported',
+          nextAction: `Use a provider manifest whose platforms include "${platform}", or run this scenario on one of the provider's supported platforms.`,
+          nextActionCode: 'select_supported_provider_platform',
+          phase: 'prepare',
+          providerId,
+        });
+      }
       continue;
     }
 
@@ -1089,42 +1119,49 @@ async function executeProviderCommands({
       const stdoutPath = path.join(commandRecordDir, stdoutFileName);
       const stderrPath = path.join(commandRecordDir, stderrFileName);
       if (!SUPPORTED_PROVIDER_COMMAND_PHASES.has(providerCommand.phase)) {
-        for (const output of providerCommand.outputs ?? []) {
-          outputStatuses.push({
-            channel: output.channel,
+        if (includeStaticFailures) {
+          for (const output of providerCommand.outputs ?? []) {
+            outputStatuses.push({
+              channel: output.channel,
+              commandId: providerCommand.id,
+              kind: output.kind,
+              path: output.path,
+              phase: providerCommand.phase,
+              providerId,
+              reason: `Provider command ${providerId}/${providerCommand.id} uses unsupported lifecycle phase "${providerCommand.phase}".`,
+              required: output.required === true,
+              status: 'unsupported',
+            });
+          }
+          await fsp.writeFile(
+            commandRecordPath,
+            `${JSON.stringify({
+              command: providerCommand.command,
+              phase: providerCommand.phase,
+              providerId,
+              status: 'unsupported',
+              supportedPhases: Array.from(SUPPORTED_PROVIDER_COMMAND_PHASES),
+            }, null, 2)}\n`,
+            'utf8',
+          );
+          failures.push({
             commandId: providerCommand.id,
-            kind: output.kind,
-            path: output.path,
+            code: 'provider_lifecycle_phase_unsupported',
+            exitCode: null,
+            message: `Evidence provider command ${providerId}/${providerCommand.id} declares phase "${providerCommand.phase}", but profile runners currently support only the after-capture alias phases "capture"/"afterCapture" and "postRun" provider commands.`,
+            name: 'evidence_provider_lifecycle_supported',
+            nextAction: `Use phase "afterCapture" for diagnostics collected after runner-owned capture evidence is staged into the run, "postRun" for post-profile enrichment, or wait for a runner that supports ${providerCommand.phase} scheduling.`,
+            nextActionCode: 'select_supported_provider_lifecycle_phase',
             phase: providerCommand.phase,
             providerId,
-            reason: `Provider command ${providerId}/${providerCommand.id} uses unsupported lifecycle phase "${providerCommand.phase}".`,
-            required: output.required === true,
-            status: 'unsupported',
+            rawPath: `raw/provider-commands/${commandRecordFileName}`,
           });
         }
-        await fsp.writeFile(
-          commandRecordPath,
-          `${JSON.stringify({
-            command: providerCommand.command,
-            phase: providerCommand.phase,
-            providerId,
-            status: 'unsupported',
-            supportedPhases: Array.from(SUPPORTED_PROVIDER_COMMAND_PHASES),
-          }, null, 2)}\n`,
-          'utf8',
-        );
-        failures.push({
-          commandId: providerCommand.id,
-          code: 'provider_lifecycle_phase_unsupported',
-          exitCode: null,
-          message: `Evidence provider command ${providerId}/${providerCommand.id} declares phase "${providerCommand.phase}", but profile runners currently support only capture, afterCapture, and postRun provider commands.`,
-          name: 'evidence_provider_lifecycle_supported',
-          nextAction: `Use phase "afterCapture" for diagnostics collected after adb/simctl evidence, "postRun" for post-profile enrichment, or wait for a runner that supports ${providerCommand.phase} scheduling.`,
-          nextActionCode: 'select_supported_provider_lifecycle_phase',
-          phase: providerCommand.phase,
-          providerId,
-          rawPath: `raw/provider-commands/${commandRecordFileName}`,
-        });
+        continue;
+      }
+
+      const executionPhase = resolveProviderCommandExecutionPhase(providerCommand.phase);
+      if (selectedPhases && !selectedPhases.has(executionPhase)) {
         continue;
       }
 
@@ -1237,6 +1274,24 @@ async function executeProviderCommands({
   }
 
   return { failures, inputs, outputStatuses, providers };
+}
+
+function mergeProviderCommandExecutions(
+  ...executions: ProviderCommandExecution[]
+): ProviderCommandExecution {
+  const mergedProviders = new Map<string, { name: string; version?: string }>();
+  for (const execution of executions) {
+    for (const provider of execution.providers) {
+      mergedProviders.set(provider.name, provider);
+    }
+  }
+
+  return {
+    failures: executions.flatMap((execution) => execution.failures),
+    inputs: executions.flatMap((execution) => execution.inputs),
+    outputStatuses: executions.flatMap((execution) => execution.outputStatuses),
+    providers: [...mergedProviders.values()],
+  };
 }
 
 /**
@@ -5518,6 +5573,159 @@ function buildProfileEnvironmentPostconditions({
   };
 }
 
+async function copyStagedArtifactIfPresent({
+  destinationPath,
+  excludedSourcePaths = new Set<string>(),
+  preserveInFinalArtifacts = true,
+  pruneRoot,
+  sourcePath,
+}: {
+  destinationPath: string;
+  excludedSourcePaths?: ReadonlySet<string>;
+  preserveInFinalArtifacts?: boolean;
+  pruneRoot?: string;
+  sourcePath: string;
+}): Promise<StagedArtifactCleanupEntry[]> {
+  const sourceStatus = await fsp.stat(sourcePath).catch(() => null);
+  if (!sourceStatus) {
+    return [];
+  }
+
+  const resolvedSourcePath = path.resolve(sourcePath);
+  if (excludedSourcePaths.has(resolvedSourcePath)) {
+    return [];
+  }
+  const resolvedDestinationPath = path.resolve(destinationPath);
+  if (resolvedSourcePath === resolvedDestinationPath) {
+    return [];
+  }
+
+  if (sourceStatus.isDirectory()) {
+    const copied: StagedArtifactCleanupEntry[] = [];
+    for (const entry of await fsp.readdir(resolvedSourcePath, { withFileTypes: true })) {
+      copied.push(...await copyStagedArtifactIfPresent({
+        destinationPath: path.join(resolvedDestinationPath, entry.name),
+        excludedSourcePaths,
+        preserveInFinalArtifacts,
+        pruneRoot: pruneRoot ?? resolvedDestinationPath,
+        sourcePath: path.join(resolvedSourcePath, entry.name),
+      }));
+    }
+    return copied;
+  }
+
+  const destinationStatus = await fsp.lstat(resolvedDestinationPath).catch(() => null);
+  if (destinationStatus) {
+    return [];
+  }
+
+  await ensureDir(path.dirname(resolvedDestinationPath));
+  await fsp.copyFile(resolvedSourcePath, resolvedDestinationPath);
+  return preserveInFinalArtifacts
+    ? []
+    : [{
+        filePath: resolvedDestinationPath,
+        pruneRoot: path.resolve(pruneRoot ?? path.dirname(resolvedDestinationPath)),
+      }];
+}
+
+async function cleanupStagedPrimaryCaptureArtifacts(
+  stagedArtifacts: StagedPrimaryCaptureArtifacts,
+): Promise<void> {
+  for (const stagedCopy of [...stagedArtifacts.temporaryCopies].sort((left, right) => (
+    right.filePath.length - left.filePath.length
+  ))) {
+    await fsp.rm(stagedCopy.filePath, { force: true }).catch(() => undefined);
+    let currentDir = path.dirname(stagedCopy.filePath);
+    while (currentDir !== stagedCopy.pruneRoot) {
+      const remainingEntries = await fsp.readdir(currentDir).catch(() => null);
+      if (!remainingEntries || remainingEntries.length > 0) {
+        break;
+      }
+      await fsp.rmdir(currentDir).catch(() => undefined);
+      currentDir = path.dirname(currentDir);
+    }
+  }
+}
+
+async function stagePrimaryCaptureArtifacts({
+  args,
+  eventLogPath,
+  layout,
+  profileSessionEntriesPath,
+}: {
+  args: CliArgs;
+  eventLogPath: string | null;
+  layout: ReturnType<typeof createArtifactLayout>;
+  profileSessionEntriesPath: string | null;
+}): Promise<StagedPrimaryCaptureArtifacts> {
+  const sidecarRoot = typeof args['adb-artifacts'] === 'string'
+    ? path.resolve(args['adb-artifacts'])
+    : typeof args['simctl-artifacts'] === 'string'
+      ? path.resolve(args['simctl-artifacts'])
+      : null;
+  const excludedSourcePaths = new Set(
+    [eventLogPath, profileSessionEntriesPath]
+      .filter((candidate): candidate is string => typeof candidate === 'string')
+      .map((candidate) => path.resolve(candidate)),
+  );
+  const temporaryCopies: StagedArtifactCleanupEntry[] = [];
+
+  if (sidecarRoot) {
+    temporaryCopies.push(...await copyStagedArtifactIfPresent({
+      destinationPath: layout.raw,
+      excludedSourcePaths,
+      preserveInFinalArtifacts: false,
+      pruneRoot: layout.raw,
+      sourcePath: path.join(sidecarRoot, 'raw'),
+    }));
+    temporaryCopies.push(...await copyStagedArtifactIfPresent({
+      destinationPath: layout.captures,
+      excludedSourcePaths,
+      preserveInFinalArtifacts: false,
+      pruneRoot: layout.captures,
+      sourcePath: path.join(sidecarRoot, 'captures'),
+    }));
+    temporaryCopies.push(...await copyStagedArtifactIfPresent({
+      destinationPath: layout.signals.js,
+      excludedSourcePaths,
+      preserveInFinalArtifacts: false,
+      pruneRoot: layout.signals.js,
+      sourcePath: path.join(sidecarRoot, 'signals', 'js'),
+    }));
+    temporaryCopies.push(...await copyStagedArtifactIfPresent({
+      destinationPath: layout.signals.memory,
+      excludedSourcePaths,
+      preserveInFinalArtifacts: false,
+      pruneRoot: layout.signals.memory,
+      sourcePath: path.join(sidecarRoot, 'signals', 'memory'),
+    }));
+    temporaryCopies.push(...await copyStagedArtifactIfPresent({
+      destinationPath: layout.signals.network,
+      excludedSourcePaths,
+      preserveInFinalArtifacts: false,
+      pruneRoot: layout.signals.network,
+      sourcePath: path.join(sidecarRoot, 'signals', 'network'),
+    }));
+  }
+
+  if (eventLogPath) {
+    await copyStagedArtifactIfPresent({
+      destinationPath: path.join(layout.raw, path.basename(eventLogPath)),
+      sourcePath: eventLogPath,
+    });
+  }
+  if (profileSessionEntriesPath) {
+    await copyStagedArtifactIfPresent({
+      destinationPath: path.join(layout.raw, path.basename(profileSessionEntriesPath)),
+      sourcePath: profileSessionEntriesPath,
+    });
+  }
+  return {
+    temporaryCopies,
+  };
+}
+
 /**
  * Runs the mobile log-ingest profile artifact pipeline.
  *
@@ -5574,14 +5782,44 @@ async function runProfileMobile(args: CliArgs, options: ProfileMobileOptions): P
     scenarioPath,
   });
   await writeProfileRunPlan({ layout, plan: runPlan });
-  const providerExecution = await executeProviderCommands({
+  const stagedPrimaryCaptureArtifacts = await stagePrimaryCaptureArtifacts({
     args,
+    eventLogPath,
     layout,
-    platform: options.platform,
-    runDir,
-    runId,
-    scenarioId: scenarioName,
+    profileSessionEntriesPath,
   });
+  let afterCapturePhaseProviderExecution: ProviderCommandExecution;
+  let postRunPhaseProviderExecution: ProviderCommandExecution;
+  try {
+    afterCapturePhaseProviderExecution = await executeProviderCommands({
+      args,
+      includeProviders: true,
+      includeStaticFailures: true,
+      layout,
+      phases: ['afterCapture'],
+      platform: options.platform,
+      runDir,
+      runId,
+      scenarioId: scenarioName,
+    });
+    postRunPhaseProviderExecution = await executeProviderCommands({
+      args,
+      includeProviders: false,
+      includeStaticFailures: false,
+      layout,
+      phases: ['postRun'],
+      platform: options.platform,
+      runDir,
+      runId,
+      scenarioId: scenarioName,
+    });
+  } finally {
+    await cleanupStagedPrimaryCaptureArtifacts(stagedPrimaryCaptureArtifacts);
+  }
+  const providerExecution = mergeProviderCommandExecutions(
+    afterCapturePhaseProviderExecution,
+    postRunPhaseProviderExecution,
+  );
   let attachedEvidence: AttachedEvidence;
   try {
     attachedEvidence = await resolveAttachedEvidence({ args, layout, providerInputs: providerExecution.inputs });

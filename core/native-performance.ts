@@ -104,6 +104,44 @@ type NativePerformanceLifecycleOverride = {
   startedAt?: string;
 };
 
+type NativePerformanceComparisonMetricBudget = {
+  operator: 'at-least' | 'at-most';
+  threshold: number;
+};
+
+type NativePerformanceComparisonMetricDescriptor = {
+  aggregation: 'count' | 'last' | 'max' | 'mean' | 'p50' | 'p90' | 'p95' | 'p99' | 'sum';
+  budget?: NativePerformanceComparisonMetricBudget;
+  direction: 'higher-is-better' | 'lower-is-better';
+  id: string;
+  sample: string;
+  surface: 'frames' | 'memory' | 'metrics';
+  tolerance: {
+    absolute: number;
+    relative: number;
+  };
+  unit: 'bytes' | 'count' | 'ms' | 'percent';
+};
+
+type NativePerformanceComparisonPolicy = {
+  environment: Array<{
+    name: string;
+    value: boolean | null | number | string;
+  }>;
+  policyId: string;
+  providerVersion: string;
+  target: {
+    buildMode: string;
+    family: string;
+  };
+  window: {
+    definitionId: string;
+    durationMs: number;
+    kind: string;
+    phase: string;
+  };
+};
+
 type NativePerformanceComparisonEvidenceGap =
   | 'artifact-identity'
   | 'bounded-capture-window'
@@ -163,6 +201,8 @@ type AndroidNativePerformanceEvidenceInput = {
   attachments?: NativePerformanceAttachment[];
   capturedAt?: string;
   claimSufficiency?: NativePerformanceClaimSufficiencyOverride;
+  comparisonMetrics?: NativePerformanceComparisonMetricDescriptor[];
+  comparisonPolicy?: NativePerformanceComparisonPolicy;
   comparability?: NativePerformanceComparabilityOverride;
   completenessStatus?: NativePerformanceCompletenessStatus;
   deviceId?: string;
@@ -272,6 +312,8 @@ type IosNativePerformanceEvidenceInput = {
   captureMode?: NativePerformanceCaptureMode;
   capturedAt?: string;
   claimSufficiency?: NativePerformanceClaimSufficiencyOverride;
+  comparisonMetrics?: NativePerformanceComparisonMetricDescriptor[];
+  comparisonPolicy?: NativePerformanceComparisonPolicy;
   comparability?: NativePerformanceComparabilityOverride;
   completenessStatus?: NativePerformanceCompletenessStatus;
   deviceId?: string;
@@ -1086,6 +1128,62 @@ function copyStringList(values: string[] | undefined): string[] | undefined {
   return copied;
 }
 
+function copyComparisonPolicy(
+  policy: NativePerformanceComparisonPolicy | undefined,
+): JsonRecord | undefined {
+  if (!policy) {
+    return undefined;
+  }
+
+  return {
+    environment: policy.environment.map((entry) => ({
+      name: entry.name,
+      value: entry.value,
+    })),
+    policyId: policy.policyId,
+    providerVersion: policy.providerVersion,
+    target: {
+      buildMode: policy.target.buildMode,
+      family: policy.target.family,
+    },
+    window: {
+      definitionId: policy.window.definitionId,
+      durationMs: policy.window.durationMs,
+      kind: policy.window.kind,
+      phase: policy.window.phase,
+    },
+  };
+}
+
+function copyComparisonMetrics(
+  metrics: NativePerformanceComparisonMetricDescriptor[] | undefined,
+): JsonRecord[] | undefined {
+  if (!Array.isArray(metrics) || metrics.length === 0) {
+    return undefined;
+  }
+
+  return metrics.map((metric) => ({
+    aggregation: metric.aggregation,
+    ...(metric.budget
+      ? {
+          budget: {
+            operator: metric.budget.operator,
+            threshold: metric.budget.threshold,
+          },
+        }
+      : {}),
+    direction: metric.direction,
+    id: metric.id,
+    sample: metric.sample,
+    surface: metric.surface,
+    tolerance: {
+      absolute: metric.tolerance.absolute,
+      relative: metric.tolerance.relative,
+    },
+    unit: metric.unit,
+  }));
+}
+
 /**
  * Narrows unknown JSON input to an object record.
  *
@@ -1208,7 +1306,7 @@ function hasMeasurableNativePerformanceSamples(evidence: JsonRecord): boolean {
 }
 
 /**
- * Returns true when at least one source is captured and backed by durable or structured output.
+ * Returns true when at least one captured source and the envelope itself are both durable.
  *
  * @param {JsonRecord} evidence
  * @param {NativePerformanceComparisonContext} context
@@ -1220,16 +1318,16 @@ function hasCapturedNativePerformanceSource(
 ): boolean {
   if (
     !isDurableEvidencePath(context.artifactPath, context) ||
-    !Array.isArray(evidence.diagnosticSources)
+    !Array.isArray(evidence.diagnosticSources) ||
+    !hasStructuredNativePerformanceContent(evidence)
   ) {
     return false;
   }
 
-  const hasDurableStructuredContent = hasStructuredNativePerformanceContent(evidence);
   return evidence.diagnosticSources.some((source) => {
     const sourceRecord = readJsonRecord(source);
     return sourceRecord?.status === 'captured' &&
-      (isDurableEvidencePath(sourceRecord.path, context) || hasDurableStructuredContent);
+      isDurableEvidencePath(sourceRecord.path, context);
   });
 }
 
@@ -1385,6 +1483,18 @@ function hasObservedTargetBinding(
   return hasMatchingObservedTarget;
 }
 
+function hasStructuredComparisonContract(evidence: JsonRecord): boolean {
+  const policy = readJsonRecord(evidence.comparisonPolicy);
+  return (
+    evidence.schemaVersion === '1.1.0' &&
+    policy !== null &&
+    Array.isArray(policy.environment) &&
+    policy.environment.length > 0 &&
+    Array.isArray(evidence.comparisonMetrics) &&
+    evidence.comparisonMetrics.length > 0
+  );
+}
+
 /**
  * Classifies whether native-performance evidence can support comparison claims.
  * Structurally valid evidence that lacks semantic proof remains diagnostic-only.
@@ -1416,7 +1526,11 @@ function classifyNativePerformanceComparisonReadiness(
   ) {
     missingEvidence.push('comparison-claim');
   }
-  if (comparability?.status !== 'comparable' || !isNonEmptyString(comparability.policy)) {
+  if (
+    comparability?.status !== 'comparable' ||
+    !isNonEmptyString(comparability.policy) ||
+    !hasStructuredComparisonContract(evidence)
+  ) {
     missingEvidence.push('comparable-policy');
   }
   if (!hasCaptureTimestamp(evidence.capturedAt)) {
@@ -2261,7 +2375,7 @@ function buildIosNativePerformanceEvidence(input: IosNativePerformanceEvidenceIn
   const hasDiagnosticEvidence = supportingEvidence.length > 0;
 
   const evidence: JsonRecord = {
-    schemaVersion: '1.0.0',
+    schemaVersion: '1.1.0',
     providerId: input.providerId,
     platform: 'ios',
     runId: input.runId,
@@ -2287,6 +2401,12 @@ function buildIosNativePerformanceEvidence(input: IosNativePerformanceEvidenceIn
     targetBinding: buildIosTargetBinding(input),
     claimSufficiency: buildIosClaimSufficiency(supportingEvidence, input.claimSufficiency),
     summary: summarizeIosNativePerformanceEvidence(supportingEvidence),
+    ...(copyComparisonPolicy(input.comparisonPolicy)
+      ? { comparisonPolicy: copyComparisonPolicy(input.comparisonPolicy) }
+      : {}),
+    ...(copyComparisonMetrics(input.comparisonMetrics)
+      ? { comparisonMetrics: copyComparisonMetrics(input.comparisonMetrics) }
+      : {}),
   };
 
   if (hasFields(summary.frames)) {
@@ -2358,7 +2478,7 @@ function buildAndroidNativePerformanceEvidence(input: AndroidNativePerformanceEv
   }
 
   const evidence: JsonRecord = {
-    schemaVersion: '1.0.0',
+    schemaVersion: '1.1.0',
     providerId: input.providerId,
     platform: 'android',
     runId: input.runId,
@@ -2382,6 +2502,12 @@ function buildAndroidNativePerformanceEvidence(input: AndroidNativePerformanceEv
     targetBinding: buildAndroidTargetBinding(input),
     claimSufficiency: buildAndroidClaimSufficiency(supportingEvidence, input.claimSufficiency),
     summary: summarizeAndroidNativePerformanceEvidence(supportingEvidence),
+    ...(copyComparisonPolicy(input.comparisonPolicy)
+      ? { comparisonPolicy: copyComparisonPolicy(input.comparisonPolicy) }
+      : {}),
+    ...(copyComparisonMetrics(input.comparisonMetrics)
+      ? { comparisonMetrics: copyComparisonMetrics(input.comparisonMetrics) }
+      : {}),
   };
 
   if (hasFields(frames)) {

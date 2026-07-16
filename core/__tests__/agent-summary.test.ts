@@ -77,6 +77,32 @@ test('builds a passed-health agent summary with comparison context', () => {
   assert.match(summary, /Optimization claims still require verdict or comparison evidence/u);
 });
 
+test('surfaces native-performance comparison status in the summary header', () => {
+  const summary = buildAgentSummaryMarkdown({
+    health: {
+      scenarioId: 'app-startup',
+      runId: 'run-1',
+      healthStatus: 'passed',
+      checks: [{ name: 'truth_events_complete', status: 'passed', source: 'truth' }],
+    },
+    verdict: {
+      scenarioId: 'app-startup',
+      runId: 'run-1',
+      verdictStatus: 'passed',
+      budgetChecks: [],
+    },
+    comparison: {
+      comparisonStatus: 'unchanged',
+      nativePerformance: {
+        status: 'regressed',
+      },
+      summary: 'Ordinary budgets matched, but trusted native performance regressed.',
+    },
+  });
+
+  assert.match(summary, /Comparison: unchanged; native=regressed/u);
+});
+
 test('blocks optimization claims when scenario health fails', () => {
   const summary = buildAgentSummaryMarkdown({
     health: {

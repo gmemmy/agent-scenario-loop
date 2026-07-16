@@ -17,7 +17,7 @@
   "properties": {
     "schemaVersion": {
       "type": "string",
-      "pattern": "^1\\.0\\.0$"
+      "pattern": "^1\\.(0|1)\\.0$"
     },
     "scenarioId": {
       "type": "string"
@@ -54,6 +54,9 @@
       "items": {
         "$ref": "#/$defs/metricComparison"
       }
+    },
+    "nativePerformance": {
+      "$ref": "#/$defs/nativePerformanceComparison"
     },
     "evidence": {
       "type": "object",
@@ -317,6 +320,192 @@
         "outliersExcluded": {
           "type": "integer",
           "minimum": 0
+        }
+      }
+    },
+    "nativePerformanceComparison": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "metrics", "explanations"],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "not-comparable"
+              }
+            },
+            "required": ["status"]
+          },
+          "then": {
+            "properties": {
+              "explanations": {
+                "minItems": 1
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "enum": ["improved", "regressed", "unchanged", "mixed"]
+              }
+            },
+            "required": ["status"]
+          },
+          "then": {
+            "properties": {
+              "metrics": {
+                "minItems": 1
+              },
+              "explanations": {
+                "maxItems": 0
+              }
+            }
+          }
+        }
+      ],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": ["improved", "regressed", "unchanged", "mixed", "not-comparable"]
+        },
+        "policyId": {
+          "type": "string"
+        },
+        "metrics": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/nativePerformanceComparisonMetric"
+          }
+        },
+        "explanations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/nativePerformanceComparisonExplanation"
+          }
+        }
+      }
+    },
+    "nativePerformanceComparisonExplanation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "phase", "reason"],
+      "properties": {
+        "code": {
+          "type": "string",
+          "enum": [
+            "missing-evidence",
+            "ambiguous-evidence",
+            "untrusted-evidence",
+            "incompatible-run",
+            "policy-mismatch",
+            "invalid-metric",
+            "unsupported-version"
+          ]
+        },
+        "phase": {
+          "type": "string",
+          "enum": ["baseline", "current", "pair", "metric"]
+        },
+        "reason": {
+          "type": "string"
+        },
+        "field": {
+          "type": "string"
+        },
+        "metricId": {
+          "type": "string"
+        },
+        "baseline": {
+          "type": ["string", "number", "integer", "boolean", "null"]
+        },
+        "current": {
+          "type": ["string", "number", "integer", "boolean", "null"]
+        }
+      }
+    },
+    "nativePerformanceComparisonMetric": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "aggregation",
+        "baseline",
+        "budget",
+        "current",
+        "delta",
+        "direction",
+        "id",
+        "percentChange",
+        "sample",
+        "status",
+        "surface",
+        "unit"
+      ],
+      "properties": {
+        "aggregation": {
+          "type": "string",
+          "enum": ["count", "last", "max", "mean", "p50", "p90", "p95", "p99", "sum"]
+        },
+        "baseline": {
+          "type": ["number", "integer", "null"]
+        },
+        "budget": {
+          "$ref": "#/$defs/nativePerformanceComparisonBudgetResult"
+        },
+        "current": {
+          "type": ["number", "integer", "null"]
+        },
+        "delta": {
+          "type": ["number", "integer", "null"]
+        },
+        "direction": {
+          "type": "string",
+          "enum": ["lower-is-better", "higher-is-better"]
+        },
+        "id": {
+          "type": "string"
+        },
+        "percentChange": {
+          "type": ["number", "integer", "null"]
+        },
+        "percentChangeReason": {
+          "type": "string",
+          "enum": ["zero-baseline"]
+        },
+        "sample": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["improved", "regressed", "unchanged", "not-comparable"]
+        },
+        "surface": {
+          "type": "string",
+          "enum": ["frames", "memory", "metrics"]
+        },
+        "unit": {
+          "type": "string",
+          "enum": ["ms", "count", "bytes", "percent"]
+        }
+      }
+    },
+    "nativePerformanceComparisonBudgetResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["result"],
+      "properties": {
+        "result": {
+          "type": "string",
+          "enum": ["passed", "failed", "not-configured"]
+        },
+        "operator": {
+          "type": "string",
+          "enum": ["at-most", "at-least"]
+        },
+        "threshold": {
+          "type": ["number", "integer"]
         }
       }
     }

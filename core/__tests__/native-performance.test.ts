@@ -18,6 +18,7 @@ function comparisonContext({
   providerId,
   runId,
   scenarioId,
+  sourcePaths = [],
   targetPath,
 }: {
   artifactPath: string;
@@ -25,9 +26,10 @@ function comparisonContext({
   providerId: string;
   runId: string;
   scenarioId: string;
+  sourcePaths?: string[];
   targetPath: string;
 }) {
-  const durablePaths = new Set([artifactPath, targetPath]);
+  const durablePaths = new Set([artifactPath, targetPath, ...sourcePaths]);
   return {
     artifactPath,
     evidencePathExists: (runRelativePath: string) => durablePaths.has(runRelativePath),
@@ -35,6 +37,67 @@ function comparisonContext({
     expectedProviderId: providerId,
     expectedRunId: runId,
     expectedScenarioId: scenarioId,
+  };
+}
+
+function buildComparisonContract({
+  buildMode = 'release',
+  durationMs = 12000,
+  environment = [
+    {
+      name: 'device-class',
+      value: 'emulator',
+    },
+    {
+      name: 'thermal-state',
+      value: 'nominal',
+    },
+  ],
+  policyId = 'release-native-baseline-v1',
+  providerVersion = '1.2.3',
+  targetFamily,
+}: {
+  buildMode?: string;
+  durationMs?: number;
+  environment?: Array<{ name: string; value: string }>;
+  policyId?: string;
+  providerVersion?: string;
+  targetFamily: string;
+}) {
+  return {
+    comparisonMetrics: [
+      {
+        aggregation: 'p95',
+        budget: {
+          operator: 'at-most',
+          threshold: 20,
+        },
+        direction: 'lower-is-better',
+        id: 'frame-p95',
+        sample: 'p95FrameMs',
+        surface: 'frames',
+        tolerance: {
+          absolute: 1,
+          relative: 0.05,
+        },
+        unit: 'ms',
+      },
+    ],
+    comparisonPolicy: {
+      environment,
+      policyId,
+      providerVersion,
+      target: {
+        buildMode,
+        family: targetFamily,
+      },
+      window: {
+        definitionId: 'startup-window',
+        durationMs,
+        kind: 'bounded-duration',
+        phase: 'activeLoop',
+      },
+    },
   };
 }
 
@@ -259,7 +322,7 @@ test('builds diagnostic-only Android native-performance evidence from platform s
     scenarioId: 'feed-scroll',
   });
 
-  assert.equal(evidence.schemaVersion, '1.0.0');
+  assert.equal(evidence.schemaVersion, '1.1.0');
   assert.equal(evidence.platform, 'android');
   assert.equal(evidence.evidenceKind, 'mixed');
   assert.equal(evidence.completenessStatus, 'partial');
@@ -697,6 +760,7 @@ test('rejects Android comparison sufficiency without comparable complete verifie
 
 test('classifies Android evidence as comparison-ready only with captured source, bounded window, and observed target proof', () => {
   const artifactPath = 'raw/providers/native-provider/native-performance.json';
+  const sourcePath = 'raw/providers/native-provider/trace-processor-summary.json';
   const targetPath = 'raw/providers/native-provider/android-target.json';
   const evidence = buildAndroidNativePerformanceEvidence({
     appId: 'com.example.app',
@@ -712,7 +776,17 @@ test('classifies Android evidence as comparison-ready only with captured source,
       reason: 'The provider used the release-gated baseline capture policy.',
       policy: 'release-native-baseline-v1',
     },
+    ...buildComparisonContract({
+      targetFamily: 'android-mobile-app',
+    }),
     completenessStatus: 'complete',
+    diagnosticSources: [
+      {
+        sourceId: 'trace-processor',
+        status: 'captured',
+        path: sourcePath,
+      },
+    ],
     deviceId: 'emulator-5554',
     providerId: 'native-provider',
     runId: 'run-android-comparable',
@@ -753,6 +827,7 @@ test('classifies Android evidence as comparison-ready only with captured source,
     providerId: 'native-provider',
     runId: 'run-android-comparable',
     scenarioId: 'feed-scroll',
+    sourcePaths: [sourcePath],
     targetPath,
   });
   assert.deepEqual(classifyNativePerformanceComparisonReadiness(evidence, context), {
@@ -830,6 +905,18 @@ test('classifies Android evidence as comparison-ready only with captured source,
     status: 'diagnostic-only',
   });
 
+  const pathlessCapturedSourceEvidence = {
+    ...evidence,
+    diagnosticSources: evidence.diagnosticSources.map((source: Record<string, unknown>) => ({
+      ...source,
+      ...(source.status === 'captured' ? { path: undefined } : {}),
+    })),
+  };
+  assert.deepEqual(classifyNativePerformanceComparisonReadiness(pathlessCapturedSourceEvidence, context), {
+    missingEvidence: ['captured-source'],
+    status: 'diagnostic-only',
+  });
+
   const policyBoundaryCases: Array<{
     evidence: Record<string, unknown>;
     expectedGap: string;
@@ -849,6 +936,17 @@ test('classifies Android evidence as comparison-ready only with captured source,
       evidence: { ...evidence, comparability: { status: 'comparable' } },
       expectedGap: 'comparable-policy',
       name: 'missing comparable policy',
+    },
+    {
+      evidence: {
+        ...evidence,
+        ...buildComparisonContract({
+          environment: [],
+          targetFamily: 'android-mobile-app',
+        }),
+      },
+      expectedGap: 'comparable-policy',
+      name: 'empty environment conditions',
     },
     {
       evidence: { ...evidence, capturedAt: '1970-01-01T00:00:00.000Z' },
@@ -987,7 +1085,7 @@ test('downgrades self-attested comparison evidence without durable source, windo
   });
 
   assert.deepEqual(readiness, {
-    missingEvidence: ['captured-source', 'measurable-samples', 'bounded-capture-window', 'observed-target-binding'],
+    missingEvidence: ['comparable-policy', 'captured-source', 'measurable-samples', 'bounded-capture-window', 'observed-target-binding'],
     status: 'diagnostic-only',
   });
 });
@@ -1004,6 +1102,10 @@ test('requires every caller-owned native-performance identity expectation', () =
     targetPath,
   });
   const evidence = {
+    ...buildComparisonContract({
+      targetFamily: 'android-mobile-app',
+    }),
+    schemaVersion: '1.1.0',
     capturedAt: '2026-07-13T12:00:12.000Z',
     clockDomain: 'host',
     claimSufficiency: {
@@ -1113,7 +1215,7 @@ test('builds diagnostic-only iOS native-performance evidence from provider summa
     },
   });
 
-  assert.equal(evidence.schemaVersion, '1.0.0');
+  assert.equal(evidence.schemaVersion, '1.1.0');
   assert.equal(evidence.platform, 'ios');
   assert.equal(evidence.evidenceKind, 'mixed');
   assert.equal(evidence.completenessStatus, 'partial');
@@ -1184,6 +1286,7 @@ test('builds diagnostic-only iOS native-performance evidence from provider summa
 
 test('classifies iOS evidence as comparison-ready under the shared native-performance trust gate', () => {
   const artifactPath = 'raw/providers/native-provider/native-performance.json';
+  const sourcePath = 'raw/providers/native-provider/xctrace-summary.json';
   const targetPath = 'raw/providers/native-provider/ios-target.json';
   const evidence = buildIosNativePerformanceEvidence({
     bundleId: 'com.example.app',
@@ -1199,7 +1302,17 @@ test('classifies iOS evidence as comparison-ready under the shared native-perfor
       reason: 'The provider used the release-gated iOS baseline policy.',
       policy: 'release-native-baseline-v1',
     },
+    ...buildComparisonContract({
+      targetFamily: 'ios-simulator-app',
+    }),
     completenessStatus: 'complete',
+    diagnosticSources: [
+      {
+        sourceId: 'xctrace',
+        status: 'captured',
+        path: sourcePath,
+      },
+    ],
     deviceId: 'SIM-123',
     providerId: 'native-provider',
     runId: 'run-ios-comparable',
@@ -1234,6 +1347,7 @@ test('classifies iOS evidence as comparison-ready under the shared native-perfor
     providerId: 'native-provider',
     runId: 'run-ios-comparable',
     scenarioId: 'feed-scroll',
+    sourcePaths: [sourcePath],
     targetPath,
   });
   assert.deepEqual(classifyNativePerformanceComparisonReadiness(evidence, context), {

@@ -102,6 +102,8 @@ type LiveProofComparisonPointer = {
       unit?: string;
     }>;
   };
+  nativePerformanceStatus?: 'improved' | 'mixed' | 'not-comparable' | 'regressed' | 'unchanged';
+  regressionSource?: 'both' | 'native-performance' | 'ordinary';
   runId?: string;
   scenarioId?: string;
   status?: string;
@@ -931,6 +933,18 @@ function formatComparisonPointerMetrics(comparison: LiveProofComparisonPointer):
     : '';
 
   return ` (metrics better=${counts.better} worse=${counts.worse} unchanged=${counts.unchanged} inconclusive=${counts.inconclusive} low_confidence=${counts.low_confidence}${highlightText})`;
+}
+
+function formatComparisonPointerNativePerformance(comparison: LiveProofComparisonPointer): string {
+  const status = comparison.nativePerformanceStatus;
+  if (!status) {
+    return '';
+  }
+
+  const regressionSource = comparison.regressionSource
+    ? ` source=${comparison.regressionSource}`
+    : '';
+  return ` native=${status}${regressionSource}`;
 }
 
 /**
@@ -3523,7 +3537,7 @@ function formatLiveProof(proof: LiveProofArtifact): string {
     `Comparisons: ${proof.comparisons.length}`,
     `Comparison counts: better=${proof.comparisonCounts.better} worse=${proof.comparisonCounts.worse} unchanged=${proof.comparisonCounts.unchanged} mixed=${proof.comparisonCounts.mixed} inconclusive=${proof.comparisonCounts.inconclusive} low_confidence=${proof.comparisonCounts.low_confidence} skipped=${proof.comparisonCounts.skipped}`,
     ...proof.comparisons.map((comparison) => (
-      `- ${comparison.label ?? 'comparison'} (${comparison.scenarioId ?? 'unknown-scenario'}/${comparison.runId ?? 'unknown-run'}): ${comparison.status ?? 'unknown'}${formatComparisonPointerMetrics(comparison)}`
+      `- ${comparison.label ?? 'comparison'} (${comparison.scenarioId ?? 'unknown-scenario'}/${comparison.runId ?? 'unknown-run'}): ${comparison.status ?? 'unknown'}${formatComparisonPointerNativePerformance(comparison)}${formatComparisonPointerMetrics(comparison)}`
     )),
     `Next action: ${proof.nextAction.owner ?? 'unknown'}/${proof.nextAction.code} - ${proof.nextAction.summary}`,
     `Summary: ${proof.summary}`,

@@ -976,6 +976,14 @@
         "reason": {
           "type": ["string", "null"]
         },
+        "nativePerformanceStatus": {
+          "type": "string",
+          "enum": ["improved", "regressed", "unchanged", "mixed", "not-comparable"]
+        },
+        "regressionSource": {
+          "type": "string",
+          "enum": ["ordinary", "native-performance", "both"]
+        },
         "metricSummary": {
           "$ref": "#/$defs/comparisonMetricSummary"
         }

@@ -1187,6 +1187,235 @@ test('accepts comparable native performance evidence with verified claim support
   assert.equal(result.valid, true, result.message);
 });
 
+test('accepts structured 1.1.0 native performance comparison contracts', () => {
+  const result = validateJson({
+    schemaVersion: '1.1.0',
+    providerId: 'native-performance-provider',
+    platform: 'android',
+    runId: 'profile-run',
+    scenarioId: 'feed-scroll',
+    tool: {
+      name: 'trace-processor',
+      version: '1.2.3',
+      command: 'trace_processor_shell',
+    },
+    captureMode: 'session',
+    evidenceKind: 'trace-processor',
+    comparability: {
+      status: 'comparable',
+      policy: 'release-native-baseline-v1',
+    },
+    comparisonPolicy: {
+      policyId: 'release-native-baseline-v1',
+      providerVersion: '1.2.3',
+      window: {
+        definitionId: 'startup-window',
+        kind: 'bounded-duration',
+        phase: 'activeLoop',
+        durationMs: 12000,
+      },
+      target: {
+        family: 'android-mobile-app',
+        buildMode: 'release',
+      },
+      environment: [
+        {
+          name: 'device-class',
+          value: 'emulator',
+        },
+        {
+          name: 'thermal-state',
+          value: 'nominal',
+        },
+      ],
+    },
+    comparisonMetrics: [
+      {
+        id: 'frame-p95',
+        surface: 'frames',
+        sample: 'p95FrameMs',
+        unit: 'ms',
+        aggregation: 'p95',
+        direction: 'lower-is-better',
+        tolerance: {
+          absolute: 1,
+          relative: 0.05,
+        },
+        budget: {
+          operator: 'at-most',
+          threshold: 20,
+        },
+      },
+    ],
+    claimSufficiency: {
+      status: 'sufficient-for-comparison',
+      claim: 'Compare native frame timing against the matching cohort baseline.',
+      reason: 'Trace summary is complete, comparable, and bound to the expected target.',
+      supportingEvidence: ['frames'],
+    },
+    completenessStatus: 'complete',
+    targetBinding: {
+      status: 'verified',
+      deviceId: 'emulator-5554',
+      appId: 'dev.agent-scenario-loop.example',
+      source: 'adb',
+    },
+    frames: {
+      totalFrameCount: 180,
+      jankyFrameCount: 3,
+      p95FrameMs: 12.4,
+    },
+  }, SCHEMAS.nativePerformance, 'Native performance evidence artifact');
+
+  assert.equal(result.valid, true, result.message);
+});
+
+test('rejects comparable 1.1.0 native performance evidence with incomplete comparison policy', () => {
+  const result = validateJson({
+    schemaVersion: '1.1.0',
+    providerId: 'native-performance-provider',
+    platform: 'android',
+    runId: 'profile-run',
+    scenarioId: 'feed-scroll',
+    tool: {
+      name: 'trace-processor',
+      version: '1.2.3',
+    },
+    captureMode: 'session',
+    evidenceKind: 'trace-processor',
+    comparability: {
+      status: 'comparable',
+      policy: 'release-native-baseline-v1',
+    },
+    comparisonPolicy: {
+      policyId: 'release-native-baseline-v1',
+      providerVersion: '1.2.3',
+      window: {
+        definitionId: 'startup-window',
+        kind: 'bounded-duration',
+        phase: 'activeLoop',
+      },
+      target: {
+        family: 'android-mobile-app',
+        buildMode: 'release',
+      },
+      environment: [
+        {
+          name: 'device-class',
+          value: 'emulator',
+        },
+      ],
+    },
+    comparisonMetrics: [
+      {
+        id: 'frame-p95',
+        surface: 'frames',
+        sample: 'p95FrameMs',
+        unit: 'ms',
+        aggregation: 'p95',
+        direction: 'lower-is-better',
+        tolerance: {
+          absolute: 1,
+          relative: 0.05,
+        },
+      },
+    ],
+    claimSufficiency: {
+      status: 'sufficient-for-comparison',
+      supportingEvidence: ['frames'],
+    },
+    completenessStatus: 'complete',
+    targetBinding: {
+      status: 'verified',
+      deviceId: 'emulator-5554',
+      appId: 'dev.agent-scenario-loop.example',
+      source: 'adb',
+    },
+    frames: {
+      totalFrameCount: 180,
+      jankyFrameCount: 3,
+      p95FrameMs: 12.4,
+    },
+  }, SCHEMAS.nativePerformance, 'Native performance evidence artifact');
+
+  assert.equal(result.valid, false);
+  assert.ok(
+    result.errors.some((error: ValidationIssue) => error.path === '$.comparisonPolicy.window.durationMs'),
+    result.message,
+  );
+});
+
+test('rejects comparable 1.1.0 native performance evidence with empty environment conditions', () => {
+  const result = validateJson({
+    schemaVersion: '1.1.0',
+    providerId: 'native-performance-provider',
+    platform: 'android',
+    runId: 'profile-run',
+    scenarioId: 'feed-scroll',
+    tool: {
+      name: 'trace-processor',
+      version: '1.2.3',
+    },
+    captureMode: 'session',
+    evidenceKind: 'trace-processor',
+    comparability: {
+      status: 'comparable',
+      policy: 'release-native-baseline-v1',
+    },
+    comparisonPolicy: {
+      policyId: 'release-native-baseline-v1',
+      providerVersion: '1.2.3',
+      window: {
+        definitionId: 'startup-window',
+        kind: 'bounded-duration',
+        phase: 'activeLoop',
+        durationMs: 12000,
+      },
+      target: {
+        family: 'android-mobile-app',
+        buildMode: 'release',
+      },
+      environment: [],
+    },
+    comparisonMetrics: [
+      {
+        id: 'frame-p95',
+        surface: 'frames',
+        sample: 'p95FrameMs',
+        unit: 'ms',
+        aggregation: 'p95',
+        direction: 'lower-is-better',
+        tolerance: {
+          absolute: 1,
+          relative: 0.05,
+        },
+      },
+    ],
+    claimSufficiency: {
+      status: 'sufficient-for-comparison',
+      supportingEvidence: ['frames'],
+    },
+    completenessStatus: 'complete',
+    targetBinding: {
+      status: 'verified',
+      deviceId: 'emulator-5554',
+      appId: 'dev.agent-scenario-loop.example',
+      source: 'adb',
+    },
+    frames: {
+      totalFrameCount: 180,
+      jankyFrameCount: 3,
+      p95FrameMs: 12.4,
+    },
+  }, SCHEMAS.nativePerformance, 'Native performance evidence artifact');
+
+  assert.equal(result.valid, false);
+  assert.ok(
+    result.errors.some((error: ValidationIssue) => error.path === '$.comparisonPolicy.environment'),
+    result.message,
+  );
+});
+
 test('rejects invalid scenario cycle counts', () => {
   const scenario = readJson('examples/scenarios/mobile/open-close-cycle.json');
   scenario.cycles.iterations = 0;
@@ -1319,6 +1548,52 @@ test('accepts comparison artifacts with metric and evidence details', () => {
   const result = validateJson(comparison, SCHEMAS.comparison, 'Comparison artifact');
 
   assert.equal(result.valid, true, result.message);
+});
+
+test('rejects native comparison artifacts that claim regression without compared metrics', () => {
+  const comparison = {
+    schemaVersion: '1.1.0',
+    scenarioId: 'open-close-cycle',
+    runId: 'current-run',
+    baselineRunId: 'baseline-run',
+    comparisonStatus: 'unchanged',
+    healthStatus: 'passed',
+    verdictStatus: 'passed',
+    nativePerformance: {
+      status: 'regressed',
+      metrics: [],
+      explanations: [],
+    },
+    summary: 'Native performance regressed.',
+  };
+
+  const result = validateJson(comparison, SCHEMAS.comparison, 'Comparison artifact');
+
+  assert.equal(result.valid, false);
+  assert.ok(result.errors.some((error: ValidationIssue) => error.path === '$.nativePerformance.metrics'), result.message);
+});
+
+test('rejects not-comparable native comparison artifacts without explanations', () => {
+  const comparison = {
+    schemaVersion: '1.1.0',
+    scenarioId: 'open-close-cycle',
+    runId: 'current-run',
+    baselineRunId: 'baseline-run',
+    comparisonStatus: 'unchanged',
+    healthStatus: 'passed',
+    verdictStatus: 'passed',
+    nativePerformance: {
+      status: 'not-comparable',
+      metrics: [],
+      explanations: [],
+    },
+    summary: 'Native performance was not comparable.',
+  };
+
+  const result = validateJson(comparison, SCHEMAS.comparison, 'Comparison artifact');
+
+  assert.equal(result.valid, false);
+  assert.ok(result.errors.some((error: ValidationIssue) => error.path === '$.nativePerformance.explanations'), result.message);
 });
 
 test('accepts manifest and metrics profile artifacts', () => {

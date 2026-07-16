@@ -1,9 +1,44 @@
 const fs = require('node:fs');
+const path = require('node:path');
 
 const { createArtifactLayout } = require('./artifact-layout');
+const { classifyNativePerformanceComparisonReadiness } = require('./native-performance');
+const {
+  buildExplanation,
+  buildNotComparableNativePerformanceComparison,
+  compareNativePerformanceEvidencePair,
+  isNativePerformanceRegressed,
+} = require('./native-performance-comparison');
+const { readRunIndexEntry } = require('./run-index');
 const { SCHEMAS, assertValidJson } = require('./schema-validator');
 
+import type { RunIndexEntry } from './run-index';
+import type { NativePerformanceComparisonSection } from './native-performance-comparison';
+
 type ComparisonRecord = Record<string, any>;
+type NativePerformanceAttachmentRecord = {
+  path: string;
+  providerId?: string;
+};
+type OptionalArtifactRecord = {
+  error?: string;
+  value?: ComparisonRecord;
+};
+type ComparisonRunArtifacts = {
+  health: ComparisonRecord;
+  manifest: ComparisonRecord | null;
+  nativePerformance: {
+    attachmentCount: number;
+    attachments: NativePerformanceAttachmentRecord[];
+    attachmentPath?: string;
+    inventoried: boolean;
+    providerId?: string;
+    readError?: string;
+    validationError?: string;
+    value?: ComparisonRecord;
+  };
+  verdict: ComparisonRecord;
+};
 
 type ComparisonBudgetCheck = {
   actual: number | boolean | null;
@@ -95,10 +130,13 @@ type MeasurementPolicy = {
 
 type BuildComparisonOptions = {
   baselineHealth: ComparisonRecord;
+  baselineManifest?: ComparisonRecord | null;
   baselineVerdict: ComparisonRecord;
   comparisonBasis?: ComparisonBasis;
   currentHealth: ComparisonRecord;
+  currentManifest?: ComparisonRecord | null;
   currentVerdict: ComparisonRecord;
+  nativeComparison?: NativePerformanceComparisonSection;
 };
 
 type CompareRunDirectoriesOptions = {
@@ -115,17 +153,619 @@ const RELATIVE_MS_COMPARISON_TOLERANCE = 0.05;
  * Reads and validates the health and verdict artifacts from a run directory.
  *
  * @param {string} runDir
- * @returns {{health: Record<string, unknown>, verdict: Record<string, unknown>}}
+ * @returns {ComparisonRunArtifacts}
  */
-function readRunArtifacts(runDir: string): { health: ComparisonRecord; verdict: ComparisonRecord } {
+function readRunArtifacts(runDir: string): ComparisonRunArtifacts {
   const layout = createArtifactLayout({ outputDir: runDir });
   const health = JSON.parse(fs.readFileSync(layout.health, 'utf8'));
   const verdict = JSON.parse(fs.readFileSync(layout.verdict, 'utf8'));
+  const manifestResult = readOptionalArtifact(layout.profile.manifest);
+  const manifest = manifestResult.value ?? null;
+  const nativeAttachments = readNativePerformanceAttachments(manifest);
+  const nativeAttachment = nativeAttachments.length === 1 ? nativeAttachments[0] : undefined;
+  const nativeAttachmentPath = nativeAttachment?.path
+    ? resolveContainedRunArtifactPath({ runDir, runRelativePath: nativeAttachment.path })
+    : {};
+  const nativeArtifact: OptionalArtifactRecord = nativeAttachment?.path
+    ? nativeAttachmentPath.filePath
+      ? readOptionalArtifact(nativeAttachmentPath.filePath)
+      : nativeAttachmentPath.error
+        ? {
+            error: nativeAttachmentPath.error,
+          }
+        : {}
+    : {};
+  let nativeValidationError: string | undefined;
+  let nativeValue: ComparisonRecord | undefined;
+  if (nativeArtifact.value) {
+    try {
+      nativeValue = assertValidJson(
+        nativeArtifact.value,
+        SCHEMAS.nativePerformance,
+        'Native performance evidence artifact',
+      ) as ComparisonRecord;
+    } catch (error) {
+      nativeValidationError = error instanceof Error ? error.message : String(error);
+    }
+  }
 
   return {
     health: assertValidJson(health, SCHEMAS.health, 'Health artifact') as ComparisonRecord,
+    manifest,
+    nativePerformance: {
+      attachmentCount: nativeAttachments.length,
+      attachments: nativeAttachments,
+      ...(nativeAttachment ? { attachmentPath: nativeAttachment.path } : {}),
+      inventoried: hasNativePerformanceInventory(manifest),
+      ...(nativeAttachment?.providerId ? { providerId: nativeAttachment.providerId } : {}),
+      ...(nativeArtifact.error ? { readError: nativeArtifact.error } : {}),
+      ...(nativeValidationError ? { validationError: nativeValidationError } : {}),
+      ...(nativeValue ? { value: nativeValue } : {}),
+    },
     verdict: assertValidJson(verdict, SCHEMAS.verdict, 'Verdict artifact') as ComparisonRecord,
   };
+}
+
+function readOptionalArtifact(filePath: string): OptionalArtifactRecord {
+  if (!fs.existsSync(filePath)) {
+    return {};
+  }
+
+  try {
+    const parsed = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return {
+        error: `Artifact ${filePath} must contain a JSON object.`,
+      };
+    }
+    return {
+      value: parsed as ComparisonRecord,
+    };
+  } catch (error) {
+    return {
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+function resolveContainedRunArtifactPath({
+  runDir,
+  runRelativePath,
+}: {
+  runDir: string;
+  runRelativePath: string;
+}): { error?: string; filePath?: string } {
+  if (path.isAbsolute(runRelativePath)) {
+    return {
+      error: `Attachment path ${runRelativePath} must be run-relative.`,
+    };
+  }
+
+  const segments = runRelativePath.split(/[\\/]/u);
+  if (segments.some((segment) => segment === '' || segment === '.' || segment === '..')) {
+    return {
+      error: `Attachment path ${runRelativePath} must not contain empty, "." , or ".." segments.`,
+    };
+  }
+
+  const resolvedRunDir = path.resolve(runDir);
+  const resolvedTargetPath = path.resolve(resolvedRunDir, runRelativePath);
+  const relativeToRunDir = path.relative(resolvedRunDir, resolvedTargetPath);
+  if (
+    relativeToRunDir.length === 0 ||
+    relativeToRunDir.startsWith('..') ||
+    path.isAbsolute(relativeToRunDir)
+  ) {
+    return {
+      error: `Attachment path ${runRelativePath} must stay within the run directory.`,
+    };
+  }
+
+  let targetStatus: ReturnType<typeof fs.lstatSync> | null = null;
+  try {
+    targetStatus = fs.lstatSync(resolvedTargetPath);
+  } catch {
+    targetStatus = null;
+  }
+  if (targetStatus && (targetStatus.isSymbolicLink() || !targetStatus.isFile())) {
+    return {
+      error: `Attachment path ${runRelativePath} must resolve to a regular file inside the run directory.`,
+    };
+  }
+
+  if (targetStatus) {
+    const realRunDir = fs.realpathSync(resolvedRunDir);
+    const realTargetPath = fs.realpathSync(resolvedTargetPath);
+    const realRelativePath = path.relative(realRunDir, realTargetPath);
+    if (
+      realRelativePath.length === 0 ||
+      realRelativePath.startsWith('..') ||
+      path.isAbsolute(realRelativePath)
+    ) {
+      return {
+        error: `Attachment path ${runRelativePath} must resolve inside the real run directory.`,
+      };
+    }
+    return {
+      filePath: realTargetPath,
+    };
+  }
+
+  return {
+    filePath: resolvedTargetPath,
+  };
+}
+
+function isContainedRunArtifactFile({
+  runDir,
+  runRelativePath,
+}: {
+  runDir: string;
+  runRelativePath: string;
+}): boolean {
+  const resolved = resolveContainedRunArtifactPath({
+    runDir,
+    runRelativePath,
+  });
+  if (!resolved.filePath) {
+    return false;
+  }
+
+  try {
+    return fs.lstatSync(resolved.filePath).isFile();
+  } catch {
+    return false;
+  }
+}
+
+function readNativePerformanceAttachments(manifest: ComparisonRecord | null): NativePerformanceAttachmentRecord[] {
+  const evidenceAttachments = Array.isArray(manifest?.artifacts?.evidenceAttachments)
+    ? manifest?.artifacts?.evidenceAttachments
+    : [];
+  return evidenceAttachments
+    .map((attachment: unknown) => {
+      if (!attachment || typeof attachment !== 'object') {
+        return null;
+      }
+      const record = attachment as { kind?: unknown; path?: unknown };
+      const providerId = record.kind === 'nativePerformance' && typeof record.path === 'string'
+        ? readProviderIdFromAttachmentPath(record.path)
+        : undefined;
+      return record.kind === 'nativePerformance' && typeof record.path === 'string'
+        ? {
+            path: record.path,
+            ...(providerId
+              ? { providerId }
+              : {}),
+          }
+        : null;
+    })
+    .filter((attachmentEntry: NativePerformanceAttachmentRecord | null): attachmentEntry is NativePerformanceAttachmentRecord => Boolean(attachmentEntry));
+}
+
+function readProviderIdFromAttachmentPath(runRelativePath: string): string | undefined {
+  const segments = runRelativePath.split(/[\\/]/u).filter((segment) => segment.length > 0);
+  if (segments.length < 4 || segments[0] !== 'raw' || segments[1] !== 'providers') {
+    return undefined;
+  }
+
+  const providerId = segments[2];
+  return typeof providerId === 'string' && providerId.length > 0 ? providerId : undefined;
+}
+
+function hasNativePerformanceInventory(manifest: ComparisonRecord | null): boolean {
+  if (!manifest || typeof manifest !== 'object') {
+    return false;
+  }
+
+  if (readNativePerformanceAttachments(manifest).length > 0) {
+    return true;
+  }
+
+  const diagnostics = Array.isArray(manifest.artifacts?.diagnostics) ? manifest.artifacts?.diagnostics : [];
+  return diagnostics.some((entry: unknown) => entry && typeof entry === 'object' && (entry as { kind?: unknown }).kind === 'nativePerformance');
+}
+
+function readRunIndexEntrySafely(runDir: string): { entry?: RunIndexEntry; error?: string } {
+  try {
+    return {
+      entry: readRunIndexEntry(runDir),
+    };
+  } catch (error) {
+    return {
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+function isComparablePlatform(value: unknown): value is 'android' | 'ios' {
+  return value === 'android' || value === 'ios';
+}
+
+function resolveRunScenarioId(artifacts: ComparisonRunArtifacts, fallback?: string): string {
+  return String(artifacts.health.scenarioId ?? artifacts.verdict.scenarioId ?? fallback ?? 'unknown-scenario');
+}
+
+function resolveRunId(artifacts: ComparisonRunArtifacts, fallback?: string): string {
+  return String(artifacts.health.runId ?? artifacts.verdict.runId ?? fallback ?? 'unknown-run');
+}
+
+function buildNativePerformanceReadinessExplanations({
+  missingEvidence,
+  phase,
+}: {
+  missingEvidence: string[];
+  phase: 'baseline' | 'current';
+}): Array<Record<string, unknown>> {
+  const phaseLabel = phase === 'baseline' ? 'Baseline' : 'Current';
+  return missingEvidence.map((gap) => {
+    switch (gap) {
+      case 'artifact-identity':
+        return buildExplanation({
+          code: 'untrusted-evidence',
+          field: 'artifactPath',
+          phase,
+          reason: `${phaseLabel} native-performance evidence did not match the current run identity.`,
+        });
+      case 'bounded-capture-window':
+        return buildExplanation({
+          code: 'missing-evidence',
+          field: 'lifecycle',
+          phase,
+          reason: `${phaseLabel} native-performance evidence did not prove a bounded capture window.`,
+        });
+      case 'captured-source':
+        return buildExplanation({
+          code: 'missing-evidence',
+          field: 'diagnosticSources',
+          phase,
+          reason: `${phaseLabel} native-performance evidence did not preserve a durable captured source inside the run.`,
+        });
+      case 'capture-timestamp':
+        return buildExplanation({
+          code: 'missing-evidence',
+          field: 'capturedAt',
+          phase,
+          reason: `${phaseLabel} native-performance evidence is missing a real capture timestamp.`,
+        });
+      case 'clock-domain':
+        return buildExplanation({
+          code: 'missing-evidence',
+          field: 'clockDomain',
+          phase,
+          reason: `${phaseLabel} native-performance evidence is missing a capture clock domain.`,
+        });
+      case 'comparable-policy':
+        return buildExplanation({
+          code: 'policy-mismatch',
+          field: 'comparability',
+          phase,
+          reason: `${phaseLabel} native-performance evidence did not prove a comparable-policy contract.`,
+        });
+      case 'comparison-claim':
+        return buildExplanation({
+          code: 'untrusted-evidence',
+          field: 'claimSufficiency',
+          phase,
+          reason: `${phaseLabel} native-performance evidence did not prove a trusted comparison claim.`,
+        });
+      case 'complete-evidence':
+        return buildExplanation({
+          code: 'untrusted-evidence',
+          field: 'completenessStatus',
+          phase,
+          reason: `${phaseLabel} native-performance evidence was not complete.`,
+        });
+      case 'measurable-samples':
+        return buildExplanation({
+          code: 'missing-evidence',
+          field: 'frames',
+          phase,
+          reason: `${phaseLabel} native-performance evidence did not expose recognized measurable samples.`,
+        });
+      case 'observed-target-binding':
+        return buildExplanation({
+          code: 'untrusted-evidence',
+          field: 'targetBinding',
+          phase,
+          reason: `${phaseLabel} native-performance evidence did not prove an observed target binding.`,
+        });
+      default:
+        return buildExplanation({
+          code: 'missing-evidence',
+          field: gap,
+          phase,
+          reason: `${phaseLabel} native-performance evidence is missing required proof: ${gap}.`,
+        });
+    }
+  });
+}
+
+function buildNativePerformanceTrustExplanations({
+  baselineRunIndex,
+  currentRunIndex,
+}: {
+  baselineRunIndex: { entry?: RunIndexEntry; error?: string };
+  currentRunIndex: { entry?: RunIndexEntry; error?: string };
+}): Array<Record<string, unknown>> {
+  const explanations: Array<Record<string, unknown>> = [];
+  for (const [phase, result] of [['baseline', baselineRunIndex], ['current', currentRunIndex]] as const) {
+    const phaseLabel = phase === 'baseline' ? 'Baseline' : 'Current';
+    if (result.error) {
+      explanations.push(buildExplanation({
+        code: 'untrusted-evidence',
+        field: 'runIndex',
+        phase,
+        reason: `${phaseLabel} run could not be indexed for trust verification: ${result.error}`,
+      }));
+      continue;
+    }
+    if (!result.entry) {
+      explanations.push(buildExplanation({
+        code: 'untrusted-evidence',
+        field: 'runIndex',
+        phase,
+        reason: `${phaseLabel} run did not expose index metadata for trust verification.`,
+      }));
+      continue;
+    }
+    if (!result.entry.trusted) {
+      explanations.push(buildExplanation({
+        code: 'untrusted-evidence',
+        field: 'trusted',
+        phase,
+        reason: `${phaseLabel} run is not trusted for native-performance comparison (${result.entry.trustReason}).`,
+      }));
+    }
+  }
+
+  if (!baselineRunIndex.entry || !currentRunIndex.entry) {
+    return explanations;
+  }
+
+  for (const field of [
+    {
+      name: 'scenarioId',
+      baseline: baselineRunIndex.entry.scenarioId,
+      current: currentRunIndex.entry.scenarioId,
+      requireExplicit: true,
+    },
+    {
+      name: 'scenarioHash',
+      baseline: baselineRunIndex.entry.scenarioHash ?? null,
+      current: currentRunIndex.entry.scenarioHash ?? null,
+      requireExplicit: true,
+    },
+    {
+      name: 'comparisonLane',
+      baseline: baselineRunIndex.entry.comparisonLane ?? null,
+      current: currentRunIndex.entry.comparisonLane ?? null,
+      requireExplicit: true,
+    },
+    {
+      name: 'cohortHash',
+      baseline: baselineRunIndex.entry.cohortHash ?? null,
+      current: currentRunIndex.entry.cohortHash ?? null,
+      requireExplicit: true,
+    },
+  ] as const) {
+    if (field.requireExplicit && (!field.baseline || !field.current)) {
+      explanations.push(buildExplanation({
+        code: 'incompatible-run',
+        baseline: field.baseline,
+        current: field.current,
+        field: field.name,
+        phase: 'pair',
+        reason: `Trusted native-performance comparison requires an explicit ${field.name} on both baseline and current runs.`,
+      }));
+      continue;
+    }
+    if (field.baseline !== field.current) {
+      explanations.push(buildExplanation({
+        code: 'incompatible-run',
+        baseline: field.baseline,
+        current: field.current,
+        field: field.name,
+        phase: 'pair',
+        reason: `Trusted native-performance comparison requires matching ${field.name} on baseline and current runs.`,
+      }));
+    }
+  }
+
+  return explanations;
+}
+
+function resolveNativePerformanceComparisonCandidate({
+  artifacts,
+  phase,
+  runDir,
+  runIndex,
+}: {
+  artifacts: ComparisonRunArtifacts;
+  phase: 'baseline' | 'current';
+  runDir: string;
+  runIndex: { entry?: RunIndexEntry; error?: string };
+}): {
+  candidate?: {
+    artifactPath: string;
+    evidence: ComparisonRecord;
+  };
+  explanations: Array<Record<string, unknown>>;
+} {
+  const explanations: Array<Record<string, unknown>> = [];
+  const phaseLabel = phase === 'baseline' ? 'Baseline' : 'Current';
+  const nativeEvidence = artifacts.nativePerformance;
+
+  if (nativeEvidence.attachmentCount === 0) {
+    explanations.push(buildExplanation({
+      code: 'missing-evidence',
+      field: 'manifest.artifacts.evidenceAttachments',
+      phase,
+      reason: `${phaseLabel} run did not attach native-performance evidence for comparison.`,
+    }));
+    return { explanations };
+  }
+
+  if (nativeEvidence.attachmentCount > 1) {
+    explanations.push(buildExplanation({
+      code: 'ambiguous-evidence',
+      baseline: nativeEvidence.attachmentCount,
+      field: 'manifest.artifacts.evidenceAttachments',
+      phase,
+      reason: `${phaseLabel} run attached multiple native-performance artifacts; comparison requires exactly one.`,
+    }));
+    return { explanations };
+  }
+
+  if (!nativeEvidence.attachmentPath) {
+    explanations.push(buildExplanation({
+      code: 'missing-evidence',
+      field: 'manifest.artifacts.evidenceAttachments',
+      phase,
+      reason: `${phaseLabel} run did not preserve a native-performance attachment path.`,
+    }));
+    return { explanations };
+  }
+
+  if (!nativeEvidence.providerId) {
+    explanations.push(buildExplanation({
+      code: 'untrusted-evidence',
+      field: nativeEvidence.attachmentPath,
+      phase,
+      reason: `${phaseLabel} native-performance attachment path did not preserve runner-owned provider identity.`,
+    }));
+  }
+
+  if (nativeEvidence.readError) {
+    explanations.push(buildExplanation({
+      code: 'missing-evidence',
+      field: nativeEvidence.attachmentPath,
+      phase,
+      reason: `${phaseLabel} native-performance evidence could not be read: ${nativeEvidence.readError}`,
+    }));
+  }
+
+  if (nativeEvidence.validationError) {
+    explanations.push(buildExplanation({
+      code: 'untrusted-evidence',
+      field: nativeEvidence.attachmentPath,
+      phase,
+      reason: `${phaseLabel} native-performance evidence failed schema validation: ${nativeEvidence.validationError}`,
+    }));
+  }
+
+  if (!nativeEvidence.value) {
+    if (!nativeEvidence.readError && !nativeEvidence.validationError) {
+      explanations.push(buildExplanation({
+        code: 'missing-evidence',
+        field: nativeEvidence.attachmentPath,
+        phase,
+        reason: `${phaseLabel} native-performance evidence did not yield a usable JSON artifact.`,
+      }));
+    }
+    return { explanations };
+  }
+
+  const expectedPlatform = runIndex.entry?.platform;
+  if (!isComparablePlatform(expectedPlatform)) {
+    explanations.push(buildExplanation({
+      code: 'untrusted-evidence',
+      field: 'manifest.platform',
+      phase,
+      reason: `${phaseLabel} run did not record a supported platform for trusted native-performance comparison.`,
+    }));
+    return { explanations };
+  }
+
+  if (!nativeEvidence.providerId) {
+    return { explanations };
+  }
+
+  const readiness = classifyNativePerformanceComparisonReadiness(nativeEvidence.value, {
+    artifactPath: nativeEvidence.attachmentPath,
+    evidencePathExists: (runRelativePath: string) => isContainedRunArtifactFile({
+      runDir,
+      runRelativePath,
+    }),
+    expectedPlatform,
+    expectedProviderId: nativeEvidence.providerId,
+    expectedRunId: resolveRunId(artifacts, runIndex.entry?.runId),
+    expectedScenarioId: resolveRunScenarioId(artifacts, runIndex.entry?.scenarioId),
+  });
+  if (readiness.status !== 'comparison-ready') {
+    explanations.push(...buildNativePerformanceReadinessExplanations({
+      missingEvidence: readiness.missingEvidence,
+      phase,
+    }));
+    return { explanations };
+  }
+
+  return {
+    candidate: {
+      artifactPath: nativeEvidence.attachmentPath,
+      evidence: nativeEvidence.value,
+    },
+    explanations,
+  };
+}
+
+function buildNativePerformanceComparison({
+  baseline,
+  baselineDir,
+  baselineRunIndex,
+  current,
+  currentDir,
+  currentRunIndex,
+}: {
+  baseline: ComparisonRunArtifacts;
+  baselineDir: string;
+  baselineRunIndex: { entry?: RunIndexEntry; error?: string };
+  current: ComparisonRunArtifacts;
+  currentDir: string;
+  currentRunIndex: { entry?: RunIndexEntry; error?: string };
+}): NativePerformanceComparisonSection | undefined {
+  const hasNativeInventory = (
+    baseline.nativePerformance.inventoried ||
+    current.nativePerformance.inventoried ||
+    baseline.nativePerformance.attachmentCount > 0 ||
+    current.nativePerformance.attachmentCount > 0
+  );
+  if (!hasNativeInventory) {
+    return undefined;
+  }
+
+  const trustExplanations = buildNativePerformanceTrustExplanations({
+    baselineRunIndex,
+    currentRunIndex,
+  });
+  const baselineCandidate = resolveNativePerformanceComparisonCandidate({
+    artifacts: baseline,
+    phase: 'baseline',
+    runDir: baselineDir,
+    runIndex: baselineRunIndex,
+  });
+  const currentCandidate = resolveNativePerformanceComparisonCandidate({
+    artifacts: current,
+    phase: 'current',
+    runDir: currentDir,
+    runIndex: currentRunIndex,
+  });
+  const explanations = [
+    ...trustExplanations,
+    ...baselineCandidate.explanations,
+    ...currentCandidate.explanations,
+  ];
+
+  if (explanations.length > 0 || !baselineCandidate.candidate || !currentCandidate.candidate) {
+    return buildNotComparableNativePerformanceComparison({
+      explanations,
+    });
+  }
+
+  return compareNativePerformanceEvidencePair({
+    baselineEvidence: baselineCandidate.candidate.evidence,
+    currentEvidence: currentCandidate.candidate.evidence,
+  });
 }
 
 /**
@@ -294,6 +934,52 @@ function resolveComparisonStatus(
   }
 
   return 'inconclusive';
+}
+
+function summarizeNativePerformanceComparison(
+  nativeComparison: NativePerformanceComparisonSection | undefined,
+): string | null {
+  if (!nativeComparison) {
+    return null;
+  }
+
+  switch (nativeComparison.status) {
+    case 'improved':
+      return 'Native performance improved under the trusted same-condition policy.';
+    case 'regressed':
+      return 'Native performance regressed under the trusted same-condition policy.';
+    case 'mixed':
+      return 'Native performance shows mixed movement under the trusted same-condition policy.';
+    case 'unchanged':
+      return 'Native performance matched the trusted same-condition baseline.';
+    case 'not-comparable':
+      return 'Native performance was not comparable under the trusted same-condition policy.';
+    default:
+      return null;
+  }
+}
+
+function resolveComparisonRegressionSource(
+  comparison: ComparisonRecord,
+): 'both' | 'native-performance' | 'ordinary' | null {
+  const ordinaryRegressed = comparison.comparisonStatus === 'worse';
+  const nativeRegressed = isNativePerformanceRegressed(
+    comparison.nativePerformance as NativePerformanceComparisonSection | undefined,
+  );
+  if (ordinaryRegressed && nativeRegressed) {
+    return 'both';
+  }
+  if (ordinaryRegressed) {
+    return 'ordinary';
+  }
+  if (nativeRegressed) {
+    return 'native-performance';
+  }
+  return null;
+}
+
+function resolveEffectiveComparisonStatus(comparison: ComparisonRecord): ComparisonStatus {
+  return resolveComparisonRegressionSource(comparison) ? 'worse' : comparison.comparisonStatus as ComparisonStatus;
 }
 
 /**
@@ -481,6 +1167,7 @@ function buildComparisonArtifact({
   comparisonBasis,
   currentHealth,
   currentVerdict,
+  nativeComparison,
 }: BuildComparisonOptions): ComparisonRecord {
   const missingRequired: string[] = [];
   const warnings: string[] = [];
@@ -539,8 +1226,9 @@ function buildComparisonArtifact({
         currentVerdictStatus: currentVerdict.verdictStatus,
       })
     : 'inconclusive';
+  const nativeSummary = summarizeNativePerformanceComparison(nativeComparison);
   const comparison = {
-    schemaVersion: '1.0.0',
+    schemaVersion: '1.1.0',
     scenarioId: currentScenarioId,
     ...resolveComparisonFlowIdentity({ currentHealth, currentVerdict }),
     runId: currentRunId,
@@ -556,11 +1244,18 @@ function buildComparisonArtifact({
       metricComparisons,
     }),
     ...(metricComparisons.length > 0 ? { metricComparisons } : {}),
+    ...(nativeComparison ? { nativePerformance: nativeComparison } : {}),
     evidence: {
       missingRequired,
       warnings,
     },
-    summary: summarizeComparison({ comparisonStatus, missingRequired, metricComparisons, warnings }),
+    summary: summarizeComparison({
+      comparisonStatus,
+      missingRequired,
+      metricComparisons,
+      nativeSummary,
+      warnings,
+    }),
   };
 
   return assertValidJson(comparison, SCHEMAS.comparison, 'Comparison artifact') as ComparisonRecord;
@@ -580,9 +1275,20 @@ function compareRunDirectories({
 }: CompareRunDirectoriesOptions): ComparisonRecord {
   const baseline = readRunArtifacts(baselineDir);
   const current = readRunArtifacts(currentDir);
+  const baselineRunIndex = readRunIndexEntrySafely(baselineDir);
+  const currentRunIndex = readRunIndexEntrySafely(currentDir);
+  const nativeComparison = buildNativePerformanceComparison({
+    baseline,
+    baselineDir,
+    baselineRunIndex,
+    current,
+    currentDir,
+    currentRunIndex,
+  });
 
   return buildComparisonArtifact({
     baselineHealth: baseline.health,
+    baselineManifest: baseline.manifest,
     baselineVerdict: baseline.verdict,
     comparisonBasis: buildComparisonBasis({
       baselineDir,
@@ -595,7 +1301,9 @@ function compareRunDirectories({
       strategy,
     }),
     currentHealth: current.health,
+    currentManifest: current.manifest,
     currentVerdict: current.verdict,
+    ...(nativeComparison ? { nativeComparison } : {}),
   });
 }
 
@@ -609,44 +1317,37 @@ function summarizeComparison({
   comparisonStatus,
   missingRequired,
   metricComparisons,
+  nativeSummary,
   warnings,
 }: {
   comparisonStatus: string;
   missingRequired: string[];
   metricComparisons: MetricComparison[];
+  nativeSummary?: string | null;
   warnings: string[];
 }): string {
+  let summary: string;
   if (missingRequired.length > 0) {
-    return `Comparison is inconclusive because required evidence is missing: ${missingRequired.join(', ')}.`;
-  }
-
-  if (metricComparisons.length === 0) {
-    return warnings.length > 0
+    summary = `Comparison is inconclusive because required evidence is missing: ${missingRequired.join(', ')}.`;
+  } else if (metricComparisons.length === 0) {
+    summary = warnings.length > 0
       ? `Comparison is inconclusive: ${warnings.join(' ')}`
       : 'Comparison is inconclusive because there were no comparable metrics.';
+  } else if (comparisonStatus === 'better') {
+    summary = 'Current run improved against the explicit baseline.';
+  } else if (comparisonStatus === 'worse') {
+    summary = 'Current run regressed against the explicit baseline.';
+  } else if (comparisonStatus === 'mixed') {
+    summary = 'Current run has mixed metric movement against the explicit baseline.';
+  } else if (comparisonStatus === 'low_confidence') {
+    summary = 'Current run has low-confidence timing movement against the baseline; repeat or multi-sample proof is required before treating it as a regression.';
+  } else if (comparisonStatus === 'unchanged') {
+    summary = 'Current run matched the explicit baseline.';
+  } else {
+    summary = 'Comparison is inconclusive.';
   }
 
-  if (comparisonStatus === 'better') {
-    return 'Current run improved against the explicit baseline.';
-  }
-
-  if (comparisonStatus === 'worse') {
-    return 'Current run regressed against the explicit baseline.';
-  }
-
-  if (comparisonStatus === 'mixed') {
-    return 'Current run has mixed metric movement against the explicit baseline.';
-  }
-
-  if (comparisonStatus === 'low_confidence') {
-    return 'Current run has low-confidence timing movement against the baseline; repeat or multi-sample proof is required before treating it as a regression.';
-  }
-
-  if (comparisonStatus === 'unchanged') {
-    return 'Current run matched the explicit baseline.';
-  }
-
-  return 'Comparison is inconclusive.';
+  return nativeSummary ? `${summary} ${nativeSummary}` : summary;
 }
 
 export {
@@ -657,6 +1358,8 @@ export {
   buildMeasurementPolicy,
   indexBudgetChecks,
   readRunArtifacts,
+  resolveComparisonRegressionSource,
+  resolveEffectiveComparisonStatus,
   resolveComparisonStatus,
   summarizeComparison,
 };
