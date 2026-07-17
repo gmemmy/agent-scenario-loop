@@ -11,6 +11,8 @@ const {
   runAndroidAdbPreflight,
 } = require('./android-adb');
 const {
+  executeProviderCommands,
+  mergeProviderCommandExecutions,
   parseArgs,
   readScalarArg,
   resolveArtifactRoot,
@@ -18,7 +20,9 @@ const {
   runProfileCompatibilityPreflight,
   runProfileMobile,
   usage,
+  writeRunnerActiveLoopWindow,
 } = require('./profile-mobile');
+const { createArtifactLayout } = require('../core/artifact-layout');
 const { isAndroidAdbPressKey } = require('../core/android-adb-press-keys') as typeof import('../core/android-adb-press-keys');
 const { buildScenarioExecutionPlan } = require('../core/execution-plan');
 const { alignProfileCommandsWithPortablePolicy } = require('../core/profile-command-policy') as typeof import('../core/profile-command-policy');
@@ -49,6 +53,7 @@ type AndroidAdbProfileCommand = {
 
 type AndroidAdbDriverStep = import('./android-adb').AndroidAdbDriverStep;
 type AndroidAsyncStorageWrite = import('./android-adb').AndroidAsyncStorageWrite;
+type ProfileMobileRunOptions = import('./profile-mobile').ProfileMobileOptions;
 type ScenarioExecutionStep = import('../core/execution-plan').ScenarioExecutionStep;
 type AndroidAdbProfileResult = Awaited<ReturnType<typeof runAndroidAdbPreflight>>;
 
@@ -174,6 +179,31 @@ function readStableAdapterCommandId(command: Record<string, unknown>): string {
  */
 function createRunId(): string {
   return crypto.randomBytes(6).toString('hex');
+}
+
+function resolveAndroidLiveProviderIdentity({
+  args,
+  packageName,
+}: {
+  args: import('./profile-mobile').CliArgs;
+  packageName: string | null;
+}): Record<string, string> | undefined {
+  if (!packageName) {
+    return undefined;
+  }
+
+  const serial = typeof args.serial === 'string' && args.serial.trim().length > 0 ? args.serial.trim() : '';
+  return {
+    appId: packageName,
+    packageName,
+    ...(serial
+      ? {
+          serial,
+          targetId: serial,
+          udid: serial,
+        }
+      : {}),
+  };
 }
 
 /**
@@ -798,7 +828,13 @@ function appendCaptureArg({
   value: string;
 }): string | boolean | Array<string | boolean> {
   const existing = args.capture;
-  return existing === undefined ? value : Array.isArray(existing) ? [...existing, value] : [existing, value];
+  if (existing === undefined) {
+    return value;
+  }
+  if (Array.isArray(existing)) {
+    return [...existing, value];
+  }
+  return [existing, value];
 }
 
 /**
@@ -1261,15 +1297,19 @@ function summarizeFailedAndroidChecks(health: Record<string, unknown>): string {
   const checks = Array.isArray(health.checks) ? health.checks : [];
   const failedChecks = checks
     .filter((check: Record<string, unknown>) => check?.status === 'failed')
-    .map((check: Record<string, unknown>) => (
-      typeof check.message === 'string'
-        ? check.message
-        : typeof check.code === 'string'
-          ? check.code
-          : 'unknown failure'
-    ));
+    .map((check: Record<string, unknown>) => formatFailedAndroidCheck(check));
 
   return failedChecks.length > 0 ? ` Failed checks: ${failedChecks.join(' ')}` : '';
+}
+
+function formatFailedAndroidCheck(check: Record<string, unknown>): string {
+  if (typeof check.message === 'string') {
+    return check.message;
+  }
+  if (typeof check.code === 'string') {
+    return check.code;
+  }
+  return 'unknown failure';
 }
 
 /**
@@ -1513,8 +1553,67 @@ async function runProfileAndroid(
       replacementHint: 'Pass --package, set ASL_ANDROID_APP_ID in generated scripts, or replace app.androidPackage in asl.config.json.',
     });
   }
-  const adbCapture = adbCaptureEnabled
-    ? await runAndroidAdbPreflight({
+  const liveWindowProviderLifecycle = adbCaptureEnabled;
+  const liveProviderRunDir = path.join(artifactRoot, scenarioName, runId);
+  const liveProviderIdentity = liveWindowProviderLifecycle
+    ? resolveAndroidLiveProviderIdentity({ args, packageName: androidPackageName })
+    : undefined;
+  const liveProviderLayout = liveWindowProviderLifecycle
+    ? createArtifactLayout({ outputDir: liveProviderRunDir })
+    : null;
+  const liveProviderExecutionOptions = liveProviderIdentity
+    ? { identity: liveProviderIdentity }
+    : {};
+  let providerExecution = mergeProviderCommandExecutions();
+  let finalizedLiveWindowProviderExecution = false;
+  const finalizeLiveWindowProviderExecution = async (): Promise<void> => {
+    if (finalizedLiveWindowProviderExecution || !liveWindowProviderLifecycle || !liveProviderLayout) {
+      return;
+    }
+
+    finalizedLiveWindowProviderExecution = true;
+    providerExecution = mergeProviderCommandExecutions(
+      providerExecution,
+      await executeProviderCommands({
+        args,
+        includeProviders: false,
+        includeStaticFailures: false,
+        layout: liveProviderLayout,
+        phases: ['finalize'],
+        platform: 'android',
+        runDir: liveProviderRunDir,
+        runId,
+        scenarioId: scenarioName,
+        supportMode: 'live-window',
+        ...liveProviderExecutionOptions,
+      }),
+    );
+  };
+  if (liveWindowProviderLifecycle && liveProviderLayout) {
+    providerExecution = mergeProviderCommandExecutions(
+      providerExecution,
+      await executeProviderCommands({
+        args,
+        includeProviders: true,
+        includeStaticFailures: true,
+        layout: liveProviderLayout,
+        phases: ['startWindow'],
+        platform: 'android',
+        runDir: liveProviderRunDir,
+        runId,
+        scenarioId: scenarioName,
+        supportMode: 'live-window',
+        ...liveProviderExecutionOptions,
+      }),
+    );
+  }
+  let preRunFailure: Error | null = null;
+  let adbCapture: AndroidAdbProfileResult | null = null;
+  let runnerActiveLoopStartedAt: string | null = null;
+  if (adbCaptureEnabled) {
+    runnerActiveLoopStartedAt = new Date().toISOString();
+    try {
+      adbCapture = await runAndroidAdbPreflight({
         ...(typeof args.adb === 'string' ? { adbPath: args.adb } : {}),
         captureLogcat: true,
         clearLogcat: isEnabled(args['clear-logcat']),
@@ -1546,14 +1645,57 @@ async function runProfileAndroid(
           profileSessionStorageEnabled,
           scenario,
         }),
-      })
-    : null;
+      });
+    } catch (error) {
+      preRunFailure = error instanceof Error ? error : new Error(String(error));
+    } finally {
+      if (runnerActiveLoopStartedAt) {
+        try {
+          await writeRunnerActiveLoopWindow({
+            endedAt: new Date().toISOString(),
+            platform: 'android',
+            runDir: liveProviderRunDir,
+            runnerId: 'android-adb-profile-runner',
+            startedAt: runnerActiveLoopStartedAt,
+          });
+        } catch (error) {
+          if (!preRunFailure) {
+            preRunFailure = error instanceof Error ? error : new Error(String(error));
+          }
+        }
+      }
+      if (liveWindowProviderLifecycle && liveProviderLayout) {
+        providerExecution = mergeProviderCommandExecutions(
+          providerExecution,
+          await executeProviderCommands({
+            args,
+            includeProviders: false,
+            includeStaticFailures: false,
+            layout: liveProviderLayout,
+            phases: ['stopWindow'],
+            platform: 'android',
+            runDir: liveProviderRunDir,
+            runId,
+            scenarioId: scenarioName,
+            supportMode: 'live-window',
+            ...liveProviderExecutionOptions,
+          }),
+        );
+      }
+    }
+    if (preRunFailure) {
+      await finalizeLiveWindowProviderExecution();
+      throw preRunFailure;
+    }
+  }
 
   if (adbCapture && adbCapture.health.healthStatus !== 'passed') {
     if (!canPublishProfileFromDegradedAdbCapture(adbCapture)) {
-      throw new Error(
+      preRunFailure = new Error(
         `Android adb capture failed; inspect ${adbCapture.runDir}/agent-summary.md.${summarizeFailedAndroidChecks(adbCapture.health)}`,
       );
+      await finalizeLiveWindowProviderExecution();
+      throw preRunFailure;
     }
   }
 
@@ -1580,9 +1722,11 @@ async function runProfileAndroid(
     : null;
 
   if (agentDeviceCapture && agentDeviceCapture.health.healthStatus !== 'passed') {
-    throw new Error(
+    preRunFailure = new Error(
       `agent-device capture failed; inspect ${agentDeviceCapture.runDir}/agent-summary.md.${summarizeFailedAgentDeviceChecks(agentDeviceCapture.health)}`,
     );
+    await finalizeLiveWindowProviderExecution();
+    throw preRunFailure;
   }
 
   const videoCapturePath = adbCapture ? readAndroidAdbVideoCapturePath(adbCapture.metadata) : null;
@@ -1606,15 +1750,16 @@ async function runProfileAndroid(
   const lifecyclePhase = resolveManifestLifecyclePhase(args);
   const environmentSource = agentDeviceCapture ? 'agent-device' : 'adb';
   const copiedAdbLogArtifact = adbCapture ? 'raw/adb-logcat.txt' : undefined;
-
-  return runProfileMobile(profileArgs, {
-    commandTransport: profileSessionStorageEnabled
-      ? 'profile-session-storage'
-      : profileSessionEnabled
-        ? 'profile-session-deeplink'
-        : agentDeviceCapture
-          ? 'agent-device'
-          : 'adb-capture',
+  let commandTransport = 'adb-capture';
+  if (profileSessionStorageEnabled) {
+    commandTransport = 'profile-session-storage';
+  } else if (profileSessionEnabled) {
+    commandTransport = 'profile-session-deeplink';
+  } else if (agentDeviceCapture) {
+    commandTransport = 'agent-device';
+  }
+  const profileMobileOptions: ProfileMobileRunOptions = {
+    commandTransport,
     ...(options.comparisonLane ? { comparisonLane: options.comparisonLane } : {}),
     defaultDriver: 'adb-logcat',
     additionalRunnerChecks: adbCapture ? buildDegradedAdbCaptureProfileChecks(adbCapture) : [],
@@ -1647,7 +1792,24 @@ async function runProfileAndroid(
     },
     interactionDriver: agentDeviceCapture ? 'agent-device' : 'adb-logcat',
     platform: 'android',
-  });
+  };
+  if (liveWindowProviderLifecycle) {
+    profileMobileOptions.providerCommandExecution = providerExecution;
+    profileMobileOptions.providerCommandSupportMode = 'live-window';
+    if (liveProviderIdentity) {
+      profileMobileOptions.providerCommandIdentity = liveProviderIdentity;
+    }
+  }
+  try {
+    return await runProfileMobile(profileArgs, profileMobileOptions);
+  } catch (error) {
+    preRunFailure = error instanceof Error ? error : new Error(String(error));
+    throw error;
+  } finally {
+    if (preRunFailure) {
+      await finalizeLiveWindowProviderExecution();
+    }
+  }
 }
 
 /**

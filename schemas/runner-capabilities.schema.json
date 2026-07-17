@@ -192,7 +192,7 @@
         "phase": {
           "type": "string",
           "enum": ["prepare", "startWindow", "capture", "stopWindow", "afterCapture", "postRun", "finalize"],
-          "description": "Provider command lifecycle phase. Current profile runners execute capture as a legacy afterCapture alias plus afterCapture and postRun commands; prepare, startWindow, stopWindow, and finalize are reserved for future runners with true lifecycle scheduling."
+          "description": "Provider command lifecycle phase. Live adb/simctl profile runners can schedule startWindow and stopWindow around the active capture loop, still treat capture as a legacy afterCapture alias, and run finalize after provider normalization. Fixture, rehydrated, and profile-mobile-only runs still fail closed for live-window phases."
         },
         "command": {
           "type": "string",
@@ -215,7 +215,7 @@
         },
         "outputs": {
           "type": "array",
-          "minItems": 1,
+          "minItems": 0,
           "items": {
             "$ref": "#/$defs/providerCommandOutput"
           }

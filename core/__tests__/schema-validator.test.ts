@@ -179,8 +179,12 @@ test('script provider examples declare command-backed evidence outputs', () => {
     assert.ok(Array.isArray(provider.providerCommands), `${fixture} is missing providerCommands`);
     assert.ok(provider.providerCommands.length > 0, `${fixture} has no provider commands`);
     assert.ok(
-      provider.providerCommands.every((command: JsonRecord) => Array.isArray(command.outputs) && command.outputs.length > 0),
-      `${fixture} has a command without outputs`,
+      provider.providerCommands.every((command: JsonRecord) => Array.isArray(command.outputs)),
+      `${fixture} has a command with invalid outputs`,
+    );
+    assert.ok(
+      provider.providerCommands.some((command: JsonRecord) => command.outputs.length > 0),
+      `${fixture} does not declare any evidence-producing provider command`,
     );
   }
 });
@@ -496,6 +500,23 @@ test('accepts required provider command outputs', () => {
           required: true,
         },
       ],
+    },
+  ];
+
+  const result = validateJson(provider, SCHEMAS.runnerCapabilities, 'Runner capability manifest');
+
+  assert.equal(result.valid, true, result.message);
+  assert.deepEqual(result.errors, []);
+});
+
+test('accepts zero-output provider lifecycle commands', () => {
+  const provider = readJson('templates/evidence-provider.json');
+  provider.providerCommands = [
+    {
+      id: 'start-window-trace',
+      phase: 'startWindow',
+      command: 'start-window-trace',
+      outputs: [],
     },
   ];
 
@@ -1416,6 +1437,82 @@ test('rejects comparable 1.1.0 native performance evidence with empty environmen
   );
 });
 
+test('rejects comparable 1.1.0 native performance evidence with a non-positive policy window duration', () => {
+  const result = validateJson({
+    schemaVersion: '1.1.0',
+    providerId: 'native-performance-provider',
+    platform: 'android',
+    runId: 'profile-run',
+    scenarioId: 'feed-scroll',
+    tool: {
+      name: 'trace-processor',
+      version: '1.2.3',
+    },
+    captureMode: 'session',
+    evidenceKind: 'trace-processor',
+    comparability: {
+      status: 'comparable',
+      policy: 'release-native-baseline-v1',
+    },
+    comparisonPolicy: {
+      policyId: 'release-native-baseline-v1',
+      providerVersion: '1.2.3',
+      window: {
+        definitionId: 'startup-window',
+        kind: 'bounded-duration',
+        phase: 'activeLoop',
+        durationMs: 0,
+      },
+      target: {
+        family: 'android-mobile-app',
+        buildMode: 'release',
+      },
+      environment: [
+        {
+          name: 'device-class',
+          value: 'emulator',
+        },
+      ],
+    },
+    comparisonMetrics: [
+      {
+        id: 'frame-p95',
+        surface: 'frames',
+        sample: 'p95FrameMs',
+        unit: 'ms',
+        aggregation: 'p95',
+        direction: 'lower-is-better',
+        tolerance: {
+          absolute: 1,
+          relative: 0.05,
+        },
+      },
+    ],
+    claimSufficiency: {
+      status: 'sufficient-for-comparison',
+      supportingEvidence: ['frames'],
+    },
+    completenessStatus: 'complete',
+    targetBinding: {
+      status: 'verified',
+      deviceId: 'emulator-5554',
+      appId: 'dev.agent-scenario-loop.example',
+      source: 'adb',
+    },
+    frames: {
+      totalFrameCount: 180,
+      jankyFrameCount: 3,
+      p95FrameMs: 12.4,
+    },
+  }, SCHEMAS.nativePerformance, 'Native performance evidence artifact');
+
+  assert.equal(result.valid, false);
+  assert.ok(
+    result.errors.some((error: ValidationIssue) => error.path === '$.comparisonPolicy.window.durationMs'),
+    result.message,
+  );
+});
+
 test('rejects invalid scenario cycle counts', () => {
   const scenario = readJson('examples/scenarios/mobile/open-close-cycle.json');
   scenario.cycles.iterations = 0;
@@ -1571,6 +1668,55 @@ test('rejects native comparison artifacts that claim regression without compared
 
   assert.equal(result.valid, false);
   assert.ok(result.errors.some((error: ValidationIssue) => error.path === '$.nativePerformance.metrics'), result.message);
+});
+
+test('rejects native comparison artifacts with explanations when status is comparable', () => {
+  const comparison = {
+    schemaVersion: '1.1.0',
+    scenarioId: 'open-close-cycle',
+    runId: 'current-run',
+    baselineRunId: 'baseline-run',
+    comparisonStatus: 'unchanged',
+    healthStatus: 'passed',
+    verdictStatus: 'passed',
+    nativePerformance: {
+      status: 'regressed',
+      metrics: [
+        {
+          id: 'frame-p95',
+          surface: 'frames',
+          sample: 'p95FrameMs',
+          unit: 'ms',
+          aggregation: 'p95',
+          baseline: 16.2,
+          current: 19.4,
+          delta: 3.2,
+          percentChange: 19.7530864198,
+          direction: 'lower-is-better',
+          status: 'regressed',
+          budget: {
+            result: 'failed',
+            operator: 'at-most',
+            threshold: 18,
+          },
+        },
+      ],
+      explanations: [
+        {
+          code: 'policy-mismatch',
+          field: 'comparisonPolicy.environment',
+          phase: 'pair',
+          reason: 'This explanation should not be present on a comparable result.',
+        },
+      ],
+    },
+    summary: 'Native performance regressed.',
+  };
+
+  const result = validateJson(comparison, SCHEMAS.comparison, 'Comparison artifact');
+
+  assert.equal(result.valid, false);
+  assert.ok(result.errors.some((error: ValidationIssue) => error.path === '$.nativePerformance.explanations'), result.message);
 });
 
 test('rejects not-comparable native comparison artifacts without explanations', () => {

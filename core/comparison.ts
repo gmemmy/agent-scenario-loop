@@ -1,5 +1,6 @@
 const fs = require('node:fs');
 const path = require('node:path');
+const crypto = require('node:crypto');
 
 const { createArtifactLayout } = require('./artifact-layout');
 const { classifyNativePerformanceComparisonReadiness } = require('./native-performance');
@@ -336,6 +337,42 @@ function isContainedRunArtifactFile({
   } catch {
     return false;
   }
+}
+
+function readContainedRunArtifactJson({
+  runDir,
+  runRelativePath,
+}: {
+  runDir: string;
+  runRelativePath: string;
+}): unknown {
+  const resolved = resolveContainedRunArtifactPath({
+    runDir,
+    runRelativePath,
+  });
+  if (!resolved.filePath) {
+    throw new Error(resolved.error ?? `Attachment path ${runRelativePath} is not a readable run artifact.`);
+  }
+
+  return JSON.parse(fs.readFileSync(resolved.filePath, 'utf8'));
+}
+
+function readContainedRunArtifactSha256({
+  runDir,
+  runRelativePath,
+}: {
+  runDir: string;
+  runRelativePath: string;
+}): string {
+  const resolved = resolveContainedRunArtifactPath({
+    runDir,
+    runRelativePath,
+  });
+  if (!resolved.filePath) {
+    throw new Error(resolved.error ?? `Attachment path ${runRelativePath} is not a readable run artifact.`);
+  }
+
+  return crypto.createHash('sha256').update(fs.readFileSync(resolved.filePath)).digest('hex');
 }
 
 function readNativePerformanceAttachments(manifest: ComparisonRecord | null): NativePerformanceAttachmentRecord[] {
@@ -704,6 +741,14 @@ function resolveNativePerformanceComparisonCandidate({
   const readiness = classifyNativePerformanceComparisonReadiness(nativeEvidence.value, {
     artifactPath: nativeEvidence.attachmentPath,
     evidencePathExists: (runRelativePath: string) => isContainedRunArtifactFile({
+      runDir,
+      runRelativePath,
+    }),
+    readEvidenceJson: (runRelativePath: string) => readContainedRunArtifactJson({
+      runDir,
+      runRelativePath,
+    }),
+    readEvidenceSha256: (runRelativePath: string) => readContainedRunArtifactSha256({
       runDir,
       runRelativePath,
     }),

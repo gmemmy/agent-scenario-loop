@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import { spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
@@ -12,6 +13,7 @@ const {
   parseIosMetricKitSummaryText,
   parseIosXctraceSummaryText,
 } = require('agent-scenario-loop');
+const RUNNER_ACTIVE_LOOP_WINDOW_RELATIVE_PATH = 'raw/runner-active-loop-window.json';
 
 /**
  * Parses simple `--key value` CLI arguments.
@@ -128,6 +130,443 @@ function resolveProviderId({ outPath, runDir }) {
     throw new Error(`Native-performance provider identity "${providerId}" is invalid.`);
   }
   return providerId;
+}
+
+function resolvePositionalAction(argv) {
+  const firstToken = argv[0];
+  if (!firstToken || firstToken.startsWith('--')) {
+    return {
+      action: 'normalize',
+      args: argv,
+    };
+  }
+
+  return {
+    action: firstToken,
+    args: argv.slice(1),
+  };
+}
+
+function isValidProviderId(value) {
+  return /^[a-z0-9][a-z0-9-]*$/u.test(value);
+}
+
+function resolveLifecycleProviderId({ args, providerDir }) {
+  const configuredProviderId = optionalStringArg(args, 'provider-id', 'ASL_PROVIDER_ID');
+  if (configuredProviderId) {
+    if (!isValidProviderId(configuredProviderId)) {
+      throw new Error(`Native-performance provider identity "${configuredProviderId}" is invalid.`);
+    }
+    return configuredProviderId;
+  }
+
+  const providerId = path.basename(providerDir);
+  if (!isValidProviderId(providerId)) {
+    throw new Error(`Native-performance provider identity "${providerId}" is invalid.`);
+  }
+  return providerId;
+}
+
+function resolveRequestedAppId(args, platform) {
+  const genericAppId = optionalStringArg(args, 'app-id', 'ASL_APP_ID');
+  if (genericAppId) {
+    return genericAppId;
+  }
+
+  if (platform === 'ios') {
+    return optionalStringArg(args, 'bundle', 'ASL_IOS_APP_ID');
+  }
+
+  return optionalStringArg(args, 'app', 'ASL_ANDROID_APP_ID');
+}
+
+function resolveRequestedTargetId(args, platform) {
+  const genericTargetId = optionalStringArg(args, 'target-id', 'ASL_TARGET_ID');
+  if (genericTargetId) {
+    return genericTargetId;
+  }
+
+  if (platform === 'ios') {
+    return optionalStringArg(args, 'device', 'ASL_IOS_UDID');
+  }
+
+  return optionalStringArg(args, 'device', 'ASL_ANDROID_SERIAL');
+}
+
+function sha256File(filePath) {
+  return crypto.createHash('sha256').update(fs.readFileSync(filePath)).digest('hex');
+}
+
+function readJsonArtifactIfAvailable(filePath) {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? parsed
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function resolveLifecycleProviderDir(args) {
+  const providerDir = optionalStringArg(args, 'provider-dir', 'ASL_PROVIDER_DIR');
+  if (!providerDir) {
+    throw new Error('Native-performance lifecycle actions require --provider-dir or ASL_PROVIDER_DIR.');
+  }
+  return providerDir;
+}
+
+function resolveTargetBindingArtifactPath({ args, providerDir }) {
+  return optionalStringArg(args, 'target-binding', 'ASL_NATIVE_TARGET_BINDING') ?? path.join(providerDir, 'target-binding.json');
+}
+
+function resolveLifecycleStatePath(providerDir) {
+  return path.join(providerDir, 'native-window-session.json');
+}
+
+function buildLifecycleWindowRecord(sessionState) {
+  const startedAt = typeof sessionState.startedAt === 'string' ? sessionState.startedAt : undefined;
+  const endedAt = typeof sessionState.endedAt === 'string' ? sessionState.endedAt : undefined;
+  let durationMs;
+  if (startedAt && endedAt) {
+    const startedMs = Date.parse(startedAt);
+    const endedMs = Date.parse(endedAt);
+    if (Number.isFinite(startedMs) && Number.isFinite(endedMs) && endedMs > startedMs) {
+      durationMs = endedMs - startedMs;
+    }
+  }
+
+  return {
+    ...(durationMs !== undefined ? { durationMs } : {}),
+    ...(endedAt ? { endedAt } : {}),
+    phase: 'activeLoop',
+    ...(startedAt ? { startedAt } : {}),
+  };
+}
+
+function readRunnerActiveLoopWindowRecord(runDir) {
+  const filePath = path.join(runDir, RUNNER_ACTIVE_LOOP_WINDOW_RELATIVE_PATH);
+  const record = readJsonArtifactIfAvailable(filePath);
+  if (
+    !record ||
+    typeof record !== 'object' ||
+    Array.isArray(record) ||
+    record.phase !== 'activeLoop' ||
+    typeof record.startedAt !== 'string' ||
+    typeof record.endedAt !== 'string' ||
+    typeof record.durationMs !== 'number' ||
+    !Number.isFinite(record.durationMs) ||
+    record.durationMs <= 0
+  ) {
+    return null;
+  }
+  return record;
+}
+
+function readLifecycleStateRecord(providerDir) {
+  const record = readJsonArtifactIfAvailable(resolveLifecycleStatePath(providerDir));
+  return record && typeof record === 'object' && !Array.isArray(record)
+    ? record
+    : null;
+}
+
+function readExistingActiveLoopWindowRecord(targetBindingRecord) {
+  const windowRecord = (
+    targetBindingRecord &&
+    typeof targetBindingRecord === 'object' &&
+    !Array.isArray(targetBindingRecord) &&
+    targetBindingRecord.window &&
+    typeof targetBindingRecord.window === 'object' &&
+    !Array.isArray(targetBindingRecord.window)
+  )
+    ? targetBindingRecord.window
+    : null;
+  return windowRecord && windowRecord.phase === 'activeLoop'
+    ? windowRecord
+    : null;
+}
+
+function resolveTargetBindingWindowRecord({
+  existingTargetBinding,
+  providerDir,
+  runDir,
+}) {
+  const runnerWindow = readRunnerActiveLoopWindowRecord(runDir);
+  if (runnerWindow) {
+    return runnerWindow;
+  }
+
+  const lifecycleState = readLifecycleStateRecord(providerDir);
+  if (lifecycleState) {
+    const lifecycleWindow = buildLifecycleWindowRecord(lifecycleState);
+    if (typeof lifecycleWindow.startedAt === 'string') {
+      return lifecycleWindow;
+    }
+  }
+
+  return readExistingActiveLoopWindowRecord(existingTargetBinding);
+}
+
+function buildLifecycleCommandDefinitions(includeFinalize = false) {
+  const definitions = [
+    { actionArg: 'start-window', commandId: 'start-native-window', phase: 'startWindow', sourceId: 'start-window' },
+    { actionArg: 'stop-window', commandId: 'stop-native-window', phase: 'stopWindow', sourceId: 'stop-window' },
+    { actionArg: 'normalize', commandId: 'capture-native-performance', phase: 'afterCapture', sourceId: 'normalize' },
+  ];
+  if (includeFinalize) {
+    definitions.push({
+      actionArg: 'finalize',
+      commandId: 'finalize-native-window',
+      phase: 'finalize',
+      sourceId: 'finalize',
+    });
+  }
+  return definitions;
+}
+
+function removeOptionWithValue(args, optionName) {
+  const nextArgs = [];
+  for (let index = 0; index < args.length; index += 1) {
+    const value = args[index];
+    if (value === optionName) {
+      index += 1;
+      continue;
+    }
+    nextArgs.push(value);
+  }
+  return nextArgs;
+}
+
+function setOptionWithValue(args, optionName, optionValue) {
+  const nextArgs = removeOptionWithValue(args, optionName);
+  nextArgs.push(optionName, optionValue);
+  return nextArgs;
+}
+
+function buildLifecycleCommandArgs({
+  actionArg,
+  baseArgs,
+  normalizeOutputPath,
+}) {
+  const commandArgs = Array.isArray(baseArgs) && baseArgs.length > 0
+    ? [...baseArgs]
+    : [actionArg];
+  commandArgs[0] = actionArg;
+  const argsWithoutOut = removeOptionWithValue(commandArgs, '--out');
+  if (actionArg === 'normalize') {
+    return setOptionWithValue(argsWithoutOut, '--out', normalizeOutputPath);
+  }
+  return argsWithoutOut;
+}
+
+function buildLifecycleSourceCommands({
+  baseArgs,
+  completedCommandIds = new Set(),
+  includeFinalize = false,
+  normalizeOutputPath,
+  providerId,
+  runDir,
+  targetBindingPath,
+}) {
+  return buildLifecycleCommandDefinitions(includeFinalize).map(({ actionArg, commandId, phase, sourceId }) => {
+    const startedRecordRelativePath = `raw/provider-commands/${providerId}-${commandId}.started.json`;
+    const startedRecord = readJsonArtifactIfAvailable(path.join(runDir, startedRecordRelativePath));
+    const command = startedRecord && typeof startedRecord.command === 'string'
+      ? startedRecord.command
+      : path.basename(process.argv[0]);
+    const fallbackArgs = buildLifecycleCommandArgs({
+      actionArg,
+      baseArgs,
+      normalizeOutputPath,
+    });
+    const commandArgs = startedRecord &&
+      Array.isArray(startedRecord.args) &&
+      startedRecord.args.every((arg) => typeof arg === 'string')
+      ? startedRecord.args
+      : fallbackArgs;
+    return {
+      args: commandArgs.map((arg) => normalizeCommandArgForEvidence(runDir, arg)),
+      command,
+      commandId,
+      phase,
+      recordPath: `raw/provider-commands/${providerId}-${commandId}.json`,
+      startedRecordPath: startedRecordRelativePath,
+      sourceId,
+      status: completedCommandIds.has(commandId) ? 'completed' : 'unknown',
+      stderrPath: `raw/provider-commands/${providerId}-${commandId}.stderr.txt`,
+      stdoutPath: `raw/provider-commands/${providerId}-${commandId}.stdout.txt`,
+      ...(commandId === 'capture-native-performance' && completedCommandIds.has(commandId)
+        ? { outputPath: toRunRelativePath(runDir, targetBindingPath) }
+        : {}),
+    };
+  });
+}
+
+function buildLifecycleSourceCommandUpdates({
+  baseArgs,
+  commandIds,
+  includeFinalize = false,
+  normalizeOutputPath,
+  providerId,
+  runDir,
+  targetBindingPath,
+}) {
+  const commandIdSet = new Set(commandIds);
+  return buildLifecycleSourceCommands({
+    baseArgs,
+    completedCommandIds: commandIdSet,
+    includeFinalize,
+    normalizeOutputPath,
+    providerId,
+    runDir,
+    targetBindingPath,
+  }).filter((command) => commandIdSet.has(command.commandId));
+}
+
+function targetBindingSourceCommandKey(command) {
+  if (!command || typeof command !== 'object' || Array.isArray(command)) {
+    return null;
+  }
+  if (typeof command.commandId === 'string' && command.commandId.length > 0) {
+    return `command:${command.commandId}`;
+  }
+  if (typeof command.sourceId === 'string' && command.sourceId.length > 0) {
+    return `source:${command.sourceId}`;
+  }
+  return null;
+}
+
+function mergeTargetBindingSourceCommands(...commandSets) {
+  const mergedCommands = new Map();
+  for (const commandSet of commandSets) {
+    if (!Array.isArray(commandSet)) {
+      continue;
+    }
+    for (const command of commandSet) {
+      const key = targetBindingSourceCommandKey(command);
+      if (!key) {
+        continue;
+      }
+      mergedCommands.set(key, {
+        ...(mergedCommands.get(key) ?? {}),
+        ...command,
+      });
+    }
+  }
+  return Array.from(mergedCommands.values());
+}
+
+function readTargetBindingSourceCommands(record) {
+  return record && typeof record === 'object' && !Array.isArray(record) && Array.isArray(record.sourceCommands)
+    ? record.sourceCommands
+    : [];
+}
+
+function hasLifecycleSourceCommands(commands) {
+  return commands.some((command) => (
+    command && typeof command === 'object' && !Array.isArray(command) && (
+      command.commandId === 'start-native-window'
+      || command.commandId === 'stop-native-window'
+      || command.commandId === 'capture-native-performance'
+      || command.commandId === 'finalize-native-window'
+    )
+  ));
+}
+
+function readRecordedLifecycleCommandCompletion({
+  includeFinalize = false,
+  providerId,
+  runDir,
+}) {
+  const completedCommandIds = new Set();
+  let hasRecordedLifecycleCommand = false;
+
+  for (const { commandId } of buildLifecycleCommandDefinitions(includeFinalize)) {
+    const startedRecord = readJsonArtifactIfAvailable(path.join(runDir, `raw/provider-commands/${providerId}-${commandId}.started.json`));
+    if (startedRecord) {
+      hasRecordedLifecycleCommand = true;
+    }
+
+    const completedRecord = readJsonArtifactIfAvailable(path.join(runDir, `raw/provider-commands/${providerId}-${commandId}.json`));
+    if (completedRecord) {
+      hasRecordedLifecycleCommand = true;
+      if (completedRecord.status === 'completed') {
+        completedCommandIds.add(commandId);
+      }
+    }
+  }
+
+  return {
+    completedCommandIds,
+    hasRecordedLifecycleCommand,
+  };
+}
+
+function buildLifecycleCompletedCommandIdsFromState({
+  includeCaptureCommand = false,
+  includeFinalize = false,
+  lifecycleState,
+}) {
+  const completedCommandIds = new Set();
+  if (!lifecycleState || typeof lifecycleState !== 'object' || Array.isArray(lifecycleState)) {
+    return completedCommandIds;
+  }
+
+  if (typeof lifecycleState.startedAt === 'string') {
+    completedCommandIds.add('start-native-window');
+  }
+  if (typeof lifecycleState.endedAt === 'string') {
+    completedCommandIds.add('stop-native-window');
+  }
+  if (includeCaptureCommand) {
+    completedCommandIds.add('capture-native-performance');
+  }
+  if (includeFinalize && typeof lifecycleState.finalizedAt === 'string') {
+    completedCommandIds.add('finalize-native-window');
+  }
+  return completedCommandIds;
+}
+
+function buildLifecycleSourceCommandsForTargetBinding({
+  baseArgs,
+  includeCaptureCommand = false,
+  includeFinalize = false,
+  normalizeOutputPath,
+  providerDir,
+  providerId,
+  runDir,
+  targetBindingPath,
+}) {
+  const lifecycleState = readLifecycleStateRecord(providerDir);
+  const recordedCompletion = readRecordedLifecycleCommandCompletion({
+    includeFinalize,
+    providerId,
+    runDir,
+  });
+  const fallbackCompletedCommandIds = buildLifecycleCompletedCommandIdsFromState({
+    includeCaptureCommand,
+    includeFinalize,
+    lifecycleState,
+  });
+  const hasLifecycleContext = recordedCompletion.hasRecordedLifecycleCommand || fallbackCompletedCommandIds.size > 0;
+  if (!hasLifecycleContext) {
+    return [];
+  }
+
+  const completedCommandIds = new Set([
+    ...recordedCompletion.completedCommandIds,
+    ...fallbackCompletedCommandIds,
+  ]);
+
+  return buildLifecycleSourceCommands({
+    baseArgs,
+    completedCommandIds,
+    includeFinalize,
+    normalizeOutputPath,
+    providerId,
+    runDir,
+    targetBindingPath,
+  });
 }
 
 function runCommand(command, args, timeoutMs) {
@@ -255,32 +694,98 @@ function commandStatus(result) {
   return result.stdout.trim().length > 0 ? 'captured' : 'partial';
 }
 
+function commandRecordStatus(result) {
+  if (result.timedOut) {
+    return 'timeout';
+  }
+  if (!commandSucceeded(result)) {
+    return 'failed';
+  }
+  return result.stdout.trim().length > 0 ? 'completed' : 'partial';
+}
+
 function writeTextArtifact(outPath, value) {
   fs.mkdirSync(path.dirname(outPath), { recursive: true });
   fs.writeFileSync(outPath, value, 'utf8');
 }
 
-function writeCommandArtifacts({ captureDir, id, result, runDir }) {
+function writeCommandArtifacts({ captureDir, id, phase, providerId, result, runDir }) {
   const stdoutPath = path.join(captureDir, `${id}.stdout.txt`);
   const stderrPath = path.join(captureDir, `${id}.stderr.txt`);
   const recordPath = path.join(captureDir, `${id}.command.json`);
+  const normalizedStdoutPath = runDir ? toRunRelativePath(runDir, stdoutPath) : path.basename(stdoutPath);
+  const normalizedStderrPath = runDir ? toRunRelativePath(runDir, stderrPath) : path.basename(stderrPath);
   writeTextArtifact(stdoutPath, result.stdout);
   writeTextArtifact(stderrPath, result.stderr);
-  writeJsonArtifact(recordPath, {
+  const stdoutSha256 = sha256File(stdoutPath);
+  const stderrSha256 = sha256File(stderrPath);
+  const commandRecord = {
     args: runDir
       ? result.args.map((arg) => normalizeCommandArgForEvidence(runDir, arg))
       : result.args,
     command: runDir ? path.basename(result.command) : result.command,
-    errorCode: result.errorCode,
-    errorMessage: result.errorMessage,
     exitCode: result.exitCode,
-    signal: result.signal,
-    status: commandStatus(result),
-    stderrPath: path.basename(stderrPath),
-    stdoutPath: path.basename(stdoutPath),
+    ...(phase ? { phase } : {}),
+    ...(providerId ? { providerId } : {}),
+    status: commandRecordStatus(result),
+    stderrPath: normalizedStderrPath,
+    stderrSha256,
+    stdoutPath: normalizedStdoutPath,
+    stdoutSha256,
     timedOut: result.timedOut,
-  });
-  return { recordPath, stderrPath, stdoutPath };
+  };
+  if (typeof result.errorCode === 'string') {
+    commandRecord.errorCode = result.errorCode;
+  }
+  if (typeof result.errorMessage === 'string') {
+    commandRecord.errorMessage = result.errorMessage;
+  }
+  if (typeof result.signal === 'string') {
+    commandRecord.signal = result.signal;
+  }
+  writeJsonArtifact(recordPath, commandRecord);
+  return {
+    recordPath,
+    stderrPath,
+    stderrSha256,
+    stdoutPath,
+    stdoutSha256,
+  };
+}
+
+function buildTargetBindingSourceCommand({
+  capture,
+  outputPath,
+  phase,
+  runDir,
+  sourceId,
+}) {
+  const status = commandStatus(capture.result);
+  const commandEntry = {
+    args: capture.result.args.map((arg) => normalizeCommandArgForEvidence(runDir, arg)),
+    command: path.basename(capture.result.command),
+    phase,
+    recordPath: toRunRelativePath(runDir, capture.paths.recordPath),
+    sourceId,
+    startedRecordPath: undefined,
+    status: commandRecordStatus(capture.result),
+    stderrPath: toRunRelativePath(runDir, capture.paths.stderrPath),
+    stderrSha256: capture.paths.stderrSha256,
+    stdoutPath: toRunRelativePath(runDir, capture.paths.stdoutPath),
+    stdoutSha256: capture.paths.stdoutSha256,
+    ...(capture.result.exitCode !== undefined ? { exitCode: capture.result.exitCode } : {}),
+    ...(capture.result.signal !== undefined ? { signal: capture.result.signal } : {}),
+  };
+
+  if (!outputPath || !fs.existsSync(outputPath) || !fs.statSync(outputPath).isFile()) {
+    return commandEntry;
+  }
+
+  return {
+    ...commandEntry,
+    outputPath: toRunRelativePath(runDir, outputPath),
+    outputSha256: sha256File(outputPath),
+  };
 }
 
 function buildCapturedSource({ dataClasses, id, result, runDir, stdoutPath, toolName }) {
@@ -313,11 +818,11 @@ function buildCapturedSource({ dataClasses, id, result, runDir, stdoutPath, tool
   };
 }
 
-async function captureAndroidAdbEvidence({ args, outPath, providerId, runId, scenarioId }) {
-  const appId = optionalStringArg(args, 'app', 'ASL_ANDROID_APP_ID');
-  const deviceId = optionalStringArg(args, 'device', 'ASL_ANDROID_SERIAL');
+async function captureAndroidAdbEvidence({ args, outPath, providerId, rawInvocationArgs, runId, scenarioId }) {
+  const appId = resolveRequestedAppId(args, 'android');
+  const deviceId = resolveRequestedTargetId(args, 'android');
   if (!appId || !deviceId) {
-    throw new Error('Android adb capture requires --app/ASL_ANDROID_APP_ID and --device/ASL_ANDROID_SERIAL.');
+    throw new Error('Android adb capture requires --app-id or --app plus --target-id or --device.');
   }
 
   const adbPath = optionalStringArg(args, 'adb', 'ASL_ADB_PATH') ?? 'adb';
@@ -334,18 +839,25 @@ async function captureAndroidAdbEvidence({ args, outPath, providerId, runId, sce
   fs.mkdirSync(captureDir, { recursive: true });
 
   const definitions = [
-    { id: 'target-serial', args: ['-s', deviceId, 'get-serialno'] },
-    { id: 'target-package', args: ['-s', deviceId, 'shell', 'pm', 'path', appId] },
-    { id: 'gfxinfo', args: ['-s', deviceId, 'shell', 'dumpsys', 'gfxinfo', appId] },
-    { id: 'framestats', args: ['-s', deviceId, 'shell', 'dumpsys', 'gfxinfo', appId, 'framestats'] },
-    { id: 'meminfo', args: ['-s', deviceId, 'shell', 'dumpsys', 'meminfo', appId] },
+    { id: 'target-serial', args: ['-s', deviceId, 'get-serialno'], phase: 'afterCapture' },
+    { id: 'target-package', args: ['-s', deviceId, 'shell', 'pm', 'path', appId], phase: 'afterCapture' },
+    { id: 'gfxinfo', args: ['-s', deviceId, 'shell', 'dumpsys', 'gfxinfo', appId], phase: 'afterCapture' },
+    { id: 'framestats', args: ['-s', deviceId, 'shell', 'dumpsys', 'gfxinfo', appId, 'framestats'], phase: 'afterCapture' },
+    { id: 'meminfo', args: ['-s', deviceId, 'shell', 'dumpsys', 'meminfo', appId], phase: 'afterCapture' },
   ];
   const captures = new Map();
   for (const definition of definitions) {
     const result = await runCommand(adbPath, definition.args, timeoutMs);
     captures.set(definition.id, {
       result,
-      paths: writeCommandArtifacts({ captureDir, id: definition.id, result, runDir }),
+      paths: writeCommandArtifacts({
+        captureDir,
+        id: definition.id,
+        phase: definition.phase,
+        providerId,
+        result,
+        runDir,
+      }),
     });
   }
 
@@ -354,30 +866,66 @@ async function captureAndroidAdbEvidence({ args, outPath, providerId, runId, sce
   const observedDeviceId = commandSucceeded(serialCapture.result) ? serialCapture.result.stdout.trim() : '';
   const serialMatches = observedDeviceId === deviceId;
   const packageMatches = commandSucceeded(packageCapture.result) && packageCapture.result.stdout.split(/\r?\n/u).some((line) => line.startsWith('package:'));
+  const observedAppId = packageMatches ? appId : undefined;
   let targetProofStatus = 'unverified';
-  if (serialMatches && packageMatches) {
-    targetProofStatus = 'verified';
-  } else if (observedDeviceId && observedDeviceId !== deviceId) {
+  if (observedDeviceId && observedDeviceId !== deviceId) {
     targetProofStatus = 'mismatch';
   }
-  const targetProofPath = path.join(captureDir, 'target-binding.json');
+  const targetProofPath = resolveTargetBindingArtifactPath({
+    args,
+    providerDir: path.dirname(outPath),
+  });
+  toRunRelativePath(runDir, targetProofPath);
+  const providerDir = path.dirname(outPath);
+  const existingTargetProof = readJsonArtifactIfAvailable(targetProofPath);
+  const lifecycleSourceCommands = buildLifecycleSourceCommandsForTargetBinding({
+    baseArgs: rawInvocationArgs,
+    includeCaptureCommand: true,
+    normalizeOutputPath: outPath,
+    providerDir,
+    providerId,
+    runDir,
+    targetBindingPath: targetProofPath,
+  });
+  const targetWindow = resolveTargetBindingWindowRecord({
+    existingTargetBinding: existingTargetProof,
+    providerDir,
+    runDir,
+  });
+  const observedSourceCommands = [
+    'target-serial',
+    'target-package',
+    'gfxinfo',
+    'framestats',
+    'meminfo',
+  ].map((sourceId) => buildTargetBindingSourceCommand({
+    capture: captures.get(sourceId),
+    phase: 'afterCapture',
+    runDir,
+    sourceId,
+  }));
   writeJsonArtifact(targetProofPath, {
-    appId,
     capturedAt: new Date().toISOString(),
-    deviceId,
+    observedAppId,
+    ...(observedDeviceId ? { observedTargetId: observedDeviceId } : {}),
     packageCommand: packageCapture.result.args,
     packageMatched: packageMatches,
     observedDeviceId: observedDeviceId || null,
     platform: 'android',
+    providerId,
+    requestedAppId: appId,
+    requestedDeviceId: deviceId,
+    requestedTargetId: deviceId,
+    runId,
+    scenarioId,
+    schemaVersion: '1.0.0',
     serialCommand: serialCapture.result.args,
     serialMatched: serialMatches,
-    sourceCommands: ['gfxinfo', 'framestats', 'meminfo'].map((sourceId) => ({
-      args: captures.get(sourceId).result.args,
-      exitCode: captures.get(sourceId).result.exitCode,
-      sourceId,
-      status: commandStatus(captures.get(sourceId).result),
-    })),
+    sourceCommands: mergeTargetBindingSourceCommands(lifecycleSourceCommands, observedSourceCommands),
     status: targetProofStatus,
+    window: targetWindow ?? {
+      phase: 'afterCapture',
+    },
   });
   const targetEvidencePath = toRunRelativePath(runDir, targetProofPath);
 
@@ -414,22 +962,7 @@ async function captureAndroidAdbEvidence({ args, outPath, providerId, runId, sce
   });
 
   let targetBinding;
-  if (serialMatches && packageMatches) {
-    targetBinding = {
-      status: 'verified',
-      appId,
-      deviceId,
-      source: 'provider adb target verification',
-      candidateTargets: [{
-        appId,
-        bindingStatus: 'observed',
-        deviceId,
-        evidencePath: targetEvidencePath,
-        platform: 'android',
-        source: 'adb get-serialno and package-scoped command verification',
-      }],
-    };
-  } else if (observedDeviceId && observedDeviceId !== deviceId) {
+  if (observedDeviceId && observedDeviceId !== deviceId) {
     targetBinding = {
       status: 'mismatch',
       appId,
@@ -461,7 +994,7 @@ async function captureAndroidAdbEvidence({ args, outPath, providerId, runId, sce
       appId,
       deviceId,
       source: 'provider adb target verification',
-      reason: 'The provider could not verify both the requested adb serial and installed package.',
+      reason: 'Serial and package checks alone do not prove process-bound Android target ownership for trusted comparison evidence.',
     };
   }
 
@@ -772,11 +1305,11 @@ function combinedCommandStatus(results, evidenceValid) {
   return evidenceValid ? 'captured' : 'partial';
 }
 
-async function captureIosXctraceEvidence({ args, outPath, providerId, runId, scenarioId }) {
-  const bundleId = optionalStringArg(args, 'bundle', 'ASL_IOS_APP_ID');
-  const deviceId = optionalStringArg(args, 'device', 'ASL_IOS_UDID');
+async function captureIosXctraceEvidence({ args, outPath, providerId, rawInvocationArgs, runId, scenarioId }) {
+  const bundleId = resolveRequestedAppId(args, 'ios');
+  const deviceId = resolveRequestedTargetId(args, 'ios');
   if (!bundleId || !deviceId) {
-    throw new Error('iOS xctrace capture requires --bundle/ASL_IOS_APP_ID and --device/ASL_IOS_UDID.');
+    throw new Error('iOS xctrace capture requires --app-id or --bundle plus --target-id or --device.');
   }
 
   const runDir = optionalStringArg(args, 'run-dir', 'ASL_RUN_DIR');
@@ -803,15 +1336,22 @@ async function captureIosXctraceEvidence({ args, outPath, providerId, runId, sce
 
   const captures = new Map();
   const preflightDefinitions = [
-    { id: 'simctl-list-devices', args: ['simctl', 'list', 'devices', '--json'] },
-    { id: 'simctl-get-app-container', args: ['simctl', 'get_app_container', deviceId, bundleId, 'app'] },
-    { id: 'simctl-launchctl-list', args: ['simctl', 'spawn', deviceId, 'launchctl', 'list'] },
+    { id: 'simctl-list-devices', args: ['simctl', 'list', 'devices', '--json'], phase: 'afterCapture' },
+    { id: 'simctl-get-app-container', args: ['simctl', 'get_app_container', deviceId, bundleId, 'app'], phase: 'afterCapture' },
+    { id: 'simctl-launchctl-list', args: ['simctl', 'spawn', deviceId, 'launchctl', 'list'], phase: 'afterCapture' },
   ];
   for (const definition of preflightDefinitions) {
     const result = await runCommand(xcrunPath, definition.args, timeoutMs);
     captures.set(definition.id, {
       result,
-      paths: writeCommandArtifacts({ captureDir, id: definition.id, result, runDir }),
+      paths: writeCommandArtifacts({
+        captureDir,
+        id: definition.id,
+        phase: definition.phase,
+        providerId,
+        result,
+        runDir,
+      }),
     });
   }
 
@@ -845,14 +1385,28 @@ async function captureIosXctraceEvidence({ args, outPath, providerId, runId, sce
   const recordResult = await runCommand(xcrunPath, recordArgs, timeoutMs);
   captures.set('xctrace-record', {
     result: recordResult,
-    paths: writeCommandArtifacts({ captureDir, id: 'xctrace-record', result: recordResult, runDir }),
+    paths: writeCommandArtifacts({
+      captureDir,
+      id: 'xctrace-record',
+      phase: 'afterCapture',
+      providerId,
+      result: recordResult,
+      runDir,
+    }),
   });
 
   const exportArgs = ['xctrace', 'export', '--input', traceBundlePath, '--toc'];
   const exportResult = await runCommand(xcrunPath, exportArgs, timeoutMs);
   captures.set('xctrace-export-toc', {
     result: exportResult,
-    paths: writeCommandArtifacts({ captureDir, id: 'xctrace-export-toc', result: exportResult, runDir }),
+    paths: writeCommandArtifacts({
+      captureDir,
+      id: 'xctrace-export-toc',
+      phase: 'afterCapture',
+      providerId,
+      result: exportResult,
+      runDir,
+    }),
   });
 
   const tocPath = path.join(captureDir, 'xctrace-toc.xml');
@@ -917,16 +1471,63 @@ async function captureIosXctraceEvidence({ args, outPath, providerId, runId, sce
     targetStatus = 'mismatch';
   }
 
-  const targetProofPath = path.join(captureDir, 'target-binding.json');
+  const targetProofPath = resolveTargetBindingArtifactPath({
+    args,
+    providerDir: path.dirname(outPath),
+  });
+  toRunRelativePath(runDir, targetProofPath);
+  const providerDir = path.dirname(outPath);
+  const existingTargetProof = readJsonArtifactIfAvailable(targetProofPath);
+  const lifecycleSourceCommands = buildLifecycleSourceCommandsForTargetBinding({
+    baseArgs: rawInvocationArgs,
+    includeCaptureCommand: true,
+    normalizeOutputPath: outPath,
+    providerDir,
+    providerId,
+    runDir,
+    targetBindingPath: targetProofPath,
+  });
+  const targetWindow = resolveTargetBindingWindowRecord({
+    existingTargetBinding: existingTargetProof,
+    providerDir,
+    runDir,
+  });
+  const observedSourceCommands = [
+    'simctl-list-devices',
+    'simctl-get-app-container',
+    'simctl-launchctl-list',
+    'xctrace-record',
+    'xctrace-export-toc',
+  ].map((sourceId) => buildTargetBindingSourceCommand({
+    capture: captures.get(sourceId),
+    outputPath: sourceId === 'xctrace-export-toc'
+      ? tocPath
+      : undefined,
+    phase: 'afterCapture',
+    runDir,
+    sourceId,
+  }));
   writeJsonArtifact(targetProofPath, {
-    appId: bundleId,
-    bundleId,
     capturedAt: new Date().toISOString(),
+    observedDevice: bootedDeviceObservation,
+    observedLaunchctlProcess: launchctlProcess,
+    ...(observedDeviceId ? { observedTargetId: observedDeviceId } : {}),
+    ...(observedProcessName ? { observedProcessName } : {}),
+    ...(observedPid !== null ? { observedProcessPid: observedPid } : {}),
+    ...(typeof tocSummary.devicePlatform === 'string' ? { observedTargetPlatform: tocSummary.devicePlatform } : {}),
+    ...(typeof tocSummary.template === 'string' ? { observedTemplate: tocSummary.template } : {}),
+    ...(typeof tocSummary.toolVersion === 'string' ? { observedToolVersion: tocSummary.toolVersion } : {}),
+    platform: 'ios',
+    providerId,
+    requestedAppId: bundleId,
     requestedDeviceId: deviceId,
     requestedPid,
-    observedDevice: bootedDeviceObservation,
+    requestedTargetId: deviceId,
+    runId,
+    scenarioId,
+    schemaVersion: '1.0.0',
+    bundleId,
     observedAppContainerName: appContainerAvailable ? path.basename(appContainerCapture.stdout.trim()) : null,
-    observedLaunchctlProcess: launchctlProcess,
     recordedDeviceId: observedDeviceId,
     recordedDevicePlatform: tocSummary.devicePlatform ?? null,
     recordedProcessName: observedProcessName,
@@ -935,20 +1536,15 @@ async function captureIosXctraceEvidence({ args, outPath, providerId, runId, sce
     template: tocSummary.template ?? null,
     toolVersion: tocSummary.toolVersion ?? null,
     endReason: tocSummary.endReason ?? null,
-    sourceCommands: [
-      'simctl-list-devices',
-      'simctl-get-app-container',
-      'simctl-launchctl-list',
-      'xctrace-record',
-      'xctrace-export-toc',
-    ].map((sourceId) => ({
-      sourceId,
-      args: captures.get(sourceId).result.args.map((arg) => normalizeCommandArgForEvidence(runDir, arg)),
-      exitCode: captures.get(sourceId).result.exitCode,
-      status: commandStatus(captures.get(sourceId).result),
-    })),
+    sourceCommands: mergeTargetBindingSourceCommands(lifecycleSourceCommands, observedSourceCommands),
     tocVerified,
     windowVerified,
+    window: targetWindow ?? {
+      ...(tocSummary.durationMs !== undefined ? { durationMs: tocSummary.durationMs } : {}),
+      ...(tocSummary.endAt ? { endedAt: tocSummary.endAt } : {}),
+      phase: 'afterCapture',
+      ...(tocSummary.startAt ? { startedAt: tocSummary.startAt } : {}),
+    },
     traceBundleObserved: traceInventory.exists && traceInventory.fileCount > 0,
   });
 
@@ -1128,6 +1724,54 @@ async function captureIosXctraceEvidence({ args, outPath, providerId, runId, sce
 function writeJsonArtifact(outPath, payload) {
   fs.mkdirSync(path.dirname(outPath), { recursive: true });
   fs.writeFileSync(outPath, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
+}
+
+async function runLifecycleAction({ action, args, platform, rawInvocationArgs }) {
+  const runDir = requireStringArg(args, 'run-dir');
+  const runId = requireStringArg(args, 'run-id');
+  const scenarioId = requireStringArg(args, 'scenario');
+  const providerDir = resolveLifecycleProviderDir(args);
+  const requestedAppId = resolveRequestedAppId(args, platform);
+  const requestedTargetId = resolveRequestedTargetId(args, platform);
+  if (!requestedAppId || !requestedTargetId) {
+    throw new Error(`Native-performance lifecycle action "${action}" requires both an app id and target id.`);
+  }
+
+  fs.mkdirSync(providerDir, { recursive: true });
+  const providerId = resolveLifecycleProviderId({ args, providerDir });
+  const lifecycleStatePath = resolveLifecycleStatePath(providerDir);
+  const targetBindingPath = resolveTargetBindingArtifactPath({ args, providerDir });
+  const normalizeOutputPath = path.join(providerDir, 'native-performance.json');
+  toRunRelativePath(runDir, targetBindingPath);
+  const previousState = readJsonArtifactIfAvailable(lifecycleStatePath) ?? {};
+  const now = new Date().toISOString();
+  const nextState = {
+    ...previousState,
+    platform: normalizePlatform(platform),
+    providerId,
+    requestedAppId,
+    requestedTargetId,
+    runId,
+    scenarioId,
+  };
+
+  if (action === 'start-window') {
+    nextState.startedAt = now;
+    delete nextState.endedAt;
+    delete nextState.finalizedAt;
+  } else if (action === 'stop-window') {
+    nextState.startedAt = typeof nextState.startedAt === 'string' ? nextState.startedAt : now;
+    nextState.endedAt = now;
+  } else {
+    nextState.finalizedAt = now;
+    nextState.startedAt = typeof nextState.startedAt === 'string' ? nextState.startedAt : now;
+    nextState.endedAt = typeof nextState.endedAt === 'string' ? nextState.endedAt : now;
+  }
+
+  writeJsonArtifact(lifecycleStatePath, nextState);
+  if (action === 'finalize') {
+    return;
+  }
 }
 
 /**
@@ -1366,8 +2010,27 @@ function writeNativePerformanceScaffold({
  * @returns {Promise<void>}
  */
 async function main() {
-  const args = parseArgs(process.argv.slice(2));
+  const invocation = resolvePositionalAction(process.argv.slice(2));
+  const args = parseArgs(invocation.args);
   const platform = requireStringArg(args, 'platform');
+  if (
+    invocation.action === 'start-window'
+    || invocation.action === 'stop-window'
+    || invocation.action === 'finalize'
+  ) {
+    await runLifecycleAction({
+      action: invocation.action,
+      args,
+      platform,
+      rawInvocationArgs: invocation.args,
+    });
+    return;
+  }
+
+  if (invocation.action !== 'normalize') {
+    throw new Error(`Unsupported native-performance provider action "${invocation.action}".`);
+  }
+
   const outPath = requireStringArg(args, 'out');
   const runDir = requireStringArg(args, 'run-dir');
   const providerId = resolveProviderId({ outPath, runDir });
@@ -1376,7 +2039,14 @@ async function main() {
   if (platform === 'android') {
     const liveAdbCapture = args['capture-android-adb'] === true || process.env.ASL_NATIVE_PERFORMANCE_ANDROID_CAPTURE === '1';
     if (liveAdbCapture) {
-      await captureAndroidAdbEvidence({ args, outPath, providerId, runId, scenarioId });
+      await captureAndroidAdbEvidence({
+        args,
+        outPath,
+        providerId,
+        rawInvocationArgs: invocation.args,
+        runId,
+        scenarioId,
+      });
       return;
     }
     writeJsonArtifact(outPath, buildAndroidNativePerformanceEvidence({
@@ -1397,7 +2067,14 @@ async function main() {
   if (platform === 'ios') {
     const liveXctraceCapture = args['capture-ios-xctrace'] === true || process.env.ASL_NATIVE_PERFORMANCE_IOS_CAPTURE === '1';
     if (liveXctraceCapture) {
-      await captureIosXctraceEvidence({ args, outPath, providerId, runId, scenarioId });
+      await captureIosXctraceEvidence({
+        args,
+        outPath,
+        providerId,
+        rawInvocationArgs: invocation.args,
+        runId,
+        scenarioId,
+      });
       return;
     }
     const metricKitText = readOptionalText(args, 'metrickit-summary');

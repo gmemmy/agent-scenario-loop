@@ -19,6 +19,9 @@ const {
   runProfileAndroid,
   validateAndroidAdbDriverSteps,
 } = require('../profile-android');
+const {
+  classifyNativePerformanceComparisonReadiness,
+} = require('../../core/native-performance');
 
 type ExecOutput = {
   stdout: string;
@@ -2511,7 +2514,7 @@ test('profile-android keeps self-attested comparison evidence from satisfying re
   );
 });
 
-test('profile-android accepts current durable comparison-ready native performance evidence', async (t: TestContext) => {
+test('profile-android downgrades capture-only native performance evidence to diagnostic-only', async (t: TestContext) => {
   const artifactRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-android-comparison-ready-'));
   const providerRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-provider-android-comparison-ready-'));
   t.after(async () => {
@@ -2525,6 +2528,7 @@ test('profile-android accepts current durable comparison-ready native performanc
   await fsp.writeFile(
     providerScript,
     [
+      "const crypto = require('node:crypto');",
       "const fs = require('node:fs');",
       "const path = require('node:path');",
       'const [evidencePath, targetPath, runId, scenarioId, targetEvidencePath, sourceEvidencePath, targetMode, externalTargetPath, providerDestinationMode, externalProviderDirectory, sampleMode] = process.argv.slice(2);',
@@ -2536,7 +2540,40 @@ test('profile-android accepts current durable comparison-ready native performanc
       '} else {',
       '  fs.mkdirSync(providerDirectory, { recursive: true });',
       '}',
-      "const targetEvidence = JSON.stringify({ appId: 'dev.agent-scenario-loop.example', deviceId: 'emulator-5554', platform: 'android' }) + '\\n';",
+      "const emptyHash = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';",
+      "const targetOutputHash = 'cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc';",
+      "const targetEvidence = JSON.stringify({",
+      "  schemaVersion: '1.0.0',",
+      `  providerId: '${providerId}',`,
+      "  platform: 'android',",
+      '  runId,',
+      '  scenarioId,',
+      "  status: 'verified',",
+      "  requestedAppId: 'dev.agent-scenario-loop.example',",
+      "  requestedTargetId: 'emulator-5554',",
+      "  observedAppId: 'dev.agent-scenario-loop.example',",
+      "  observedTargetId: 'emulator-5554',",
+      "  observedProcessName: 'ExampleApp',",
+      "  observedProcessPid: 4242,",
+      "  captureArtifacts: [{ commandId: 'capture-native-performance', path: sourceEvidencePath }],",
+      "  window: { phase: 'activeLoop', startedAt: '2026-07-13T12:00:00.000Z', endedAt: '2026-07-13T12:00:01.000Z', durationMs: 1000 },",
+      "  sourceCommands: [{",
+      "    sourceId: 'capture-native-performance',",
+      "    commandId: 'capture-native-performance',",
+      "    phase: 'capture',",
+      "    command: process.execPath,",
+      "    args: process.argv.slice(1),",
+      `    recordPath: 'raw/provider-commands/${providerId}-capture-native-performance.json',`,
+      `    startedRecordPath: 'raw/provider-commands/${providerId}-capture-native-performance.started.json',`,
+      `    stdoutPath: 'raw/provider-commands/${providerId}-capture-native-performance.stdout.txt',`,
+      `    stderrPath: 'raw/provider-commands/${providerId}-capture-native-performance.stderr.txt',`,
+      '    stdoutSha256: emptyHash,',
+      '    stderrSha256: emptyHash,',
+      '    outputPath: targetEvidencePath,',
+      '    outputSha256: targetOutputHash,',
+      "    status: 'completed'",
+      "  }]",
+      "}) + '\\n';",
       "if (targetMode === 'symlink') {",
       '  fs.writeFileSync(externalTargetPath, targetEvidence);',
       '  fs.symlinkSync(externalTargetPath, targetPath);',
@@ -2651,12 +2688,12 @@ test('profile-android accepts current durable comparison-ready native performanc
   const diagnostics = (manifest.artifacts as { diagnostics: TestDiagnosticEntry[] }).diagnostics;
   const nativePerformanceDiagnostic = diagnostics.find((entry) => entry.kind === 'nativePerformance');
 
-  assert.equal(nativePerformanceDiagnostic?.availability, 'captured');
+  assert.equal(nativePerformanceDiagnostic?.availability, 'captured-diagnostic-only');
   assert.equal(nativePerformanceDiagnostic?.required, true);
-  assert.equal(health.healthStatus, 'passed');
+  assert.equal(health.healthStatus, 'failed');
   assert.equal(
     (health.checks as Array<{ code: string }>).some((check) => check.code === 'required_diagnostic_not_captured'),
-    false,
+    true,
   );
 
   const staleArtifactRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-android-stale-comparison-'));
@@ -2973,6 +3010,71 @@ test('profile-android rejects duplicate evidence provider command ids', async (t
   );
 });
 
+test('profile-android rejects provider manifests that resolve to duplicate provider ids', async (t: TestContext) => {
+  const artifactRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-android-provider-id-duplicate-'));
+  const providerRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-provider-id-duplicate-'));
+  t.after(async () => {
+    await fsp.rm(artifactRoot, { recursive: true, force: true });
+    await fsp.rm(providerRoot, { recursive: true, force: true });
+  });
+  const firstProviderManifestPath = path.join(providerRoot, 'provider-one.json');
+  const secondProviderManifestPath = path.join(providerRoot, 'provider-two.json');
+  const commandOutput = {
+    channel: 'provider',
+    kind: 'accessibility',
+    path: '{providerDir}/accessibility.json',
+  };
+  const providerManifest = {
+    schemaVersion: '1.0.0',
+    runnerId: 'duplicate-provider-id',
+    kind: 'evidenceProvider',
+    platforms: ['android'],
+    capabilities: ['accessibility'],
+    artifactOutputs: ['accessibility'],
+    lifecycle: ['capture'],
+    providerCommands: [
+      {
+        id: 'capture-accessibility',
+        phase: 'capture',
+        command: process.execPath,
+        args: ['-e', 'process.exit(0)'],
+        outputs: [commandOutput],
+      },
+    ],
+  };
+  await fsp.writeFile(firstProviderManifestPath, `${JSON.stringify(providerManifest, null, 2)}\n`, 'utf8');
+  await fsp.writeFile(secondProviderManifestPath, `${JSON.stringify(providerManifest, null, 2)}\n`, 'utf8');
+
+  await assert.rejects(
+    execFileAsync(process.execPath, [
+      PROFILE_ANDROID,
+      '--config',
+      fixturePath('examples/mobile-app/asl.config.json'),
+      '--scenario',
+      fixturePath('examples/mobile-app/scenarios/android/app-startup.json'),
+      '--events',
+      fixturePath('examples/mobile-app/event-logs/android-app-startup.log'),
+      '--provider',
+      firstProviderManifestPath,
+      '--provider',
+      secondProviderManifestPath,
+      '--out',
+      artifactRoot,
+      '--run-id',
+      'android-provider-id-duplicate',
+    ]),
+    /must resolve to unique provider ids/u,
+  );
+
+  const runPlanPath = path.join(
+    artifactRoot,
+    'app-startup',
+    'android-provider-id-duplicate',
+    'run-plan.json',
+  );
+  assert.equal(fs.existsSync(runPlanPath), false);
+});
+
 test('profile-android rejects providers that do not support the selected platform', async (t: TestContext) => {
   const artifactRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-android-provider-platform-'));
   const providerRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-provider-platform-'));
@@ -3145,6 +3247,815 @@ test('profile-android fails health for unsupported provider lifecycle phases', a
   );
   assert.match(summary, /evidence_provider_lifecycle_supported/u);
   assert.match(summary, /Next action `select_supported_provider_lifecycle_phase`/u);
+});
+
+test('profile-android brackets live capture with provider startWindow and stopWindow commands', async (t: TestContext) => {
+  const tempRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-android-live-window-'));
+  const providerRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-provider-android-live-window-'));
+  t.after(async () => {
+    await fsp.rm(tempRoot, { recursive: true, force: true });
+    await fsp.rm(providerRoot, { recursive: true, force: true });
+  });
+  const profileRoot = path.join(tempRoot, 'profile');
+  const adbCaptureRoot = path.join(tempRoot, 'adb-capture');
+  const orderPath = path.join(providerRoot, 'window-order.log');
+  const providerScript = path.join(providerRoot, 'provider-window-phase.js');
+  await fsp.writeFile(
+    providerScript,
+    [
+      "const fs = require('node:fs');",
+      "const path = require('node:path');",
+      "const [phase, orderPath, outputPath, expectedRawPath, summaryPath, appId, targetId, runId, scenarioId] = process.argv.slice(2);",
+      "fs.mkdirSync(path.dirname(orderPath), { recursive: true });",
+      "fs.appendFileSync(orderPath, `${phase}\\n`);",
+      "if (outputPath) {",
+      "  fs.mkdirSync(path.dirname(outputPath), { recursive: true });",
+      "  fs.writeFileSync(outputPath, JSON.stringify({ violations: [] }) + '\\n');",
+      "}",
+      "if (summaryPath) {",
+      "  fs.mkdirSync(path.dirname(summaryPath), { recursive: true });",
+      "  const order = fs.readFileSync(orderPath, 'utf8').split(/\\r?\\n/u).filter(Boolean);",
+      "  fs.writeFileSync(summaryPath, JSON.stringify({ appId, expectedRawExists: fs.existsSync(expectedRawPath), order, runId, scenarioId, targetId }) + '\\n');",
+      "}",
+    ].join('\n'),
+    'utf8',
+  );
+  const providerManifestPath = path.join(providerRoot, 'provider.json');
+  await fsp.writeFile(
+    providerManifestPath,
+    `${JSON.stringify({
+      schemaVersion: '1.0.0',
+      runnerId: 'live-window-provider',
+      kind: 'evidenceProvider',
+      platforms: ['android'],
+      capabilities: ['accessibility'],
+      artifactOutputs: ['accessibility'],
+      lifecycle: ['startWindow', 'stopWindow', 'afterCapture', 'finalize'],
+      providerCommands: [
+        {
+          id: 'start-trace',
+          phase: 'startWindow',
+          command: process.execPath,
+          args: [providerScript, 'startWindow', orderPath, '', '', '{packageName}', '{serial}', '{runId}', '{scenarioId}'],
+          outputs: [],
+        },
+        {
+          id: 'stop-trace',
+          phase: 'stopWindow',
+          command: process.execPath,
+          args: [providerScript, 'stopWindow', orderPath, '', '', '{packageName}', '{serial}', '{runId}', '{scenarioId}'],
+          outputs: [],
+        },
+        {
+          id: 'normalize-trace',
+          phase: 'afterCapture',
+          command: process.execPath,
+          args: [
+            providerScript,
+            'afterCapture',
+            orderPath,
+            '{providerDir}/accessibility.json',
+            '{runDir}/raw/adb-logcat.txt',
+            '{providerDir}/window-summary.json',
+            '{packageName}',
+            '{serial}',
+            '{runId}',
+            '{scenarioId}',
+          ],
+          outputs: [
+            {
+              channel: 'provider',
+              kind: 'accessibility',
+              path: '{providerDir}/accessibility.json',
+              required: true,
+            },
+          ],
+        },
+        {
+          id: 'cleanup-trace',
+          phase: 'finalize',
+          command: process.execPath,
+          args: [providerScript, 'finalize', orderPath, '', '', '{packageName}', '{serial}', '{runId}', '{scenarioId}'],
+          outputs: [],
+        },
+      ],
+    }, null, 2)}\n`,
+    'utf8',
+  );
+  const executor = async (command: string, args: string[]): Promise<CommandResult> => {
+    const key = args.join(' ');
+    if (key === '-s emulator-5554 logcat -d -v time -t 1000') {
+      await fsp.appendFile(orderPath, 'capture\n', 'utf8');
+      return {
+        command,
+        args,
+        exitCode: 0,
+        stderr: '',
+        stdout: fs
+          .readFileSync(fixturePath('examples/mobile-app/event-logs/android-app-startup.log'), 'utf8')
+          .replace(/android-example-startup/gu, 'android-live-window-provider'),
+      };
+    }
+
+    const responses: Record<string, Partial<CommandResult>> = {
+      version: { stdout: 'Android Debug Bridge version 1.0.41\n' },
+      'devices -l': {
+        stdout: [
+          'List of devices attached',
+          'emulator-5554 device product:sdk_gphone model:Pixel_6 device:emu64',
+        ].join('\n'),
+      },
+      '-s emulator-5554 shell getprop ro.product.model': { stdout: 'Pixel 6\n' },
+      '-s emulator-5554 shell getprop ro.build.version.release': { stdout: '15\n' },
+      '-s emulator-5554 shell getprop ro.build.version.sdk': { stdout: '35\n' },
+      '-s emulator-5554 shell pm path dev.agentscenarioloop.example': {
+        stdout: 'package:/data/app/dev.agentscenarioloop.example/base.apk\n',
+      },
+      '-s emulator-5554 shell monkey -p dev.agentscenarioloop.example -c android.intent.category.LAUNCHER 1': {
+        stdout: 'Events injected: 1\n',
+      },
+      '-s emulator-5554 shell pidof dev.agentscenarioloop.example': {
+        stdout: '1234\n',
+      },
+    };
+    const response = responses[key] ?? { exitCode: 1, stderr: `unexpected command: ${key}` };
+    return {
+      command,
+      args,
+      exitCode: response.exitCode ?? 0,
+      stderr: response.stderr ?? '',
+      stdout: response.stdout ?? '',
+    };
+  };
+
+  const result = await runProfileAndroid({
+    'adb-capture': true,
+    'adb-out': adbCaptureRoot,
+    config: fixturePath('examples/mobile-app/asl.config.json'),
+    launch: true,
+    out: profileRoot,
+    provider: providerManifestPath,
+    'run-id': 'android-live-window-provider',
+    scenario: fixturePath('examples/mobile-app/scenarios/android/app-startup.json'),
+    serial: 'emulator-5554',
+  }, {
+    executor,
+  });
+
+  const health = readJson(path.join(result.runDir, 'health.json')) as Record<string, any>;
+  const order = fs.readFileSync(orderPath, 'utf8').split(/\r?\n/u).filter(Boolean);
+  const normalizedOrder = order.filter((entry: string, index: number) => entry !== order[index - 1]);
+  const summary = readJson(
+    path.join(result.runDir, 'raw', 'providers', 'live-window-provider', 'window-summary.json'),
+  ) as Record<string, any>;
+  const normalizedSummaryOrder = (summary.order as string[]).filter((entry, index, entries) => (
+    entry !== entries[index - 1]
+  ));
+  const startedRecord = readJson(
+    path.join(result.runDir, 'raw', 'provider-commands', 'live-window-provider-start-trace.started.json'),
+  ) as Record<string, any>;
+  const commandRecord = readJson(
+    path.join(result.runDir, 'raw', 'provider-commands', 'live-window-provider-start-trace.json'),
+  ) as Record<string, any>;
+
+  assert.equal(health.healthStatus, 'passed');
+  assert.deepEqual(normalizedOrder, ['startWindow', 'capture', 'stopWindow', 'afterCapture', 'finalize']);
+  assert.deepEqual(normalizedSummaryOrder, ['startWindow', 'capture', 'stopWindow', 'afterCapture']);
+  assert.equal(summary.expectedRawExists, true);
+  assert.equal(summary.appId, 'dev.agentscenarioloop.example');
+  assert.equal(summary.targetId, 'emulator-5554');
+  assert.equal(summary.runId, 'android-live-window-provider');
+  assert.equal(summary.scenarioId, 'app-startup');
+  assert.equal(commandRecord.status, 'completed');
+  assert.equal(commandRecord.startedRecordPath, 'raw/provider-commands/live-window-provider-start-trace.started.json');
+  assert.deepEqual(startedRecord.args.slice(-4), [
+    'dev.agentscenarioloop.example',
+    'emulator-5554',
+    'android-live-window-provider',
+    'app-startup',
+  ]);
+});
+
+test('profile-android classifies live-window native-performance evidence as comparison-ready from real runner command outputs', async (t: TestContext) => {
+  const tempRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-android-native-window-'));
+  const providerRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-provider-android-native-window-'));
+  t.after(async () => {
+    await fsp.rm(tempRoot, { recursive: true, force: true });
+    await fsp.rm(providerRoot, { recursive: true, force: true });
+  });
+
+  const profileRoot = path.join(tempRoot, 'profile');
+  const adbCaptureRoot = path.join(tempRoot, 'adb-capture');
+  const orderPath = path.join(providerRoot, 'window-order.log');
+  const providerScript = path.join(providerRoot, 'native-window-provider.js');
+  await fsp.writeFile(
+    providerScript,
+    [
+      "const crypto = require('node:crypto');",
+      "const fs = require('node:fs');",
+      "const path = require('node:path');",
+      'const [phase, orderPath, capturePath, evidencePath, targetBindingPath, providerId, requestedAppId, requestedTargetId, runDir, runId, scenarioId] = process.argv.slice(2);',
+      "const sha256 = (value) => crypto.createHash('sha256').update(value).digest('hex');",
+      "const toRunRelative = (targetPath) => path.relative(runDir, targetPath).split(path.sep).join('/');",
+      "const commandRecordPath = (commandId, suffix = '.json') => path.join(runDir, 'raw', 'provider-commands', `${providerId}-${commandId}${suffix}`);",
+      "const commandReference = ({ args, commandId, commandPath, outputPath, outputSha256, phase }) => ({",
+      '  sourceId: commandId,',
+      '  commandId,',
+      "  command: process.execPath,",
+      '  args,',
+      '  phase,',
+      "  recordPath: `raw/provider-commands/${providerId}-${commandId}.json`,",
+      "  startedRecordPath: `raw/provider-commands/${providerId}-${commandId}.started.json`,",
+      "  stdoutPath: `raw/provider-commands/${providerId}-${commandId}.stdout.txt`,",
+      "  stderrPath: `raw/provider-commands/${providerId}-${commandId}.stderr.txt`,",
+      "  status: 'completed',",
+      "  ...(typeof outputPath === 'string' ? { outputPath } : {}),",
+      "  ...(typeof outputSha256 === 'string' ? { outputSha256 } : {}),",
+      '});',
+      'fs.mkdirSync(path.dirname(orderPath), { recursive: true });',
+      "fs.appendFileSync(orderPath, `${phase}\\n`);",
+      "if (phase === 'stopWindow') {",
+      '  fs.mkdirSync(path.dirname(capturePath), { recursive: true });',
+      "  fs.writeFileSync(capturePath, 'active-window-capture\\n', 'utf8');",
+      '}',
+      "if (phase !== 'afterCapture') {",
+      '  process.exit(0);',
+      '}',
+      "const startRecord = JSON.parse(fs.readFileSync(commandRecordPath('start-native-window'), 'utf8'));",
+      "const stopRecord = JSON.parse(fs.readFileSync(commandRecordPath('stop-native-window'), 'utf8'));",
+      "const runnerWindow = JSON.parse(fs.readFileSync(path.join(runDir, 'raw', 'runner-active-loop-window.json'), 'utf8'));",
+      'const windowStartedAt = runnerWindow.startedAt;',
+      'const windowEndedAt = runnerWindow.endedAt;',
+      'const windowDurationMs = runnerWindow.durationMs;',
+      'const captureArtifactPath = toRunRelative(capturePath);',
+      'const targetBindingRelativePath = toRunRelative(targetBindingPath);',
+      "const targetBindingBase = {",
+      "  schemaVersion: '1.0.0',",
+      '  providerId,',
+      "  platform: 'android',",
+      '  runId,',
+      '  scenarioId,',
+      "  status: 'verified',",
+      '  requestedAppId,',
+      '  requestedTargetId,',
+      '  observedAppId: requestedAppId,',
+      '  observedTargetId: requestedTargetId,',
+      '  observedProcessName: requestedAppId,',
+      '  observedProcessPid: 4242,',
+      "  captureArtifacts: [{ commandId: 'stop-native-window', path: captureArtifactPath }],",
+      '  window: {',
+      "    phase: 'activeLoop',",
+      '    startedAt: windowStartedAt,',
+      '    endedAt: windowEndedAt,',
+      '    durationMs: windowDurationMs,',
+      '  },',
+      '};',
+      "const targetBindingWithSources = {",
+      '  ...targetBindingBase,',
+      '  sourceCommands: [',
+      "    commandReference({ args: startRecord.args, commandId: 'start-native-window', phase: 'startWindow' }),",
+      "    commandReference({ args: stopRecord.args, commandId: 'stop-native-window', phase: 'stopWindow' }),",
+      '  ],',
+      '};',
+      'const targetBinding = {',
+      '  ...targetBindingWithSources,',
+      '  sourceCommands: [',
+      '    ...targetBindingWithSources.sourceCommands,',
+      "    commandReference({",
+      "      args: process.argv.slice(1),",
+      "      commandId: 'capture-native-performance',",
+      "      outputPath: targetBindingRelativePath,",
+      "      phase: 'afterCapture',",
+      '    }),',
+      '  ],',
+      '};',
+      'fs.mkdirSync(path.dirname(targetBindingPath), { recursive: true });',
+      "fs.writeFileSync(targetBindingPath, `${JSON.stringify(targetBinding)}\\n`, 'utf8');",
+      "const evidence = {",
+      "  schemaVersion: '1.1.0',",
+      '  providerId,',
+      "  platform: 'android',",
+      '  runId,',
+      '  scenarioId,',
+      "  tool: { name: 'android-native-provider', version: '1.2.3' },",
+      '  capturedAt: windowEndedAt,',
+      "  captureMode: 'session',",
+      "  clockDomain: 'host',",
+      "  completenessStatus: 'complete',",
+      "  comparability: { status: 'comparable', policy: 'release-native-baseline-v1' },",
+      "  claimSufficiency: { status: 'sufficient-for-comparison', supportingEvidence: ['bounded active-window capture', 'verified target binding'] },",
+      "  comparisonPolicy: {",
+      "    policyId: 'release-native-baseline-v1',",
+      "    providerVersion: '1.2.3',",
+      "    window: { definitionId: 'app-startup-window', kind: 'bounded-duration', phase: 'activeLoop', durationMs: windowDurationMs },",
+      "    target: { family: 'android-mobile-app', buildMode: 'debug' },",
+      "    environment: [{ name: 'device-class', value: 'emulator' }, { name: 'thermal-state', value: 'nominal' }],",
+      '  },',
+      "  comparisonMetrics: [{",
+      "    id: 'frame-p95',",
+      "    surface: 'frames',",
+      "    sample: 'p95Ms',",
+      "    unit: 'ms',",
+      "    aggregation: 'p95',",
+      "    direction: 'lower-is-better',",
+      "    tolerance: { absolute: 1, relative: 0.05 },",
+      "    budget: { operator: 'at-most', threshold: 20 },",
+      '  }],',
+      "  attachments: [{ kind: 'native-trace', path: captureArtifactPath }],",
+      "  diagnosticSources: [{ sourceId: 'perfetto', status: 'captured', dataClasses: ['frames', 'jank', 'native-trace'], path: captureArtifactPath }],",
+      "  frames: { total: 120, janky: 2, p95Ms: 18 },",
+      "  lifecycle: { phase: 'activeLoop', startedAt: windowStartedAt, endedAt: windowEndedAt, durationMs: windowDurationMs, perturbsTiming: false },",
+      "  targetBinding: {",
+      "    status: 'verified',",
+      '    appId: requestedAppId,',
+      '    deviceId: requestedTargetId,',
+      "    source: 'provider-session-status',",
+      "    candidateTargets: [{",
+      "      bindingStatus: 'observed',",
+      "      platform: 'android',",
+      '      appId: requestedAppId,',
+      '      deviceId: requestedTargetId,',
+      "      source: 'provider-session-status',",
+      '      evidencePath: targetBindingRelativePath,',
+      '    }],',
+      '  },',
+      '};',
+      'fs.mkdirSync(path.dirname(evidencePath), { recursive: true });',
+      "fs.writeFileSync(evidencePath, `${JSON.stringify(evidence)}\\n`, 'utf8');",
+    ].join('\n'),
+    'utf8',
+  );
+
+  const providerManifestPath = path.join(providerRoot, 'provider.json');
+  await fsp.writeFile(
+    providerManifestPath,
+    `${JSON.stringify({
+      schemaVersion: '1.0.0',
+      runnerId: 'android-native-comparison-provider',
+      kind: 'evidenceProvider',
+      platforms: ['android'],
+      capabilities: ['nativePerformance'],
+      artifactOutputs: ['nativePerformance'],
+      lifecycle: ['startWindow', 'stopWindow', 'afterCapture'],
+      providerCommands: [
+        {
+          id: 'start-native-window',
+          phase: 'startWindow',
+          command: process.execPath,
+          args: [
+            providerScript,
+            'startWindow',
+            orderPath,
+            '{providerDir}/active-window-capture.trace',
+            '{providerDir}/native-performance.json',
+            '{nativeTargetBindingPath}',
+            '{providerId}',
+            '{packageName}',
+            '{serial}',
+            '{runDir}',
+            '{runId}',
+            '{scenarioId}',
+          ],
+          outputs: [],
+        },
+        {
+          id: 'stop-native-window',
+          phase: 'stopWindow',
+          command: process.execPath,
+          args: [
+            providerScript,
+            'stopWindow',
+            orderPath,
+            '{providerDir}/active-window-capture.trace',
+            '{providerDir}/native-performance.json',
+            '{nativeTargetBindingPath}',
+            '{providerId}',
+            '{packageName}',
+            '{serial}',
+            '{runDir}',
+            '{runId}',
+            '{scenarioId}',
+          ],
+          outputs: [
+            {
+              channel: 'provider',
+              kind: 'logs',
+              path: '{providerDir}/active-window-capture.trace',
+            },
+          ],
+        },
+        {
+          id: 'capture-native-performance',
+          phase: 'afterCapture',
+          command: process.execPath,
+          args: [
+            providerScript,
+            'afterCapture',
+            orderPath,
+            '{providerDir}/active-window-capture.trace',
+            '{providerDir}/native-performance.json',
+            '{nativeTargetBindingPath}',
+            '{providerId}',
+            '{packageName}',
+            '{serial}',
+            '{runDir}',
+            '{runId}',
+            '{scenarioId}',
+          ],
+          outputs: [
+            {
+              channel: 'provider',
+              kind: 'nativePerformance',
+              path: '{providerDir}/native-performance.json',
+              required: true,
+            },
+          ],
+        },
+      ],
+    }, null, 2)}\n`,
+    'utf8',
+  );
+
+  const runId = 'android-native-window-ready';
+  const providerId = 'android-native-comparison-provider';
+  const executor = async (command: string, args: string[]): Promise<CommandResult> => {
+    const key = args.join(' ');
+    if (key === '-s emulator-5554 logcat -d -v time -t 1000') {
+      await fsp.appendFile(orderPath, 'capture\n', 'utf8');
+      return {
+        command,
+        args,
+        exitCode: 0,
+        stderr: '',
+        stdout: fs
+          .readFileSync(fixturePath('examples/mobile-app/event-logs/android-app-startup.log'), 'utf8')
+          .replace(/android-example-startup/gu, runId),
+      };
+    }
+
+    const responses: Record<string, Partial<CommandResult>> = {
+      version: { stdout: 'Android Debug Bridge version 1.0.41\n' },
+      'devices -l': {
+        stdout: [
+          'List of devices attached',
+          'emulator-5554 device product:sdk_gphone model:Pixel_6 device:emu64',
+        ].join('\n'),
+      },
+      '-s emulator-5554 shell getprop ro.product.model': { stdout: 'Pixel 6\n' },
+      '-s emulator-5554 shell getprop ro.build.version.release': { stdout: '15\n' },
+      '-s emulator-5554 shell getprop ro.build.version.sdk': { stdout: '35\n' },
+      '-s emulator-5554 shell pm path dev.agentscenarioloop.example': {
+        stdout: 'package:/data/app/dev.agentscenarioloop.example/base.apk\n',
+      },
+      '-s emulator-5554 shell monkey -p dev.agentscenarioloop.example -c android.intent.category.LAUNCHER 1': {
+        stdout: 'Events injected: 1\n',
+      },
+      '-s emulator-5554 shell pidof dev.agentscenarioloop.example': {
+        stdout: '1234\n',
+      },
+    };
+    const response = responses[key] ?? { exitCode: 1, stderr: `unexpected command: ${key}` };
+    return {
+      command,
+      args,
+      exitCode: response.exitCode ?? 0,
+      stderr: response.stderr ?? '',
+      stdout: response.stdout ?? '',
+    };
+  };
+
+  const result = await runProfileAndroid({
+    'adb-capture': true,
+    'adb-out': adbCaptureRoot,
+    config: fixturePath('examples/mobile-app/asl.config.json'),
+    launch: true,
+    out: profileRoot,
+    provider: providerManifestPath,
+    'run-id': runId,
+    scenario: fixturePath('examples/mobile-app/scenarios/android/app-startup.json'),
+    serial: 'emulator-5554',
+  }, {
+    executor,
+  });
+
+  const health = readJson(path.join(result.runDir, 'health.json')) as Record<string, any>;
+  const artifactPath = `raw/providers/${providerId}/native-performance.json`;
+  const evidence = readJson(path.join(result.runDir, artifactPath));
+  const stopCommandRecord = readJson(
+    path.join(result.runDir, 'raw', 'provider-commands', `${providerId}-stop-native-window.json`),
+  ) as Record<string, any>;
+
+  assert.equal(health.healthStatus, 'passed');
+  assert.equal(stopCommandRecord.outputs[0].runRelativePath, `raw/providers/${providerId}/active-window-capture.trace`);
+  assert.equal(
+    stopCommandRecord.outputs[0].sha256,
+    sha256File(path.join(result.runDir, `raw/providers/${providerId}/active-window-capture.trace`)),
+  );
+  assert.deepEqual(classifyNativePerformanceComparisonReadiness(evidence, {
+    artifactPath,
+    evidencePathExists: (runRelativePath: string) => fs.existsSync(path.join(result.runDir, runRelativePath)),
+    expectedPlatform: 'android',
+    expectedProviderId: providerId,
+    expectedRunId: runId,
+    expectedScenarioId: 'app-startup',
+    readEvidenceJson: (runRelativePath: string) => readJson(path.join(result.runDir, runRelativePath)),
+    readEvidenceSha256: (runRelativePath: string) => sha256File(path.join(result.runDir, runRelativePath)),
+  }), {
+    missingEvidence: [],
+    status: 'comparison-ready',
+  });
+});
+
+test('profile-android finalizes live-window providers when adb capture fails before profile-mobile handoff', async (t: TestContext) => {
+  const tempRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-android-live-window-failure-'));
+  const providerRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-provider-android-live-window-failure-'));
+  t.after(async () => {
+    await fsp.rm(tempRoot, { recursive: true, force: true });
+    await fsp.rm(providerRoot, { recursive: true, force: true });
+  });
+  const profileRoot = path.join(tempRoot, 'profile');
+  const adbCaptureRoot = path.join(tempRoot, 'adb-capture');
+  const orderPath = path.join(providerRoot, 'window-order.log');
+  const providerScript = path.join(providerRoot, 'provider-window-phase.js');
+  await fsp.writeFile(
+    providerScript,
+    [
+      "const fs = require('node:fs');",
+      "const path = require('node:path');",
+      "const [phase, orderPath] = process.argv.slice(2);",
+      "fs.mkdirSync(path.dirname(orderPath), { recursive: true });",
+      "fs.appendFileSync(orderPath, `${phase}\\n`);",
+    ].join('\n'),
+    'utf8',
+  );
+  const providerManifestPath = path.join(providerRoot, 'provider.json');
+  await fsp.writeFile(
+    providerManifestPath,
+    `${JSON.stringify({
+      schemaVersion: '1.0.0',
+      runnerId: 'live-window-cleanup-provider',
+      kind: 'evidenceProvider',
+      platforms: ['android'],
+      capabilities: ['profiler'],
+      artifactOutputs: ['profiler'],
+      lifecycle: ['startWindow', 'stopWindow', 'finalize'],
+      providerCommands: [
+        {
+          id: 'start-trace',
+          phase: 'startWindow',
+          command: process.execPath,
+          args: [providerScript, 'startWindow', orderPath],
+          outputs: [],
+        },
+        {
+          id: 'stop-trace',
+          phase: 'stopWindow',
+          command: process.execPath,
+          args: [providerScript, 'stopWindow', orderPath],
+          outputs: [],
+        },
+        {
+          id: 'cleanup-trace',
+          phase: 'finalize',
+          command: process.execPath,
+          args: [providerScript, 'finalize', orderPath],
+          outputs: [],
+        },
+      ],
+    }, null, 2)}\n`,
+    'utf8',
+  );
+  const executor = createExecutor({
+    version: { stdout: 'Android Debug Bridge version 1.0.41\n' },
+    'devices -l': {
+      exitCode: 1,
+      stderr: 'adb command timed out after 50ms.',
+    },
+  });
+
+  await assert.rejects(
+    () => runProfileAndroid({
+      'adb-capture': true,
+      'adb-command-timeout-ms': '50',
+      'adb-out': adbCaptureRoot,
+      config: fixturePath('examples/mobile-app/asl.config.json'),
+      out: profileRoot,
+      provider: providerManifestPath,
+      'run-id': 'android-live-window-failure',
+      scenario: fixturePath('examples/mobile-app/scenarios/android/app-startup.json'),
+      serial: 'emulator-5554',
+    }, { executor }),
+    /Android adb capture failed; inspect/u,
+  );
+
+  const runDir = path.join(profileRoot, 'app-startup', 'android-live-window-failure');
+  const order = fs.readFileSync(orderPath, 'utf8').split(/\r?\n/u).filter(Boolean);
+
+  assert.deepEqual(order, ['startWindow', 'stopWindow', 'finalize']);
+  assert.equal(
+    fs.existsSync(path.join(runDir, 'raw', 'provider-commands', 'live-window-cleanup-provider-cleanup-trace.json')),
+    true,
+  );
+});
+
+test('profile-android stops then finalizes live-window providers when adb capture throws before profile-mobile handoff', async (t: TestContext) => {
+  const tempRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-android-live-window-throw-'));
+  const providerRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-provider-android-live-window-throw-'));
+  t.after(async () => {
+    await fsp.rm(tempRoot, { recursive: true, force: true });
+    await fsp.rm(providerRoot, { recursive: true, force: true });
+  });
+  const profileRoot = path.join(tempRoot, 'profile');
+  const adbCaptureRoot = path.join(tempRoot, 'adb-capture');
+  const orderPath = path.join(providerRoot, 'window-order.log');
+  const providerScript = path.join(providerRoot, 'provider-window-phase.js');
+  await fsp.writeFile(
+    providerScript,
+    [
+      "const fs = require('node:fs');",
+      "const path = require('node:path');",
+      "const [phase, orderPath] = process.argv.slice(2);",
+      "fs.mkdirSync(path.dirname(orderPath), { recursive: true });",
+      "fs.appendFileSync(orderPath, `${phase}\\n`);",
+    ].join('\n'),
+    'utf8',
+  );
+  const providerManifestPath = path.join(providerRoot, 'provider.json');
+  await fsp.writeFile(
+    providerManifestPath,
+    `${JSON.stringify({
+      schemaVersion: '1.0.0',
+      runnerId: 'live-window-throw-provider',
+      kind: 'evidenceProvider',
+      platforms: ['android'],
+      capabilities: ['profiler'],
+      artifactOutputs: ['profiler'],
+      lifecycle: ['startWindow', 'stopWindow', 'finalize'],
+      providerCommands: [
+        {
+          id: 'start-trace',
+          phase: 'startWindow',
+          command: process.execPath,
+          args: [providerScript, 'startWindow', orderPath],
+          outputs: [],
+        },
+        {
+          id: 'stop-trace',
+          phase: 'stopWindow',
+          command: process.execPath,
+          args: [providerScript, 'stopWindow', orderPath],
+          outputs: [],
+        },
+        {
+          id: 'cleanup-trace',
+          phase: 'finalize',
+          command: process.execPath,
+          args: [providerScript, 'finalize', orderPath],
+          outputs: [],
+        },
+      ],
+    }, null, 2)}\n`,
+    'utf8',
+  );
+  const executor = async (command: string, args: string[]): Promise<CommandResult> => {
+    const key = args.join(' ');
+    if (key === 'version') {
+      return {
+        command,
+        args,
+        exitCode: 0,
+        stderr: '',
+        stdout: 'Android Debug Bridge version 1.0.41\n',
+      };
+    }
+
+    throw new Error(`simulated adb throw: ${key}`);
+  };
+
+  await assert.rejects(
+    () => runProfileAndroid({
+      'adb-capture': true,
+      'adb-command-timeout-ms': '50',
+      'adb-out': adbCaptureRoot,
+      config: fixturePath('examples/mobile-app/asl.config.json'),
+      out: profileRoot,
+      provider: providerManifestPath,
+      'run-id': 'android-live-window-throw',
+      scenario: fixturePath('examples/mobile-app/scenarios/android/app-startup.json'),
+      serial: 'emulator-5554',
+    }, { executor }),
+    /Android adb capture failed; inspect/u,
+  );
+
+  const runDir = path.join(profileRoot, 'app-startup', 'android-live-window-throw');
+  const order = fs.readFileSync(orderPath, 'utf8').split(/\r?\n/u).filter(Boolean);
+
+  assert.deepEqual(order, ['startWindow', 'stopWindow', 'finalize']);
+  assert.equal(
+    fs.existsSync(path.join(runDir, 'raw', 'provider-commands', 'live-window-throw-provider-cleanup-trace.json')),
+    true,
+  );
+});
+
+test('profile-android rejects stale provider outputs that predate command execution', async (t: TestContext) => {
+  const artifactRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-android-stale-provider-output-'));
+  const providerRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-provider-android-stale-output-'));
+  t.after(async () => {
+    await fsp.rm(artifactRoot, { recursive: true, force: true });
+    await fsp.rm(providerRoot, { recursive: true, force: true });
+  });
+  const runId = 'android-provider-stale-output';
+  const runDir = path.join(artifactRoot, 'app-startup', runId);
+  const staleOutputPath = path.join(runDir, 'raw', 'providers', 'stale-output-provider', 'accessibility.json');
+  await fsp.mkdir(path.dirname(staleOutputPath), { recursive: true });
+  await fsp.writeFile(staleOutputPath, JSON.stringify({ violations: ['stale'] }) + '\n', 'utf8');
+  const providerScript = path.join(providerRoot, 'noop-provider.js');
+  await fsp.writeFile(
+    providerScript,
+    "process.stdout.write('provider reused existing output\\n');\n",
+    'utf8',
+  );
+  const providerManifestPath = path.join(providerRoot, 'provider.json');
+  await fsp.writeFile(
+    providerManifestPath,
+    `${JSON.stringify({
+      schemaVersion: '1.0.0',
+      runnerId: 'stale-output-provider',
+      kind: 'evidenceProvider',
+      platforms: ['android'],
+      capabilities: ['accessibility'],
+      artifactOutputs: ['accessibility'],
+      lifecycle: ['afterCapture'],
+      providerCommands: [
+        {
+          id: 'capture-accessibility',
+          phase: 'afterCapture',
+          command: process.execPath,
+          args: [providerScript],
+          outputs: [
+            {
+              channel: 'provider',
+              kind: 'accessibility',
+              path: '{providerDir}/accessibility.json',
+              required: true,
+            },
+          ],
+        },
+      ],
+    }, null, 2)}\n`,
+    'utf8',
+  );
+
+  const { stdout } = await execFileAsync(process.execPath, [
+    PROFILE_ANDROID,
+    '--config',
+    fixturePath('examples/mobile-app/asl.config.json'),
+    '--scenario',
+    fixturePath('examples/mobile-app/scenarios/android/app-startup.json'),
+    '--events',
+    fixturePath('examples/mobile-app/event-logs/android-app-startup.log'),
+    '--provider',
+    providerManifestPath,
+    '--out',
+    artifactRoot,
+    '--run-id',
+    runId,
+  ]);
+
+  const realizedRunDir = stdout.trim();
+  const health = readJson(path.join(realizedRunDir, 'health.json')) as Record<string, any>;
+  const verdict = readJson(path.join(realizedRunDir, 'verdict.json')) as Record<string, any>;
+  const manifest = readJson(path.join(realizedRunDir, 'manifest.json')) as Record<string, any>;
+  const commandRecord = readJson(
+    path.join(realizedRunDir, 'raw', 'provider-commands', 'stale-output-provider-capture-accessibility.json'),
+  ) as Record<string, any>;
+  const startedRecord = readJson(
+    path.join(realizedRunDir, 'raw', 'provider-commands', 'stale-output-provider-capture-accessibility.started.json'),
+  ) as Record<string, any>;
+  const accessibilityDiagnostic = manifest.artifacts.diagnostics.find((entry: Record<string, any>) => (
+    entry.kind === 'accessibility'
+  ));
+
+  assert.equal(health.healthStatus, 'failed');
+  assert.equal(verdict.verdictStatus, 'inconclusive');
+  assert.equal(commandRecord.status, 'completed');
+  assert.equal(commandRecord.outputs[0].stale, true);
+  assert.equal(commandRecord.outputs[0].status, 'missing');
+  assert.equal(startedRecord.outputs[0].resolvedPath, undefined);
+  assert.equal(
+    startedRecord.outputs[0].runRelativePath,
+    path.relative(realizedRunDir, staleOutputPath).replaceAll(path.sep, '/'),
+  );
+  assert.equal(accessibilityDiagnostic?.availability, 'provider-blocked');
+  assert.ok(
+    (health.checks as Array<{ code: string; metadata?: { nextActionCode?: string; providerId?: string } }>).some(
+      (check) => (
+        check.code === 'provider_output_stale' &&
+        check.metadata?.nextActionCode === 'refresh_provider_output' &&
+        check.metadata?.providerId === 'stale-output-provider'
+      ),
+    ),
+  );
 });
 
 test('profile-android writes failed health when an evidence provider command fails', async (t: TestContext) => {

@@ -1,15 +1,239 @@
 const assert = require('node:assert/strict');
 const { execFile } = require('node:child_process');
+const crypto = require('node:crypto');
 const fsp = require('node:fs/promises');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
 
-const { parseAndroidFramestatsSummary } = require('../../core/native-performance');
+const {
+  buildIosNativePerformanceEvidence,
+  classifyNativePerformanceComparisonReadiness,
+  parseAndroidFramestatsSummary,
+} = require('../../core/native-performance');
 const { initProject } = require('../init-project');
 
 type TestContext = import('node:test').TestContext;
+
+function sha256(value: Buffer | string): string {
+  return crypto.createHash('sha256').update(value).digest('hex');
+}
+
+function buildComparisonContract(durationMs = 10000) {
+  return {
+    comparisonMetrics: [
+      {
+        aggregation: 'p95',
+        budget: {
+          operator: 'at-most',
+          threshold: 20,
+        },
+        direction: 'lower-is-better',
+        id: 'frame-p95',
+        sample: 'p95FrameMs',
+        surface: 'frames',
+        tolerance: {
+          absolute: 1,
+          relative: 0.05,
+        },
+        unit: 'ms',
+      },
+    ],
+    comparisonPolicy: {
+      environment: [
+        {
+          name: 'device-class',
+          value: 'simulator',
+        },
+        {
+          name: 'thermal-state',
+          value: 'nominal',
+        },
+      ],
+      policyId: 'release-native-baseline-v1',
+      providerVersion: '1.0.0',
+      target: {
+        buildMode: 'release',
+        family: 'ios-simulator-app',
+      },
+      window: {
+        definitionId: 'active-window',
+        durationMs,
+        kind: 'bounded-duration',
+        phase: 'activeLoop',
+      },
+    },
+  };
+}
+
+function buildComparisonContext({
+  artifactPath,
+  platform,
+  providerId,
+  runDir,
+  runId,
+  scenarioId,
+}: {
+  artifactPath: string;
+  platform: 'android' | 'ios';
+  providerId: string;
+  runDir: string;
+  runId: string;
+  scenarioId: string;
+}) {
+  return {
+    artifactPath,
+    evidencePathExists: (runRelativePath: string) => fs.existsSync(path.join(runDir, runRelativePath)),
+    expectedPlatform: platform,
+    expectedProviderId: providerId,
+    expectedRunId: runId,
+    expectedScenarioId: scenarioId,
+    readEvidenceJson: (runRelativePath: string) => JSON.parse(fs.readFileSync(path.join(runDir, runRelativePath), 'utf8')),
+    readEvidenceSha256: (runRelativePath: string) => sha256(fs.readFileSync(path.join(runDir, runRelativePath))),
+  };
+}
+
+async function stageRunnerLifecycleCommandRecords({
+  providerId,
+  runDir,
+  sourceCommands,
+  windowEndedAt,
+  windowStartedAt,
+}: {
+  providerId: string;
+  runDir: string;
+  sourceCommands: Array<Record<string, unknown>>;
+  windowEndedAt: string;
+  windowStartedAt: string;
+}) {
+  const lifecycleCommands = sourceCommands.filter((sourceCommand) => (
+    typeof sourceCommand.recordPath === 'string' &&
+    sourceCommand.recordPath.startsWith('raw/provider-commands/')
+  ));
+  const windowStartedAtMs = Date.parse(windowStartedAt);
+  const windowEndedAtMs = Date.parse(windowEndedAt);
+  assert.equal(Number.isFinite(windowStartedAtMs), true);
+  assert.equal(Number.isFinite(windowEndedAtMs), true);
+  assert.equal(windowEndedAtMs > windowStartedAtMs, true);
+
+  for (const [index, sourceCommand] of lifecycleCommands.entries()) {
+    assert.equal(typeof sourceCommand.command, 'string');
+    assert.ok(Array.isArray(sourceCommand.args));
+    assert.equal(typeof sourceCommand.recordPath, 'string');
+    assert.equal(typeof sourceCommand.startedRecordPath, 'string');
+    assert.equal(typeof sourceCommand.stdoutPath, 'string');
+    assert.equal(typeof sourceCommand.stderrPath, 'string');
+    assert.equal(typeof sourceCommand.phase, 'string');
+
+    const commandId = typeof sourceCommand.commandId === 'string'
+      ? sourceCommand.commandId
+      : String(sourceCommand.sourceId);
+    const stdout = `${commandId} stdout\n`;
+    const stderr = `${commandId} stderr\n`;
+    const stdoutSha256 = sha256(stdout);
+    const stderrSha256 = sha256(stderr);
+    let startedAtMs = windowEndedAtMs + ((index + 1) * 100);
+    let endedAtMs = startedAtMs + 50;
+    if (sourceCommand.phase === 'startWindow') {
+      startedAtMs = windowStartedAtMs - 150;
+      endedAtMs = windowStartedAtMs - 50;
+    } else if (sourceCommand.phase === 'stopWindow') {
+      startedAtMs = windowEndedAtMs + 50;
+      endedAtMs = windowEndedAtMs + 150;
+    } else if (sourceCommand.phase === 'afterCapture') {
+      startedAtMs = windowEndedAtMs + 200;
+      endedAtMs = windowEndedAtMs + 300;
+    } else if (sourceCommand.phase === 'finalize') {
+      startedAtMs = windowEndedAtMs + 350;
+      endedAtMs = windowEndedAtMs + 450;
+    }
+    const startedAt = new Date(startedAtMs).toISOString();
+    const endedAt = new Date(endedAtMs).toISOString();
+
+    const stdoutPath = path.join(runDir, sourceCommand.stdoutPath);
+    const stderrPath = path.join(runDir, sourceCommand.stderrPath);
+    const startedRecordPath = path.join(runDir, sourceCommand.startedRecordPath);
+    const completedRecordPath = path.join(runDir, sourceCommand.recordPath);
+
+    await fsp.mkdir(path.dirname(completedRecordPath), { recursive: true });
+    await fsp.writeFile(stdoutPath, stdout, 'utf8');
+    await fsp.writeFile(stderrPath, stderr, 'utf8');
+    await fsp.writeFile(
+      startedRecordPath,
+      `${JSON.stringify({
+        args: sourceCommand.args,
+        command: sourceCommand.command,
+        outputs: Array.isArray(sourceCommand.outputs) ? sourceCommand.outputs : [],
+        phase: sourceCommand.phase,
+        providerId,
+        startedAt,
+        startedRecordPath: sourceCommand.startedRecordPath,
+        status: 'started',
+        stderrPath: sourceCommand.stderrPath,
+        stdoutPath: sourceCommand.stdoutPath,
+      })}\n`,
+      'utf8',
+    );
+
+    const completedRecord: Record<string, unknown> = {
+      args: sourceCommand.args,
+      command: sourceCommand.command,
+      endedAt,
+      exitCode: 0,
+      outputs: Array.isArray(sourceCommand.outputs)
+        ? sourceCommand.outputs.map((output) => ({
+            ...output,
+            status: 'captured',
+            stale: false,
+          }))
+        : [],
+      phase: sourceCommand.phase,
+      providerId,
+      startedAt,
+      startedRecordPath: sourceCommand.startedRecordPath,
+      status: 'completed',
+      stderrPath: sourceCommand.stderrPath,
+      stderrSha256,
+      stdoutPath: sourceCommand.stdoutPath,
+      stdoutSha256,
+    };
+    if (typeof sourceCommand.outputPath === 'string') {
+      completedRecord.outputPath = sourceCommand.outputPath;
+      completedRecord.outputSha256 = sha256(await fsp.readFile(path.join(runDir, sourceCommand.outputPath)));
+    }
+    await fsp.writeFile(completedRecordPath, `${JSON.stringify(completedRecord)}\n`, 'utf8');
+  }
+}
+
+async function assertCommandRecordsDoNotPersistResolvedPaths({
+  runDir,
+  sourceCommands,
+}: {
+  runDir: string;
+  sourceCommands: Array<Record<string, unknown>>;
+}) {
+  for (const sourceCommand of sourceCommands) {
+    if (typeof sourceCommand.recordPath === 'string') {
+      const completedRecordPath = path.join(runDir, sourceCommand.recordPath);
+      if (fs.existsSync(completedRecordPath)) {
+        const completedRecord = JSON.parse(await fsp.readFile(completedRecordPath, 'utf8'));
+        for (const output of completedRecord.outputs ?? []) {
+          assert.equal(output.resolvedPath, undefined);
+        }
+      }
+    }
+    if (typeof sourceCommand.startedRecordPath === 'string') {
+      const startedRecordPath = path.join(runDir, sourceCommand.startedRecordPath);
+      if (fs.existsSync(startedRecordPath)) {
+        const startedRecord = JSON.parse(await fsp.readFile(startedRecordPath, 'utf8'));
+        for (const output of startedRecord.outputs ?? []) {
+          assert.equal(output.resolvedPath, undefined);
+        }
+      }
+    }
+  }
+}
 
 const ROOT = path.join(__dirname, '..', '..', '..');
 
@@ -213,6 +437,60 @@ function iosProviderArgs(options: {fakeXcrunPath: string; providerId: string; ru
   ];
 }
 
+function iosLifecycleArgs(
+  options: {fakeXcrunPath: string; providerId: string; runDir: string; scriptPath: string},
+  action: 'start-window' | 'stop-window' | 'normalize' | 'finalize',
+  extra: string[] = [],
+): string[] {
+  const providerDir = path.join(options.runDir, 'raw', 'providers', options.providerId);
+  const args = [
+    options.scriptPath,
+    action,
+    '--platform', 'ios',
+    '--scenario', 'native-capture',
+    '--run-id', 'run-1',
+    '--run-dir', options.runDir,
+    '--provider-id', options.providerId,
+    '--provider-dir', providerDir,
+    '--target-binding', path.join(providerDir, 'target-binding.json'),
+    '--xcrun', options.fakeXcrunPath,
+    '--bundle', 'com.example.ios',
+    '--device', 'SIM-UDID-123',
+  ];
+  if (action === 'normalize') {
+    args.push('--out', path.join(providerDir, 'native-performance.json'));
+  }
+  args.push(...extra);
+  return args;
+}
+
+function androidLifecycleArgs(
+  options: {fakeAdbPath: string; providerId: string; runDir: string; scriptPath: string},
+  action: 'start-window' | 'stop-window' | 'normalize' | 'finalize',
+  extra: string[] = [],
+): string[] {
+  const providerDir = path.join(options.runDir, 'raw', 'providers', options.providerId);
+  const args = [
+    options.scriptPath,
+    action,
+    '--platform', 'android',
+    '--scenario', 'native-capture',
+    '--run-id', 'run-1',
+    '--run-dir', options.runDir,
+    '--provider-id', options.providerId,
+    '--provider-dir', providerDir,
+    '--target-binding', path.join(providerDir, 'target-binding.json'),
+    '--adb', options.fakeAdbPath,
+    '--app', 'com.example.app',
+    '--device', 'emulator-5554',
+  ];
+  if (action === 'normalize') {
+    args.push('--out', path.join(providerDir, 'native-performance.json'));
+  }
+  args.push(...extra);
+  return args;
+}
+
 test('generated provider keeps Android adb capture opt-in', async (t: TestContext) => {
   const provider = await createGeneratedProvider(t);
   const commandLog = path.join(provider.targetDir, 'adb-commands.jsonl');
@@ -371,6 +649,273 @@ test('generated provider captures bounded iOS xctrace diagnostics with verified 
   ]);
 });
 
+test('generated provider keeps iOS target binding immutable after finalize', async (t: TestContext) => {
+  const provider = await createGeneratedProvider(t);
+  const commandLog = path.join(provider.targetDir, 'xcrun-commands.jsonl');
+  const env = { ...process.env, ASL_NATIVE_PERFORMANCE_IOS_CAPTURE: '1', FAKE_XCRUN_LOG: commandLog };
+  const targetProofPath = path.join(provider.runDir, 'raw', 'providers', 'example-evidence-provider', 'target-binding.json');
+  let result = await execFileResult(process.execPath, iosLifecycleArgs(provider, 'start-window'), {
+    cwd: provider.targetDir,
+    env,
+  });
+  assert.equal(result.exitCode, 0, result.stderr);
+  assert.equal(fs.existsSync(targetProofPath), false);
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  result = await execFileResult(process.execPath, iosLifecycleArgs(provider, 'stop-window'), {
+    cwd: provider.targetDir,
+    env,
+  });
+  assert.equal(result.exitCode, 0, result.stderr);
+  assert.equal(fs.existsSync(targetProofPath), false);
+  result = await execFileResult(process.execPath, iosLifecycleArgs(provider, 'normalize'), {
+    cwd: provider.targetDir,
+    env,
+  });
+  assert.equal(result.exitCode, 0, result.stderr);
+
+  const normalizedTargetProof = JSON.parse(await fsp.readFile(targetProofPath, 'utf8'));
+  assert.equal(normalizedTargetProof.window.phase, 'activeLoop');
+  assert.ok(normalizedTargetProof.window.durationMs > 0);
+  assert.deepEqual(
+    normalizedTargetProof.sourceCommands.map((command: Record<string, unknown>) => command.commandId ?? command.sourceId),
+    [
+      'start-native-window',
+      'stop-native-window',
+      'capture-native-performance',
+      'simctl-list-devices',
+      'simctl-get-app-container',
+      'simctl-launchctl-list',
+      'xctrace-record',
+      'xctrace-export-toc',
+    ],
+  );
+  const normalizeCommand = normalizedTargetProof.sourceCommands.find(
+    (command: Record<string, unknown>) => command.commandId === 'capture-native-performance',
+  );
+  const startWindowCommand = normalizedTargetProof.sourceCommands.find(
+    (command: Record<string, unknown>) => command.commandId === 'start-native-window',
+  );
+  const stopWindowCommand = normalizedTargetProof.sourceCommands.find(
+    (command: Record<string, unknown>) => command.commandId === 'stop-native-window',
+  );
+  assert.equal(startWindowCommand.status, 'completed');
+  assert.equal(startWindowCommand.outputPath, undefined);
+  assert.equal(stopWindowCommand.status, 'completed');
+  assert.equal(stopWindowCommand.outputPath, undefined);
+  assert.equal(normalizeCommand.status, 'completed');
+  assert.equal(normalizeCommand.outputPath, 'raw/providers/example-evidence-provider/target-binding.json');
+  assert.equal(normalizedTargetProof.status, 'verified');
+  assert.equal(normalizedTargetProof.recordedProcessPid, 4242);
+  assert.equal(normalizedTargetProof.recordedProcessName, 'ExampleApp');
+  assert.equal(normalizedTargetProof.recordedDeviceId, 'SIM-UDID-123');
+  await assertCommandRecordsDoNotPersistResolvedPaths({
+    runDir: provider.runDir,
+    sourceCommands: normalizedTargetProof.sourceCommands,
+  });
+  const normalizedTargetProofHash = sha256(await fsp.readFile(targetProofPath));
+
+  result = await execFileResult(process.execPath, iosLifecycleArgs(provider, 'finalize'), {
+    cwd: provider.targetDir,
+    env,
+  });
+  assert.equal(result.exitCode, 0, result.stderr);
+
+  const finalizedTargetProof = JSON.parse(await fsp.readFile(targetProofPath, 'utf8'));
+  assert.equal(finalizedTargetProof.window.phase, 'activeLoop');
+  assert.equal(finalizedTargetProof.status, 'verified');
+  assert.equal(finalizedTargetProof.recordedProcessPid, 4242);
+  assert.equal(finalizedTargetProof.recordedProcessName, 'ExampleApp');
+  assert.equal(sha256(await fsp.readFile(targetProofPath)), normalizedTargetProofHash);
+  assert.deepEqual(finalizedTargetProof.sourceCommands, normalizedTargetProof.sourceCommands);
+});
+
+test('generated provider iOS after-capture xctrace output stays diagnostic-only after finalize', async (t: TestContext) => {
+  const provider = await createGeneratedProvider(t);
+  const env = { ...process.env, ASL_NATIVE_PERFORMANCE_IOS_CAPTURE: '1' };
+
+  let result = await execFileResult(process.execPath, iosLifecycleArgs(provider, 'start-window'), {
+    cwd: provider.targetDir,
+    env,
+  });
+  assert.equal(result.exitCode, 0, result.stderr);
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  result = await execFileResult(process.execPath, iosLifecycleArgs(provider, 'stop-window'), {
+    cwd: provider.targetDir,
+    env,
+  });
+  assert.equal(result.exitCode, 0, result.stderr);
+  result = await execFileResult(process.execPath, iosLifecycleArgs(provider, 'normalize'), {
+    cwd: provider.targetDir,
+    env,
+  });
+  assert.equal(result.exitCode, 0, result.stderr);
+  result = await execFileResult(process.execPath, iosLifecycleArgs(provider, 'finalize'), {
+    cwd: provider.targetDir,
+    env,
+  });
+  assert.equal(result.exitCode, 0, result.stderr);
+
+  const artifactPath = 'raw/providers/example-evidence-provider/native-performance.json';
+  const targetBindingPath = 'raw/providers/example-evidence-provider/target-binding.json';
+  const generatedEvidence = JSON.parse(await fsp.readFile(path.join(provider.runDir, artifactPath), 'utf8'));
+  const targetBinding = JSON.parse(await fsp.readFile(path.join(provider.runDir, targetBindingPath), 'utf8'));
+  assert.equal(targetBinding.captureArtifacts, undefined);
+  const sourceCommands = targetBinding.sourceCommands as Array<Record<string, unknown>>;
+  await stageRunnerLifecycleCommandRecords({
+    providerId: provider.providerId,
+    runDir: provider.runDir,
+    sourceCommands,
+    windowEndedAt: targetBinding.window.endedAt,
+    windowStartedAt: targetBinding.window.startedAt,
+  });
+  const comparableTargetBinding = targetBinding.status === 'verified'
+    ? {
+        status: 'verified',
+        appId: 'com.example.ios',
+        deviceId: 'SIM-UDID-123',
+        source: 'provider simctl/xctrace target verification',
+        candidateTargets: [{
+          appId: 'com.example.ios',
+          bindingStatus: 'observed',
+          deviceId: 'SIM-UDID-123',
+          evidencePath: targetBindingPath,
+          platform: 'ios',
+          source: 'simctl launchctl list plus xctrace TOC verification',
+        }],
+      }
+    : targetBinding;
+
+  const comparableEvidence = buildIosNativePerformanceEvidence({
+    appId: 'com.example.ios',
+    attachments: generatedEvidence.attachments,
+    bundleId: 'com.example.ios',
+    captureMode: 'session',
+    capturedAt: targetBinding.window.startedAt,
+    claimSufficiency: {
+      status: 'sufficient-for-comparison',
+      claim: 'ios-native-frame-budget',
+      reason: 'The provider captured a verified active-loop xctrace window and exported structured comparison samples from that same trace.',
+      supportingEvidence: ['xctrace', 'simctl', 'targetBinding', 'structured-xctrace-samples'],
+    },
+    comparability: {
+      status: 'comparable',
+      policy: 'release-native-baseline-v1',
+      reason: 'The structured samples, verified target binding, and active-loop window satisfy the shared native comparison policy.',
+    },
+    ...buildComparisonContract(targetBinding.window.durationMs),
+    completenessStatus: 'complete',
+    deviceId: 'SIM-UDID-123',
+    diagnosticSources: generatedEvidence.diagnosticSources,
+    lifecycle: {
+      durationMs: targetBinding.window.durationMs,
+      endedAt: targetBinding.window.endedAt,
+      perturbsTiming: true,
+      phase: 'activeLoop',
+      startedAt: targetBinding.window.startedAt,
+    },
+    providerId: provider.providerId,
+    runId: 'run-1',
+    scenarioId: 'native-capture',
+    targetBinding: JSON.parse(JSON.stringify(comparableTargetBinding)),
+    xctraceSummary: {
+      durationMs: targetBinding.window.durationMs,
+      frameCount: 720,
+      p95FrameMs: 18,
+      traceId: 'ios-active-window-trace',
+      windowEndMs: targetBinding.window.durationMs,
+      windowStartMs: 0,
+    },
+  });
+  await fsp.writeFile(path.join(provider.runDir, artifactPath), `${JSON.stringify(comparableEvidence)}\n`, 'utf8');
+
+  const context = buildComparisonContext({
+    artifactPath,
+    platform: 'ios',
+    providerId: provider.providerId,
+    runDir: provider.runDir,
+    runId: 'run-1',
+    scenarioId: 'native-capture',
+  });
+
+  assert.deepEqual(classifyNativePerformanceComparisonReadiness(comparableEvidence, context), {
+    missingEvidence: ['observed-target-binding'],
+    status: 'diagnostic-only',
+  });
+});
+
+test('generated provider keeps Android target binding immutable after finalize', async (t: TestContext) => {
+  const provider = await createGeneratedProvider(t);
+  const commandLog = path.join(provider.targetDir, 'adb-commands.jsonl');
+  const env = { ...process.env, ASL_NATIVE_PERFORMANCE_ANDROID_CAPTURE: '1', FAKE_ADB_LOG: commandLog };
+  const targetProofPath = path.join(provider.runDir, 'raw', 'providers', 'example-evidence-provider', 'target-binding.json');
+  let result = await execFileResult(process.execPath, androidLifecycleArgs(provider, 'start-window'), {
+    cwd: provider.targetDir,
+    env,
+  });
+  assert.equal(result.exitCode, 0, result.stderr);
+  assert.equal(fs.existsSync(targetProofPath), false);
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  result = await execFileResult(process.execPath, androidLifecycleArgs(provider, 'stop-window'), {
+    cwd: provider.targetDir,
+    env,
+  });
+  assert.equal(result.exitCode, 0, result.stderr);
+  assert.equal(fs.existsSync(targetProofPath), false);
+  result = await execFileResult(process.execPath, androidLifecycleArgs(provider, 'normalize'), {
+    cwd: provider.targetDir,
+    env,
+  });
+  assert.equal(result.exitCode, 0, result.stderr);
+
+  const normalizedTargetProof = JSON.parse(await fsp.readFile(targetProofPath, 'utf8'));
+  assert.equal(normalizedTargetProof.window.phase, 'activeLoop');
+  assert.deepEqual(
+    normalizedTargetProof.sourceCommands.map((command: Record<string, unknown>) => command.commandId ?? command.sourceId),
+    [
+      'start-native-window',
+      'stop-native-window',
+      'capture-native-performance',
+      'target-serial',
+      'target-package',
+      'gfxinfo',
+      'framestats',
+      'meminfo',
+    ],
+  );
+  const startWindowCommand = normalizedTargetProof.sourceCommands.find(
+    (command: Record<string, unknown>) => command.commandId === 'start-native-window',
+  );
+  const stopWindowCommand = normalizedTargetProof.sourceCommands.find(
+    (command: Record<string, unknown>) => command.commandId === 'stop-native-window',
+  );
+  const normalizeCommand = normalizedTargetProof.sourceCommands.find(
+    (command: Record<string, unknown>) => command.commandId === 'capture-native-performance',
+  );
+  assert.equal(startWindowCommand.status, 'completed');
+  assert.equal(startWindowCommand.outputPath, undefined);
+  assert.equal(stopWindowCommand.status, 'completed');
+  assert.equal(stopWindowCommand.outputPath, undefined);
+  assert.equal(normalizeCommand.status, 'completed');
+  assert.equal(normalizeCommand.outputPath, 'raw/providers/example-evidence-provider/target-binding.json');
+  await assertCommandRecordsDoNotPersistResolvedPaths({
+    runDir: provider.runDir,
+    sourceCommands: normalizedTargetProof.sourceCommands,
+  });
+  const normalizedTargetProofHash = sha256(await fsp.readFile(targetProofPath));
+
+  result = await execFileResult(process.execPath, androidLifecycleArgs(provider, 'finalize'), {
+    cwd: provider.targetDir,
+    env,
+  });
+  assert.equal(result.exitCode, 0, result.stderr);
+
+  const finalizedTargetProof = JSON.parse(await fsp.readFile(targetProofPath, 'utf8'));
+  assert.equal(finalizedTargetProof.window.phase, 'activeLoop');
+  assert.equal(finalizedTargetProof.status, 'unverified');
+  assert.equal(sha256(await fsp.readFile(targetProofPath)), normalizedTargetProofHash);
+  assert.deepEqual(finalizedTargetProof.sourceCommands, normalizedTargetProof.sourceCommands);
+});
+
 test('generated provider captures Android adb diagnostics with bounded commands and durable target proof', async (t: TestContext) => {
   const provider = await createGeneratedProvider(t);
   const commandLog = path.join(provider.targetDir, 'adb-commands.jsonl');
@@ -381,10 +926,17 @@ test('generated provider captures Android adb diagnostics with bounded commands 
   assert.equal(result.exitCode, 0, result.stderr);
   const evidencePath = path.join(provider.runDir, 'raw', 'providers', 'example-evidence-provider', 'native-performance.json');
   const evidence = JSON.parse(await fsp.readFile(evidencePath, 'utf8'));
-  assert.equal(evidence.targetBinding.status, 'verified');
-  assert.equal(evidence.targetBinding.candidateTargets[0].bindingStatus, 'observed');
-  const targetProof = JSON.parse(await fsp.readFile(path.join(provider.runDir, evidence.targetBinding.candidateTargets[0].evidencePath), 'utf8'));
-  assert.deepEqual(targetProof.sourceCommands.map((command: Record<string, unknown>) => command.sourceId), ['gfxinfo', 'framestats', 'meminfo']);
+  assert.equal(evidence.targetBinding.status, 'unverified');
+  assert.equal(evidence.targetBinding.candidateTargets, undefined);
+  const targetProof = JSON.parse(await fsp.readFile(path.join(provider.runDir, 'raw', 'providers', 'example-evidence-provider', 'target-binding.json'), 'utf8'));
+  assert.deepEqual(targetProof.sourceCommands.map((command: Record<string, unknown>) => command.sourceId), ['target-serial', 'target-package', 'gfxinfo', 'framestats', 'meminfo']);
+  assert.equal(targetProof.status, 'unverified');
+  assert.equal(targetProof.requestedAppId, 'com.example.app');
+  assert.equal(targetProof.requestedTargetId, 'emulator-5554');
+  assert.equal(targetProof.window.phase, 'afterCapture');
+  assert.equal(typeof targetProof.sourceCommands[0].recordPath, 'string');
+  assert.equal(typeof targetProof.sourceCommands[0].stdoutSha256, 'string');
+  assert.equal(typeof targetProof.sourceCommands[0].stderrSha256, 'string');
   assert.equal(evidence.completenessStatus, 'partial');
   assert.equal(evidence.comparability.status, 'diagnostic-only');
   assert.equal(evidence.claimSufficiency.status, 'insufficient-for-claim');
@@ -447,7 +999,7 @@ test('generated provider rejects an empty successful Android diagnostic as parti
   assert.equal(evidence.memory, undefined);
   const commandRecord = JSON.parse(await fsp.readFile(path.join(provider.runDir, 'raw', 'providers', 'example-evidence-provider', 'android-adb', 'meminfo.command.json'), 'utf8'));
   assert.equal(commandRecord.status, 'partial');
-  const targetProof = JSON.parse(await fsp.readFile(path.join(provider.runDir, 'raw', 'providers', 'example-evidence-provider', 'android-adb', 'target-binding.json'), 'utf8'));
+  const targetProof = JSON.parse(await fsp.readFile(path.join(provider.runDir, 'raw', 'providers', 'example-evidence-provider', 'target-binding.json'), 'utf8'));
   assert.equal(targetProof.sourceCommands.find((command: Record<string, unknown>) => command.sourceId === 'meminfo').status, 'partial');
 });
 
@@ -576,7 +1128,7 @@ test('generated provider rejects contradictory iOS xctrace duration metadata', a
   assert.equal(evidence.targetBinding.status, 'unverified');
   assert.equal(evidence.claimSufficiency.status, 'insufficient-for-claim');
   assert.equal(evidence.traces, undefined);
-  const targetProof = JSON.parse(await fsp.readFile(path.join(provider.runDir, 'raw', 'providers', 'example-evidence-provider', 'ios-xctrace', 'target-binding.json'), 'utf8'));
+  const targetProof = JSON.parse(await fsp.readFile(path.join(provider.runDir, 'raw', 'providers', 'example-evidence-provider', 'target-binding.json'), 'utf8'));
   assert.equal(targetProof.tocVerified, true);
   assert.equal(targetProof.windowVerified, false);
 });
@@ -595,7 +1147,7 @@ test('generated provider rejects an iOS xctrace window longer than the requested
   const evidence = JSON.parse(await fsp.readFile(path.join(provider.runDir, 'raw', 'providers', 'example-evidence-provider', 'native-performance.json'), 'utf8'));
   assert.equal(evidence.targetBinding.status, 'unverified');
   assert.equal(evidence.traces, undefined);
-  const targetProof = JSON.parse(await fsp.readFile(path.join(provider.runDir, 'raw', 'providers', 'example-evidence-provider', 'ios-xctrace', 'target-binding.json'), 'utf8'));
+  const targetProof = JSON.parse(await fsp.readFile(path.join(provider.runDir, 'raw', 'providers', 'example-evidence-provider', 'target-binding.json'), 'utf8'));
   assert.equal(targetProof.tocVerified, true);
   assert.equal(targetProof.windowVerified, false);
 });
@@ -610,7 +1162,7 @@ test('generated provider keeps iOS xctrace target unverified when no expected ap
   const evidence = JSON.parse(await fsp.readFile(path.join(provider.runDir, 'raw', 'providers', 'example-evidence-provider', 'native-performance.json'), 'utf8'));
   assert.equal(evidence.targetBinding.status, 'unverified');
   assert.equal(evidence.targetBinding.candidateTargets, undefined);
-  const targetProof = JSON.parse(await fsp.readFile(path.join(provider.runDir, 'raw', 'providers', 'example-evidence-provider', 'ios-xctrace', 'target-binding.json'), 'utf8'));
+  const targetProof = JSON.parse(await fsp.readFile(path.join(provider.runDir, 'raw', 'providers', 'example-evidence-provider', 'target-binding.json'), 'utf8'));
   assert.equal(targetProof.requestedPid, 0);
   assert.equal(targetProof.status, 'unverified');
 });

@@ -1,0 +1,235 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-scenario-loop.dev/schemas/native-target-binding.schema.json",
+  "title": "Agent Scenario Loop Native Observed Target Binding",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "schemaVersion",
+    "providerId",
+    "platform",
+    "runId",
+    "scenarioId",
+    "status",
+    "requestedAppId",
+    "requestedTargetId",
+    "window",
+    "sourceCommands"
+  ],
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "status": { "const": "verified" }
+        },
+        "required": ["status"]
+      },
+      "then": {
+        "required": ["captureArtifacts", "observedProcessName", "observedProcessPid", "observedTargetId"]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "platform": { "const": "android" },
+          "status": { "const": "verified" }
+        },
+        "required": ["platform", "status"]
+      },
+      "then": {
+        "required": ["observedAppId"]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "platform": { "const": "ios" },
+          "status": { "const": "verified" }
+        },
+        "required": ["platform", "status"]
+      },
+      "then": {
+        "required": ["observedTargetPlatform", "observedTemplate"]
+      }
+    }
+  ],
+  "properties": {
+    "schemaVersion": {
+      "type": "string",
+      "minLength": 1
+    },
+    "providerId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "platform": {
+      "type": "string",
+      "enum": ["android", "ios", "unknown"]
+    },
+    "runId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "scenarioId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "status": {
+      "type": "string",
+      "enum": ["verified", "unverified", "mismatch", "ambiguous", "unknown"]
+    },
+    "requestedAppId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "requestedTargetId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "observedAppId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "observedTargetId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "observedTargetPlatform": {
+      "type": "string",
+      "minLength": 1
+    },
+    "observedProcessName": {
+      "type": "string",
+      "minLength": 1
+    },
+    "observedProcessPid": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "observedToolVersion": {
+      "type": "string",
+      "minLength": 1
+    },
+    "observedTemplate": {
+      "type": "string",
+      "minLength": 1
+    },
+    "window": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["phase"],
+      "properties": {
+        "phase": {
+          "type": "string",
+          "enum": ["activeLoop", "afterCapture", "beforeRun", "postRun", "rehydrated", "unknown"]
+        },
+        "startedAt": {
+          "type": "string",
+          "minLength": 1
+        },
+        "endedAt": {
+          "type": "string",
+          "minLength": 1
+        },
+        "durationMs": {
+          "type": "number",
+          "minimum": 0
+        }
+      }
+    },
+    "sourceCommands": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["sourceId", "command", "args", "recordPath", "stdoutPath", "stderrPath", "status"],
+        "properties": {
+          "sourceId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "commandId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "phase": {
+            "type": "string",
+            "enum": ["startWindow", "capture", "afterCapture", "stopWindow", "postRun", "finalize"]
+          },
+          "command": {
+            "type": "string",
+            "minLength": 1
+          },
+          "args": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "recordPath": {
+            "type": "string",
+            "minLength": 1
+          },
+          "startedRecordPath": {
+            "type": "string",
+            "minLength": 1
+          },
+          "stdoutPath": {
+            "type": "string",
+            "minLength": 1
+          },
+          "stderrPath": {
+            "type": "string",
+            "minLength": 1
+          },
+          "stdoutSha256": {
+            "type": "string",
+            "pattern": "^[A-Fa-f0-9]{64}$"
+          },
+          "stderrSha256": {
+            "type": "string",
+            "pattern": "^[A-Fa-f0-9]{64}$"
+          },
+          "outputPath": {
+            "type": "string",
+            "minLength": 1
+          },
+          "outputSha256": {
+            "type": "string",
+            "pattern": "^[A-Fa-f0-9]{64}$"
+          },
+          "exitCode": {
+            "type": ["integer", "null"]
+          },
+          "signal": {
+            "type": ["string", "null"]
+          },
+          "status": {
+            "type": "string",
+            "enum": ["captured", "completed", "failed", "partial", "timeout", "unknown"]
+          }
+        }
+      }
+    },
+    "captureArtifacts": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["commandId", "path"],
+        "properties": {
+          "commandId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "path": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    }
+  }
+}

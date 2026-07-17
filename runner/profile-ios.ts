@@ -11,6 +11,8 @@ const {
   buildProfileHealth,
   buildProfileVerdict,
   buildVerdictBudgetChecks,
+  executeProviderCommands,
+  mergeProviderCommandExecutions,
   parseArgs,
   readScalarArg,
   resolveArtifactRoot,
@@ -19,7 +21,9 @@ const {
   runProfileCli,
   runProfileMobile,
   usage,
+  writeRunnerActiveLoopWindow,
 } = require('./profile-mobile');
+const { createArtifactLayout } = require('../core/artifact-layout');
 const { PROFILE_SESSION_STORAGE_KEYS } = require('../profile-session-storage');
 const { runIosSimctlCapture } = require('./ios-simctl');
 const { runAgentDeviceCapture } = require('./agent-device');
@@ -47,7 +51,9 @@ type IosSimctlProfileCommand = {
   waitTimeoutMs?: number;
 };
 
+type ProfileMobileRunOptions = import('./profile-mobile').ProfileMobileOptions;
 type ScenarioExecutionStep = import('../core/execution-plan').ScenarioExecutionStep;
+type IosSimctlProfileResult = Awaited<ReturnType<typeof runIosSimctlCapture>>;
 
 const PROFILE_SESSION_CAPTURE_BOOTSTRAP_MS = 1000;
 const PROFILE_SESSION_CAPTURE_COMMAND_OVERHEAD_MS = 250;
@@ -173,6 +179,32 @@ function readStableAdapterCommandId(command: Record<string, unknown>): string {
  */
 function createRunId(): string {
   return crypto.randomBytes(6).toString('hex');
+}
+
+function resolveIosLiveProviderIdentity({
+  bundleId,
+  device,
+}: {
+  bundleId: string | null;
+  device?: string | boolean;
+}): Record<string, string> | undefined {
+  if (!bundleId) {
+    return undefined;
+  }
+
+  const resolvedDevice = typeof device === 'string' ? device.trim() : '';
+  const hasExactUdid = resolvedDevice.length > 0 && resolvedDevice.toLowerCase() !== 'booted';
+  return {
+    appId: bundleId,
+    bundleId,
+    packageName: bundleId,
+    ...(hasExactUdid
+      ? {
+          targetId: resolvedDevice,
+          udid: resolvedDevice,
+        }
+      : {}),
+  };
 }
 
 /**
@@ -789,7 +821,13 @@ function appendCaptureArg({
   value: string;
 }): string | boolean | Array<string | boolean> {
   const existing = args.capture;
-  return existing === undefined ? value : Array.isArray(existing) ? [...existing, value] : [existing, value];
+  if (existing === undefined) {
+    return value;
+  }
+  if (Array.isArray(existing)) {
+    return [...existing, value];
+  }
+  return [existing, value];
 }
 
 /**
@@ -802,15 +840,19 @@ function summarizeFailedIosChecks(health: Record<string, unknown>): string {
   const checks = Array.isArray(health.checks) ? health.checks : [];
   const failedChecks = checks
     .filter((check: Record<string, unknown>) => check?.status === 'failed')
-    .map((check: Record<string, unknown>) => (
-      typeof check.message === 'string'
-        ? check.message
-        : typeof check.code === 'string'
-          ? check.code
-          : 'unknown failure'
-    ));
+    .map((check: Record<string, unknown>) => formatFailedIosCheck(check));
 
   return failedChecks.length > 0 ? ` Failed checks: ${failedChecks.join(' ')}` : '';
+}
+
+function formatFailedIosCheck(check: Record<string, unknown>): string {
+  if (typeof check.message === 'string') {
+    return check.message;
+  }
+  if (typeof check.code === 'string') {
+    return check.code;
+  }
+  return 'unknown failure';
 }
 
 /**
@@ -1020,8 +1062,67 @@ async function runProfileIos(
       replacementHint: 'Pass --bundle, set ASL_IOS_APP_ID in generated scripts, or replace app.iosBundleId in asl.config.json.',
     });
   }
-  const simctlCapture = isEnabled(args['simctl-capture'])
-    ? await runIosSimctlCapture({
+  const liveWindowProviderLifecycle = isEnabled(args['simctl-capture']);
+  const liveProviderRunDir = path.join(artifactRoot, scenarioName, runId);
+  const liveProviderIdentity = liveWindowProviderLifecycle
+    ? resolveIosLiveProviderIdentity({ bundleId: iosBundleId, device: readScalarArg(args.device) })
+    : undefined;
+  const liveProviderLayout = liveWindowProviderLifecycle
+    ? createArtifactLayout({ outputDir: liveProviderRunDir })
+    : null;
+  const liveProviderExecutionOptions = liveProviderIdentity
+    ? { identity: liveProviderIdentity }
+    : {};
+  let providerExecution = mergeProviderCommandExecutions();
+  let finalizedLiveWindowProviderExecution = false;
+  const finalizeLiveWindowProviderExecution = async (): Promise<void> => {
+    if (finalizedLiveWindowProviderExecution || !liveWindowProviderLifecycle || !liveProviderLayout) {
+      return;
+    }
+
+    finalizedLiveWindowProviderExecution = true;
+    providerExecution = mergeProviderCommandExecutions(
+      providerExecution,
+      await executeProviderCommands({
+        args,
+        includeProviders: false,
+        includeStaticFailures: false,
+        layout: liveProviderLayout,
+        phases: ['finalize'],
+        platform: 'ios',
+        runDir: liveProviderRunDir,
+        runId,
+        scenarioId: scenarioName,
+        supportMode: 'live-window',
+        ...liveProviderExecutionOptions,
+      }),
+    );
+  };
+  if (liveWindowProviderLifecycle && liveProviderLayout) {
+    providerExecution = mergeProviderCommandExecutions(
+      providerExecution,
+      await executeProviderCommands({
+        args,
+        includeProviders: true,
+        includeStaticFailures: true,
+        layout: liveProviderLayout,
+        phases: ['startWindow'],
+        platform: 'ios',
+        runDir: liveProviderRunDir,
+        runId,
+        scenarioId: scenarioName,
+        supportMode: 'live-window',
+        ...liveProviderExecutionOptions,
+      }),
+    );
+  }
+  let preRunFailure: Error | null = null;
+  let simctlCapture: IosSimctlProfileResult | null = null;
+  let runnerActiveLoopStartedAt: string | null = null;
+  if (isEnabled(args['simctl-capture'])) {
+    runnerActiveLoopStartedAt = new Date().toISOString();
+    try {
+      simctlCapture = await runIosSimctlCapture({
         bundleId: iosBundleId,
         collectProfileStorage: profileSessionStorageEnabled,
         conflictingBundleIds: resolveIosConflictingBundleIds(config),
@@ -1080,13 +1181,56 @@ async function runProfileIos(
           scenario,
         }),
         ...(typeof args.xcrun === 'string' ? { xcrunPath: args.xcrun } : {}),
-      })
-    : null;
+      });
+    } catch (error) {
+      preRunFailure = error instanceof Error ? error : new Error(String(error));
+    } finally {
+      if (runnerActiveLoopStartedAt) {
+        try {
+          await writeRunnerActiveLoopWindow({
+            endedAt: new Date().toISOString(),
+            platform: 'ios',
+            runDir: liveProviderRunDir,
+            runnerId: 'ios-simctl-profile-runner',
+            startedAt: runnerActiveLoopStartedAt,
+          });
+        } catch (error) {
+          if (!preRunFailure) {
+            preRunFailure = error instanceof Error ? error : new Error(String(error));
+          }
+        }
+      }
+      if (liveWindowProviderLifecycle && liveProviderLayout) {
+        providerExecution = mergeProviderCommandExecutions(
+          providerExecution,
+          await executeProviderCommands({
+            args,
+            includeProviders: false,
+            includeStaticFailures: false,
+            layout: liveProviderLayout,
+            phases: ['stopWindow'],
+            platform: 'ios',
+            runDir: liveProviderRunDir,
+            runId,
+            scenarioId: scenarioName,
+            supportMode: 'live-window',
+            ...liveProviderExecutionOptions,
+          }),
+        );
+      }
+    }
+    if (preRunFailure) {
+      await finalizeLiveWindowProviderExecution();
+      throw preRunFailure;
+    }
+  }
 
   if (simctlCapture && simctlCapture.health.healthStatus !== 'passed') {
-    throw new Error(
+    preRunFailure = new Error(
       `iOS simctl capture failed; inspect ${simctlCapture.runDir}/agent-summary.md.${summarizeFailedIosChecks(simctlCapture.health)}`,
     );
+    await finalizeLiveWindowProviderExecution();
+    throw preRunFailure;
   }
 
   const agentDeviceCapture = isEnabled(args['agent-device-capture'])
@@ -1112,9 +1256,11 @@ async function runProfileIos(
     : null;
 
   if (agentDeviceCapture && agentDeviceCapture.health.healthStatus !== 'passed') {
-    throw new Error(
+    preRunFailure = new Error(
       `agent-device capture failed; inspect ${agentDeviceCapture.runDir}/agent-summary.md.${summarizeFailedAgentDeviceChecks(agentDeviceCapture.health)}`,
     );
+    await finalizeLiveWindowProviderExecution();
+    throw preRunFailure;
   }
 
   const baseProfileArgs: import('./profile-mobile').CliArgs = {
@@ -1147,15 +1293,16 @@ async function runProfileIos(
     fs.existsSync(path.join(simctlCapture.runDir, 'raw', 'ios-simctl-log.txt'))
     ? 'raw/ios-simctl-log.txt'
     : undefined;
-
-  return runProfileMobile(profileArgs, {
-    commandTransport: agentDeviceCapture
-      ? 'agent-device'
-      : profileSessionEnabled && !profileSessionStorageEnabled
-        ? 'profile-session-deeplink'
-        : profileSessionEnabled
-          ? 'profile-session-storage'
-          : 'simctl-capture',
+  let commandTransport = 'simctl-capture';
+  if (agentDeviceCapture) {
+    commandTransport = 'agent-device';
+  } else if (profileSessionEnabled && !profileSessionStorageEnabled) {
+    commandTransport = 'profile-session-deeplink';
+  } else if (profileSessionEnabled) {
+    commandTransport = 'profile-session-storage';
+  }
+  const profileMobileOptions: ProfileMobileRunOptions = {
+    commandTransport,
     ...(options.comparisonLane ? { comparisonLane: options.comparisonLane } : {}),
     defaultDriver: 'ios-simctl',
     environmentPostconditions: {
@@ -1187,7 +1334,24 @@ async function runProfileIos(
     },
     interactionDriver: agentDeviceCapture ? 'agent-device' : 'ios-simctl',
     platform: 'ios',
-  });
+  };
+  if (liveWindowProviderLifecycle) {
+    profileMobileOptions.providerCommandExecution = providerExecution;
+    profileMobileOptions.providerCommandSupportMode = 'live-window';
+    if (liveProviderIdentity) {
+      profileMobileOptions.providerCommandIdentity = liveProviderIdentity;
+    }
+  }
+  try {
+    return await runProfileMobile(profileArgs, profileMobileOptions);
+  } catch (error) {
+    preRunFailure = error instanceof Error ? error : new Error(String(error));
+    throw error;
+  } finally {
+    if (preRunFailure) {
+      await finalizeLiveWindowProviderExecution();
+    }
+  }
 }
 
 /**

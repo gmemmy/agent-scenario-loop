@@ -1,6 +1,7 @@
-const { assertValidJson, SCHEMAS } = require('./schema-validator');
+const { assertValidJson, SCHEMAS, validateJson } = require('./schema-validator');
 
 type JsonRecord = Record<string, unknown>;
+const RUNNER_ACTIVE_LOOP_WINDOW_RELATIVE_PATH = 'raw/runner-active-loop-window.json';
 
 type NativePerformanceAttachment = {
   kind: string;
@@ -159,8 +160,16 @@ type NativePerformanceComparisonContext = {
   evidencePathExists: (runRelativePath: string) => boolean;
   expectedPlatform: 'android' | 'ios';
   expectedProviderId: string;
+  readEvidenceJson?: (runRelativePath: string) => unknown;
+  readEvidenceSha256?: (runRelativePath: string) => string | null;
   expectedRunId: string;
   expectedScenarioId: string;
+};
+
+type ValidatedTargetBindingCommand = {
+  completedOutputs: JsonRecord[];
+  completedRecord: JsonRecord;
+  sourceCommand: JsonRecord;
 };
 
 type NativePerformanceComparisonReadiness =
@@ -1241,6 +1250,621 @@ function isDurableEvidencePath(
   }
 }
 
+function readValidatedTargetBindingRecord(
+  value: unknown,
+  context: Partial<NativePerformanceComparisonContext>,
+): JsonRecord | null {
+  if (
+    !isRunRelativeEvidencePath(value) ||
+    typeof context.evidencePathExists !== 'function' ||
+    typeof context.readEvidenceJson !== 'function' ||
+    !context.evidencePathExists(value)
+  ) {
+    return null;
+  }
+
+  try {
+    const record = context.readEvidenceJson(value);
+    const validation = validateJson(record, SCHEMAS.nativeTargetBinding, 'Native target-binding record');
+    if (!validation.valid) {
+      return null;
+    }
+    return readJsonRecord(record);
+  } catch {
+    return null;
+  }
+}
+
+function readVerifiedTargetBindingCommandRecord(
+  value: unknown,
+  context: Partial<NativePerformanceComparisonContext>,
+): JsonRecord | null {
+  if (
+    !isRunRelativeEvidencePath(value) ||
+    typeof context.evidencePathExists !== 'function' ||
+    typeof context.readEvidenceJson !== 'function' ||
+    !context.evidencePathExists(value)
+  ) {
+    return null;
+  }
+
+  try {
+    return readJsonRecord(context.readEvidenceJson(value));
+  } catch {
+    return null;
+  }
+}
+
+function readVerifiedEvidenceSha256(
+  value: unknown,
+  context: Partial<NativePerformanceComparisonContext>,
+): string | null {
+  if (
+    !isRunRelativeEvidencePath(value) ||
+    typeof context.evidencePathExists !== 'function' ||
+    typeof context.readEvidenceSha256 !== 'function' ||
+    !context.evidencePathExists(value)
+  ) {
+    return null;
+  }
+
+  try {
+    const sha256 = context.readEvidenceSha256(value);
+    return isNonEmptyString(sha256) ? sha256 : null;
+  } catch {
+    return null;
+  }
+}
+
+function matchesStringArray(value: unknown, expected: string[]): boolean {
+  return Array.isArray(value) &&
+    value.length === expected.length &&
+    value.every((entry, index) => entry === expected[index]);
+}
+
+function readValidatedProviderCommandStartedOutputs(record: JsonRecord): JsonRecord[] | null {
+  if (!Array.isArray(record.outputs)) {
+    return null;
+  }
+
+  const validatedOutputs: JsonRecord[] = [];
+  for (const output of record.outputs) {
+    const outputRecord = readJsonRecord(output);
+    if (
+      !outputRecord ||
+      !isNonEmptyString(outputRecord.channel) ||
+      !isNonEmptyString(outputRecord.kind) ||
+      !isNonEmptyString(outputRecord.path)
+    ) {
+      return null;
+    }
+    if (outputRecord.required !== undefined && typeof outputRecord.required !== 'boolean') {
+      return null;
+    }
+    if (outputRecord.runRelativePath !== undefined && !isRunRelativeEvidencePath(outputRecord.runRelativePath)) {
+      return null;
+    }
+    if (
+      outputRecord.sha256 !== undefined ||
+      outputRecord.stale !== undefined ||
+      outputRecord.status !== undefined
+    ) {
+      return null;
+    }
+    validatedOutputs.push(outputRecord);
+  }
+
+  return validatedOutputs;
+}
+
+function readValidatedProviderCommandCompletedOutputs(
+  record: JsonRecord,
+  context: Partial<NativePerformanceComparisonContext>,
+): JsonRecord[] | null {
+  if (!Array.isArray(record.outputs)) {
+    return null;
+  }
+
+  const validatedOutputs: JsonRecord[] = [];
+  for (const output of record.outputs) {
+    const outputRecord = readJsonRecord(output);
+    if (
+      !outputRecord ||
+      !isNonEmptyString(outputRecord.channel) ||
+      !isNonEmptyString(outputRecord.kind) ||
+      !isNonEmptyString(outputRecord.path) ||
+      (outputRecord.status !== 'captured' && outputRecord.status !== 'missing')
+    ) {
+      return null;
+    }
+    if (outputRecord.required !== undefined && typeof outputRecord.required !== 'boolean') {
+      return null;
+    }
+    if (outputRecord.runRelativePath !== undefined && !isRunRelativeEvidencePath(outputRecord.runRelativePath)) {
+      return null;
+    }
+    if (
+      outputRecord.sha256 !== undefined &&
+      outputRecord.sha256 !== null &&
+      !isNonEmptyString(outputRecord.sha256)
+    ) {
+      return null;
+    }
+    if (outputRecord.stale !== undefined && typeof outputRecord.stale !== 'boolean') {
+      return null;
+    }
+
+    if (outputRecord.status === 'captured') {
+      if (outputRecord.stale === true || !isNonEmptyString(outputRecord.sha256)) {
+        return null;
+      }
+      if (outputRecord.runRelativePath !== undefined) {
+        const actualOutputSha256 = readVerifiedEvidenceSha256(outputRecord.runRelativePath, context);
+        if (!actualOutputSha256 || outputRecord.sha256 !== actualOutputSha256) {
+          return null;
+        }
+      }
+    }
+
+    validatedOutputs.push(outputRecord);
+  }
+
+  return validatedOutputs;
+}
+
+function providerCommandOutputsMatch(
+  startedOutputs: JsonRecord[],
+  completedOutputs: JsonRecord[],
+): boolean {
+  if (startedOutputs.length !== completedOutputs.length) {
+    return false;
+  }
+
+  return startedOutputs.every((startedOutput, index) => {
+    const completedOutput = completedOutputs[index];
+    return completedOutput !== undefined &&
+      startedOutput.channel === completedOutput.channel &&
+      startedOutput.kind === completedOutput.kind &&
+      startedOutput.path === completedOutput.path &&
+      startedOutput.required === completedOutput.required &&
+      startedOutput.runRelativePath === completedOutput.runRelativePath;
+  });
+}
+
+function readIsoTimestamp(value: unknown): number | null {
+  if (!isNonEmptyString(value)) {
+    return null;
+  }
+
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) ? timestamp : null;
+}
+
+function readValidatedTargetBindingWindow(record: JsonRecord): JsonRecord | null {
+  const window = readJsonRecord(record.window);
+  if (
+    !window ||
+    window.phase !== 'activeLoop' ||
+    !isNonEmptyString(window.startedAt) ||
+    !isNonEmptyString(window.endedAt) ||
+    typeof window.durationMs !== 'number' ||
+    !Number.isFinite(window.durationMs) ||
+    window.durationMs <= 0
+  ) {
+    return null;
+  }
+
+  const startedAt = readIsoTimestamp(window.startedAt);
+  const endedAt = readIsoTimestamp(window.endedAt);
+  if (
+    startedAt === null ||
+    endedAt === null ||
+    endedAt <= startedAt ||
+    !hasConsistentDuration(window.durationMs, endedAt - startedAt)
+  ) {
+    return null;
+  }
+
+  return window;
+}
+
+function readValidatedRunnerActiveLoopWindow(
+  context: Partial<NativePerformanceComparisonContext>,
+): JsonRecord | null {
+  if (
+    typeof context.evidencePathExists !== 'function' ||
+    typeof context.readEvidenceJson !== 'function' ||
+    !context.evidencePathExists(RUNNER_ACTIVE_LOOP_WINDOW_RELATIVE_PATH)
+  ) {
+    return null;
+  }
+
+  try {
+    const record = readJsonRecord(context.readEvidenceJson(RUNNER_ACTIVE_LOOP_WINDOW_RELATIVE_PATH));
+    if (
+      !record ||
+      record.phase !== 'activeLoop' ||
+      !isNonEmptyString(record.startedAt) ||
+      !isNonEmptyString(record.endedAt) ||
+      typeof record.durationMs !== 'number' ||
+      !Number.isFinite(record.durationMs) ||
+      record.durationMs <= 0
+    ) {
+      return null;
+    }
+
+    const startedAt = readIsoTimestamp(record.startedAt);
+    const endedAt = readIsoTimestamp(record.endedAt);
+    if (
+      startedAt === null ||
+      endedAt === null ||
+      endedAt <= startedAt ||
+      !hasConsistentDuration(record.durationMs, endedAt - startedAt)
+    ) {
+      return null;
+    }
+
+    return record;
+  } catch {
+    return null;
+  }
+}
+
+type ValidatedTargetBindingCaptureArtifact = {
+  commandId: string;
+  path: string;
+};
+
+function readValidatedTargetBindingCaptureArtifacts(
+  record: JsonRecord,
+): ValidatedTargetBindingCaptureArtifact[] | null {
+  if (!Array.isArray(record.captureArtifacts) || record.captureArtifacts.length === 0) {
+    return null;
+  }
+
+  const validatedArtifacts: ValidatedTargetBindingCaptureArtifact[] = [];
+  const seenArtifacts = new Set<string>();
+  for (const artifact of record.captureArtifacts) {
+    const artifactRecord = readJsonRecord(artifact);
+    if (
+      !artifactRecord ||
+      !isNonEmptyString(artifactRecord.commandId) ||
+      !isRunRelativeEvidencePath(artifactRecord.path)
+    ) {
+      return null;
+    }
+
+    const artifactKey = `${artifactRecord.commandId}\u0000${artifactRecord.path}`;
+    if (seenArtifacts.has(artifactKey)) {
+      return null;
+    }
+    seenArtifacts.add(artifactKey);
+    validatedArtifacts.push({
+      commandId: artifactRecord.commandId,
+      path: artifactRecord.path,
+    });
+  }
+
+  return validatedArtifacts;
+}
+
+function readVerifiedTargetBindingCommands(
+  record: JsonRecord,
+  context: Partial<NativePerformanceComparisonContext>,
+  targetBindingPath: string,
+): ValidatedTargetBindingCommand[] | null {
+  if (typeof context.evidencePathExists !== 'function') {
+    return null;
+  }
+  const evidencePathExists = context.evidencePathExists;
+
+  const sourceCommands = Array.isArray(record.sourceCommands) ? record.sourceCommands : [];
+  if (sourceCommands.length === 0) {
+    return null;
+  }
+
+  let hasBindingOutputOwner = false;
+  const validatedCommands: ValidatedTargetBindingCommand[] = [];
+  for (const command of sourceCommands) {
+    const commandRecord = readJsonRecord(command);
+    const isRunnerOwnedCommand = typeof commandRecord?.recordPath === 'string' &&
+      commandRecord.recordPath.startsWith('raw/provider-commands/');
+    if (
+      !commandRecord ||
+      !isNonEmptyString(commandRecord.command) ||
+      !Array.isArray(commandRecord.args) ||
+      !commandRecord.args.every(isNonEmptyString) ||
+      !isRunRelativeEvidencePath(commandRecord.recordPath) ||
+      !isRunRelativeEvidencePath(commandRecord.stdoutPath) ||
+      !isRunRelativeEvidencePath(commandRecord.stderrPath) ||
+      !isNonEmptyString(commandRecord.status)
+    ) {
+      return null;
+    }
+    if (
+      (isRunnerOwnedCommand && commandRecord.status !== 'completed') ||
+      (!isRunnerOwnedCommand && commandRecord.status !== 'completed' && commandRecord.status !== 'partial')
+    ) {
+      return null;
+    }
+
+    if (isRunnerOwnedCommand && !isRunRelativeEvidencePath(commandRecord.startedRecordPath)) {
+      return null;
+    }
+    if (commandRecord.startedRecordPath !== undefined && !isRunRelativeEvidencePath(commandRecord.startedRecordPath)) {
+      return null;
+    }
+    if (commandRecord.outputPath !== undefined && !isRunRelativeEvidencePath(commandRecord.outputPath)) {
+      return null;
+    }
+    if (commandRecord.outputSha256 !== undefined && !isNonEmptyString(commandRecord.outputSha256)) {
+      return null;
+    }
+    if (
+      !evidencePathExists(commandRecord.recordPath) ||
+      !evidencePathExists(commandRecord.stdoutPath) ||
+      !evidencePathExists(commandRecord.stderrPath) ||
+      (commandRecord.startedRecordPath !== undefined && !evidencePathExists(commandRecord.startedRecordPath)) ||
+      (commandRecord.outputPath !== undefined && !evidencePathExists(commandRecord.outputPath))
+    ) {
+      return null;
+    }
+    const actualStdoutSha256 = readVerifiedEvidenceSha256(commandRecord.stdoutPath, context);
+    const actualStderrSha256 = readVerifiedEvidenceSha256(commandRecord.stderrPath, context);
+    if (!actualStdoutSha256 || !actualStderrSha256) {
+      return null;
+    }
+
+    const completedRecord = readVerifiedTargetBindingCommandRecord(commandRecord.recordPath, context);
+    if (
+      !completedRecord ||
+      completedRecord.providerId !== context.expectedProviderId ||
+      completedRecord.command !== commandRecord.command ||
+      !matchesStringArray(completedRecord.args, commandRecord.args as string[]) ||
+      completedRecord.status !== commandRecord.status ||
+      completedRecord.stdoutPath !== commandRecord.stdoutPath ||
+      completedRecord.stderrPath !== commandRecord.stderrPath ||
+      completedRecord.stdoutSha256 !== actualStdoutSha256 ||
+      completedRecord.stderrSha256 !== actualStderrSha256
+    ) {
+      return null;
+    }
+    if (
+      !isRunnerOwnedCommand &&
+      (
+        completedRecord.exitCode !== 0 ||
+        completedRecord.errorCode !== undefined ||
+        completedRecord.timedOut === true
+      )
+    ) {
+      return null;
+    }
+    if (commandRecord.phase !== undefined && completedRecord.phase !== commandRecord.phase) {
+      return null;
+    }
+    if (commandRecord.startedRecordPath !== undefined && completedRecord.startedRecordPath !== commandRecord.startedRecordPath) {
+      return null;
+    }
+    if (
+      commandRecord.stdoutSha256 !== undefined &&
+      commandRecord.stdoutSha256 !== actualStdoutSha256
+    ) {
+      return null;
+    }
+    if (
+      commandRecord.stderrSha256 !== undefined &&
+      commandRecord.stderrSha256 !== actualStderrSha256
+    ) {
+      return null;
+    }
+    if (commandRecord.outputPath !== undefined) {
+      const actualOutputSha256 = readVerifiedEvidenceSha256(commandRecord.outputPath, context);
+      if (!actualOutputSha256) {
+        return null;
+      }
+      if (
+        commandRecord.outputSha256 !== undefined &&
+        commandRecord.outputSha256 !== actualOutputSha256
+      ) {
+        return null;
+      }
+      if (completedRecord.outputPath !== undefined) {
+        if (
+          completedRecord.outputPath !== commandRecord.outputPath ||
+          completedRecord.outputSha256 !== actualOutputSha256
+        ) {
+          return null;
+        }
+      }
+    } else if (completedRecord.outputPath !== undefined || completedRecord.outputSha256 !== undefined) {
+      return null;
+    }
+    if (commandRecord.outputPath === targetBindingPath) {
+      const actualOutputSha256 = readVerifiedEvidenceSha256(targetBindingPath, context);
+      if (
+        !actualOutputSha256 ||
+        completedRecord.outputPath !== targetBindingPath ||
+        completedRecord.outputSha256 !== actualOutputSha256
+      ) {
+        return null;
+      }
+      hasBindingOutputOwner = true;
+    }
+
+    const completedOutputs = isRunnerOwnedCommand
+      ? readValidatedProviderCommandCompletedOutputs(completedRecord, context)
+      : [];
+    if (completedOutputs === null) {
+      return null;
+    }
+
+    if (commandRecord.startedRecordPath !== undefined) {
+      const startedRecord = readVerifiedTargetBindingCommandRecord(commandRecord.startedRecordPath, context);
+      if (
+        !startedRecord ||
+        startedRecord.providerId !== context.expectedProviderId ||
+        startedRecord.command !== commandRecord.command ||
+        !matchesStringArray(startedRecord.args, commandRecord.args as string[]) ||
+        startedRecord.status !== 'started' ||
+        startedRecord.stdoutPath !== commandRecord.stdoutPath ||
+        startedRecord.stderrPath !== commandRecord.stderrPath
+      ) {
+        return null;
+      }
+      if (commandRecord.phase !== undefined && startedRecord.phase !== commandRecord.phase) {
+        return null;
+      }
+      if (isRunnerOwnedCommand) {
+        const startedOutputs = readValidatedProviderCommandStartedOutputs(startedRecord);
+        if (
+          !startedOutputs ||
+          !providerCommandOutputsMatch(startedOutputs, completedOutputs)
+        ) {
+          return null;
+        }
+      }
+    }
+
+    validatedCommands.push({
+      completedOutputs,
+      completedRecord,
+      sourceCommand: commandRecord,
+    });
+  }
+
+  return hasBindingOutputOwner ? validatedCommands : null;
+}
+
+function hasVerifiedTargetBindingWindow(
+  record: JsonRecord,
+  commands: ValidatedTargetBindingCommand[],
+  context: Partial<NativePerformanceComparisonContext>,
+): boolean {
+  const window = readValidatedTargetBindingWindow(record);
+  const runnerWindow = readValidatedRunnerActiveLoopWindow(context);
+  if (
+    !window ||
+    !runnerWindow ||
+    window.startedAt !== runnerWindow.startedAt ||
+    window.endedAt !== runnerWindow.endedAt ||
+    window.durationMs !== runnerWindow.durationMs
+  ) {
+    return false;
+  }
+
+  const startWindowCommand = commands.find(({ completedRecord }) => completedRecord.phase === 'startWindow');
+  const stopWindowCommand = commands.find(({ completedRecord }) => completedRecord.phase === 'stopWindow');
+  if (!startWindowCommand || !stopWindowCommand) {
+    return false;
+  }
+
+  const startWindowStartedAt = readIsoTimestamp(startWindowCommand.completedRecord.startedAt);
+  const startWindowEndedAt = readIsoTimestamp(startWindowCommand.completedRecord.endedAt);
+  const stopWindowStartedAt = readIsoTimestamp(stopWindowCommand.completedRecord.startedAt);
+  const stopWindowEndedAt = readIsoTimestamp(stopWindowCommand.completedRecord.endedAt);
+  const windowStartedAt = readIsoTimestamp(window.startedAt);
+  const windowEndedAt = readIsoTimestamp(window.endedAt);
+  if (
+    startWindowStartedAt === null ||
+    startWindowEndedAt === null ||
+    stopWindowStartedAt === null ||
+    stopWindowEndedAt === null ||
+    windowStartedAt === null ||
+    windowEndedAt === null
+  ) {
+    return false;
+  }
+
+  return startWindowStartedAt <= startWindowEndedAt &&
+    startWindowEndedAt <= windowStartedAt &&
+    windowStartedAt <= windowEndedAt &&
+    windowEndedAt <= stopWindowStartedAt &&
+    stopWindowStartedAt <= stopWindowEndedAt;
+}
+
+function collectSurfacedNativePerformanceEvidencePaths(evidence: JsonRecord): Set<string> {
+  const surfacedPaths = new Set<string>();
+
+  if (Array.isArray(evidence.attachments)) {
+    for (const attachment of evidence.attachments) {
+      const attachmentRecord = readJsonRecord(attachment);
+      if (attachmentRecord && isRunRelativeEvidencePath(attachmentRecord.path)) {
+        surfacedPaths.add(attachmentRecord.path);
+      }
+    }
+  }
+
+  if (Array.isArray(evidence.diagnosticSources)) {
+    for (const source of evidence.diagnosticSources) {
+      const sourceRecord = readJsonRecord(source);
+      if (sourceRecord && isRunRelativeEvidencePath(sourceRecord.path)) {
+        surfacedPaths.add(sourceRecord.path);
+      }
+    }
+  }
+
+  if (Array.isArray(evidence.traces)) {
+    for (const trace of evidence.traces) {
+      const traceRecord = readJsonRecord(trace);
+      if (traceRecord && isRunRelativeEvidencePath(traceRecord.path)) {
+        surfacedPaths.add(traceRecord.path);
+      }
+    }
+  }
+
+  return surfacedPaths;
+}
+
+function hasVerifiedTargetBindingCaptureArtifacts(
+  record: JsonRecord,
+  commands: ValidatedTargetBindingCommand[],
+  evidence: JsonRecord,
+  context: Partial<NativePerformanceComparisonContext>,
+): boolean {
+  const captureArtifacts = readValidatedTargetBindingCaptureArtifacts(record);
+  if (!captureArtifacts) {
+    return false;
+  }
+
+  const surfacedPaths = collectSurfacedNativePerformanceEvidencePaths(evidence);
+  if (surfacedPaths.size === 0) {
+    return false;
+  }
+
+  for (const captureArtifact of captureArtifacts) {
+    const matchingCommand = commands.find(({ sourceCommand }) => (
+      sourceCommand.commandId === captureArtifact.commandId
+    ));
+    if (!matchingCommand) {
+      return false;
+    }
+
+    const { completedOutputs, completedRecord } = matchingCommand;
+    if (
+      completedRecord.phase !== 'startWindow' &&
+      completedRecord.phase !== 'stopWindow'
+    ) {
+      return false;
+    }
+
+    const actualOutputSha256 = readVerifiedEvidenceSha256(captureArtifact.path, context);
+    const matchingOutput = completedOutputs.find((output) => (
+      output.status === 'captured' &&
+      output.runRelativePath === captureArtifact.path &&
+      output.sha256 === actualOutputSha256
+    ));
+    if (!actualOutputSha256 || !matchingOutput) {
+      return false;
+    }
+
+    if (!surfacedPaths.has(captureArtifact.path)) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
 /**
  * Returns true for a real capture timestamp rather than the helper's epoch placeholder.
  *
@@ -1429,6 +2053,7 @@ function hasBoundedTraceWindow(value: unknown): boolean {
  */
 function hasObservedTargetBinding(
   value: unknown,
+  evidence: JsonRecord,
   platform: unknown,
   context: Partial<NativePerformanceComparisonContext>,
 ): boolean {
@@ -1468,11 +2093,43 @@ function hasObservedTargetBinding(
     }
 
     if (candidateRecord.bindingStatus === 'observed') {
+      if (!isNonEmptyString(candidateRecord.evidencePath)) {
+        return false;
+      }
+      const targetBindingEvidencePath = candidateRecord.evidencePath;
+      const targetBindingRecord = readValidatedTargetBindingRecord(targetBindingEvidencePath, context);
+      const verifiedCommands = targetBindingRecord
+        ? readVerifiedTargetBindingCommands(targetBindingRecord, context, targetBindingEvidencePath)
+        : null;
       if (
         candidateRecord.platform !== platform ||
         candidateRecord.appId !== targetBinding.appId ||
         candidateRecord.deviceId !== targetBinding.deviceId ||
-        !isDurableEvidencePath(candidateRecord.evidencePath, context)
+        !targetBindingRecord ||
+        targetBindingRecord.providerId !== context.expectedProviderId ||
+        targetBindingRecord.platform !== platform ||
+        targetBindingRecord.runId !== context.expectedRunId ||
+        targetBindingRecord.scenarioId !== context.expectedScenarioId ||
+        targetBindingRecord.status !== 'verified' ||
+        targetBindingRecord.requestedAppId !== targetBinding.appId ||
+        targetBindingRecord.requestedTargetId !== targetBinding.deviceId ||
+        targetBindingRecord.observedTargetId !== targetBinding.deviceId ||
+        !isNonEmptyString(targetBindingRecord.observedProcessName) ||
+        typeof targetBindingRecord.observedProcessPid !== 'number' ||
+        !Number.isFinite(targetBindingRecord.observedProcessPid) ||
+        targetBindingRecord.observedProcessPid <= 0 ||
+        !verifiedCommands ||
+        !hasVerifiedTargetBindingWindow(targetBindingRecord, verifiedCommands, context) ||
+        !hasVerifiedTargetBindingCaptureArtifacts(targetBindingRecord, verifiedCommands, evidence, context)
+      ) {
+        return false;
+      }
+      if (platform === 'android' && targetBindingRecord.observedAppId !== targetBinding.appId) {
+        return false;
+      }
+      if (
+        platform === 'ios' &&
+        (!isNonEmptyString(targetBindingRecord.observedTargetPlatform) || !isNonEmptyString(targetBindingRecord.observedTemplate))
       ) {
         return false;
       }
@@ -1548,7 +2205,7 @@ function classifyNativePerformanceComparisonReadiness(
   if (!hasBoundedLifecycleWindow(evidence.lifecycle) && !hasBoundedTraceWindow(evidence.traces)) {
     missingEvidence.push('bounded-capture-window');
   }
-  if (!hasObservedTargetBinding(evidence.targetBinding, evidence.platform, comparisonContext)) {
+  if (!hasObservedTargetBinding(evidence.targetBinding, evidence, evidence.platform, comparisonContext)) {
     missingEvidence.push('observed-target-binding');
   }
 

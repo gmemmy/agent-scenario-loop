@@ -1,4 +1,5 @@
 const assert = require('node:assert/strict');
+const crypto = require('node:crypto');
 const { execFile } = require('node:child_process');
 const { EventEmitter } = require('node:events');
 const fs = require('node:fs');
@@ -19,6 +20,9 @@ const {
 const {
   resolveAsyncStorageDirectory,
 } = require('../ios-simctl');
+const {
+  classifyNativePerformanceComparisonReadiness,
+} = require('../../core/native-performance');
 
 type ExecOutput = {
   stdout: string;
@@ -75,6 +79,10 @@ function fixturePath(relativePath: string): string {
  */
 function readJson(filePath: string): Record<string, any> {
   return JSON.parse(fs.readFileSync(filePath, 'utf8'));
+}
+
+function sha256File(filePath: string): string {
+  return crypto.createHash('sha256').update(fs.readFileSync(filePath)).digest('hex');
 }
 
 /**
@@ -426,7 +434,7 @@ test('profile-ios preserves captured provider evidence when another required out
   assert.match(agentSummary, /Next action `use_partial_provider_evidence_for_diagnosis`/u);
 });
 
-test('profile-ios accepts current durable comparison-ready native performance evidence', async (t: TestContext) => {
+test('profile-ios downgrades capture-only native performance evidence to diagnostic-only', async (t: TestContext) => {
   const artifactRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-ios-comparison-ready-'));
   const providerRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-provider-ios-comparison-ready-'));
   t.after(async () => {
@@ -439,11 +447,47 @@ test('profile-ios accepts current durable comparison-ready native performance ev
   await fsp.writeFile(
     providerScript,
     [
+      "const crypto = require('node:crypto');",
       "const fs = require('node:fs');",
       "const path = require('node:path');",
       'const [evidencePath, targetPath, runId, scenarioId, targetEvidencePath, sourceEvidencePath] = process.argv.slice(2);',
       'fs.mkdirSync(path.dirname(evidencePath), { recursive: true });',
-      "fs.writeFileSync(targetPath, JSON.stringify({ appId: 'dev.agent-scenario-loop.example', deviceId: 'SIM-123', platform: 'ios' }) + '\\n');",
+      "const emptyHash = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';",
+      "const targetOutputHash = 'cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc';",
+      "const targetEvidence = JSON.stringify({",
+      "  schemaVersion: '1.0.0',",
+      `  providerId: '${providerId}',`,
+      "  platform: 'ios',",
+      '  runId,',
+      '  scenarioId,',
+      "  status: 'verified',",
+      "  requestedAppId: 'dev.agent-scenario-loop.example',",
+      "  requestedTargetId: 'SIM-123',",
+      "  observedTargetId: 'SIM-123',",
+      "  observedTargetPlatform: 'iOS Simulator',",
+      "  observedProcessName: 'ExampleApp',",
+      "  observedProcessPid: 4242,",
+      "  observedTemplate: 'Animation Hitches',",
+      "  captureArtifacts: [{ commandId: 'capture-native-performance', path: sourceEvidencePath }],",
+      "  window: { phase: 'activeLoop', startedAt: '2026-07-13T12:00:00.000Z', endedAt: '2026-07-13T12:00:01.000Z', durationMs: 1000 },",
+      "  sourceCommands: [{",
+      "    sourceId: 'capture-native-performance',",
+      "    commandId: 'capture-native-performance',",
+      "    phase: 'capture',",
+      "    command: process.execPath,",
+      "    args: process.argv.slice(1),",
+      `    recordPath: 'raw/provider-commands/${providerId}-capture-native-performance.json',`,
+      `    startedRecordPath: 'raw/provider-commands/${providerId}-capture-native-performance.started.json',`,
+      `    stdoutPath: 'raw/provider-commands/${providerId}-capture-native-performance.stdout.txt',`,
+      `    stderrPath: 'raw/provider-commands/${providerId}-capture-native-performance.stderr.txt',`,
+      '    stdoutSha256: emptyHash,',
+      '    stderrSha256: emptyHash,',
+      '    outputPath: targetEvidencePath,',
+      '    outputSha256: targetOutputHash,',
+      "    status: 'completed'",
+      "  }]",
+      "}) + '\\n';",
+      'fs.writeFileSync(targetPath, targetEvidence);',
       "fs.writeFileSync(path.join(path.dirname(evidencePath), 'xctrace-summary.json'), JSON.stringify({ source: 'xctrace' }) + '\\n');",
       'fs.writeFileSync(evidencePath, JSON.stringify({',
       "  schemaVersion: '1.1.0',",
@@ -544,12 +588,12 @@ test('profile-ios accepts current durable comparison-ready native performance ev
   const diagnostics = (manifest.artifacts as { diagnostics: Array<Record<string, unknown>> }).diagnostics;
   const nativePerformanceDiagnostic = diagnostics.find((entry) => entry.kind === 'nativePerformance');
 
-  assert.equal(nativePerformanceDiagnostic?.availability, 'captured');
+  assert.equal(nativePerformanceDiagnostic?.availability, 'captured-diagnostic-only');
   assert.equal(nativePerformanceDiagnostic?.required, true);
-  assert.equal(health.healthStatus, 'passed');
+  assert.equal(health.healthStatus, 'failed');
   assert.equal(
     (health.checks as Array<{ code: string }>).some((check) => check.code === 'required_diagnostic_not_captured'),
-    false,
+    true,
   );
 });
 
@@ -780,6 +824,99 @@ test('profile-ios rehydrates simctl sidecar events when enriched run id differs'
   assert.equal(jsDiagnostic?.path, 'raw/ios-profile-events.log');
   assert.equal(jsDiagnostic?.evidenceDependency?.root, 'sidecar');
   assert.equal(jsDiagnostic?.evidenceDependency?.path, 'raw/ios-profile-events.log');
+});
+
+test('profile-ios fails closed for live-window provider phases on rehydrated simctl sidecars', async (t: TestContext) => {
+  const tempRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-ios-rehydrate-provider-phase-'));
+  const providerRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-provider-ios-rehydrate-phase-'));
+  t.after(async () => {
+    await fsp.rm(tempRoot, { recursive: true, force: true });
+    await fsp.rm(providerRoot, { recursive: true, force: true });
+  });
+  const artifactRoot = path.join(tempRoot, 'artifacts');
+  const sidecarRoot = path.join(tempRoot, '_ios-simctl-captures', 'source-public-journey-ios');
+  const scenarioPath = path.join(tempRoot, 'public-journey.json');
+  const markerPath = path.join(providerRoot, 'provider-ran.txt');
+  const scenario = readJson(fixturePath('templates/mobile-scenario.json'));
+  scenario.id = 'public-journey';
+  scenario.flowId = 'public-journey';
+  await fsp.mkdir(path.join(sidecarRoot, 'raw'), { recursive: true });
+  await fsp.writeFile(scenarioPath, `${JSON.stringify(scenario, null, 2)}\n`, 'utf8');
+  await fsp.writeFile(
+    path.join(sidecarRoot, 'raw', 'ios-profile-events.log'),
+    [
+      '2026-01-01T00:00:00.000Z public-ios [profile-event] {"event":"first_journey_started","scenario":"public-journey","runId":"source-public-journey-ios","iteration":1,"atMs":0,"helperVersion":"1.1.0"}',
+      '2026-01-01T00:00:00.700Z public-ios [profile-event] {"event":"first_journey_completed","scenario":"public-journey","runId":"source-public-journey-ios","iteration":1,"atMs":700,"helperVersion":"1.1.0"}',
+      '',
+    ].join('\n'),
+    'utf8',
+  );
+  await fsp.writeFile(
+    path.join(sidecarRoot, 'raw', 'ios-simctl-log.txt'),
+    'Timestamp Ty Process[PID:TID]\n',
+    'utf8',
+  );
+  const providerManifestPath = path.join(providerRoot, 'provider.json');
+  await fsp.writeFile(
+    providerManifestPath,
+    `${JSON.stringify({
+      schemaVersion: '1.0.0',
+      runnerId: 'rehydrated-window-provider',
+      kind: 'evidenceProvider',
+      platforms: ['ios'],
+      capabilities: ['profiler'],
+      artifactOutputs: ['profiler'],
+      lifecycle: ['startWindow'],
+      providerCommands: [
+        {
+          id: 'start-profiler',
+          phase: 'startWindow',
+          command: process.execPath,
+          args: ['-e', `require('node:fs').writeFileSync(${JSON.stringify(markerPath)}, 'ran\\n')`],
+          outputs: [],
+        },
+      ],
+    }, null, 2)}\n`,
+    'utf8',
+  );
+
+  const { stdout } = await execFileAsync(process.execPath, [
+    PROFILE_IOS,
+    '--config',
+    fixturePath('examples/mobile-app/asl.config.json'),
+    '--scenario',
+    scenarioPath,
+    '--simctl-artifacts',
+    sidecarRoot,
+    '--provider',
+    providerManifestPath,
+    '--out',
+    artifactRoot,
+    '--run-id',
+    'public-journey-ios-aftercapture',
+  ]);
+
+  const runDir = stdout.trim();
+  const health = readJson(path.join(runDir, 'health.json')) as Record<string, any>;
+  const verdict = readJson(path.join(runDir, 'verdict.json')) as Record<string, any>;
+  const commandRecord = readJson(
+    path.join(runDir, 'raw', 'provider-commands', 'rehydrated-window-provider-start-profiler.json'),
+  ) as Record<string, any>;
+
+  assert.equal(fs.existsSync(markerPath), false);
+  assert.equal(health.healthStatus, 'failed');
+  assert.equal(verdict.verdictStatus, 'inconclusive');
+  assert.equal(commandRecord.status, 'unsupported');
+  assert.deepEqual(commandRecord.supportedPhases, ['capture', 'afterCapture', 'postRun']);
+  assert.ok(
+    (health.checks as Array<{ code: string; metadata?: { phase?: string; providerId?: string } }>).some(
+      (check) => (
+        check.code === 'provider_lifecycle_phase_unsupported' &&
+        check.metadata?.phase === 'startWindow' &&
+        check.metadata?.providerId === 'rehydrated-window-provider'
+      ),
+    ),
+  );
 });
 
 test('profile-ios fails health when rehydrated simctl sidecar has ambiguous source run ids', async (t: TestContext) => {
@@ -1297,6 +1434,637 @@ test('profile-ios can capture simctl logs and profile them in one run', async (t
   assert.equal((causalRun.artifacts as { screenshot: string }).screenshot, 'captures/ios-screenshot.png');
   assert.ok(fs.existsSync(path.join(result.runDir, 'raw', 'ios-simctl-log.txt')));
   assert.ok(fs.existsSync(path.join(result.runDir, 'captures', 'ios-screenshot.png')));
+});
+
+test('profile-ios brackets live capture with provider startWindow and stopWindow commands', async (t: TestContext) => {
+  const tempRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-ios-live-window-'));
+  const providerRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-provider-ios-live-window-'));
+  t.after(async () => {
+    await fsp.rm(tempRoot, { recursive: true, force: true });
+    await fsp.rm(providerRoot, { recursive: true, force: true });
+  });
+  const profileRoot = path.join(tempRoot, 'profile');
+  const simctlCaptureRoot = path.join(tempRoot, 'simctl-capture');
+  const orderPath = path.join(providerRoot, 'window-order.log');
+  const providerScript = path.join(providerRoot, 'provider-window-phase.js');
+  await fsp.writeFile(
+    providerScript,
+    [
+      "const fs = require('node:fs');",
+      "const path = require('node:path');",
+      "const [phase, orderPath, outputPath, expectedRawPath, summaryPath, appId, targetId, runId, scenarioId] = process.argv.slice(2);",
+      "fs.mkdirSync(path.dirname(orderPath), { recursive: true });",
+      "fs.appendFileSync(orderPath, `${phase}\\n`);",
+      "if (outputPath) {",
+      "  fs.mkdirSync(path.dirname(outputPath), { recursive: true });",
+      "  fs.writeFileSync(outputPath, JSON.stringify({ violations: [] }) + '\\n');",
+      "}",
+      "if (summaryPath) {",
+      "  fs.mkdirSync(path.dirname(summaryPath), { recursive: true });",
+      "  const order = fs.readFileSync(orderPath, 'utf8').split(/\\r?\\n/u).filter(Boolean);",
+      "  fs.writeFileSync(summaryPath, JSON.stringify({ appId, expectedRawExists: fs.existsSync(expectedRawPath), order, runId, scenarioId, targetId }) + '\\n');",
+      "}",
+    ].join('\n'),
+    'utf8',
+  );
+  const providerManifestPath = path.join(providerRoot, 'provider.json');
+  await fsp.writeFile(
+    providerManifestPath,
+    `${JSON.stringify({
+      schemaVersion: '1.0.0',
+      runnerId: 'ios-live-window-provider',
+      kind: 'evidenceProvider',
+      platforms: ['ios'],
+      capabilities: ['accessibility'],
+      artifactOutputs: ['accessibility'],
+      lifecycle: ['startWindow', 'stopWindow', 'afterCapture', 'finalize'],
+      providerCommands: [
+        {
+          id: 'start-trace',
+          phase: 'startWindow',
+          command: process.execPath,
+          args: [providerScript, 'startWindow', orderPath, '', '', '{bundleId}', '{udid}', '{runId}', '{scenarioId}'],
+          outputs: [],
+        },
+        {
+          id: 'stop-trace',
+          phase: 'stopWindow',
+          command: process.execPath,
+          args: [providerScript, 'stopWindow', orderPath, '', '', '{bundleId}', '{udid}', '{runId}', '{scenarioId}'],
+          outputs: [],
+        },
+        {
+          id: 'normalize-trace',
+          phase: 'afterCapture',
+          command: process.execPath,
+          args: [
+            providerScript,
+            'afterCapture',
+            orderPath,
+            '{providerDir}/accessibility.json',
+            '{runDir}/raw/ios-simctl-log.txt',
+            '{providerDir}/window-summary.json',
+            '{bundleId}',
+            '{udid}',
+            '{runId}',
+            '{scenarioId}',
+          ],
+          outputs: [
+            {
+              channel: 'provider',
+              kind: 'accessibility',
+              path: '{providerDir}/accessibility.json',
+              required: true,
+            },
+          ],
+        },
+        {
+          id: 'cleanup-trace',
+          phase: 'finalize',
+          command: process.execPath,
+          args: [providerScript, 'finalize', orderPath, '', '', '{bundleId}', '{udid}', '{runId}', '{scenarioId}'],
+          outputs: [],
+        },
+      ],
+    }, null, 2)}\n`,
+    'utf8',
+  );
+  const executor = async (command: string, args: string[]): Promise<CommandResult> => {
+    const key = args.join(' ');
+    if (key === 'simctl openurl A692ED28-893E-453F-8866-C69331AE757F asl-example://profile-session/start?runId=ios-live-window-provider&scenario=app-startup') {
+      await fsp.appendFile(orderPath, 'capture\n', 'utf8');
+      return {
+        command,
+        args,
+        exitCode: 0,
+        stderr: '',
+        stdout: '',
+      };
+    }
+
+    const responses: Record<string, Partial<CommandResult>> = {
+      'simctl list devices': {
+        stdout: [
+          '== Devices ==',
+          '-- iOS 26.3 --',
+          '    iPhone 17 Pro Max (A692ED28-893E-453F-8866-C69331AE757F) (Booted)',
+        ].join('\n'),
+      },
+      'simctl get_app_container A692ED28-893E-453F-8866-C69331AE757F dev.agent-scenario-loop.example app': {
+        stdout: '/tmp/ASLExampleMobile.app\n',
+      },
+      'simctl launch A692ED28-893E-453F-8866-C69331AE757F dev.agent-scenario-loop.example': {
+        stdout: 'dev.agent-scenario-loop.example: 1234\n',
+      },
+      'simctl spawn A692ED28-893E-453F-8866-C69331AE757F log show --style compact --last 2m --predicate eventMessage CONTAINS "[profile-event]" OR eventMessage CONTAINS "[profile-session]"': {
+        stdout: fs
+          .readFileSync(fixturePath('examples/mobile-app/event-logs/app-startup.log'), 'utf8')
+          .replace(/example-startup/gu, 'ios-live-window-provider'),
+      },
+    };
+    const response = responses[key] ?? { exitCode: 1, stderr: `unexpected command: ${key}` };
+    return {
+      command,
+      args,
+      exitCode: response.exitCode ?? 0,
+      stderr: response.stderr ?? '',
+      stdout: response.stdout ?? '',
+    };
+  };
+
+  const result = await runProfileIos({
+    config: fixturePath('examples/mobile-app/asl.config.json'),
+    device: 'A692ED28-893E-453F-8866-C69331AE757F',
+    launch: true,
+    out: profileRoot,
+    'profile-session': true,
+    provider: providerManifestPath,
+    'run-id': 'ios-live-window-provider',
+    scenario: fixturePath('examples/mobile-app/scenarios/ios/app-startup.json'),
+    'simctl-capture': true,
+    'simctl-out': simctlCaptureRoot,
+    'wait-ms': '0',
+  }, {
+    executor,
+  });
+
+  const health = readJson(path.join(result.runDir, 'health.json')) as Record<string, any>;
+  const order = fs.readFileSync(orderPath, 'utf8').split(/\r?\n/u).filter(Boolean);
+  const summary = readJson(
+    path.join(result.runDir, 'raw', 'providers', 'ios-live-window-provider', 'window-summary.json'),
+  ) as Record<string, any>;
+  const startedRecord = readJson(
+    path.join(result.runDir, 'raw', 'provider-commands', 'ios-live-window-provider-start-trace.started.json'),
+  ) as Record<string, any>;
+  const commandRecord = readJson(
+    path.join(result.runDir, 'raw', 'provider-commands', 'ios-live-window-provider-start-trace.json'),
+  ) as Record<string, any>;
+
+  assert.equal(health.healthStatus, 'passed');
+  assert.deepEqual(order, ['startWindow', 'capture', 'stopWindow', 'afterCapture', 'finalize']);
+  assert.deepEqual(summary.order, ['startWindow', 'capture', 'stopWindow', 'afterCapture']);
+  assert.equal(summary.expectedRawExists, true);
+  assert.equal(summary.appId, 'dev.agent-scenario-loop.example');
+  assert.equal(summary.targetId, 'A692ED28-893E-453F-8866-C69331AE757F');
+  assert.equal(summary.runId, 'ios-live-window-provider');
+  assert.equal(summary.scenarioId, 'app-startup');
+  assert.equal(commandRecord.status, 'completed');
+  assert.equal(commandRecord.startedRecordPath, 'raw/provider-commands/ios-live-window-provider-start-trace.started.json');
+  assert.deepEqual(startedRecord.args.slice(-4), [
+    'dev.agent-scenario-loop.example',
+    'A692ED28-893E-453F-8866-C69331AE757F',
+    'ios-live-window-provider',
+    'app-startup',
+  ]);
+});
+
+test('profile-ios classifies live-window native-performance evidence as comparison-ready from real runner command outputs', async (t: TestContext) => {
+  const tempRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-ios-native-window-'));
+  const providerRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-provider-ios-native-window-'));
+  t.after(async () => {
+    await fsp.rm(tempRoot, { recursive: true, force: true });
+    await fsp.rm(providerRoot, { recursive: true, force: true });
+  });
+
+  const profileRoot = path.join(tempRoot, 'profile');
+  const simctlCaptureRoot = path.join(tempRoot, 'simctl-capture');
+  const orderPath = path.join(providerRoot, 'window-order.log');
+  const providerScript = path.join(providerRoot, 'native-window-provider.js');
+  await fsp.writeFile(
+    providerScript,
+    [
+      "const crypto = require('node:crypto');",
+      "const fs = require('node:fs');",
+      "const path = require('node:path');",
+      'const [phase, orderPath, capturePath, evidencePath, targetBindingPath, providerId, requestedAppId, requestedTargetId, runDir, runId, scenarioId] = process.argv.slice(2);',
+      "const sha256 = (value) => crypto.createHash('sha256').update(value).digest('hex');",
+      "const toRunRelative = (targetPath) => path.relative(runDir, targetPath).split(path.sep).join('/');",
+      "const commandRecordPath = (commandId, suffix = '.json') => path.join(runDir, 'raw', 'provider-commands', `${providerId}-${commandId}${suffix}`);",
+      "const commandReference = ({ args, commandId, outputPath, outputSha256, phase }) => ({",
+      '  sourceId: commandId,',
+      '  commandId,',
+      "  command: process.execPath,",
+      '  args,',
+      '  phase,',
+      "  recordPath: `raw/provider-commands/${providerId}-${commandId}.json`,",
+      "  startedRecordPath: `raw/provider-commands/${providerId}-${commandId}.started.json`,",
+      "  stdoutPath: `raw/provider-commands/${providerId}-${commandId}.stdout.txt`,",
+      "  stderrPath: `raw/provider-commands/${providerId}-${commandId}.stderr.txt`,",
+      "  status: 'completed',",
+      "  ...(typeof outputPath === 'string' ? { outputPath } : {}),",
+      "  ...(typeof outputSha256 === 'string' ? { outputSha256 } : {}),",
+      '});',
+      'fs.mkdirSync(path.dirname(orderPath), { recursive: true });',
+      "fs.appendFileSync(orderPath, `${phase}\\n`);",
+      "if (phase === 'stopWindow') {",
+      '  fs.mkdirSync(path.dirname(capturePath), { recursive: true });',
+      "  fs.writeFileSync(capturePath, 'active-window-capture\\n', 'utf8');",
+      '}',
+      "if (phase !== 'afterCapture') {",
+      '  process.exit(0);',
+      '}',
+      "const startRecord = JSON.parse(fs.readFileSync(commandRecordPath('start-native-window'), 'utf8'));",
+      "const stopRecord = JSON.parse(fs.readFileSync(commandRecordPath('stop-native-window'), 'utf8'));",
+      "const runnerWindow = JSON.parse(fs.readFileSync(path.join(runDir, 'raw', 'runner-active-loop-window.json'), 'utf8'));",
+      'const windowStartedAt = runnerWindow.startedAt;',
+      'const windowEndedAt = runnerWindow.endedAt;',
+      'const windowDurationMs = runnerWindow.durationMs;',
+      'const captureArtifactPath = toRunRelative(capturePath);',
+      'const targetBindingRelativePath = toRunRelative(targetBindingPath);',
+      "const targetBindingBase = {",
+      "  schemaVersion: '1.0.0',",
+      '  providerId,',
+      "  platform: 'ios',",
+      '  runId,',
+      '  scenarioId,',
+      "  status: 'verified',",
+      '  requestedAppId,',
+      '  requestedTargetId,',
+      '  observedTargetId: requestedTargetId,',
+      "  observedTargetPlatform: 'iOS Simulator',",
+      '  observedProcessName: requestedAppId,',
+      '  observedProcessPid: 4242,',
+      "  observedTemplate: 'Animation Hitches',",
+      "  captureArtifacts: [{ commandId: 'stop-native-window', path: captureArtifactPath }],",
+      '  window: {',
+      "    phase: 'activeLoop',",
+      '    startedAt: windowStartedAt,',
+      '    endedAt: windowEndedAt,',
+      '    durationMs: windowDurationMs,',
+      '  },',
+      '};',
+      "const targetBindingWithSources = {",
+      '  ...targetBindingBase,',
+      '  sourceCommands: [',
+      "    commandReference({ args: startRecord.args, commandId: 'start-native-window', phase: 'startWindow' }),",
+      "    commandReference({ args: stopRecord.args, commandId: 'stop-native-window', phase: 'stopWindow' }),",
+      '  ],',
+      '};',
+      'const targetBinding = {',
+      '  ...targetBindingWithSources,',
+      '  sourceCommands: [',
+      '    ...targetBindingWithSources.sourceCommands,',
+      "    commandReference({",
+      "      args: process.argv.slice(1),",
+      "      commandId: 'capture-native-performance',",
+      "      outputPath: targetBindingRelativePath,",
+      "      phase: 'afterCapture',",
+      '    }),',
+      '  ],',
+      '};',
+      'fs.mkdirSync(path.dirname(targetBindingPath), { recursive: true });',
+      "fs.writeFileSync(targetBindingPath, `${JSON.stringify(targetBinding)}\\n`, 'utf8');",
+      "const evidence = {",
+      "  schemaVersion: '1.1.0',",
+      '  providerId,',
+      "  platform: 'ios',",
+      '  runId,',
+      '  scenarioId,',
+      "  tool: { name: 'ios-native-provider', version: '1.2.3' },",
+      '  capturedAt: windowEndedAt,',
+      "  captureMode: 'session',",
+      "  clockDomain: 'host',",
+      "  completenessStatus: 'complete',",
+      "  comparability: { status: 'comparable', policy: 'release-native-baseline-v1' },",
+      "  claimSufficiency: { status: 'sufficient-for-comparison', supportingEvidence: ['bounded active-window capture', 'verified target binding'] },",
+      "  comparisonPolicy: {",
+      "    policyId: 'release-native-baseline-v1',",
+      "    providerVersion: '1.2.3',",
+      "    window: { definitionId: 'app-startup-window', kind: 'bounded-duration', phase: 'activeLoop', durationMs: windowDurationMs },",
+      "    target: { family: 'ios-simulator-app', buildMode: 'debug' },",
+      "    environment: [{ name: 'device-class', value: 'simulator' }, { name: 'thermal-state', value: 'nominal' }],",
+      '  },',
+      "  comparisonMetrics: [{",
+      "    id: 'frame-p95',",
+      "    surface: 'frames',",
+      "    sample: 'p95FrameMs',",
+      "    unit: 'ms',",
+      "    aggregation: 'p95',",
+      "    direction: 'lower-is-better',",
+      "    tolerance: { absolute: 1, relative: 0.05 },",
+      "    budget: { operator: 'at-most', threshold: 20 },",
+      '  }],',
+      "  attachments: [{ kind: 'native-trace', path: captureArtifactPath }],",
+      "  diagnosticSources: [{ sourceId: 'xctrace', status: 'captured', dataClasses: ['frames', 'jank', 'native-trace'], path: captureArtifactPath }],",
+      "  frames: { frameCount: 120, hitchCount: 2, p95FrameMs: 18 },",
+      "  lifecycle: { phase: 'activeLoop', startedAt: windowStartedAt, endedAt: windowEndedAt, durationMs: windowDurationMs, perturbsTiming: false },",
+      "  targetBinding: {",
+      "    status: 'verified',",
+      '    appId: requestedAppId,',
+      '    deviceId: requestedTargetId,',
+      "    source: 'provider-session-status',",
+      "    candidateTargets: [{",
+      "      bindingStatus: 'observed',",
+      "      platform: 'ios',",
+      '      appId: requestedAppId,',
+      '      deviceId: requestedTargetId,',
+      "      source: 'provider-session-status',",
+      '      evidencePath: targetBindingRelativePath,',
+      '    }],',
+      '  },',
+      '};',
+      'fs.mkdirSync(path.dirname(evidencePath), { recursive: true });',
+      "fs.writeFileSync(evidencePath, `${JSON.stringify(evidence)}\\n`, 'utf8');",
+    ].join('\n'),
+    'utf8',
+  );
+
+  const providerManifestPath = path.join(providerRoot, 'provider.json');
+  await fsp.writeFile(
+    providerManifestPath,
+    `${JSON.stringify({
+      schemaVersion: '1.0.0',
+      runnerId: 'ios-native-comparison-provider',
+      kind: 'evidenceProvider',
+      platforms: ['ios'],
+      capabilities: ['nativePerformance'],
+      artifactOutputs: ['nativePerformance'],
+      lifecycle: ['startWindow', 'stopWindow', 'afterCapture'],
+      providerCommands: [
+        {
+          id: 'start-native-window',
+          phase: 'startWindow',
+          command: process.execPath,
+          args: [
+            providerScript,
+            'startWindow',
+            orderPath,
+            '{providerDir}/active-window-capture.trace',
+            '{providerDir}/native-performance.json',
+            '{nativeTargetBindingPath}',
+            '{providerId}',
+            '{bundleId}',
+            '{udid}',
+            '{runDir}',
+            '{runId}',
+            '{scenarioId}',
+          ],
+          outputs: [],
+        },
+        {
+          id: 'stop-native-window',
+          phase: 'stopWindow',
+          command: process.execPath,
+          args: [
+            providerScript,
+            'stopWindow',
+            orderPath,
+            '{providerDir}/active-window-capture.trace',
+            '{providerDir}/native-performance.json',
+            '{nativeTargetBindingPath}',
+            '{providerId}',
+            '{bundleId}',
+            '{udid}',
+            '{runDir}',
+            '{runId}',
+            '{scenarioId}',
+          ],
+          outputs: [
+            {
+              channel: 'provider',
+              kind: 'logs',
+              path: '{providerDir}/active-window-capture.trace',
+            },
+          ],
+        },
+        {
+          id: 'capture-native-performance',
+          phase: 'afterCapture',
+          command: process.execPath,
+          args: [
+            providerScript,
+            'afterCapture',
+            orderPath,
+            '{providerDir}/active-window-capture.trace',
+            '{providerDir}/native-performance.json',
+            '{nativeTargetBindingPath}',
+            '{providerId}',
+            '{bundleId}',
+            '{udid}',
+            '{runDir}',
+            '{runId}',
+            '{scenarioId}',
+          ],
+          outputs: [
+            {
+              channel: 'provider',
+              kind: 'nativePerformance',
+              path: '{providerDir}/native-performance.json',
+              required: true,
+            },
+          ],
+        },
+      ],
+    }, null, 2)}\n`,
+    'utf8',
+  );
+
+  const runId = 'ios-native-window-ready';
+  const providerId = 'ios-native-comparison-provider';
+  const executor = async (command: string, args: string[]): Promise<CommandResult> => {
+    const key = args.join(' ');
+    if (key === `simctl openurl A692ED28-893E-453F-8866-C69331AE757F asl-example://profile-session/start?runId=${runId}&scenario=app-startup`) {
+      await fsp.appendFile(orderPath, 'capture\n', 'utf8');
+      return {
+        command,
+        args,
+        exitCode: 0,
+        stderr: '',
+        stdout: '',
+      };
+    }
+
+    const responses: Record<string, Partial<CommandResult>> = {
+      'simctl list devices': {
+        stdout: [
+          '== Devices ==',
+          '-- iOS 26.3 --',
+          '    iPhone 17 Pro Max (A692ED28-893E-453F-8866-C69331AE757F) (Booted)',
+        ].join('\n'),
+      },
+      'simctl get_app_container A692ED28-893E-453F-8866-C69331AE757F dev.agent-scenario-loop.example app': {
+        stdout: '/tmp/ASLExampleMobile.app\n',
+      },
+      'simctl launch A692ED28-893E-453F-8866-C69331AE757F dev.agent-scenario-loop.example': {
+        stdout: 'dev.agent-scenario-loop.example: 1234\n',
+      },
+      'simctl spawn A692ED28-893E-453F-8866-C69331AE757F log show --style compact --last 2m --predicate eventMessage CONTAINS "[profile-event]" OR eventMessage CONTAINS "[profile-session]"': {
+        stdout: fs
+          .readFileSync(fixturePath('examples/mobile-app/event-logs/app-startup.log'), 'utf8')
+          .replace(/example-startup/gu, runId),
+      },
+    };
+    const response = responses[key] ?? { exitCode: 1, stderr: `unexpected command: ${key}` };
+    return {
+      command,
+      args,
+      exitCode: response.exitCode ?? 0,
+      stderr: response.stderr ?? '',
+      stdout: response.stdout ?? '',
+    };
+  };
+
+  const result = await runProfileIos({
+    config: fixturePath('examples/mobile-app/asl.config.json'),
+    device: 'A692ED28-893E-453F-8866-C69331AE757F',
+    launch: true,
+    out: profileRoot,
+    'profile-session': true,
+    provider: providerManifestPath,
+    'run-id': runId,
+    scenario: fixturePath('examples/mobile-app/scenarios/ios/app-startup.json'),
+    'simctl-capture': true,
+    'simctl-out': simctlCaptureRoot,
+    'wait-ms': '0',
+  }, {
+    executor,
+  });
+
+  const health = readJson(path.join(result.runDir, 'health.json')) as Record<string, any>;
+  const artifactPath = `raw/providers/${providerId}/native-performance.json`;
+  const evidence = readJson(path.join(result.runDir, artifactPath));
+  const stopCommandRecord = readJson(
+    path.join(result.runDir, 'raw', 'provider-commands', `${providerId}-stop-native-window.json`),
+  ) as Record<string, any>;
+
+  assert.equal(health.healthStatus, 'passed');
+  assert.equal(stopCommandRecord.outputs[0].runRelativePath, `raw/providers/${providerId}/active-window-capture.trace`);
+  assert.equal(
+    stopCommandRecord.outputs[0].sha256,
+    sha256File(path.join(result.runDir, `raw/providers/${providerId}/active-window-capture.trace`)),
+  );
+  assert.deepEqual(classifyNativePerformanceComparisonReadiness(evidence, {
+    artifactPath,
+    evidencePathExists: (runRelativePath: string) => fs.existsSync(path.join(result.runDir, runRelativePath)),
+    expectedPlatform: 'ios',
+    expectedProviderId: providerId,
+    expectedRunId: runId,
+    expectedScenarioId: 'app-startup',
+    readEvidenceJson: (runRelativePath: string) => readJson(path.join(result.runDir, runRelativePath)),
+    readEvidenceSha256: (runRelativePath: string) => sha256File(path.join(result.runDir, runRelativePath)),
+  }), {
+    missingEvidence: [],
+    status: 'comparison-ready',
+  });
+});
+
+test('profile-ios stops then finalizes live-window providers when simctl capture throws before profile-mobile handoff', async (t: TestContext) => {
+  const tempRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-ios-live-window-throw-'));
+  const providerRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-provider-ios-live-window-throw-'));
+  t.after(async () => {
+    await fsp.rm(tempRoot, { recursive: true, force: true });
+    await fsp.rm(providerRoot, { recursive: true, force: true });
+  });
+  const profileRoot = path.join(tempRoot, 'profile');
+  const simctlCaptureRoot = path.join(tempRoot, 'simctl-capture');
+  const orderPath = path.join(providerRoot, 'window-order.log');
+  const providerScript = path.join(providerRoot, 'provider-window-phase.js');
+  await fsp.writeFile(
+    providerScript,
+    [
+      "const fs = require('node:fs');",
+      "const path = require('node:path');",
+      "const [phase, orderPath] = process.argv.slice(2);",
+      "fs.mkdirSync(path.dirname(orderPath), { recursive: true });",
+      "fs.appendFileSync(orderPath, `${phase}\\n`);",
+    ].join('\n'),
+    'utf8',
+  );
+  const providerManifestPath = path.join(providerRoot, 'provider.json');
+  await fsp.writeFile(
+    providerManifestPath,
+    `${JSON.stringify({
+      schemaVersion: '1.0.0',
+      runnerId: 'ios-live-window-throw-provider',
+      kind: 'evidenceProvider',
+      platforms: ['ios'],
+      capabilities: ['accessibility'],
+      artifactOutputs: ['accessibility'],
+      lifecycle: ['startWindow', 'stopWindow', 'finalize'],
+      providerCommands: [
+        {
+          id: 'start-trace',
+          phase: 'startWindow',
+          command: process.execPath,
+          args: [providerScript, 'startWindow', orderPath],
+          outputs: [],
+        },
+        {
+          id: 'stop-trace',
+          phase: 'stopWindow',
+          command: process.execPath,
+          args: [providerScript, 'stopWindow', orderPath],
+          outputs: [],
+        },
+        {
+          id: 'cleanup-trace',
+          phase: 'finalize',
+          command: process.execPath,
+          args: [providerScript, 'finalize', orderPath],
+          outputs: [],
+        },
+      ],
+    }, null, 2)}\n`,
+    'utf8',
+  );
+  const executor = async (command: string, args: string[]): Promise<CommandResult> => {
+    const key = args.join(' ');
+    if (key === 'simctl openurl A692ED28-893E-453F-8866-C69331AE757F asl-example://profile-session/start?runId=ios-live-window-throw&scenario=app-startup') {
+      throw new Error(`simulated xcrun throw: ${key}`);
+    }
+
+    const responses: Record<string, Partial<CommandResult>> = {
+      'simctl list devices': {
+        stdout: [
+          '== Devices ==',
+          '-- iOS 26.3 --',
+          '    iPhone 17 Pro Max (A692ED28-893E-453F-8866-C69331AE757F) (Booted)',
+        ].join('\n'),
+      },
+      'simctl get_app_container A692ED28-893E-453F-8866-C69331AE757F dev.agent-scenario-loop.example app': {
+        stdout: '/tmp/ASLExampleMobile.app\n',
+      },
+      'simctl launch A692ED28-893E-453F-8866-C69331AE757F dev.agent-scenario-loop.example': {
+        stdout: 'dev.agent-scenario-loop.example: 1234\n',
+      },
+    };
+    const response = responses[key] ?? { exitCode: 1, stderr: `unexpected command: ${key}` };
+    return {
+      command,
+      args,
+      exitCode: response.exitCode ?? 0,
+      stderr: response.stderr ?? '',
+      stdout: response.stdout ?? '',
+    };
+  };
+
+  await assert.rejects(
+    () => runProfileIos({
+      config: fixturePath('examples/mobile-app/asl.config.json'),
+      device: 'A692ED28-893E-453F-8866-C69331AE757F',
+      launch: true,
+      out: profileRoot,
+      'profile-session': true,
+      provider: providerManifestPath,
+      'run-id': 'ios-live-window-throw',
+      scenario: fixturePath('examples/mobile-app/scenarios/ios/app-startup.json'),
+      'simctl-capture': true,
+      'simctl-out': simctlCaptureRoot,
+      'wait-ms': '0',
+    }, {
+      executor,
+    }),
+    /iOS simctl capture failed; inspect/u,
+  );
+
+  const runDir = path.join(profileRoot, 'app-startup', 'ios-live-window-throw');
+  const order = fs.readFileSync(orderPath, 'utf8').split(/\r?\n/u).filter(Boolean);
+
+  assert.deepEqual(order, ['startWindow', 'stopWindow', 'finalize']);
+  assert.equal(
+    fs.existsSync(path.join(runDir, 'raw', 'provider-commands', 'ios-live-window-throw-provider-cleanup-trace.json')),
+    true,
+  );
 });
 
 test('profile-ios can seed and profile stored iOS app truth events', async (t: TestContext) => {
