@@ -9,10 +9,84 @@
   "lifecycle": ["prepare", "startWindow", "capture", "stopWindow", "afterCapture", "finalize"],
   "providerCommands": [
     {
+      "id": "start-native-window",
+      "phase": "startWindow",
+      "command": "capture-native-performance",
+      "args": [
+        "start-window",
+        "--platform",
+        "{platform}",
+        "--app-id",
+        "{appId}",
+        "--target-id",
+        "{targetId}",
+        "--provider-id",
+        "{providerId}",
+        "--provider-dir",
+        "{providerDir}",
+        "--run-id",
+        "{runId}",
+        "--run-dir",
+        "{runDir}",
+        "--scenario",
+        "{scenarioId}",
+        "--target-binding",
+        "{nativeTargetBindingPath}"
+      ],
+      "outputs": []
+    },
+    {
+      "id": "stop-native-window",
+      "phase": "stopWindow",
+      "command": "capture-native-performance",
+      "args": [
+        "stop-window",
+        "--platform",
+        "{platform}",
+        "--app-id",
+        "{appId}",
+        "--target-id",
+        "{targetId}",
+        "--provider-id",
+        "{providerId}",
+        "--provider-dir",
+        "{providerDir}",
+        "--run-id",
+        "{runId}",
+        "--run-dir",
+        "{runDir}",
+        "--scenario",
+        "{scenarioId}",
+        "--target-binding",
+        "{nativeTargetBindingPath}"
+      ],
+      "outputs": []
+    },
+    {
       "id": "capture-native-performance",
       "phase": "afterCapture",
       "command": "capture-native-performance",
-      "args": ["--platform", "{platform}", "--run-id", "{runId}", "--out", "{providerDir}/native-performance.json"],
+      "args": [
+        "normalize",
+        "--platform",
+        "{platform}",
+        "--app-id",
+        "{appId}",
+        "--target-id",
+        "{targetId}",
+        "--provider-id",
+        "{providerId}",
+        "--provider-dir",
+        "{providerDir}",
+        "--run-id",
+        "{runId}",
+        "--run-dir",
+        "{runDir}",
+        "--target-binding",
+        "{nativeTargetBindingPath}",
+        "--out",
+        "{providerDir}/native-performance.json"
+      ],
       "outputs": [
         {
           "channel": "provider",
@@ -20,6 +94,33 @@
           "path": "{providerDir}/native-performance.json"
         }
       ]
+    },
+    {
+      "id": "finalize-native-window",
+      "phase": "finalize",
+      "command": "capture-native-performance",
+      "args": [
+        "finalize",
+        "--platform",
+        "{platform}",
+        "--app-id",
+        "{appId}",
+        "--target-id",
+        "{targetId}",
+        "--provider-id",
+        "{providerId}",
+        "--provider-dir",
+        "{providerDir}",
+        "--run-id",
+        "{runId}",
+        "--run-dir",
+        "{runDir}",
+        "--scenario",
+        "{scenarioId}",
+        "--target-binding",
+        "{nativeTargetBindingPath}"
+      ],
+      "outputs": []
     }
   ]
 }

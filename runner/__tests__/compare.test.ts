@@ -1,5 +1,6 @@
 const assert = require('node:assert/strict');
 const { execFile } = require('node:child_process');
+const crypto = require('node:crypto');
 const fs = require('node:fs');
 const fsp = require('node:fs/promises');
 const os = require('node:os');
@@ -16,6 +17,93 @@ type ExecOutput = {
 };
 type ExecFailure = Error & ExecOutput;
 type TestContext = import('node:test').TestContext;
+const RUNNER_ACTIVE_LOOP_WINDOW_PATH = 'raw/runner-active-loop-window.json';
+
+function sha256Text(value: string): string {
+  return crypto.createHash('sha256').update(value).digest('hex');
+}
+
+function buildObservedTargetBindingRecord({
+  runId,
+  targetBindingPath,
+}: {
+  runId: string;
+  targetBindingPath: string;
+}): Record<string, unknown> {
+  const capturePath = 'raw/providers/native-provider/active-window-capture.json';
+  const sourceCommands = [
+    {
+      args: ['start-window', '--target-binding', targetBindingPath],
+      command: 'capture-native-performance',
+      commandId: 'start-native-window',
+      phase: 'startWindow',
+      recordPath: 'raw/provider-commands/native-provider-start-native-window.json',
+      startedRecordPath: 'raw/provider-commands/native-provider-start-native-window.started.json',
+      sourceId: 'start-window',
+      status: 'completed',
+      stderrPath: 'raw/provider-commands/native-provider-start-native-window.stderr.txt',
+      stderrSha256: sha256Text('start-native-window stderr\n'),
+      stdoutPath: 'raw/provider-commands/native-provider-start-native-window.stdout.txt',
+      stdoutSha256: sha256Text('start-native-window stdout\n'),
+    },
+    {
+      args: ['stop-window', '--target-binding', targetBindingPath],
+      command: 'capture-native-performance',
+      commandId: 'stop-native-window',
+      phase: 'stopWindow',
+      recordPath: 'raw/provider-commands/native-provider-stop-native-window.json',
+      startedRecordPath: 'raw/provider-commands/native-provider-stop-native-window.started.json',
+      sourceId: 'stop-window',
+      status: 'completed',
+      stderrPath: 'raw/provider-commands/native-provider-stop-native-window.stderr.txt',
+      stderrSha256: sha256Text('stop-native-window stderr\n'),
+      stdoutPath: 'raw/provider-commands/native-provider-stop-native-window.stdout.txt',
+      stdoutSha256: sha256Text('stop-native-window stdout\n'),
+    },
+    {
+      args: ['normalize', '--target-binding', targetBindingPath],
+      command: 'capture-native-performance',
+      commandId: 'capture-native-performance',
+      outputPath: targetBindingPath,
+      phase: 'afterCapture',
+      recordPath: 'raw/provider-commands/native-provider-capture-native-performance.json',
+      startedRecordPath: 'raw/provider-commands/native-provider-capture-native-performance.started.json',
+      sourceId: 'capture-native-performance',
+      status: 'completed',
+      stderrPath: 'raw/provider-commands/native-provider-capture-native-performance.stderr.txt',
+      stderrSha256: sha256Text('capture-native-performance stderr\n'),
+      stdoutPath: 'raw/provider-commands/native-provider-capture-native-performance.stdout.txt',
+      stdoutSha256: sha256Text('capture-native-performance stdout\n'),
+    },
+  ];
+  return {
+    observedAppId: 'dev.agent-scenario-loop.example',
+    observedProcessName: 'dev.agent-scenario-loop.example',
+    observedProcessPid: 4242,
+    observedTargetId: 'emulator-5554',
+    platform: 'android',
+    providerId: 'native-provider',
+    requestedAppId: 'dev.agent-scenario-loop.example',
+    requestedTargetId: 'emulator-5554',
+    runId,
+    scenarioId: 'open-close-cycle',
+    schemaVersion: '1.0.0',
+    captureArtifacts: [
+      {
+        commandId: 'stop-native-window',
+        path: capturePath,
+      },
+    ],
+    sourceCommands,
+    status: 'verified',
+    window: {
+      durationMs: 11950,
+      endedAt: '2026-07-15T10:00:12.000Z',
+      phase: 'activeLoop',
+      startedAt: '2026-07-15T10:00:00.050Z',
+    },
+  };
+}
 
 function buildNativePerformanceEvidence({
   p95FrameMs,
@@ -24,6 +112,7 @@ function buildNativePerformanceEvidence({
   p95FrameMs: number;
   runId: string;
 }): Record<string, unknown> {
+  const capturePath = 'raw/providers/native-provider/active-window-capture.json';
   return {
     schemaVersion: '1.1.0',
     providerId: 'native-provider',
@@ -121,12 +210,18 @@ function buildNativePerformanceEvidence({
           appId: 'dev.agent-scenario-loop.example',
           bindingStatus: 'observed',
           deviceId: 'emulator-5554',
-          evidencePath: 'raw/providers/native-provider/target.json',
+          evidencePath: 'raw/providers/native-provider/target-binding.json',
           platform: 'android',
           source: 'provider-session-status',
         },
       ],
     },
+    attachments: [
+      {
+        kind: 'native-trace',
+        path: capturePath,
+      },
+    ],
     traces: [
       {
         durationMs: 12000,
@@ -250,23 +345,211 @@ async function writeRun({
     'utf8',
   );
   if (nativePerformanceP95Ms !== undefined) {
-    await fsp.mkdir(path.join(runDir, 'raw', 'providers', 'native-provider'), { recursive: true });
+    const providerDir = path.join(runDir, 'raw', 'providers', 'native-provider');
+    const providerCommandDir = path.join(runDir, 'raw', 'provider-commands');
+    const capturePath = 'raw/providers/native-provider/active-window-capture.json';
+    const targetBindingPath = 'raw/providers/native-provider/target-binding.json';
+    await fsp.mkdir(providerDir, { recursive: true });
+    await fsp.mkdir(providerCommandDir, { recursive: true });
     await fsp.writeFile(
-      path.join(runDir, 'raw', 'providers', 'native-provider', 'source.json'),
+      path.join(providerDir, 'active-window-capture.json'),
+      'active-window capture\n',
+      'utf8',
+    );
+    await fsp.writeFile(
+      path.join(providerDir, 'source.json'),
       '{"status":"captured"}\n',
       'utf8',
     );
     await fsp.writeFile(
-      path.join(runDir, 'raw', 'providers', 'native-provider', 'target.json'),
+      path.join(runDir, RUNNER_ACTIVE_LOOP_WINDOW_PATH),
       `${JSON.stringify({
-        appId: 'dev.agent-scenario-loop.example',
-        deviceId: 'emulator-5554',
+        durationMs: 11950,
+        endedAt: '2026-07-15T10:00:12.000Z',
+        phase: 'activeLoop',
         platform: 'android',
+        runnerId: 'android-adb-profile-runner',
+        schemaVersion: '1.0.0',
+        startedAt: '2026-07-15T10:00:00.050Z',
+      })}\n`,
+      'utf8',
+    );
+    const targetBindingRecord = buildObservedTargetBindingRecord({
+      runId,
+      targetBindingPath,
+    });
+    await fsp.writeFile(
+      path.join(providerDir, 'target-binding.json'),
+      `${JSON.stringify(targetBindingRecord)}\n`,
+      'utf8',
+    );
+    await fsp.writeFile(
+      path.join(providerCommandDir, 'native-provider-start-native-window.started.json'),
+      `${JSON.stringify({
+        args: ['start-window', '--target-binding', targetBindingPath],
+        command: 'capture-native-performance',
+        commandId: 'start-native-window',
+        phase: 'startWindow',
+        providerId: 'native-provider',
+        outputs: [],
+        startedAt: '2026-07-15T10:00:00.000Z',
+        startedRecordPath: 'raw/provider-commands/native-provider-start-native-window.started.json',
+        status: 'started',
+        stderrPath: 'raw/provider-commands/native-provider-start-native-window.stderr.txt',
+        stdoutPath: 'raw/provider-commands/native-provider-start-native-window.stdout.txt',
       })}\n`,
       'utf8',
     );
     await fsp.writeFile(
-      path.join(runDir, 'raw', 'providers', 'native-provider', 'native-performance.json'),
+      path.join(providerCommandDir, 'native-provider-start-native-window.json'),
+      `${JSON.stringify({
+        args: ['start-window', '--target-binding', targetBindingPath],
+        command: 'capture-native-performance',
+        commandId: 'start-native-window',
+        endedAt: '2026-07-15T10:00:00.050Z',
+        exitCode: 0,
+        outputs: [],
+        phase: 'startWindow',
+        providerId: 'native-provider',
+        startedAt: '2026-07-15T10:00:00.000Z',
+        startedRecordPath: 'raw/provider-commands/native-provider-start-native-window.started.json',
+        status: 'completed',
+        stderrPath: 'raw/provider-commands/native-provider-start-native-window.stderr.txt',
+        stderrSha256: sha256Text('start-native-window stderr\n'),
+        stdoutPath: 'raw/provider-commands/native-provider-start-native-window.stdout.txt',
+        stdoutSha256: sha256Text('start-native-window stdout\n'),
+      })}\n`,
+      'utf8',
+    );
+    await fsp.writeFile(
+      path.join(providerCommandDir, 'native-provider-start-native-window.stdout.txt'),
+      'start-native-window stdout\n',
+      'utf8',
+    );
+    await fsp.writeFile(
+      path.join(providerCommandDir, 'native-provider-start-native-window.stderr.txt'),
+      'start-native-window stderr\n',
+      'utf8',
+    );
+    await fsp.writeFile(
+      path.join(providerCommandDir, 'native-provider-stop-native-window.started.json'),
+      `${JSON.stringify({
+        args: ['stop-window', '--target-binding', targetBindingPath],
+        command: 'capture-native-performance',
+        commandId: 'stop-native-window',
+        outputs: [
+          {
+            channel: 'provider',
+            kind: 'logs',
+            path: '{providerDir}/active-window-capture.json',
+            required: false,
+            runRelativePath: capturePath,
+          },
+        ],
+        phase: 'stopWindow',
+        providerId: 'native-provider',
+        startedAt: '2026-07-15T10:00:12.000Z',
+        startedRecordPath: 'raw/provider-commands/native-provider-stop-native-window.started.json',
+        status: 'started',
+        stderrPath: 'raw/provider-commands/native-provider-stop-native-window.stderr.txt',
+        stdoutPath: 'raw/provider-commands/native-provider-stop-native-window.stdout.txt',
+      })}\n`,
+      'utf8',
+    );
+    await fsp.writeFile(
+      path.join(providerCommandDir, 'native-provider-stop-native-window.json'),
+      `${JSON.stringify({
+        args: ['stop-window', '--target-binding', targetBindingPath],
+        command: 'capture-native-performance',
+        commandId: 'stop-native-window',
+        endedAt: '2026-07-15T10:00:12.050Z',
+        exitCode: 0,
+        outputs: [
+          {
+            channel: 'provider',
+            kind: 'logs',
+            path: '{providerDir}/active-window-capture.json',
+            required: false,
+            runRelativePath: capturePath,
+            sha256: sha256Text('active-window capture\n'),
+            stale: false,
+            status: 'captured',
+          },
+        ],
+        phase: 'stopWindow',
+        providerId: 'native-provider',
+        startedAt: '2026-07-15T10:00:12.000Z',
+        startedRecordPath: 'raw/provider-commands/native-provider-stop-native-window.started.json',
+        status: 'completed',
+        stderrPath: 'raw/provider-commands/native-provider-stop-native-window.stderr.txt',
+        stderrSha256: sha256Text('stop-native-window stderr\n'),
+        stdoutPath: 'raw/provider-commands/native-provider-stop-native-window.stdout.txt',
+        stdoutSha256: sha256Text('stop-native-window stdout\n'),
+      })}\n`,
+      'utf8',
+    );
+    await fsp.writeFile(
+      path.join(providerCommandDir, 'native-provider-stop-native-window.stdout.txt'),
+      'stop-native-window stdout\n',
+      'utf8',
+    );
+    await fsp.writeFile(
+      path.join(providerCommandDir, 'native-provider-stop-native-window.stderr.txt'),
+      'stop-native-window stderr\n',
+      'utf8',
+    );
+    await fsp.writeFile(
+      path.join(providerCommandDir, 'native-provider-capture-native-performance.started.json'),
+      `${JSON.stringify({
+        args: ['normalize', '--target-binding', targetBindingPath],
+        command: 'capture-native-performance',
+        commandId: 'capture-native-performance',
+        outputs: [],
+        phase: 'afterCapture',
+        providerId: 'native-provider',
+        startedAt: '2026-07-15T10:00:12.100Z',
+        startedRecordPath: 'raw/provider-commands/native-provider-capture-native-performance.started.json',
+        status: 'started',
+        stderrPath: 'raw/provider-commands/native-provider-capture-native-performance.stderr.txt',
+        stdoutPath: 'raw/provider-commands/native-provider-capture-native-performance.stdout.txt',
+      })}\n`,
+      'utf8',
+    );
+    await fsp.writeFile(
+      path.join(providerCommandDir, 'native-provider-capture-native-performance.json'),
+      `${JSON.stringify({
+        args: ['normalize', '--target-binding', targetBindingPath],
+        command: 'capture-native-performance',
+        commandId: 'capture-native-performance',
+        endedAt: '2026-07-15T10:00:12.200Z',
+        exitCode: 0,
+        outputPath: targetBindingPath,
+        outputSha256: sha256Text(`${JSON.stringify(targetBindingRecord)}\n`),
+        outputs: [],
+        phase: 'afterCapture',
+        providerId: 'native-provider',
+        startedAt: '2026-07-15T10:00:12.100Z',
+        startedRecordPath: 'raw/provider-commands/native-provider-capture-native-performance.started.json',
+        status: 'completed',
+        stderrPath: 'raw/provider-commands/native-provider-capture-native-performance.stderr.txt',
+        stderrSha256: sha256Text('capture-native-performance stderr\n'),
+        stdoutPath: 'raw/provider-commands/native-provider-capture-native-performance.stdout.txt',
+        stdoutSha256: sha256Text('capture-native-performance stdout\n'),
+      })}\n`,
+      'utf8',
+    );
+    await fsp.writeFile(
+      path.join(providerCommandDir, 'native-provider-capture-native-performance.stdout.txt'),
+      'capture-native-performance stdout\n',
+      'utf8',
+    );
+    await fsp.writeFile(
+      path.join(providerCommandDir, 'native-provider-capture-native-performance.stderr.txt'),
+      'capture-native-performance stderr\n',
+      'utf8',
+    );
+    await fsp.writeFile(
+      path.join(providerDir, 'native-performance.json'),
       `${JSON.stringify(buildNativePerformanceEvidence({
         p95FrameMs: nativePerformanceP95Ms,
         runId,
@@ -525,19 +808,18 @@ test('rejects native-performance evidence whose supporting paths resolve through
   const externalEvidenceDir = path.join(outputDir, 'external-native-supporting-paths');
   await fsp.mkdir(externalEvidenceDir, { recursive: true });
   const externalSourcePath = path.join(externalEvidenceDir, 'source.json');
-  const externalTargetPath = path.join(externalEvidenceDir, 'target.json');
+  const externalTargetPath = path.join(externalEvidenceDir, 'target-binding.json');
   await fsp.writeFile(externalSourcePath, '{"status":"captured"}\n', 'utf8');
   await fsp.writeFile(
     externalTargetPath,
-    `${JSON.stringify({
-      appId: 'dev.agent-scenario-loop.example',
-      deviceId: 'emulator-5554',
-      platform: 'android',
-    })}\n`,
+    `${JSON.stringify(buildObservedTargetBindingRecord({
+      runId: 'current-run',
+      targetBindingPath: 'raw/providers/native-provider/target-binding.json',
+    }))}\n`,
     'utf8',
   );
   const runSourcePath = path.join(currentDir, 'raw', 'providers', 'native-provider', 'source.json');
-  const runTargetPath = path.join(currentDir, 'raw', 'providers', 'native-provider', 'target.json');
+  const runTargetPath = path.join(currentDir, 'raw', 'providers', 'native-provider', 'target-binding.json');
   await fsp.rm(runSourcePath, { force: true });
   await fsp.rm(runTargetPath, { force: true });
   await fsp.symlink(externalSourcePath, runSourcePath);

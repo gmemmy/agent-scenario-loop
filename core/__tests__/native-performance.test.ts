@@ -12,24 +12,74 @@ const {
   parseIosXctraceSummaryText,
 } = require('../native-performance');
 
+const EMPTY_STDOUT_SHA256 = 'a'.repeat(64);
+const EMPTY_STDERR_SHA256 = 'b'.repeat(64);
+const CAPTURE_OUTPUT_SHA256 = 'd'.repeat(64);
+const TARGET_OUTPUT_SHA256 = 'c'.repeat(64);
+const RUNNER_ACTIVE_LOOP_WINDOW_PATH = 'raw/runner-active-loop-window.json';
+
 function comparisonContext({
+  appId,
   artifactPath,
+  evidenceHashes = {},
+  evidenceRecords = {},
   platform,
   providerId,
   runId,
   scenarioId,
   sourcePaths = [],
+  targetId,
+  targetBindingRecord,
   targetPath,
 }: {
+  appId?: string;
   artifactPath: string;
+  evidenceHashes?: Record<string, string>;
+  evidenceRecords?: Record<string, unknown>;
   platform: 'android' | 'ios';
   providerId: string;
   runId: string;
   scenarioId: string;
   sourcePaths?: string[];
+  targetId?: string;
+  targetBindingRecord?: Record<string, unknown>;
   targetPath: string;
 }) {
-  const durablePaths = new Set([artifactPath, targetPath, ...sourcePaths]);
+  const requestedAppId = appId ?? 'com.example.app';
+  const requestedTargetId = targetId ?? (platform === 'android' ? 'emulator-5554' : 'SIM-123');
+  const targetBindingFixture = targetBindingRecord === undefined
+    ? buildObservedTargetBindingFixture({
+        platform,
+        providerId,
+        requestedAppId,
+        requestedTargetId,
+        runId,
+        scenarioId,
+        targetPath,
+      })
+    : null;
+  const durablePaths = new Set([
+    artifactPath,
+    targetPath,
+    ...sourcePaths,
+    ...(targetBindingFixture?.durablePaths ?? []),
+  ]);
+  const records = new Map<string, unknown>(Object.entries(evidenceRecords));
+  const hashes = new Map<string, string>(Object.entries(evidenceHashes));
+  records.set(
+    targetPath,
+    targetBindingRecord ?? targetBindingFixture?.record,
+  );
+  for (const [runRelativePath, record] of Object.entries(targetBindingFixture?.records ?? {})) {
+    if (!records.has(runRelativePath)) {
+      records.set(runRelativePath, record);
+    }
+  }
+  for (const [runRelativePath, sha256] of Object.entries(targetBindingFixture?.hashes ?? {})) {
+    if (!hashes.has(runRelativePath) && typeof sha256 === 'string') {
+      hashes.set(runRelativePath, sha256);
+    }
+  }
   return {
     artifactPath,
     evidencePathExists: (runRelativePath: string) => durablePaths.has(runRelativePath),
@@ -37,7 +87,229 @@ function comparisonContext({
     expectedProviderId: providerId,
     expectedRunId: runId,
     expectedScenarioId: scenarioId,
+    readEvidenceJson: (runRelativePath: string) => {
+      if (!records.has(runRelativePath)) {
+        throw new Error(`Missing test evidence JSON for ${runRelativePath}`);
+      }
+
+      return JSON.parse(JSON.stringify(records.get(runRelativePath)));
+    },
+    readEvidenceSha256: (runRelativePath: string) => hashes.get(runRelativePath) ?? null,
   };
+}
+
+function buildObservedTargetBindingFixture({
+  captureArtifactPath,
+  platform,
+  providerId,
+  requestedAppId,
+  requestedTargetId,
+  runId,
+  scenarioId,
+  targetPath,
+}: {
+  captureArtifactPath?: string;
+  platform: 'android' | 'ios';
+  providerId: string;
+  requestedAppId: string;
+  requestedTargetId: string;
+  runId: string;
+  scenarioId: string;
+  targetPath: string;
+}) {
+  const activeCapturePath = captureArtifactPath ?? `raw/providers/${providerId}/active-window-capture.json`;
+  const commandDefinitions = [
+    {
+      args: ['start-window', '--target-binding', targetPath],
+      commandId: 'start-native-window',
+      endedAt: '2026-07-13T12:00:00.050Z',
+      outputs: [],
+      phase: 'startWindow',
+      sourceId: 'start-window',
+      startedAt: '2026-07-13T12:00:00.000Z',
+    },
+    {
+      args: ['stop-window', '--target-binding', targetPath],
+      commandId: 'stop-native-window',
+      endedAt: '2026-07-13T12:00:12.050Z',
+      outputs: [
+        {
+          channel: 'logs',
+          kind: 'logs',
+          path: '{providerDir}/active-window-capture.json',
+          required: false,
+          runRelativePath: activeCapturePath,
+          sha256: CAPTURE_OUTPUT_SHA256,
+          stale: false,
+          status: 'captured',
+        },
+      ],
+      phase: 'stopWindow',
+      sourceId: 'stop-window',
+      startedAt: '2026-07-13T12:00:12.000Z',
+    },
+    {
+      args: ['normalize', '--target-binding', targetPath],
+      commandId: 'capture-native-performance',
+      endedAt: '2026-07-13T12:00:12.200Z',
+      outputs: [],
+      outputPath: targetPath,
+      outputSha256: TARGET_OUTPUT_SHA256,
+      phase: 'afterCapture',
+      sourceId: 'capture-native-performance',
+      startedAt: '2026-07-13T12:00:12.100Z',
+    },
+  ];
+  const sourceCommands = commandDefinitions.map((definition) => {
+    const commandRecordId = `${providerId}-${definition.commandId}`;
+    return {
+      args: definition.args,
+      command: 'capture-native-performance',
+      commandId: definition.commandId,
+      ...(definition.outputPath ? { outputPath: definition.outputPath } : {}),
+      phase: definition.phase,
+      recordPath: `raw/provider-commands/${commandRecordId}.json`,
+      startedRecordPath: `raw/provider-commands/${commandRecordId}.started.json`,
+      sourceId: definition.sourceId,
+      status: 'completed',
+      stderrPath: `raw/provider-commands/${commandRecordId}.stderr.txt`,
+      stderrSha256: EMPTY_STDERR_SHA256,
+      stdoutPath: `raw/provider-commands/${commandRecordId}.stdout.txt`,
+      stdoutSha256: EMPTY_STDOUT_SHA256,
+    };
+  });
+  const record = {
+    observedProcessName: platform === 'android' ? requestedAppId : 'ExampleApp',
+    observedProcessPid: 4242,
+    observedTargetId: requestedTargetId,
+    platform,
+    providerId,
+    requestedAppId,
+    requestedTargetId,
+    runId,
+    scenarioId,
+    schemaVersion: '1.0.0',
+    captureArtifacts: [
+      {
+        commandId: 'stop-native-window',
+        path: activeCapturePath,
+      },
+    ],
+    sourceCommands,
+    status: 'verified',
+    window: {
+      durationMs: 11950,
+      endedAt: '2026-07-13T12:00:12.000Z',
+      phase: 'activeLoop',
+      startedAt: '2026-07-13T12:00:00.050Z',
+    },
+  } as Record<string, unknown>;
+  const runnerWindowRecord = {
+    durationMs: 11950,
+    endedAt: '2026-07-13T12:00:12.000Z',
+    phase: 'activeLoop',
+    platform,
+    runnerId: platform === 'android' ? 'android-adb-profile-runner' : 'ios-simctl-profile-runner',
+    schemaVersion: '1.0.0',
+    startedAt: '2026-07-13T12:00:00.050Z',
+  };
+
+  if (platform === 'android') {
+    record.observedAppId = requestedAppId;
+  } else {
+    record.observedTargetPlatform = 'iOS Simulator';
+    record.observedTemplate = 'Animation Hitches';
+  }
+
+  const recordEntries: Array<[string, unknown]> = sourceCommands.flatMap((sourceCommand, index) => {
+    const definition = commandDefinitions[index];
+    if (!definition) {
+      return [];
+    }
+    return [
+      [sourceCommand.recordPath, {
+        args: definition.args,
+        command: 'capture-native-performance',
+        endedAt: definition.endedAt,
+        ...(definition.outputPath ? { outputPath: definition.outputPath } : {}),
+        ...(definition.outputSha256 ? { outputSha256: definition.outputSha256 } : {}),
+        outputs: definition.outputs.map((output) => ({
+          channel: output.channel,
+          kind: output.kind,
+          path: output.path,
+          required: output.required,
+          runRelativePath: output.runRelativePath,
+          sha256: output.sha256,
+          stale: output.stale,
+          status: output.status,
+        })),
+        phase: definition.phase,
+        providerId,
+        startedAt: definition.startedAt,
+        startedRecordPath: sourceCommand.startedRecordPath,
+        status: 'completed',
+        stderrPath: sourceCommand.stderrPath,
+        stderrSha256: EMPTY_STDERR_SHA256,
+        stdoutPath: sourceCommand.stdoutPath,
+        stdoutSha256: EMPTY_STDOUT_SHA256,
+      }],
+      [sourceCommand.startedRecordPath, {
+        args: definition.args,
+        command: 'capture-native-performance',
+        outputs: definition.outputs.map((output) => ({
+          channel: output.channel,
+          kind: output.kind,
+          path: output.path,
+          required: output.required,
+          runRelativePath: output.runRelativePath,
+        })),
+        phase: definition.phase,
+        providerId,
+        startedAt: definition.startedAt,
+        startedRecordPath: sourceCommand.startedRecordPath,
+        status: 'started',
+        stderrPath: sourceCommand.stderrPath,
+        stdoutPath: sourceCommand.stdoutPath,
+      }],
+    ];
+  });
+  recordEntries.push([RUNNER_ACTIVE_LOOP_WINDOW_PATH, runnerWindowRecord]);
+
+  return {
+    durablePaths: [
+      activeCapturePath,
+      targetPath,
+      RUNNER_ACTIVE_LOOP_WINDOW_PATH,
+      ...sourceCommands.flatMap((sourceCommand) => [
+        sourceCommand.recordPath,
+        sourceCommand.startedRecordPath,
+        sourceCommand.stdoutPath,
+        sourceCommand.stderrPath,
+      ]),
+    ],
+    hashes: Object.fromEntries([
+      [targetPath, TARGET_OUTPUT_SHA256],
+      [activeCapturePath, CAPTURE_OUTPUT_SHA256],
+      ...sourceCommands.flatMap((sourceCommand) => [
+        [sourceCommand.stdoutPath, sourceCommand.stdoutSha256],
+        [sourceCommand.stderrPath, sourceCommand.stderrSha256],
+      ]),
+    ]),
+    record,
+    records: Object.fromEntries(recordEntries),
+  };
+}
+
+function buildObservedTargetBindingRecord(options: {
+  platform: 'android' | 'ios';
+  providerId: string;
+  requestedAppId: string;
+  requestedTargetId: string;
+  runId: string;
+  scenarioId: string;
+  targetPath: string;
+}) {
+  return buildObservedTargetBindingFixture(options).record;
 }
 
 function buildComparisonContract({
@@ -760,10 +1032,17 @@ test('rejects Android comparison sufficiency without comparable complete verifie
 
 test('classifies Android evidence as comparison-ready only with captured source, bounded window, and observed target proof', () => {
   const artifactPath = 'raw/providers/native-provider/native-performance.json';
+  const capturePath = 'raw/providers/native-provider/active-window-capture.json';
   const sourcePath = 'raw/providers/native-provider/trace-processor-summary.json';
   const targetPath = 'raw/providers/native-provider/android-target.json';
   const evidence = buildAndroidNativePerformanceEvidence({
     appId: 'com.example.app',
+    attachments: [
+      {
+        kind: 'native-trace',
+        path: capturePath,
+      },
+    ],
     capturedAt: '2026-07-13T12:00:12.000Z',
     claimSufficiency: {
       status: 'sufficient-for-comparison',
@@ -834,6 +1113,14 @@ test('classifies Android evidence as comparison-ready only with captured source,
     missingEvidence: [],
     status: 'comparison-ready',
   });
+  assert.deepEqual(classifyNativePerformanceComparisonReadiness(evidence, {
+    ...context,
+    readEvidenceJson: undefined,
+    readEvidenceSha256: undefined,
+  }), {
+    missingEvidence: ['observed-target-binding'],
+    status: 'diagnostic-only',
+  });
 
   const mismatchedPlatformEvidence = {
     ...evidence,
@@ -888,6 +1175,15 @@ test('classifies Android evidence as comparison-ready only with captured source,
   });
 
   const durableSourcePath = 'raw/providers/native-provider/gfxinfo-summary.json';
+  const durableTargetBindingFixture = buildObservedTargetBindingFixture({
+    platform: 'android',
+    providerId: 'native-provider',
+    requestedAppId: 'com.example.app',
+    requestedTargetId: 'emulator-5554',
+    runId: 'run-android-comparable',
+    scenarioId: 'feed-scroll',
+    targetPath,
+  });
   const durableSourceEvidence = {
     ...evidence,
     diagnosticSources: evidence.diagnosticSources.map((source: Record<string, unknown>) => ({
@@ -898,7 +1194,7 @@ test('classifies Android evidence as comparison-ready only with captured source,
   assert.deepEqual(classifyNativePerformanceComparisonReadiness(durableSourceEvidence, {
     ...context,
     evidencePathExists: (runRelativePath: string) => (
-      runRelativePath === durableSourcePath || runRelativePath === targetPath
+      runRelativePath === durableSourcePath || durableTargetBindingFixture.durablePaths.includes(runRelativePath)
     ),
   }), {
     missingEvidence: ['captured-source'],
@@ -914,6 +1210,217 @@ test('classifies Android evidence as comparison-ready only with captured source,
   };
   assert.deepEqual(classifyNativePerformanceComparisonReadiness(pathlessCapturedSourceEvidence, context), {
     missingEvidence: ['captured-source'],
+    status: 'diagnostic-only',
+  });
+
+  const afterCaptureOnlyTargetBindingFixture = buildObservedTargetBindingFixture({
+    platform: 'android',
+    providerId: 'native-provider',
+    requestedAppId: 'com.example.app',
+    requestedTargetId: 'emulator-5554',
+    runId: 'run-android-comparable',
+    scenarioId: 'feed-scroll',
+    targetPath,
+  });
+  const afterCaptureOnlyContext = comparisonContext({
+    artifactPath,
+    evidenceHashes: afterCaptureOnlyTargetBindingFixture.hashes,
+    evidenceRecords: Object.fromEntries(Object.entries(afterCaptureOnlyTargetBindingFixture.records).filter(([runRelativePath]) => (
+      runRelativePath.includes('capture-native-performance')
+    ))),
+    platform: 'android',
+    providerId: 'native-provider',
+    runId: 'run-android-comparable',
+    scenarioId: 'feed-scroll',
+    sourcePaths: [
+      sourcePath,
+      ...afterCaptureOnlyTargetBindingFixture.durablePaths.filter((runRelativePath) => (
+        runRelativePath === targetPath || runRelativePath.includes('capture-native-performance')
+      )),
+    ],
+    targetBindingRecord: {
+      ...afterCaptureOnlyTargetBindingFixture.record,
+      sourceCommands: (afterCaptureOnlyTargetBindingFixture.record.sourceCommands as Record<string, unknown>[]).filter((sourceCommand) => (
+        sourceCommand.phase === 'afterCapture'
+      )),
+    },
+    targetPath,
+  });
+  assert.deepEqual(classifyNativePerformanceComparisonReadiness(evidence, afterCaptureOnlyContext), {
+    missingEvidence: ['observed-target-binding'],
+    status: 'diagnostic-only',
+  });
+
+  const incompleteTargetBindingContext = comparisonContext({
+    artifactPath,
+    platform: 'android',
+    providerId: 'native-provider',
+    runId: 'run-android-comparable',
+    scenarioId: 'feed-scroll',
+    sourcePaths: [sourcePath],
+    targetBindingRecord: {
+      ...buildObservedTargetBindingRecord({
+        platform: 'android',
+        providerId: 'native-provider',
+        requestedAppId: 'com.example.app',
+        requestedTargetId: 'emulator-5554',
+        runId: 'run-android-comparable',
+        scenarioId: 'feed-scroll',
+        targetPath,
+      }),
+      sourceCommands: [],
+    },
+    targetPath,
+  });
+  assert.deepEqual(classifyNativePerformanceComparisonReadiness(evidence, incompleteTargetBindingContext), {
+    missingEvidence: ['observed-target-binding'],
+    status: 'diagnostic-only',
+  });
+
+  const inconsistentWindowTargetBindingFixture = buildObservedTargetBindingFixture({
+    platform: 'android',
+    providerId: 'native-provider',
+    requestedAppId: 'com.example.app',
+    requestedTargetId: 'emulator-5554',
+    runId: 'run-android-comparable',
+    scenarioId: 'feed-scroll',
+    targetPath,
+  });
+  const inconsistentWindowContext = comparisonContext({
+    artifactPath,
+    evidenceHashes: inconsistentWindowTargetBindingFixture.hashes,
+    evidenceRecords: inconsistentWindowTargetBindingFixture.records,
+    platform: 'android',
+    providerId: 'native-provider',
+    runId: 'run-android-comparable',
+    scenarioId: 'feed-scroll',
+    sourcePaths: [sourcePath, ...inconsistentWindowTargetBindingFixture.durablePaths],
+    targetBindingRecord: {
+      ...inconsistentWindowTargetBindingFixture.record,
+      window: {
+        durationMs: 12000,
+        endedAt: '2026-07-13T12:00:12.000Z',
+        phase: 'activeLoop',
+        startedAt: '2026-07-13T11:59:59.000Z',
+      },
+    },
+    targetPath,
+  });
+  assert.deepEqual(classifyNativePerformanceComparisonReadiness(evidence, inconsistentWindowContext), {
+    missingEvidence: ['observed-target-binding'],
+    status: 'diagnostic-only',
+  });
+
+  const providerOnlyWindowContext = comparisonContext({
+    artifactPath,
+    evidenceHashes: inconsistentWindowTargetBindingFixture.hashes,
+    evidenceRecords: inconsistentWindowTargetBindingFixture.records,
+    platform: 'android',
+    providerId: 'native-provider',
+    runId: 'run-android-comparable',
+    scenarioId: 'feed-scroll',
+    sourcePaths: [sourcePath, ...inconsistentWindowTargetBindingFixture.durablePaths],
+    targetBindingRecord: {
+      ...inconsistentWindowTargetBindingFixture.record,
+      window: {
+        durationMs: 10000,
+        endedAt: '2026-07-13T12:00:11.000Z',
+        phase: 'activeLoop',
+        startedAt: '2026-07-13T12:00:01.000Z',
+      },
+    },
+    targetPath,
+  });
+  assert.deepEqual(classifyNativePerformanceComparisonReadiness(evidence, providerOnlyWindowContext), {
+    missingEvidence: ['observed-target-binding'],
+    status: 'diagnostic-only',
+  });
+
+  const missingCommandRecordContext = comparisonContext({
+    artifactPath,
+    evidenceRecords: {},
+    platform: 'android',
+    providerId: 'native-provider',
+    runId: 'run-android-comparable',
+    scenarioId: 'feed-scroll',
+    sourcePaths: [sourcePath],
+    targetBindingRecord: buildObservedTargetBindingRecord({
+      platform: 'android',
+      providerId: 'native-provider',
+      requestedAppId: 'com.example.app',
+      requestedTargetId: 'emulator-5554',
+      runId: 'run-android-comparable',
+      scenarioId: 'feed-scroll',
+      targetPath,
+    }),
+    targetPath,
+  });
+  assert.deepEqual(classifyNativePerformanceComparisonReadiness(evidence, missingCommandRecordContext), {
+    missingEvidence: ['observed-target-binding'],
+    status: 'diagnostic-only',
+  });
+
+  const mismatchedTargetBindingFixture = buildObservedTargetBindingFixture({
+    platform: 'android',
+    providerId: 'native-provider',
+    requestedAppId: 'com.example.app',
+    requestedTargetId: 'emulator-5554',
+    runId: 'run-android-comparable',
+    scenarioId: 'feed-scroll',
+    targetPath,
+  });
+  const mismatchedCommandRecordContext = comparisonContext({
+    artifactPath,
+    evidenceHashes: mismatchedTargetBindingFixture.hashes,
+    evidenceRecords: {
+      'raw/provider-commands/native-provider-capture-native-performance.json': {
+        args: ['normalize', '--target-binding', 'raw/providers/native-provider/wrong-target-binding.json'],
+        command: 'capture-native-performance',
+        endedAt: '2026-07-13T12:00:12.200Z',
+        phase: 'afterCapture',
+        providerId: 'native-provider',
+        startedAt: '2026-07-13T12:00:12.100Z',
+        startedRecordPath: 'raw/provider-commands/native-provider-capture-native-performance.started.json',
+        status: 'completed',
+        stderrPath: 'raw/provider-commands/native-provider-capture-native-performance.stderr.txt',
+        stderrSha256: EMPTY_STDERR_SHA256,
+        stdoutPath: 'raw/provider-commands/native-provider-capture-native-performance.stdout.txt',
+        stdoutSha256: EMPTY_STDOUT_SHA256,
+      },
+      'raw/provider-commands/native-provider-capture-native-performance.started.json': {
+        args: ['normalize', '--target-binding', targetPath],
+        command: 'capture-native-performance',
+        phase: 'afterCapture',
+        providerId: 'native-provider',
+        startedAt: '2026-07-13T12:00:12.100Z',
+        startedRecordPath: 'raw/provider-commands/native-provider-capture-native-performance.started.json',
+        status: 'started',
+        stderrPath: 'raw/provider-commands/native-provider-capture-native-performance.stderr.txt',
+        stdoutPath: 'raw/provider-commands/native-provider-capture-native-performance.stdout.txt',
+      },
+      ...Object.fromEntries(Object.entries(mismatchedTargetBindingFixture.records).filter(([runRelativePath]) => (
+        !runRelativePath.includes('capture-native-performance')
+      ))),
+    },
+    platform: 'android',
+    providerId: 'native-provider',
+    runId: 'run-android-comparable',
+    scenarioId: 'feed-scroll',
+    sourcePaths: [
+      sourcePath,
+      'raw/provider-commands/native-provider-capture-native-performance.json',
+      'raw/provider-commands/native-provider-capture-native-performance.started.json',
+      'raw/provider-commands/native-provider-capture-native-performance.stdout.txt',
+      'raw/provider-commands/native-provider-capture-native-performance.stderr.txt',
+      ...mismatchedTargetBindingFixture.durablePaths.filter((runRelativePath) => (
+        !runRelativePath.includes('capture-native-performance')
+      )),
+    ],
+    targetBindingRecord: mismatchedTargetBindingFixture.record,
+    targetPath,
+  });
+  assert.deepEqual(classifyNativePerformanceComparisonReadiness(evidence, mismatchedCommandRecordContext), {
+    missingEvidence: ['observed-target-binding'],
     status: 'diagnostic-only',
   });
 
@@ -1025,7 +1532,7 @@ test('classifies Android evidence as comparison-ready only with captured source,
     expectedRunId: 'another-run',
   });
   assert.deepEqual(wrongRunReadiness, {
-    missingEvidence: ['artifact-identity'],
+    missingEvidence: ['artifact-identity', 'observed-target-binding'],
     status: 'diagnostic-only',
   });
 
@@ -1106,6 +1613,12 @@ test('requires every caller-owned native-performance identity expectation', () =
       targetFamily: 'android-mobile-app',
     }),
     schemaVersion: '1.1.0',
+    attachments: [
+      {
+        kind: 'native-trace',
+        path: 'raw/providers/native-provider/active-window-capture.json',
+      },
+    ],
     capturedAt: '2026-07-13T12:00:12.000Z',
     clockDomain: 'host',
     claimSufficiency: {
@@ -1286,10 +1799,17 @@ test('builds diagnostic-only iOS native-performance evidence from provider summa
 
 test('classifies iOS evidence as comparison-ready under the shared native-performance trust gate', () => {
   const artifactPath = 'raw/providers/native-provider/native-performance.json';
+  const capturePath = 'raw/providers/native-provider/active-window-capture.json';
   const sourcePath = 'raw/providers/native-provider/xctrace-summary.json';
   const targetPath = 'raw/providers/native-provider/ios-target.json';
   const evidence = buildIosNativePerformanceEvidence({
     bundleId: 'com.example.app',
+    attachments: [
+      {
+        kind: 'native-trace',
+        path: capturePath,
+      },
+    ],
     capturedAt: '2026-07-13T12:00:12.000Z',
     claimSufficiency: {
       status: 'sufficient-for-comparison',

@@ -8,7 +8,9 @@ type JsonSchema = Record<string, unknown> & {
   const?: unknown;
   description?: string;
   else?: JsonSchema;
+  exclusiveMinimum?: number;
   if?: JsonSchema;
+  maxItems?: number;
   not?: JsonSchema;
   then?: JsonSchema;
   type?: string | string[];
@@ -90,6 +92,7 @@ const SCHEMAS = {
   manifest: loadSchema('manifest.schema.json'),
   metrics: loadSchema('metrics.schema.json'),
   nativePerformance: loadSchema('native-performance.schema.json'),
+  nativeTargetBinding: loadSchema('native-target-binding.schema.json'),
   profiler: loadSchema('profiler.schema.json'),
   projectValidation: loadSchema('project-validation.schema.json'),
   scenario: loadSchema('scenario.schema.json'),
@@ -350,6 +353,14 @@ function validateSchema(
     });
   }
 
+  if (typeof schema.exclusiveMinimum === 'number' && typeof value === 'number' && value <= schema.exclusiveMinimum) {
+    errors.push({
+      code: 'below_exclusive_minimum',
+      path: formatPath(pathSegments),
+      message: `Expected value to be > ${schema.exclusiveMinimum}.`,
+    });
+  }
+
   if (Array.isArray(value)) {
     validateArray(value, schema, rootSchema, pathSegments, errors);
   }
@@ -383,6 +394,14 @@ function validateArray(
       code: 'too_few_items',
       path: formatPath(pathSegments),
       message: `Expected at least ${schema.minItems} item(s).`,
+    });
+  }
+
+  if (typeof schema.maxItems === 'number' && value.length > schema.maxItems) {
+    errors.push({
+      code: 'too_many_items',
+      path: formatPath(pathSegments),
+      message: `Expected at most ${schema.maxItems} item(s).`,
     });
   }
 

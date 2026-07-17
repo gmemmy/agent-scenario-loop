@@ -59,6 +59,24 @@ type CompatibilityPreflightOptions = {
   scenarioName: string;
 };
 type ProfilePlatform = 'android' | 'ios';
+type ProviderCommandSupportMode = 'live-window' | 'post-capture-only';
+type ProviderCommandIdentity = {
+  appId?: string;
+  bundleId?: string;
+  packageName?: string;
+  serial?: string;
+  targetId?: string;
+  udid?: string;
+};
+type RunnerActiveLoopWindowRecord = {
+  durationMs: number;
+  endedAt: string;
+  phase: 'activeLoop';
+  platform: ProfilePlatform;
+  runnerId: string;
+  schemaVersion: '1.0.0';
+  startedAt: string;
+};
 type ProfileMobileOptions = {
   additionalRunnerChecks?: Record<string, unknown>[];
   commandTransport?: string;
@@ -68,6 +86,9 @@ type ProfileMobileOptions = {
   environmentPreconditions?: Record<string, unknown>;
   interactionDriver?: string;
   platform: ProfilePlatform;
+  providerCommandExecution?: ProviderCommandExecution;
+  providerCommandIdentity?: ProviderCommandIdentity;
+  providerCommandSupportMode?: ProviderCommandSupportMode;
   provenanceCohort?: Record<string, unknown>;
 };
 type CaptureEvidenceKind = 'screenshot' | 'uiTree' | 'video';
@@ -104,6 +125,7 @@ type EvidenceRedactionStatus = 'not-redacted' | 'redacted' | 'unknown';
 type EvidenceRedactionAuthority = 'asl-default' | 'operator-declared' | 'provider-declared';
 type EvidenceSensitivity = 'declared-non-sensitive' | 'may-contain-sensitive-data' | 'unknown';
 const EVIDENCE_REDACTION_STATUSES = new Set<string>(['not-redacted', 'redacted', 'unknown']);
+const RUNNER_ACTIVE_LOOP_WINDOW_RELATIVE_PATH = 'raw/runner-active-loop-window.json';
 type EvidenceRedactionPolicy = {
   authority: EvidenceRedactionAuthority;
   reason: string;
@@ -260,12 +282,19 @@ type ProviderCommand = {
   outputs: ProviderCommandOutput[];
   phase: 'prepare' | 'startWindow' | 'capture' | 'stopWindow' | 'afterCapture' | 'postRun' | 'finalize';
 };
-const SUPPORTED_PROVIDER_COMMAND_PHASES = new Set<ProviderCommand['phase']>(['capture', 'afterCapture', 'postRun']);
-function resolveProviderCommandExecutionPhase(
-  phase: ProviderCommand['phase'],
-): 'afterCapture' | 'postRun' {
-  return phase === 'postRun' ? 'postRun' : 'afterCapture';
-}
+const POST_CAPTURE_PROVIDER_COMMAND_PHASES = [
+  'capture',
+  'afterCapture',
+  'postRun',
+] as const satisfies readonly ProviderCommand['phase'][];
+const LIVE_WINDOW_PROVIDER_COMMAND_PHASES = [
+  'startWindow',
+  'capture',
+  'afterCapture',
+  'stopWindow',
+  'postRun',
+  'finalize',
+] as const satisfies readonly ProviderCommand['phase'][];
 const PROFILE_SESSION_TERMINAL_COMMAND_STATUSES = new Set([
   'cancelled',
   'completed',
@@ -282,13 +311,21 @@ type ProviderManifest = {
   version?: string;
 };
 type ProviderCommandContext = {
+  appId?: string;
+  bundleId?: string;
   capturesDir: string;
+  nativeTargetBindingPath: string;
+  packageName?: string;
   platform: ProfilePlatform;
   providerDir: string;
+  providerId: string;
   rawDir: string;
   runDir: string;
   runId: string;
   scenarioId: string;
+  serial?: string;
+  targetId?: string;
+  udid?: string;
 };
 type ProviderCommandResult = {
   args: string[];
@@ -330,9 +367,16 @@ type ProviderCommandExecution = {
   providers: Array<{ name: string; version?: string }>;
 };
 type ProviderCommandExecutionOptions = {
+  identity?: ProviderCommandIdentity;
   includeProviders?: boolean;
   includeStaticFailures?: boolean;
   phases?: ProviderCommand['phase'][];
+  supportMode?: ProviderCommandSupportMode;
+};
+type ProviderCommandOutputSnapshot = {
+  existed: boolean;
+  mtimeMs?: number;
+  sizeBytes?: number;
 };
 type StagedArtifactCleanupEntry = {
   filePath: string;
@@ -524,6 +568,40 @@ function readJson(filePath: string): Record<string, any> {
   return JSON.parse(fs.readFileSync(filePath, 'utf8'));
 }
 
+async function writeRunnerActiveLoopWindow({
+  endedAt,
+  platform,
+  runDir,
+  runnerId,
+  startedAt,
+}: {
+  endedAt: string;
+  platform: ProfilePlatform;
+  runDir: string;
+  runnerId: string;
+  startedAt: string;
+}): Promise<string> {
+  const startedAtMs = Date.parse(startedAt);
+  const endedAtMs = Date.parse(endedAt);
+  if (!Number.isFinite(startedAtMs) || !Number.isFinite(endedAtMs) || endedAtMs <= startedAtMs) {
+    throw new Error(`Runner active-loop window must have increasing ISO timestamps: ${startedAt} -> ${endedAt}`);
+  }
+
+  const record: RunnerActiveLoopWindowRecord = {
+    durationMs: endedAtMs - startedAtMs,
+    endedAt,
+    phase: 'activeLoop',
+    platform,
+    runnerId,
+    schemaVersion: '1.0.0',
+    startedAt,
+  };
+  const filePath = path.join(runDir, RUNNER_ACTIVE_LOOP_WINDOW_RELATIVE_PATH);
+  await fsp.mkdir(path.dirname(filePath), { recursive: true });
+  await fsp.writeFile(filePath, `${JSON.stringify(record, null, 2)}\n`, 'utf8');
+  return filePath;
+}
+
 /**
  * Creates a directory and any missing parents.
  *
@@ -620,9 +698,132 @@ function parseEvidenceArg({
  * @param {string} filePath
  * @returns {Promise<string>}
  */
-async function hashFileSha256(filePath: string): Promise<string> {
+async function hashRequiredFileSha256(filePath: string): Promise<string> {
   const content = await fsp.readFile(filePath);
   return crypto.createHash('sha256').update(content).digest('hex');
+}
+
+function resolveSupportedProviderCommandPhases(
+  supportMode: ProviderCommandSupportMode = 'post-capture-only',
+): Set<ProviderCommand['phase']> {
+  return new Set(
+    supportMode === 'live-window'
+      ? LIVE_WINDOW_PROVIDER_COMMAND_PHASES
+      : POST_CAPTURE_PROVIDER_COMMAND_PHASES,
+  );
+}
+
+function formatProviderSupportedPhases(supportedPhases: ReadonlySet<ProviderCommand['phase']>): string[] {
+  return [...supportedPhases];
+}
+
+function matchesSelectedProviderPhase(
+  commandPhase: ProviderCommand['phase'],
+  selectedPhases: ReadonlySet<ProviderCommand['phase']> | null,
+): boolean {
+  if (!selectedPhases) {
+    return true;
+  }
+
+  if (commandPhase === 'capture' || commandPhase === 'afterCapture') {
+    return selectedPhases.has('capture')
+      || selectedPhases.has('afterCapture')
+      || selectedPhases.has(commandPhase);
+  }
+
+  return selectedPhases.has(commandPhase);
+}
+
+function phaseRequiresLiveWindowIdentity(phase: ProviderCommand['phase']): boolean {
+  return phase === 'startWindow' || phase === 'stopWindow' || phase === 'finalize';
+}
+
+function resolveUnsupportedProviderPhaseMessage({
+  phase,
+  providerCommandId,
+  providerId,
+  supportMode,
+  supportedPhases,
+}: {
+  phase: ProviderCommand['phase'];
+  providerCommandId: string;
+  providerId: string;
+  supportMode: ProviderCommandSupportMode;
+  supportedPhases: ReadonlySet<ProviderCommand['phase']>;
+}): string {
+  const supportedPhaseList = formatProviderSupportedPhases(supportedPhases).join('", "');
+  if (supportMode === 'live-window') {
+    return `Evidence provider command ${providerId}/${providerCommandId} declares phase "${phase}", but this live profile runner currently supports only "${supportedPhaseList}" provider phases.`;
+  }
+
+  return `Evidence provider command ${providerId}/${providerCommandId} declares phase "${phase}", but this profile execution mode currently supports only "${supportedPhaseList}" provider phases.`;
+}
+
+function resolveUnsupportedProviderPhaseNextAction({
+  phase,
+  supportMode,
+}: {
+  phase: ProviderCommand['phase'];
+  supportMode: ProviderCommandSupportMode;
+}): string {
+  if (phase === 'prepare') {
+    return 'Keep provider setup inside startWindow/afterCapture/postRun/finalize, or wait for a runner that supports provider prepare scheduling.';
+  }
+
+  if (supportMode === 'live-window') {
+    return `Use one of the supported live-run provider phases, or wait for a runner that supports ${phase} scheduling.`;
+  }
+
+  return `Use phase "afterCapture" for diagnostics collected after runner-owned capture evidence is staged into the run, "postRun" for post-profile enrichment, or run the provider under a live adb/simctl capture path that supports startWindow/stopWindow/finalize scheduling.`;
+}
+
+function resolveMissingProviderIdentityMessage({
+  phase,
+  platform,
+  providerCommandId,
+  providerId,
+}: {
+  phase: ProviderCommand['phase'];
+  platform: ProfilePlatform;
+  providerCommandId: string;
+  providerId: string;
+}): string {
+  const targetLabel = platform === 'android' ? 'device serial' : 'simulator UDID';
+  const appLabel = platform === 'android' ? 'package name' : 'bundle id';
+  return `Evidence provider command ${providerId}/${providerCommandId} requires an exact ${targetLabel} and ${appLabel} to run phase "${phase}" during the live capture window.`;
+}
+
+function resolveMissingProviderIdentityNextAction(platform: ProfilePlatform): string {
+  if (platform === 'android') {
+    return 'Pass --serial for the exact Android device and ensure the app package id is concrete before running live-window provider commands.';
+  }
+
+  return 'Pass --device with an exact iOS simulator UDID and ensure the app bundle id is concrete before running live-window provider commands.';
+}
+
+function hasRequiredLiveWindowIdentity({
+  context,
+  platform,
+}: {
+  context: ProviderCommandContext;
+  platform: ProfilePlatform;
+}): boolean {
+  if (platform === 'android') {
+    return Boolean(context.appId && context.packageName && context.serial && context.targetId);
+  }
+
+  return Boolean(context.appId && context.bundleId && context.targetId && context.udid);
+}
+
+function buildProviderTargetIdentitySnapshot(context: ProviderCommandContext): Record<string, string | null> {
+  return {
+    appId: context.appId ?? null,
+    bundleId: context.bundleId ?? null,
+    packageName: context.packageName ?? null,
+    serial: context.serial ?? null,
+    targetId: context.targetId ?? null,
+    udid: context.udid ?? null,
+  };
 }
 
 /**
@@ -759,13 +960,21 @@ function execProviderCommand({
  */
 function applyProviderPlaceholders(value: string, context: ProviderCommandContext): string {
   return value
+    .replaceAll('{appId}', context.appId ?? '')
+    .replaceAll('{bundleId}', context.bundleId ?? '')
     .replaceAll('{capturesDir}', context.capturesDir)
+    .replaceAll('{nativeTargetBindingPath}', context.nativeTargetBindingPath)
+    .replaceAll('{packageName}', context.packageName ?? '')
     .replaceAll('{platform}', context.platform)
     .replaceAll('{providerDir}', context.providerDir)
+    .replaceAll('{providerId}', context.providerId)
     .replaceAll('{rawDir}', context.rawDir)
     .replaceAll('{runDir}', context.runDir)
     .replaceAll('{runId}', context.runId)
-    .replaceAll('{scenarioId}', context.scenarioId);
+    .replaceAll('{scenarioId}', context.scenarioId)
+    .replaceAll('{serial}', context.serial ?? '')
+    .replaceAll('{targetId}', context.targetId ?? '')
+    .replaceAll('{udid}', context.udid ?? '');
 }
 
 /**
@@ -795,6 +1004,49 @@ function resolveProviderPath({
  */
 function safeProviderSegment(value: string): string {
   return value.replace(/[^a-z0-9-]+/giu, '-').replace(/^-|-$/gu, '') || 'provider';
+}
+
+async function readProviderCommandOutputSnapshot(sourcePath: string): Promise<ProviderCommandOutputSnapshot> {
+  const status = await fsp.stat(sourcePath).catch(() => null);
+  if (!status?.isFile()) {
+    return {
+      existed: false,
+    };
+  }
+
+  return {
+    existed: true,
+    mtimeMs: status.mtimeMs,
+    sizeBytes: status.size,
+  };
+}
+
+async function hashFileSha256(sourcePath: string): Promise<string | null> {
+  const status = await fsp.stat(sourcePath).catch(() => null);
+  if (!status?.isFile()) {
+    return null;
+  }
+
+  const fileBuffer = await fsp.readFile(sourcePath);
+  return crypto.createHash('sha256').update(fileBuffer).digest('hex');
+}
+
+function providerCommandOutputRefreshed({
+  after,
+  before,
+}: {
+  after: import('node:fs').Stats | null;
+  before: ProviderCommandOutputSnapshot;
+}): boolean {
+  if (!after?.isFile()) {
+    return false;
+  }
+
+  if (!before.existed) {
+    return true;
+  }
+
+  return before.mtimeMs !== after.mtimeMs || before.sizeBytes !== after.size;
 }
 
 /**
@@ -1002,19 +1254,84 @@ function assertUniqueProviderCommandIds({
   }
 }
 
+type LoadedEvidenceProviderManifest = {
+  manifest: ProviderManifest;
+  manifestPath: string;
+  providerId: string;
+};
+
+function readEvidenceProviderManifest({
+  label,
+  providerPath,
+}: {
+  label: string;
+  providerPath: string;
+}): LoadedEvidenceProviderManifest {
+  const manifestPath = path.resolve(providerPath);
+  const manifest = assertValidJson(
+    readJson(manifestPath),
+    SCHEMAS.runnerCapabilities,
+    label,
+  ) as ProviderManifest;
+  if (manifest.kind !== 'evidenceProvider') {
+    throw new Error(`Provider manifest must use kind "evidenceProvider": ${manifestPath}`);
+  }
+
+  return {
+    manifest,
+    manifestPath,
+    providerId: safeProviderSegment(String(manifest.runnerId ?? path.basename(manifestPath, '.json'))),
+  };
+}
+
+function assertUniqueEvidenceProviderIds(
+  manifests: LoadedEvidenceProviderManifest[],
+): void {
+  const seen = new Map<string, string>();
+  for (const manifest of manifests) {
+    const existingPath = seen.get(manifest.providerId);
+    if (existingPath) {
+      throw new Error(
+        `Evidence provider manifests must resolve to unique provider ids. ${existingPath} and ${manifest.manifestPath} both resolve to \`${manifest.providerId}\`.`,
+      );
+    }
+    seen.set(manifest.providerId, manifest.manifestPath);
+  }
+}
+
+function readLoadedEvidenceProviderManifests(
+  args: CliArgs,
+  labelBuilder: (index: number) => string,
+): LoadedEvidenceProviderManifest[] {
+  const manifests = readRepeatableArgValues(args, 'provider').map((providerPath, index) => (
+    readEvidenceProviderManifest({
+      label: labelBuilder(index),
+      providerPath,
+    })
+  ));
+  assertUniqueEvidenceProviderIds(manifests);
+  return manifests;
+}
+
 function resolveProviderOutputReason({
   commandFailed,
   commandId,
   exists,
   providerId,
+  stale,
 }: {
   commandFailed: boolean;
   commandId: string;
   exists: boolean;
   providerId: string;
+  stale: boolean;
 }): string | undefined {
-  if (exists) {
+  if (exists && !stale) {
     return undefined;
+  }
+
+  if (stale) {
+    return `Provider command ${providerId}/${commandId} left this declared output unchanged from before execution, so ASL rejected it as stale evidence.`;
   }
 
   if (commandFailed) {
@@ -1040,6 +1357,8 @@ async function executeProviderCommands({
   scenarioId,
   includeProviders = true,
   includeStaticFailures = true,
+  identity,
+  supportMode = 'post-capture-only',
 }: {
   args: CliArgs;
   layout: ReturnType<typeof createArtifactLayout>;
@@ -1050,35 +1369,32 @@ async function executeProviderCommands({
   scenarioId: string;
   includeProviders?: boolean;
   includeStaticFailures?: boolean;
+  identity?: ProviderCommandIdentity;
+  supportMode?: ProviderCommandSupportMode;
 }): Promise<ProviderCommandExecution> {
   const failures: ProviderCommandFailure[] = [];
   const inputs: EvidenceAttachmentInput[] = [];
   const outputStatuses: ProviderOutputStatus[] = [];
   const providers: Array<{ name: string; version?: string }> = [];
+  const supportedPhases = resolveSupportedProviderCommandPhases(supportMode);
   const selectedPhases = Array.isArray(phases) && phases.length > 0
-    ? new Set(phases.map((phase) => resolveProviderCommandExecutionPhase(phase)))
+    ? new Set(phases)
     : null;
-  const providerManifestPaths = readRepeatableArgValues(args, 'provider');
-  if (providerManifestPaths.length === 0) {
+  const loadedProviders = readLoadedEvidenceProviderManifests(
+    args,
+    () => 'Evidence provider manifest',
+  );
+  if (loadedProviders.length === 0) {
     return { failures, inputs, outputStatuses, providers };
   }
 
   const commandRecordDir = path.join(layout.raw, 'provider-commands');
   await ensureDir(commandRecordDir);
 
-  for (const providerManifestPath of providerManifestPaths) {
-    const absoluteManifestPath = path.resolve(providerManifestPath);
-    const manifestDir = path.dirname(absoluteManifestPath);
-    const provider = assertValidJson(
-      readJson(absoluteManifestPath),
-      SCHEMAS.runnerCapabilities,
-      'Evidence provider manifest',
-    ) as ProviderManifest;
-    if (provider.kind !== 'evidenceProvider') {
-      throw new Error(`Provider manifest must use kind "evidenceProvider": ${absoluteManifestPath}`);
-    }
-
-    const providerId = safeProviderSegment(String(provider.runnerId ?? path.basename(absoluteManifestPath, '.json')));
+  for (const loadedProvider of loadedProviders) {
+    const manifestDir = path.dirname(loadedProvider.manifestPath);
+    const provider = loadedProvider.manifest;
+    const providerId = loadedProvider.providerId;
     if (includeProviders) {
       providers.push({
         name: providerId,
@@ -1123,24 +1439,34 @@ async function executeProviderCommands({
     });
     const providerDir = path.join(layout.raw, 'providers', providerId);
     await ensureDir(providerDir);
-    const context = {
+    const context: ProviderCommandContext = {
       capturesDir: layout.captures,
+      nativeTargetBindingPath: path.join(providerDir, 'target-binding.json'),
       platform,
       providerDir,
+      providerId,
       rawDir: layout.raw,
       runDir,
       runId,
       scenarioId,
+      ...(identity?.appId ? { appId: identity.appId } : {}),
+      ...(identity?.bundleId ? { bundleId: identity.bundleId } : {}),
+      ...(identity?.packageName ? { packageName: identity.packageName } : {}),
+      ...(identity?.serial ? { serial: identity.serial } : {}),
+      ...(identity?.targetId ? { targetId: identity.targetId } : {}),
+      ...(identity?.udid ? { udid: identity.udid } : {}),
     };
 
     for (const providerCommand of provider.providerCommands ?? []) {
       const commandRecordFileName = `${providerId}-${providerCommand.id}.json`;
+      const startedRecordFileName = `${providerId}-${providerCommand.id}.started.json`;
       const stdoutFileName = `${providerId}-${providerCommand.id}.stdout.txt`;
       const stderrFileName = `${providerId}-${providerCommand.id}.stderr.txt`;
       const commandRecordPath = path.join(commandRecordDir, commandRecordFileName);
+      const startedRecordPath = path.join(commandRecordDir, startedRecordFileName);
       const stdoutPath = path.join(commandRecordDir, stdoutFileName);
       const stderrPath = path.join(commandRecordDir, stderrFileName);
-      if (!SUPPORTED_PROVIDER_COMMAND_PHASES.has(providerCommand.phase)) {
+      if (!supportedPhases.has(providerCommand.phase)) {
         if (includeStaticFailures) {
           for (const output of providerCommand.outputs ?? []) {
             outputStatuses.push({
@@ -1161,8 +1487,9 @@ async function executeProviderCommands({
               command: providerCommand.command,
               phase: providerCommand.phase,
               providerId,
+              supportMode,
               status: 'unsupported',
-              supportedPhases: Array.from(SUPPORTED_PROVIDER_COMMAND_PHASES),
+              supportedPhases: formatProviderSupportedPhases(supportedPhases),
             }, null, 2)}\n`,
             'utf8',
           );
@@ -1170,9 +1497,18 @@ async function executeProviderCommands({
             commandId: providerCommand.id,
             code: 'provider_lifecycle_phase_unsupported',
             exitCode: null,
-            message: `Evidence provider command ${providerId}/${providerCommand.id} declares phase "${providerCommand.phase}", but profile runners currently support only the after-capture alias phases "capture"/"afterCapture" and "postRun" provider commands.`,
+            message: resolveUnsupportedProviderPhaseMessage({
+              phase: providerCommand.phase,
+              providerCommandId: providerCommand.id,
+              providerId,
+              supportMode,
+              supportedPhases,
+            }),
             name: 'evidence_provider_lifecycle_supported',
-            nextAction: `Use phase "afterCapture" for diagnostics collected after runner-owned capture evidence is staged into the run, "postRun" for post-profile enrichment, or wait for a runner that supports ${providerCommand.phase} scheduling.`,
+            nextAction: resolveUnsupportedProviderPhaseNextAction({
+              phase: providerCommand.phase,
+              supportMode,
+            }),
             nextActionCode: 'select_supported_provider_lifecycle_phase',
             phase: providerCommand.phase,
             providerId,
@@ -1182,9 +1518,59 @@ async function executeProviderCommands({
         continue;
       }
 
-      const executionPhase = resolveProviderCommandExecutionPhase(providerCommand.phase);
-      if (selectedPhases && !selectedPhases.has(executionPhase)) {
+      if (!matchesSelectedProviderPhase(providerCommand.phase, selectedPhases)) {
         continue;
+      }
+
+      if (supportMode === 'live-window' && phaseRequiresLiveWindowIdentity(providerCommand.phase)) {
+        if (!hasRequiredLiveWindowIdentity({ context, platform })) {
+          const message = resolveMissingProviderIdentityMessage({
+            phase: providerCommand.phase,
+            platform,
+            providerCommandId: providerCommand.id,
+            providerId,
+          });
+          const nextAction = resolveMissingProviderIdentityNextAction(platform);
+          for (const output of providerCommand.outputs ?? []) {
+            outputStatuses.push({
+              channel: output.channel,
+              commandId: providerCommand.id,
+              kind: output.kind,
+              path: output.path,
+              phase: providerCommand.phase,
+              providerId,
+              reason: message,
+              required: output.required === true,
+              status: 'missing',
+            });
+          }
+          await fsp.writeFile(
+            commandRecordPath,
+            `${JSON.stringify({
+              command: providerCommand.command,
+              phase: providerCommand.phase,
+              providerId,
+              reason: message,
+              nextAction,
+              status: 'blocked',
+              targetIdentity: buildProviderTargetIdentitySnapshot(context),
+            }, null, 2)}\n`,
+            'utf8',
+          );
+          failures.push({
+            commandId: providerCommand.id,
+            code: 'provider_target_identity_missing',
+            exitCode: null,
+            message,
+            name: 'evidence_provider_target_bound',
+            nextAction,
+            nextActionCode: 'select_exact_provider_target',
+            phase: providerCommand.phase,
+            providerId,
+            rawPath: `raw/provider-commands/${commandRecordFileName}`,
+          });
+          continue;
+        }
       }
 
       const resolvedCommand = applyProviderPlaceholders(providerCommand.command, context);
@@ -1195,12 +1581,21 @@ async function executeProviderCommands({
       const resolvedEnv = Object.fromEntries(
         Object.entries(providerCommand.env ?? {}).map(([key, value]) => [key, applyProviderPlaceholders(value, context)]),
       );
+      const resolvedOutputs = await Promise.all((providerCommand.outputs ?? []).map(async (output) => {
+        const sourcePath = resolveProviderPath({ context, manifestDir, value: output.path });
+        return {
+          before: await readProviderCommandOutputSnapshot(sourcePath),
+          output,
+          sourcePath,
+        };
+      }));
+      const targetBindingBefore = await readProviderCommandOutputSnapshot(context.nativeTargetBindingPath);
       const timeoutMs = resolveProviderCommandTimeoutMs();
       const startedAt = new Date().toISOString();
       await fsp.writeFile(stdoutPath, '', 'utf8');
       await fsp.writeFile(stderrPath, '', 'utf8');
       await fsp.writeFile(
-        commandRecordPath,
+        startedRecordPath,
         `${JSON.stringify({
           args: resolvedArgs,
           command: resolvedCommand,
@@ -1208,9 +1603,25 @@ async function executeProviderCommands({
           providerId,
           startedAt,
           status: 'started',
+          startedRecordPath: `raw/provider-commands/${startedRecordFileName}`,
           stderrPath: `raw/provider-commands/${stderrFileName}`,
           stdoutPath: `raw/provider-commands/${stdoutFileName}`,
           timeoutMs,
+          targetIdentity: buildProviderTargetIdentitySnapshot(context),
+          outputs: resolvedOutputs.map(({ output, sourcePath }) => {
+            const runRelativePath = toContainedRunPathReference({ runDir, targetPath: sourcePath });
+            return {
+              channel: output.channel,
+              kind: output.kind,
+              path: output.path,
+              required: output.required === true,
+              ...(runRelativePath
+                ? {
+                    runRelativePath,
+                  }
+                : {}),
+            };
+          }),
         }, null, 2)}\n`,
         'utf8',
       );
@@ -1223,23 +1634,77 @@ async function executeProviderCommands({
         stdoutPath,
         timeoutMs,
       });
+      const endedAt = new Date().toISOString();
+      const resolvedOutputResults = await Promise.all(resolvedOutputs.map(async ({ before, output, sourcePath }) => {
+        const after = await fsp.stat(sourcePath).catch(() => null);
+        const exists = Boolean(after?.isFile());
+        const sha256 = exists ? await hashFileSha256(sourcePath) : null;
+        const stale = exists && !providerCommandOutputRefreshed({ after, before });
+        return {
+          after,
+          exists,
+          output,
+          sourcePath,
+          sha256,
+          stale,
+        };
+      }));
+      const targetBindingAfter = await fsp.stat(context.nativeTargetBindingPath).catch(() => null);
+      const targetBindingExists = Boolean(targetBindingAfter?.isFile());
+      const targetBindingSha256 = targetBindingExists
+        ? await hashFileSha256(context.nativeTargetBindingPath)
+        : null;
+      const targetBindingRefreshed = targetBindingExists && providerCommandOutputRefreshed({
+        after: targetBindingAfter,
+        before: targetBindingBefore,
+      });
+      const stdoutSha256 = await hashRequiredFileSha256(stdoutPath);
+      const stderrSha256 = await hashRequiredFileSha256(stderrPath);
       await fsp.writeFile(
         commandRecordPath,
         `${JSON.stringify({
           args: commandResult.args,
           command: commandResult.command,
-          endedAt: new Date().toISOString(),
+          endedAt,
           exitCode: commandResult.exitCode,
           phase: providerCommand.phase,
           providerId,
           signal: commandResult.signal,
+          startedAt,
+          startedRecordPath: `raw/provider-commands/${startedRecordFileName}`,
           stderr: commandResult.stderr,
           stderrPath: `raw/provider-commands/${stderrFileName}`,
+          stderrSha256,
           status: resolveProviderCommandRecordStatus(commandResult),
           stdout: commandResult.stdout,
           stdoutPath: `raw/provider-commands/${stdoutFileName}`,
+          stdoutSha256,
+          ...(targetBindingExists && targetBindingRefreshed
+            ? {
+                outputPath: path.relative(runDir, context.nativeTargetBindingPath).replaceAll(path.sep, '/'),
+                outputSha256: targetBindingSha256,
+              }
+            : {}),
+          targetIdentity: buildProviderTargetIdentitySnapshot(context),
           timedOut: commandResult.timedOut,
           timeoutMs,
+          outputs: resolvedOutputResults.map(({ exists, output, sourcePath, sha256, stale }) => {
+            const runRelativePath = toContainedRunPathReference({ runDir, targetPath: sourcePath });
+            return {
+              channel: output.channel,
+              kind: output.kind,
+              path: output.path,
+              required: output.required === true,
+              ...(runRelativePath
+                ? {
+                    runRelativePath,
+                  }
+                : {}),
+              sha256,
+              stale,
+              status: exists && !stale ? 'captured' : 'missing',
+            };
+          }),
         }, null, 2)}\n`,
         'utf8',
       );
@@ -1264,14 +1729,27 @@ async function executeProviderCommands({
         });
       }
 
-      for (const output of providerCommand.outputs) {
-        const sourcePath = resolveProviderPath({ context, manifestDir, value: output.path });
-        const exists = Boolean((await fsp.stat(sourcePath).catch(() => null))?.isFile());
+      for (const { exists, output, sourcePath, stale } of resolvedOutputResults) {
+        if (stale) {
+          failures.push({
+            commandId: providerCommand.id,
+            code: 'provider_output_stale',
+            exitCode: commandResult.exitCode,
+            message: `Evidence provider command ${providerId}/${providerCommand.id} did not refresh declared output "${output.path}".`,
+            name: 'evidence_provider_output_refreshed',
+            nextAction: 'Write run-scoped provider outputs or delete stale files before rerunning the profile so ASL can trust the capture window evidence.',
+            nextActionCode: 'refresh_provider_output',
+            phase: providerCommand.phase,
+            providerId,
+            rawPath: `raw/provider-commands/${commandRecordFileName}`,
+          });
+        }
         const reason = resolveProviderOutputReason({
           commandFailed,
           commandId: providerCommand.id,
           exists,
           providerId,
+          stale,
         });
         outputStatuses.push({
           channel: output.channel,
@@ -1282,9 +1760,9 @@ async function executeProviderCommands({
           providerId,
           ...(reason ? { reason } : {}),
           required: output.required === true,
-          status: exists ? 'captured' : 'missing',
+          status: exists && !stale ? 'captured' : 'missing',
         });
-        if (!exists) {
+        if (!exists || stale) {
           continue;
         }
         inputs.push(buildProviderEvidenceInput({
@@ -1413,7 +1891,7 @@ async function resolveAttachedEvidence({
       }),
       redactionStatus,
       required,
-      sha256: await hashFileSha256(sourcePath),
+      sha256: await hashRequiredFileSha256(sourcePath),
       sourceFileName: path.basename(sourcePath),
       sourcePath,
       sizeBytes: stat.size,
@@ -1556,7 +2034,7 @@ async function copyAttachedEvidence({
       }
 
       const destinationStatus = await fsp.lstat(copy.destinationPath);
-      const destinationSha256 = await hashFileSha256(copy.destinationPath);
+      const destinationSha256 = await hashRequiredFileSha256(copy.destinationPath);
       if (destinationStatus.size !== copy.sizeBytes || destinationSha256 !== copy.sha256) {
         failures.push({
           attachment: copy,
@@ -1813,6 +2291,29 @@ async function writeProfileRunPlan({
 function toRunPathReference({ runDir, targetPath }: { runDir: string; targetPath: string }): string {
   const relativePath = path.relative(runDir, targetPath);
   return relativePath.length > 0 ? relativePath : path.basename(targetPath);
+}
+
+/**
+ * Returns a run-relative path only when the target stays contained inside the
+ * realized run directory.
+ *
+ * @param {{runDir: string, targetPath: string}} options
+ * @returns {string | null}
+ */
+function toContainedRunPathReference({
+  runDir,
+  targetPath,
+}: {
+  runDir: string;
+  targetPath: string;
+}): string | null {
+  const absolutePath = path.resolve(targetPath);
+  const relativePath = path.relative(runDir, absolutePath);
+  if (relativePath.length === 0 || relativePath.startsWith('..') || path.isAbsolute(relativePath)) {
+    return null;
+  }
+
+  return relativePath.replaceAll(path.sep, '/');
 }
 
 /**
@@ -2089,16 +2590,12 @@ function readSelectedProviderOutputDemand({
   args: CliArgs;
 }): Array<{ kind: EvidenceKind; required: boolean }> {
   const outputs: Array<{ kind: EvidenceKind; required: boolean }> = [];
-  for (const providerManifestPath of readRepeatableArgValues(args, 'provider')) {
-    const absoluteManifestPath = path.resolve(providerManifestPath);
-    const provider = assertValidJson(
-      readJson(absoluteManifestPath),
-      SCHEMAS.runnerCapabilities,
-      'Evidence provider manifest',
-    ) as ProviderManifest;
-    if (provider.kind !== 'evidenceProvider') {
-      throw new Error(`Provider manifest must use kind "evidenceProvider": ${absoluteManifestPath}`);
-    }
+  const loadedProviders = readLoadedEvidenceProviderManifests(
+    args,
+    () => 'Evidence provider manifest',
+  );
+  for (const loadedProvider of loadedProviders) {
+    const provider = loadedProvider.manifest;
     for (const providerCommand of provider.providerCommands ?? []) {
       for (const output of providerCommand.outputs ?? []) {
         outputs.push({
@@ -2261,15 +2758,21 @@ function resolveDiagnosticSufficiency({
   }
 }
 
-function readJsonRecordIfAvailable(filePath: string): Record<string, any> | null {
+function readJsonValueIfAvailable(filePath: string): unknown | null {
   try {
-    const parsed = JSON.parse(fs.readFileSync(filePath, 'utf8'));
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
-      ? parsed as Record<string, any>
-      : null;
+    return JSON.parse(fs.readFileSync(filePath, 'utf8'));
   } catch {
     return null;
   }
+}
+
+function readJsonRecordIfAvailable(filePath: string): Record<string, unknown> | null {
+  const parsed = readJsonValueIfAvailable(filePath);
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return null;
+  }
+
+  return parsed as Record<string, unknown>;
 }
 
 function isRunEvidenceFile({
@@ -2334,6 +2837,25 @@ function isDiagnosticOnlyProviderAttachment({
       runDir,
       runRelativePath,
     }),
+    readEvidenceJson: (runRelativePath: string) => {
+      if (!isRunEvidenceFile({ runDir, runRelativePath })) {
+        throw new Error(`Run evidence path is unavailable: ${runRelativePath}`);
+      }
+
+      const evidenceValue = readJsonValueIfAvailable(path.resolve(runDir, runRelativePath));
+      if (evidenceValue === null) {
+        throw new Error(`Run evidence is unreadable JSON: ${runRelativePath}`);
+      }
+
+      return evidenceValue;
+    },
+    readEvidenceSha256: (runRelativePath: string) => {
+      if (!isRunEvidenceFile({ runDir, runRelativePath })) {
+        throw new Error(`Run evidence path is unavailable: ${runRelativePath}`);
+      }
+
+      return crypto.createHash('sha256').update(fs.readFileSync(path.resolve(runDir, runRelativePath))).digest('hex');
+    },
     expectedPlatform: platform,
     expectedProviderId: attachment.providerId,
     expectedRunId: runId,
@@ -5031,13 +5553,10 @@ function resolveProfileScenarioName({
  * @returns {Record<string, unknown>[]}
  */
 function readEvidenceProviderManifests(args: CliArgs): Record<string, unknown>[] {
-  return readRepeatableArgValues(args, 'provider').map((providerPath, index) => (
-    assertValidJson(
-      readJson(path.resolve(providerPath)),
-      SCHEMAS.runnerCapabilities,
-      `Evidence provider manifest ${index + 1}`,
-    ) as Record<string, unknown>
-  ));
+  return readLoadedEvidenceProviderManifests(
+    args,
+    (index) => `Evidence provider manifest ${index + 1}`,
+  ).map(({ manifest }) => manifest as Record<string, unknown>);
 }
 
 /**
@@ -5813,6 +6332,13 @@ async function runProfileMobile(args: CliArgs, options: ProfileMobileOptions): P
   await ensureDir(layout.signals.js);
   await ensureDir(layout.signals.memory);
   await ensureDir(layout.signals.network);
+  const inheritedProviderExecution = options.providerCommandExecution ?? {
+    failures: [],
+    inputs: [],
+    outputStatuses: [],
+    providers: [],
+  };
+  const providerCommandSupportMode = options.providerCommandSupportMode ?? 'post-capture-only';
   const runPlan = buildProfileRunPlan({
     args,
     artifactRoot,
@@ -5835,8 +6361,15 @@ async function runProfileMobile(args: CliArgs, options: ProfileMobileOptions): P
     layout,
     profileSessionEntriesPath,
   });
+  let providerExecution = inheritedProviderExecution;
   let afterCapturePhaseProviderExecution: ProviderCommandExecution;
   let postRunPhaseProviderExecution: ProviderCommandExecution;
+  let finalizePhaseProviderExecution: ProviderCommandExecution = {
+    failures: [],
+    inputs: [],
+    outputStatuses: [],
+    providers: [],
+  };
   try {
     afterCapturePhaseProviderExecution = await executeProviderCommands({
       args,
@@ -5848,6 +6381,8 @@ async function runProfileMobile(args: CliArgs, options: ProfileMobileOptions): P
       runDir,
       runId,
       scenarioId: scenarioName,
+      supportMode: providerCommandSupportMode,
+      ...(options.providerCommandIdentity ? { identity: options.providerCommandIdentity } : {}),
     });
     postRunPhaseProviderExecution = await executeProviderCommands({
       args,
@@ -5859,14 +6394,33 @@ async function runProfileMobile(args: CliArgs, options: ProfileMobileOptions): P
       runDir,
       runId,
       scenarioId: scenarioName,
+      supportMode: providerCommandSupportMode,
+      ...(options.providerCommandIdentity ? { identity: options.providerCommandIdentity } : {}),
     });
+    if (providerCommandSupportMode === 'live-window') {
+      finalizePhaseProviderExecution = await executeProviderCommands({
+        args,
+        includeProviders: false,
+        includeStaticFailures: false,
+        layout,
+        phases: ['finalize'],
+        platform: options.platform,
+        runDir,
+        runId,
+        scenarioId: scenarioName,
+        supportMode: providerCommandSupportMode,
+        ...(options.providerCommandIdentity ? { identity: options.providerCommandIdentity } : {}),
+      });
+    }
+    providerExecution = mergeProviderCommandExecutions(
+      inheritedProviderExecution,
+      afterCapturePhaseProviderExecution,
+      postRunPhaseProviderExecution,
+      finalizePhaseProviderExecution,
+    );
   } finally {
     await cleanupStagedPrimaryCaptureArtifacts(stagedPrimaryCaptureArtifacts);
   }
-  const providerExecution = mergeProviderCommandExecutions(
-    afterCapturePhaseProviderExecution,
-    postRunPhaseProviderExecution,
-  );
   let attachedEvidence: AttachedEvidence;
   try {
     attachedEvidence = await resolveAttachedEvidence({ args, layout, providerInputs: providerExecution.inputs });
@@ -5968,7 +6522,12 @@ async function runProfileMobile(args: CliArgs, options: ProfileMobileOptions): P
   if (
     providerExecution.failures.length > 0 &&
     providerExecution.inputs.length === 0 &&
-    providerExecution.outputStatuses.length === 0
+    providerExecution.outputStatuses.length === 0 &&
+    providerExecution.failures.every((failure) => (
+      failure.phase !== 'startWindow' &&
+      failure.phase !== 'stopWindow' &&
+      failure.phase !== 'finalize'
+    ))
   ) {
     const health = buildProviderCommandFailureHealth({
       failures: providerExecution.failures,
@@ -6309,6 +6868,7 @@ export {
   resolveProfileVerdictStatus,
   resolveProfileVerdictSummary,
   buildEvidenceAttachmentManifest,
+  executeProviderCommands,
   readScalarArg,
   resolveAppId,
   resolveArtifactRoot,
@@ -6321,8 +6881,11 @@ export {
   runProfileCompatibilityPreflight,
   runProfileCli,
   runProfileMobile,
+  RUNNER_ACTIVE_LOOP_WINDOW_RELATIVE_PATH,
+  mergeProviderCommandExecutions,
   hashScenarioContract,
   usage,
+  writeRunnerActiveLoopWindow,
 };
 
 export type {
