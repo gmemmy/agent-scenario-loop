@@ -94,6 +94,72 @@ function buildComparisonContext({
   };
 }
 
+function buildNativePerformanceRequestRecord(platform: 'android' | 'ios') {
+  return platform === 'ios'
+    ? {
+        activeLoopWindow: {
+          exactMatchRequired: true,
+          phase: 'activeLoop',
+          runnerActiveLoopPath: 'raw/runner-active-loop-window.json',
+          status: 'pending',
+        },
+        platform,
+        requestedAppId: 'com.example.ios',
+        requestedTargetId: 'SIM-UDID-123',
+        runId: 'run-1',
+        runnerId: 'ios-simctl-profile-runner',
+        scenarioId: 'native-capture',
+        schemaVersion: '1.0.0',
+        target: {
+          appId: 'com.example.ios',
+          bundleId: 'com.example.ios',
+          targetId: 'SIM-UDID-123',
+          udid: 'SIM-UDID-123',
+        },
+      }
+    : {
+        activeLoopWindow: {
+          exactMatchRequired: true,
+          phase: 'activeLoop',
+          runnerActiveLoopPath: 'raw/runner-active-loop-window.json',
+          status: 'pending',
+        },
+        platform,
+        requestedAppId: 'com.example.app',
+        requestedTargetId: 'emulator-5554',
+        runId: 'run-1',
+        runnerId: 'android-adb-profile-runner',
+        scenarioId: 'native-capture',
+        schemaVersion: '1.0.0',
+        target: {
+          appId: 'com.example.app',
+          packageName: 'com.example.app',
+          serial: 'emulator-5554',
+          targetId: 'emulator-5554',
+        },
+      };
+}
+
+async function writeNativePerformanceRequest({
+  platform,
+  record,
+  runDir,
+  text,
+}: {
+  platform: 'android' | 'ios';
+  record?: Record<string, unknown>;
+  runDir: string;
+  text?: string;
+}) {
+  const requestPath = path.join(runDir, 'raw', 'native-performance-request.json');
+  await fsp.mkdir(path.dirname(requestPath), { recursive: true });
+  const nextContents = typeof text === 'string'
+    ? text
+    : `${JSON.stringify(record ?? buildNativePerformanceRequestRecord(platform), null, 2)}\n`;
+  await fsp.writeFile(requestPath, nextContents, 'utf8');
+  return requestPath;
+}
+
 async function stageRunnerLifecycleCommandRecords({
   providerId,
   runDir,
@@ -167,6 +233,8 @@ async function stageRunnerLifecycleCommandRecords({
         outputs: Array.isArray(sourceCommand.outputs) ? sourceCommand.outputs : [],
         phase: sourceCommand.phase,
         providerId,
+        ...(typeof sourceCommand.requestPath === 'string' ? { requestPath: sourceCommand.requestPath } : {}),
+        ...(typeof sourceCommand.requestSha256 === 'string' ? { requestSha256: sourceCommand.requestSha256 } : {}),
         startedAt,
         startedRecordPath: sourceCommand.startedRecordPath,
         status: 'started',
@@ -190,6 +258,8 @@ async function stageRunnerLifecycleCommandRecords({
         : [],
       phase: sourceCommand.phase,
       providerId,
+      ...(typeof sourceCommand.requestPath === 'string' ? { requestPath: sourceCommand.requestPath } : {}),
+      ...(typeof sourceCommand.requestSha256 === 'string' ? { requestSha256: sourceCommand.requestSha256 } : {}),
       startedAt,
       startedRecordPath: sourceCommand.startedRecordPath,
       status: 'completed',
@@ -504,6 +574,7 @@ function iosLifecycleArgs(
   extra: string[] = [],
 ): string[] {
   const providerDir = path.join(options.runDir, 'raw', 'providers', options.providerId);
+  const requestPath = path.join(options.runDir, 'raw', 'native-performance-request.json');
   const args = [
     options.scriptPath,
     action,
@@ -513,11 +584,15 @@ function iosLifecycleArgs(
     '--run-dir', options.runDir,
     '--provider-id', options.providerId,
     '--provider-dir', providerDir,
+    '--request', requestPath,
     '--target-binding', path.join(providerDir, 'target-binding.json'),
     '--xcrun', options.fakeXcrunPath,
     '--bundle', 'com.example.ios',
     '--device', 'SIM-UDID-123',
   ];
+  if (fs.existsSync(requestPath)) {
+    args.push('--request-sha256', sha256(fs.readFileSync(requestPath)));
+  }
   if (action === 'normalize') {
     args.push('--out', path.join(providerDir, 'native-performance.json'));
   }
@@ -531,6 +606,7 @@ function androidLifecycleArgs(
   extra: string[] = [],
 ): string[] {
   const providerDir = path.join(options.runDir, 'raw', 'providers', options.providerId);
+  const requestPath = path.join(options.runDir, 'raw', 'native-performance-request.json');
   const args = [
     options.scriptPath,
     action,
@@ -540,16 +616,70 @@ function androidLifecycleArgs(
     '--run-dir', options.runDir,
     '--provider-id', options.providerId,
     '--provider-dir', providerDir,
+    '--request', requestPath,
     '--target-binding', path.join(providerDir, 'target-binding.json'),
     '--adb', options.fakeAdbPath,
     '--app', 'com.example.app',
     '--device', 'emulator-5554',
   ];
+  if (fs.existsSync(requestPath)) {
+    args.push('--request-sha256', sha256(fs.readFileSync(requestPath)));
+  }
   if (action === 'normalize') {
     args.push('--out', path.join(providerDir, 'native-performance.json'));
   }
   args.push(...extra);
   return args;
+}
+
+function withoutRequestArg(args: string[]): string[] {
+  const nextArgs = [...args];
+  for (const optionName of ['--request', '--request-sha256']) {
+    const optionIndex = nextArgs.indexOf(optionName);
+    if (optionIndex !== -1) {
+      nextArgs.splice(optionIndex, 2);
+    }
+  }
+  return nextArgs;
+}
+
+function withoutRequestShaArg(args: string[]): string[] {
+  const nextArgs = [...args];
+  const optionIndex = nextArgs.indexOf('--request-sha256');
+  if (optionIndex !== -1) {
+    nextArgs.splice(optionIndex, 2);
+  }
+  return nextArgs;
+}
+
+function providerArtifactPaths(provider: {providerId: string; runDir: string}) {
+  const providerDir = path.join(provider.runDir, 'raw', 'providers', provider.providerId);
+  return {
+    evidencePath: path.join(providerDir, 'native-performance.json'),
+    providerDir,
+    targetBindingPath: path.join(providerDir, 'target-binding.json'),
+  };
+}
+
+async function assertRequestGuardFailure({
+  args,
+  cwd,
+  env,
+  provider,
+  stderrPattern,
+}: {
+  args: string[];
+  cwd: string;
+  env: NodeJS.ProcessEnv;
+  provider: {providerId: string; runDir: string};
+  stderrPattern: RegExp;
+}) {
+  const { evidencePath, targetBindingPath } = providerArtifactPaths(provider);
+  const result = await execFileResult(process.execPath, args, { cwd, env });
+  assert.equal(result.exitCode, 1);
+  assert.match(result.stderr, stderrPattern);
+  assert.equal(fs.existsSync(targetBindingPath), false);
+  assert.equal(fs.existsSync(evidencePath), false);
 }
 
 test('generated provider keeps Android adb capture opt-in', async (t: TestContext) => {
@@ -651,9 +781,9 @@ test('generated provider rejects a mutated iOS native-performance request hash',
 test('generated provider rejects an iOS native-performance request without a hash binding', async (t: TestContext) => {
   const provider = await createGeneratedProvider(t);
   const stagedRequest = await stageNativePerformanceRequestFixture({ platform: 'ios', runDir: provider.runDir });
-  const result = await execFileResult(process.execPath, iosLifecycleArgs(provider, 'start-window', [
+  const result = await execFileResult(process.execPath, withoutRequestShaArg(iosLifecycleArgs(provider, 'start-window', [
     '--request', stagedRequest.path,
-  ]), {
+  ])), {
     cwd: provider.targetDir,
     env: { ...process.env, ASL_NATIVE_PERFORMANCE_IOS_CAPTURE: '1' },
   });
@@ -758,6 +888,7 @@ test('generated provider keeps iOS target binding immutable after finalize', asy
   const commandLog = path.join(provider.targetDir, 'xcrun-commands.jsonl');
   const env = { ...process.env, ASL_NATIVE_PERFORMANCE_IOS_CAPTURE: '1', FAKE_XCRUN_LOG: commandLog };
   const targetProofPath = path.join(provider.runDir, 'raw', 'providers', 'example-evidence-provider', 'target-binding.json');
+  await writeNativePerformanceRequest({ platform: 'ios', runDir: provider.runDir });
   let result = await execFileResult(process.execPath, iosLifecycleArgs(provider, 'start-window'), {
     cwd: provider.targetDir,
     env,
@@ -836,6 +967,7 @@ test('generated provider keeps iOS target binding immutable after finalize', asy
 test('generated provider iOS after-capture xctrace output stays diagnostic-only after finalize', async (t: TestContext) => {
   const provider = await createGeneratedProvider(t);
   const env = { ...process.env, ASL_NATIVE_PERFORMANCE_IOS_CAPTURE: '1' };
+  await writeNativePerformanceRequest({ platform: 'ios', runDir: provider.runDir });
 
   let result = await execFileResult(process.execPath, iosLifecycleArgs(provider, 'start-window'), {
     cwd: provider.targetDir,
@@ -952,6 +1084,7 @@ test('generated provider keeps Android target binding immutable after finalize',
   const commandLog = path.join(provider.targetDir, 'adb-commands.jsonl');
   const env = { ...process.env, ASL_NATIVE_PERFORMANCE_ANDROID_CAPTURE: '1', FAKE_ADB_LOG: commandLog };
   const targetProofPath = path.join(provider.runDir, 'raw', 'providers', 'example-evidence-provider', 'target-binding.json');
+  await writeNativePerformanceRequest({ platform: 'android', runDir: provider.runDir });
   let result = await execFileResult(process.execPath, androidLifecycleArgs(provider, 'start-window'), {
     cwd: provider.targetDir,
     env,
@@ -1202,6 +1335,124 @@ test('generated provider classifies an observed Android serial difference as tar
   const targetProof = JSON.parse(await fsp.readFile(path.join(provider.runDir, evidence.targetBinding.candidateTargets[1].evidencePath), 'utf8'));
   assert.equal(targetProof.status, 'mismatch');
   assert.equal(targetProof.observedDeviceId, 'emulator-5556');
+});
+
+test('generated provider lifecycle actions fail closed when the runner request is missing', async (t: TestContext) => {
+  for (const platform of ['android', 'ios'] as const) {
+    const provider = await createGeneratedProvider(t);
+    await assertRequestGuardFailure({
+      args: platform === 'android'
+        ? androidLifecycleArgs(provider, 'start-window')
+        : iosLifecycleArgs(provider, 'start-window'),
+      cwd: provider.targetDir,
+      env: process.env,
+      provider,
+      stderrPattern: /native-performance request/i,
+    });
+  }
+});
+
+test('generated provider lifecycle actions fail closed when the runner request is malformed', async (t: TestContext) => {
+  for (const platform of ['android', 'ios'] as const) {
+    const provider = await createGeneratedProvider(t);
+    await writeNativePerformanceRequest({
+      platform,
+      runDir: provider.runDir,
+      text: '{"kind":"nativePerformanceRequest"\n',
+    });
+    await assertRequestGuardFailure({
+      args: platform === 'android'
+        ? androidLifecycleArgs(provider, 'start-window')
+        : iosLifecycleArgs(provider, 'start-window'),
+      cwd: provider.targetDir,
+      env: process.env,
+      provider,
+      stderrPattern: /missing or invalid/i,
+    });
+  }
+});
+
+test('generated provider lifecycle actions fail closed when the runner request platform is wrong', async (t: TestContext) => {
+  const provider = await createGeneratedProvider(t);
+  await writeNativePerformanceRequest({
+    platform: 'android',
+    runDir: provider.runDir,
+  });
+  await assertRequestGuardFailure({
+    args: iosLifecycleArgs(provider, 'start-window'),
+    cwd: provider.targetDir,
+    env: process.env,
+    provider,
+    stderrPattern: /platform mismatch/i,
+  });
+});
+
+test('generated provider lifecycle actions fail closed when the runner request carries a mismatched iOS identity', async (t: TestContext) => {
+  const provider = await createGeneratedProvider(t);
+  await writeNativePerformanceRequest({
+    platform: 'ios',
+    record: {
+      ...buildNativePerformanceRequestRecord('ios'),
+      target: {
+        appId: 'com.example.ios',
+        bundleId: 'com.example.other',
+        targetId: 'SIM-UDID-123',
+        udid: 'SIM-UDID-999',
+      },
+    },
+    runDir: provider.runDir,
+  });
+  await assertRequestGuardFailure({
+    args: iosLifecycleArgs(provider, 'start-window'),
+    cwd: provider.targetDir,
+    env: process.env,
+    provider,
+    stderrPattern: /iOS target does not match/i,
+  });
+});
+
+test('generated provider lifecycle actions fail closed when the runner request carries a mismatched Android identity', async (t: TestContext) => {
+  const provider = await createGeneratedProvider(t);
+  await writeNativePerformanceRequest({
+    platform: 'android',
+    record: {
+      ...buildNativePerformanceRequestRecord('android'),
+      target: {
+        appId: 'com.example.app',
+        packageName: 'com.example.other',
+        serial: 'emulator-5556',
+        targetId: 'emulator-5554',
+      },
+    },
+    runDir: provider.runDir,
+  });
+  await assertRequestGuardFailure({
+    args: androidLifecycleArgs(provider, 'start-window'),
+    cwd: provider.targetDir,
+    env: process.env,
+    provider,
+    stderrPattern: /Android target does not match/i,
+  });
+});
+
+test('generated provider live normalize actions require the staged request before managed capture begins', async (t: TestContext) => {
+  const iosProvider = await createGeneratedProvider(t);
+  await assertRequestGuardFailure({
+    args: withoutRequestArg(iosLifecycleArgs(iosProvider, 'normalize')),
+    cwd: iosProvider.targetDir,
+    env: { ...process.env, ASL_NATIVE_PERFORMANCE_IOS_CAPTURE: '1' },
+    provider: iosProvider,
+    stderrPattern: /native-performance request/i,
+  });
+
+  const androidProvider = await createGeneratedProvider(t);
+  await assertRequestGuardFailure({
+    args: withoutRequestArg(androidLifecycleArgs(androidProvider, 'normalize')),
+    cwd: androidProvider.targetDir,
+    env: { ...process.env, ASL_NATIVE_PERFORMANCE_ANDROID_CAPTURE: '1' },
+    provider: androidProvider,
+    stderrPattern: /native-performance request/i,
+  });
 });
 
 test('generated provider preserves partial iOS xctrace evidence and exits nonzero after TOC export failure', async (t: TestContext) => {

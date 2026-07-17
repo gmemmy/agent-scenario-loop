@@ -1746,6 +1746,12 @@ async function executeProviderCommands({
       const targetBindingBefore = await readProviderCommandOutputSnapshot(context.nativeTargetBindingPath);
       const timeoutMs = resolveProviderCommandTimeoutMs();
       const startedAt = new Date().toISOString();
+      const nativePerformanceRequestRecordPath = nativePerformanceRequest
+        ? toContainedRunPathReference({
+            runDir,
+            targetPath: nativePerformanceRequest.path,
+          })
+        : null;
       await fsp.writeFile(stdoutPath, '', 'utf8');
       await fsp.writeFile(stderrPath, '', 'utf8');
       await fsp.writeFile(
@@ -1760,6 +1766,14 @@ async function executeProviderCommands({
           startedRecordPath: `raw/provider-commands/${startedRecordFileName}`,
           stderrPath: `raw/provider-commands/${stderrFileName}`,
           stdoutPath: `raw/provider-commands/${stdoutFileName}`,
+          ...(
+            nativePerformanceRequestRecordPath && nativePerformanceRequest?.sha256
+              ? {
+                  requestPath: nativePerformanceRequestRecordPath,
+                  requestSha256: nativePerformanceRequest.sha256,
+                }
+              : {}
+          ),
           timeoutMs,
           targetIdentity: buildProviderTargetIdentitySnapshot(context),
           outputs: resolvedOutputs.map(({ output, sourcePath }) => {
@@ -1839,6 +1853,14 @@ async function executeProviderCommands({
                 outputSha256: targetBindingSha256,
               }
             : {}),
+          ...(
+            nativePerformanceRequestRecordPath && nativePerformanceRequest?.sha256
+              ? {
+                  requestPath: nativePerformanceRequestRecordPath,
+                  requestSha256: nativePerformanceRequest.sha256,
+                }
+              : {}
+          ),
           targetIdentity: buildProviderTargetIdentitySnapshot(context),
           timedOut: commandResult.timedOut,
           timeoutMs,

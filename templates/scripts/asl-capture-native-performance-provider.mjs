@@ -236,6 +236,7 @@ function resolveNativePerformanceRequestSha256(args) {
 function validateNativePerformanceRequest({
   args,
   platform,
+  required = false,
   requestedAppId,
   requestedTargetId,
   runDir,
@@ -248,6 +249,9 @@ function validateNativePerformanceRequest({
     throw new Error('Native-performance request sha256 requires a matching request path.');
   }
   if (!requestPath) {
+    if (required) {
+      throw new Error('Native-performance request is required for native lifecycle capture.');
+    }
     return null;
   }
   if (!requestSha256) {
@@ -281,6 +285,36 @@ function validateNativePerformanceRequest({
   if (record.requestedAppId !== requestedAppId || record.requestedTargetId !== requestedTargetId) {
     throw new Error(
       `Native-performance request target identity mismatch: expected ${requestedAppId}/${requestedTargetId}, received ${String(record.requestedAppId)}/${String(record.requestedTargetId)}.`,
+    );
+  }
+  if (!record.target || typeof record.target !== 'object' || Array.isArray(record.target)) {
+    throw new Error(`Native-performance request at ${toRunRelativePath(runDir, requestPath)} is missing its target identity payload.`);
+  }
+  if (record.target.appId !== requestedAppId || record.target.targetId !== requestedTargetId) {
+    throw new Error(
+      `Native-performance request target payload does not match expected ${requestedAppId}/${requestedTargetId}.`,
+    );
+  }
+  if (
+    normalizedPlatform === 'android' &&
+    (
+      record.target.packageName !== requestedAppId ||
+      record.target.serial !== requestedTargetId
+    )
+  ) {
+    throw new Error(
+      `Native-performance request Android target does not match expected ${requestedAppId}/${requestedTargetId}.`,
+    );
+  }
+  if (
+    normalizedPlatform === 'ios' &&
+    (
+      record.target.bundleId !== requestedAppId ||
+      record.target.udid !== requestedTargetId
+    )
+  ) {
+    throw new Error(
+      `Native-performance request iOS target does not match expected ${requestedAppId}/${requestedTargetId}.`,
     );
   }
   if (
@@ -451,7 +485,9 @@ function buildLifecycleSourceCommands({
   targetBindingPath,
 }) {
   return buildLifecycleCommandDefinitions(includeFinalize).map(({ actionArg, commandId, phase, sourceId }) => {
+    const completedRecordRelativePath = `raw/provider-commands/${providerId}-${commandId}.json`;
     const startedRecordRelativePath = `raw/provider-commands/${providerId}-${commandId}.started.json`;
+    const completedRecord = readJsonArtifactIfAvailable(path.join(runDir, completedRecordRelativePath));
     const startedRecord = readJsonArtifactIfAvailable(path.join(runDir, startedRecordRelativePath));
     const command = startedRecord && typeof startedRecord.command === 'string'
       ? startedRecord.command
@@ -466,17 +502,33 @@ function buildLifecycleSourceCommands({
       startedRecord.args.every((arg) => typeof arg === 'string')
       ? startedRecord.args
       : fallbackArgs;
+    const requestPath = typeof startedRecord?.requestPath === 'string'
+      ? startedRecord.requestPath
+      : typeof completedRecord?.requestPath === 'string'
+        ? completedRecord.requestPath
+        : undefined;
+    const requestSha256 = typeof startedRecord?.requestSha256 === 'string'
+      ? startedRecord.requestSha256
+      : typeof completedRecord?.requestSha256 === 'string'
+        ? completedRecord.requestSha256
+        : undefined;
     return {
       args: commandArgs.map((arg) => normalizeCommandArgForEvidence(runDir, arg)),
       command,
       commandId,
       phase,
-      recordPath: `raw/provider-commands/${providerId}-${commandId}.json`,
+      recordPath: completedRecordRelativePath,
       startedRecordPath: startedRecordRelativePath,
       sourceId,
       status: completedCommandIds.has(commandId) ? 'completed' : 'unknown',
       stderrPath: `raw/provider-commands/${providerId}-${commandId}.stderr.txt`,
       stdoutPath: `raw/provider-commands/${providerId}-${commandId}.stdout.txt`,
+      ...(typeof requestPath === 'string' && requestPath.length > 0
+        ? { requestPath }
+        : {}),
+      ...(typeof requestSha256 === 'string' && requestSha256.length > 0
+        ? { requestSha256 }
+        : {}),
       ...(commandId === 'capture-native-performance' && completedCommandIds.has(commandId)
         ? { outputPath: toRunRelativePath(runDir, targetBindingPath) }
         : {}),
@@ -900,7 +952,7 @@ function buildCapturedSource({ dataClasses, id, result, runDir, stdoutPath, tool
   };
 }
 
-async function captureAndroidAdbEvidence({ args, outPath, providerId, rawInvocationArgs, runId, scenarioId }) {
+async function captureAndroidAdbEvidence({ args, outPath, providerId, rawInvocationArgs, requireRequest = false, runId, scenarioId }) {
   const appId = resolveRequestedAppId(args, 'android');
   const deviceId = resolveRequestedTargetId(args, 'android');
   if (!appId || !deviceId) {
@@ -915,6 +967,7 @@ async function captureAndroidAdbEvidence({ args, outPath, providerId, rawInvocat
   validateNativePerformanceRequest({
     args,
     platform: 'android',
+    required: requireRequest,
     requestedAppId: appId,
     requestedTargetId: deviceId,
     runDir,
@@ -1396,7 +1449,7 @@ function combinedCommandStatus(results, evidenceValid) {
   return evidenceValid ? 'captured' : 'partial';
 }
 
-async function captureIosXctraceEvidence({ args, outPath, providerId, rawInvocationArgs, runId, scenarioId }) {
+async function captureIosXctraceEvidence({ args, outPath, providerId, rawInvocationArgs, requireRequest = false, runId, scenarioId }) {
   const bundleId = resolveRequestedAppId(args, 'ios');
   const deviceId = resolveRequestedTargetId(args, 'ios');
   if (!bundleId || !deviceId) {
@@ -1410,6 +1463,7 @@ async function captureIosXctraceEvidence({ args, outPath, providerId, rawInvocat
   validateNativePerformanceRequest({
     args,
     platform: 'ios',
+    required: requireRequest,
     requestedAppId: bundleId,
     requestedTargetId: deviceId,
     runDir,
@@ -1839,6 +1893,7 @@ async function runLifecycleAction({ action, args, platform, rawInvocationArgs })
   validateNativePerformanceRequest({
     args,
     platform,
+    required: true,
     requestedAppId,
     requestedTargetId,
     runDir,
@@ -2145,6 +2200,7 @@ async function main() {
   const providerId = resolveProviderId({ outPath, runDir });
   const runId = requireStringArg(args, 'run-id');
   const scenarioId = requireStringArg(args, 'scenario');
+  const requireManagedRequest = typeof args['provider-id'] === 'string' || typeof args['provider-dir'] === 'string';
   if (platform === 'android') {
     const liveAdbCapture = args['capture-android-adb'] === true || process.env.ASL_NATIVE_PERFORMANCE_ANDROID_CAPTURE === '1';
     if (liveAdbCapture) {
@@ -2153,6 +2209,7 @@ async function main() {
         outPath,
         providerId,
         rawInvocationArgs: invocation.args,
+        requireRequest: requireManagedRequest,
         runId,
         scenarioId,
       });
@@ -2181,6 +2238,7 @@ async function main() {
         outPath,
         providerId,
         rawInvocationArgs: invocation.args,
+        requireRequest: requireManagedRequest,
         runId,
         scenarioId,
       });

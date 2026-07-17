@@ -16,7 +16,62 @@ const EMPTY_STDOUT_SHA256 = 'a'.repeat(64);
 const EMPTY_STDERR_SHA256 = 'b'.repeat(64);
 const CAPTURE_OUTPUT_SHA256 = 'd'.repeat(64);
 const TARGET_OUTPUT_SHA256 = 'c'.repeat(64);
+const NATIVE_PERFORMANCE_REQUEST_PATH = 'raw/native-performance-request.json';
 const RUNNER_ACTIVE_LOOP_WINDOW_PATH = 'raw/runner-active-loop-window.json';
+
+function buildNativePerformanceRequestRecord({
+  platform,
+  requestedAppId,
+  requestedTargetId,
+  runId,
+  scenarioId,
+}: {
+  platform: 'android' | 'ios';
+  requestedAppId: string;
+  requestedTargetId: string;
+  runId: string;
+  scenarioId: string;
+}) {
+  return {
+    captureMode: 'session',
+    kind: 'nativePerformanceRequest',
+    lifecycle: {
+      finalizePhase: 'finalize',
+      normalizePhase: 'afterCapture',
+      startPhase: 'startWindow',
+      stopPhase: 'stopWindow',
+      supportMode: 'live-window',
+    },
+    platform,
+    requestedAppId,
+    requestedTargetId,
+    runId,
+    runnerId: platform === 'android' ? 'android-adb-profile-runner' : 'ios-simctl-profile-runner',
+    scenarioId,
+    schemaVersion: '1.0.0',
+    targetBindingPolicy: {
+      outputPathTemplate: 'raw/providers/<providerId>/target-binding.json',
+      requiresExactRunnerIdentity: true,
+      requiresHashBoundCommandRecords: true,
+      sourceCommandsDir: 'raw/provider-commands',
+    },
+    windowPolicy: {
+      phase: 'activeLoop',
+      recordPath: RUNNER_ACTIVE_LOOP_WINDOW_PATH,
+      requirement: 'copy-exact-runner-window',
+      source: 'runner-active-loop-window',
+    },
+    ...(platform === 'android'
+      ? {
+          requestedPackageName: requestedAppId,
+          requestedSerial: requestedTargetId,
+        }
+      : {
+          requestedBundleId: requestedAppId,
+          requestedUdid: requestedTargetId,
+        }),
+  };
+}
 
 function comparisonContext({
   appId,
@@ -118,6 +173,14 @@ function buildObservedTargetBindingFixture({
   targetPath: string;
 }) {
   const activeCapturePath = captureArtifactPath ?? `raw/providers/${providerId}/active-window-capture.json`;
+  const requestRecord = buildNativePerformanceRequestRecord({
+    platform,
+    requestedAppId,
+    requestedTargetId,
+    runId,
+    scenarioId,
+  });
+  const requestSha256 = 'e'.repeat(64);
   const commandDefinitions = [
     {
       args: ['start-window', '--target-binding', targetPath],
@@ -176,6 +239,8 @@ function buildObservedTargetBindingFixture({
       stderrSha256: EMPTY_STDERR_SHA256,
       stdoutPath: `raw/provider-commands/${commandRecordId}.stdout.txt`,
       stdoutSha256: EMPTY_STDOUT_SHA256,
+      requestPath: NATIVE_PERFORMANCE_REQUEST_PATH,
+      requestSha256,
     };
   });
   const record = {
@@ -252,6 +317,8 @@ function buildObservedTargetBindingFixture({
         stderrSha256: EMPTY_STDERR_SHA256,
         stdoutPath: sourceCommand.stdoutPath,
         stdoutSha256: EMPTY_STDOUT_SHA256,
+        requestPath: NATIVE_PERFORMANCE_REQUEST_PATH,
+        requestSha256,
       }],
       [sourceCommand.startedRecordPath, {
         args: definition.args,
@@ -270,14 +337,18 @@ function buildObservedTargetBindingFixture({
         status: 'started',
         stderrPath: sourceCommand.stderrPath,
         stdoutPath: sourceCommand.stdoutPath,
+        requestPath: NATIVE_PERFORMANCE_REQUEST_PATH,
+        requestSha256,
       }],
     ];
   });
+  recordEntries.push([NATIVE_PERFORMANCE_REQUEST_PATH, requestRecord]);
   recordEntries.push([RUNNER_ACTIVE_LOOP_WINDOW_PATH, runnerWindowRecord]);
 
   return {
     durablePaths: [
       activeCapturePath,
+      NATIVE_PERFORMANCE_REQUEST_PATH,
       targetPath,
       RUNNER_ACTIVE_LOOP_WINDOW_PATH,
       ...sourceCommands.flatMap((sourceCommand) => [
@@ -290,6 +361,7 @@ function buildObservedTargetBindingFixture({
     hashes: Object.fromEntries([
       [targetPath, TARGET_OUTPUT_SHA256],
       [activeCapturePath, CAPTURE_OUTPUT_SHA256],
+      [NATIVE_PERFORMANCE_REQUEST_PATH, requestSha256],
       ...sourceCommands.flatMap((sourceCommand) => [
         [sourceCommand.stdoutPath, sourceCommand.stdoutSha256],
         [sourceCommand.stderrPath, sourceCommand.stderrSha256],
@@ -1112,6 +1184,17 @@ test('classifies Android evidence as comparison-ready only with captured source,
   assert.deepEqual(classifyNativePerformanceComparisonReadiness(evidence, context), {
     missingEvidence: [],
     status: 'comparison-ready',
+  });
+  assert.deepEqual(classifyNativePerformanceComparisonReadiness(evidence, {
+    ...context,
+    readEvidenceSha256: (runRelativePath: string) => (
+      runRelativePath === NATIVE_PERFORMANCE_REQUEST_PATH
+        ? 'f'.repeat(64)
+        : context.readEvidenceSha256(runRelativePath)
+    ),
+  }), {
+    missingEvidence: ['observed-target-binding'],
+    status: 'diagnostic-only',
   });
   assert.deepEqual(classifyNativePerformanceComparisonReadiness(evidence, {
     ...context,

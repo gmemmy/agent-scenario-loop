@@ -183,6 +183,14 @@
             "type": "string",
             "minLength": 1
           },
+          "requestPath": {
+            "type": "string",
+            "minLength": 1
+          },
+          "requestSha256": {
+            "type": "string",
+            "pattern": "^[A-Fa-f0-9]{64}$"
+          },
           "stdoutSha256": {
             "type": "string",
             "pattern": "^[A-Fa-f0-9]{64}$"

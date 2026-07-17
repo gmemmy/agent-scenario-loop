@@ -17,10 +17,46 @@ type ExecOutput = {
 };
 type ExecFailure = Error & ExecOutput;
 type TestContext = import('node:test').TestContext;
+const NATIVE_PERFORMANCE_REQUEST_PATH = 'raw/native-performance-request.json';
 const RUNNER_ACTIVE_LOOP_WINDOW_PATH = 'raw/runner-active-loop-window.json';
 
 function sha256Text(value: string): string {
   return crypto.createHash('sha256').update(value).digest('hex');
+}
+
+function buildNativePerformanceRequestRecord(runId: string): Record<string, unknown> {
+  return {
+    captureMode: 'session',
+    kind: 'nativePerformanceRequest',
+    lifecycle: {
+      finalizePhase: 'finalize',
+      normalizePhase: 'afterCapture',
+      startPhase: 'startWindow',
+      stopPhase: 'stopWindow',
+      supportMode: 'live-window',
+    },
+    platform: 'android',
+    requestedAppId: 'dev.agent-scenario-loop.example',
+    requestedPackageName: 'dev.agent-scenario-loop.example',
+    requestedSerial: 'emulator-5554',
+    requestedTargetId: 'emulator-5554',
+    runId,
+    runnerId: 'android-adb-profile-runner',
+    scenarioId: 'open-close-cycle',
+    schemaVersion: '1.0.0',
+    targetBindingPolicy: {
+      outputPathTemplate: 'raw/providers/<providerId>/target-binding.json',
+      requiresExactRunnerIdentity: true,
+      requiresHashBoundCommandRecords: true,
+      sourceCommandsDir: 'raw/provider-commands',
+    },
+    windowPolicy: {
+      phase: 'activeLoop',
+      recordPath: RUNNER_ACTIVE_LOOP_WINDOW_PATH,
+      requirement: 'copy-exact-runner-window',
+      source: 'runner-active-loop-window',
+    },
+  };
 }
 
 function buildObservedTargetBindingRecord({
@@ -31,6 +67,8 @@ function buildObservedTargetBindingRecord({
   targetBindingPath: string;
 }): Record<string, unknown> {
   const capturePath = 'raw/providers/native-provider/active-window-capture.json';
+  const requestRecord = buildNativePerformanceRequestRecord(runId);
+  const requestSha256 = sha256Text(`${JSON.stringify(requestRecord)}\n`);
   const sourceCommands = [
     {
       args: ['start-window', '--target-binding', targetBindingPath],
@@ -45,6 +83,8 @@ function buildObservedTargetBindingRecord({
       stderrSha256: sha256Text('start-native-window stderr\n'),
       stdoutPath: 'raw/provider-commands/native-provider-start-native-window.stdout.txt',
       stdoutSha256: sha256Text('start-native-window stdout\n'),
+      requestPath: NATIVE_PERFORMANCE_REQUEST_PATH,
+      requestSha256,
     },
     {
       args: ['stop-window', '--target-binding', targetBindingPath],
@@ -59,6 +99,8 @@ function buildObservedTargetBindingRecord({
       stderrSha256: sha256Text('stop-native-window stderr\n'),
       stdoutPath: 'raw/provider-commands/native-provider-stop-native-window.stdout.txt',
       stdoutSha256: sha256Text('stop-native-window stdout\n'),
+      requestPath: NATIVE_PERFORMANCE_REQUEST_PATH,
+      requestSha256,
     },
     {
       args: ['normalize', '--target-binding', targetBindingPath],
@@ -74,6 +116,8 @@ function buildObservedTargetBindingRecord({
       stderrSha256: sha256Text('capture-native-performance stderr\n'),
       stdoutPath: 'raw/provider-commands/native-provider-capture-native-performance.stdout.txt',
       stdoutSha256: sha256Text('capture-native-performance stdout\n'),
+      requestPath: NATIVE_PERFORMANCE_REQUEST_PATH,
+      requestSha256,
     },
   ];
   return {
@@ -349,6 +393,9 @@ async function writeRun({
     const providerCommandDir = path.join(runDir, 'raw', 'provider-commands');
     const capturePath = 'raw/providers/native-provider/active-window-capture.json';
     const targetBindingPath = 'raw/providers/native-provider/target-binding.json';
+    const nativePerformanceRequestRecord = buildNativePerformanceRequestRecord(runId);
+    const nativePerformanceRequestJson = `${JSON.stringify(nativePerformanceRequestRecord)}\n`;
+    const nativePerformanceRequestSha256 = sha256Text(nativePerformanceRequestJson);
     await fsp.mkdir(providerDir, { recursive: true });
     await fsp.mkdir(providerCommandDir, { recursive: true });
     await fsp.writeFile(
@@ -374,6 +421,11 @@ async function writeRun({
       })}\n`,
       'utf8',
     );
+    await fsp.writeFile(
+      path.join(runDir, NATIVE_PERFORMANCE_REQUEST_PATH),
+      nativePerformanceRequestJson,
+      'utf8',
+    );
     const targetBindingRecord = buildObservedTargetBindingRecord({
       runId,
       targetBindingPath,
@@ -392,6 +444,8 @@ async function writeRun({
         phase: 'startWindow',
         providerId: 'native-provider',
         outputs: [],
+        requestPath: NATIVE_PERFORMANCE_REQUEST_PATH,
+        requestSha256: nativePerformanceRequestSha256,
         startedAt: '2026-07-15T10:00:00.000Z',
         startedRecordPath: 'raw/provider-commands/native-provider-start-native-window.started.json',
         status: 'started',
@@ -411,6 +465,8 @@ async function writeRun({
         outputs: [],
         phase: 'startWindow',
         providerId: 'native-provider',
+        requestPath: NATIVE_PERFORMANCE_REQUEST_PATH,
+        requestSha256: nativePerformanceRequestSha256,
         startedAt: '2026-07-15T10:00:00.000Z',
         startedRecordPath: 'raw/provider-commands/native-provider-start-native-window.started.json',
         status: 'completed',
@@ -448,6 +504,8 @@ async function writeRun({
         ],
         phase: 'stopWindow',
         providerId: 'native-provider',
+        requestPath: NATIVE_PERFORMANCE_REQUEST_PATH,
+        requestSha256: nativePerformanceRequestSha256,
         startedAt: '2026-07-15T10:00:12.000Z',
         startedRecordPath: 'raw/provider-commands/native-provider-stop-native-window.started.json',
         status: 'started',
@@ -478,6 +536,8 @@ async function writeRun({
         ],
         phase: 'stopWindow',
         providerId: 'native-provider',
+        requestPath: NATIVE_PERFORMANCE_REQUEST_PATH,
+        requestSha256: nativePerformanceRequestSha256,
         startedAt: '2026-07-15T10:00:12.000Z',
         startedRecordPath: 'raw/provider-commands/native-provider-stop-native-window.started.json',
         status: 'completed',
@@ -507,6 +567,8 @@ async function writeRun({
         outputs: [],
         phase: 'afterCapture',
         providerId: 'native-provider',
+        requestPath: NATIVE_PERFORMANCE_REQUEST_PATH,
+        requestSha256: nativePerformanceRequestSha256,
         startedAt: '2026-07-15T10:00:12.100Z',
         startedRecordPath: 'raw/provider-commands/native-provider-capture-native-performance.started.json',
         status: 'started',
@@ -528,6 +590,8 @@ async function writeRun({
         outputs: [],
         phase: 'afterCapture',
         providerId: 'native-provider',
+        requestPath: NATIVE_PERFORMANCE_REQUEST_PATH,
+        requestSha256: nativePerformanceRequestSha256,
         startedAt: '2026-07-15T10:00:12.100Z',
         startedRecordPath: 'raw/provider-commands/native-provider-capture-native-performance.started.json',
         status: 'completed',
