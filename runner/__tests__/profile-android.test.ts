@@ -1918,7 +1918,11 @@ test('profile-android executes declared evidence provider commands', async (t: T
     [
       "const fs = require('node:fs');",
       "const path = require('node:path');",
-      "const outputPath = process.argv[2];",
+      "const [outputPath, requestPath, requestSha256] = process.argv.slice(2);",
+      "if (requestPath !== '' || requestSha256 !== '') {",
+      "  process.stderr.write('post-capture-only providers must not receive a staged native-performance request\\n');",
+      '  process.exit(2);',
+      '}',
       "fs.mkdirSync(path.dirname(outputPath), { recursive: true });",
       "fs.writeFileSync(outputPath, JSON.stringify({ violations: [] }) + '\\n');",
     ].join('\n'),
@@ -1940,7 +1944,12 @@ test('profile-android executes declared evidence provider commands', async (t: T
           id: 'capture-accessibility',
           phase: 'capture',
           command: process.execPath,
-          args: [providerScript, '{providerDir}/accessibility.json'],
+          args: [
+            providerScript,
+            '{providerDir}/accessibility.json',
+            '{nativePerformanceRequestPath}',
+            '{nativePerformanceRequestSha256}',
+          ],
           outputs: [
             {
               channel: 'provider',
@@ -3454,7 +3463,7 @@ test('profile-android classifies live-window native-performance evidence as comp
       "const crypto = require('node:crypto');",
       "const fs = require('node:fs');",
       "const path = require('node:path');",
-      'const [phase, orderPath, capturePath, evidencePath, targetBindingPath, providerId, requestedAppId, requestedTargetId, runDir, runId, scenarioId] = process.argv.slice(2);',
+      'const [phase, orderPath, capturePath, evidencePath, targetBindingPath, requestPath, requestSha256, providerId, requestedAppId, requestedTargetId, runDir, runId, scenarioId] = process.argv.slice(2);',
       "const sha256 = (value) => crypto.createHash('sha256').update(value).digest('hex');",
       "const toRunRelative = (targetPath) => path.relative(runDir, targetPath).split(path.sep).join('/');",
       "const commandRecordPath = (commandId, suffix = '.json') => path.join(runDir, 'raw', 'provider-commands', `${providerId}-${commandId}${suffix}`);",
@@ -3474,6 +3483,10 @@ test('profile-android classifies live-window native-performance evidence as comp
       '});',
       'fs.mkdirSync(path.dirname(orderPath), { recursive: true });',
       "fs.appendFileSync(orderPath, `${phase}\\n`);",
+      "if (phase === 'startWindow' && (!requestPath || !requestSha256 || !fs.existsSync(requestPath) || sha256(fs.readFileSync(requestPath)) !== requestSha256)) {",
+      "  process.stderr.write('native-performance request missing before startWindow\\n');",
+      '  process.exit(2);',
+      '}',
       "if (phase === 'stopWindow') {",
       '  fs.mkdirSync(path.dirname(capturePath), { recursive: true });',
       "  fs.writeFileSync(capturePath, 'active-window-capture\\n', 'utf8');",
@@ -3609,6 +3622,8 @@ test('profile-android classifies live-window native-performance evidence as comp
             '{providerDir}/active-window-capture.trace',
             '{providerDir}/native-performance.json',
             '{nativeTargetBindingPath}',
+            '{nativePerformanceRequestPath}',
+            '{nativePerformanceRequestSha256}',
             '{providerId}',
             '{packageName}',
             '{serial}',
@@ -3629,6 +3644,8 @@ test('profile-android classifies live-window native-performance evidence as comp
             '{providerDir}/active-window-capture.trace',
             '{providerDir}/native-performance.json',
             '{nativeTargetBindingPath}',
+            '{nativePerformanceRequestPath}',
+            '{nativePerformanceRequestSha256}',
             '{providerId}',
             '{packageName}',
             '{serial}',
@@ -3655,6 +3672,8 @@ test('profile-android classifies live-window native-performance evidence as comp
             '{providerDir}/active-window-capture.trace',
             '{providerDir}/native-performance.json',
             '{nativeTargetBindingPath}',
+            '{nativePerformanceRequestPath}',
+            '{nativePerformanceRequestSha256}',
             '{providerId}',
             '{packageName}',
             '{serial}',
@@ -3741,11 +3760,41 @@ test('profile-android classifies live-window native-performance evidence as comp
   const health = readJson(path.join(result.runDir, 'health.json')) as Record<string, any>;
   const artifactPath = `raw/providers/${providerId}/native-performance.json`;
   const evidence = readJson(path.join(result.runDir, artifactPath));
+  const request = readJson(path.join(result.runDir, 'raw', 'native-performance-request.json'));
+  const startCommandRecord = readJson(
+    path.join(result.runDir, 'raw', 'provider-commands', `${providerId}-start-native-window.started.json`),
+  ) as Record<string, any>;
   const stopCommandRecord = readJson(
     path.join(result.runDir, 'raw', 'provider-commands', `${providerId}-stop-native-window.json`),
   ) as Record<string, any>;
 
   assert.equal(health.healthStatus, 'passed');
+  assert.deepEqual(request, {
+    activeLoopWindow: {
+      exactMatchRequired: true,
+      phase: 'activeLoop',
+      runnerActiveLoopPath: 'raw/runner-active-loop-window.json',
+      status: 'pending',
+    },
+    platform: 'android',
+    requestedAppId: 'dev.agentscenarioloop.example',
+    requestedTargetId: 'emulator-5554',
+    runId,
+    runnerId: 'android-adb-profile-runner',
+    scenarioId: 'app-startup',
+    schemaVersion: '1.0.0',
+    target: {
+      appId: 'dev.agentscenarioloop.example',
+      packageName: 'dev.agentscenarioloop.example',
+      serial: 'emulator-5554',
+      targetId: 'emulator-5554',
+      udid: 'emulator-5554',
+    },
+  });
+  assert.ok(
+    Array.isArray(startCommandRecord.args)
+      && startCommandRecord.args.includes(crypto.createHash('sha256').update(`${JSON.stringify(request, null, 2)}\n`).digest('hex')),
+  );
   assert.equal(stopCommandRecord.outputs[0].runRelativePath, `raw/providers/${providerId}/active-window-capture.trace`);
   assert.equal(
     stopCommandRecord.outputs[0].sha256,

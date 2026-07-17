@@ -156,6 +156,8 @@ test('init-project scaffolds templates into a consuming app layout', async (t: T
     providerCommands: Array<{args?: string[]; id: string}>;
   };
   assert.equal(evidenceProviderManifest.providerCommands.find((command) => command.id === 'capture-native-performance')?.args?.includes('{runDir}'), true);
+  assert.equal(evidenceProviderManifest.providerCommands.find((command) => command.id === 'capture-native-performance')?.args?.includes('{nativePerformanceRequestPath}'), true);
+  assert.equal(evidenceProviderManifest.providerCommands.find((command) => command.id === 'capture-native-performance')?.args?.includes('{nativePerformanceRequestSha256}'), true);
   assert.match(nativePerformanceProviderScript, /buildAndroidNativePerformanceEvidence/u);
   assert.match(nativePerformanceProviderScript, /diagnostic-only/u);
   assert.match(nativePerformanceProviderScript, /diagnosticSources/u);

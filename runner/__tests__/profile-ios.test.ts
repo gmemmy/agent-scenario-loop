@@ -1636,7 +1636,7 @@ test('profile-ios classifies live-window native-performance evidence as comparis
       "const crypto = require('node:crypto');",
       "const fs = require('node:fs');",
       "const path = require('node:path');",
-      'const [phase, orderPath, capturePath, evidencePath, targetBindingPath, providerId, requestedAppId, requestedTargetId, runDir, runId, scenarioId] = process.argv.slice(2);',
+      'const [phase, orderPath, capturePath, evidencePath, targetBindingPath, requestPath, requestSha256, providerId, requestedAppId, requestedTargetId, runDir, runId, scenarioId] = process.argv.slice(2);',
       "const sha256 = (value) => crypto.createHash('sha256').update(value).digest('hex');",
       "const toRunRelative = (targetPath) => path.relative(runDir, targetPath).split(path.sep).join('/');",
       "const commandRecordPath = (commandId, suffix = '.json') => path.join(runDir, 'raw', 'provider-commands', `${providerId}-${commandId}${suffix}`);",
@@ -1656,6 +1656,10 @@ test('profile-ios classifies live-window native-performance evidence as comparis
       '});',
       'fs.mkdirSync(path.dirname(orderPath), { recursive: true });',
       "fs.appendFileSync(orderPath, `${phase}\\n`);",
+      "if (phase === 'startWindow' && (!requestPath || !requestSha256 || !fs.existsSync(requestPath) || sha256(fs.readFileSync(requestPath)) !== requestSha256)) {",
+      "  process.stderr.write('native-performance request missing before startWindow\\n');",
+      '  process.exit(2);',
+      '}',
       "if (phase === 'stopWindow') {",
       '  fs.mkdirSync(path.dirname(capturePath), { recursive: true });',
       "  fs.writeFileSync(capturePath, 'active-window-capture\\n', 'utf8');",
@@ -1792,6 +1796,8 @@ test('profile-ios classifies live-window native-performance evidence as comparis
             '{providerDir}/active-window-capture.trace',
             '{providerDir}/native-performance.json',
             '{nativeTargetBindingPath}',
+            '{nativePerformanceRequestPath}',
+            '{nativePerformanceRequestSha256}',
             '{providerId}',
             '{bundleId}',
             '{udid}',
@@ -1812,6 +1818,8 @@ test('profile-ios classifies live-window native-performance evidence as comparis
             '{providerDir}/active-window-capture.trace',
             '{providerDir}/native-performance.json',
             '{nativeTargetBindingPath}',
+            '{nativePerformanceRequestPath}',
+            '{nativePerformanceRequestSha256}',
             '{providerId}',
             '{bundleId}',
             '{udid}',
@@ -1838,6 +1846,8 @@ test('profile-ios classifies live-window native-performance evidence as comparis
             '{providerDir}/active-window-capture.trace',
             '{providerDir}/native-performance.json',
             '{nativeTargetBindingPath}',
+            '{nativePerformanceRequestPath}',
+            '{nativePerformanceRequestSha256}',
             '{providerId}',
             '{bundleId}',
             '{udid}',
@@ -1923,11 +1933,41 @@ test('profile-ios classifies live-window native-performance evidence as comparis
   const health = readJson(path.join(result.runDir, 'health.json')) as Record<string, any>;
   const artifactPath = `raw/providers/${providerId}/native-performance.json`;
   const evidence = readJson(path.join(result.runDir, artifactPath));
+  const request = readJson(path.join(result.runDir, 'raw', 'native-performance-request.json'));
+  const startCommandRecord = readJson(
+    path.join(result.runDir, 'raw', 'provider-commands', `${providerId}-start-native-window.started.json`),
+  ) as Record<string, any>;
   const stopCommandRecord = readJson(
     path.join(result.runDir, 'raw', 'provider-commands', `${providerId}-stop-native-window.json`),
   ) as Record<string, any>;
 
   assert.equal(health.healthStatus, 'passed');
+  assert.deepEqual(request, {
+    activeLoopWindow: {
+      exactMatchRequired: true,
+      phase: 'activeLoop',
+      runnerActiveLoopPath: 'raw/runner-active-loop-window.json',
+      status: 'pending',
+    },
+    platform: 'ios',
+    requestedAppId: 'dev.agent-scenario-loop.example',
+    requestedTargetId: 'A692ED28-893E-453F-8866-C69331AE757F',
+    runId,
+    runnerId: 'ios-simctl-profile-runner',
+    scenarioId: 'app-startup',
+    schemaVersion: '1.0.0',
+    target: {
+      appId: 'dev.agent-scenario-loop.example',
+      bundleId: 'dev.agent-scenario-loop.example',
+      packageName: 'dev.agent-scenario-loop.example',
+      targetId: 'A692ED28-893E-453F-8866-C69331AE757F',
+      udid: 'A692ED28-893E-453F-8866-C69331AE757F',
+    },
+  });
+  assert.ok(
+    Array.isArray(startCommandRecord.args)
+      && startCommandRecord.args.includes(crypto.createHash('sha256').update(`${JSON.stringify(request, null, 2)}\n`).digest('hex')),
+  );
   assert.equal(stopCommandRecord.outputs[0].runRelativePath, `raw/providers/${providerId}/active-window-capture.trace`);
   assert.equal(
     stopCommandRecord.outputs[0].sha256,

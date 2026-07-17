@@ -68,6 +68,33 @@ type ProviderCommandIdentity = {
   targetId?: string;
   udid?: string;
 };
+type NativePerformanceRequestRecord = {
+  activeLoopWindow: {
+    exactMatchRequired: true;
+    phase: 'activeLoop';
+    runnerActiveLoopPath: string;
+    status: 'pending';
+  };
+  platform: ProfilePlatform;
+  requestedAppId: string;
+  requestedTargetId: string;
+  runId: string;
+  runnerId: string;
+  scenarioId: string;
+  schemaVersion: '1.0.0';
+  target: {
+    appId: string;
+    targetId: string;
+    bundleId?: string;
+    packageName?: string;
+    serial?: string;
+    udid?: string;
+  };
+};
+type NativePerformanceRequestDescriptor = {
+  path: string;
+  sha256: string;
+};
 type RunnerActiveLoopWindowRecord = {
   durationMs: number;
   endedAt: string;
@@ -82,6 +109,7 @@ type ProfileMobileOptions = {
   commandTransport?: string;
   comparisonLane?: string;
   defaultDriver: string;
+  nativePerformanceRequest?: NativePerformanceRequestDescriptor;
   environmentPostconditions?: Record<string, unknown>;
   environmentPreconditions?: Record<string, unknown>;
   interactionDriver?: string;
@@ -126,6 +154,7 @@ type EvidenceRedactionAuthority = 'asl-default' | 'operator-declared' | 'provide
 type EvidenceSensitivity = 'declared-non-sensitive' | 'may-contain-sensitive-data' | 'unknown';
 const EVIDENCE_REDACTION_STATUSES = new Set<string>(['not-redacted', 'redacted', 'unknown']);
 const RUNNER_ACTIVE_LOOP_WINDOW_RELATIVE_PATH = 'raw/runner-active-loop-window.json';
+const NATIVE_PERFORMANCE_REQUEST_RELATIVE_PATH = 'raw/native-performance-request.json';
 type EvidenceRedactionPolicy = {
   authority: EvidenceRedactionAuthority;
   reason: string;
@@ -304,6 +333,7 @@ const PROFILE_SESSION_TERMINAL_COMMAND_STATUSES = new Set([
   'timed-out',
 ]);
 type ProviderManifest = {
+  artifactOutputs?: string[];
   kind?: string;
   platforms?: string[];
   providerCommands?: ProviderCommand[];
@@ -314,6 +344,8 @@ type ProviderCommandContext = {
   appId?: string;
   bundleId?: string;
   capturesDir: string;
+  nativePerformanceRequestPath: string;
+  nativePerformanceRequestSha256: string;
   nativeTargetBindingPath: string;
   packageName?: string;
   platform: ProfilePlatform;
@@ -600,6 +632,122 @@ async function writeRunnerActiveLoopWindow({
   await fsp.mkdir(path.dirname(filePath), { recursive: true });
   await fsp.writeFile(filePath, `${JSON.stringify(record, null, 2)}\n`, 'utf8');
   return filePath;
+}
+
+function providerCommandProducesNativePerformance(providerCommand: ProviderCommand): boolean {
+  return Array.isArray(providerCommand.outputs)
+    && providerCommand.outputs.some((output) => output.kind === 'nativePerformance');
+}
+
+function providerManifestIncludesNativePerformance(provider: ProviderManifest): boolean {
+  if (Array.isArray(provider.providerCommands) && provider.providerCommands.some(providerCommandProducesNativePerformance)) {
+    return true;
+  }
+
+  return Array.isArray(provider.artifactOutputs) && provider.artifactOutputs.includes('nativePerformance');
+}
+
+function shouldStageNativePerformanceRequest(args: CliArgs, platform: ProfilePlatform): boolean {
+  return readLoadedEvidenceProviderManifests(
+    args,
+    () => 'Evidence provider manifest',
+  ).some(({ manifest }) => {
+    if (Array.isArray(manifest.platforms) && !manifest.platforms.includes(platform)) {
+      return false;
+    }
+    return providerManifestIncludesNativePerformance(manifest);
+  });
+}
+
+function buildNativePerformanceRequestRecord({
+  identity,
+  platform,
+  runId,
+  runnerId,
+  scenarioId,
+}: {
+  identity: ProviderCommandIdentity;
+  platform: ProfilePlatform;
+  runId: string;
+  runnerId: string;
+  scenarioId: string;
+}): NativePerformanceRequestRecord {
+  if (typeof identity.appId !== 'string' || identity.appId.length === 0) {
+    throw new Error('Native-performance request requires an exact requested app id.');
+  }
+  if (typeof identity.targetId !== 'string' || identity.targetId.length === 0) {
+    throw new Error('Native-performance request requires an exact requested target id.');
+  }
+
+  return {
+    activeLoopWindow: {
+      exactMatchRequired: true,
+      phase: 'activeLoop',
+      runnerActiveLoopPath: RUNNER_ACTIVE_LOOP_WINDOW_RELATIVE_PATH,
+      status: 'pending',
+    },
+    platform,
+    requestedAppId: identity.appId,
+    requestedTargetId: identity.targetId,
+    runId,
+    runnerId,
+    scenarioId,
+    schemaVersion: '1.0.0',
+    target: {
+      appId: identity.appId,
+      targetId: identity.targetId,
+      ...(typeof identity.bundleId === 'string' && identity.bundleId.length > 0
+        ? { bundleId: identity.bundleId }
+        : {}),
+      ...(typeof identity.packageName === 'string' && identity.packageName.length > 0
+        ? { packageName: identity.packageName }
+        : {}),
+      ...(typeof identity.serial === 'string' && identity.serial.length > 0
+        ? { serial: identity.serial }
+        : {}),
+      ...(typeof identity.udid === 'string' && identity.udid.length > 0
+        ? { udid: identity.udid }
+        : {}),
+    },
+  };
+}
+
+async function stageNativePerformanceRequest({
+  args,
+  identity,
+  platform,
+  runDir,
+  runId,
+  runnerId,
+  scenarioId,
+}: {
+  args: CliArgs;
+  identity?: ProviderCommandIdentity;
+  platform: ProfilePlatform;
+  runDir: string;
+  runId: string;
+  runnerId: string;
+  scenarioId: string;
+}): Promise<NativePerformanceRequestDescriptor | null> {
+  if (!identity || !shouldStageNativePerformanceRequest(args, platform)) {
+    return null;
+  }
+
+  const record = buildNativePerformanceRequestRecord({
+    identity,
+    platform,
+    runId,
+    runnerId,
+    scenarioId,
+  });
+  const filePath = path.join(runDir, NATIVE_PERFORMANCE_REQUEST_RELATIVE_PATH);
+  const fileContents = `${JSON.stringify(record, null, 2)}\n`;
+  await fsp.mkdir(path.dirname(filePath), { recursive: true });
+  await fsp.writeFile(filePath, fileContents, 'utf8');
+  return {
+    path: filePath,
+    sha256: crypto.createHash('sha256').update(fileContents).digest('hex'),
+  };
 }
 
 /**
@@ -963,6 +1111,8 @@ function applyProviderPlaceholders(value: string, context: ProviderCommandContex
     .replaceAll('{appId}', context.appId ?? '')
     .replaceAll('{bundleId}', context.bundleId ?? '')
     .replaceAll('{capturesDir}', context.capturesDir)
+    .replaceAll('{nativePerformanceRequestPath}', context.nativePerformanceRequestPath)
+    .replaceAll('{nativePerformanceRequestSha256}', context.nativePerformanceRequestSha256)
     .replaceAll('{nativeTargetBindingPath}', context.nativeTargetBindingPath)
     .replaceAll('{packageName}', context.packageName ?? '')
     .replaceAll('{platform}', context.platform)
@@ -1358,6 +1508,7 @@ async function executeProviderCommands({
   includeProviders = true,
   includeStaticFailures = true,
   identity,
+  nativePerformanceRequest,
   supportMode = 'post-capture-only',
 }: {
   args: CliArgs;
@@ -1370,6 +1521,7 @@ async function executeProviderCommands({
   includeProviders?: boolean;
   includeStaticFailures?: boolean;
   identity?: ProviderCommandIdentity;
+  nativePerformanceRequest?: NativePerformanceRequestDescriptor;
   supportMode?: ProviderCommandSupportMode;
 }): Promise<ProviderCommandExecution> {
   const failures: ProviderCommandFailure[] = [];
@@ -1441,6 +1593,8 @@ async function executeProviderCommands({
     await ensureDir(providerDir);
     const context: ProviderCommandContext = {
       capturesDir: layout.captures,
+      nativePerformanceRequestPath: nativePerformanceRequest?.path ?? '',
+      nativePerformanceRequestSha256: nativePerformanceRequest?.sha256 ?? '',
       nativeTargetBindingPath: path.join(providerDir, 'target-binding.json'),
       platform,
       providerDir,
@@ -6383,6 +6537,7 @@ async function runProfileMobile(args: CliArgs, options: ProfileMobileOptions): P
       scenarioId: scenarioName,
       supportMode: providerCommandSupportMode,
       ...(options.providerCommandIdentity ? { identity: options.providerCommandIdentity } : {}),
+      ...(options.nativePerformanceRequest ? { nativePerformanceRequest: options.nativePerformanceRequest } : {}),
     });
     postRunPhaseProviderExecution = await executeProviderCommands({
       args,
@@ -6396,6 +6551,7 @@ async function runProfileMobile(args: CliArgs, options: ProfileMobileOptions): P
       scenarioId: scenarioName,
       supportMode: providerCommandSupportMode,
       ...(options.providerCommandIdentity ? { identity: options.providerCommandIdentity } : {}),
+      ...(options.nativePerformanceRequest ? { nativePerformanceRequest: options.nativePerformanceRequest } : {}),
     });
     if (providerCommandSupportMode === 'live-window') {
       finalizePhaseProviderExecution = await executeProviderCommands({
@@ -6410,6 +6566,7 @@ async function runProfileMobile(args: CliArgs, options: ProfileMobileOptions): P
         scenarioId: scenarioName,
         supportMode: providerCommandSupportMode,
         ...(options.providerCommandIdentity ? { identity: options.providerCommandIdentity } : {}),
+        ...(options.nativePerformanceRequest ? { nativePerformanceRequest: options.nativePerformanceRequest } : {}),
       });
     }
     providerExecution = mergeProviderCommandExecutions(
@@ -6882,6 +7039,7 @@ export {
   runProfileCli,
   runProfileMobile,
   RUNNER_ACTIVE_LOOP_WINDOW_RELATIVE_PATH,
+  stageNativePerformanceRequest,
   mergeProviderCommandExecutions,
   hashScenarioContract,
   usage,
