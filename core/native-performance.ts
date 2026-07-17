@@ -1,6 +1,7 @@
 const { assertValidJson, SCHEMAS, validateJson } = require('./schema-validator');
 
 type JsonRecord = Record<string, unknown>;
+const NATIVE_PERFORMANCE_REQUEST_RELATIVE_PATH = 'raw/native-performance-request.json';
 const RUNNER_ACTIVE_LOOP_WINDOW_RELATIVE_PATH = 'raw/runner-active-loop-window.json';
 
 type NativePerformanceAttachment = {
@@ -1412,6 +1413,44 @@ function readValidatedProviderCommandCompletedOutputs(
   return validatedOutputs;
 }
 
+function readValidatedBoundNativePerformanceRequest(
+  record: JsonRecord,
+): null | undefined | { requestPath: string; requestSha256: string } {
+  const hasRequestPath = record.requestPath !== undefined;
+  const hasRequestSha256 = record.requestSha256 !== undefined;
+  if (!hasRequestPath && !hasRequestSha256) {
+    return undefined;
+  }
+
+  if (
+    !isRunRelativeEvidencePath(record.requestPath) ||
+    !isNonEmptyString(record.requestSha256)
+  ) {
+    return null;
+  }
+
+  return {
+    requestPath: record.requestPath,
+    requestSha256: record.requestSha256,
+  };
+}
+
+function hasVerifiedBoundNativePerformanceRequest(
+  requestBinding: { requestPath: string; requestSha256: string },
+  context: Partial<NativePerformanceComparisonContext>,
+): boolean {
+  if (
+    requestBinding.requestPath !== NATIVE_PERFORMANCE_REQUEST_RELATIVE_PATH ||
+    typeof context.evidencePathExists !== 'function' ||
+    !context.evidencePathExists(requestBinding.requestPath)
+  ) {
+    return false;
+  }
+
+  const actualRequestSha256 = readVerifiedEvidenceSha256(requestBinding.requestPath, context);
+  return actualRequestSha256 !== null && requestBinding.requestSha256 === actualRequestSha256;
+}
+
 function providerCommandOutputsMatch(
   startedOutputs: JsonRecord[],
   completedOutputs: JsonRecord[],
@@ -1581,6 +1620,10 @@ function readVerifiedTargetBindingCommands(
     ) {
       return null;
     }
+    const sourceRequestBinding = readValidatedBoundNativePerformanceRequest(commandRecord);
+    if (sourceRequestBinding === null) {
+      return null;
+    }
     if (
       (isRunnerOwnedCommand && commandRecord.status !== 'completed') ||
       (!isRunnerOwnedCommand && commandRecord.status !== 'completed' && commandRecord.status !== 'partial')
@@ -1629,6 +1672,10 @@ function readVerifiedTargetBindingCommands(
     ) {
       return null;
     }
+    const completedRequestBinding = readValidatedBoundNativePerformanceRequest(completedRecord);
+    if (completedRequestBinding === null) {
+      return null;
+    }
     if (
       !isRunnerOwnedCommand &&
       (
@@ -1656,6 +1703,17 @@ function readVerifiedTargetBindingCommands(
       commandRecord.stderrSha256 !== actualStderrSha256
     ) {
       return null;
+    }
+    if (isRunnerOwnedCommand) {
+      if (
+        !sourceRequestBinding ||
+        !completedRequestBinding ||
+        sourceRequestBinding.requestPath !== completedRequestBinding.requestPath ||
+        sourceRequestBinding.requestSha256 !== completedRequestBinding.requestSha256 ||
+        !hasVerifiedBoundNativePerformanceRequest(sourceRequestBinding, context)
+      ) {
+        return null;
+      }
     }
     if (commandRecord.outputPath !== undefined) {
       const actualOutputSha256 = readVerifiedEvidenceSha256(commandRecord.outputPath, context);
@@ -1711,10 +1769,23 @@ function readVerifiedTargetBindingCommands(
       ) {
         return null;
       }
+      const startedRequestBinding = readValidatedBoundNativePerformanceRequest(startedRecord);
+      if (startedRequestBinding === null) {
+        return null;
+      }
       if (commandRecord.phase !== undefined && startedRecord.phase !== commandRecord.phase) {
         return null;
       }
       if (isRunnerOwnedCommand) {
+        if (
+          !sourceRequestBinding ||
+          !startedRequestBinding ||
+          startedRequestBinding.requestPath !== sourceRequestBinding.requestPath ||
+          startedRequestBinding.requestSha256 !== sourceRequestBinding.requestSha256 ||
+          !hasVerifiedBoundNativePerformanceRequest(startedRequestBinding, context)
+        ) {
+          return null;
+        }
         const startedOutputs = readValidatedProviderCommandStartedOutputs(startedRecord);
         if (
           !startedOutputs ||
