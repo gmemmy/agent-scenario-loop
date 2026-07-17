@@ -220,6 +220,88 @@ function resolveTargetBindingArtifactPath({ args, providerDir }) {
   return optionalStringArg(args, 'target-binding', 'ASL_NATIVE_TARGET_BINDING') ?? path.join(providerDir, 'target-binding.json');
 }
 
+function resolveNativePerformanceRequestPath(args, runDir) {
+  const requestPath = optionalStringArg(args, 'request', 'ASL_NATIVE_PERFORMANCE_REQUEST');
+  if (!requestPath) {
+    return null;
+  }
+  toRunRelativePath(runDir, requestPath);
+  return requestPath;
+}
+
+function resolveNativePerformanceRequestSha256(args) {
+  return optionalStringArg(args, 'request-sha256', 'ASL_NATIVE_PERFORMANCE_REQUEST_SHA256');
+}
+
+function validateNativePerformanceRequest({
+  args,
+  platform,
+  requestedAppId,
+  requestedTargetId,
+  runDir,
+  runId,
+  scenarioId,
+}) {
+  const requestPath = resolveNativePerformanceRequestPath(args, runDir);
+  const requestSha256 = resolveNativePerformanceRequestSha256(args);
+  if (requestSha256 && !requestPath) {
+    throw new Error('Native-performance request sha256 requires a matching request path.');
+  }
+  if (!requestPath) {
+    return null;
+  }
+  if (!requestSha256) {
+    throw new Error(
+      `Native-performance request at ${toRunRelativePath(runDir, requestPath)} requires a matching sha256.`,
+    );
+  }
+  if (sha256File(requestPath) !== requestSha256) {
+    throw new Error(
+      `Native-performance request hash mismatch at ${toRunRelativePath(runDir, requestPath)}.`,
+    );
+  }
+
+  const record = readJsonArtifactIfAvailable(requestPath);
+  if (!record || typeof record !== 'object' || Array.isArray(record)) {
+    throw new Error(`Native-performance request is missing or invalid at ${toRunRelativePath(runDir, requestPath)}.`);
+  }
+
+  const normalizedPlatform = normalizePlatform(platform);
+  if (record.schemaVersion !== '1.0.0') {
+    throw new Error(`Native-performance request at ${toRunRelativePath(runDir, requestPath)} must declare schemaVersion "1.0.0".`);
+  }
+  if (record.platform !== normalizedPlatform) {
+    throw new Error(`Native-performance request platform mismatch: expected ${normalizedPlatform}, received ${String(record.platform)}.`);
+  }
+  if (record.runId !== runId || record.scenarioId !== scenarioId) {
+    throw new Error(
+      `Native-performance request run identity mismatch: expected ${scenarioId}/${runId}, received ${String(record.scenarioId)}/${String(record.runId)}.`,
+    );
+  }
+  if (record.requestedAppId !== requestedAppId || record.requestedTargetId !== requestedTargetId) {
+    throw new Error(
+      `Native-performance request target identity mismatch: expected ${requestedAppId}/${requestedTargetId}, received ${String(record.requestedAppId)}/${String(record.requestedTargetId)}.`,
+    );
+  }
+  if (
+    !record.activeLoopWindow
+    || typeof record.activeLoopWindow !== 'object'
+    || Array.isArray(record.activeLoopWindow)
+    || record.activeLoopWindow.phase !== 'activeLoop'
+    || record.activeLoopWindow.status !== 'pending'
+    || record.activeLoopWindow.exactMatchRequired !== true
+    || record.activeLoopWindow.runnerActiveLoopPath !== RUNNER_ACTIVE_LOOP_WINDOW_RELATIVE_PATH
+  ) {
+    throw new Error(
+      `Native-performance request at ${toRunRelativePath(runDir, requestPath)} must point at the runner-owned activeLoop window policy.`,
+    );
+  }
+  return {
+    path: requestPath,
+    record,
+  };
+}
+
 function resolveLifecycleStatePath(providerDir) {
   return path.join(providerDir, 'native-window-session.json');
 }
@@ -830,6 +912,15 @@ async function captureAndroidAdbEvidence({ args, outPath, providerId, rawInvocat
   if (!runDir) {
     throw new Error('Android adb capture requires --run-dir so evidence paths can remain durable and run-relative.');
   }
+  validateNativePerformanceRequest({
+    args,
+    platform: 'android',
+    requestedAppId: appId,
+    requestedTargetId: deviceId,
+    runDir,
+    runId,
+    scenarioId,
+  });
   toRunRelativePath(runDir, outPath);
   const timeoutMs = parsePositiveInteger(
     optionalStringArg(args, 'command-timeout-ms', 'ASL_NATIVE_PERFORMANCE_COMMAND_TIMEOUT_MS'),
@@ -1316,6 +1407,15 @@ async function captureIosXctraceEvidence({ args, outPath, providerId, rawInvocat
   if (!runDir) {
     throw new Error('iOS xctrace capture requires --run-dir so evidence paths can remain durable and run-relative.');
   }
+  validateNativePerformanceRequest({
+    args,
+    platform: 'ios',
+    requestedAppId: bundleId,
+    requestedTargetId: deviceId,
+    runDir,
+    runId,
+    scenarioId,
+  });
   toRunRelativePath(runDir, outPath);
   const xcrunPath = optionalStringArg(args, 'xcrun', 'ASL_XCRUN_PATH') ?? 'xcrun';
   const captureDurationSeconds = parseStrictPositiveInteger(
@@ -1736,6 +1836,15 @@ async function runLifecycleAction({ action, args, platform, rawInvocationArgs })
   if (!requestedAppId || !requestedTargetId) {
     throw new Error(`Native-performance lifecycle action "${action}" requires both an app id and target id.`);
   }
+  validateNativePerformanceRequest({
+    args,
+    platform,
+    requestedAppId,
+    requestedTargetId,
+    runDir,
+    runId,
+    scenarioId,
+  });
 
   fs.mkdirSync(providerDir, { recursive: true });
   const providerId = resolveLifecycleProviderId({ args, providerDir });

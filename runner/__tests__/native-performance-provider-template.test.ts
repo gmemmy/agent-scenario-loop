@@ -407,6 +407,67 @@ process.exit(2);
   };
 }
 
+async function stageNativePerformanceRequestFixture({
+  platform,
+  runDir,
+}: {
+  platform: 'android' | 'ios';
+  runDir: string;
+}): Promise<{path: string; sha256: string}> {
+  const requestPath = path.join(runDir, 'raw', 'native-performance-request.json');
+  const record = platform === 'ios'
+    ? {
+        activeLoopWindow: {
+          exactMatchRequired: true,
+          phase: 'activeLoop',
+          runnerActiveLoopPath: 'raw/runner-active-loop-window.json',
+          status: 'pending',
+        },
+        platform,
+        requestedAppId: 'com.example.ios',
+        requestedTargetId: 'SIM-UDID-123',
+        runId: 'run-1',
+        runnerId: 'ios-simctl-profile-runner',
+        scenarioId: 'native-capture',
+        schemaVersion: '1.0.0',
+        target: {
+          appId: 'com.example.ios',
+          bundleId: 'com.example.ios',
+          targetId: 'SIM-UDID-123',
+          udid: 'SIM-UDID-123',
+        },
+      }
+    : {
+        activeLoopWindow: {
+          exactMatchRequired: true,
+          phase: 'activeLoop',
+          runnerActiveLoopPath: 'raw/runner-active-loop-window.json',
+          status: 'pending',
+        },
+        platform,
+        requestedAppId: 'com.example.app',
+        requestedTargetId: 'emulator-5554',
+        runId: 'run-1',
+        runnerId: 'android-adb-profile-runner',
+        scenarioId: 'native-capture',
+        schemaVersion: '1.0.0',
+        target: {
+          appId: 'com.example.app',
+          packageName: 'com.example.app',
+          serial: 'emulator-5554',
+          targetId: 'emulator-5554',
+          udid: 'emulator-5554',
+        },
+      };
+  const fileContents = `${JSON.stringify(record, null, 2)}\n`;
+  await fsp.mkdir(path.dirname(requestPath), { recursive: true });
+  await fsp.writeFile(requestPath, fileContents, 'utf8');
+  return {
+    path: requestPath,
+    sha256: sha256(fileContents),
+  };
+}
+
 function providerArgs(options: {fakeAdbPath: string; providerId: string; runDir: string; scriptPath: string}, extra: string[] = []): string[] {
   return [
     options.scriptPath,
@@ -556,6 +617,49 @@ test('generated provider keeps iOS xctrace capture opt-in', async (t: TestContex
   const evidence = JSON.parse(await fsp.readFile(path.join(provider.runDir, 'raw', 'providers', 'example-evidence-provider', 'native-performance.json'), 'utf8'));
   assert.equal(evidence.targetBinding.status, 'unverified');
   assert.equal(evidence.comparability.status, 'diagnostic-only');
+});
+
+test('generated provider rejects a mutated iOS native-performance request hash', async (t: TestContext) => {
+  const provider = await createGeneratedProvider(t);
+  const stagedRequest = await stageNativePerformanceRequestFixture({ platform: 'ios', runDir: provider.runDir });
+  const env = { ...process.env, ASL_NATIVE_PERFORMANCE_IOS_CAPTURE: '1' };
+  const lifecycleArgs = (action: 'start-window' | 'stop-window') => iosLifecycleArgs(provider, action, [
+    '--request', stagedRequest.path,
+    '--request-sha256', stagedRequest.sha256,
+  ]);
+
+  let result = await execFileResult(process.execPath, lifecycleArgs('start-window'), {
+    cwd: provider.targetDir,
+    env,
+  });
+  assert.equal(result.exitCode, 0, result.stderr);
+
+  await fsp.writeFile(
+    stagedRequest.path,
+    `${JSON.stringify({ tampered: true }, null, 2)}\n`,
+    'utf8',
+  );
+
+  result = await execFileResult(process.execPath, lifecycleArgs('stop-window'), {
+    cwd: provider.targetDir,
+    env,
+  });
+  assert.notEqual(result.exitCode, 0);
+  assert.match(result.stderr, /request hash mismatch/u);
+});
+
+test('generated provider rejects an iOS native-performance request without a hash binding', async (t: TestContext) => {
+  const provider = await createGeneratedProvider(t);
+  const stagedRequest = await stageNativePerformanceRequestFixture({ platform: 'ios', runDir: provider.runDir });
+  const result = await execFileResult(process.execPath, iosLifecycleArgs(provider, 'start-window', [
+    '--request', stagedRequest.path,
+  ]), {
+    cwd: provider.targetDir,
+    env: { ...process.env, ASL_NATIVE_PERFORMANCE_IOS_CAPTURE: '1' },
+  });
+
+  assert.notEqual(result.exitCode, 0);
+  assert.match(result.stderr, /requires a matching sha256/u);
 });
 
 test('generated provider captures bounded iOS xctrace diagnostics with verified target and trace window evidence', async (t: TestContext) => {

@@ -31,7 +31,11 @@
         "--scenario",
         "{scenarioId}",
         "--target-binding",
-        "{nativeTargetBindingPath}"
+        "{nativeTargetBindingPath}",
+        "--request",
+        "{nativePerformanceRequestPath}",
+        "--request-sha256",
+        "{nativePerformanceRequestSha256}"
       ],
       "outputs": []
     },
@@ -58,7 +62,11 @@
         "--scenario",
         "{scenarioId}",
         "--target-binding",
-        "{nativeTargetBindingPath}"
+        "{nativeTargetBindingPath}",
+        "--request",
+        "{nativePerformanceRequestPath}",
+        "--request-sha256",
+        "{nativePerformanceRequestSha256}"
       ],
       "outputs": []
     },
@@ -84,6 +92,10 @@
         "{runDir}",
         "--target-binding",
         "{nativeTargetBindingPath}",
+        "--request",
+        "{nativePerformanceRequestPath}",
+        "--request-sha256",
+        "{nativePerformanceRequestSha256}",
         "--out",
         "{providerDir}/native-performance.json"
       ],
@@ -118,7 +130,11 @@
         "--scenario",
         "{scenarioId}",
         "--target-binding",
-        "{nativeTargetBindingPath}"
+        "{nativeTargetBindingPath}",
+        "--request",
+        "{nativePerformanceRequestPath}",
+        "--request-sha256",
+        "{nativePerformanceRequestSha256}"
       ],
       "outputs": []
     }

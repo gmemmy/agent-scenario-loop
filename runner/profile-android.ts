@@ -19,6 +19,7 @@ const {
   resolveProfileScenarioName,
   runProfileCompatibilityPreflight,
   runProfileMobile,
+  stageNativePerformanceRequest,
   usage,
   writeRunnerActiveLoopWindow,
 } = require('./profile-mobile');
@@ -1561,6 +1562,17 @@ async function runProfileAndroid(
   const liveProviderLayout = liveWindowProviderLifecycle
     ? createArtifactLayout({ outputDir: liveProviderRunDir })
     : null;
+  const nativePerformanceRequest = liveWindowProviderLifecycle
+    ? await stageNativePerformanceRequest({
+        args,
+        identity: liveProviderIdentity,
+        platform: 'android',
+        runDir: liveProviderRunDir,
+        runId,
+        runnerId: 'android-adb-profile-runner',
+        scenarioId: scenarioName,
+      })
+    : null;
   const liveProviderExecutionOptions = liveProviderIdentity
     ? { identity: liveProviderIdentity }
     : {};
@@ -1585,6 +1597,7 @@ async function runProfileAndroid(
         runId,
         scenarioId: scenarioName,
         supportMode: 'live-window',
+        ...(nativePerformanceRequest ? { nativePerformanceRequest } : {}),
         ...liveProviderExecutionOptions,
       }),
     );
@@ -1603,6 +1616,7 @@ async function runProfileAndroid(
         runId,
         scenarioId: scenarioName,
         supportMode: 'live-window',
+        ...(nativePerformanceRequest ? { nativePerformanceRequest } : {}),
         ...liveProviderExecutionOptions,
       }),
     );
@@ -1678,6 +1692,7 @@ async function runProfileAndroid(
             runId,
             scenarioId: scenarioName,
             supportMode: 'live-window',
+            ...(nativePerformanceRequest ? { nativePerformanceRequest } : {}),
             ...liveProviderExecutionOptions,
           }),
         );
@@ -1796,6 +1811,9 @@ async function runProfileAndroid(
   if (liveWindowProviderLifecycle) {
     profileMobileOptions.providerCommandExecution = providerExecution;
     profileMobileOptions.providerCommandSupportMode = 'live-window';
+    if (nativePerformanceRequest) {
+      profileMobileOptions.nativePerformanceRequest = nativePerformanceRequest;
+    }
     if (liveProviderIdentity) {
       profileMobileOptions.providerCommandIdentity = liveProviderIdentity;
     }
