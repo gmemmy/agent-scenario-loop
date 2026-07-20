@@ -289,6 +289,42 @@ test('keeps latest-trusted budget-boundary failures as hard regressions', () => 
   assert.equal(validateJson(comparison, SCHEMAS.comparison, 'Comparison artifact').valid, true);
 });
 
+test('keeps one-run multi-metric comparisons at single-run confidence', () => {
+  const baselineVerdict = verdict({ runId: 'baseline-run', actual: 420 });
+  baselineVerdict.budgetChecks.push({
+    name: 'close p95',
+    source: 'milestone',
+    metric: 'p95',
+    unit: 'ms',
+    expected: 1000,
+    actual: 380,
+    pass: true,
+  });
+  const currentVerdict = verdict({ runId: 'current-run', actual: 390 });
+  currentVerdict.budgetChecks.push({
+    name: 'close p95',
+    source: 'milestone',
+    metric: 'p95',
+    unit: 'ms',
+    expected: 1000,
+    actual: 350,
+    pass: true,
+  });
+
+  const comparison = buildComparisonArtifact({
+    baselineHealth: health({ runId: 'baseline-run' }),
+    baselineVerdict,
+    currentHealth: health({ runId: 'current-run' }),
+    currentVerdict,
+  });
+
+  assert.equal(comparison.metricComparisons.length, 2);
+  assert.equal(comparison.measurementPolicy.samples.baseline.validSamples, 1);
+  assert.equal(comparison.measurementPolicy.samples.current.validSamples, 1);
+  assert.equal(comparison.measurementPolicy.confidence.level, 'single_run');
+  assert.equal(validateJson(comparison, SCHEMAS.comparison, 'Comparison artifact').valid, true);
+});
+
 test('builds a better comparison only after both runs passed health', () => {
   const comparison = buildComparisonArtifact({
     baselineHealth: health({ runId: 'baseline-run' }),

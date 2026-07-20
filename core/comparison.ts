@@ -1127,12 +1127,12 @@ function buildComparisonBasis({
  * @param {unknown} checks
  * @returns {number}
  */
-function countValidBudgetSamples(checks: unknown): number {
+function countValidBudgetRuns(checks: unknown): number {
   if (!Array.isArray(checks)) {
     return 0;
   }
 
-  return checks.filter((check) => (
+  return checks.some((check) => (
     check &&
     typeof check === 'object' &&
     (
@@ -1140,29 +1140,25 @@ function countValidBudgetSamples(checks: unknown): number {
         Number.isFinite((check as {actual: number}).actual)) ||
       typeof (check as {actual?: unknown}).actual === 'boolean'
     )
-  )).length;
+  )) ? 1 : 0;
 }
 
 function resolveMeasurementConfidenceLevel({
+  hasComparableMetric,
   hasLowConfidenceMovement,
-  validSamples,
 }: {
+  hasComparableMetric: boolean;
   hasLowConfidenceMovement: boolean;
-  validSamples: number;
 }): MeasurementPolicy['confidence']['level'] {
+  if (!hasComparableMetric) {
+    return 'insufficient';
+  }
+
   if (hasLowConfidenceMovement) {
     return 'low_confidence';
   }
 
-  if (validSamples === 0) {
-    return 'insufficient';
-  }
-
-  if (validSamples === 1) {
-    return 'single_run';
-  }
-
-  return 'multi_sample';
+  return 'single_run';
 }
 
 /**
@@ -1183,11 +1179,13 @@ function buildMeasurementPolicy({
   metricComparisons: MetricComparison[];
 }): MeasurementPolicy {
   const selection = comparisonBasis?.selection;
-  const validSamples = metricComparisons.length;
+  const hasComparableMetric = metricComparisons.some((metric) => (
+    typeof metric.delta === 'number' && Number.isFinite(metric.delta)
+  ));
   const hasLowConfidenceMovement = metricComparisons.some((metric) => metric.status === 'low_confidence');
   const confidenceLevel = resolveMeasurementConfidenceLevel({
+    hasComparableMetric,
     hasLowConfidenceMovement,
-    validSamples,
   });
   const poisoningProtection = {
     requirePassedHealth: true,
@@ -1205,12 +1203,12 @@ function buildMeasurementPolicy({
     },
     samples: {
       baseline: {
-        validSamples: countValidBudgetSamples(baselineVerdict.budgetChecks),
+        validSamples: countValidBudgetRuns(baselineVerdict.budgetChecks),
         warmupSamples: 0,
         outliersExcluded: 0,
       },
       current: {
-        validSamples: countValidBudgetSamples(currentVerdict.budgetChecks),
+        validSamples: countValidBudgetRuns(currentVerdict.budgetChecks),
         warmupSamples: 0,
         outliersExcluded: 0,
       },
