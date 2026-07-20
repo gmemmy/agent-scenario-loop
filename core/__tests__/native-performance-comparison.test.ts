@@ -445,6 +445,45 @@ test('fails closed on target-contract mismatch', () => {
   assert.ok(result.explanations.some((entry: JsonRecord) => entry.field === 'comparisonPolicy.target.family'));
 });
 
+test('fails closed on provider and policy mismatches even when current looks faster', () => {
+  const result = compareNativePerformanceEvidencePair({
+    baselineEvidence: buildNativeEvidence({
+      frames: {
+        jankyFrameCount: 3,
+        p50FrameMs: 13,
+        p90FrameMs: 18,
+        p95FrameMs: 22,
+        p99FrameMs: 28,
+        totalFrameCount: 120,
+        worstFrameMs: 34,
+      },
+      runId: 'baseline-run',
+    }),
+    currentEvidence: buildNativeEvidence({
+      comparisonPolicy: buildComparisonPolicy({
+        policyId: 'release-native-baseline-v2',
+        providerVersion: '2.0.0',
+      }),
+      frames: {
+        jankyFrameCount: 1,
+        p50FrameMs: 10,
+        p90FrameMs: 13,
+        p95FrameMs: 16,
+        p99FrameMs: 20,
+        totalFrameCount: 120,
+        worstFrameMs: 26,
+      },
+      providerId: 'other-native-provider',
+      runId: 'current-run',
+    }),
+  });
+
+  assert.equal(result.status, 'not-comparable');
+  assert.ok(result.explanations.some((entry: JsonRecord) => entry.field === 'providerId'));
+  assert.ok(result.explanations.some((entry: JsonRecord) => entry.field === 'comparisonPolicy.policyId'));
+  assert.ok(result.explanations.some((entry: JsonRecord) => entry.field === 'comparisonPolicy.providerVersion'));
+});
+
 test('rejects invalid native-performance samples and frame invariants', () => {
   const result = compareNativePerformanceEvidencePair({
     baselineEvidence: buildNativeEvidence({
@@ -468,6 +507,30 @@ test('rejects invalid native-performance samples and frame invariants', () => {
   assert.ok(result.explanations.some((entry: JsonRecord) => entry.field === 'frames.jankyFrameCount'));
   assert.ok(result.explanations.some((entry: JsonRecord) => entry.field === 'frames.percentiles'));
   assert.deepEqual(result.metrics, []);
+});
+
+test('rejects non-finite native-performance samples as not comparable', () => {
+  const result = compareNativePerformanceEvidencePair({
+    baselineEvidence: buildNativeEvidence({
+      runId: 'baseline-run',
+    }),
+    currentEvidence: buildNativeEvidence({
+      frames: {
+        jankyFrameCount: 2,
+        p50FrameMs: 12,
+        p90FrameMs: 16,
+        p95FrameMs: Number.NaN,
+        p99FrameMs: 24,
+        totalFrameCount: 120,
+        worstFrameMs: 31,
+      },
+      runId: 'current-run',
+    }),
+  });
+
+  assert.equal(result.status, 'not-comparable');
+  assert.equal(result.metrics[0].status, 'not-comparable');
+  assert.ok(result.explanations.some((entry: JsonRecord) => entry.field === 'p95FrameMs'));
 });
 
 test('reports native metrics without a configured budget separately from comparison status', () => {
@@ -528,6 +591,61 @@ test('marks native comparison not comparable when baseline evidence is missing f
   assert.equal(validateJson(comparison, SCHEMAS.comparison, 'Comparison artifact').valid, true);
 });
 
+test('keeps native-performance not comparable when current run fails health gate despite faster metrics', async (t: TestContext) => {
+  const root = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-native-comparison-health-gate-'));
+  t.after(async () => {
+    await fsp.rm(root, { recursive: true, force: true });
+  });
+
+  const baselineDir = await writeRun({
+    nativeEvidence: buildNativeEvidence({
+      frames: {
+        jankyFrameCount: 4,
+        p50FrameMs: 16,
+        p90FrameMs: 20,
+        p95FrameMs: 24,
+        p99FrameMs: 30,
+        totalFrameCount: 120,
+        worstFrameMs: 36,
+      },
+      runId: 'baseline-run',
+    }),
+    root,
+    runId: 'baseline-run',
+  });
+  const currentDir = await writeRun({
+    healthStatus: 'failed',
+    nativeEvidence: buildNativeEvidence({
+      frames: {
+        jankyFrameCount: 1,
+        p50FrameMs: 11,
+        p90FrameMs: 14,
+        p95FrameMs: 17,
+        p99FrameMs: 22,
+        totalFrameCount: 120,
+        worstFrameMs: 29,
+      },
+      runId: 'current-run',
+    }),
+    root,
+    runId: 'current-run',
+  });
+
+  const comparison = compareRunDirectories({
+    baselineDir,
+    currentDir,
+  });
+
+  assert.equal(comparison.healthStatus, 'failed');
+  assert.equal(comparison.comparisonStatus, 'inconclusive');
+  assert.equal(comparison.nativePerformance.status, 'not-comparable');
+  assert.ok(
+    comparison.nativePerformance.explanations.some(
+      (entry: JsonRecord) => entry.phase === 'current' && entry.field === 'trusted',
+    ),
+  );
+});
+
 test('keeps diagnostic-only native evidence out of comparison truth and enforces trusted run compatibility', async (t: TestContext) => {
   const root = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-native-comparison-diagnostic-only-'));
   t.after(async () => {
@@ -573,6 +691,128 @@ test('keeps diagnostic-only native evidence out of comparison truth and enforces
       (entry: JsonRecord) => entry.field === 'cohortHash' && entry.phase === 'pair',
     ),
   );
+});
+
+test('marks native evidence not comparable when measurable samples are missing', async (t: TestContext) => {
+  const root = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-native-comparison-missing-samples-'));
+  t.after(async () => {
+    await fsp.rm(root, { recursive: true, force: true });
+  });
+
+  const baselineDir = await writeRun({
+    nativeEvidence: buildNativeEvidence({
+      runId: 'baseline-run',
+    }),
+    root,
+    runId: 'baseline-run',
+  });
+  const noSamplesEvidence = buildNativeEvidence({
+    frames: {},
+    runId: 'current-run',
+  });
+  const currentDir = await writeRun({
+    nativeEvidence: noSamplesEvidence,
+    root,
+    runId: 'current-run',
+  });
+
+  const comparison = compareRunDirectories({
+    baselineDir,
+    currentDir,
+  });
+
+  assert.equal(comparison.nativePerformance.status, 'not-comparable');
+  assert.ok(
+    comparison.nativePerformance.explanations.some(
+      (entry: JsonRecord) => entry.phase === 'current' && entry.field === 'frames',
+    ),
+  );
+});
+
+test('rejects a faster-looking inadmissible candidate without creating a native improvement claim', async (t: TestContext) => {
+  const root = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-native-comparison-inadmissible-faster-candidate-'));
+  t.after(async () => {
+    await fsp.rm(root, { recursive: true, force: true });
+  });
+
+  const baselineDir = await writeRun({
+    nativeEvidence: buildNativeEvidence({
+      frames: {
+        jankyFrameCount: 3,
+        p50FrameMs: 14,
+        p90FrameMs: 18,
+        p95FrameMs: 22,
+        p99FrameMs: 26,
+        totalFrameCount: 120,
+        worstFrameMs: 33,
+      },
+      runId: 'baseline-run',
+    }),
+    root,
+    runId: 'baseline-run',
+    verdictActual: 920,
+  });
+  const currentDir = await writeRun({
+    nativeEvidence: buildNativeEvidence({
+      claimStatus: 'sufficient-for-diagnosis',
+      comparabilityStatus: 'diagnostic-only',
+      completenessStatus: 'partial',
+      frames: {
+        jankyFrameCount: 1,
+        p50FrameMs: 8,
+        p90FrameMs: 10,
+        p95FrameMs: 12,
+        p99FrameMs: 15,
+        totalFrameCount: 120,
+        worstFrameMs: 19,
+      },
+      runId: 'current-run',
+    }),
+    root,
+    runId: 'current-run',
+    verdictActual: 760,
+  });
+
+  const comparison = compareRunDirectories({
+    baselineDir,
+    currentDir,
+  });
+
+  assert.equal(comparison.comparisonStatus, 'better');
+  assert.ok(Array.isArray(comparison.metricComparisons));
+  assert.ok(comparison.metricComparisons.some((metric: JsonRecord) => metric.status === 'better'));
+
+  assert.equal(comparison.nativePerformance.status, 'not-comparable');
+  assert.ok(
+    comparison.nativePerformance.explanations.some(
+      (entry: JsonRecord) =>
+        entry.phase === 'current' &&
+        entry.field === 'claimSufficiency' &&
+        entry.code === 'untrusted-evidence',
+    ),
+  );
+  assert.ok(
+    comparison.nativePerformance.explanations.some(
+      (entry: JsonRecord) =>
+        entry.phase === 'current' &&
+        entry.field === 'comparability' &&
+        entry.code === 'policy-mismatch',
+    ),
+  );
+  assert.ok(
+    comparison.nativePerformance.explanations.some(
+      (entry: JsonRecord) =>
+        entry.phase === 'current' &&
+        entry.field === 'completenessStatus' &&
+        entry.code === 'untrusted-evidence',
+    ),
+  );
+  assert.ok(
+    comparison.nativePerformance.metrics.every((metric: JsonRecord) => metric.status !== 'improved'),
+  );
+  assert.doesNotMatch(comparison.summary, /Native performance improved/u);
+  assert.match(comparison.summary, /Native performance was not comparable/u);
+  assert.equal(validateJson(comparison, SCHEMAS.comparison, 'Comparison artifact').valid, true);
 });
 
 test('compareRunDirectories rejects native-performance attachment symlink escapes', async (t: TestContext) => {
