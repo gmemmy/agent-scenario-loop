@@ -81,6 +81,57 @@ test('compares numeric budget actuals with lower values treated as better', () =
   );
 });
 
+test('rejects faster-looking non-finite budget samples as inconclusive', () => {
+  assert.deepEqual(
+    compareBudgetCheck(
+      { name: 'open p95', unit: 'ms', actual: 900, pass: true },
+      { name: 'open p95', unit: 'ms', actual: Number.NEGATIVE_INFINITY, pass: true },
+    ),
+    {
+      name: 'open p95',
+      unit: 'ms',
+      baseline: 900,
+      current: null,
+      delta: null,
+      status: 'inconclusive',
+      notes: 'Only finite numeric budget actuals are compared by direction.',
+    },
+  );
+
+  for (const invalidActual of [Number.NaN, Number.POSITIVE_INFINITY]) {
+    assert.equal(
+      compareBudgetCheck(
+        { name: 'open p95', unit: 'ms', actual: invalidActual, pass: true },
+        { name: 'open p95', unit: 'ms', actual: invalidActual, pass: true },
+      ).status,
+      'inconclusive',
+    );
+  }
+});
+
+test('normalizes invalid samples in schema-valid persisted comparison artifacts', () => {
+  const comparison = buildComparisonArtifact({
+    baselineHealth: health({ runId: 'baseline-run' }),
+    baselineVerdict: verdict({ runId: 'baseline-run', actual: 900 }),
+    currentHealth: health({ runId: 'invalid-current-run' }),
+    currentVerdict: verdict({ runId: 'invalid-current-run', actual: Number.NEGATIVE_INFINITY }),
+  });
+
+  assert.equal(comparison.comparisonStatus, 'inconclusive');
+  assert.deepEqual(comparison.metricComparisons[0], {
+    name: 'open p95',
+    unit: 'ms',
+    baseline: 900,
+    current: null,
+    delta: null,
+    status: 'inconclusive',
+    notes: 'Only finite numeric budget actuals are compared by direction.',
+  });
+  assert.equal(comparison.measurementPolicy.samples.current.validSamples, 0);
+  assert.equal(validateJson(comparison, SCHEMAS.comparison, 'Comparison artifact').valid, true);
+  assert.deepEqual(JSON.parse(JSON.stringify(comparison)), comparison);
+});
+
 test('treats tiny millisecond deltas as unchanged timing noise', () => {
   assert.deepEqual(
     compareBudgetCheck(
@@ -169,6 +220,45 @@ test('reports latest-trusted single-run timing movement as low confidence while 
   assert.match(comparison.metricComparisons[0].notes, /Single-run timing movement/u);
   assert.equal(comparison.measurementPolicy.confidence.level, 'low_confidence');
   assert.match(comparison.summary, /low-confidence timing movement/u);
+  assert.equal(validateJson(comparison, SCHEMAS.comparison, 'Comparison artifact').valid, true);
+});
+
+test('rejects faster-looking latest-trusted single-run timing as an optimization claim', () => {
+  const comparison = buildComparisonArtifact({
+    baselineHealth: health({ runId: 'baseline-run' }),
+    baselineVerdict: verdict({ runId: 'baseline-run', actual: 960 }),
+    comparisonBasis: {
+      strategy: 'latest_trusted_prior',
+      baseline: {
+        runId: 'baseline-run',
+        healthStatus: 'passed',
+        verdictStatus: 'passed',
+      },
+      current: {
+        runId: 'faster-looking-current-run',
+        healthStatus: 'passed',
+        verdictStatus: 'passed',
+      },
+      selection: {
+        artifactRoot: 'artifacts/example-mobile-app/android',
+        scenarioId: 'open-close-cycle',
+        selectedRunDir: 'artifacts/example-mobile-app/android/open-close-cycle/baseline-run',
+        selectedRunId: 'baseline-run',
+        skippedCurrentRun: true,
+      },
+    },
+    currentHealth: health({ runId: 'faster-looking-current-run' }),
+    currentVerdict: verdict({ runId: 'faster-looking-current-run', actual: 700 }),
+  });
+
+  assert.equal(comparison.comparisonStatus, 'low_confidence');
+  assert.equal(comparison.metricComparisons[0].status, 'low_confidence');
+  assert.equal(comparison.metricComparisons[0].delta, -260);
+  assert.match(comparison.metricComparisons[0].notes, /optimization or regression/u);
+  assert.equal(comparison.measurementPolicy.confidence.level, 'low_confidence');
+  assert.match(comparison.measurementPolicy.confidence.reason, /optimization or regression/u);
+  assert.match(comparison.summary, /low-confidence timing movement/u);
+  assert.doesNotMatch(comparison.summary, /improved/u);
   assert.equal(validateJson(comparison, SCHEMAS.comparison, 'Comparison artifact').valid, true);
 });
 

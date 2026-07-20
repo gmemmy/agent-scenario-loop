@@ -169,7 +169,7 @@ test('compares current run against latest trusted prior run', async (t: TestCont
   const comparison = JSON.parse(stdout);
   assert.equal(comparison.baselineRunId, 'older-trusted-run');
   assert.equal(comparison.runId, 'current-run');
-  assert.equal(comparison.comparisonStatus, 'better');
+  assert.equal(comparison.comparisonStatus, 'low_confidence');
   assert.equal(comparison.metricComparisons[0].delta, -190);
   assert.deepEqual(comparison.measurementPolicy, {
     baselineSelection: {
@@ -181,8 +181,9 @@ test('compares current run against latest trusted prior run', async (t: TestCont
       },
     },
     confidence: {
-      level: 'single_run',
+      level: 'low_confidence',
       minValidSamples: 1,
+      reason: 'Single-run timing movement stayed within passing budgets; repeat or multi-sample proof is required before treating it as an optimization or regression.',
     },
     samples: {
       baseline: {
@@ -269,7 +270,7 @@ test('keeps unlabeled current runs out of labeled comparison lanes', async (t: T
   const comparison = JSON.parse(stdout);
   assert.equal(comparison.baselineRunId, 'older-unlabeled-run');
   assert.equal(comparison.runId, 'current-unlabeled-run');
-  assert.equal(comparison.comparisonStatus, 'better');
+  assert.equal(comparison.comparisonStatus, 'low_confidence');
   assert.equal(comparison.comparisonBasis.selection.trustedPriorCandidates, 2);
   assert.equal(comparison.comparisonBasis.selection.trustedComparableCandidates, 1);
   assert.equal(comparison.comparisonBasis.selection.comparisonLane, undefined);
@@ -315,7 +316,7 @@ test('filters latest trusted prior runs by current comparison lane', async (t: T
   const comparison = JSON.parse(stdout);
   assert.equal(comparison.baselineRunId, 'older-agent-device-run');
   assert.equal(comparison.runId, 'current-agent-device-run');
-  assert.equal(comparison.comparisonStatus, 'better');
+  assert.equal(comparison.comparisonStatus, 'low_confidence');
   assert.equal(comparison.comparisonBasis.selection.comparisonLane, 'example-android-live+agent-device');
   assert.equal(comparison.comparisonBasis.selection.trustedPriorCandidates, 2);
   assert.equal(comparison.comparisonBasis.selection.trustedComparableCandidates, 1);
@@ -363,7 +364,7 @@ test('filters latest trusted prior runs by scenario contract hash when current i
 
   const comparison = JSON.parse(stdout);
   assert.equal(comparison.baselineRunId, 'older-same-contract-run');
-  assert.equal(comparison.comparisonStatus, 'better');
+  assert.equal(comparison.comparisonStatus, 'low_confidence');
   assert.equal(comparison.comparisonBasis.selection.comparisonLane, 'example-android-live+agent-device');
   assert.equal(comparison.comparisonBasis.selection.scenarioHash, 'a'.repeat(64));
   assert.equal(comparison.comparisonBasis.selection.trustedComparableCandidates, 2);
@@ -415,7 +416,7 @@ test('filters latest trusted prior runs by provenance cohort hash when current i
 
   const comparison = JSON.parse(stdout);
   assert.equal(comparison.baselineRunId, 'older-same-cohort-run');
-  assert.equal(comparison.comparisonStatus, 'better');
+  assert.equal(comparison.comparisonStatus, 'low_confidence');
   assert.equal(comparison.comparisonBasis.selection.cohortHash, 'c'.repeat(64));
   assert.deepEqual(comparison.measurementPolicy.baselineSelection, {
     mode: 'latestTrustedPrior',

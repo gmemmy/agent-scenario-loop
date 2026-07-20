@@ -2340,7 +2340,7 @@ function main(): void {
     assert.equal(latestCompareOutput.trim(), latestCompareOutputDir);
     assert.equal(latestComparison.baselineRunId, 'baseline-run');
     assert.equal(latestComparison.runId, 'current-run');
-    assert.equal(latestComparison.comparisonStatus, 'better');
+    assert.equal(latestComparison.comparisonStatus, 'low_confidence');
     assertLatestTrustedComparisonBasis({
       artifactRoot: latestCompareRoot,
       baselineRunDir: path.join(latestCompareRoot, 'app-startup', 'baseline-run'),

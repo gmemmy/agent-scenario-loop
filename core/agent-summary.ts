@@ -477,16 +477,18 @@ function selectNextActionHealthChecks(checks: SummaryRecord[]): SummaryRecord[] 
 /**
  * Picks the most actionable owner from health and budget evidence.
  *
- * @param {{healthStatus: string, healthChecks: unknown[], verdictStatus: string, budgetChecks: unknown[]}} options
+ * @param {{comparisonStatus: string, healthStatus: string, healthChecks: unknown[], verdictStatus: string, budgetChecks: unknown[]}} options
  * @returns {NextActionSummary}
  */
 function resolveNextActionSummary({
+  comparisonStatus,
   healthStatus,
   healthChecks,
   verdictStatus,
   budgetChecks,
 }: {
   budgetChecks: unknown[];
+  comparisonStatus: string;
   healthChecks: unknown[];
   healthStatus: string;
   verdictStatus: string;
@@ -508,6 +510,14 @@ function resolveNextActionSummary({
     .filter((record) => record.status === 'unmeasurable');
   if (unmeasurableBudgets.length > 0 || verdictStatus === 'inconclusive' || verdictStatus === 'not_evaluated') {
     return nextActionSummaryForOwner('scenario_contract', unmeasurableBudgets);
+  }
+
+  if (comparisonStatus === 'low_confidence') {
+    return {
+      action: 'Repeat the same comparison policy or collect a complete multi-sample run before making an optimization or regression claim.',
+      owner: 'scenario_contract',
+      reason: 'the latest-trusted comparison has only low-confidence directional timing movement',
+    };
   }
 
   const failedBudgets = asArray(budgetChecks)
@@ -751,6 +761,7 @@ function buildAgentSummaryMarkdown({ health, verdict, comparison = null, manifes
   const budgetChecks = asArray(verdict?.budgetChecks);
   lines.push(...formatNextActionSummary(resolveNextActionSummary({
     budgetChecks,
+    comparisonStatus,
     healthChecks,
     healthStatus,
     verdictStatus,
