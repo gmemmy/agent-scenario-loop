@@ -26,9 +26,17 @@ Keep the boundaries explicit:
 Every lane must preserve failed and partial evidence, state exact platform
 coverage, and keep app-specific concepts downstream.
 
+Protocol-spine gaps and demonstrations that can falsify a trust claim outrank
+new delivery, storage, graph, or automation surfaces. Public positioning remains
+grounded in shipped contracts and proof; the broader behavioral-proof thesis is
+an internal hypothesis, not a package claim. ASL may recommend a bounded owner
+or next action, but consumers retain authority, approval, and final action policy.
+
 ## Current-Main Reconciliation
 
-Classification is against `origin/main` at package `0.1.15`, not old PR status.
+Classification is against `origin/main` at
+`a4ced100cb50e63b43e7e25eb64008dc9c9997da`, after package `0.1.15` and merged
+work through #258, not old PR status.
 
 ### Shipped foundations
 
@@ -47,10 +55,20 @@ Classification is against `origin/main` at package `0.1.15`, not old PR status.
   minimum samples, confidence, tolerance, and unmeasurable outcomes.
 - Deterministic resource leases cover device/simulator, port, and profiler
   ownership with bounded cleanup semantics.
-- Native-performance evidence has shared schema validation, claim sufficiency,
-  comparison-readiness gating, Android provider capture, and bounded iOS
-  simctl/xctrace diagnostic capture. Incomplete provider output remains
-  diagnostic evidence rather than comparison truth.
+- Bounded iOS simctl video capture preserves subprocess output and partial
+  failures, validates finalized MP4/QuickTime bytes, and exposes a run-relative
+  capture only after validation.
+- Trusted native-performance comparison now requires structured same-condition
+  policy and metric descriptors, measurable samples, complete durable evidence,
+  observed target identity, and a bounded capture window. Incomplete or
+  incompatible evidence remains diagnostic instead of becoming comparison truth.
+- Live Android and iOS capture can bracket the runner-owned active loop with
+  provider `startWindow` and `stopWindow`, then normalize after raw evidence is
+  staged and finalize without rewriting prior command evidence.
+- Native-performance live runs stage the requested app, target, and active-window
+  policy before capture. Immutable provider command records bind the staged
+  request hash, and comparison-ready target proof must bind the runner-owned
+  active window plus the hashed raw capture outputs used by normalization.
 - Project validation inventories exercised scenario coverage metadata. This is
   coverage truth, not automatic change-to-scenario selection.
 
@@ -102,20 +120,32 @@ consumer-specific behavior to ASL.
 - **Proof gate:** focused tests, `pnpm test`, `pnpm release:check`, packed consumer
   rehearsal when package files move, and downstream proof owned by the consumer.
 
+Early exit evidence must include deliberate negative cases:
+
+- a faster-looking unhealthy or unmeasurable run cannot support optimization;
+  mismatched or incomplete native evidence remains diagnostic and cannot support
+  a trusted native-performance baseline or comparison claim;
+- one unchanged scenario contract and app-owned truth definition is exercised by
+  two independently implemented adapters, with unsupported behavior failing
+  during planning instead of forcing a scenario rewrite;
+- scenario-contract, app-truth, runner, provider, environment, unsupported, and
+  compound failures yield the correct bounded owner recommendation or remain
+  explicitly unresolved. Authority to act stays downstream.
+
 Exit when a new consumer can distinguish product failure, runner failure,
 unhealthy environment, unsupported capability, and incomplete diagnostics
 without inspecting host-only logs.
 
-### 2. Reviewer evidence and iOS video
+### 2. Reviewer evidence as a derived view
 
 Objective: make a bounded run understandable to a reviewer without weakening
 artifact truth.
 
-- Define a reviewer evidence bundle as a derived view over existing manifests,
-  health, verdict, summaries, captures, and integrity metadata.
-- Add iOS video capture through the simctl adapter with bounded start/stop,
-  captured subprocess output, partial-failure preservation, and run-relative
-  inventory. Video is realism evidence, not scenario truth by itself.
+- Experiment with a reviewer evidence bundle as a derived view over existing
+  manifests, health, verdict, summaries, captures, and integrity metadata.
+- Do not introduce a public bundle or proof-graph contract unless the experiment
+  identifies a required relation that cannot be derived from existing artifacts.
+- Treat shipped iOS video as realism evidence, not scenario truth by itself.
 - Keep bundle generation separate from artifact interpretation; missing media
   must render as explicit unavailable/failed evidence with a reason.
 - **Ownership:** core owns the derived bundle contract if one is needed; the iOS
@@ -123,10 +153,14 @@ artifact truth.
 - **Proof gate:** schema/contract tests for any public artifact change, iOS
   runner failure-path tests, package smoke, and a sanitized reviewer fixture.
 
-### 3. Advisory delivery integrations
+### 3. Advisory delivery integrations after proof semantics
 
 Objective: deliver concise evidence-backed results to review and operations
 surfaces without making those surfaces truth owners.
+
+This horizon starts only after the early falsification demonstrations pass and
+the claims being delivered have settled proof semantics. Delivery must not force
+new core claim policy.
 
 - Begin with pull-request checks/comments and webhook-style outputs derived from
   completed artifacts.
@@ -135,7 +169,8 @@ surfaces without making those surfaces truth owners.
 - Delivery failures must be separately classified and must not mutate the run
   verdict or erase artifacts.
 - **Ownership:** delivery modules own formatting and transport; core owns the
-  artifact fields they consume; repositories own credentials and policy.
+  artifact fields they consume; repositories own credentials, authority, and
+  action policy.
 - **Proof gate:** deterministic formatting fixtures, transport failure tests,
   idempotency/correlation proof, and no secrets or absolute host paths.
 
@@ -163,12 +198,17 @@ hosts and devices.
 
 - Extend trusted local history into explicit retention, lineage, cohort, and
   compatibility policy before adding remote storage.
+- Decide how compatible scenario revisions relate, and complete a
+  historical-learning case with a predeclared rule and paired full-history versus
+  latest-only evaluation before expanding history behavior.
 - Classify flakes from preserved attempts and comparable cohorts; never relabel
   unhealthy or unmeasurable runs as product flakes.
 - Add distributed resource coordination behind the existing lease semantics,
   including expiry, fencing, orphan recovery, and conflict evidence.
-- Resume change-to-scenario selection only after exercised coverage contracts
-  can support conservative, explainable selection and fallback-to-full-set.
+- Keep automatic change-to-scenario selection parked until exercised coverage
+  contracts support conservative, explainable selection and fallback-to-full-set,
+  and the historical-learning case proves that history changes a bounded decision
+  without mixing incompatible scenarios.
 - **Proof gate:** deterministic history fixtures, poisoning/compatibility tests,
   repeated-run classification tests, and lease contention/recovery tests.
 
@@ -188,6 +228,18 @@ evidence system rather than a repository-specific implementation.
 - Release readiness requires green `pnpm release:check` plus the relevant package
   smoke, consumer rehearsal, and platform proof packets. A green fixture run is
   not a substitute for unavailable live proof.
+
+## Decision Gates, Not Commitments
+
+Keep these outside committed core horizons until a bounded case demonstrates a
+product-neutral contract need that existing artifacts cannot express:
+
+- a public proof graph rather than derived read-only views;
+- remote trusted-history storage, retention, or access-control infrastructure;
+- broad non-mobile interoperability beyond language-neutral conformance;
+- generic multi-provider claim composition beyond a narrow consumer-declared
+  proof case that preserves each provider's identity and failure status;
+- autonomous change-to-scenario selection or other generic workflow policy.
 
 ## Integration Ledger
 
