@@ -184,21 +184,25 @@ function buildNativeEvidence({
 }
 
 async function writeRun({
+  acceptedBaselineScenarioHashes,
   comparisonLane = 'android-native-release',
   cohortHash = 'cohort-a',
   endedAt = '2026-07-15T10:00:12.000Z',
   healthStatus = 'passed',
+  includeScenarioHash = true,
   nativeEvidence,
   root,
   runId,
-  scenarioHash = 'scenario-hash-a',
+  scenarioHash = 'a'.repeat(64),
   verdictActual = 900,
   verdictStatus = verdictActual <= 1000 ? 'passed' : 'failed',
 }: {
+  acceptedBaselineScenarioHashes?: string[];
   comparisonLane?: string;
   cohortHash?: string;
   endedAt?: string;
   healthStatus?: string;
+  includeScenarioHash?: boolean;
   nativeEvidence?: JsonRecord;
   root: string;
   runId: string;
@@ -248,7 +252,7 @@ async function writeRun({
     schemaVersion: '1.0.0',
     runId,
     scenario: 'app-startup',
-    scenarioHash,
+    ...(includeScenarioHash ? { scenarioHash } : {}),
     platform: 'android',
     interactionDriver: 'adb-logcat',
     comparisonLane,
@@ -262,6 +266,7 @@ async function writeRun({
       raw: {},
       evidenceAttachments: [],
     },
+    ...(acceptedBaselineScenarioHashes ? { acceptedBaselineScenarioHashes } : {}),
   };
 
   if (nativeEvidence) {
@@ -589,6 +594,68 @@ test('marks native comparison not comparable when baseline evidence is missing f
     ),
   );
   assert.equal(validateJson(comparison, SCHEMAS.comparison, 'Comparison artifact').valid, true);
+});
+
+test('does not reject native evidence solely for an explicitly accepted scenario contract', async (t: TestContext) => {
+  const root = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-native-comparison-compatible-scenario-'));
+  t.after(async () => {
+    await fsp.rm(root, { recursive: true, force: true });
+  });
+
+  const baselineHash = 'a'.repeat(64);
+  const currentHash = 'b'.repeat(64);
+  const baselineDir = await writeRun({
+    nativeEvidence: buildNativeEvidence({ runId: 'baseline-run' }),
+    root,
+    runId: 'baseline-run',
+    scenarioHash: baselineHash,
+  });
+  const currentDir = await writeRun({
+    acceptedBaselineScenarioHashes: [baselineHash],
+    nativeEvidence: buildNativeEvidence({ runId: 'current-run' }),
+    root,
+    runId: 'current-run',
+    scenarioHash: currentHash,
+  });
+
+  const comparison = compareRunDirectories({ baselineDir, currentDir });
+
+  assert.equal(comparison.comparisonBasis.scenarioContract.status, 'declared-compatible');
+  assert.equal(
+    comparison.nativePerformance.explanations.some(
+      (entry: JsonRecord) => entry.field === 'scenarioHash' && entry.phase === 'pair',
+    ),
+    false,
+  );
+  assert.equal(validateJson(comparison, SCHEMAS.comparison, 'Comparison artifact').valid, true);
+});
+
+test('keeps hashless legacy native evidence diagnostic-only', async (t: TestContext) => {
+  const root = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-native-comparison-legacy-scenario-'));
+  t.after(async () => {
+    await fsp.rm(root, { recursive: true, force: true });
+  });
+
+  const baselineDir = await writeRun({
+    nativeEvidence: buildNativeEvidence({ runId: 'baseline-run' }),
+    root,
+    runId: 'baseline-run',
+    includeScenarioHash: false,
+  });
+  const currentDir = await writeRun({
+    nativeEvidence: buildNativeEvidence({ runId: 'current-run' }),
+    root,
+    runId: 'current-run',
+    includeScenarioHash: false,
+  });
+
+  const comparison = compareRunDirectories({ baselineDir, currentDir });
+
+  assert.equal(comparison.comparisonBasis.scenarioContract.status, 'legacy-compatible');
+  assert.equal(comparison.nativePerformance.status, 'not-comparable');
+  assert.ok(comparison.nativePerformance.explanations.some(
+    (entry: JsonRecord) => entry.field === 'scenarioHash' && entry.phase === 'pair',
+  ));
 });
 
 test('keeps native-performance not comparable when current run fails health gate despite faster metrics', async (t: TestContext) => {

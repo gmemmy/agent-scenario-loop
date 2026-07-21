@@ -94,6 +94,7 @@ function sampleEnvironmentLifecycle() {
 
 test('builds schema-valid manifest provenance attempt and environment artifacts', () => {
   const manifest = buildManifest({
+    acceptedBaselineScenarioHashes: ['b'.repeat(64), 'a'.repeat(64)],
     scenario: 'public-journey',
     scenarioHash: 'a'.repeat(64),
     runId: 'public-journey-1',
@@ -132,6 +133,7 @@ test('builds schema-valid manifest provenance attempt and environment artifacts'
   });
 
   assert.equal(validateJson(manifest, SCHEMAS.manifest, 'Manifest artifact').valid, true);
+  assert.deepEqual(manifest.acceptedBaselineScenarioHashes, ['a'.repeat(64), 'b'.repeat(64)]);
   assert.deepEqual(manifest.provenance, {
     cohort: {
       appVersion: '1.2.3',

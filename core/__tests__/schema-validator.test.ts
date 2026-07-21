@@ -218,6 +218,21 @@ test('accepts scenario-authored comparison lanes', () => {
   assert.deepEqual(result.errors, []);
 });
 
+test('accepts only unique lowercase baseline scenario hashes', () => {
+  const scenario = readJson('examples/scenarios/mobile/app-startup.json');
+  scenario.acceptedBaselineScenarioHashes = ['a'.repeat(64)];
+  assert.equal(validateJson(scenario, SCHEMAS.scenario, 'Scenario manifest').valid, true);
+
+  for (const invalidHashes of [
+    ['A'.repeat(64)],
+    ['a'.repeat(63)],
+    ['a'.repeat(64), 'a'.repeat(64)],
+  ]) {
+    scenario.acceptedBaselineScenarioHashes = invalidHashes;
+    assert.equal(validateJson(scenario, SCHEMAS.scenario, 'Scenario manifest').valid, false);
+  }
+});
+
 test('accepts product-neutral scenario coverage metadata', () => {
   const scenario = readJson('examples/scenarios/mobile/app-startup.json');
   scenario.metadata = {

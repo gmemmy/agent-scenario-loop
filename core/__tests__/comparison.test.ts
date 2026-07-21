@@ -132,6 +132,76 @@ test('normalizes invalid samples in schema-valid persisted comparison artifacts'
   assert.deepEqual(JSON.parse(JSON.stringify(comparison)), comparison);
 });
 
+test('keeps explicitly incompatible scenario contracts out of ordinary comparison truth', () => {
+  const comparison = buildComparisonArtifact({
+    baselineHealth: health({ runId: 'baseline-run' }),
+    baselineVerdict: verdict({ runId: 'baseline-run', actual: 900 }),
+    comparisonBasis: {
+      strategy: 'explicit',
+      baseline: { runId: 'baseline-run' },
+      current: { runId: 'current-run' },
+      scenarioContract: {
+        status: 'incompatible',
+        reason: 'scenario_hash_mismatch',
+        baselineHash: 'a'.repeat(64),
+        currentHash: 'b'.repeat(64),
+      },
+    },
+    currentHealth: health({ runId: 'current-run' }),
+    currentVerdict: verdict({ runId: 'current-run', actual: 800 }),
+  });
+
+  assert.equal(comparison.comparisonStatus, 'inconclusive');
+  assert.equal(comparison.healthStatus, 'failed');
+  assert.equal(comparison.metricComparisons, undefined);
+  assert.match(comparison.evidence.missingRequired[0], /compatible scenario contract/u);
+});
+
+test('derives incompatible scenario contracts from manifests for direct comparisons', () => {
+  const comparison = buildComparisonArtifact({
+    baselineHealth: health({ runId: 'baseline-run' }),
+    baselineManifest: {
+      scenarioId: 'open-close-cycle',
+      scenarioHash: 'a'.repeat(64),
+    },
+    baselineVerdict: verdict({ runId: 'baseline-run', actual: 900 }),
+    currentHealth: health({ runId: 'current-run' }),
+    currentManifest: {
+      scenarioId: 'open-close-cycle',
+      scenarioHash: 'b'.repeat(64),
+    },
+    currentVerdict: verdict({ runId: 'current-run', actual: 800 }),
+  });
+
+  assert.equal(comparison.comparisonStatus, 'inconclusive');
+  assert.equal(comparison.healthStatus, 'failed');
+  assert.equal(comparison.metricComparisons, undefined);
+  assert.match(comparison.evidence.missingRequired[0], /scenario_hash_mismatch/u);
+});
+
+test('accepts a manifest-declared baseline hash for direct comparisons', () => {
+  const baselineHash = 'a'.repeat(64);
+  const comparison = buildComparisonArtifact({
+    baselineHealth: health({ runId: 'baseline-run' }),
+    baselineManifest: {
+      scenarioId: 'open-close-cycle',
+      scenarioHash: baselineHash,
+    },
+    baselineVerdict: verdict({ runId: 'baseline-run', actual: 900 }),
+    currentHealth: health({ runId: 'current-run' }),
+    currentManifest: {
+      acceptedBaselineScenarioHashes: [baselineHash],
+      scenarioId: 'open-close-cycle',
+      scenarioHash: 'b'.repeat(64),
+    },
+    currentVerdict: verdict({ runId: 'current-run', actual: 800 }),
+  });
+
+  assert.equal(comparison.comparisonStatus, 'better');
+  assert.equal(comparison.healthStatus, 'passed');
+  assert.equal(comparison.metricComparisons[0].status, 'better');
+});
+
 test('treats tiny millisecond deltas as unchanged timing noise', () => {
   assert.deepEqual(
     compareBudgetCheck(

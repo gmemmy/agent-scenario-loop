@@ -350,6 +350,43 @@ test('profile-android writes artifacts from fixture event logs', async (t: TestC
   assert.match(agentSummary, /Scenario health passed/u);
 });
 
+test('profile-android preserves accepted baseline scenario hashes in planning and manifest truth', async (t: TestContext) => {
+  const artifactRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-android-lineage-'));
+  t.after(async () => {
+    await fsp.rm(artifactRoot, { recursive: true, force: true });
+  });
+
+  const scenario = readJson(fixturePath('examples/mobile-app/scenarios/android/app-startup.json')) as Record<string, any>;
+  const acceptedBaselineScenarioHashes = ['b'.repeat(64), 'a'.repeat(64)];
+  const scenarioPath = path.join(artifactRoot, 'app-startup-compatible.json');
+  await fsp.writeFile(
+    scenarioPath,
+    `${JSON.stringify({ ...scenario, acceptedBaselineScenarioHashes })}\n`,
+    'utf8',
+  );
+
+  const { stdout } = await execFileAsync(process.execPath, [
+    PROFILE_ANDROID,
+    '--config',
+    fixturePath('examples/mobile-app/asl.config.json'),
+    '--scenario',
+    scenarioPath,
+    '--events',
+    fixturePath('examples/mobile-app/event-logs/android-app-startup.log'),
+    '--out',
+    artifactRoot,
+    '--run-id',
+    'android-compatible-startup',
+  ]);
+
+  const runDir = stdout.trim();
+  const runPlan = readJson(path.join(runDir, 'run-plan.json')) as Record<string, any>;
+  const manifest = readJson(path.join(runDir, 'manifest.json')) as Record<string, any>;
+
+  assert.deepEqual(runPlan.acceptedBaselineScenarioHashes, acceptedBaselineScenarioHashes);
+  assert.deepEqual(manifest.acceptedBaselineScenarioHashes, [...acceptedBaselineScenarioHashes].sort());
+});
+
 test('profile-android treats optional diagnostic capabilities as requested inventory', async (t: TestContext) => {
   const tempRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-android-optional-capability-'));
   t.after(async () => {
