@@ -382,12 +382,32 @@ function containsAny(text: string, fragments: string[]): boolean {
 }
 
 /**
+ * Reports whether a value is a stable next-action owner.
+ *
+ * @param {unknown} value
+ * @returns {value is NextActionOwner}
+ */
+function isNextActionOwner(value: unknown): value is NextActionOwner {
+  return value === 'app_truth' ||
+    value === 'asl_runner' ||
+    value === 'product_optimization' ||
+    value === 'provider_tooling' ||
+    value === 'runtime_environment' ||
+    value === 'scenario_contract';
+}
+
+/**
  * Classifies the owner of the next useful action for an unhealthy check.
  *
  * @param {SummaryRecord} record
  * @returns {NextActionOwner}
  */
 function classifyCheckOwner(record: SummaryRecord): NextActionOwner {
+  const metadata = asSummaryRecord(record.metadata);
+  if (isNextActionOwner(metadata.nextActionOwner)) {
+    return metadata.nextActionOwner;
+  }
+
   const text = recordSearchText(record);
 
   if (containsAny(text, ['provider', 'diagnostic', 'accessibility_snapshot', 'ui_tree', 'native_performance'])) {
