@@ -1637,6 +1637,15 @@ test('profile-ios classifies live-window native-performance evidence as comparis
       "const fs = require('node:fs');",
       "const path = require('node:path');",
       'const [phase, orderPath, capturePath, evidencePath, targetBindingPath, requestPath, requestSha256, providerId, requestedAppId, requestedTargetId, runDir, runId, scenarioId] = process.argv.slice(2);',
+      "const providerToolName = process.env.ASL_NATIVE_PROVIDER_TOOL_NAME || 'ios-native-provider';",
+      "const providerToolVersion = process.env.ASL_NATIVE_PROVIDER_TOOL_VERSION || '1.2.3';",
+      "const policyId = process.env.ASL_NATIVE_PERFORMANCE_POLICY_ID || 'release-native-baseline-v1';",
+      "const targetFamily = process.env.ASL_NATIVE_PERFORMANCE_TARGET_FAMILY || 'ios-simulator-app';",
+      "const targetBuildMode = process.env.ASL_NATIVE_PERFORMANCE_TARGET_BUILD_MODE || 'debug';",
+      "const sourceId = process.env.ASL_NATIVE_PERFORMANCE_SOURCE_ID || 'xctrace';",
+      "const environmentConditions = process.env.ASL_NATIVE_PERFORMANCE_ENVIRONMENT_JSON",
+      '  ? JSON.parse(process.env.ASL_NATIVE_PERFORMANCE_ENVIRONMENT_JSON)',
+      "  : [{ name: 'device-class', value: 'simulator' }, { name: 'thermal-state', value: 'nominal' }];",
       "const sha256 = (value) => crypto.createHash('sha256').update(value).digest('hex');",
       "const toRunRelative = (targetPath) => path.relative(runDir, targetPath).split(path.sep).join('/');",
       "const commandRecordPath = (commandId, suffix = '.json') => path.join(runDir, 'raw', 'provider-commands', `${providerId}-${commandId}${suffix}`);",
@@ -1728,19 +1737,19 @@ test('profile-ios classifies live-window native-performance evidence as comparis
       "  platform: 'ios',",
       '  runId,',
       '  scenarioId,',
-      "  tool: { name: 'ios-native-provider', version: '1.2.3' },",
+      "  tool: { name: providerToolName, version: providerToolVersion },",
       '  capturedAt: windowEndedAt,',
       "  captureMode: 'session',",
       "  clockDomain: 'host',",
       "  completenessStatus: 'complete',",
-      "  comparability: { status: 'comparable', policy: 'release-native-baseline-v1' },",
+      "  comparability: { status: 'comparable', policy: policyId },",
       "  claimSufficiency: { status: 'sufficient-for-comparison', supportingEvidence: ['bounded active-window capture', 'verified target binding'] },",
       "  comparisonPolicy: {",
-      "    policyId: 'release-native-baseline-v1',",
-      "    providerVersion: '1.2.3',",
+      '    policyId,',
+      '    providerVersion: providerToolVersion,',
       "    window: { definitionId: 'app-startup-window', kind: 'bounded-duration', phase: 'activeLoop', durationMs: windowDurationMs },",
-      "    target: { family: 'ios-simulator-app', buildMode: 'debug' },",
-      "    environment: [{ name: 'device-class', value: 'simulator' }, { name: 'thermal-state', value: 'nominal' }],",
+      '    target: { family: targetFamily, buildMode: targetBuildMode },',
+      '    environment: environmentConditions,',
       '  },',
       "  comparisonMetrics: [{",
       "    id: 'frame-p95',",
@@ -1753,7 +1762,7 @@ test('profile-ios classifies live-window native-performance evidence as comparis
       "    budget: { operator: 'at-most', threshold: 20 },",
       '  }],',
       "  attachments: [{ kind: 'native-trace', path: captureArtifactPath }],",
-      "  diagnosticSources: [{ sourceId: 'xctrace', status: 'captured', dataClasses: ['frames', 'jank', 'native-trace'], path: captureArtifactPath }],",
+      "  diagnosticSources: [{ sourceId, status: 'captured', dataClasses: ['frames', 'jank', 'native-trace'], path: captureArtifactPath }],",
       "  frames: { frameCount: 120, hitchCount: 2, p95FrameMs: 18 },",
       "  lifecycle: { phase: 'activeLoop', startedAt: windowStartedAt, endedAt: windowEndedAt, durationMs: windowDurationMs, perturbsTiming: false },",
       "  targetBinding: {",
@@ -1843,6 +1852,15 @@ test('profile-ios classifies live-window native-performance evidence as comparis
           id: 'capture-native-performance',
           phase: 'afterCapture',
           command: process.execPath,
+          env: {
+            ASL_NATIVE_PERFORMANCE_ENVIRONMENT_JSON: '[{\"name\":\"device-class\",\"value\":\"iphone-simulator\"},{\"name\":\"thermal-state\",\"value\":\"nominal\"}]',
+            ASL_NATIVE_PERFORMANCE_POLICY_ID: 'ios-release-v3',
+            ASL_NATIVE_PERFORMANCE_SOURCE_ID: 'instruments',
+            ASL_NATIVE_PERFORMANCE_TARGET_BUILD_MODE: 'release',
+            ASL_NATIVE_PERFORMANCE_TARGET_FAMILY: 'ios-prod-app',
+            ASL_NATIVE_PROVIDER_TOOL_NAME: 'ios-xctrace-provider',
+            ASL_NATIVE_PROVIDER_TOOL_VERSION: '3.1.0',
+          },
           args: [
             providerScript,
             'afterCapture',
@@ -1936,7 +1954,7 @@ test('profile-ios classifies live-window native-performance evidence as comparis
 
   const health = readJson(path.join(result.runDir, 'health.json')) as Record<string, any>;
   const artifactPath = `raw/providers/${providerId}/native-performance.json`;
-  const evidence = readJson(path.join(result.runDir, artifactPath));
+  const evidence = readJson(path.join(result.runDir, artifactPath)) as Record<string, any>;
   const request = readJson(path.join(result.runDir, 'raw', 'native-performance-request.json'));
   const startCommandRecord = readJson(
     path.join(result.runDir, 'raw', 'provider-commands', `${providerId}-start-native-window.started.json`),
@@ -1977,6 +1995,17 @@ test('profile-ios classifies live-window native-performance evidence as comparis
     stopCommandRecord.outputs[0].sha256,
     sha256File(path.join(result.runDir, `raw/providers/${providerId}/active-window-capture.trace`)),
   );
+  assert.equal(evidence.tool.name, 'ios-xctrace-provider');
+  assert.equal(evidence.tool.version, '3.1.0');
+  assert.equal(evidence.comparisonPolicy.policyId, 'ios-release-v3');
+  assert.equal(evidence.comparisonPolicy.providerVersion, '3.1.0');
+  assert.equal(evidence.comparisonPolicy.target.family, 'ios-prod-app');
+  assert.equal(evidence.comparisonPolicy.target.buildMode, 'release');
+  assert.deepEqual(evidence.comparisonPolicy.environment, [
+    { name: 'device-class', value: 'iphone-simulator' },
+    { name: 'thermal-state', value: 'nominal' },
+  ]);
+  assert.equal(evidence.diagnosticSources[0].sourceId, 'instruments');
   assert.deepEqual(classifyNativePerformanceComparisonReadiness(evidence, {
     artifactPath,
     evidencePathExists: (runRelativePath: string) => fs.existsSync(path.join(result.runDir, runRelativePath)),
