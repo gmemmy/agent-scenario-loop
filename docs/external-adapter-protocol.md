@@ -216,7 +216,9 @@ Events must not replace the response for an operation. The host should still rec
 
 ## Conformance Fixture
 
-The fixture under `runner/__tests__/fixtures/external-adapter/` is intentionally small and non-JavaScript. It proves that a conforming adapter can be an external process with no ASL TypeScript imports. Golden transcripts in the same directory define expected request/response behavior for the success path, unsupported action failure, expired deadline failure, cleanup/finalization failure, sequence monotonicity, and artifact references without embedded evidence bytes.
+The primary fixture under `runner/__tests__/fixtures/external-adapter/` is intentionally small and non-JavaScript. It proves that a conforming adapter can be an external process with no ASL TypeScript imports. Golden transcripts in the same directory define expected request/response behavior for the success path, unsupported action failure, expired deadline failure, cleanup/finalization failure, sequence monotonicity, and artifact references without embedded evidence bytes.
+
+Replacement conformance feeds one schema-valid scenario and its derived single-platform execution plan to independent Python and Node adapter processes. The focused proof requires each adapter to satisfy that scenario's platform, capability, action, evidence, clock, identity, sequence, truth-event, and artifact-reference demands before comparing scenario-required outcomes. It does not require adapters to advertise identical additional capabilities.
 
 ## Read next
 
