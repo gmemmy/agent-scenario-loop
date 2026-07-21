@@ -3464,6 +3464,15 @@ test('profile-android classifies live-window native-performance evidence as comp
       "const fs = require('node:fs');",
       "const path = require('node:path');",
       'const [phase, orderPath, capturePath, evidencePath, targetBindingPath, requestPath, requestSha256, providerId, requestedAppId, requestedTargetId, runDir, runId, scenarioId] = process.argv.slice(2);',
+      "const providerToolName = process.env.ASL_NATIVE_PROVIDER_TOOL_NAME || 'android-native-provider';",
+      "const providerToolVersion = process.env.ASL_NATIVE_PROVIDER_TOOL_VERSION || '1.2.3';",
+      "const policyId = process.env.ASL_NATIVE_PERFORMANCE_POLICY_ID || 'release-native-baseline-v1';",
+      "const targetFamily = process.env.ASL_NATIVE_PERFORMANCE_TARGET_FAMILY || 'android-mobile-app';",
+      "const targetBuildMode = process.env.ASL_NATIVE_PERFORMANCE_TARGET_BUILD_MODE || 'debug';",
+      "const sourceId = process.env.ASL_NATIVE_PERFORMANCE_SOURCE_ID || 'perfetto';",
+      "const environmentConditions = process.env.ASL_NATIVE_PERFORMANCE_ENVIRONMENT_JSON",
+      '  ? JSON.parse(process.env.ASL_NATIVE_PERFORMANCE_ENVIRONMENT_JSON)',
+      "  : [{ name: 'device-class', value: 'emulator' }, { name: 'thermal-state', value: 'nominal' }];",
       "const sha256 = (value) => crypto.createHash('sha256').update(value).digest('hex');",
       "const toRunRelative = (targetPath) => path.relative(runDir, targetPath).split(path.sep).join('/');",
       "const commandRecordPath = (commandId, suffix = '.json') => path.join(runDir, 'raw', 'provider-commands', `${providerId}-${commandId}${suffix}`);",
@@ -3554,19 +3563,19 @@ test('profile-android classifies live-window native-performance evidence as comp
       "  platform: 'android',",
       '  runId,',
       '  scenarioId,',
-      "  tool: { name: 'android-native-provider', version: '1.2.3' },",
+      "  tool: { name: providerToolName, version: providerToolVersion },",
       '  capturedAt: windowEndedAt,',
       "  captureMode: 'session',",
       "  clockDomain: 'host',",
       "  completenessStatus: 'complete',",
-      "  comparability: { status: 'comparable', policy: 'release-native-baseline-v1' },",
+      "  comparability: { status: 'comparable', policy: policyId },",
       "  claimSufficiency: { status: 'sufficient-for-comparison', supportingEvidence: ['bounded active-window capture', 'verified target binding'] },",
       "  comparisonPolicy: {",
-      "    policyId: 'release-native-baseline-v1',",
-      "    providerVersion: '1.2.3',",
+      '    policyId,',
+      '    providerVersion: providerToolVersion,',
       "    window: { definitionId: 'app-startup-window', kind: 'bounded-duration', phase: 'activeLoop', durationMs: windowDurationMs },",
-      "    target: { family: 'android-mobile-app', buildMode: 'debug' },",
-      "    environment: [{ name: 'device-class', value: 'emulator' }, { name: 'thermal-state', value: 'nominal' }],",
+      '    target: { family: targetFamily, buildMode: targetBuildMode },',
+      '    environment: environmentConditions,',
       '  },',
       "  comparisonMetrics: [{",
       "    id: 'frame-p95',",
@@ -3579,7 +3588,7 @@ test('profile-android classifies live-window native-performance evidence as comp
       "    budget: { operator: 'at-most', threshold: 20 },",
       '  }],',
       "  attachments: [{ kind: 'native-trace', path: captureArtifactPath }],",
-      "  diagnosticSources: [{ sourceId: 'perfetto', status: 'captured', dataClasses: ['frames', 'jank', 'native-trace'], path: captureArtifactPath }],",
+      "  diagnosticSources: [{ sourceId, status: 'captured', dataClasses: ['frames', 'jank', 'native-trace'], path: captureArtifactPath }],",
       "  frames: { total: 120, janky: 2, p95Ms: 18 },",
       "  lifecycle: { phase: 'activeLoop', startedAt: windowStartedAt, endedAt: windowEndedAt, durationMs: windowDurationMs, perturbsTiming: false },",
       "  targetBinding: {",
@@ -3669,6 +3678,15 @@ test('profile-android classifies live-window native-performance evidence as comp
           id: 'capture-native-performance',
           phase: 'afterCapture',
           command: process.execPath,
+          env: {
+            ASL_NATIVE_PERFORMANCE_ENVIRONMENT_JSON: '[{\"name\":\"device-class\",\"value\":\"device-farm\"},{\"name\":\"thermal-state\",\"value\":\"sustained\"}]',
+            ASL_NATIVE_PERFORMANCE_POLICY_ID: 'android-release-v2',
+            ASL_NATIVE_PERFORMANCE_SOURCE_ID: 'trace-processor',
+            ASL_NATIVE_PERFORMANCE_TARGET_BUILD_MODE: 'release',
+            ASL_NATIVE_PERFORMANCE_TARGET_FAMILY: 'android-prod-app',
+            ASL_NATIVE_PROVIDER_TOOL_NAME: 'android-perfetto-provider',
+            ASL_NATIVE_PROVIDER_TOOL_VERSION: '2.4.1',
+          },
           args: [
             providerScript,
             'afterCapture',
@@ -3763,7 +3781,7 @@ test('profile-android classifies live-window native-performance evidence as comp
 
   const health = readJson(path.join(result.runDir, 'health.json')) as Record<string, any>;
   const artifactPath = `raw/providers/${providerId}/native-performance.json`;
-  const evidence = readJson(path.join(result.runDir, artifactPath));
+  const evidence = readJson(path.join(result.runDir, artifactPath)) as Record<string, any>;
   const request = readJson(path.join(result.runDir, 'raw', 'native-performance-request.json'));
   const startCommandRecord = readJson(
     path.join(result.runDir, 'raw', 'provider-commands', `${providerId}-start-native-window.started.json`),
@@ -3804,6 +3822,17 @@ test('profile-android classifies live-window native-performance evidence as comp
     stopCommandRecord.outputs[0].sha256,
     sha256File(path.join(result.runDir, `raw/providers/${providerId}/active-window-capture.trace`)),
   );
+  assert.equal(evidence.tool.name, 'android-perfetto-provider');
+  assert.equal(evidence.tool.version, '2.4.1');
+  assert.equal(evidence.comparisonPolicy.policyId, 'android-release-v2');
+  assert.equal(evidence.comparisonPolicy.providerVersion, '2.4.1');
+  assert.equal(evidence.comparisonPolicy.target.family, 'android-prod-app');
+  assert.equal(evidence.comparisonPolicy.target.buildMode, 'release');
+  assert.deepEqual(evidence.comparisonPolicy.environment, [
+    { name: 'device-class', value: 'device-farm' },
+    { name: 'thermal-state', value: 'sustained' },
+  ]);
+  assert.equal(evidence.diagnosticSources[0].sourceId, 'trace-processor');
   assert.deepEqual(classifyNativePerformanceComparisonReadiness(evidence, {
     artifactPath,
     evidencePathExists: (runRelativePath: string) => fs.existsSync(path.join(result.runDir, runRelativePath)),
