@@ -767,6 +767,77 @@ test('fail-on-regression exits nonzero for native-performance-only regressions',
   assert.equal(comparison.nativePerformance.status, 'regressed');
 });
 
+test('rejects a faster-looking native candidate when target binding is invalid', async (t: TestContext) => {
+  const outputDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-compare-native-faster-invalid-'));
+  t.after(async () => {
+    await fsp.rm(outputDir, { recursive: true, force: true });
+  });
+  const baselineDir = await writeRun({
+    root: outputDir,
+    runId: 'baseline-run',
+    actual: 900,
+    nativePerformanceP95Ms: 30,
+  });
+  const currentDir = await writeRun({
+    root: outputDir,
+    runId: 'current-run',
+    actual: 900,
+    nativePerformanceP95Ms: 12,
+  });
+  const currentNativePerformancePath = path.join(
+    currentDir,
+    'raw',
+    'providers',
+    'native-provider',
+    'native-performance.json',
+  );
+  const currentNativePerformance = JSON.parse(
+    await fsp.readFile(currentNativePerformancePath, 'utf8'),
+  ) as Record<string, unknown>;
+  const targetBinding = currentNativePerformance.targetBinding as Record<string, unknown>;
+  const candidateTargets = Array.isArray(targetBinding?.candidateTargets)
+    ? targetBinding.candidateTargets
+    : [];
+  if (candidateTargets.length > 0) {
+    const firstCandidate = candidateTargets[0] as Record<string, unknown>;
+    candidateTargets[0] = {
+      ...firstCandidate,
+      appId: 'dev.agent-scenario-loop.other-app',
+    };
+  }
+  await fsp.writeFile(
+    currentNativePerformancePath,
+    `${JSON.stringify({
+      ...currentNativePerformance,
+      targetBinding: {
+        ...targetBinding,
+        candidateTargets,
+      },
+    })}\n`,
+    'utf8',
+  );
+
+  const { stdout } = await execFileAsync(process.execPath, [
+    COMPARE,
+    '--baseline',
+    baselineDir,
+    '--current',
+    currentDir,
+    '--fail-on-regression',
+  ]);
+
+  const comparison = JSON.parse(stdout);
+  assert.equal(comparison.comparisonStatus, 'unchanged');
+  assert.equal(comparison.nativePerformance.status, 'not-comparable');
+  assert.ok(
+    comparison.nativePerformance.explanations.some(
+      (entry: { field?: string; phase?: string }) => (
+        entry.field === 'targetBinding' && entry.phase === 'current'
+      ),
+    ),
+  );
+});
+
 test('rejects native-performance attachment paths that escape the run directory', async (t: TestContext) => {
   const outputDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-compare-native-path-traversal-'));
   t.after(async () => {
