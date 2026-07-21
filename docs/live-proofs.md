@@ -247,7 +247,7 @@ After dependency, native-build, or scenario-contract changes, use `--seed-baseli
 pnpm example:android:live -- --run-suffix release-check --seed-baseline
 ```
 
-When latest-trusted comparison sees slower single-run timing but both baseline and current remain inside their budgets, ASL reports `low_confidence` instead of `regressed`. Treat that as a repeat-or-sample signal, not proof of product regression.
+When latest-trusted comparison sees directional single-run timing movement but both baseline and current remain inside their budgets, ASL reports `low_confidence` instead of `better` or `regressed`. Treat that as a repeat-or-sample signal, not proof of product optimization or regression.
 
 Read [Example Mobile App: Android Capture](../examples/mobile-app/README.md#android-capture) for Metro routing, adb permissions, individual scenario commands, selector behavior, and optional video capture.
 

@@ -60,8 +60,10 @@ test('demo loop runs preflight, fixture profiles, and comparison without a simul
   );
 
   assert.equal(result.outputDir, outputDir);
-  assert.equal(comparison.comparisonStatus, 'better');
+  assert.equal(comparison.comparisonStatus, 'low_confidence');
   assert.equal(cycleP95.delta, -800);
   assert.ok(fs.existsSync(path.join(result.preflightDir, 'planner-compatibility.json')));
-  assert.match(agentSummary, /Comparison: better/u);
+  assert.match(agentSummary, /Comparison: low_confidence/u);
+  assert.match(agentSummary, /Owner: `scenario_contract`/u);
+  assert.match(agentSummary, /Repeat the same comparison policy or collect a complete multi-sample run/u);
 });

@@ -873,12 +873,31 @@ function comparisonTolerance(baseline: ComparisonBudgetCheck, current: Compariso
     return 0;
   }
 
-  if (typeof baseline.actual !== 'number' || typeof current.actual !== 'number') {
+  if (
+    typeof baseline.actual !== 'number' ||
+    !Number.isFinite(baseline.actual) ||
+    typeof current.actual !== 'number' ||
+    !Number.isFinite(current.actual)
+  ) {
     return 0;
   }
 
   const reference = Math.max(Math.abs(baseline.actual), Math.abs(current.actual));
   return Math.max(MIN_MS_COMPARISON_TOLERANCE, reference * RELATIVE_MS_COMPARISON_TOLERANCE);
+}
+
+/**
+ * Preserves schema-safe comparison actuals while removing invalid numeric samples.
+ *
+ * @param {unknown} value
+ * @returns {number | boolean | null}
+ */
+function normalizeComparisonActual(value: unknown): number | boolean | null {
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : null;
+  }
+
+  return typeof value === 'boolean' ? value : null;
 }
 
 /**
@@ -889,15 +908,24 @@ function comparisonTolerance(baseline: ComparisonBudgetCheck, current: Compariso
  * @returns {MetricComparison}
  */
 function compareBudgetCheck(baseline: ComparisonBudgetCheck, current: ComparisonBudgetCheck): MetricComparison {
-  if (typeof baseline.actual !== 'number' || typeof current.actual !== 'number') {
+  if (
+    typeof baseline.actual !== 'number' ||
+    !Number.isFinite(baseline.actual) ||
+    typeof current.actual !== 'number' ||
+    !Number.isFinite(current.actual)
+  ) {
+    const matchingNonNumericActuals =
+      typeof baseline.actual !== 'number' &&
+      typeof current.actual !== 'number' &&
+      baseline.actual === current.actual;
     return {
       name: current.name,
       unit: current.unit,
-      baseline: baseline.actual ?? null,
-      current: current.actual ?? null,
+      baseline: normalizeComparisonActual(baseline.actual),
+      current: normalizeComparisonActual(current.actual),
       delta: null,
-      status: baseline.actual === current.actual ? 'unchanged' : 'inconclusive',
-      notes: 'Only numeric budget actuals are compared by direction.',
+      status: matchingNonNumericActuals ? 'unchanged' : 'inconclusive',
+      notes: 'Only finite numeric budget actuals are compared by direction.',
     };
   }
 
@@ -941,7 +969,7 @@ function isLowConfidenceTimingMovement(
   current: ComparisonBudgetCheck,
 ): boolean {
   return (
-    metric.status === 'worse' &&
+    (metric.status === 'better' || metric.status === 'worse') &&
     baseline.unit === 'ms' &&
     current.unit === 'ms' &&
     baseline.pass === true &&
@@ -1108,7 +1136,8 @@ function countValidBudgetSamples(checks: unknown): number {
     check &&
     typeof check === 'object' &&
     (
-      typeof (check as {actual?: unknown}).actual === 'number' ||
+      (typeof (check as {actual?: unknown}).actual === 'number' &&
+        Number.isFinite((check as {actual: number}).actual)) ||
       typeof (check as {actual?: unknown}).actual === 'boolean'
     )
   )).length;
@@ -1196,7 +1225,7 @@ function buildMeasurementPolicy({
       level: confidenceLevel,
       minValidSamples: 1,
       ...(hasLowConfidenceMovement
-        ? { reason: 'Single-run timing movement stayed within passing budgets; repeat or multi-sample proof is required before treating it as a regression.' }
+        ? { reason: 'Single-run timing movement stayed within passing budgets; repeat or multi-sample proof is required before treating it as an optimization or regression.' }
         : {}),
     },
   };
@@ -1273,7 +1302,7 @@ function buildComparisonArtifact({
         metricComparisons.push({
           ...metricComparison,
           status: 'low_confidence',
-          notes: 'Single-run timing movement stayed within passing budgets; repeat or multi-sample proof is required before treating it as a regression.',
+          notes: 'Single-run timing movement stayed within passing budgets; repeat or multi-sample proof is required before treating it as an optimization or regression.',
         });
         continue;
       }
@@ -1405,7 +1434,7 @@ function summarizeComparison({
   } else if (comparisonStatus === 'mixed') {
     summary = 'Current run has mixed metric movement against the explicit baseline.';
   } else if (comparisonStatus === 'low_confidence') {
-    summary = 'Current run has low-confidence timing movement against the baseline; repeat or multi-sample proof is required before treating it as a regression.';
+    summary = 'Current run has low-confidence timing movement against the baseline; repeat or multi-sample proof is required before treating it as an optimization or regression.';
   } else if (comparisonStatus === 'unchanged') {
     summary = 'Current run matched the explicit baseline.';
   } else {
