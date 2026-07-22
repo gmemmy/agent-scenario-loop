@@ -1,0 +1,653 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-scenario-loop.dev/schemas/historical-evaluation.schema.json",
+  "title": "Agent Scenario Loop Historical Evaluation",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "artifactType",
+    "scope",
+    "policy",
+    "evaluation"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "1.0.0"
+    },
+    "artifactType": {
+      "const": "historical-evaluation"
+    },
+    "scope": {
+      "$ref": "#/$defs/scope"
+    },
+    "policy": {
+      "$ref": "#/$defs/policy"
+    },
+    "evaluation": {
+      "$ref": "#/$defs/evaluationResult"
+    },
+    "nativeEvaluation": {
+      "$ref": "#/$defs/evaluationResult"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "required": ["nativeEvaluation"]
+      },
+      "then": {
+        "properties": {
+          "policy": {
+            "required": ["nativeHistory"]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "policy": {
+            "required": ["nativeHistory"]
+          }
+        }
+      },
+      "then": {
+        "required": ["nativeEvaluation"]
+      }
+    }
+  ],
+  "$defs": {
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "scenarioId",
+        "comparisonLane",
+        "cohortHash",
+        "platform",
+        "lineage"
+      ],
+      "properties": {
+        "scenarioId": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "comparisonLane": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "cohortHash": {
+          "$ref": "#/$defs/sha256"
+        },
+        "platform": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "lineage": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "scenarioHash"],
+          "properties": {
+            "status": {
+              "const": "exact"
+            },
+            "scenarioHash": {
+              "$ref": "#/$defs/sha256"
+            }
+          }
+        }
+      }
+    },
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["history", "metrics"],
+      "properties": {
+        "history": {
+          "const": "local-only"
+        },
+        "metrics": {
+          "$ref": "#/$defs/populationPolicy"
+        },
+        "nativeHistory": {
+          "$ref": "#/$defs/populationPolicy"
+        }
+      }
+    },
+    "populationPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "authority",
+        "minimumEligibleRuns",
+        "aggregation",
+        "warmup",
+        "outliers",
+        "metrics"
+      ],
+      "properties": {
+        "authority": {
+          "const": "consumer-declared"
+        },
+        "minimumEligibleRuns": {
+          "type": "integer",
+          "minimum": 3
+        },
+        "aggregation": {
+          "type": "string",
+          "enum": ["median", "mean"],
+          "description": "ASL defines both modes and the consumer selects one. Median sorts numeric samples and uses the arithmetic mean of the two middle values for even N; mean reduces orderedSamples in their declared canonical order and divides by N."
+        },
+        "warmup": {
+          "const": "none"
+        },
+        "outliers": {
+          "const": "none"
+        },
+        "metrics": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/metricPolicy"
+          }
+        }
+      }
+    },
+    "metricPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["metricId", "unit", "direction", "tolerance"],
+      "properties": {
+        "metricId": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "unit": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "direction": {
+          "type": "string",
+          "enum": ["lower-is-better", "higher-is-better"]
+        },
+        "tolerance": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["absolute", "relative"],
+          "properties": {
+            "absolute": {
+              "type": "number",
+              "minimum": 0
+            },
+            "relative": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1,
+              "description": "Unit interval ratio applied to abs(historicalValue); effective tolerance is max(absolute, relative * abs(historicalValue))."
+            }
+          }
+        }
+      }
+    },
+    "evaluationResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["eligibility", "aggregation", "currentSample", "decision"],
+      "properties": {
+        "eligibility": {
+          "$ref": "#/$defs/eligibility"
+        },
+        "aggregation": {
+          "$ref": "#/$defs/aggregation"
+        },
+        "currentSample": {
+          "$ref": "#/$defs/currentSample"
+        },
+        "decision": {
+          "$ref": "#/$defs/decision"
+        }
+      }
+    },
+    "eligibility": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["currentRun", "historicalPopulation"],
+      "properties": {
+        "currentRun": {
+          "$ref": "#/$defs/currentEligibility"
+        },
+        "historicalPopulation": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["included", "excluded"],
+          "properties": {
+            "included": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/eligibleCandidate"
+              }
+            },
+            "excluded": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/excludedCandidate"
+              }
+            }
+          }
+        }
+      }
+    },
+    "currentEligibility": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "reasons"],
+      "properties": {
+        "status": {
+          "$ref": "#/$defs/eligibilityStatus"
+        },
+        "reasons": {
+          "$ref": "#/$defs/exclusionReasons"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "eligible"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "reasons": {
+                "maxItems": 0
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "reasons": {
+                "minItems": 1
+              }
+            }
+          }
+        }
+      ]
+    },
+    "eligibleCandidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "provenance"],
+      "properties": {
+        "status": {
+          "const": "eligible"
+        },
+        "provenance": {
+          "$ref": "#/$defs/candidateProvenance"
+        }
+      }
+    },
+    "excludedCandidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "provenance", "reasons"],
+      "properties": {
+        "status": {
+          "const": "ineligible"
+        },
+        "provenance": {
+          "$ref": "#/$defs/candidateProvenance"
+        },
+        "reasons": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/exclusionReasons"
+            },
+            {
+              "minItems": 1
+            }
+          ]
+        }
+      }
+    },
+    "candidateProvenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["runId", "endedAt", "artifact"],
+      "properties": {
+        "runId": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "endedAt": {
+          "type": "string",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]+)?Z$"
+        },
+        "artifact": {
+          "$ref": "#/$defs/artifactReference"
+        }
+      }
+    },
+    "artifactReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": {
+          "type": "string",
+          "pattern": "^(?!/)(?![A-Za-z]:[\\\\/])(?!.*(?:^|/)\\.\\.?(?:/|$))[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)*$"
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "aggregation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "eligibleRunCount", "orderedSamples", "metrics"],
+      "properties": {
+        "status": {
+          "$ref": "#/$defs/aggregationStatus"
+        },
+        "eligibleRunCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "orderedSamples": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/orderedSample"
+          }
+        },
+        "metrics": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/aggregatedMetric"
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "computed"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "eligibleRunCount": {
+                "minimum": 3
+              },
+              "orderedSamples": {
+                "minItems": 3
+              }
+            }
+          }
+        }
+      ]
+    },
+    "orderedSample": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["order", "provenance", "metrics"],
+      "properties": {
+        "order": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "provenance": {
+          "$ref": "#/$defs/candidateProvenance"
+        },
+        "metrics": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/metricSample"
+          }
+        }
+      }
+    },
+    "metricSample": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["metricId", "value"],
+      "properties": {
+        "metricId": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "value": {
+          "type": "number"
+        }
+      }
+    },
+    "aggregatedMetric": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["metricId", "status", "sampleCount", "value"],
+      "properties": {
+        "metricId": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "status": {
+          "$ref": "#/$defs/aggregationStatus"
+        },
+        "sampleCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "value": {
+          "type": ["number", "null"]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "computed"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "value": {
+                "type": "number"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "value": {
+                "const": null
+              }
+            }
+          }
+        }
+      ]
+    },
+    "currentSample": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["provenance", "status", "reasons", "metrics"],
+      "properties": {
+        "provenance": {
+          "$ref": "#/$defs/candidateProvenance"
+        },
+        "status": {
+          "$ref": "#/$defs/eligibilityStatus"
+        },
+        "reasons": {
+          "$ref": "#/$defs/exclusionReasons"
+        },
+        "metrics": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/metricSample"
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "eligible"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "reasons": {
+                "maxItems": 0
+              },
+              "metrics": {
+                "minItems": 1
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "reasons": {
+                "minItems": 1
+              },
+              "metrics": {
+                "maxItems": 0
+              }
+            }
+          }
+        }
+      ]
+    },
+    "decision": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Aggregate reduction: no-decision statuses block directional claims; otherwise improvements and regressions reduce deterministically to improved, regressed, mixed, or unchanged.",
+      "required": ["status", "reason", "metrics"],
+      "properties": {
+        "status": {
+          "$ref": "#/$defs/decisionStatus"
+        },
+        "reason": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "metrics": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/metricDecision"
+          }
+        }
+      }
+    },
+    "metricDecision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["metricId", "status", "reason"],
+      "properties": {
+        "metricId": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "status": {
+          "$ref": "#/$defs/decisionStatus"
+        },
+        "reason": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "historicalValue": {
+          "type": "number"
+        },
+        "currentValue": {
+          "type": "number"
+        },
+        "delta": {
+          "type": "number",
+          "description": "currentValue - historicalValue"
+        },
+        "percentChange": {
+          "type": ["number", "null"],
+          "description": "delta / abs(historicalValue) * 100 for every finite nonzero historicalValue without denominator clamping; null when historicalValue is +0 or -0. Non-finite results are invalid."
+        }
+      },
+      "anyOf": [
+        {
+          "required": [
+            "historicalValue",
+            "currentValue",
+            "delta",
+            "percentChange"
+          ],
+          "properties": {
+            "status": {
+              "type": "string",
+              "enum": ["improved", "regressed", "unchanged"]
+            }
+          }
+        },
+        {
+          "properties": {
+            "status": {
+              "type": "string",
+              "enum": ["insufficient-evidence", "not-comparable"]
+            }
+          },
+          "not": {
+            "anyOf": [
+              { "required": ["historicalValue"] },
+              { "required": ["currentValue"] },
+              { "required": ["delta"] },
+              { "required": ["percentChange"] }
+            ]
+          }
+        }
+      ]
+    },
+    "eligibilityStatus": {
+      "type": "string",
+      "enum": ["eligible", "ineligible"]
+    },
+    "aggregationStatus": {
+      "type": "string",
+      "enum": ["computed", "insufficient-evidence", "not-comparable"]
+    },
+    "decisionStatus": {
+      "type": "string",
+      "enum": [
+        "improved",
+        "regressed",
+        "unchanged",
+        "mixed",
+        "insufficient-evidence",
+        "not-comparable"
+      ]
+    },
+    "exclusionReasons": {
+      "type": "array",
+      "uniqueItems": true,
+      "description": "A unique unordered set of exclusion reasons; array order has no semantic meaning.",
+      "items": {
+        "type": "string",
+        "enum": [
+          "missing-evidence",
+          "partial-evidence",
+          "non-finite-sample",
+          "incompatible-evidence",
+          "untrusted-health",
+          "retry-attempt",
+          "identity-mismatch",
+          "lineage-mismatch",
+          "stale-clock",
+          "invalid-clock",
+          "native-not-ready"
+        ]
+      }
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "nonEmptyString": {
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}

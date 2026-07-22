@@ -11,6 +11,7 @@ type JsonSchema = Record<string, unknown> & {
   exclusiveMinimum?: number;
   if?: JsonSchema;
   maxItems?: number;
+  maximum?: number;
   not?: JsonSchema;
   then?: JsonSchema;
   type?: string | string[];
@@ -87,6 +88,7 @@ const SCHEMAS = {
   comparison: loadSchema('comparison.schema.json'),
   externalAdapterMessage: loadSchema('external-adapter-message.schema.json'),
   health: loadSchema('health.schema.json'),
+  historicalEvaluation: loadSchema('historical-evaluation.schema.json'),
   liveProof: loadSchema('live-proof.schema.json'),
   liveProofSet: loadSchema('live-proof-set.schema.json'),
   manifest: loadSchema('manifest.schema.json'),
@@ -350,6 +352,14 @@ function validateSchema(
       code: 'below_minimum',
       path: formatPath(pathSegments),
       message: `Expected value to be >= ${schema.minimum}.`,
+    });
+  }
+
+  if (typeof schema.maximum === 'number' && typeof value === 'number' && value > schema.maximum) {
+    errors.push({
+      code: 'above_maximum',
+      path: formatPath(pathSegments),
+      message: `Expected value to be <= ${schema.maximum}.`,
     });
   }
 
