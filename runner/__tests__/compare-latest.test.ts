@@ -537,6 +537,59 @@ test('filters latest trusted prior runs by provenance cohort hash when current i
   assert.equal(comparison.comparisonBasis.selection.trustedCohortCandidates, 1);
 });
 
+test('demonstrates why latest-only movement cannot stand in for historical evidence', async (t: TestContext) => {
+  const rootDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-compare-history-falsification-'));
+  t.after(async () => {
+    await fsp.rm(rootDir, { recursive: true, force: true });
+  });
+  const scenarioHash = 'a'.repeat(64);
+  const cohortHash = 'b'.repeat(64);
+  const comparisonLane = 'android-release';
+  const historicalActuals = [700, 700, 950];
+  for (const [index, actual] of historicalActuals.entries()) {
+    await writeRun({
+      root: rootDir,
+      runId: `trusted-history-${index + 1}`,
+      actual,
+      endedAt: `2026-06-16T10:0${index}:00.000Z`,
+      scenarioHash,
+      cohortHash,
+      comparisonLane,
+    });
+  }
+  const currentActual = 850;
+  const currentDir = await writeRun({
+    root: rootDir,
+    runId: 'current-run',
+    actual: currentActual,
+    endedAt: '2026-06-16T10:10:00.000Z',
+    scenarioHash,
+    cohortHash,
+    comparisonLane,
+  });
+
+  const result = compareLatestTrustedRun({
+    rootDir,
+    scenarioId: 'open-close-cycle',
+    currentDir,
+  });
+  const latestMetric = result.comparison.metricComparisons[0];
+  const sortedHistory = [...historicalActuals].sort((left, right) => left - right);
+  const declaredHistoricalMedian = sortedHistory[1];
+  if (declaredHistoricalMedian === undefined) {
+    throw new Error('Historical falsification fixture requires three declared samples.');
+  }
+
+  assert.equal(result.comparison.baselineRunId, 'trusted-history-3');
+  assert.equal(result.comparison.comparisonStatus, 'low_confidence');
+  assert.equal(latestMetric.baseline, 950);
+  assert.equal(latestMetric.current, currentActual);
+  assert.equal(latestMetric.delta, -100);
+  assert.equal(result.comparison.comparisonBasis.selection.trustedCohortCandidates, 3);
+  assert.equal(declaredHistoricalMedian, 700);
+  assert.equal(currentActual - declaredHistoricalMedian, 150);
+});
+
 test('writes comparison and agent summary to output directory', async (t: TestContext) => {
   const rootDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-compare-latest-out-'));
   t.after(async () => {
