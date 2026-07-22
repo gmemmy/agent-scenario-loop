@@ -469,6 +469,7 @@ test('writes failed artifact set when iOS simctl executor never resolves after o
       code: string;
       metadata?: {
         nextActionCode?: string;
+        nextActionOwner?: string;
         pendingPhase?: string;
         pendingPhaseDetails?: string;
         rawPath?: string;
@@ -477,6 +478,7 @@ test('writes failed artifact set when iOS simctl executor never resolves after o
     }>).some(
       (check) => check.code === 'ios_simctl_runner_liveness_timeout'
         && check.metadata?.nextActionCode === 'inspect_ios_simctl_runner_timeout'
+        && check.metadata?.nextActionOwner === 'asl_runner'
         && check.metadata?.pendingPhase === 'listing_simulators'
         && check.metadata?.pendingPhaseDetails === '{"device":"booted"}'
         && check.metadata?.rawPath === 'raw/ios-simctl-runner-watchdog-timeout.txt'
@@ -486,6 +488,7 @@ test('writes failed artifact set when iOS simctl executor never resolves after o
   assert.match(failureRaw, /iOS simctl capture did not complete within 50ms/u);
   assert.match(failureRaw, /ios_simctl_runner_liveness_timeout/u);
   assert.match(summary, /Next action `inspect_ios_simctl_runner_timeout`/u);
+  assert.match(summary, /Owner: `asl_runner`/u);
   assert.match(summary, /pendingPhase=`listing_simulators`/u);
   assert.match(summary, /watchdogTimeoutMs=`50`/u);
   assert.equal(metadata.runnerFailure.rawPath, 'raw/ios-simctl-runner-watchdog-timeout.txt');
@@ -1001,7 +1004,11 @@ test('reports start failure when iOS recorder cannot be created', async (t: Test
     runId: 'ios-record-start-failed',
   });
 
-  const videoCheck = (result.health.checks as Array<{ code: string; status: string }>).find(
+  const videoCheck = (result.health.checks as Array<{
+    code: string;
+    metadata?: { nextActionOwner?: string };
+    status: string;
+  }>).find(
     (check) => check.code.startsWith('ios_video_') && check.status === 'failed',
   );
   const videoRaw = fs.readFileSync(path.join(outputDir, 'raw', 'ios-record-video.txt'), 'utf8');
@@ -1009,6 +1016,8 @@ test('reports start failure when iOS recorder cannot be created', async (t: Test
   assert.equal(result.health.healthStatus, 'failed');
   assert.equal(result.captures.video, null);
   assert.equal(videoCheck?.status, 'failed');
+  assert.equal(videoCheck?.metadata?.nextActionOwner, 'asl_runner');
+  assert.match(result.agentSummary, /Owner: `asl_runner`/u);
   assert.match(videoRaw, /spawn failed/u);
   assert.match(videoRaw, /validationReason=missing/u);
 });

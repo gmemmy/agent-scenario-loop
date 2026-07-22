@@ -13,6 +13,7 @@ const {
   formatComparisonMetricSummary,
   readProfileGateDiagnosticSummary,
   readProfileGateReadinessSummary,
+  readRunNextActionOwner,
   writeLiveProofSummary,
 } = require('../live-proof-summary');
 
@@ -127,6 +128,84 @@ test('derives failed aggregate status from failed profile gates and skipped side
     }),
     'failed',
   );
+});
+
+async function writeFailedAggregateWithOwners(
+  tempDir: string,
+  owners: readonly string[],
+): Promise<Record<string, unknown>> {
+  const suffix = owners.join('-');
+  const preflightDir = path.join(tempDir, suffix, '_preflight');
+  await fsp.mkdir(preflightDir, { recursive: true });
+  await fsp.writeFile(path.join(preflightDir, 'agent-summary.md'), '# preflight\n', 'utf8');
+  await fsp.writeFile(path.join(preflightDir, 'health.json'), '{"healthStatus":"passed"}\n', 'utf8');
+  await fsp.writeFile(path.join(preflightDir, 'verdict.json'), '{"verdictStatus":"not_evaluated"}\n', 'utf8');
+
+  const profiles = [];
+  for (const [index, owner] of owners.entries()) {
+    const runId = `profile-${index + 1}`;
+    const runDir = path.join(tempDir, suffix, runId);
+    await fsp.mkdir(runDir, { recursive: true });
+    await fsp.writeFile(
+      path.join(runDir, 'agent-summary.md'),
+      `# profile\n\n## next action\n\n- Owner: \`${owner}\`\n`,
+      'utf8',
+    );
+    await fsp.writeFile(path.join(runDir, 'health.json'), '{"healthStatus":"failed"}\n', 'utf8');
+    await fsp.writeFile(path.join(runDir, 'verdict.json'), '{"verdictStatus":"inconclusive"}\n', 'utf8');
+    profiles.push({
+      label: runId,
+      runDir,
+      runId,
+      scenarioId: `scenario-${index + 1}`,
+    });
+  }
+
+  const result = await writeLiveProofSummary({
+    comparisons: [],
+    outputDir: path.join(tempDir, suffix),
+    platform: 'ios',
+    preflightDir,
+    preflightRunId: 'preflight',
+    profiles,
+    runId: `aggregate-${suffix}`,
+  });
+  return JSON.parse(fs.readFileSync(result.liveProofPath, 'utf8')) as Record<string, unknown>;
+}
+
+test('ranks every adjacent owner boundary through live-proof aggregation in both input orders', async (t: TestContext) => {
+  const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-live-proof-owner-precedence-'));
+  t.after(async () => {
+    await fsp.rm(tempDir, { recursive: true, force: true });
+  });
+
+  const adjacentOwnerPairs: Array<readonly [string, string]> = [
+    ['runtime_environment', 'asl_runner'],
+    ['asl_runner', 'app_truth'],
+    ['app_truth', 'unresolved'],
+    ['unresolved', 'scenario_contract'],
+    ['scenario_contract', 'provider_tooling'],
+    ['provider_tooling', 'product_optimization'],
+  ];
+
+  for (const [higherOwner, lowerOwner] of adjacentOwnerPairs) {
+    const ownerOrders: Array<readonly [string, string]> = [
+      [higherOwner, lowerOwner],
+      [lowerOwner, higherOwner],
+    ];
+    for (const owners of ownerOrders) {
+      const artifact = await writeFailedAggregateWithOwners(tempDir, owners);
+      const nextAction = artifact.nextAction as Record<string, unknown>;
+      assert.equal(
+        nextAction.owner,
+        higherOwner,
+        `${higherOwner} must outrank ${lowerOwner} for input ${owners.join(', ')}`,
+      );
+    }
+  }
+
+  const unresolvedProfileDir = path.join(tempDir, 'app_truth-unresolved', 'profile-2');
+  assert.equal(readRunNextActionOwner(unresolvedProfileDir), 'unresolved');
 });
 
 test('formats comparison metric summaries for aggregate markdown', () => {

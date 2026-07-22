@@ -681,6 +681,7 @@ function buildIosSimctlLivenessMetadata({
   watchdog: IosSimctlCaptureWatchdogBudget;
 }): Record<string, string | number | boolean | null> {
   const metadata: Record<string, string | number | boolean | null> = {
+    nextActionOwner: 'asl_runner',
     pendingPhase: currentPhase.name,
     pendingPhaseStartedAt: currentPhase.startedAt,
     rawPath,
@@ -1485,6 +1486,7 @@ function iosVideoCheckMetadata({
     ...actionHint,
     cleanupOrphaned: result.cleanup.orphaned,
     cleanupSignals: result.cleanup.signals.join(',') || 'none',
+    nextActionOwner: 'asl_runner',
     validationReason: result.validation.reason,
   };
 }

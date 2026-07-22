@@ -935,7 +935,7 @@
     },
     "nextActionOwner": {
       "type": "string",
-      "enum": ["app_truth", "asl_runner", "product_optimization", "provider_tooling", "runtime_environment", "scenario_contract"]
+      "enum": ["app_truth", "asl_runner", "product_optimization", "provider_tooling", "runtime_environment", "scenario_contract", "unresolved"]
     },
     "comparisonPointer": {
       "type": "object",

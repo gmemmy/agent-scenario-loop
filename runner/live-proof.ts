@@ -134,7 +134,8 @@ type LiveProofNextActionOwner = (
   'product_optimization' |
   'provider_tooling' |
   'runtime_environment' |
-  'scenario_contract'
+  'scenario_contract' |
+  'unresolved'
 );
 type LiveProofDiagnosticSufficiencyEntry = {
   kind: string;
@@ -705,7 +706,11 @@ function assertLiveProofAggregateSignals(proof: LiveProofArtifact): void {
       `Live proof artifact nextAction.code expected ${expectedAction} for ${proof.status}/${expectedStatus} but found ${proof.nextAction.code}.`,
     );
   }
-  if (proof.nextAction.owner && proof.nextAction.owner !== expectedLiveProofNextActionOwner(expectedAction)) {
+  if (
+    expectedAction !== 'inspect_failed_run' &&
+    proof.nextAction.owner &&
+    proof.nextAction.owner !== expectedLiveProofNextActionOwner(expectedAction)
+  ) {
     throw new Error(
       `Live proof artifact nextAction.owner expected ${expectedLiveProofNextActionOwner(expectedAction)} for ${proof.nextAction.code} but found ${proof.nextAction.owner}.`,
     );
@@ -2266,6 +2271,39 @@ function buildLiveProofSetMissingPlatformNextAction(
 }
 
 /**
+ * Ranks failed proof owners using the same recovery order as profile summaries.
+ *
+ * @param {LiveProofNextActionOwner} owner
+ * @returns {number}
+ */
+function liveProofNextActionOwnerRank(owner: LiveProofNextActionOwner): number {
+  const ranks: Record<LiveProofNextActionOwner, number> = {
+    runtime_environment: 0,
+    asl_runner: 1,
+    app_truth: 2,
+    unresolved: 2.5,
+    scenario_contract: 3,
+    provider_tooling: 4,
+    product_optimization: 5,
+  };
+  return ranks[owner];
+}
+
+/**
+ * Selects the earliest recovery owner from failed platform proofs.
+ *
+ * @param {LiveProofArtifact[]} proofs
+ * @returns {LiveProofNextActionOwner}
+ */
+function selectLiveProofSetFailureOwner(proofs: LiveProofArtifact[]): LiveProofNextActionOwner {
+  const owners = proofs
+    .filter((proof) => proof.status === 'failed')
+    .map((proof) => proof.nextAction.owner ?? 'asl_runner')
+    .sort((left, right) => liveProofNextActionOwnerRank(left) - liveProofNextActionOwnerRank(right));
+  return owners[0] ?? 'asl_runner';
+}
+
+/**
  * Builds next-action owner/code counts across missing required platforms.
  *
  * @param {LiveProofPlatform[]} missingPlatforms
@@ -2482,7 +2520,7 @@ function buildLiveProofSetNextAction({
   if (proofs.some((proof) => proof.status === 'failed')) {
     return {
       code: 'inspect_failed_run',
-      owner: 'asl_runner',
+      owner: selectLiveProofSetFailureOwner(proofs),
       summary: 'Inspect failed live-proof artifacts before trusting the platform set.',
     };
   }
