@@ -17,7 +17,7 @@
   "properties": {
     "schemaVersion": {
       "type": "string",
-      "pattern": "^1\\.(0|1)\\.0$"
+      "pattern": "^1\\.(0|1|2)\\.0$"
     },
     "scenarioId": {
       "type": "string"
@@ -96,6 +96,9 @@
         "current": {
           "$ref": "#/$defs/comparisonRunBasis"
         },
+        "scenarioContract": {
+          "$ref": "#/$defs/scenarioCompatibility"
+        },
         "selection": {
           "$ref": "#/$defs/comparisonSelectionBasis"
         }
@@ -140,6 +143,19 @@
         "scenarioHash": {
           "type": "string",
           "pattern": "^[a-f0-9]{64}$"
+        },
+        "acceptedBaselineScenarioHashes": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          }
+        },
+        "scenarioCompatibility": {
+          "type": "string",
+          "enum": ["exact", "declared-compatible", "legacy-compatible"]
         },
         "cohortHash": {
           "type": "string",
@@ -206,6 +222,28 @@
         }
       }
     },
+    "scenarioCompatibility": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "reason"],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": ["exact", "declared-compatible", "legacy-compatible", "incompatible"]
+        },
+        "reason": {
+          "type": "string"
+        },
+        "baselineHash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "currentHash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      }
+    },
     "measurementPolicy": {
       "type": "object",
       "additionalProperties": false,
@@ -233,6 +271,9 @@
                 },
                 "requireMatchingScenarioId": {
                   "type": "boolean"
+                },
+                "scenarioCompatibility": {
+                  "$ref": "#/$defs/scenarioCompatibility"
                 },
                 "comparisonLane": {
                   "type": "string"

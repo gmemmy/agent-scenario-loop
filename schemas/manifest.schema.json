@@ -31,6 +31,15 @@
       "type": "string",
       "pattern": "^[a-f0-9]{64}$"
     },
+    "acceptedBaselineScenarioHashes": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[a-f0-9]{64}$"
+      }
+    },
     "runId": {
       "type": "string"
     },

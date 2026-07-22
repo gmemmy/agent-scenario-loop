@@ -19,6 +19,7 @@ type ExecFailure = Error & ExecOutput;
 type TestContext = import('node:test').TestContext;
 const NATIVE_PERFORMANCE_REQUEST_PATH = 'raw/native-performance-request.json';
 const RUNNER_ACTIVE_LOOP_WINDOW_PATH = 'raw/runner-active-loop-window.json';
+const SCENARIO_HASH = sha256Text('open-close-cycle');
 
 function sha256Text(value: string): string {
   return crypto.createHash('sha256').update(value).digest('hex');
@@ -364,7 +365,7 @@ async function writeRun({
       schemaVersion: '1.0.0',
       runId,
       scenario: 'open-close-cycle',
-      scenarioHash: 'scenario-hash-a',
+      scenarioHash: SCENARIO_HASH,
       platform: 'android',
       interactionDriver: 'adb-logcat',
       comparisonLane: 'android-native-release',
@@ -645,6 +646,12 @@ test('prints comparison JSON for two trusted run directories', async (t: TestCon
   assert.equal(comparison.metricComparisons[0].delta, -300);
   assert.deepEqual(comparison.comparisonBasis, {
     strategy: 'explicit',
+    scenarioContract: {
+      baselineHash: SCENARIO_HASH,
+      currentHash: SCENARIO_HASH,
+      status: 'exact',
+      reason: 'scenario_hash_match',
+    },
     baseline: {
       runId: 'baseline-run',
       runDir: baselineDir,

@@ -81,6 +81,7 @@ Preferred fields:
 - `metadata`: product-owned tags and behavior coverage taxonomy
 - `journey`: human-readable intent, actor, start state, and end state
 - `comparisonLane`: default historical baseline lane for runs of this scenario
+- `acceptedBaselineScenarioHashes`: explicit prior contract hashes that remain valid baselines
 - `milestones`: named event checkpoints with phases and timeouts
 - `cycles`: iteration count, stop policy, and optional setup/body step ids
 - `cadence`: product-neutral pacing defaults for interaction settle windows
@@ -88,6 +89,15 @@ Preferred fields:
 - `artifacts`: required and optional evidence outputs
 
 Use `comparisonLane` when a scenario should always compare within one stable proof mode, such as `feed-open-android-live`. Profile CLIs can also receive `--comparison-lane`; the CLI flag wins when one-off runs need a different lane.
+
+Exact scenario hashes remain the default historical boundary. When a scenario
+changes without invalidating earlier evidence, its author may list the exact
+prior hashes in `acceptedBaselineScenarioHashes`. The declaration is
+directional from the current scenario to older baselines, applies only to the
+same scenario id, and is not transitive. ASL prefers an exact trusted baseline
+before a newer declared-compatible baseline. Do not use this field to bridge a
+renamed scenario, infer compatibility from structure, or rescue evidence whose
+lane, cohort, health, verdict, or native capture policy is incompatible.
 
 Use `metadata` when a consuming app needs machine-readable coverage context that
 does not change runner behavior. ASL validates and preserves scenario metadata

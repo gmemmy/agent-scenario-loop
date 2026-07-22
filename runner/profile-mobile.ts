@@ -25,6 +25,7 @@ const {
   extractProfileSessionEntries,
 } = require('../core/artifact-contract');
 const { SCHEMAS, assertValidJson } = require('../core/schema-validator');
+const { readScenarioHashes } = require('../core/scenario-compatibility');
 const { writeUsage } = require('./cli');
 
 type CliArgValue = string | boolean | Array<string | boolean>;
@@ -427,6 +428,7 @@ type ProfileRunPlan = {
   runId: string;
   scenarioId: string;
   scenarioHash: string;
+  acceptedBaselineScenarioHashes?: string[];
   platform: ProfilePlatform;
   inputMode: string;
   artifactRoot: string;
@@ -2388,6 +2390,7 @@ function buildProfileRunPlan({
   scenarioPath: string;
 }): ProfileRunPlan {
   const scenarioMetadata = readScenarioMetadata(profileScenario);
+  const acceptedBaselineScenarioHashes = readScenarioHashes(profileScenario.acceptedBaselineScenarioHashes);
   const requestedDiagnosticDemand = resolveRequestedDiagnosticDemand({
     providerOutputs: readSelectedProviderOutputDemand({ args }),
     scenario: profileScenario as Record<string, any>,
@@ -2397,6 +2400,7 @@ function buildProfileRunPlan({
     runId,
     scenarioId: resolveProfileScenarioName({ scenario: profileScenario, scenarioPath }),
     scenarioHash,
+    ...(acceptedBaselineScenarioHashes.length > 0 ? { acceptedBaselineScenarioHashes } : {}),
     platform: options.platform,
     inputMode: resolveProfileInputMode({ args, platform: options.platform }),
     artifactRoot,
@@ -6871,6 +6875,9 @@ async function runProfileMobile(args: CliArgs, options: ProfileMobileOptions): P
   const manifest = buildManifest({
     scenario: scenarioName,
     scenarioHash,
+    acceptedBaselineScenarioHashes: readScenarioHashes(
+      (profileScenario as Record<string, unknown>).acceptedBaselineScenarioHashes,
+    ),
     runId,
     platform: options.platform,
     status: metrics.status,

@@ -5,6 +5,7 @@ const fsp = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
+const { compareLatestTrustedRun } = require('../compare-latest');
 
 const DIST_ROOT = path.join(__dirname, '..', '..');
 const ROOT = path.join(DIST_ROOT, '..');
@@ -43,10 +44,11 @@ function execFileAsync(command: string, args: string[], options: Record<string, 
 /**
  * Writes a minimal indexed run directory with deterministic sort metadata.
  *
- * @param {{root: string, runId: string, actual: number, endedAt: string, cohortHash?: string, comparisonLane?: string, healthStatus?: string, scenarioHash?: string, verdictStatus?: string}} options
+ * @param {{root: string, runId: string, actual: number, endedAt: string, acceptedBaselineScenarioHashes?: string[], cohortHash?: string, comparisonLane?: string, healthStatus?: string, scenarioHash?: string, verdictStatus?: string}} options
  * @returns {Promise<string>}
  */
 async function writeRun({
+  acceptedBaselineScenarioHashes,
   cohortHash,
   comparisonLane,
   root,
@@ -57,6 +59,7 @@ async function writeRun({
   verdictStatus = actual <= 1000 ? 'passed' : 'failed',
   scenarioHash,
 }: {
+  acceptedBaselineScenarioHashes?: string[];
   root: string;
   runId: string;
   actual: number;
@@ -76,6 +79,7 @@ async function writeRun({
       runId,
       scenario: 'open-close-cycle',
       ...(scenarioHash ? { scenarioHash } : {}),
+      ...(acceptedBaselineScenarioHashes ? { acceptedBaselineScenarioHashes } : {}),
       platform: 'android',
       interactionDriver: 'adb-logcat',
       ...(comparisonLane ? { comparisonLane } : {}),
@@ -178,6 +182,10 @@ test('compares current run against latest trusted prior run', async (t: TestCont
         requireMatchingScenarioId: true,
         requirePassedHealth: true,
         requirePassedVerdict: true,
+        scenarioCompatibility: {
+          status: 'legacy-compatible',
+          reason: 'current_scenario_hash_missing',
+        },
       },
     },
     confidence: {
@@ -206,6 +214,10 @@ test('compares current run against latest trusted prior run', async (t: TestCont
   });
   assert.deepEqual(comparison.comparisonBasis, {
     strategy: 'latest_trusted_prior',
+    scenarioContract: {
+      status: 'legacy-compatible',
+      reason: 'current_scenario_hash_missing',
+    },
     baseline: {
       runId: 'older-trusted-run',
       runDir: path.join(rootDir, 'open-close-cycle', 'older-trusted-run'),
@@ -225,6 +237,7 @@ test('compares current run against latest trusted prior run', async (t: TestCont
       selectedRunDir: path.join(rootDir, 'open-close-cycle', 'older-trusted-run'),
       selectedRunId: 'older-trusted-run',
       skippedCurrentRun: true,
+      scenarioCompatibility: 'legacy-compatible',
       trustedCandidates: 2,
       trustedComparableCandidates: 1,
       trustedPriorCandidates: 1,
@@ -371,6 +384,90 @@ test('filters latest trusted prior runs by scenario contract hash when current i
   assert.equal(comparison.comparisonBasis.selection.trustedScenarioContractCandidates, 1);
 });
 
+test('prefers an exact scenario contract before a newer declared-compatible baseline', async (t: TestContext) => {
+  const rootDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-compare-latest-compatible-hash-'));
+  t.after(async () => fsp.rm(rootDir, { recursive: true, force: true }));
+  await writeRun({
+    root: rootDir,
+    runId: 'newer-compatible-run',
+    actual: 700,
+    endedAt: '2026-06-16T10:05:00.000Z',
+    scenarioHash: 'a'.repeat(64),
+  });
+  await writeRun({
+    root: rootDir,
+    runId: 'older-exact-run',
+    actual: 900,
+    endedAt: '2026-06-16T10:00:00.000Z',
+    scenarioHash: 'b'.repeat(64),
+  });
+  const currentDir = await writeRun({
+    root: rootDir,
+    runId: 'current-run',
+    actual: 800,
+    endedAt: '2026-06-16T10:10:00.000Z',
+    scenarioHash: 'b'.repeat(64),
+    acceptedBaselineScenarioHashes: ['a'.repeat(64)],
+  });
+
+  const comparison = compareLatestTrustedRun({ rootDir, scenarioId: 'open-close-cycle', currentDir }).comparison;
+  assert.equal(comparison.baselineRunId, 'older-exact-run');
+  assert.equal(comparison.comparisonBasis.scenarioContract.status, 'exact');
+});
+
+test('uses the newest explicitly accepted baseline when no exact contract exists', async (t: TestContext) => {
+  const rootDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-compare-latest-declared-hash-'));
+  t.after(async () => fsp.rm(rootDir, { recursive: true, force: true }));
+  await writeRun({
+    root: rootDir,
+    runId: 'accepted-baseline-run',
+    actual: 900,
+    endedAt: '2026-06-16T10:05:00.000Z',
+    scenarioHash: 'a'.repeat(64),
+  });
+  const currentDir = await writeRun({
+    root: rootDir,
+    runId: 'current-run',
+    actual: 800,
+    endedAt: '2026-06-16T10:10:00.000Z',
+    scenarioHash: 'b'.repeat(64),
+    acceptedBaselineScenarioHashes: ['a'.repeat(64)],
+  });
+
+  const comparison = compareLatestTrustedRun({ rootDir, scenarioId: 'open-close-cycle', currentDir }).comparison;
+  assert.equal(comparison.baselineRunId, 'accepted-baseline-run');
+  assert.equal(comparison.comparisonBasis.scenarioContract.status, 'declared-compatible');
+  assert.equal(comparison.measurementPolicy.baselineSelection.poisoningProtection.scenarioCompatibility.status, 'declared-compatible');
+});
+
+test('keeps newest-first ordering for legacy current runs with mixed historical hashes', async (t: TestContext) => {
+  const rootDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-compare-latest-legacy-order-'));
+  t.after(async () => fsp.rm(rootDir, { recursive: true, force: true }));
+  await writeRun({
+    root: rootDir,
+    runId: 'older-hashless-run',
+    actual: 900,
+    endedAt: '2026-06-16T10:00:00.000Z',
+  });
+  await writeRun({
+    root: rootDir,
+    runId: 'newer-hash-aware-run',
+    actual: 850,
+    endedAt: '2026-06-16T10:05:00.000Z',
+    scenarioHash: 'a'.repeat(64),
+  });
+  const currentDir = await writeRun({
+    root: rootDir,
+    runId: 'current-legacy-run',
+    actual: 800,
+    endedAt: '2026-06-16T10:10:00.000Z',
+  });
+
+  const comparison = compareLatestTrustedRun({ rootDir, scenarioId: 'open-close-cycle', currentDir }).comparison;
+  assert.equal(comparison.baselineRunId, 'newer-hash-aware-run');
+  assert.equal(comparison.comparisonBasis.scenarioContract.status, 'legacy-compatible');
+});
+
 test('filters latest trusted prior runs by provenance cohort hash when current is cohort-aware', async (t: TestContext) => {
   const rootDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-compare-latest-cohort-hash-'));
   t.after(async () => {
@@ -426,6 +523,12 @@ test('filters latest trusted prior runs by provenance cohort hash when current i
       requireMatchingScenarioId: true,
       requirePassedHealth: true,
       requirePassedVerdict: true,
+      scenarioCompatibility: {
+        baselineHash: 'a'.repeat(64),
+        currentHash: 'a'.repeat(64),
+        reason: 'scenario_hash_match',
+        status: 'exact',
+      },
       scenarioHash: 'a'.repeat(64),
     },
   });

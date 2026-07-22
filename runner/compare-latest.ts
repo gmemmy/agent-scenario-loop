@@ -5,6 +5,7 @@ const path = require('node:path');
 const { buildAgentSummaryMarkdown } = require('../core/agent-summary');
 const { compareRunDirectories, readRunArtifacts } = require('../core/comparison');
 const { buildRunIndex, readRunIndexEntry } = require('../core/run-index');
+const { isScenarioCompatible, resolveScenarioCompatibility } = require('../core/scenario-compatibility');
 const { writeJsonArtifact, writeTextArtifact } = require('../core/artifact-writer');
 const { SCHEMAS } = require('../core/schema-validator');
 const { hasHelpFlag, writeUsage } = require('./cli');
@@ -45,6 +46,8 @@ type LatestTrustedSelection = {
   skippedCurrentRun: boolean;
   comparisonLane?: string;
   scenarioHash?: string;
+  acceptedBaselineScenarioHashes?: string[];
+  scenarioCompatibility?: 'declared-compatible' | 'exact' | 'legacy-compatible';
   trustedCandidates: number;
   trustedCohortCandidates?: number;
   trustedComparableCandidates?: number;
@@ -130,8 +133,18 @@ function isComparableLane(entry: RunIndexEntry, comparisonLane: string | undefin
  * @param {string | undefined} scenarioHash
  * @returns {boolean}
  */
-function isComparableScenarioContract(entry: RunIndexEntry, scenarioHash: string | undefined): boolean {
-  return scenarioHash ? entry.scenarioHash === scenarioHash : true;
+function isComparableScenarioContract(
+  entry: RunIndexEntry,
+  scenarioHash: string | undefined,
+  acceptedBaselineScenarioHashes: string[] = [],
+): boolean {
+  return isScenarioCompatible(resolveScenarioCompatibility({
+    acceptedBaselineScenarioHashes,
+    baselineHash: entry.scenarioHash,
+    baselineScenarioId: entry.scenarioId,
+    currentHash: scenarioHash,
+    currentScenarioId: entry.scenarioId,
+  }));
 }
 
 /**
@@ -156,25 +169,31 @@ function findLatestTrustedPriorRun({
   cohortHash,
   comparisonLane,
   index,
+  acceptedBaselineScenarioHashes = [],
   scenarioHash,
   scenarioId,
   currentDir,
 }: {
   cohortHash?: string;
   comparisonLane?: string;
+  acceptedBaselineScenarioHashes?: string[];
   index: RunIndex;
   scenarioHash?: string;
   scenarioId: string;
   currentDir: string;
 }): RunIndexEntry | null {
   const resolvedCurrentDir = path.resolve(currentDir);
-  return index.trusted.find((entry) => (
+  const candidates = index.trusted.filter((entry) => (
     entry.scenarioId === scenarioId &&
     isComparableLane(entry, comparisonLane) &&
-    isComparableScenarioContract(entry, scenarioHash) &&
+    isComparableScenarioContract(entry, scenarioHash, acceptedBaselineScenarioHashes) &&
     isComparableCohort(entry, cohortHash) &&
     path.resolve(entry.runDir) !== resolvedCurrentDir
-  )) ?? null;
+  ));
+  if (!scenarioHash) {
+    return candidates[0] ?? null;
+  }
+  return candidates.find((entry) => entry.scenarioHash === scenarioHash) ?? candidates[0] ?? null;
 }
 
 /**
@@ -189,6 +208,7 @@ function buildLatestTrustedSelection({
   comparisonLane,
   currentDir,
   index,
+  acceptedBaselineScenarioHashes = [],
   rootDir,
   scenarioHash,
   scenarioId,
@@ -196,6 +216,7 @@ function buildLatestTrustedSelection({
   baseline: RunIndexEntry;
   cohortHash?: string;
   comparisonLane?: string;
+  acceptedBaselineScenarioHashes?: string[];
   currentDir: string;
   index: RunIndex;
   rootDir: string;
@@ -211,11 +232,18 @@ function buildLatestTrustedSelection({
     isComparableLane(entry, comparisonLane)
   ));
   const trustedScenarioContractCandidates = trustedComparableCandidates.filter((entry) => (
-    isComparableScenarioContract(entry, scenarioHash)
+    isComparableScenarioContract(entry, scenarioHash, acceptedBaselineScenarioHashes)
   ));
   const trustedCohortCandidates = trustedScenarioContractCandidates.filter((entry) => (
     isComparableCohort(entry, cohortHash)
   ));
+  const scenarioCompatibility = resolveScenarioCompatibility({
+    acceptedBaselineScenarioHashes,
+    baselineHash: baseline.scenarioHash,
+    baselineScenarioId: baseline.scenarioId,
+    currentHash: scenarioHash,
+    currentScenarioId: scenarioId,
+  });
 
   return {
     artifactRoot: rootDir,
@@ -226,6 +254,10 @@ function buildLatestTrustedSelection({
     skippedCurrentRun: index.entries.some((entry) => path.resolve(entry.runDir) === resolvedCurrentDir),
     ...(comparisonLane ? { comparisonLane } : {}),
     ...(scenarioHash ? { scenarioHash } : {}),
+    ...(acceptedBaselineScenarioHashes.length > 0 ? { acceptedBaselineScenarioHashes } : {}),
+    ...(scenarioCompatibility.status !== 'incompatible'
+      ? { scenarioCompatibility: scenarioCompatibility.status }
+      : {}),
     ...(cohortHash ? { cohortHash } : {}),
     trustedCandidates: index.trusted.length,
     trustedComparableCandidates: trustedComparableCandidates.length,
@@ -253,6 +285,7 @@ function compareLatestTrustedRun({
   const currentEntry = readRunIndexEntry(resolvedCurrentDir);
   const resolvedComparisonLane = comparisonLane ?? currentEntry.comparisonLane;
   const scenarioHash = currentEntry.scenarioHash;
+  const acceptedBaselineScenarioHashes = currentEntry.acceptedBaselineScenarioHashes ?? [];
   const cohortHash = currentEntry.cohortHash;
 
   const index = buildRunIndex({ rootDir: resolvedRootDir, scenarioId });
@@ -260,6 +293,7 @@ function compareLatestTrustedRun({
     ...(cohortHash ? { cohortHash } : {}),
     ...(resolvedComparisonLane ? { comparisonLane: resolvedComparisonLane } : {}),
     ...(scenarioHash ? { scenarioHash } : {}),
+    ...(acceptedBaselineScenarioHashes.length > 0 ? { acceptedBaselineScenarioHashes } : {}),
     index,
     scenarioId,
     currentDir: resolvedCurrentDir,
@@ -288,6 +322,7 @@ function compareLatestTrustedRun({
         index,
         rootDir: resolvedRootDir,
         ...(scenarioHash ? { scenarioHash } : {}),
+        ...(acceptedBaselineScenarioHashes.length > 0 ? { acceptedBaselineScenarioHashes } : {}),
         scenarioId,
       }),
       strategy: 'latest_trusted_prior',

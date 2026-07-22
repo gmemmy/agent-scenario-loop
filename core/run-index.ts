@@ -2,6 +2,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const { ARTIFACT_FILENAMES, PROFILE_ARTIFACT_FILENAMES } = require('./artifact-layout');
+const { readScenarioHashes } = require('./scenario-compatibility');
 
 type RunIndexEntry = {
   runDir: string;
@@ -10,6 +11,7 @@ type RunIndexEntry = {
   attemptNumber?: number;
   artifactCompatibility: ArtifactCompatibility;
   scenarioHash?: string;
+  acceptedBaselineScenarioHashes?: string[];
   cohortHash?: string;
   runId: string;
   healthStatus: string;
@@ -340,6 +342,7 @@ function readRunIndexEntry(runDir: string): RunIndexEntry {
     manifest,
     verdictStatus,
   });
+  const acceptedBaselineScenarioHashes = readScenarioHashes(manifest.acceptedBaselineScenarioHashes);
 
   return {
     runDir,
@@ -349,6 +352,7 @@ function readRunIndexEntry(runDir: string): RunIndexEntry {
     ...(typeof attempt?.attemptId === 'string' ? { attemptId: attempt.attemptId } : {}),
     ...(typeof attempt?.attemptNumber === 'number' ? { attemptNumber: attempt.attemptNumber } : {}),
     ...(typeof manifest.scenarioHash === 'string' ? { scenarioHash: manifest.scenarioHash } : {}),
+    ...(acceptedBaselineScenarioHashes.length > 0 ? { acceptedBaselineScenarioHashes } : {}),
     ...(typeof provenance.cohortHash === 'string'
       ? { cohortHash: provenance.cohortHash }
       : {}),

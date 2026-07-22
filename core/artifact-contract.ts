@@ -1972,6 +1972,7 @@ function buildCausalRun({
 function buildManifest({
   scenario,
   scenarioHash,
+  acceptedBaselineScenarioHashes,
   runId,
   attemptId,
   attemptNumber,
@@ -2058,6 +2059,9 @@ function buildManifest({
   return {
     scenario,
     ...(typeof scenarioHash === 'string' && scenarioHash.length > 0 ? { scenarioHash } : {}),
+    ...(Array.isArray(acceptedBaselineScenarioHashes) && acceptedBaselineScenarioHashes.length > 0
+      ? { acceptedBaselineScenarioHashes: [...acceptedBaselineScenarioHashes].sort() }
+      : {}),
     runId,
     platform,
     status,

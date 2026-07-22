@@ -11,10 +11,12 @@ const {
   isNativePerformanceRegressed,
 } = require('./native-performance-comparison');
 const { readRunIndexEntry } = require('./run-index');
+const { readScenarioHashes, resolveScenarioCompatibility } = require('./scenario-compatibility');
 const { SCHEMAS, assertValidJson } = require('./schema-validator');
 
 import type { RunIndexEntry } from './run-index';
 import type { NativePerformanceComparisonSection } from './native-performance-comparison';
+import type { ScenarioCompatibility } from './scenario-compatibility';
 
 type ComparisonRecord = Record<string, any>;
 type NativePerformanceAttachmentRecord = {
@@ -89,6 +91,7 @@ type ComparisonSelectionBasis = {
 type ComparisonBasis = {
   baseline: ComparisonRunBasis;
   current: ComparisonRunBasis;
+  scenarioContract?: ScenarioCompatibility;
   selection?: ComparisonSelectionBasis;
   strategy: ComparisonBasisStrategy;
 };
@@ -102,6 +105,7 @@ type MeasurementPolicy = {
       comparisonLane?: string;
       scenarioHash?: string;
       cohortHash?: string;
+      scenarioCompatibility?: ScenarioCompatibility;
     };
   };
   samples: {
@@ -580,17 +584,32 @@ function buildNativePerformanceTrustExplanations({
     return explanations;
   }
 
+  const scenarioCompatibility = resolveScenarioCompatibility({
+    acceptedBaselineScenarioHashes: currentRunIndex.entry.acceptedBaselineScenarioHashes,
+    baselineHash: baselineRunIndex.entry.scenarioHash,
+    baselineScenarioId: baselineRunIndex.entry.scenarioId,
+    currentHash: currentRunIndex.entry.scenarioHash,
+    currentScenarioId: currentRunIndex.entry.scenarioId,
+  });
+  if (
+    scenarioCompatibility.status !== 'exact' &&
+    scenarioCompatibility.status !== 'declared-compatible'
+  ) {
+    explanations.push(buildExplanation({
+      code: 'incompatible-run',
+      baseline: scenarioCompatibility.baselineHash ?? null,
+      current: scenarioCompatibility.currentHash ?? null,
+      field: 'scenarioHash',
+      phase: 'pair',
+      reason: `Trusted native-performance comparison requires exact or explicitly accepted scenario contracts (${scenarioCompatibility.reason}).`,
+    }));
+  }
+
   for (const field of [
     {
       name: 'scenarioId',
       baseline: baselineRunIndex.entry.scenarioId,
       current: currentRunIndex.entry.scenarioId,
-      requireExplicit: true,
-    },
-    {
-      name: 'scenarioHash',
-      baseline: baselineRunIndex.entry.scenarioHash ?? null,
-      current: currentRunIndex.entry.scenarioHash ?? null,
       requireExplicit: true,
     },
     {
@@ -1088,6 +1107,7 @@ function buildComparisonBasis({
   baselineVerdict,
   currentHealth,
   currentVerdict,
+  scenarioContract,
   selection,
   strategy,
 }: {
@@ -1097,6 +1117,7 @@ function buildComparisonBasis({
   baselineVerdict: ComparisonRecord;
   currentHealth: ComparisonRecord;
   currentVerdict: ComparisonRecord;
+  scenarioContract: ScenarioCompatibility;
   selection?: ComparisonSelectionBasis;
   strategy: ComparisonBasisStrategy;
 }): ComparisonBasis {
@@ -1105,6 +1126,7 @@ function buildComparisonBasis({
 
   return {
     strategy,
+    scenarioContract,
     baseline: {
       runId: baselineRunId,
       runDir: baselineDir,
@@ -1191,6 +1213,9 @@ function buildMeasurementPolicy({
     requirePassedHealth: true,
     requirePassedVerdict: comparisonBasis?.strategy === 'latest_trusted_prior',
     requireMatchingScenarioId: true,
+    ...(comparisonBasis?.scenarioContract
+      ? { scenarioCompatibility: comparisonBasis.scenarioContract }
+      : {}),
     ...(typeof selection?.comparisonLane === 'string' ? { comparisonLane: selection.comparisonLane } : {}),
     ...(typeof selection?.scenarioHash === 'string' ? { scenarioHash: selection.scenarioHash } : {}),
     ...(typeof selection?.cohortHash === 'string' ? { cohortHash: selection.cohortHash } : {}),
@@ -1255,9 +1280,11 @@ function resolveComparisonFlowIdentity({
  */
 function buildComparisonArtifact({
   baselineHealth,
+  baselineManifest,
   baselineVerdict,
   comparisonBasis,
   currentHealth,
+  currentManifest,
   currentVerdict,
   nativeComparison,
 }: BuildComparisonOptions): ComparisonRecord {
@@ -1267,6 +1294,19 @@ function buildComparisonArtifact({
   const currentScenarioId = String(currentHealth.scenarioId ?? currentVerdict.scenarioId ?? baselineScenarioId);
   const baselineRunId = String(baselineHealth.runId ?? baselineVerdict.runId ?? 'unknown-baseline');
   const currentRunId = String(currentHealth.runId ?? currentVerdict.runId ?? 'unknown-current');
+  const scenarioContract = comparisonBasis?.scenarioContract ?? resolveScenarioCompatibility({
+    acceptedBaselineScenarioHashes: readScenarioHashes(currentManifest?.acceptedBaselineScenarioHashes),
+    baselineHash: baselineManifest?.scenarioHash,
+    baselineScenarioId: String(baselineManifest?.scenarioId ?? baselineScenarioId),
+    currentHash: currentManifest?.scenarioHash,
+    currentScenarioId: String(currentManifest?.scenarioId ?? currentScenarioId),
+  });
+  const resolvedComparisonBasis = comparisonBasis
+    ? {
+        ...comparisonBasis,
+        scenarioContract,
+      }
+    : undefined;
 
   if (baselineHealth.healthStatus !== 'passed') {
     missingRequired.push('baseline health passed');
@@ -1278,6 +1318,10 @@ function buildComparisonArtifact({
 
   if (baselineScenarioId !== currentScenarioId) {
     missingRequired.push('matching scenario id');
+  }
+
+  if (scenarioContract.status === 'incompatible') {
+    missingRequired.push(`compatible scenario contract (${scenarioContract.reason})`);
   }
 
   const canCompare = missingRequired.length === 0;
@@ -1294,7 +1338,7 @@ function buildComparisonArtifact({
       }
       const metricComparison = compareBudgetCheck(baselineCheck, currentCheck);
       if (
-        comparisonBasis?.strategy === 'latest_trusted_prior' &&
+        resolvedComparisonBasis?.strategy === 'latest_trusted_prior' &&
         isLowConfidenceTimingMovement(metricComparison, baselineCheck, currentCheck)
       ) {
         metricComparisons.push({
@@ -1320,7 +1364,7 @@ function buildComparisonArtifact({
     : 'inconclusive';
   const nativeSummary = summarizeNativePerformanceComparison(nativeComparison);
   const comparison = {
-    schemaVersion: '1.1.0',
+    schemaVersion: '1.2.0',
     scenarioId: currentScenarioId,
     ...resolveComparisonFlowIdentity({ currentHealth, currentVerdict }),
     runId: currentRunId,
@@ -1328,10 +1372,10 @@ function buildComparisonArtifact({
     comparisonStatus,
     healthStatus: canCompare ? 'passed' : 'failed',
     verdictStatus: typeof currentVerdict.verdictStatus === 'string' ? currentVerdict.verdictStatus : 'inconclusive',
-    ...(comparisonBasis ? { comparisonBasis } : {}),
+    ...(resolvedComparisonBasis ? { comparisonBasis: resolvedComparisonBasis } : {}),
     measurementPolicy: buildMeasurementPolicy({
       baselineVerdict,
-      comparisonBasis,
+      comparisonBasis: resolvedComparisonBasis,
       currentVerdict,
       metricComparisons,
     }),
@@ -1377,6 +1421,13 @@ function compareRunDirectories({
     currentDir,
     currentRunIndex,
   });
+  const scenarioContract = resolveScenarioCompatibility({
+    acceptedBaselineScenarioHashes: currentRunIndex.entry?.acceptedBaselineScenarioHashes,
+    baselineHash: baselineRunIndex.entry?.scenarioHash,
+    baselineScenarioId: baselineRunIndex.entry?.scenarioId ?? String(baseline.health.scenarioId ?? baseline.verdict.scenarioId ?? 'unknown-scenario'),
+    currentHash: currentRunIndex.entry?.scenarioHash,
+    currentScenarioId: currentRunIndex.entry?.scenarioId ?? String(current.health.scenarioId ?? current.verdict.scenarioId ?? 'unknown-scenario'),
+  });
 
   return buildComparisonArtifact({
     baselineHealth: baseline.health,
@@ -1389,6 +1440,7 @@ function compareRunDirectories({
       baselineVerdict: baseline.verdict,
       currentHealth: current.health,
       currentVerdict: current.verdict,
+      scenarioContract,
       ...(selection ? { selection } : {}),
       strategy,
     }),
