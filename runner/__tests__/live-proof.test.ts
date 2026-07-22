@@ -39,8 +39,12 @@ type TestNextActionCode = (
 );
 type TestNextActionOwner = (
   'asl_runner' |
+  'app_truth' |
   'product_optimization' |
-  'scenario_contract'
+  'provider_tooling' |
+  'runtime_environment' |
+  'scenario_contract' |
+  'unresolved'
 );
 type TestComparisonPointerStatus = 'low_confidence' | 'mixed' | 'unchanged' | 'worse';
 type TestComparisonStatus = 'low_confidence' | 'mixed' | 'regressed' | 'unchanged';
@@ -597,6 +601,18 @@ test('keeps legacy live-proof artifacts valid when next action owner is absent',
   const proofPath = writeProof(tempDir, proof);
 
   assert.equal(readLiveProof(proofPath).nextAction.owner, undefined);
+});
+
+test('accepts unresolved routing on failed live-proof artifacts', async (t: TestContext) => {
+  const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-live-proof-unresolved-owner-'));
+  t.after(async () => {
+    await fsp.rm(tempDir, { recursive: true, force: true });
+  });
+  const proof = buildProof('unchanged', 'failed');
+  (proof.nextAction as Record<string, string>).owner = 'unresolved';
+  const proofPath = writeProof(tempDir, proof);
+
+  assert.equal(readLiveProof(proofPath).nextAction.owner, 'unresolved');
 });
 
 test('validates local live-proof artifact pointers when requested', async (t: TestContext) => {
@@ -1861,6 +1877,67 @@ test('fails a live-proof set when any proof artifact failed', async (t: TestCont
     artifact,
     outputDir: path.join(tempDir, 'proof-set'),
   });
+});
+
+test('ranks every adjacent owner boundary through failed live-proof-set aggregation in both input orders', async (t: TestContext) => {
+  const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-live-proof-set-owner-precedence-'));
+  t.after(async () => {
+    await fsp.rm(tempDir, { recursive: true, force: true });
+  });
+
+  const adjacentOwnerPairs: Array<readonly [TestNextActionOwner, TestNextActionOwner]> = [
+    ['runtime_environment', 'asl_runner'],
+    ['asl_runner', 'app_truth'],
+    ['app_truth', 'unresolved'],
+    ['unresolved', 'scenario_contract'],
+    ['scenario_contract', 'provider_tooling'],
+    ['provider_tooling', 'product_optimization'],
+  ];
+
+  for (const [higherOwner, lowerOwner] of adjacentOwnerPairs) {
+    const ownerOrders: Array<readonly [TestNextActionOwner, TestNextActionOwner]> = [
+      [higherOwner, lowerOwner],
+      [lowerOwner, higherOwner],
+    ];
+    for (const owners of ownerOrders) {
+      const androidProof = buildProof('unchanged', 'failed', 'android') as ReturnType<typeof readLiveProof>;
+      const iosProof = buildProof('unchanged', 'failed', 'ios') as ReturnType<typeof readLiveProof>;
+      androidProof.nextAction.owner = owners[0];
+      iosProof.nextAction.owner = owners[1];
+      const artifact = buildLiveProofSetArtifact({
+        failOnRegression: false,
+        files: [
+          path.join(tempDir, 'android-live-proof.json'),
+          path.join(tempDir, 'ios-live-proof.json'),
+        ],
+        proofs: [androidProof, iosProof],
+        requiredPlatforms: ['android', 'ios'],
+        runId: `owner-precedence-${owners.join('-')}`,
+      });
+
+      assert.equal(
+        artifact.nextAction.owner,
+        higherOwner,
+        `${higherOwner} must outrank ${lowerOwner} for input ${owners.join(', ')}`,
+      );
+      assert.deepEqual(
+        [...artifact.proofFailureNextActions.nextActionCounts].sort((left, right) => left.owner.localeCompare(right.owner)),
+        owners.map((owner) => ({
+          code: 'inspect_failed_run',
+          count: 1,
+          owner,
+        })).sort((left, right) => left.owner.localeCompare(right.owner)),
+      );
+      assert.match(
+        formatLiveProofSetArtifactMarkdown(artifact),
+        new RegExp(`Next action: ${higherOwner}/inspect_failed_run`, 'u'),
+      );
+      await writeLiveProofSetArtifact({
+        artifact,
+        outputDir: path.join(tempDir, owners.join('-')),
+      });
+    }
+  }
 });
 
 test('fails a live-proof set when regression gating finds a regressed proof', () => {

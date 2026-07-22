@@ -315,7 +315,8 @@ type LiveProofNextActionOwner = (
   'product_optimization' |
   'provider_tooling' |
   'runtime_environment' |
-  'scenario_contract'
+  'scenario_contract' |
+  'unresolved'
 );
 
 type LiveProofSummaryResult = {
@@ -1563,7 +1564,8 @@ function isLiveProofNextActionOwner(owner: unknown): owner is LiveProofNextActio
     owner === 'product_optimization' ||
     owner === 'provider_tooling' ||
     owner === 'runtime_environment' ||
-    owner === 'scenario_contract';
+    owner === 'scenario_contract' ||
+    owner === 'unresolved';
 }
 
 /**
@@ -1872,6 +1874,8 @@ function liveProofFailureOwnerRank(owner: LiveProofNextActionOwner): number {
       return 1;
     case 'app_truth':
       return 2;
+    case 'unresolved':
+      return 2.5;
     case 'scenario_contract':
       return 3;
     case 'provider_tooling':

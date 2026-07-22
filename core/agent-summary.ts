@@ -385,9 +385,9 @@ function containsAny(text: string, fragments: string[]): boolean {
  * Reports whether a value is a stable next-action owner.
  *
  * @param {unknown} value
- * @returns {value is NextActionOwner}
+ * @returns {value is ResolvedNextActionOwner}
  */
-function isNextActionOwner(value: unknown): value is NextActionOwner {
+function isNextActionOwner(value: unknown): value is ResolvedNextActionOwner {
   return value === 'app_truth' ||
     value === 'asl_runner' ||
     value === 'product_optimization' ||
@@ -406,6 +406,10 @@ function classifyCheckOwner(record: SummaryRecord): NextActionOwner {
   const metadata = asSummaryRecord(record.metadata);
   if (isNextActionOwner(metadata.nextActionOwner)) {
     return metadata.nextActionOwner;
+  }
+
+  if (record.code === 'truth_events_incomplete' || record.name === 'truth_events_incomplete') {
+    return 'unresolved';
   }
 
   const text = recordSearchText(record);
@@ -466,6 +470,7 @@ function nextActionOwnerRank(owner: NextActionOwner): number {
     runtime_environment: 0,
     asl_runner: 1,
     app_truth: 2,
+    unresolved: 2.5,
     scenario_contract: 3,
     provider_tooling: 4,
     product_optimization: 5,
@@ -522,6 +527,9 @@ function resolveNextActionSummary({
     const owners = ownerSourceChecks.map((record) => classifyCheckOwner(record));
     const owner = owners.sort((left, right) => nextActionOwnerRank(left) - nextActionOwnerRank(right))[0] ?? 'asl_runner';
     const ownerRecords = ownerSourceChecks.filter((record) => classifyCheckOwner(record) === owner);
+    if (owner === 'unresolved') {
+      return unresolvedNextActionSummary(ownerRecords);
+    }
     return nextActionSummaryForOwner(owner, ownerRecords);
   }
 
@@ -561,14 +569,14 @@ function resolveNextActionSummary({
 /**
  * Builds owner-specific next-action copy.
  *
- * @param {NextActionOwner} owner
+ * @param {ResolvedNextActionOwner} owner
  * @param {SummaryRecord[]} records
  * @returns {NextActionSummary}
  */
-function nextActionSummaryForOwner(owner: NextActionOwner, records: SummaryRecord[]): NextActionSummary {
+function nextActionSummaryForOwner(owner: ResolvedNextActionOwner, records: SummaryRecord[]): NextActionSummary {
   const firstRecord = records[0] ?? {};
   const firstName = firstString([firstRecord.name, firstRecord.code], 'unknown_check');
-  const summaries: Record<NextActionOwner, NextActionSummary> = {
+  const summaries: Record<ResolvedNextActionOwner, NextActionSummary> = {
     runtime_environment: {
       action: 'Fix target selection or runtime setup, then rerun before interpreting product timing.',
       owner,
@@ -601,6 +609,22 @@ function nextActionSummaryForOwner(owner: NextActionOwner, records: SummaryRecor
     },
   };
   return summaries[owner];
+}
+
+/**
+ * Builds the next action for a failed check whose producer boundary is ambiguous.
+ *
+ * @param {SummaryRecord[]} records
+ * @returns {NextActionSummary}
+ */
+function unresolvedNextActionSummary(records: SummaryRecord[]): NextActionSummary {
+  const firstRecord = records[0] ?? {};
+  const firstName = firstString([firstRecord.name, firstRecord.code], 'unknown_check');
+  return {
+    action: 'Inspect app truth emission and scenario contract milestone or iteration mapping, then add explicit owner metadata or evidence that identifies the failing boundary.',
+    owner: 'unresolved',
+    reason: `available evidence cannot distinguish app truth emission from scenario contract mapping at ${firstName}`,
+  };
 }
 
 /**
@@ -849,13 +873,15 @@ type AgentSummaryInput = {
   manifest?: SummaryRecord | null;
 };
 
-type NextActionOwner =
+type ResolvedNextActionOwner =
   | 'app_truth'
   | 'asl_runner'
   | 'product_optimization'
   | 'provider_tooling'
   | 'runtime_environment'
   | 'scenario_contract';
+
+type NextActionOwner = ResolvedNextActionOwner | 'unresolved';
 
 type NextActionSummary = {
   action: string;
