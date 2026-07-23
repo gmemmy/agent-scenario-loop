@@ -32,11 +32,14 @@ The root package is for stable, runner-neutral behavior:
 - evidence interpretation gates
 - run indexing and lane-aware latest-trusted comparison selection
 - comparison artifacts, including `comparison.json` schemaVersion `1.1.0` with optional native-performance comparison truth
+- local historical evaluation structural types and semantic validation for consumer-produced `historical-evaluation.json`
 - aggregate live-proof artifacts
 - schema validation
 - Android native-performance evidence normalization from provider-captured `gfxinfo`, framestats, `meminfo`, and trace-processor summaries
 - iOS native-performance evidence normalization from provider-captured Instruments, xctrace, MetricKit, simctl, or native-trace summaries, including parser helpers for common xctrace and MetricKit text summaries
 - shared Android/iOS native-performance comparison-readiness classification from captured source, bounded window, observed target, completeness, comparability, and claim evidence
+
+TypeScript consumers can import `HistoricalEvaluationArtifact`, the explicitly named `UnvalidatedHistoricalEvaluationArtifact`, and the branded `ValidatedHistoricalEvaluationArtifact` from the package root. `HistoricalEvaluationArtifact` is an unvalidated structural alias; TypeScript cannot prove schema refinements or cross-record integrity. Call `validateHistoricalEvaluationArtifact(unknown)` to run both the strict schema and semantic integrity checks before accepting the branded result. The schema is shipped at `agent-scenario-loop/schemas/historical-evaluation.schema.json` and registered as `SCHEMAS.historicalEvaluation`. This V1 surface remains consumer-produced and local-only; it does not export an evaluator, selector, reader, writer, or CLI command, and it does not alter `comparison.json` or process exit behavior.
 
 Use `dispatchDriverAction()` when a runner has already normalized a scenario step and needs to call the active stable built-in `DriverPort` implementation without binding to adb, simctl, agent-device, Argent, or another concrete tool. The shared port recognizes the same portable driver-action vocabulary as scenario manifests, including richer primitives such as `drag`, `rotateGesture`, `customGesture`, and `runSequence`. A driver still has to implement and declare each action explicitly; unsupported actions fail as missing methods instead of silently downgrading.
 
