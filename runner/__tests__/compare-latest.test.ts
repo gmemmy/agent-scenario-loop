@@ -1,10 +1,12 @@
 const assert = require('node:assert/strict');
 const { execFile } = require('node:child_process');
+const { createHash } = require('node:crypto');
 const fs = require('node:fs');
 const fsp = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
+const { validateHistoricalEvaluationArtifact } = require('../..');
 const { compareLatestTrustedRun } = require('../compare-latest');
 
 const DIST_ROOT = path.join(__dirname, '..', '..');
@@ -546,12 +548,15 @@ test('demonstrates why latest-only movement cannot stand in for historical evide
   const cohortHash = 'b'.repeat(64);
   const comparisonLane = 'android-release';
   const historicalActuals = [700, 700, 950];
-  for (const [index, actual] of historicalActuals.entries()) {
+  const historicalRuns = historicalActuals.map((actual, index) => ({
+    actual,
+    endedAt: `2026-06-16T10:0${index}:00.000Z`,
+    runId: `trusted-history-${index + 1}`,
+  }));
+  for (const historicalRun of historicalRuns) {
     await writeRun({
       root: rootDir,
-      runId: `trusted-history-${index + 1}`,
-      actual,
-      endedAt: `2026-06-16T10:0${index}:00.000Z`,
+      ...historicalRun,
       scenarioHash,
       cohortHash,
       comparisonLane,
@@ -582,12 +587,132 @@ test('demonstrates why latest-only movement cannot stand in for historical evide
 
   assert.equal(result.comparison.baselineRunId, 'trusted-history-3');
   assert.equal(result.comparison.comparisonStatus, 'low_confidence');
+  assert.equal(latestMetric.status, 'low_confidence');
   assert.equal(latestMetric.baseline, 950);
   assert.equal(latestMetric.current, currentActual);
   assert.equal(latestMetric.delta, -100);
   assert.equal(result.comparison.comparisonBasis.selection.trustedCohortCandidates, 3);
   assert.equal(declaredHistoricalMedian, 700);
   assert.equal(currentActual - declaredHistoricalMedian, 150);
+
+  const provenance = ({ endedAt, runId }: { endedAt: string; runId: string }) => {
+    const artifactPath = path.posix.join('open-close-cycle', runId, 'verdict.json');
+    const artifactBytes = fs.readFileSync(path.join(rootDir, ...artifactPath.split('/')));
+    return {
+      runId,
+      endedAt,
+      artifact: {
+        path: artifactPath,
+        sha256: createHash('sha256').update(artifactBytes).digest('hex'),
+      },
+    };
+  };
+  const historicalSamples = historicalRuns.map((historicalRun, order) => ({
+    order,
+    provenance: provenance(historicalRun),
+    metrics: [{ metricId: 'open-p95-ms', value: historicalRun.actual }],
+  }));
+  const currentProvenance = provenance({
+    runId: 'current-run',
+    endedAt: '2026-06-16T10:10:00.000Z',
+  });
+  const historicalDelta = currentActual - declaredHistoricalMedian;
+  const historicalEvaluation = {
+    schemaVersion: '1.0.0',
+    artifactType: 'historical-evaluation',
+    scope: {
+      scenarioId: 'open-close-cycle',
+      comparisonLane,
+      cohortHash,
+      platform: 'android',
+      lineage: {
+        status: 'exact',
+        scenarioHash,
+      },
+    },
+    policy: {
+      history: 'local-only',
+      metrics: {
+        authority: 'consumer-declared',
+        minimumEligibleRuns: 3,
+        aggregation: 'median',
+        warmup: 'none',
+        outliers: 'none',
+        metrics: [
+          {
+            metricId: 'open-p95-ms',
+            unit: 'ms',
+            direction: 'lower-is-better',
+            tolerance: {
+              absolute: 0,
+              relative: 0,
+            },
+          },
+        ],
+      },
+    },
+    evaluation: {
+      eligibility: {
+        currentRun: {
+          status: 'eligible',
+          reasons: [],
+        },
+        historicalPopulation: {
+          included: historicalSamples.map((sample) => ({
+            status: 'eligible',
+            provenance: sample.provenance,
+          })),
+          excluded: [],
+        },
+      },
+      aggregation: {
+        status: 'computed',
+        eligibleRunCount: historicalSamples.length,
+        orderedSamples: historicalSamples,
+        metrics: [
+          {
+            metricId: 'open-p95-ms',
+            status: 'computed',
+            sampleCount: historicalSamples.length,
+            value: declaredHistoricalMedian,
+          },
+        ],
+      },
+      currentSample: {
+        provenance: currentProvenance,
+        status: 'eligible',
+        reasons: [],
+        metrics: [{ metricId: 'open-p95-ms', value: currentActual }],
+      },
+      decision: {
+        status: 'regressed',
+        reason: 'The current sample regressed against the declared historical population.',
+        metrics: [
+          {
+            metricId: 'open-p95-ms',
+            status: 'regressed',
+            reason: 'The current value is higher than the historical median.',
+            historicalValue: declaredHistoricalMedian,
+            currentValue: currentActual,
+            delta: historicalDelta,
+            percentChange: (historicalDelta / Math.abs(declaredHistoricalMedian)) * 100,
+          },
+        ],
+      },
+    },
+  };
+
+  const historicalValidation = validateHistoricalEvaluationArtifact(historicalEvaluation);
+  if (!historicalValidation.valid) {
+    assert.fail(`Historical falsification fixture must validate: ${JSON.stringify(historicalValidation.errors)}`);
+  }
+  assert.equal(historicalValidation.value.evaluation.aggregation.metrics[0]?.value, 700);
+  assert.equal(historicalValidation.value.evaluation.decision.status, 'regressed');
+  assert.equal(historicalValidation.value.evaluation.decision.metrics[0]?.delta, 150);
+  assert.equal(
+    historicalValidation.value.evaluation.decision.metrics[0]?.percentChange,
+    (150 / 700) * 100,
+  );
 });
 
 test('writes comparison and agent summary to output directory', async (t: TestContext) => {
