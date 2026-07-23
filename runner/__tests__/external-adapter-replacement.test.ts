@@ -36,6 +36,10 @@ const scenario = {
   ],
 };
 
+function deadlineFor(seq: number): string {
+  return `2026-06-19T12:00:${String(seq).padStart(2, '0')}.000Z`;
+}
+
 function request(seq: number, type: string, body: JsonRecord, includeIdentity = true): JsonRecord {
   return {
     protocolVersion: '1.0',
@@ -44,7 +48,7 @@ function request(seq: number, type: string, body: JsonRecord, includeIdentity = 
     kind: 'request',
     type,
     ...(includeIdentity ? { runId, attemptId } : {}),
-    deadline: `2026-06-19T12:00:${String(seq).padStart(2, '0')}.000Z`,
+    deadline: deadlineFor(seq),
     body,
   };
 }
@@ -73,9 +77,11 @@ function buildRequests(): JsonRecord[] {
         driverAction: step.driverAction, selector: step.selector,
       }));
     } else if (step.kind === 'waitForMilestone') {
-      requests.push(request(requests.length + 1, 'waitCondition', {
+      const seq = requests.length + 1;
+      requests.push(request(seq, 'waitCondition', {
         clockDomain: 'device-log',
         condition: { truthEvent: scenario.truthEvents.ready.event },
+        deadline: deadlineFor(seq),
       }));
     } else if (step.kind === 'captureEvidence') {
       requests.push(request(requests.length + 1, 'captureEvidence', { kinds: [step.artifact] }));
@@ -173,6 +179,7 @@ function assertAdapterConforms(requests: JsonRecord[], responses: JsonRecord[]):
       assert.equal(result.status, 'completed');
       assertArtifactReference(result.raw);
     } else if (source.type === 'waitCondition') {
+      assert.equal(source.body.deadline, source.deadline);
       assert.equal(result.matched, true);
       assert.equal(result.clockDomain, source.body.clockDomain);
       assert.equal(result.truthEvent?.name, source.body.condition.truthEvent);
@@ -184,6 +191,7 @@ function assertAdapterConforms(requests: JsonRecord[], responses: JsonRecord[]):
   });
 
   const hello = resultOf(at(responses, 0));
+  assert.equal(hello.acceptedProtocolVersion, '1.0');
   assert.ok(hello.platforms.includes('android'));
   scenario.requiredCapabilities.forEach((capability) => assert.ok(hello.capabilities.includes(capability)));
   assert.ok(hello.driverActions.includes('tap'));
@@ -191,10 +199,10 @@ function assertAdapterConforms(requests: JsonRecord[], responses: JsonRecord[]):
   assert.ok(hello.clockDomains.includes('device-log'));
 }
 
-function semanticOutcome(response: JsonRecord): JsonRecord {
+function semanticOutcome(source: JsonRecord, response: JsonRecord): JsonRecord {
   const result = resultOf(response);
   let semanticResult: JsonRecord;
-  switch (response.type) {
+  switch (source.type) {
     case 'hello':
       semanticResult = {
         acceptedProtocolVersion: result.acceptedProtocolVersion,
@@ -223,7 +231,7 @@ function semanticOutcome(response: JsonRecord): JsonRecord {
       break;
     case 'captureEvidence':
       semanticResult = {
-        requestedKindsCaptured: response.body?.kinds?.every((kind: string) => artifactKinds(result).includes(kind)),
+        requestedKindsCaptured: source.body.kinds.every((kind: string) => artifactKinds(result).includes(kind)),
       };
       break;
     case 'stop':
@@ -244,6 +252,23 @@ function semanticOutcome(response: JsonRecord): JsonRecord {
   };
 }
 
+function semanticOutcomes(requests: JsonRecord[], responses: JsonRecord[]): JsonRecord[] {
+  assert.equal(responses.length, requests.length);
+  const requestIds = new Set(requests.map((source) => source.operationId));
+  assert.equal(requestIds.size, requests.length);
+  const responsesByOperationId = new Map<string, JsonRecord>();
+  responses.forEach((response) => {
+    assert.ok(requestIds.has(response.operationId));
+    assert.equal(responsesByOperationId.has(response.operationId), false);
+    responsesByOperationId.set(response.operationId, response);
+  });
+  return requests.map((source) => {
+    const response = responsesByOperationId.get(source.operationId);
+    if (response === undefined) throw new Error(`missing response ${source.operationId}`);
+    return semanticOutcome(source, response);
+  });
+}
+
 test('an unchanged scenario plan keeps semantic proof when the external adapter is replaced', async () => {
   const scenarioValidation = validateJson(scenario, SCHEMAS.scenario, scenario.id);
   assert.equal(scenarioValidation.valid, true, scenarioValidation.message);
@@ -253,7 +278,7 @@ test('an unchanged scenario plan keeps semantic proof when the external adapter 
 
   assertAdapterConforms(requests, python);
   assertAdapterConforms(requests, node);
-  assert.deepEqual(node.map(semanticOutcome), python.map(semanticOutcome));
+  assert.deepEqual(semanticOutcomes(requests, node), semanticOutcomes(requests, python));
 });
 
 test('replacement equivalence ignores additional optional evidence', async () => {
@@ -267,10 +292,11 @@ test('replacement equivalence ignores additional optional evidence', async () =>
     sha256: '0'.repeat(64),
     sizeBytes: 0,
   });
+  withAdditionalEvidence.reverse();
 
   assert.deepEqual(
-    withAdditionalEvidence.map(semanticOutcome),
-    responses.map(semanticOutcome),
+    semanticOutcomes(requests, withAdditionalEvidence),
+    semanticOutcomes(requests, responses),
   );
 });
 
@@ -283,8 +309,8 @@ test('replacement equivalence rejects different required outcomes', async () => 
   assertAdapterConforms(requests, launched);
   assertAdapterConforms(requests, resumed);
   assert.notDeepEqual(
-    resumed.map(semanticOutcome),
-    launched.map(semanticOutcome),
+    semanticOutcomes(requests, resumed),
+    semanticOutcomes(requests, launched),
   );
 });
 
@@ -389,6 +415,7 @@ test('adapter replacement proof rejects false equivalence', async (t: import('no
     ['driver action inventory', (responses) => { resultOf(at(responses, 0)).driverActions = []; }],
     ['artifact inventory', (responses) => { resultOf(at(responses, 0)).artifactOutputs = []; }],
     ['clock inventory', (responses) => { resultOf(at(responses, 0)).clockDomains = []; }],
+    ['accepted protocol version', (responses) => { resultOf(at(responses, 0)).acceptedProtocolVersion = '2.0'; }],
     ['protocol version', (responses) => { at(responses, 1).protocolVersion = '2.0'; }],
     ['sequence', (responses) => { at(responses, 1).seq = 1; }],
     ['operation identity', (responses) => { at(responses, 1).operationId = 'wrong'; }],
