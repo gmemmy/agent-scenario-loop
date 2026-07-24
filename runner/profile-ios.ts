@@ -761,7 +761,7 @@ function resolveIosSimctlProfileCommands(scenario: Record<string, any>): IosSimc
       commands.push({
         command: command.command,
         commandId: readStableAdapterCommandId(command),
-        ...(Array.isArray(command.dependsOnMilestones) && command.dependsOnMilestones.length > 0
+        ...(Array.isArray(command.dependsOnMilestones)
           ? {
               dependsOnMilestones: command.dependsOnMilestones.filter((milestone: unknown): milestone is string => (
                 typeof milestone === 'string' && milestone.length > 0

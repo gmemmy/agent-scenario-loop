@@ -3397,6 +3397,66 @@ test('profile-ios inherits execution-plan gates and fail-fast policy only when a
   ]);
 });
 
+test('profile-ios preserves explicit adapter dependency policy', () => {
+  const scenario = {
+    id: 'ios-dependency-policy',
+    adapterOptions: {
+      iosSimctl: {
+        commands: [
+          { command: 'inherit-ready', id: 'inherit-ready' },
+          { command: 'use-custom-gate', id: 'use-custom-gate', dependsOnMilestones: ['custom_ready'] },
+          { command: 'skip-portable-gates', id: 'skip-portable-gates', dependsOnMilestones: [] },
+        ],
+      },
+    },
+    milestones: [
+      { id: 'ready', event: 'surface_ready' },
+      { id: 'custom', event: 'custom_ready' },
+      { id: 'opened', event: 'surface_opened' },
+      { id: 'closed', event: 'surface_closed' },
+    ],
+    steps: [
+      { id: 'wait-ready', kind: 'waitForMilestone', milestone: 'ready' },
+      { id: 'inherit-ready', kind: 'command', command: 'inherit-ready' },
+      { id: 'wait-opened', kind: 'waitForMilestone', milestone: 'opened' },
+      { id: 'use-custom-gate', kind: 'command', command: 'use-custom-gate' },
+      { id: 'wait-closed', kind: 'waitForMilestone', milestone: 'closed' },
+      { id: 'skip-portable-gates', kind: 'command', command: 'skip-portable-gates' },
+    ],
+  };
+
+  assert.deepEqual(resolveIosSimctlProfileCommands(scenario), [
+    {
+      command: 'inherit-ready',
+      commandId: 'inherit-ready',
+      dependsOnMilestones: ['surface_ready'],
+      queueId: 'ios-dependency-policy',
+      sequence: 1,
+      waitForMilestone: 'surface_opened',
+      waitMs: 0,
+      waitTimeoutMs: 30000,
+    },
+    {
+      command: 'use-custom-gate',
+      commandId: 'use-custom-gate',
+      dependsOnMilestones: ['custom_ready'],
+      queueId: 'ios-dependency-policy',
+      sequence: 2,
+      waitForMilestone: 'surface_closed',
+      waitMs: 0,
+      waitTimeoutMs: 30000,
+    },
+    {
+      command: 'skip-portable-gates',
+      commandId: 'skip-portable-gates',
+      dependsOnMilestones: [],
+      queueId: 'ios-dependency-policy',
+      sequence: 3,
+      waitMs: 0,
+    },
+  ]);
+});
+
 test('profile-ios aligns reordered adapter commands by stable identity', () => {
   const commands = resolveIosSimctlProfileCommands({
     cadence: { commandSettleMs: 100 },
