@@ -350,6 +350,7 @@ source=unknown
 case "$command" in
   *" framestats") source=framestats ;;
   *" meminfo "*) source=meminfo ;;
+  *" pidof "*) source=target-process ;;
   *" gfxinfo "*) source=gfxinfo ;;
   *" get-serialno") source=target-serial ;;
   *" pm path "*) source=target-package ;;
@@ -369,6 +370,9 @@ serial=emulator-5554
 if [ -n "$FAKE_ADB_SERIAL" ]; then serial="$FAKE_ADB_SERIAL"; fi
 if [ "$source" = target-serial ]; then printf '%s\\n' "$serial"; fi
 if [ "$source" = target-package ]; then printf 'package:/data/app/com.example.app/base.apk\\n'; fi
+if [ "$source" = target-process ]; then
+  if [ -n "$FAKE_ADB_PIDS" ]; then printf '%s\\n' "$FAKE_ADB_PIDS"; else printf '4242\\n'; fi
+fi
 if [ "$source" = gfxinfo ]; then printf 'Total frames rendered: 120\\nJanky frames: 6 (5.00%%)\\n50th percentile: 8ms\\n95th percentile: 18ms\\n'; fi
 if [ "$source" = framestats ]; then printf '%s\\n' '---PROFILEDATA---' 'Flags,IntendedVsync,Vsync,FrameCompleted' '0,1000000,1000000,17000000' '---PROFILEDATA---'; fi
 if [ "$source" = meminfo ]; then printf 'TOTAL PSS: 180000 KB\\nNative Heap: 42000 KB\\n'; fi
@@ -1079,7 +1083,7 @@ test('generated provider iOS after-capture xctrace output stays diagnostic-only 
   });
 });
 
-test('generated provider keeps Android target binding immutable after finalize', async (t: TestContext) => {
+test('generated provider fails closed without runner output provenance and keeps Android target binding immutable after finalize', async (t: TestContext) => {
   const provider = await createGeneratedProvider(t);
   const commandLog = path.join(provider.targetDir, 'adb-commands.jsonl');
   const env = { ...process.env, ASL_NATIVE_PERFORMANCE_ANDROID_CAPTURE: '1', FAKE_ADB_LOG: commandLog };
@@ -1098,32 +1102,36 @@ test('generated provider keeps Android target binding immutable after finalize',
   });
   assert.equal(result.exitCode, 0, result.stderr);
   assert.equal(fs.existsSync(targetProofPath), false);
+  const commandCountAfterStop = (await fsp.readFile(commandLog, 'utf8')).trim().split('\n').length;
   result = await execFileResult(process.execPath, androidLifecycleArgs(provider, 'normalize'), {
     cwd: provider.targetDir,
     env,
   });
-  assert.equal(result.exitCode, 0, result.stderr);
+  assert.equal(result.exitCode, 1, result.stderr);
+  const commandCountAfterNormalize = (await fsp.readFile(commandLog, 'utf8')).trim().split('\n').length;
+  assert.equal(commandCountAfterNormalize, commandCountAfterStop, 'afterCapture normalization must not recollect adb evidence');
 
   const normalizedTargetProof = JSON.parse(await fsp.readFile(targetProofPath, 'utf8'));
   assert.equal(normalizedTargetProof.window.phase, 'activeLoop');
   assert.deepEqual(
     normalizedTargetProof.sourceCommands.map((command: Record<string, unknown>) => command.commandId ?? command.sourceId),
     [
-      'start-native-window',
-      'stop-native-window',
+      'start-android-native-window',
+      'stop-android-native-window',
       'capture-native-performance',
       'target-serial',
       'target-package',
+      'target-process',
       'gfxinfo',
       'framestats',
       'meminfo',
     ],
   );
   const startWindowCommand = normalizedTargetProof.sourceCommands.find(
-    (command: Record<string, unknown>) => command.commandId === 'start-native-window',
+    (command: Record<string, unknown>) => command.commandId === 'start-android-native-window',
   );
   const stopWindowCommand = normalizedTargetProof.sourceCommands.find(
-    (command: Record<string, unknown>) => command.commandId === 'stop-native-window',
+    (command: Record<string, unknown>) => command.commandId === 'stop-android-native-window',
   );
   const normalizeCommand = normalizedTargetProof.sourceCommands.find(
     (command: Record<string, unknown>) => command.commandId === 'capture-native-performance',
@@ -1166,7 +1174,7 @@ test('generated provider captures Android adb diagnostics with bounded commands 
   assert.equal(evidence.targetBinding.status, 'unverified');
   assert.equal(evidence.targetBinding.candidateTargets, undefined);
   const targetProof = JSON.parse(await fsp.readFile(path.join(provider.runDir, 'raw', 'providers', 'example-evidence-provider', 'target-binding.json'), 'utf8'));
-  assert.deepEqual(targetProof.sourceCommands.map((command: Record<string, unknown>) => command.sourceId), ['target-serial', 'target-package', 'gfxinfo', 'framestats', 'meminfo']);
+  assert.deepEqual(targetProof.sourceCommands.map((command: Record<string, unknown>) => command.sourceId), ['target-serial', 'target-package', 'target-process', 'gfxinfo', 'framestats', 'meminfo']);
   assert.equal(targetProof.status, 'unverified');
   assert.equal(targetProof.requestedAppId, 'com.example.app');
   assert.equal(targetProof.requestedTargetId, 'emulator-5554');
@@ -1184,11 +1192,33 @@ test('generated provider captures Android adb diagnostics with bounded commands 
     assert.equal(fs.existsSync(path.join(provider.runDir, attachment.path)), true, attachment.path);
   }
   const commands = (await fsp.readFile(commandLog, 'utf8')).trim().split('\n').map((line: string) => line.split(' '));
-  assert.equal(commands.length, 5);
+  assert.equal(commands.length, 6);
   assert.deepEqual(commands[0], ['-s', 'emulator-5554', 'get-serialno']);
-  assert.deepEqual(commands[2], ['-s', 'emulator-5554', 'shell', 'dumpsys', 'gfxinfo', 'com.example.app']);
-  assert.deepEqual(commands[3], ['-s', 'emulator-5554', 'shell', 'dumpsys', 'gfxinfo', 'com.example.app', 'framestats']);
-  assert.deepEqual(commands[4], ['-s', 'emulator-5554', 'shell', 'dumpsys', 'meminfo', 'com.example.app']);
+  assert.deepEqual(commands[2], ['-s', 'emulator-5554', 'shell', 'pidof', 'com.example.app']);
+  assert.deepEqual(commands[3], ['-s', 'emulator-5554', 'shell', 'dumpsys', 'gfxinfo', 'com.example.app']);
+  assert.deepEqual(commands[4], ['-s', 'emulator-5554', 'shell', 'dumpsys', 'gfxinfo', 'com.example.app', 'framestats']);
+  assert.deepEqual(commands[5], ['-s', 'emulator-5554', 'shell', 'dumpsys', 'meminfo', 'com.example.app']);
+});
+
+test('generated provider leaves ambiguous Android process identity unverified', async (t: TestContext) => {
+  const provider = await createGeneratedProvider(t);
+  const result = await execFileResult(process.execPath, providerArgs(provider), {
+    cwd: provider.targetDir,
+    env: {
+      ...process.env,
+      ASL_NATIVE_PERFORMANCE_ANDROID_CAPTURE: '1',
+      FAKE_ADB_PIDS: '4242 4343',
+    },
+  });
+
+  assert.equal(result.exitCode, 1);
+  const targetProof = JSON.parse(await fsp.readFile(
+    path.join(provider.runDir, 'raw', 'providers', provider.providerId, 'target-binding.json'),
+    'utf8',
+  ));
+  assert.equal(targetProof.status, 'unverified');
+  assert.equal(targetProof.observedProcessPid, undefined);
+  assert.equal(targetProof.observedProcessName, undefined);
 });
 
 test('generated provider preserves partial Android evidence and exits nonzero after a source failure', async (t: TestContext) => {
@@ -1271,10 +1301,10 @@ test('generated provider preserves host execution errors for every attempted And
   });
   assert.equal(result.exitCode, 1);
   const captureDir = path.join(provider.runDir, 'raw', 'providers', 'example-evidence-provider', 'android-adb');
-  const records = await Promise.all(['target-serial', 'target-package', 'gfxinfo', 'framestats', 'meminfo'].map(async (sourceId) => (
+  const records = await Promise.all(['target-serial', 'target-package', 'target-process', 'gfxinfo', 'framestats', 'meminfo'].map(async (sourceId) => (
     JSON.parse(await fsp.readFile(path.join(captureDir, `${sourceId}.command.json`), 'utf8'))
   )));
-  assert.equal(records.length, 5);
+  assert.equal(records.length, 6);
   for (const record of records) {
     assert.equal(record.status, 'failed');
     assert.equal(record.errorCode, 'ENOENT');

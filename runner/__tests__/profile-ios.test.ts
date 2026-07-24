@@ -597,6 +597,78 @@ test('profile-ios downgrades capture-only native performance evidence to diagnos
   );
 });
 
+test('profile-ios executes and advertises only provider commands applicable to iOS', async (t: TestContext) => {
+  const tempRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-ios-command-platforms-'));
+  t.after(async () => {
+    await fsp.rm(tempRoot, { recursive: true, force: true });
+  });
+  const providerScriptPath = path.join(tempRoot, 'write-output.js');
+  const providerManifestPath = path.join(tempRoot, 'provider.json');
+  await fsp.writeFile(
+    providerScriptPath,
+    [
+      "const fs = require('node:fs');",
+      "const path = require('node:path');",
+      'const outputPath = process.argv[2];',
+      'fs.mkdirSync(path.dirname(outputPath), { recursive: true });',
+      "fs.writeFileSync(outputPath, 'captured\\n');",
+    ].join('\n'),
+    'utf8',
+  );
+  await fsp.writeFile(
+    providerManifestPath,
+    `${JSON.stringify({
+      schemaVersion: '1.0.0',
+      runnerId: 'command-platform-provider',
+      kind: 'evidenceProvider',
+      platforms: ['ios', 'android'],
+      capabilities: ['logCapture', 'video'],
+      artifactOutputs: ['logs', 'video'],
+      lifecycle: ['capture'],
+      providerCommands: [
+        {
+          id: 'capture-android-log',
+          phase: 'capture',
+          platforms: ['android'],
+          command: process.execPath,
+          args: [providerScriptPath, '{providerDir}/android.log'],
+          outputs: [{ channel: 'provider', kind: 'logs', path: '{providerDir}/android.log' }],
+        },
+        {
+          id: 'capture-ios-video',
+          phase: 'capture',
+          platforms: ['ios'],
+          command: process.execPath,
+          args: [providerScriptPath, '{providerDir}/ios.mp4'],
+          outputs: [{ channel: 'capture', kind: 'video', path: '{providerDir}/ios.mp4' }],
+        },
+      ],
+    }, null, 2)}\n`,
+    'utf8',
+  );
+
+  const { stdout } = await execFileAsync(process.execPath, [
+    PROFILE_IOS,
+    '--config', fixturePath('core/config-template.json'),
+    '--scenario', fixturePath('examples/scenarios/ios/app-startup.json'),
+    '--events', fixturePath('examples/event-logs/app-startup-baseline.log'),
+    '--provider', providerManifestPath,
+    '--out', path.join(tempRoot, 'artifacts'),
+    '--run-id', 'ios-command-platforms',
+  ]);
+
+  const runDir = stdout.trim();
+  const runPlan = readJson(path.join(runDir, 'run-plan.json')) as {
+    requestedDiagnostics: { optional: string[]; required: string[] };
+  };
+  assert.equal(runPlan.requestedDiagnostics.optional.includes('video'), true);
+  assert.equal(runPlan.requestedDiagnostics.optional.includes('logs'), false);
+  assert.equal(fs.existsSync(path.join(runDir, 'raw/providers/command-platform-provider/ios.mp4')), true);
+  assert.equal(fs.existsSync(path.join(runDir, 'raw/providers/command-platform-provider/android.log')), false);
+  assert.equal(fs.existsSync(path.join(runDir, 'raw/provider-commands/command-platform-provider-capture-ios-video.json')), true);
+  assert.equal(fs.existsSync(path.join(runDir, 'raw/provider-commands/command-platform-provider-capture-android-log.json')), false);
+});
+
 test('profile-ios profiles public scenario ids and milestone budgets', async (t: TestContext) => {
   const tempRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-ios-public-scenario-'));
   t.after(async () => {

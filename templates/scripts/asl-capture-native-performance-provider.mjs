@@ -423,10 +423,21 @@ function resolveTargetBindingWindowRecord({
   return readExistingActiveLoopWindowRecord(existingTargetBinding);
 }
 
-function buildLifecycleCommandDefinitions(includeFinalize = false) {
+function buildLifecycleCommandDefinitions(platform, includeFinalize = false) {
+  const android = normalizePlatform(platform) === 'android';
   const definitions = [
-    { actionArg: 'start-window', commandId: 'start-native-window', phase: 'startWindow', sourceId: 'start-window' },
-    { actionArg: 'stop-window', commandId: 'stop-native-window', phase: 'stopWindow', sourceId: 'stop-window' },
+    {
+      actionArg: 'start-window',
+      commandId: android ? 'start-android-native-window' : 'start-native-window',
+      phase: 'startWindow',
+      sourceId: 'start-window',
+    },
+    {
+      actionArg: 'stop-window',
+      commandId: android ? 'stop-android-native-window' : 'stop-native-window',
+      phase: 'stopWindow',
+      sourceId: 'stop-window',
+    },
     { actionArg: 'normalize', commandId: 'capture-native-performance', phase: 'afterCapture', sourceId: 'normalize' },
   ];
   if (includeFinalize) {
@@ -481,10 +492,11 @@ function buildLifecycleSourceCommands({
   includeFinalize = false,
   normalizeOutputPath,
   providerId,
+  platform,
   runDir,
   targetBindingPath,
 }) {
-  return buildLifecycleCommandDefinitions(includeFinalize).map(({ actionArg, commandId, phase, sourceId }) => {
+  return buildLifecycleCommandDefinitions(platform, includeFinalize).map(({ actionArg, commandId, phase, sourceId }) => {
     const completedRecordRelativePath = `raw/provider-commands/${providerId}-${commandId}.json`;
     const startedRecordRelativePath = `raw/provider-commands/${providerId}-${commandId}.started.json`;
     const completedRecord = readJsonArtifactIfAvailable(path.join(runDir, completedRecordRelativePath));
@@ -513,7 +525,7 @@ function buildLifecycleSourceCommands({
         ? completedRecord.requestSha256
         : undefined;
     return {
-      args: commandArgs.map((arg) => normalizeCommandArgForEvidence(runDir, arg)),
+      args: startedRecord ? [...commandArgs] : commandArgs.map((arg) => normalizeCommandArgForEvidence(runDir, arg)),
       command,
       commandId,
       phase,
@@ -523,6 +535,12 @@ function buildLifecycleSourceCommands({
       status: completedCommandIds.has(commandId) ? 'completed' : 'unknown',
       stderrPath: `raw/provider-commands/${providerId}-${commandId}.stderr.txt`,
       stdoutPath: `raw/provider-commands/${providerId}-${commandId}.stdout.txt`,
+      ...(typeof completedRecord?.exitCode === 'number' ? { exitCode: completedRecord.exitCode } : {}),
+      ...(completedRecord?.signal === null || typeof completedRecord?.signal === 'string'
+        ? { signal: completedRecord.signal }
+        : {}),
+      ...(typeof completedRecord?.stderrSha256 === 'string' ? { stderrSha256: completedRecord.stderrSha256 } : {}),
+      ...(typeof completedRecord?.stdoutSha256 === 'string' ? { stdoutSha256: completedRecord.stdoutSha256 } : {}),
       ...(typeof requestPath === 'string' && requestPath.length > 0
         ? { requestPath }
         : {}),
@@ -536,12 +554,59 @@ function buildLifecycleSourceCommands({
   });
 }
 
+function stringArraysEqual(left, right) {
+  return Array.isArray(left) &&
+    Array.isArray(right) &&
+    left.length === right.length &&
+    left.every((value, index) => typeof value === 'string' && value === right[index]);
+}
+
+function runnerLifecycleStartedRecordMatches({ commandId, phase, providerId, startedRecord }) {
+  return Boolean(
+    startedRecord &&
+    typeof startedRecord === 'object' &&
+    !Array.isArray(startedRecord) &&
+    startedRecord.providerId === providerId &&
+    startedRecord.phase === phase &&
+    startedRecord.status === 'started' &&
+    typeof startedRecord.command === 'string' &&
+    startedRecord.command.length > 0 &&
+    Array.isArray(startedRecord.args) &&
+    startedRecord.args.every((arg) => typeof arg === 'string') &&
+    startedRecord.startedRecordPath === `raw/provider-commands/${providerId}-${commandId}.started.json` &&
+    startedRecord.stdoutPath === `raw/provider-commands/${providerId}-${commandId}.stdout.txt` &&
+    startedRecord.stderrPath === `raw/provider-commands/${providerId}-${commandId}.stderr.txt`,
+  );
+}
+
+function runnerLifecycleCompletedRecordMatches({ commandId, completedRecord, phase, providerId, startedRecord }) {
+  return runnerLifecycleStartedRecordMatches({ commandId, phase, providerId, startedRecord }) && Boolean(
+    completedRecord &&
+    typeof completedRecord === 'object' &&
+    !Array.isArray(completedRecord) &&
+    completedRecord.providerId === providerId &&
+    completedRecord.phase === phase &&
+    completedRecord.status === 'completed' &&
+    completedRecord.exitCode === 0 &&
+    completedRecord.timedOut === false &&
+    completedRecord.signal === null &&
+    completedRecord.command === startedRecord.command &&
+    stringArraysEqual(completedRecord.args, startedRecord.args) &&
+    completedRecord.startedRecordPath === startedRecord.startedRecordPath &&
+    completedRecord.stdoutPath === startedRecord.stdoutPath &&
+    completedRecord.stderrPath === startedRecord.stderrPath &&
+    completedRecord.requestPath === startedRecord.requestPath &&
+    completedRecord.requestSha256 === startedRecord.requestSha256,
+  );
+}
+
 function buildLifecycleSourceCommandUpdates({
   baseArgs,
   commandIds,
   includeFinalize = false,
   normalizeOutputPath,
   providerId,
+  platform,
   runDir,
   targetBindingPath,
 }) {
@@ -552,6 +617,7 @@ function buildLifecycleSourceCommandUpdates({
     includeFinalize,
     normalizeOutputPath,
     providerId,
+    platform,
     runDir,
     targetBindingPath,
   }).filter((command) => commandIdSet.has(command.commandId));
@@ -600,7 +666,9 @@ function hasLifecycleSourceCommands(commands) {
   return commands.some((command) => (
     command && typeof command === 'object' && !Array.isArray(command) && (
       command.commandId === 'start-native-window'
+      || command.commandId === 'start-android-native-window'
       || command.commandId === 'stop-native-window'
+      || command.commandId === 'stop-android-native-window'
       || command.commandId === 'capture-native-performance'
       || command.commandId === 'finalize-native-window'
     )
@@ -609,13 +677,14 @@ function hasLifecycleSourceCommands(commands) {
 
 function readRecordedLifecycleCommandCompletion({
   includeFinalize = false,
+  platform,
   providerId,
   runDir,
 }) {
   const completedCommandIds = new Set();
   let hasRecordedLifecycleCommand = false;
 
-  for (const { commandId } of buildLifecycleCommandDefinitions(includeFinalize)) {
+  for (const { commandId, phase } of buildLifecycleCommandDefinitions(platform, includeFinalize)) {
     const startedRecord = readJsonArtifactIfAvailable(path.join(runDir, `raw/provider-commands/${providerId}-${commandId}.started.json`));
     if (startedRecord) {
       hasRecordedLifecycleCommand = true;
@@ -624,9 +693,22 @@ function readRecordedLifecycleCommandCompletion({
     const completedRecord = readJsonArtifactIfAvailable(path.join(runDir, `raw/provider-commands/${providerId}-${commandId}.json`));
     if (completedRecord) {
       hasRecordedLifecycleCommand = true;
-      if (completedRecord.status === 'completed') {
+      if (runnerLifecycleCompletedRecordMatches({
+        commandId,
+        completedRecord,
+        phase,
+        providerId,
+        startedRecord,
+      })) {
         completedCommandIds.add(commandId);
       }
+    }
+
+    if (
+      commandId === 'capture-native-performance' &&
+      runnerLifecycleStartedRecordMatches({ commandId, phase, providerId, startedRecord })
+    ) {
+      completedCommandIds.add(commandId);
     }
   }
 
@@ -640,17 +722,19 @@ function buildLifecycleCompletedCommandIdsFromState({
   includeCaptureCommand = false,
   includeFinalize = false,
   lifecycleState,
+  platform,
 }) {
   const completedCommandIds = new Set();
   if (!lifecycleState || typeof lifecycleState !== 'object' || Array.isArray(lifecycleState)) {
     return completedCommandIds;
   }
 
+  const android = normalizePlatform(platform) === 'android';
   if (typeof lifecycleState.startedAt === 'string') {
-    completedCommandIds.add('start-native-window');
+    completedCommandIds.add(android ? 'start-android-native-window' : 'start-native-window');
   }
   if (typeof lifecycleState.endedAt === 'string') {
-    completedCommandIds.add('stop-native-window');
+    completedCommandIds.add(android ? 'stop-android-native-window' : 'stop-native-window');
   }
   if (includeCaptureCommand) {
     completedCommandIds.add('capture-native-performance');
@@ -668,12 +752,14 @@ function buildLifecycleSourceCommandsForTargetBinding({
   normalizeOutputPath,
   providerDir,
   providerId,
+  platform,
   runDir,
   targetBindingPath,
 }) {
   const lifecycleState = readLifecycleStateRecord(providerDir);
   const recordedCompletion = readRecordedLifecycleCommandCompletion({
     includeFinalize,
+    platform,
     providerId,
     runDir,
   });
@@ -681,16 +767,16 @@ function buildLifecycleSourceCommandsForTargetBinding({
     includeCaptureCommand,
     includeFinalize,
     lifecycleState,
+    platform,
   });
   const hasLifecycleContext = recordedCompletion.hasRecordedLifecycleCommand || fallbackCompletedCommandIds.size > 0;
   if (!hasLifecycleContext) {
     return [];
   }
 
-  const completedCommandIds = new Set([
-    ...recordedCompletion.completedCommandIds,
-    ...fallbackCompletedCommandIds,
-  ]);
+  const completedCommandIds = recordedCompletion.hasRecordedLifecycleCommand
+    ? recordedCompletion.completedCommandIds
+    : fallbackCompletedCommandIds;
 
   return buildLifecycleSourceCommands({
     baseArgs,
@@ -698,6 +784,7 @@ function buildLifecycleSourceCommandsForTargetBinding({
     includeFinalize,
     normalizeOutputPath,
     providerId,
+    platform,
     runDir,
     targetBindingPath,
   });
@@ -952,7 +1039,7 @@ function buildCapturedSource({ dataClasses, id, result, runDir, stdoutPath, tool
   };
 }
 
-async function captureAndroidAdbEvidence({ args, outPath, providerId, rawInvocationArgs, requireRequest = false, runId, scenarioId }) {
+function resolveAndroidAdbCaptureContext({ args, outPath, providerId, requireRequest, runId, scenarioId }) {
   const appId = resolveRequestedAppId(args, 'android');
   const deviceId = resolveRequestedTargetId(args, 'android');
   if (!appId || !deviceId) {
@@ -982,88 +1069,285 @@ async function captureAndroidAdbEvidence({ args, outPath, providerId, rawInvocat
   const captureDir = path.join(path.dirname(outPath), 'android-adb');
   fs.mkdirSync(captureDir, { recursive: true });
 
-  const definitions = [
-    { id: 'target-serial', args: ['-s', deviceId, 'get-serialno'], phase: 'afterCapture' },
-    { id: 'target-package', args: ['-s', deviceId, 'shell', 'pm', 'path', appId], phase: 'afterCapture' },
-    { id: 'gfxinfo', args: ['-s', deviceId, 'shell', 'dumpsys', 'gfxinfo', appId], phase: 'afterCapture' },
-    { id: 'framestats', args: ['-s', deviceId, 'shell', 'dumpsys', 'gfxinfo', appId, 'framestats'], phase: 'afterCapture' },
-    { id: 'meminfo', args: ['-s', deviceId, 'shell', 'dumpsys', 'meminfo', appId], phase: 'afterCapture' },
+  return {
+    adbPath,
+    appId,
+    captureDir,
+    deviceId,
+    providerId,
+    runDir,
+    timeoutMs,
+  };
+}
+
+function buildAndroidAdbStopWindowDefinitions({ appId, deviceId }) {
+  return [
+    { id: 'target-serial', args: ['-s', deviceId, 'get-serialno'], phase: 'stopWindow' },
+    { id: 'target-package', args: ['-s', deviceId, 'shell', 'pm', 'path', appId], phase: 'stopWindow' },
+    { id: 'target-process', args: ['-s', deviceId, 'shell', 'pidof', appId], phase: 'stopWindow' },
+    { id: 'gfxinfo', args: ['-s', deviceId, 'shell', 'dumpsys', 'gfxinfo', appId], phase: 'stopWindow' },
+    { id: 'framestats', args: ['-s', deviceId, 'shell', 'dumpsys', 'gfxinfo', appId, 'framestats'], phase: 'stopWindow' },
+    { id: 'meminfo', args: ['-s', deviceId, 'shell', 'dumpsys', 'meminfo', appId], phase: 'stopWindow' },
   ];
-  const captures = new Map();
-  for (const definition of definitions) {
-    const result = await runCommand(adbPath, definition.args, timeoutMs);
-    captures.set(definition.id, {
+}
+
+async function resetAndroidAdbWindow(context) {
+  fs.rmSync(context.captureDir, { force: true, recursive: true });
+  fs.mkdirSync(context.captureDir, { recursive: true });
+  const result = await runCommand(
+    context.adbPath,
+    ['-s', context.deviceId, 'shell', 'dumpsys', 'gfxinfo', context.appId, 'reset'],
+    context.timeoutMs,
+  );
+  writeCommandArtifacts({
+    captureDir: context.captureDir,
+    id: 'gfxinfo-reset',
+    phase: 'startWindow',
+    providerId: context.providerId,
+    result,
+    runDir: context.runDir,
+  });
+  return commandSucceeded(result);
+}
+
+async function captureAndroidAdbWindow(context) {
+  let succeeded = true;
+  for (const definition of buildAndroidAdbStopWindowDefinitions(context)) {
+    const result = await runCommand(context.adbPath, definition.args, context.timeoutMs);
+    writeCommandArtifacts({
+      captureDir: context.captureDir,
+      id: definition.id,
+      phase: definition.phase,
+      providerId: context.providerId,
       result,
-      paths: writeCommandArtifacts({
-        captureDir,
-        id: definition.id,
-        phase: definition.phase,
-        providerId,
-        result,
-        runDir,
-      }),
+      runDir: context.runDir,
     });
+    if (!commandSucceeded(result) || result.stdout.length === 0) {
+      succeeded = false;
+    }
   }
+  return succeeded;
+}
+
+function readPreservedAndroidAdbCapture({ context, definition }) {
+  const recordPath = path.join(context.captureDir, `${definition.id}.command.json`);
+  const stdoutPath = path.join(context.captureDir, `${definition.id}.stdout.txt`);
+  const stderrPath = path.join(context.captureDir, `${definition.id}.stderr.txt`);
+  const record = readJsonArtifactIfAvailable(recordPath);
+  if (!record || !fs.existsSync(stdoutPath) || !fs.existsSync(stderrPath)) {
+    return null;
+  }
+
+  const expectedArgs = definition.args.map((arg) => normalizeCommandArgForEvidence(context.runDir, arg));
+  const stdoutSha256 = sha256File(stdoutPath);
+  const stderrSha256 = sha256File(stderrPath);
+  const recordedResult = {
+    args: Array.isArray(record.args) && record.args.every((arg) => typeof arg === 'string') ? record.args : [],
+    command: typeof record.command === 'string' ? record.command : path.basename(context.adbPath),
+    errorCode: typeof record.errorCode === 'string' ? record.errorCode : null,
+    errorMessage: typeof record.errorMessage === 'string' ? record.errorMessage : null,
+    exitCode: typeof record.exitCode === 'number' ? record.exitCode : 1,
+    signal: typeof record.signal === 'string' ? record.signal : null,
+    stderr: fs.readFileSync(stderrPath, 'utf8'),
+    stdout: fs.readFileSync(stdoutPath, 'utf8'),
+    timedOut: record.timedOut === true,
+  };
+  const metadataMatches = (
+    record.providerId === context.providerId &&
+    record.phase === definition.phase &&
+    record.command === path.basename(context.adbPath) &&
+    stringArraysEqual(recordedResult.args, expectedArgs) &&
+    record.stdoutPath === toRunRelativePath(context.runDir, stdoutPath) &&
+    record.stderrPath === toRunRelativePath(context.runDir, stderrPath) &&
+    record.stdoutSha256 === stdoutSha256 &&
+    record.stderrSha256 === stderrSha256 &&
+    record.status === commandRecordStatus(recordedResult)
+  );
+  if (!metadataMatches) {
+    recordedResult.errorCode = 'ERR_CAPTURE_SOURCE_PROVENANCE_MISMATCH';
+    recordedResult.errorMessage = `The preserved ${definition.id} bytes do not match their stopWindow command record.`;
+    recordedResult.exitCode = 1;
+  }
+
+  return {
+    result: recordedResult,
+    paths: {
+      recordPath,
+      stderrPath,
+      stderrSha256,
+      stdoutPath,
+      stdoutSha256,
+    },
+  };
+}
+
+function providerCommandOutputsEqual(startedOutputs, completedOutputs) {
+  return Array.isArray(startedOutputs) &&
+    Array.isArray(completedOutputs) &&
+    startedOutputs.length === completedOutputs.length &&
+    startedOutputs.every((startedOutput, index) => {
+      const completedOutput = completedOutputs[index];
+      return startedOutput &&
+        completedOutput &&
+        startedOutput.channel === completedOutput.channel &&
+        startedOutput.kind === completedOutput.kind &&
+        startedOutput.path === completedOutput.path &&
+        startedOutput.required === completedOutput.required &&
+        startedOutput.runRelativePath === completedOutput.runRelativePath;
+    });
+}
+
+function readTrustedAndroidStopOutputs({ context }) {
+  const commandId = 'stop-android-native-window';
+  const phase = 'stopWindow';
+  const startedRecord = readJsonArtifactIfAvailable(
+    path.join(context.runDir, `raw/provider-commands/${context.providerId}-${commandId}.started.json`),
+  );
+  const completedRecord = readJsonArtifactIfAvailable(
+    path.join(context.runDir, `raw/provider-commands/${context.providerId}-${commandId}.json`),
+  );
+  if (!runnerLifecycleCompletedRecordMatches({
+    commandId,
+    completedRecord,
+    phase,
+    providerId: context.providerId,
+    startedRecord,
+  }) || !providerCommandOutputsEqual(startedRecord.outputs, completedRecord.outputs)) {
+    return new Set();
+  }
+
+  const expectedPaths = new Set(buildAndroidAdbStopWindowDefinitions(context).map(
+    ({ id }) => toRunRelativePath(context.runDir, path.join(context.captureDir, `${id}.stdout.txt`)),
+  ));
+  if (completedRecord.outputs.length !== expectedPaths.size) {
+    return new Set();
+  }
+
+  const trustedPaths = new Set();
+  for (const output of completedRecord.outputs) {
+    if (
+      output.channel !== 'provider' ||
+      output.kind !== 'logs' ||
+      output.status !== 'captured' ||
+      output.stale !== false ||
+      !expectedPaths.has(output.runRelativePath)
+    ) {
+      return new Set();
+    }
+    const outputPath = path.join(context.runDir, output.runRelativePath);
+    if (!fs.existsSync(outputPath) || output.sha256 !== sha256File(outputPath)) {
+      return new Set();
+    }
+    trustedPaths.add(output.runRelativePath);
+  }
+  return trustedPaths.size === expectedPaths.size ? trustedPaths : new Set();
+}
+
+async function captureAndroidAdbEvidence({ args, outPath, providerId, rawInvocationArgs, requireRequest = false, runId, scenarioId }) {
+  const context = resolveAndroidAdbCaptureContext({
+    args,
+    outPath,
+    providerId,
+    requireRequest,
+    runId,
+    scenarioId,
+  });
+  if (!requireRequest && !fs.existsSync(path.join(context.captureDir, 'gfxinfo.command.json'))) {
+    await captureAndroidAdbWindow(context);
+  }
+
+  const captures = new Map(buildAndroidAdbStopWindowDefinitions(context).map((definition) => [
+    definition.id,
+    readPreservedAndroidAdbCapture({ context, definition }),
+  ]));
 
   const serialCapture = captures.get('target-serial');
   const packageCapture = captures.get('target-package');
-  const observedDeviceId = commandSucceeded(serialCapture.result) ? serialCapture.result.stdout.trim() : '';
-  const serialMatches = observedDeviceId === deviceId;
-  const packageMatches = commandSucceeded(packageCapture.result) && packageCapture.result.stdout.split(/\r?\n/u).some((line) => line.startsWith('package:'));
-  const observedAppId = packageMatches ? appId : undefined;
+  const processCapture = captures.get('target-process');
+  const observedDeviceId = serialCapture && commandSucceeded(serialCapture.result) ? serialCapture.result.stdout.trim() : '';
+  const serialMatches = observedDeviceId === context.deviceId;
+  const packageMatches = Boolean(packageCapture && commandSucceeded(packageCapture.result) && packageCapture.result.stdout.split(/\r?\n/u).some((line) => line.startsWith('package:')));
+  const observedPidTokens = processCapture && commandSucceeded(processCapture.result)
+    ? processCapture.result.stdout.trim().split(/\s+/u).filter(Boolean)
+    : [];
+  const observedPid = observedPidTokens.length === 1
+    ? Number.parseInt(observedPidTokens[0] ?? '', 10)
+    : Number.NaN;
+  const processMatches = Number.isSafeInteger(observedPid) && observedPid > 0;
+  const observedAppId = packageMatches ? context.appId : undefined;
+  const trustedStopOutputs = readTrustedAndroidStopOutputs({ context });
   let targetProofStatus = 'unverified';
-  if (observedDeviceId && observedDeviceId !== deviceId) {
+  if (observedDeviceId && observedDeviceId !== context.deviceId) {
     targetProofStatus = 'mismatch';
+  } else if (serialMatches && packageMatches && processMatches && trustedStopOutputs.size > 0) {
+    targetProofStatus = 'verified';
   }
   const targetProofPath = resolveTargetBindingArtifactPath({
     args,
     providerDir: path.dirname(outPath),
   });
-  toRunRelativePath(runDir, targetProofPath);
+  toRunRelativePath(context.runDir, targetProofPath);
   const providerDir = path.dirname(outPath);
   const existingTargetProof = readJsonArtifactIfAvailable(targetProofPath);
   const lifecycleSourceCommands = buildLifecycleSourceCommandsForTargetBinding({
     baseArgs: rawInvocationArgs,
     includeCaptureCommand: true,
     normalizeOutputPath: outPath,
+    platform: 'android',
     providerDir,
     providerId,
-    runDir,
+    runDir: context.runDir,
     targetBindingPath: targetProofPath,
   });
   const targetWindow = resolveTargetBindingWindowRecord({
     existingTargetBinding: existingTargetProof,
     providerDir,
-    runDir,
+    runDir: context.runDir,
   });
   const observedSourceCommands = [
     'target-serial',
     'target-package',
+    'target-process',
     'gfxinfo',
     'framestats',
     'meminfo',
-  ].map((sourceId) => buildTargetBindingSourceCommand({
-    capture: captures.get(sourceId),
-    phase: 'afterCapture',
-    runDir,
-    sourceId,
-  }));
+  ].flatMap((sourceId) => {
+    const capture = captures.get(sourceId);
+    return capture ? [buildTargetBindingSourceCommand({
+      capture,
+      phase: 'stopWindow',
+      runDir: context.runDir,
+      sourceId,
+    })] : [];
+  });
+  const captureArtifacts = ['gfxinfo', 'framestats', 'meminfo'].flatMap((sourceId) => {
+    const capture = captures.get(sourceId);
+    if (!capture || !commandSucceeded(capture.result) || capture.result.stdout.length === 0) {
+      return [];
+    }
+    const runRelativePath = toRunRelativePath(context.runDir, capture.paths.stdoutPath);
+    return trustedStopOutputs.has(runRelativePath)
+      ? [{ commandId: 'stop-android-native-window', path: runRelativePath }]
+      : [];
+  });
   writeJsonArtifact(targetProofPath, {
+    ...(captureArtifacts.length > 0 ? { captureArtifacts } : {}),
     capturedAt: new Date().toISOString(),
     observedAppId,
     ...(observedDeviceId ? { observedTargetId: observedDeviceId } : {}),
-    packageCommand: packageCapture.result.args,
+    ...(processMatches ? { observedProcessName: context.appId, observedProcessPid: observedPid } : {}),
+    packageCommand: packageCapture?.result.args ?? [],
     packageMatched: packageMatches,
     observedDeviceId: observedDeviceId || null,
     platform: 'android',
     providerId,
-    requestedAppId: appId,
-    requestedDeviceId: deviceId,
-    requestedTargetId: deviceId,
+    requestedAppId: context.appId,
+    requestedDeviceId: context.deviceId,
+    requestedTargetId: context.deviceId,
     runId,
     scenarioId,
     schemaVersion: '1.0.0',
-    serialCommand: serialCapture.result.args,
+    serialCommand: serialCapture?.result.args ?? [],
     serialMatched: serialMatches,
     sourceCommands: mergeTargetBindingSourceCommands(lifecycleSourceCommands, observedSourceCommands),
     status: targetProofStatus,
@@ -1071,7 +1355,7 @@ async function captureAndroidAdbEvidence({ args, outPath, providerId, rawInvocat
       phase: 'afterCapture',
     },
   });
-  const targetEvidencePath = toRunRelativePath(runDir, targetProofPath);
+  const targetEvidencePath = toRunRelativePath(context.runDir, targetProofPath);
 
   const sourceDefinitions = [
     { id: 'gfxinfo', dataClasses: ['frames', 'jank', 'render'], toolName: 'adb dumpsys gfxinfo' },
@@ -1080,24 +1364,30 @@ async function captureAndroidAdbEvidence({ args, outPath, providerId, rawInvocat
   ];
   const diagnosticSources = sourceDefinitions.map((definition) => {
     const capture = captures.get(definition.id);
-    return buildCapturedSource({
+    return capture ? buildCapturedSource({
       ...definition,
       result: capture.result,
-      runDir,
+      runDir: context.runDir,
       stdoutPath: capture.paths.stdoutPath,
-    });
+    }) : buildUnverifiedSource(
+      definition.id,
+      definition.toolName,
+      definition.dataClasses,
+      `Run the Android stopWindow provider command to preserve ${definition.id} before normalization.`,
+    );
   });
   const sourceCapture = Object.fromEntries(sourceDefinitions.map(({ id }) => [id, captures.get(id)]));
-  const commandFailed = Array.from(captures.values()).some(({ result }) => !commandSucceeded(result));
-  const sourceOutputMissing = sourceDefinitions.some(({ id }) => captures.get(id).result.stdout.trim().length === 0);
-  const captureFailed = commandFailed || sourceOutputMissing || !serialMatches || !packageMatches;
-  const attachments = sourceDefinitions.map(({ id }) => {
-    const stdoutPath = sourceCapture[id].paths.stdoutPath;
-    return {
+  const commandFailed = Array.from(captures.values()).some((capture) => !capture || !commandSucceeded(capture.result));
+  const sourceOutputMissing = sourceDefinitions.some(({ id }) => !sourceCapture[id]?.result.stdout.length);
+  const provenanceMissing = requireRequest && captureArtifacts.length !== sourceDefinitions.length;
+  const captureFailed = commandFailed || sourceOutputMissing || !serialMatches || !packageMatches || !processMatches || provenanceMissing;
+  const attachments = sourceDefinitions.flatMap(({ id }) => {
+    const stdoutPath = sourceCapture[id]?.paths.stdoutPath;
+    return stdoutPath && fs.existsSync(stdoutPath) ? [{
       kind: `raw-${id}`,
-      path: toRunRelativePath(runDir, stdoutPath),
+      path: toRunRelativePath(context.runDir, stdoutPath),
       sizeBytes: fs.statSync(stdoutPath).size,
-    };
+    }] : [];
   });
   attachments.push({
     kind: 'android-target-binding',
@@ -1106,24 +1396,24 @@ async function captureAndroidAdbEvidence({ args, outPath, providerId, rawInvocat
   });
 
   let targetBinding;
-  if (observedDeviceId && observedDeviceId !== deviceId) {
+  if (observedDeviceId && observedDeviceId !== context.deviceId) {
     targetBinding = {
       status: 'mismatch',
-      appId,
-      deviceId,
+      appId: context.appId,
+      deviceId: context.deviceId,
       source: 'provider adb target verification',
-      reason: `adb observed device ${observedDeviceId}, but the provider requested ${deviceId}.`,
+      reason: `adb observed device ${observedDeviceId}, but the provider requested ${context.deviceId}.`,
       candidateTargets: [
         {
-          appId,
+          appId: context.appId,
           bindingStatus: 'expected',
-          deviceId,
+          deviceId: context.deviceId,
           evidencePath: targetEvidencePath,
           platform: 'android',
           source: 'provider request',
         },
         {
-          ...(packageMatches ? { appId } : {}),
+          ...(packageMatches ? { appId: context.appId } : {}),
           bindingStatus: 'observed',
           deviceId: observedDeviceId,
           evidencePath: targetEvidencePath,
@@ -1132,39 +1422,54 @@ async function captureAndroidAdbEvidence({ args, outPath, providerId, rawInvocat
         },
       ],
     };
+  } else if (targetProofStatus === 'verified') {
+    targetBinding = {
+      status: 'verified',
+      appId: context.appId,
+      deviceId: context.deviceId,
+      source: 'provider adb target verification',
+      candidateTargets: [{
+        appId: context.appId,
+        bindingStatus: 'observed',
+        deviceId: context.deviceId,
+        evidencePath: targetEvidencePath,
+        platform: 'android',
+        source: 'adb serial, package, and pidof verification',
+      }],
+    };
   } else {
     targetBinding = {
       status: 'unverified',
-      appId,
-      deviceId,
+      appId: context.appId,
+      deviceId: context.deviceId,
       source: 'provider adb target verification',
-      reason: 'Serial and package checks alone do not prove process-bound Android target ownership for trusted comparison evidence.',
+      reason: 'The provider did not verify the exact device, package, process, and immutable stopWindow output provenance.',
     };
   }
 
   const evidence = buildAndroidNativePerformanceEvidence({
-    appId,
+    appId: context.appId,
     attachments,
     capturedAt: new Date().toISOString(),
     claimSufficiency: {
       status: 'insufficient-for-claim',
       claim: 'Comparable Android native-performance measurement.',
-      reason: 'The provider captured after-capture diagnostics without a bounded native measurement window.',
+      reason: 'The provider captured active-window diagnostics but no compatible baseline and comparison policy were supplied.',
       supportingEvidence: diagnosticSources.filter((source) => source.status === 'captured').map((source) => source.sourceId),
-      missingEvidence: ['bounded native measurement window', 'comparable baseline'],
-      nextAction: 'Add provider-owned start/stop window capture before using these diagnostics for comparison.',
+      missingEvidence: ['compatible comparison policy', 'comparable baseline'],
+      nextAction: 'Keep this evidence diagnostic-only until an independently compatible baseline and comparison policy are available.',
     },
     comparability: {
       status: 'diagnostic-only',
-      reason: 'After-capture adb summaries are not bound to a provider-owned start/stop measurement window.',
-      policy: 'Use this evidence for diagnosis only; do not select it as a comparison baseline.',
+      reason: 'Active-window attribution alone does not establish same-condition baseline compatibility.',
+      policy: 'Use this evidence for diagnosis only until comparison policy and baseline compatibility are independently proven.',
     },
     completenessStatus: 'partial',
-    deviceId,
+    deviceId: context.deviceId,
     diagnosticSources,
-    framestatsText: commandSucceeded(sourceCapture.framestats.result) ? sourceCapture.framestats.result.stdout : undefined,
-    gfxinfoText: commandSucceeded(sourceCapture.gfxinfo.result) ? sourceCapture.gfxinfo.result.stdout : undefined,
-    meminfoText: commandSucceeded(sourceCapture.meminfo.result) ? sourceCapture.meminfo.result.stdout : undefined,
+    framestatsText: sourceCapture.framestats && commandSucceeded(sourceCapture.framestats.result) ? sourceCapture.framestats.result.stdout : undefined,
+    gfxinfoText: sourceCapture.gfxinfo && commandSucceeded(sourceCapture.gfxinfo.result) ? sourceCapture.gfxinfo.result.stdout : undefined,
+    meminfoText: sourceCapture.meminfo && commandSucceeded(sourceCapture.meminfo.result) ? sourceCapture.meminfo.result.stdout : undefined,
     providerId,
     runId,
     scenarioId,
@@ -1636,6 +1941,7 @@ async function captureIosXctraceEvidence({ args, outPath, providerId, rawInvocat
     baseArgs: rawInvocationArgs,
     includeCaptureCommand: true,
     normalizeOutputPath: outPath,
+    platform: 'ios',
     providerDir,
     providerId,
     runDir,
@@ -1909,6 +2215,20 @@ async function runLifecycleAction({ action, args, platform, rawInvocationArgs })
   toRunRelativePath(runDir, targetBindingPath);
   const previousState = readJsonArtifactIfAvailable(lifecycleStatePath) ?? {};
   const now = new Date().toISOString();
+  const androidCaptureEnabled = (
+    normalizePlatform(platform) === 'android' &&
+    (args['capture-android-adb'] === true || process.env.ASL_NATIVE_PERFORMANCE_ANDROID_CAPTURE === '1')
+  );
+  const androidContext = androidCaptureEnabled
+    ? resolveAndroidAdbCaptureContext({
+        args,
+        outPath: normalizeOutputPath,
+        providerId,
+        requireRequest: true,
+        runId,
+        scenarioId,
+      })
+    : null;
   const nextState = {
     ...previousState,
     platform: normalizePlatform(platform),
@@ -1920,12 +2240,23 @@ async function runLifecycleAction({ action, args, platform, rawInvocationArgs })
   };
 
   if (action === 'start-window') {
+    const actionSucceeded = androidContext ? await resetAndroidAdbWindow(androidContext) : true;
     nextState.startedAt = now;
+    nextState.startWindowStatus = actionSucceeded ? 'completed' : 'failed';
     delete nextState.endedAt;
     delete nextState.finalizedAt;
+    delete nextState.stopWindowStatus;
+    if (!actionSucceeded) {
+      process.exitCode = 1;
+    }
   } else if (action === 'stop-window') {
+    const actionSucceeded = androidContext ? await captureAndroidAdbWindow(androidContext) : true;
     nextState.startedAt = typeof nextState.startedAt === 'string' ? nextState.startedAt : now;
     nextState.endedAt = now;
+    nextState.stopWindowStatus = actionSucceeded ? 'completed' : 'failed';
+    if (!actionSucceeded) {
+      process.exitCode = 1;
+    }
   } else {
     nextState.finalizedAt = now;
     nextState.startedAt = typeof nextState.startedAt === 'string' ? nextState.startedAt : now;

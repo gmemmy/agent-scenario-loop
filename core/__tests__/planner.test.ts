@@ -1432,6 +1432,143 @@ test('treats missing optional evidence as warnings, not incompatibility', () => 
   );
 });
 
+test('provider command platforms constrain planner artifact availability', () => {
+  const scenario = readJson('examples/scenarios/mobile/app-startup.json');
+  const runner = readJson('examples/runners/adb-android.json');
+  runner.artifactOutputs = runner.artifactOutputs.filter((artifact: string) => artifact !== 'video');
+  scenario.artifacts = {
+    required: ['logs'],
+    optional: ['video'],
+  };
+  const provider = {
+    artifactOutputs: ['logs'],
+    kind: 'evidenceProvider',
+    platforms: ['android', 'ios'],
+    providerCommands: [
+      {
+        id: 'capture-android-logs',
+        outputs: [{ kind: 'logs' }],
+        phase: 'afterCapture',
+        platforms: ['android'],
+      },
+      {
+        id: 'capture-ios-video',
+        outputs: [{ kind: 'video' }],
+        phase: 'afterCapture',
+        platforms: ['ios'],
+      },
+    ],
+    runnerId: 'platform-scoped-provider',
+    schemaVersion: '1.0.0',
+  };
+
+  const result = evaluateRunnerCompatibility({
+    evidenceProviders: [provider],
+    platform: 'android',
+    runner,
+    scenario,
+  });
+
+  assert.equal(result.compatible, true);
+  assert.equal(result.matched.artifacts.includes('logs'), true);
+  assert.equal(result.matched.artifacts.includes('video'), false);
+  assert.deepEqual(
+    result.warnings
+      .filter((warning: PlannerIssue) => warning.code === 'missing_optional_artifact')
+      .map((warning: PlannerIssue) => warning.artifact),
+    ['video'],
+  );
+});
+
+test('provider command outputs do not overstate aggregate cross-platform availability', () => {
+  const scenario = readJson('examples/scenarios/mobile/app-startup.json');
+  const runner = readJson('examples/runners/adb-android.json');
+  runner.platforms = ['android', 'ios'];
+  runner.artifactOutputs = runner.artifactOutputs.filter((artifact: string) => artifact !== 'video');
+  scenario.platforms = ['android', 'ios'];
+  scenario.artifacts = {
+    required: ['video'],
+    optional: [],
+  };
+  const provider = {
+    artifactOutputs: [],
+    kind: 'evidenceProvider',
+    platforms: ['android', 'ios'],
+    providerCommands: [
+      {
+        id: 'capture-ios-video',
+        outputs: [{ kind: 'video' }],
+        phase: 'afterCapture',
+        platforms: ['ios'],
+      },
+    ],
+    runnerId: 'ios-video-provider',
+    schemaVersion: '1.0.0',
+  };
+
+  const aggregate = evaluateRunnerCompatibility({
+    evidenceProviders: [provider],
+    runner,
+    scenario,
+  });
+  const ios = evaluateRunnerCompatibility({
+    evidenceProviders: [provider],
+    platform: 'ios',
+    runner,
+    scenario,
+  });
+
+  assert.equal(aggregate.compatible, false);
+  assert.equal(aggregate.matched.artifacts.includes('video'), false);
+  assert.deepEqual(
+    aggregate.errors
+      .filter((error: PlannerIssue) => error.code === 'missing_required_artifact')
+      .map((error: PlannerIssue) => error.artifact),
+    ['video'],
+  );
+  assert.equal(ios.compatible, true);
+  assert.equal(ios.matched.artifacts.includes('video'), true);
+});
+
+test('provider command outputs extend provider-level artifact compatibility declarations', () => {
+  const scenario = readJson('examples/scenarios/mobile/app-startup.json');
+  const runner = readJson('examples/runners/adb-android.json');
+  runner.artifactOutputs = runner.artifactOutputs.filter((artifact: string) => artifact !== 'video');
+  scenario.artifacts = {
+    required: ['logs'],
+    optional: ['video'],
+  };
+  const provider = {
+    artifactOutputs: ['video'],
+    kind: 'evidenceProvider',
+    platforms: ['android'],
+    providerCommands: [
+      {
+        id: 'capture-logs',
+        outputs: [{ kind: 'logs' }],
+        phase: 'afterCapture',
+      },
+    ],
+    runnerId: 'additive-output-provider',
+    schemaVersion: '1.0.0',
+  };
+
+  const result = evaluateRunnerCompatibility({
+    evidenceProviders: [provider],
+    platform: 'android',
+    runner,
+    scenario,
+  });
+
+  assert.equal(result.compatible, true);
+  assert.equal(result.matched.artifacts.includes('logs'), true);
+  assert.equal(result.matched.artifacts.includes('video'), true);
+  assert.deepEqual(
+    result.warnings.filter((warning: PlannerIssue) => warning.code === 'missing_optional_artifact'),
+    [],
+  );
+});
+
 test('warns when repeated command gate drifts from milestone budget interval anchors', () => {
   const scenario = {
     id: 'pagination-contract',

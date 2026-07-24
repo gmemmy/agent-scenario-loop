@@ -311,6 +311,7 @@ type ProviderCommand = {
   id: string;
   outputs: ProviderCommandOutput[];
   phase: 'prepare' | 'startWindow' | 'capture' | 'stopWindow' | 'afterCapture' | 'postRun' | 'finalize';
+  platforms?: ProfilePlatform[];
 };
 const POST_CAPTURE_PROVIDER_COMMAND_PHASES = [
   'capture',
@@ -409,6 +410,7 @@ type ProviderCommandExecutionOptions = {
 type ProviderCommandOutputSnapshot = {
   existed: boolean;
   mtimeMs?: number;
+  sha256?: string;
   sizeBytes?: number;
 };
 type StagedArtifactCleanupEntry = {
@@ -636,13 +638,30 @@ async function writeRunnerActiveLoopWindow({
   return filePath;
 }
 
-function providerCommandProducesNativePerformance(providerCommand: ProviderCommand): boolean {
-  return Array.isArray(providerCommand.outputs)
+function providerCommandSupportsPlatform(
+  providerCommand: ProviderCommand,
+  platform: ProfilePlatform,
+): boolean {
+  return !Array.isArray(providerCommand.platforms) || providerCommand.platforms.includes(platform);
+}
+
+function providerCommandProducesNativePerformance(
+  providerCommand: ProviderCommand,
+  platform: ProfilePlatform,
+): boolean {
+  return providerCommandSupportsPlatform(providerCommand, platform)
+    && Array.isArray(providerCommand.outputs)
     && providerCommand.outputs.some((output) => output.kind === 'nativePerformance');
 }
 
-function providerManifestIncludesNativePerformance(provider: ProviderManifest): boolean {
-  if (Array.isArray(provider.providerCommands) && provider.providerCommands.some(providerCommandProducesNativePerformance)) {
+function providerManifestIncludesNativePerformance(
+  provider: ProviderManifest,
+  platform: ProfilePlatform,
+): boolean {
+  if (
+    Array.isArray(provider.providerCommands)
+    && provider.providerCommands.some((command) => providerCommandProducesNativePerformance(command, platform))
+  ) {
     return true;
   }
 
@@ -657,7 +676,7 @@ function shouldStageNativePerformanceRequest(args: CliArgs, platform: ProfilePla
     if (Array.isArray(manifest.platforms) && !manifest.platforms.includes(platform)) {
       return false;
     }
-    return providerManifestIncludesNativePerformance(manifest);
+    return providerManifestIncludesNativePerformance(manifest, platform);
   });
 }
 
@@ -1166,9 +1185,11 @@ async function readProviderCommandOutputSnapshot(sourcePath: string): Promise<Pr
     };
   }
 
+  const sha256 = await hashFileSha256(sourcePath);
   return {
     existed: true,
     mtimeMs: status.mtimeMs,
+    ...(sha256 ? { sha256 } : {}),
     sizeBytes: status.size,
   };
 }
@@ -1184,9 +1205,11 @@ async function hashFileSha256(sourcePath: string): Promise<string | null> {
 }
 
 function providerCommandOutputRefreshed({
+  afterSha256,
   after,
   before,
 }: {
+  afterSha256: string | null;
   after: import('node:fs').Stats | null;
   before: ProviderCommandOutputSnapshot;
 }): boolean {
@@ -1198,7 +1221,9 @@ function providerCommandOutputRefreshed({
     return true;
   }
 
-  return before.mtimeMs !== after.mtimeMs || before.sizeBytes !== after.size;
+  return typeof before.sha256 === 'string' &&
+    typeof afterSha256 === 'string' &&
+    before.sha256 !== afterSha256;
 }
 
 /**
@@ -1614,6 +1639,9 @@ async function executeProviderCommands({
     };
 
     for (const providerCommand of provider.providerCommands ?? []) {
+      if (!providerCommandSupportsPlatform(providerCommand, platform)) {
+        continue;
+      }
       const commandRecordFileName = `${providerId}-${providerCommand.id}.json`;
       const startedRecordFileName = `${providerId}-${providerCommand.id}.started.json`;
       const stdoutFileName = `${providerId}-${providerCommand.id}.stdout.txt`;
@@ -1809,7 +1837,7 @@ async function executeProviderCommands({
         const after = await fsp.stat(sourcePath).catch(() => null);
         const exists = Boolean(after?.isFile());
         const sha256 = exists ? await hashFileSha256(sourcePath) : null;
-        const stale = exists && !providerCommandOutputRefreshed({ after, before });
+        const stale = exists && !providerCommandOutputRefreshed({ after, afterSha256: sha256, before });
         return {
           after,
           exists,
@@ -1826,6 +1854,7 @@ async function executeProviderCommands({
         : null;
       const targetBindingRefreshed = targetBindingExists && providerCommandOutputRefreshed({
         after: targetBindingAfter,
+        afterSha256: targetBindingSha256,
         before: targetBindingBefore,
       });
       const stdoutSha256 = await hashRequiredFileSha256(stdoutPath);
@@ -2392,7 +2421,7 @@ function buildProfileRunPlan({
   const scenarioMetadata = readScenarioMetadata(profileScenario);
   const acceptedBaselineScenarioHashes = readScenarioHashes(profileScenario.acceptedBaselineScenarioHashes);
   const requestedDiagnosticDemand = resolveRequestedDiagnosticDemand({
-    providerOutputs: readSelectedProviderOutputDemand({ args }),
+    providerOutputs: readSelectedProviderOutputDemand({ args, platform: options.platform }),
     scenario: profileScenario as Record<string, any>,
   });
   return {
@@ -2761,13 +2790,15 @@ function resolveRequestedDiagnosticDemand({
 /**
  * Reads selected provider-command output declarations for run-plan demand semantics.
  *
- * @param {{args: CliArgs}} options
+ * @param {{args: CliArgs, platform: ProfilePlatform}} options
  * @returns {Array<{kind: EvidenceKind, required: boolean}>}
  */
 function readSelectedProviderOutputDemand({
   args,
+  platform,
 }: {
   args: CliArgs;
+  platform: ProfilePlatform;
 }): Array<{ kind: EvidenceKind; required: boolean }> {
   const outputs: Array<{ kind: EvidenceKind; required: boolean }> = [];
   const loadedProviders = readLoadedEvidenceProviderManifests(
@@ -2776,7 +2807,13 @@ function readSelectedProviderOutputDemand({
   );
   for (const loadedProvider of loadedProviders) {
     const provider = loadedProvider.manifest;
+    if (Array.isArray(provider.platforms) && !provider.platforms.includes(platform)) {
+      continue;
+    }
     for (const providerCommand of provider.providerCommands ?? []) {
+      if (!providerCommandSupportsPlatform(providerCommand, platform)) {
+        continue;
+      }
       for (const output of providerCommand.outputs ?? []) {
         outputs.push({
           kind: output.kind,
