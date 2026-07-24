@@ -6,6 +6,7 @@ type JsonSchema = Record<string, unknown> & {
   allOf?: JsonSchema[];
   anyOf?: JsonSchema[];
   const?: unknown;
+  contains?: JsonSchema;
   description?: string;
   else?: JsonSchema;
   exclusiveMinimum?: number;
@@ -399,6 +400,14 @@ function validateArray(
   pathSegments: Array<string | number>,
   errors: ValidationError[],
 ): void {
+  if (schema.contains && !value.some((item) => matchesSchema(item, schema.contains as JsonSchema, rootSchema))) {
+    errors.push({
+      code: 'missing_contained_item',
+      path: formatPath(pathSegments),
+      message: 'Expected at least one array item to match the required schema.',
+    });
+  }
+
   if (typeof schema.minItems === 'number' && value.length < schema.minItems) {
     errors.push({
       code: 'too_few_items',

@@ -66,6 +66,7 @@ type RunnerManifest = ManifestRecord & {
   driverActions?: unknown[];
   uiContexts?: unknown[];
   artifactOutputs?: unknown[];
+  providerCommands?: unknown[];
 };
 const {
   ANDROID_ADB_PRESS_KEY_SET,
@@ -720,6 +721,33 @@ function isProviderActiveForPlatforms(provider: RunnerManifest, effectivePlatfor
 }
 
 /**
+ * Collects provider artifacts from commands that can execute on the selected platform set.
+ * Provider-level artifactOutputs remain the compatibility declaration for every provider
+ * platform. Applicable command outputs add platform-specific artifacts.
+ */
+function collectProviderArtifactOutputs(
+  provider: RunnerManifest,
+  effectivePlatforms: string[],
+): string[] {
+  const providerCommands = asArray(provider.providerCommands);
+  return uniqueSorted([
+    ...asArray(provider.artifactOutputs),
+    ...providerCommands.flatMap((value) => {
+      const command = asObject(value);
+      const commandPlatforms = asArray(command.platforms);
+      if (
+        commandPlatforms.length > 0 &&
+        effectivePlatforms.some((platform) => !commandPlatforms.includes(platform))
+      ) {
+        return [];
+      }
+
+      return asArray(command.outputs).map((output) => asObject(output).kind);
+    }),
+  ]);
+}
+
+/**
  * Collects artifacts available from the primary runner and active evidence providers.
  *
  * @param {{runner: Record<string, unknown>, evidenceProviders: Record<string, unknown>[], effectivePlatforms: string[]}} options
@@ -742,7 +770,7 @@ function collectProvidedArtifacts({
     activeProviders,
     artifacts: uniqueSorted([
       ...asArray(runner?.artifactOutputs),
-      ...activeProviders.flatMap((provider) => asArray(provider?.artifactOutputs)),
+      ...activeProviders.flatMap((provider) => collectProviderArtifactOutputs(provider, effectivePlatforms)),
     ]),
   };
 }

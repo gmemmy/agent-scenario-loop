@@ -296,6 +296,7 @@ function buildObservedTargetBindingFixture({
         args: definition.args,
         command: 'capture-native-performance',
         endedAt: definition.endedAt,
+        exitCode: 0,
         ...(definition.outputPath ? { outputPath: definition.outputPath } : {}),
         ...(definition.outputSha256 ? { outputSha256: definition.outputSha256 } : {}),
         outputs: definition.outputs.map((output) => ({
@@ -319,6 +320,8 @@ function buildObservedTargetBindingFixture({
         stdoutSha256: EMPTY_STDOUT_SHA256,
         requestPath: NATIVE_PERFORMANCE_REQUEST_PATH,
         requestSha256,
+        signal: null,
+        timedOut: false,
       }],
       [sourceCommand.startedRecordPath, {
         args: definition.args,
@@ -1185,6 +1188,66 @@ test('classifies Android evidence as comparison-ready only with captured source,
     missingEvidence: [],
     status: 'comparison-ready',
   });
+
+  const runnerRecordFixture = buildObservedTargetBindingFixture({
+    platform: 'android',
+    providerId: 'native-provider',
+    requestedAppId: 'com.example.app',
+    requestedTargetId: 'emulator-5554',
+    runId: 'run-android-comparable',
+    scenarioId: 'feed-scroll',
+    targetPath,
+  });
+  const stopRecordPath = 'raw/provider-commands/native-provider-stop-native-window.json';
+  const validStopRecord = runnerRecordFixture.records[stopRecordPath] as Record<string, unknown>;
+  const invalidStopRecordCases = [
+    { name: 'nonzero exit', patch: { exitCode: 7 } },
+    { name: 'timeout', patch: { timedOut: true } },
+    { name: 'signal', patch: { signal: 'SIGTERM' } },
+    { name: 'failed status', patch: { status: 'failed' } },
+    { name: 'extra argv', patch: { args: [...(validStopRecord.args as string[]), '--extra'] } },
+    { name: 'duplicate argv', patch: { args: [...(validStopRecord.args as string[]), '--target-binding', targetPath] } },
+    {
+      name: 'stale output',
+      patch: {
+        outputs: (validStopRecord.outputs as Array<Record<string, unknown>>).map((output, index) => (
+          index === 0 ? { ...output, stale: true } : output
+        )),
+      },
+    },
+    {
+      name: 'rewritten output bytes',
+      patch: {
+        outputs: (validStopRecord.outputs as Array<Record<string, unknown>>).map((output, index) => (
+          index === 0 ? { ...output, sha256: 'f'.repeat(64) } : output
+        )),
+      },
+    },
+  ];
+  for (const invalidCase of invalidStopRecordCases) {
+    const invalidContext = comparisonContext({
+      artifactPath,
+      evidenceHashes: runnerRecordFixture.hashes,
+      evidenceRecords: {
+        ...runnerRecordFixture.records,
+        [stopRecordPath]: {
+          ...validStopRecord,
+          ...invalidCase.patch,
+        },
+      },
+      platform: 'android',
+      providerId: 'native-provider',
+      runId: 'run-android-comparable',
+      scenarioId: 'feed-scroll',
+      sourcePaths: [sourcePath, ...runnerRecordFixture.durablePaths],
+      targetBindingRecord: runnerRecordFixture.record,
+      targetPath,
+    });
+    assert.deepEqual(classifyNativePerformanceComparisonReadiness(evidence, invalidContext), {
+      missingEvidence: ['observed-target-binding'],
+      status: 'diagnostic-only',
+    }, invalidCase.name);
+  }
   assert.deepEqual(classifyNativePerformanceComparisonReadiness(evidence, {
     ...context,
     readEvidenceSha256: (runRelativePath: string) => (

@@ -473,8 +473,10 @@ async function writeRun({
         status: 'completed',
         stderrPath: 'raw/provider-commands/native-provider-start-native-window.stderr.txt',
         stderrSha256: sha256Text('start-native-window stderr\n'),
+        signal: null,
         stdoutPath: 'raw/provider-commands/native-provider-start-native-window.stdout.txt',
         stdoutSha256: sha256Text('start-native-window stdout\n'),
+        timedOut: false,
       })}\n`,
       'utf8',
     );
@@ -544,8 +546,10 @@ async function writeRun({
         status: 'completed',
         stderrPath: 'raw/provider-commands/native-provider-stop-native-window.stderr.txt',
         stderrSha256: sha256Text('stop-native-window stderr\n'),
+        signal: null,
         stdoutPath: 'raw/provider-commands/native-provider-stop-native-window.stdout.txt',
         stdoutSha256: sha256Text('stop-native-window stdout\n'),
+        timedOut: false,
       })}\n`,
       'utf8',
     );
@@ -598,8 +602,10 @@ async function writeRun({
         status: 'completed',
         stderrPath: 'raw/provider-commands/native-provider-capture-native-performance.stderr.txt',
         stderrSha256: sha256Text('capture-native-performance stderr\n'),
+        signal: null,
         stdoutPath: 'raw/provider-commands/native-provider-capture-native-performance.stdout.txt',
         stdoutSha256: sha256Text('capture-native-performance stdout\n'),
+        timedOut: false,
       })}\n`,
       'utf8',
     );

@@ -9,8 +9,9 @@
   "lifecycle": ["prepare", "startWindow", "capture", "stopWindow", "afterCapture", "finalize"],
   "providerCommands": [
     {
-      "id": "start-native-window",
+      "id": "start-android-native-window",
       "phase": "startWindow",
+      "platforms": ["android"],
       "command": "node",
       "cwd": "..",
       "args": [
@@ -42,8 +43,108 @@
       "outputs": []
     },
     {
+      "id": "start-native-window",
+      "phase": "startWindow",
+      "platforms": ["ios"],
+      "command": "node",
+      "cwd": "..",
+      "args": [
+        "scripts/asl-capture-native-performance-provider.mjs",
+        "start-window",
+        "--platform",
+        "{platform}",
+        "--app-id",
+        "{appId}",
+        "--target-id",
+        "{targetId}",
+        "--provider-id",
+        "{providerId}",
+        "--provider-dir",
+        "{providerDir}",
+        "--run-id",
+        "{runId}",
+        "--run-dir",
+        "{runDir}",
+        "--scenario",
+        "{scenarioId}",
+        "--target-binding",
+        "{nativeTargetBindingPath}",
+        "--request",
+        "{nativePerformanceRequestPath}",
+        "--request-sha256",
+        "{nativePerformanceRequestSha256}"
+      ],
+      "outputs": []
+    },
+    {
+      "id": "stop-android-native-window",
+      "phase": "stopWindow",
+      "platforms": ["android"],
+      "command": "node",
+      "cwd": "..",
+      "args": [
+        "scripts/asl-capture-native-performance-provider.mjs",
+        "stop-window",
+        "--platform",
+        "{platform}",
+        "--app-id",
+        "{appId}",
+        "--target-id",
+        "{targetId}",
+        "--provider-id",
+        "{providerId}",
+        "--provider-dir",
+        "{providerDir}",
+        "--run-id",
+        "{runId}",
+        "--run-dir",
+        "{runDir}",
+        "--scenario",
+        "{scenarioId}",
+        "--target-binding",
+        "{nativeTargetBindingPath}",
+        "--request",
+        "{nativePerformanceRequestPath}",
+        "--request-sha256",
+        "{nativePerformanceRequestSha256}"
+      ],
+      "outputs": [
+        {
+          "channel": "provider",
+          "kind": "logs",
+          "path": "{providerDir}/android-adb/target-serial.stdout.txt"
+        },
+        {
+          "channel": "provider",
+          "kind": "logs",
+          "path": "{providerDir}/android-adb/target-package.stdout.txt"
+        },
+        {
+          "channel": "provider",
+          "kind": "logs",
+          "path": "{providerDir}/android-adb/target-process.stdout.txt"
+        },
+        {
+          "channel": "provider",
+          "kind": "logs",
+          "path": "{providerDir}/android-adb/gfxinfo.stdout.txt"
+        },
+        {
+          "channel": "provider",
+          "kind": "logs",
+          "path": "{providerDir}/android-adb/framestats.stdout.txt"
+        },
+        {
+          "channel": "provider",
+          "kind": "logs",
+          "path": "{providerDir}/android-adb/meminfo.stdout.txt"
+        }
+      ]
+    },
+    {
       "id": "stop-native-window",
       "phase": "stopWindow",
+      "platforms": ["ios"],
       "command": "node",
       "cwd": "..",
       "args": [

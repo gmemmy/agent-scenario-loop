@@ -153,14 +153,39 @@ test('init-project scaffolds templates into a consuming app layout', async (t: T
   assert.match(nativePerformanceProviderScript, /ASL_NATIVE_PERFORMANCE_IOS_CAPTURE/u);
   assert.match(nativePerformanceProviderScript, /captureIosXctraceEvidence/u);
   const evidenceProviderManifest = readJson(path.join(targetDir, 'runner-manifests', 'evidence-provider.json')) as {
-    providerCommands: Array<{args?: string[]; id: string}>;
+    providerCommands: Array<{
+      args?: string[];
+      id: string;
+      outputs?: Array<{kind: string; path: string}>;
+      platforms?: string[];
+    }>;
   };
+  assert.deepEqual(
+    evidenceProviderManifest.providerCommands.find((command) => command.id === 'start-android-native-window')?.platforms,
+    ['android'],
+  );
+  const androidStopCommand = evidenceProviderManifest.providerCommands.find(
+    (command) => command.id === 'stop-android-native-window',
+  );
+  assert.deepEqual(androidStopCommand?.platforms, ['android']);
+  assert.equal(androidStopCommand?.outputs?.length, 6);
+  assert.equal(androidStopCommand?.outputs?.every((output) => output.kind === 'logs'), true);
+  assert.deepEqual(
+    evidenceProviderManifest.providerCommands.find((command) => command.id === 'start-native-window')?.platforms,
+    ['ios'],
+  );
+  assert.deepEqual(
+    evidenceProviderManifest.providerCommands.find((command) => command.id === 'stop-native-window')?.platforms,
+    ['ios'],
+  );
   assert.equal(evidenceProviderManifest.providerCommands.find((command) => command.id === 'capture-native-performance')?.args?.includes('{runDir}'), true);
   assert.equal(evidenceProviderManifest.providerCommands.find((command) => command.id === 'capture-native-performance')?.args?.includes('{nativePerformanceRequestPath}'), true);
   assert.equal(evidenceProviderManifest.providerCommands.find((command) => command.id === 'capture-native-performance')?.args?.includes('{nativePerformanceRequestSha256}'), true);
   assert.match(nativePerformanceProviderScript, /buildAndroidNativePerformanceEvidence/u);
   assert.match(nativePerformanceProviderScript, /diagnostic-only/u);
   assert.match(nativePerformanceProviderScript, /diagnosticSources/u);
+  assert.match(nativePerformanceProviderScript, /resetAndroidAdbWindow/u);
+  assert.match(nativePerformanceProviderScript, /readPreservedAndroidAdbCapture/u);
   assert.match(nativePerformanceProviderScript, /xctrace/u);
   assert.match(nativePerformanceProviderScript, /MetricKit/u);
   const providerScript = fs.readFileSync(path.join(targetDir, 'scripts', 'asl-capture-profiler-provider.mjs'), 'utf8');

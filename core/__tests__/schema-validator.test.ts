@@ -541,6 +541,63 @@ test('accepts zero-output provider lifecycle commands', () => {
   assert.deepEqual(result.errors, []);
 });
 
+test('accepts provider commands limited to manifest-supported platforms', () => {
+  const provider = readJson('templates/evidence-provider.json');
+  provider.providerCommands = [
+    {
+      id: 'capture-android-window',
+      phase: 'stopWindow',
+      platforms: ['android'],
+      command: 'capture-android-window',
+      outputs: [],
+    },
+  ];
+
+  const result = validateJson(provider, SCHEMAS.runnerCapabilities, 'Runner capability manifest');
+
+  assert.equal(result.valid, true, result.message);
+  assert.deepEqual(result.errors, []);
+});
+
+test('rejects unknown provider command platforms', () => {
+  const provider = readJson('templates/evidence-provider.json');
+  provider.providerCommands = [
+    {
+      id: 'capture-desktop-window',
+      phase: 'stopWindow',
+      platforms: ['desktop'],
+      command: 'capture-desktop-window',
+      outputs: [],
+    },
+  ];
+
+  const result = validateJson(provider, SCHEMAS.runnerCapabilities, 'Runner capability manifest');
+
+  assert.equal(result.valid, false);
+  assert.ok(result.errors.some((error: ValidationIssue) => error.path === '$.providerCommands[0].platforms[0]'));
+});
+
+test('rejects provider command platforms outside the provider platform set', () => {
+  const provider = readJson('templates/evidence-provider.json');
+  provider.platforms = ['ios'];
+  provider.providerCommands = [
+    {
+      id: 'capture-android-window',
+      phase: 'stopWindow',
+      platforms: ['android'],
+      command: 'capture-android-window',
+      outputs: [],
+    },
+  ];
+
+  const result = validateJson(provider, SCHEMAS.runnerCapabilities, 'Runner capability manifest');
+
+  assert.equal(result.valid, false);
+  assert.ok(result.errors.some((error: ValidationIssue) => (
+    error.path === '$.providerCommands[0].platforms' && error.code === 'schema_not'
+  )));
+});
+
 test('validates structured profiler evidence envelopes', () => {
   const result = validateJson({
     schemaVersion: '1.0.0',

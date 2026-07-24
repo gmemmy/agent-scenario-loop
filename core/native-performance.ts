@@ -1672,6 +1672,17 @@ function readVerifiedTargetBindingCommands(
     ) {
       return null;
     }
+    if (
+      isRunnerOwnedCommand &&
+      (
+        completedRecord.status !== 'completed' ||
+        completedRecord.exitCode !== 0 ||
+        completedRecord.timedOut !== false ||
+        completedRecord.signal !== null
+      )
+    ) {
+      return null;
+    }
     const completedRequestBinding = readValidatedBoundNativePerformanceRequest(completedRecord);
     if (completedRequestBinding === null) {
       return null;
