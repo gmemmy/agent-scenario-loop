@@ -79,7 +79,7 @@ Runner subpaths are public when a consuming project needs to compose a workflow 
 | `agent-scenario-loop/runner/live-proof` | aggregate live-proof artifact validation, multi-artifact platform-set checks, durable `live-proof-set.json` writing, formatting, failed-proof gating, and regression gating |
 | `agent-scenario-loop/runner/profile-android` | Android profile artifact pipeline |
 | `agent-scenario-loop/runner/profile-ios` | iOS profile artifact pipeline |
-| `agent-scenario-loop/runner/resource-lease` | deterministic lease inspect/acquire/heartbeat/release helpers using operation guards, atomic heartbeat replacement, tombstone-verified release retention, and explicit acquisition/release durability evidence for bounded resource arbitration |
+| `agent-scenario-loop/runner/resource-lease` | deterministic lease inspect/acquire/heartbeat/release helpers using operation guards, atomic heartbeat replacement, tombstone-verified release retention, explicit durability evidence, and canonical mobile-target, TCP-port, provider, and hashed lease-path identity helpers |
 | `agent-scenario-loop/runner/validate-project` | project-level validation for initialized consumer app scaffolds |
 
 Installed binaries mirror those runner entrypoints for CLI use.

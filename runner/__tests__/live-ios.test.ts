@@ -185,6 +185,13 @@ test('generic iOS live proof captures profile evidence before sidecar proofs', a
 
   const liveProof = JSON.parse(fs.readFileSync(result.aggregateSummary.liveProofPath, 'utf8'));
   assert.equal(liveProof.status, 'passed');
+  const resourceLeaseJournal = JSON.parse(fs.readFileSync(
+    path.join(result.preflightDir, 'raw', 'resource-lease.json'),
+    'utf8',
+  ));
+  assert.equal(resourceLeaseJournal.status, 'released');
+  assert.equal(resourceLeaseJournal.resource.resourceId, `mobile-target:ios:${DEVICE_ID}`);
+  assert.equal(resourceLeaseJournal.resource.targetId, DEVICE_ID);
   assert.deepEqual(
     liveProof.interactionProofs.map((proof: { runnerId: string }) => proof.runnerId),
     ['agent-device', 'argent'],
@@ -212,6 +219,41 @@ test('generic iOS live proof captures profile evidence before sidecar proofs', a
     orderedCalls.some((call) => call === `simctl:simctl launch ${DEVICE_ID} ${BUNDLE_ID}`),
     false,
     'storage-backed iOS dev-client proof should use openurl as the launch mechanism',
+  );
+
+  const releaseFailureSuffix = 'lease-release-failure';
+  await assert.rejects(
+    () => runIosLiveProof({
+      bundle: BUNDLE_ID,
+      config: path.join(ROOT, 'examples', 'mobile-app', 'asl.config.json'),
+      device: DEVICE_ID,
+      'ios-profile-session-transport': 'storage',
+      out: outputDir,
+      'run-suffix': releaseFailureSuffix,
+      scenario: path.join(ROOT, 'examples', 'mobile-app', 'scenarios', 'mobile', 'app-startup.json'),
+    }, {
+      delay: async (ms: number) => {
+        waits.push(ms);
+      },
+      executor,
+      resourceLeaseDependencies: {
+        release: async () => {
+          throw new Error('release failed');
+        },
+      },
+      resourceLeaseDir: path.join(outputDir, 'lease-release-failure'),
+    }),
+    /Resource lease release was not trustworthy/u,
+  );
+  assert.equal(
+    fs.existsSync(path.join(
+      outputDir,
+      '_live-proof',
+      `ios-live-proof-${releaseFailureSuffix}`,
+      'live-proof.json',
+    )),
+    false,
+    'untrusted lease release must block aggregate iOS live-proof publication',
   );
 
   const failedAgentDeviceExecutor = async (command: string, args: string[]): Promise<AgentDeviceCommandResult> => {

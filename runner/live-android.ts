@@ -13,6 +13,11 @@ const { runAgentDeviceCapture } = require('./agent-device');
 const { assertConcreteMobileAppId } = require('./app-identity');
 const { parseBaseArgs: parseArgentBaseArgs, runArgentCapture } = require('./argent');
 const { loadAslLocalEnv, readStringArgOrEnv } = require('./local-env');
+const {
+  DEFAULT_LIVE_RESOURCE_LEASE_HEARTBEAT_MS,
+  DEFAULT_LIVE_RESOURCE_LEASE_TTL_MS,
+  runWithLiveResourceLease,
+} = require('./live-resource-lease') as typeof import('./live-resource-lease');
 const { runProfileAndroid } = require('./profile-android');
 
 type CliArgs = import('./android-adb').CliArgs;
@@ -21,6 +26,10 @@ type AndroidGenericLiveOptions = {
   argentExecutor?: import('./argent').CommandExecutor;
   delay?: (ms: number) => Promise<void>;
   executor?: import('./android-adb').CommandExecutor;
+  resourceLeaseDependencies?: Partial<import('./live-resource-lease').LiveResourceLeaseDependencies>;
+  resourceLeaseDir?: string;
+  resourceLeaseHeartbeatMs?: number;
+  resourceLeaseTtlMs?: number;
 };
 type AndroidGenericLiveResult = {
   aggregateSummary: import('./live-proof-summary').LiveProofSummaryResult;
@@ -493,123 +502,144 @@ async function runAndroidLiveProof(
   if (preflight.health.healthStatus !== 'passed') {
     throw new Error(`Android live proof preflight failed; inspect ${preflight.runDir}/agent-summary.md.`);
   }
-
-  const interactionProofs: Array<{
-    label: string;
-    runDir: string;
-    runId: string;
-    runnerId: string;
-    scenarioId: string;
-  }> = [];
-  const profile = await runProfileAndroid({
-    ...(typeof args.adb === 'string' ? { adb: args.adb } : {}),
-    'adb-capture': true,
-    'clear-logcat': true,
-    config: configPath,
-    'command-wait-ms': typeof args['command-wait-ms'] === 'string' ? args['command-wait-ms'] : '250',
-    launch: true,
-    'launch-wait-ms': typeof args['launch-wait-ms'] === 'string' ? args['launch-wait-ms'] : '1500',
-    'logcat-lines': typeof args['logcat-lines'] === 'string' ? args['logcat-lines'] : '1000',
-    out: outputDir,
-    ...(packageName ? { package: packageName } : {}),
-    'profile-session': true,
-    ...(reactNativeDebugHost ? { 'react-native-debug-host': reactNativeDebugHost } : {}),
-    ...(androidDevClientUrl ? { 'android-dev-client-url': androidDevClientUrl } : {}),
-    ...(androidDevClientWaitMs ? { 'android-dev-client-wait-ms': androidDevClientWaitMs } : {}),
-    ...(androidDevClientReadyPattern ? { 'android-dev-client-ready-pattern': androidDevClientReadyPattern } : {}),
-    ...(androidDevClientReadyQuietMs ? { 'android-dev-client-ready-quiet-ms': androidDevClientReadyQuietMs } : {}),
-    ...(androidDevClientReadyTimeoutMs ? { 'android-dev-client-ready-timeout-ms': androidDevClientReadyTimeoutMs } : {}),
-    ...(isEnabledFlag(args['android-profile-session-storage']) || androidProfileSessionStorage === 'true'
-      ? { 'android-profile-session-storage': true }
-      : {}),
-    ...(androidProfileSessionStorageKey ? { 'android-profile-session-storage-key': androidProfileSessionStorageKey } : {}),
-    ...(androidProfileCommandStorageKey ? { 'android-profile-command-storage-key': androidProfileCommandStorageKey } : {}),
-    'run-id': profileRunId,
-    scenario: scenarioPath,
-    ...(serial ? { serial } : {}),
-    ...(typeof args['wait-ms'] === 'string' ? { 'wait-ms': args['wait-ms'] } : {}),
-  }, {
-    comparisonLane,
-    ...(options.delay ? { delay: options.delay } : {}),
-    ...(options.executor ? { executor: options.executor } : {}),
-  });
-  const profileTrusted = isTrustedProfileRun({ health: profile.health, verdict: profile.verdict });
-
-  let skippedInteractionProofs: SkippedInteractionProof[] = [];
-  if (!profileTrusted) {
-    skippedInteractionProofs = buildSkippedInteractionProofs({
-      profileGateDiagnostics: readProfileGateDiagnosticSummary(profile.runDir),
-      profileNextActionOwner: readRunNextActionOwner(profile.runDir),
-      profileHealthStatus: profile.health.healthStatus,
-      profileVerdictStatus: profile.verdict.verdictStatus,
-      requestedRunners: enabledInteractionRunners,
-      runIdsByRunner,
-      scenarioId,
-    });
+  const selectedSerial = preflight.device?.serial;
+  if (!selectedSerial) {
+    throw new Error(`Android live proof preflight passed without a selected device; inspect ${preflight.runDir}/agent-summary.md.`);
   }
 
-  if (profileTrusted && isEnabledFlag(args['agent-device-proof'])) {
-    const capture = await runAgentDeviceCapture({
-      ...(typeof args['agent-device'] === 'string' ? { agentDevicePath: args['agent-device'] } : {}),
-      app: packageName,
-      ...(options.agentDeviceExecutor ? { executor: options.agentDeviceExecutor } : {}),
-      open: true,
-      outputDir: path.join(outputDir, '_agent-device-captures', agentDeviceRunId),
-      platform: 'android',
-      runId: agentDeviceRunId,
-      scenario,
-      ...(serial ? { serial } : {}),
-      ...(agentDeviceSession ? { session: agentDeviceSession } : {}),
-      ...(agentDeviceSessionMode
-        ? { sessionMode: agentDeviceSessionMode as import('./agent-device').AgentDeviceSessionMode }
+  const leasedProof = await runWithLiveResourceLease({
+    evidencePath: path.join(preflight.runDir, 'raw', 'resource-lease.json'),
+    heartbeatIntervalMs: options.resourceLeaseHeartbeatMs
+      ?? parsePositiveInteger(process.env.ASL_RESOURCE_LEASE_HEARTBEAT_MS, DEFAULT_LIVE_RESOURCE_LEASE_HEARTBEAT_MS),
+    ...(options.resourceLeaseDir ? { leaseRoot: options.resourceLeaseDir } : {}),
+    ownerId: 'asl-live-android',
+    platform: 'android',
+    runId: aggregateRunId,
+    targetId: selectedSerial,
+    ttlMs: options.resourceLeaseTtlMs
+      ?? parsePositiveInteger(process.env.ASL_RESOURCE_LEASE_TTL_MS, DEFAULT_LIVE_RESOURCE_LEASE_TTL_MS),
+    run: async () => {
+    const interactionProofs: Array<{
+      label: string;
+      runDir: string;
+      runId: string;
+      runnerId: string;
+      scenarioId: string;
+    }> = [];
+    const profile = await runProfileAndroid({
+      ...(typeof args.adb === 'string' ? { adb: args.adb } : {}),
+      'adb-capture': true,
+      'clear-logcat': true,
+      config: configPath,
+      'command-wait-ms': typeof args['command-wait-ms'] === 'string' ? args['command-wait-ms'] : '250',
+      launch: true,
+      'launch-wait-ms': typeof args['launch-wait-ms'] === 'string' ? args['launch-wait-ms'] : '1500',
+      'logcat-lines': typeof args['logcat-lines'] === 'string' ? args['logcat-lines'] : '1000',
+      out: outputDir,
+      ...(packageName ? { package: packageName } : {}),
+      'profile-session': true,
+      ...(reactNativeDebugHost ? { 'react-native-debug-host': reactNativeDebugHost } : {}),
+      ...(androidDevClientUrl ? { 'android-dev-client-url': androidDevClientUrl } : {}),
+      ...(androidDevClientWaitMs ? { 'android-dev-client-wait-ms': androidDevClientWaitMs } : {}),
+      ...(androidDevClientReadyPattern ? { 'android-dev-client-ready-pattern': androidDevClientReadyPattern } : {}),
+      ...(androidDevClientReadyQuietMs ? { 'android-dev-client-ready-quiet-ms': androidDevClientReadyQuietMs } : {}),
+      ...(androidDevClientReadyTimeoutMs ? { 'android-dev-client-ready-timeout-ms': androidDevClientReadyTimeoutMs } : {}),
+      ...(isEnabledFlag(args['android-profile-session-storage']) || androidProfileSessionStorage === 'true'
+        ? { 'android-profile-session-storage': true }
         : {}),
-      waitMs: parsePositiveInteger(args['agent-device-wait-ms'], 1000),
-    });
-    interactionProofs.push({
-      label: 'interaction-agent-device',
-      runDir: capture.runDir,
-      runId: agentDeviceRunId,
-      runnerId: 'agent-device',
-      scenarioId,
-    });
-  }
-
-  if (profileTrusted && isEnabledFlag(args['argent-proof'])) {
-    const argentBaseArgs = parseArgentBaseArgs(process.env.ASL_ARGENT_BASE_ARGS);
-    const adbPath = typeof args.adb === 'string' ? args.adb : 'adb';
-    await runAndroidRunnerAdbCommand({
-      adbPath,
-      args: buildAndroidRunnerAdbArgs(serial ?? null, ['logcat', '-c']),
-      ...(options.executor ? { executor: options.executor } : {}),
-    });
-    const capture = await runArgentCapture({
-      app: packageName,
-      argentCommand: process.env.ASL_ARGENT_BIN || 'argent',
-      ...(argentBaseArgs ? { baseArgs: argentBaseArgs } : {}),
-      commandTimeoutMs: parsePositiveInteger(process.env.ASL_ARGENT_COMMAND_TIMEOUT_MS, 60_000),
-      deviceId: serial ?? 'emulator-5554',
+      ...(androidProfileSessionStorageKey ? { 'android-profile-session-storage-key': androidProfileSessionStorageKey } : {}),
+      ...(androidProfileCommandStorageKey ? { 'android-profile-command-storage-key': androidProfileCommandStorageKey } : {}),
+      'run-id': profileRunId,
+      scenario: scenarioPath,
+      ...(serial ? { serial } : {}),
+      ...(typeof args['wait-ms'] === 'string' ? { 'wait-ms': args['wait-ms'] } : {}),
+    }, {
+      comparisonLane,
       ...(options.delay ? { delay: options.delay } : {}),
-      ...(options.argentExecutor ? { executor: options.argentExecutor } : {}),
-      outputDir: path.join(outputDir, '_argent-captures', argentRunId),
-      platform: 'android',
-      runId: argentRunId,
-      scenario,
-    });
-    await attachArgentAndroidRunnerDiagnostics({
-      adbPath,
-      capture,
       ...(options.executor ? { executor: options.executor } : {}),
-      serial: serial ?? null,
     });
-    interactionProofs.push({
-      label: 'interaction-argent',
-      runDir: capture.runDir,
-      runId: argentRunId,
-      runnerId: 'argent',
-      scenarioId,
-    });
-  }
+    const profileTrusted = isTrustedProfileRun({ health: profile.health, verdict: profile.verdict });
 
+    let skippedInteractionProofs: SkippedInteractionProof[] = [];
+    if (!profileTrusted) {
+      skippedInteractionProofs = buildSkippedInteractionProofs({
+        profileGateDiagnostics: readProfileGateDiagnosticSummary(profile.runDir),
+        profileNextActionOwner: readRunNextActionOwner(profile.runDir),
+        profileHealthStatus: profile.health.healthStatus,
+        profileVerdictStatus: profile.verdict.verdictStatus,
+        requestedRunners: enabledInteractionRunners,
+        runIdsByRunner,
+        scenarioId,
+      });
+    }
+
+    if (profileTrusted && isEnabledFlag(args['agent-device-proof'])) {
+      const capture = await runAgentDeviceCapture({
+        ...(typeof args['agent-device'] === 'string' ? { agentDevicePath: args['agent-device'] } : {}),
+        app: packageName,
+        ...(options.agentDeviceExecutor ? { executor: options.agentDeviceExecutor } : {}),
+        open: true,
+        outputDir: path.join(outputDir, '_agent-device-captures', agentDeviceRunId),
+        platform: 'android',
+        runId: agentDeviceRunId,
+        scenario,
+        ...(serial ? { serial } : {}),
+        ...(agentDeviceSession ? { session: agentDeviceSession } : {}),
+        ...(agentDeviceSessionMode
+          ? { sessionMode: agentDeviceSessionMode as import('./agent-device').AgentDeviceSessionMode }
+          : {}),
+        waitMs: parsePositiveInteger(args['agent-device-wait-ms'], 1000),
+      });
+      interactionProofs.push({
+        label: 'interaction-agent-device',
+        runDir: capture.runDir,
+        runId: agentDeviceRunId,
+        runnerId: 'agent-device',
+        scenarioId,
+      });
+    }
+
+    if (profileTrusted && isEnabledFlag(args['argent-proof'])) {
+      const argentBaseArgs = parseArgentBaseArgs(process.env.ASL_ARGENT_BASE_ARGS);
+      const adbPath = typeof args.adb === 'string' ? args.adb : 'adb';
+      await runAndroidRunnerAdbCommand({
+        adbPath,
+        args: buildAndroidRunnerAdbArgs(serial ?? null, ['logcat', '-c']),
+        ...(options.executor ? { executor: options.executor } : {}),
+      });
+      const capture = await runArgentCapture({
+        app: packageName,
+        argentCommand: process.env.ASL_ARGENT_BIN || 'argent',
+        ...(argentBaseArgs ? { baseArgs: argentBaseArgs } : {}),
+        commandTimeoutMs: parsePositiveInteger(process.env.ASL_ARGENT_COMMAND_TIMEOUT_MS, 60_000),
+        deviceId: serial ?? 'emulator-5554',
+        ...(options.delay ? { delay: options.delay } : {}),
+        ...(options.argentExecutor ? { executor: options.argentExecutor } : {}),
+        outputDir: path.join(outputDir, '_argent-captures', argentRunId),
+        platform: 'android',
+        runId: argentRunId,
+        scenario,
+      });
+      await attachArgentAndroidRunnerDiagnostics({
+        adbPath,
+        capture,
+        ...(options.executor ? { executor: options.executor } : {}),
+        serial: serial ?? null,
+      });
+      interactionProofs.push({
+        label: 'interaction-argent',
+        runDir: capture.runDir,
+        runId: argentRunId,
+        runnerId: 'argent',
+        scenarioId,
+      });
+    }
+
+    return { interactionProofs, profile, profileTrusted, skippedInteractionProofs };
+    },
+  }, options.resourceLeaseDependencies);
+
+  const { interactionProofs, profile, profileTrusted, skippedInteractionProofs } = leasedProof;
   const profiles = [{
     label: scenarioId,
     runDir: profile.runDir,

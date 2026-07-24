@@ -22,6 +22,14 @@ import type {
   RunWithResourceLeaseOptions,
   RunWithResourceLeaseResult,
 } from './resource-lease-internal';
+import {
+  buildMobileTargetResourceId,
+  buildProviderResourceId,
+  buildTcpPortResourceId,
+  resolveResourceLeasePath,
+} from './resource-lease-identity';
+
+import type { MobileTargetPlatform } from './resource-lease-identity';
 
 async function inspectResourceLease(options: ResourceLeaseInspectOptions): Promise<ResourceLeaseInspection> {
   return inspectResourceLeaseInternal(options);
@@ -43,7 +51,18 @@ async function runWithResourceLease<T>(options: RunWithResourceLeaseOptions<T>):
   return runWithResourceLeaseInternal(options);
 }
 
-export { RESOURCE_LEASE_SCHEMA_VERSION, acquireResourceLease, heartbeatResourceLease, inspectResourceLease, releaseResourceLease, runWithResourceLease };
+export {
+  RESOURCE_LEASE_SCHEMA_VERSION,
+  acquireResourceLease,
+  buildMobileTargetResourceId,
+  buildProviderResourceId,
+  buildTcpPortResourceId,
+  heartbeatResourceLease,
+  inspectResourceLease,
+  releaseResourceLease,
+  resolveResourceLeasePath,
+  runWithResourceLease,
+};
 
 export type {
   ResourceLeaseAcquireOptions,
@@ -59,4 +78,5 @@ export type {
   ResourceLeaseReleaseResult,
   RunWithResourceLeaseOptions,
   RunWithResourceLeaseResult,
+  MobileTargetPlatform,
 };
