@@ -16,6 +16,11 @@ const { runAgentDeviceCapture } = require('./agent-device');
 const { assertConcreteMobileAppId } = require('./app-identity');
 const { parseBaseArgs: parseArgentBaseArgs, runArgentCapture } = require('./argent');
 const { loadAslLocalEnv, readStringArgOrEnv } = require('./local-env');
+const {
+  DEFAULT_LIVE_RESOURCE_LEASE_HEARTBEAT_MS,
+  DEFAULT_LIVE_RESOURCE_LEASE_TTL_MS,
+  runWithLiveResourceLease,
+} = require('./live-resource-lease') as typeof import('./live-resource-lease');
 const { runProfileIos } = require('./profile-ios');
 
 type CliArgs = import('./ios-simctl').CliArgs;
@@ -24,6 +29,10 @@ type IosGenericLiveOptions = {
   argentExecutor?: import('./argent').CommandExecutor;
   delay?: (ms: number) => Promise<void>;
   executor?: import('./ios-simctl').CommandExecutor;
+  resourceLeaseDependencies?: Partial<import('./live-resource-lease').LiveResourceLeaseDependencies>;
+  resourceLeaseDir?: string;
+  resourceLeaseHeartbeatMs?: number;
+  resourceLeaseTtlMs?: number;
 };
 type IosGenericLiveResult = {
   aggregateSummary: import('./live-proof-summary').LiveProofSummaryResult;
@@ -445,127 +454,148 @@ async function runIosLiveProof(
   if (preflight.health.healthStatus !== 'passed') {
     throw new Error(`iOS live proof preflight failed; inspect ${preflight.runDir}/agent-summary.md.`);
   }
-
-  const interactionProofs: Array<{
-    label: string;
-    runDir: string;
-    runId: string;
-    runnerId: string;
-    scenarioId: string;
-  }> = [];
-  const profileSidecarDir = path.join(outputDir, '_ios-simctl-captures', profileRunId);
-  const profileArtifactDir = path.join(outputDir, scenarioId, profileRunId);
-  let profile: Awaited<ReturnType<typeof runProfileIos>> | null = null;
-  let profileRunDir = profileArtifactDir;
-  try {
-    profile = await runProfileIos({
-      config: configPath,
-      ...(deviceId ? { device: deviceId } : {}),
-      launch: true,
-      out: outputDir,
-      ...(iosDevClientUrl ? { 'ios-dev-client-url': iosDevClientUrl } : {}),
-      ...(iosDevClientWaitMs ? { 'ios-dev-client-wait-ms': iosDevClientWaitMs } : {}),
-      'profile-session': true,
-      ...(iosProfileSessionTransport === 'storage' ? { 'profile-session-storage': true } : {}),
-      ...(iosProfileSessionStorageKey ? { 'ios-profile-session-storage-key': iosProfileSessionStorageKey } : {}),
-      ...(iosProfileCommandStorageKey ? { 'ios-profile-command-storage-key': iosProfileCommandStorageKey } : {}),
-      ...(iosProfileEventStorageKey ? { 'ios-profile-event-storage-key': iosProfileEventStorageKey } : {}),
-      ...(iosProfileSignalStorageKey ? { 'ios-profile-signal-storage-key': iosProfileSignalStorageKey } : {}),
-      ...(iosProfileSessionEntriesStorageKey ? { 'ios-profile-session-entries-storage-key': iosProfileSessionEntriesStorageKey } : {}),
-      ...(iosProfileSessionStartWaitMs ? { 'ios-profile-session-start-wait-ms': iosProfileSessionStartWaitMs } : {}),
-      'run-id': profileRunId,
-      scenario: scenarioPath,
-      'simctl-capture': true,
-      'simctl-out': path.join(outputDir, '_ios-simctl-captures', profileRunId),
-      ...(typeof args['wait-ms'] === 'string' ? { 'wait-ms': args['wait-ms'] } : {}),
-      ...(bundleId ? { bundle: bundleId } : {}),
-      ...(xcrunPath ? { xcrun: xcrunPath } : {}),
-    }, {
-      comparisonLane,
-      ...(options.delay ? { delay: options.delay } : {}),
-      ...(options.executor ? { executor: options.executor } : {}),
-    });
-    profileRunDir = profile.runDir;
-  } catch (error) {
-    if (!hasLiveProofRunStatusArtifacts(profileSidecarDir)) {
-      throw error;
-    }
-    profileRunDir = profileSidecarDir;
+  const selectedUdid = preflight.simulator?.udid;
+  if (!selectedUdid) {
+    throw new Error(`iOS live proof preflight passed without a selected simulator; inspect ${preflight.runDir}/agent-summary.md.`);
   }
-  const profileStatus = profile
-    ? {
-        healthStatus: profile.health.healthStatus,
-        verdictStatus: profile.verdict.verdictStatus,
+
+  const leasedProof = await runWithLiveResourceLease({
+    evidencePath: path.join(preflight.runDir, 'raw', 'resource-lease.json'),
+    heartbeatIntervalMs: options.resourceLeaseHeartbeatMs
+      ?? parsePositiveInteger(process.env.ASL_RESOURCE_LEASE_HEARTBEAT_MS, DEFAULT_LIVE_RESOURCE_LEASE_HEARTBEAT_MS),
+    ...(options.resourceLeaseDir ? { leaseRoot: options.resourceLeaseDir } : {}),
+    ownerId: 'asl-live-ios',
+    platform: 'ios',
+    runId: aggregateRunId,
+    targetId: selectedUdid,
+    ttlMs: options.resourceLeaseTtlMs
+      ?? parsePositiveInteger(process.env.ASL_RESOURCE_LEASE_TTL_MS, DEFAULT_LIVE_RESOURCE_LEASE_TTL_MS),
+    run: async () => {
+    const interactionProofs: Array<{
+      label: string;
+      runDir: string;
+      runId: string;
+      runnerId: string;
+      scenarioId: string;
+    }> = [];
+    const profileSidecarDir = path.join(outputDir, '_ios-simctl-captures', profileRunId);
+    const profileArtifactDir = path.join(outputDir, scenarioId, profileRunId);
+    let profile: Awaited<ReturnType<typeof runProfileIos>> | null = null;
+    let profileRunDir = profileArtifactDir;
+    try {
+      profile = await runProfileIos({
+        config: configPath,
+        ...(deviceId ? { device: deviceId } : {}),
+        launch: true,
+        out: outputDir,
+        ...(iosDevClientUrl ? { 'ios-dev-client-url': iosDevClientUrl } : {}),
+        ...(iosDevClientWaitMs ? { 'ios-dev-client-wait-ms': iosDevClientWaitMs } : {}),
+        'profile-session': true,
+        ...(iosProfileSessionTransport === 'storage' ? { 'profile-session-storage': true } : {}),
+        ...(iosProfileSessionStorageKey ? { 'ios-profile-session-storage-key': iosProfileSessionStorageKey } : {}),
+        ...(iosProfileCommandStorageKey ? { 'ios-profile-command-storage-key': iosProfileCommandStorageKey } : {}),
+        ...(iosProfileEventStorageKey ? { 'ios-profile-event-storage-key': iosProfileEventStorageKey } : {}),
+        ...(iosProfileSignalStorageKey ? { 'ios-profile-signal-storage-key': iosProfileSignalStorageKey } : {}),
+        ...(iosProfileSessionEntriesStorageKey ? { 'ios-profile-session-entries-storage-key': iosProfileSessionEntriesStorageKey } : {}),
+        ...(iosProfileSessionStartWaitMs ? { 'ios-profile-session-start-wait-ms': iosProfileSessionStartWaitMs } : {}),
+        'run-id': profileRunId,
+        scenario: scenarioPath,
+        'simctl-capture': true,
+        'simctl-out': path.join(outputDir, '_ios-simctl-captures', profileRunId),
+        ...(typeof args['wait-ms'] === 'string' ? { 'wait-ms': args['wait-ms'] } : {}),
+        ...(bundleId ? { bundle: bundleId } : {}),
+        ...(xcrunPath ? { xcrun: xcrunPath } : {}),
+      }, {
+        comparisonLane,
+        ...(options.delay ? { delay: options.delay } : {}),
+        ...(options.executor ? { executor: options.executor } : {}),
+      });
+      profileRunDir = profile.runDir;
+    } catch (error) {
+      if (!hasLiveProofRunStatusArtifacts(profileSidecarDir)) {
+        throw error;
       }
-    : readProfileStatusArtifacts(profileRunDir);
-  const profileTrusted = profileStatus.healthStatus === 'passed' && profileStatus.verdictStatus === 'passed';
+      profileRunDir = profileSidecarDir;
+    }
+    const profileStatus = profile
+      ? {
+          healthStatus: profile.health.healthStatus,
+          verdictStatus: profile.verdict.verdictStatus,
+        }
+      : readProfileStatusArtifacts(profileRunDir);
+    const profileTrusted = profileStatus.healthStatus === 'passed' && profileStatus.verdictStatus === 'passed';
 
-  let skippedInteractionProofs: SkippedInteractionProof[] = [];
-  if (!profileTrusted) {
-    skippedInteractionProofs = buildSkippedInteractionProofs({
-      profileGateDiagnostics: readProfileGateDiagnosticSummary(profileRunDir),
-      profileGateReadiness: readProfileGateReadinessSummary(profileRunDir),
-      profileNextActionOwner: readRunNextActionOwner(profileRunDir),
-      profileHealthStatus: profileStatus.healthStatus,
-      profileVerdictStatus: profileStatus.verdictStatus,
-      requestedRunners: enabledInteractionRunners,
-      runIdsByRunner,
-      scenarioId,
-    });
-  }
+    let skippedInteractionProofs: SkippedInteractionProof[] = [];
+    if (!profileTrusted) {
+      skippedInteractionProofs = buildSkippedInteractionProofs({
+        profileGateDiagnostics: readProfileGateDiagnosticSummary(profileRunDir),
+        profileGateReadiness: readProfileGateReadinessSummary(profileRunDir),
+        profileNextActionOwner: readRunNextActionOwner(profileRunDir),
+        profileHealthStatus: profileStatus.healthStatus,
+        profileVerdictStatus: profileStatus.verdictStatus,
+        requestedRunners: enabledInteractionRunners,
+        runIdsByRunner,
+        scenarioId,
+      });
+    }
 
-  if (profileTrusted && isEnabledFlag(args['agent-device-proof'])) {
-    const capture = await runAgentDeviceCapture({
-      ...(typeof args['agent-device'] === 'string' ? { agentDevicePath: args['agent-device'] } : {}),
-      app: bundleId,
-      ...(options.agentDeviceExecutor ? { executor: options.agentDeviceExecutor } : {}),
-      open: true,
-      outputDir: path.join(outputDir, '_agent-device-captures', agentDeviceRunId),
-      platform: 'ios',
-      runId: agentDeviceRunId,
-      scenario,
-      ...(deviceId ? { udid: deviceId } : {}),
-      ...(agentDeviceSession ? { session: agentDeviceSession } : {}),
-      ...(agentDeviceSessionMode
-        ? { sessionMode: agentDeviceSessionMode as import('./agent-device').AgentDeviceSessionMode }
-        : {}),
-      waitMs: parsePositiveInteger(args['agent-device-wait-ms'], 1000),
-    });
-    interactionProofs.push({
-      label: 'interaction-agent-device',
-      runDir: capture.runDir,
-      runId: agentDeviceRunId,
-      runnerId: 'agent-device',
-      scenarioId,
-    });
-  }
+    if (profileTrusted && isEnabledFlag(args['agent-device-proof'])) {
+      const capture = await runAgentDeviceCapture({
+        ...(typeof args['agent-device'] === 'string' ? { agentDevicePath: args['agent-device'] } : {}),
+        app: bundleId,
+        ...(options.agentDeviceExecutor ? { executor: options.agentDeviceExecutor } : {}),
+        open: true,
+        outputDir: path.join(outputDir, '_agent-device-captures', agentDeviceRunId),
+        platform: 'ios',
+        runId: agentDeviceRunId,
+        scenario,
+        ...(deviceId ? { udid: deviceId } : {}),
+        ...(agentDeviceSession ? { session: agentDeviceSession } : {}),
+        ...(agentDeviceSessionMode
+          ? { sessionMode: agentDeviceSessionMode as import('./agent-device').AgentDeviceSessionMode }
+          : {}),
+        waitMs: parsePositiveInteger(args['agent-device-wait-ms'], 1000),
+      });
+      interactionProofs.push({
+        label: 'interaction-agent-device',
+        runDir: capture.runDir,
+        runId: agentDeviceRunId,
+        runnerId: 'agent-device',
+        scenarioId,
+      });
+    }
 
-  if (profileTrusted && isEnabledFlag(args['argent-proof'])) {
-    const argentBaseArgs = parseArgentBaseArgs(process.env.ASL_ARGENT_BASE_ARGS);
-    const capture = await runArgentCapture({
-      app: bundleId,
-      argentCommand: process.env.ASL_ARGENT_BIN || 'argent',
-      ...(argentBaseArgs ? { baseArgs: argentBaseArgs } : {}),
-      commandTimeoutMs: parsePositiveInteger(process.env.ASL_ARGENT_COMMAND_TIMEOUT_MS, 60_000),
-      deviceId: deviceId ?? 'booted',
-      ...(options.delay ? { delay: options.delay } : {}),
-      ...(options.argentExecutor ? { executor: options.argentExecutor } : {}),
-      iosSimctlScreenshotFallback: true,
-      ...(options.executor ? { iosSimctlExecutor: options.executor } : {}),
-      outputDir: path.join(outputDir, '_argent-captures', argentRunId),
-      platform: 'ios',
-      runId: argentRunId,
-      scenario,
-    });
-    interactionProofs.push({
-      label: 'interaction-argent',
-      runDir: capture.runDir,
-      runId: argentRunId,
-      runnerId: 'argent',
-      scenarioId,
-    });
-  }
+    if (profileTrusted && isEnabledFlag(args['argent-proof'])) {
+      const argentBaseArgs = parseArgentBaseArgs(process.env.ASL_ARGENT_BASE_ARGS);
+      const capture = await runArgentCapture({
+        app: bundleId,
+        argentCommand: process.env.ASL_ARGENT_BIN || 'argent',
+        ...(argentBaseArgs ? { baseArgs: argentBaseArgs } : {}),
+        commandTimeoutMs: parsePositiveInteger(process.env.ASL_ARGENT_COMMAND_TIMEOUT_MS, 60_000),
+        deviceId: deviceId ?? 'booted',
+        ...(options.delay ? { delay: options.delay } : {}),
+        ...(options.argentExecutor ? { executor: options.argentExecutor } : {}),
+        iosSimctlScreenshotFallback: true,
+        ...(options.executor ? { iosSimctlExecutor: options.executor } : {}),
+        outputDir: path.join(outputDir, '_argent-captures', argentRunId),
+        platform: 'ios',
+        runId: argentRunId,
+        scenario,
+      });
+      interactionProofs.push({
+        label: 'interaction-argent',
+        runDir: capture.runDir,
+        runId: argentRunId,
+        runnerId: 'argent',
+        scenarioId,
+      });
+    }
 
+    return { interactionProofs, profileRunDir, profileTrusted, skippedInteractionProofs };
+    },
+  }, options.resourceLeaseDependencies);
+
+  const { interactionProofs, profileRunDir, profileTrusted, skippedInteractionProofs } = leasedProof;
   const profiles = [{
     label: scenarioId,
     runDir: profileRunDir,

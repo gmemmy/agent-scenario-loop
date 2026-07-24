@@ -186,6 +186,13 @@ test('generic Android live proof captures profile evidence before sidecar proofs
 
   const liveProof = JSON.parse(fs.readFileSync(result.aggregateSummary.liveProofPath, 'utf8'));
   assert.equal(liveProof.status, 'passed');
+  const resourceLeaseJournal = JSON.parse(fs.readFileSync(
+    path.join(result.preflightDir, 'raw', 'resource-lease.json'),
+    'utf8',
+  ));
+  assert.equal(resourceLeaseJournal.status, 'released');
+  assert.equal(resourceLeaseJournal.resource.resourceId, 'mobile-target:android:emulator-5554');
+  assert.equal(resourceLeaseJournal.resource.targetId, 'emulator-5554');
   assert.deepEqual(
     liveProof.interactionProofs.map((proof: { runnerId: string }) => proof.runnerId),
     ['agent-device', 'argent'],
@@ -211,6 +218,40 @@ test('generic Android live proof captures profile evidence before sidecar proofs
     orderedCalls.findIndex((call) => call.includes('expo-development-client')) <
       orderedCalls.findIndex((call) => call.includes('profile-session/start')),
     'expected generic Android live proof to open the dev-client URL before profile-session start',
+  );
+
+  const releaseFailureSuffix = 'lease-release-failure';
+  await assert.rejects(
+    () => runAndroidLiveProof({
+      config: path.join(ROOT, 'examples', 'mobile-app', 'asl.config.json'),
+      out: outputDir,
+      package: ANDROID_PACKAGE,
+      'run-suffix': releaseFailureSuffix,
+      scenario: path.join(ROOT, 'examples', 'mobile-app', 'scenarios', 'mobile', 'app-startup.json'),
+      serial: 'emulator-5554',
+    }, {
+      delay: async (ms: number) => {
+        waits.push(ms);
+      },
+      executor,
+      resourceLeaseDependencies: {
+        release: async () => {
+          throw new Error('release failed');
+        },
+      },
+      resourceLeaseDir: path.join(outputDir, 'lease-release-failure'),
+    }),
+    /Resource lease release was not trustworthy/u,
+  );
+  assert.equal(
+    fs.existsSync(path.join(
+      outputDir,
+      '_live-proof',
+      `android-live-proof-${releaseFailureSuffix}`,
+      'live-proof.json',
+    )),
+    false,
+    'untrusted lease release must block aggregate Android live-proof publication',
   );
 
   emitArgentHelperCrash = true;
