@@ -272,9 +272,14 @@ Reordered commands retain their own policy; extra, omitted, or mismatched
 commands fail planning instead of borrowing policy by array position.
 
 `cycles.stopOnFailure` defaults to `true`. Profile-session helpers fail fast on
-milestone timeout by default: the timed-out command is skipped, remaining queued
-commands are skipped with `prior-command-failure`, and the queue stops.
-Set `cycles.stopOnFailure: false` to continue after a timeout.
+milestone or dependency timeout by default: the timed-out command is skipped,
+remaining queued commands are skipped with `prior-command-failure`, and the
+logical queue stops. Commands in another scenario, run, or queue remain
+runnable. `dependsOnMilestones` uses that command's `waitTimeoutMs`, or the
+existing 30-second milestone default when no valid timeout is declared. Set
+`cycles.stopOnFailure: false` to skip only the blocked command and continue.
+Fail-fast milestone and dependency skips are scoped to the same scenario, run,
+and queue; independent queues remain runnable.
 
 Treat each interaction as one bounded settle transition. The journey and step
 describe intent; an app-owned milestone describes readiness (including stable

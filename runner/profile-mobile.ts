@@ -4345,7 +4345,10 @@ function buildProfileSessionFreshnessHealthChecks(
 }
 
 function profileCommandSequenceFailureCode(firstSkippedReason: string | undefined): string {
-  if (firstSkippedReason === 'wait-for-milestone-timeout') {
+  if (
+    firstSkippedReason === 'wait-for-milestone-timeout' ||
+    firstSkippedReason === 'dependency-milestone-timeout'
+  ) {
     return 'profile_command_gate_timeout';
   }
 
@@ -4355,6 +4358,9 @@ function profileCommandSequenceFailureCode(firstSkippedReason: string | undefine
 function profileCommandSequenceFailureMessage(firstSkippedReason: string | undefined): string {
   if (firstSkippedReason === 'wait-for-milestone-timeout') {
     return 'One or more profile-session commands waited for a milestone that was not observed before timeout.';
+  }
+  if (firstSkippedReason === 'dependency-milestone-timeout') {
+    return 'One or more profile-session commands waited for required dependencies that were not observed before timeout.';
   }
 
   return 'One or more profile-session commands were skipped before the scenario completed.';
@@ -4621,6 +4627,12 @@ function buildProfileHealth({
             ...(typeof firstSkippedCommand?.command === 'string' ? { command: firstSkippedCommand.command } : {}),
             ...(typeof firstSkippedCommand?.commandId === 'string' ? { commandId: firstSkippedCommand.commandId } : {}),
             ...(typeof firstSkippedCommand?.queueId === 'string' ? { queueId: firstSkippedCommand.queueId } : {}),
+            ...(typeof firstSkippedCommand?.continuationReason === 'string'
+              ? { continuationReason: firstSkippedCommand.continuationReason }
+              : {}),
+            ...(Array.isArray(firstSkippedCommand?.missingDependencies)
+              ? { missingDependencies: firstSkippedCommand.missingDependencies.join(',') }
+              : {}),
             ...(typeof firstSkippedCommand?.reason === 'string' ? { reason: firstSkippedCommand.reason } : {}),
             ...(typeof firstSkippedCommand?.sequence === 'number' ? { sequence: firstSkippedCommand.sequence } : {}),
             ...(typeof firstSkippedCommand?.waitForMilestone === 'string'

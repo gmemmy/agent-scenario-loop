@@ -211,6 +211,7 @@
   "files": [
     "app/profile-session-command-ordering.d.ts",
     "app/profile-session-command-ordering.ts",
+    "app/profile-session-dependency-controller.ts",
     "app/profile-session.d.ts",
     "app/profile-session-storage.d.ts",
     "app/profile-session-storage.ts",

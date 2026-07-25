@@ -135,6 +135,61 @@ test('profile health surfaces command gate timeouts explicitly', () => {
   });
 });
 
+test('profile health surfaces dependency gate timeout metadata with Android parity', () => {
+  const health = buildProfileHealth({
+    scenario: {
+      name: 'mobile-command-cycle',
+      flowId: 'mobile-command-cycle',
+    },
+    runId: 'mobile-command-cycle-run',
+    metrics: {
+      failures: 1,
+      status: 'failed',
+      timeouts: 0,
+    },
+    profileEventCount: 4,
+    profileSessionEntryCount: 3,
+    commandTransport: 'profile-session-storage',
+    sessionEntries: [
+      {
+        kind: 'command',
+        scenario: 'mobile-command-cycle',
+        runId: 'mobile-command-cycle-run',
+        command: 'open-viewer',
+        commandId: 'open-viewer',
+        continuationReason: 'dependency-timeout-stop',
+        missingDependencies: ['gallery_ready', 'video_ready'],
+        queueId: 'mobile-command-cycle',
+        sequence: 3,
+        source: 'storage',
+        status: 'skipped',
+        reason: 'dependency-milestone-timeout',
+        waitTimeoutMs: 30000,
+      },
+    ],
+  });
+
+  assert.equal(health.healthStatus, 'failed');
+  assert.deepEqual(health.checks[1], {
+    name: 'profile_command_sequence',
+    status: 'failed',
+    source: 'runner',
+    code: 'profile_command_gate_timeout',
+    message: 'One or more profile-session commands waited for required dependencies that were not observed before timeout.',
+    metadata: {
+      skippedCommandCount: 1,
+      command: 'open-viewer',
+      commandId: 'open-viewer',
+      continuationReason: 'dependency-timeout-stop',
+      missingDependencies: 'gallery_ready,video_ready',
+      queueId: 'mobile-command-cycle',
+      reason: 'dependency-milestone-timeout',
+      sequence: 3,
+      waitTimeoutMs: 30000,
+    },
+  });
+});
+
 test('profile health fails when command sequence fails even if truth metrics pass', () => {
   const health = buildProfileHealth({
     scenario: {

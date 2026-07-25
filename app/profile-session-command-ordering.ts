@@ -35,6 +35,24 @@ export type ProfileCommandMilestoneGate = {
   waitTimeoutMs?: number;
 };
 
+export type ProfileCommandDependencyGate = {
+  commandId?: string;
+  commandTimestamp: number;
+  id: string;
+  missingDependencies: string[];
+  queueId?: string;
+  runId?: string;
+  scenario?: string;
+  sequence?: number;
+  stopOnFailure?: boolean;
+  waitTimeoutMs: number;
+};
+
+export type ProfileCommandDependencyTimeoutOutcome = {
+  kind: 'terminal' | 'continue';
+  reason: 'dependency-timeout-stop' | 'dependency-timeout-continue';
+};
+
 export type ProfileCommandCadenceTelemetry = {
   actualWaitMs: number;
   maxReadinessWaitMs?: number;
@@ -79,6 +97,12 @@ export type ProfileCommandQueueBlocker =
   | null;
 
 const DEFAULT_PROFILE_COMMAND_MILESTONE_TIMEOUT_MS = 30000;
+
+export function resolveProfileCommandWaitTimeoutMs(waitTimeoutMs: unknown): number {
+  return typeof waitTimeoutMs === 'number' && Number.isFinite(waitTimeoutMs) && waitTimeoutMs > 0
+    ? waitTimeoutMs
+    : DEFAULT_PROFILE_COMMAND_MILESTONE_TIMEOUT_MS;
+}
 
 export function resolveProfileCommandQueueBlocker(options: {
   hasActiveGate: boolean;
@@ -137,7 +161,14 @@ export function compareProfileCommands(
     return leftSequence - rightSequence;
   }
 
-  return left.timestamp - right.timestamp;
+  if (left.timestamp !== right.timestamp) {
+    return left.timestamp - right.timestamp;
+  }
+
+  if (left.id === right.id) {
+    return 0;
+  }
+  return left.id < right.id ? -1 : 1;
 }
 
 export function buildProfileCommandMilestoneGate(
@@ -157,9 +188,7 @@ export function buildProfileCommandMilestoneGate(
     ...(typeof command.sequence === 'number' ? { sequence: command.sequence } : {}),
     ...(typeof command.stopOnFailure === 'boolean' ? { stopOnFailure: command.stopOnFailure } : {}),
     ...(typeof command.waitMs === 'number' && command.waitMs > 0 ? { waitMs: command.waitMs } : {}),
-    waitTimeoutMs: typeof command.waitTimeoutMs === 'number' && command.waitTimeoutMs > 0
-      ? command.waitTimeoutMs
-      : DEFAULT_PROFILE_COMMAND_MILESTONE_TIMEOUT_MS,
+    waitTimeoutMs: resolveProfileCommandWaitTimeoutMs(command.waitTimeoutMs),
   };
 }
 
@@ -337,6 +366,10 @@ function optionalNumberScopeMatches(expected: number | undefined, actual: number
   return typeof expected !== 'number' || expected === actual;
 }
 
+function optionalQueueIdentityMatches(expected: string | undefined, actual: string | undefined): boolean {
+  return expected === actual;
+}
+
 function doesProfileEventMatchCommandScope(
   command: ProfileCommandMilestoneGate | ProfileSessionOrderedCommand,
   eventPayload: ProfileSessionObservedEvent,
@@ -386,6 +419,62 @@ function readProfileCommandDependencies(command: ProfileSessionOrderedCommand): 
   ));
 }
 
+export function resolveMissingProfileCommandDependencies(
+  command: ProfileSessionOrderedCommand,
+  observedEvents: readonly ProfileSessionObservedEvent[],
+): string[] {
+  return readProfileCommandDependencies(command).filter((milestone) => (
+    !observedEvents.some((eventPayload) => (
+      eventPayload.event === milestone &&
+      doesProfileEventMatchCommandDependency(command, eventPayload)
+    ))
+  ));
+}
+
+export function buildProfileCommandDependencyGate(
+  command: ProfileSessionOrderedCommand,
+  observedEvents: readonly ProfileSessionObservedEvent[],
+): ProfileCommandDependencyGate | null {
+  const missingDependencies = resolveMissingProfileCommandDependencies(command, observedEvents);
+  if (missingDependencies.length === 0) {
+    return null;
+  }
+
+  return {
+    id: command.id,
+    commandTimestamp: command.timestamp,
+    missingDependencies,
+    ...(typeof command.commandId === 'string' ? { commandId: command.commandId } : {}),
+    ...(typeof command.queueId === 'string' ? { queueId: command.queueId } : {}),
+    ...(typeof command.runId === 'string' ? { runId: command.runId } : {}),
+    ...(typeof command.scenario === 'string' ? { scenario: command.scenario } : {}),
+    ...(typeof command.sequence === 'number' ? { sequence: command.sequence } : {}),
+    ...(typeof command.stopOnFailure === 'boolean' ? { stopOnFailure: command.stopOnFailure } : {}),
+    waitTimeoutMs: resolveProfileCommandWaitTimeoutMs(command.waitTimeoutMs),
+  };
+}
+
+export function doesProfileCommandMatchDependencyGate(
+  gate: ProfileCommandDependencyGate,
+  command: ProfileSessionOrderedCommand,
+): boolean {
+  return gate.id === command.id &&
+    gate.commandTimestamp === command.timestamp &&
+    gate.commandId === command.commandId &&
+    gate.runId === command.runId &&
+    gate.scenario === command.scenario &&
+    gate.queueId === command.queueId &&
+    gate.sequence === command.sequence;
+}
+
+export function resolveProfileCommandDependencyTimeoutOutcome(
+  stopOnFailure: boolean | undefined,
+): ProfileCommandDependencyTimeoutOutcome {
+  return stopOnFailure === false
+    ? { kind: 'continue', reason: 'dependency-timeout-continue' }
+    : { kind: 'terminal', reason: 'dependency-timeout-stop' };
+}
+
 function doesProfileEventMatchCommandDependency(
   command: ProfileSessionOrderedCommand,
   eventPayload: ProfileSessionObservedEvent,
@@ -393,7 +482,7 @@ function doesProfileEventMatchCommandDependency(
   return (
     optionalStringScopeMatches(command.runId, eventPayload.runId) &&
     optionalStringScopeMatches(command.scenario, eventPayload.scenario) &&
-    optionalStringScopeMatches(command.queueId, eventPayload.queueId)
+    optionalQueueIdentityMatches(command.queueId, eventPayload.queueId)
   );
 }
 
@@ -401,15 +490,5 @@ export function hasObservedProfileCommandDependencies(
   command: ProfileSessionOrderedCommand,
   observedEvents: readonly ProfileSessionObservedEvent[],
 ): boolean {
-  const dependencies = readProfileCommandDependencies(command);
-  if (dependencies.length === 0) {
-    return true;
-  }
-
-  return dependencies.every((milestone) => (
-    observedEvents.some((eventPayload) => (
-      eventPayload.event === milestone &&
-      doesProfileEventMatchCommandDependency(command, eventPayload)
-    ))
-  ));
+  return resolveMissingProfileCommandDependencies(command, observedEvents).length === 0;
 }

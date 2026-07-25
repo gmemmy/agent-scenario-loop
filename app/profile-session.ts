@@ -3,20 +3,31 @@ import { useEffect, useSyncExternalStore } from 'react';
 import { Linking, NativeModules, Platform } from 'react-native';
 import * as ExpoLinking from 'expo-linking';
 import {
+  buildProfileCommandDependencyGate,
   buildProfileCommandMilestoneGate,
   compareProfileCommands,
+  doesProfileCommandMatchDependencyGate,
   doesProfileEventReleaseCommandGate,
   hasObservedProfileCommandDependencies,
   hasObservedProfileCommandMilestone,
   resolveProfileCommandCadenceOutcome,
+  resolveProfileCommandDependencyTimeoutOutcome,
   resolveProfileCommandMilestoneTimeoutOutcome,
   resolveProfileCommandQueueBlocker,
-  resolveProfileCommandTimeoutQueueTransition,
   resolveProfileCommandSettleOutcome,
   resolveRemainingProfileCommandSettleMs,
   takeNextProfileCommand,
   type ProfileCommandMilestoneGate as BaseProfileCommandMilestoneGate,
 } from './profile-session-command-ordering';
+import {
+  createProfileCommandDependencyController,
+  createProfileCommandScheduleController,
+  createProfileSessionLifecycleController,
+  readProfileSessionLifecycleValue,
+  resolveDependencyTimeoutQueueTransition,
+  resolveProfileCommandFailFastQueueTransition,
+  runProfileSessionBootstrapSequence,
+} from './profile-session-dependency-controller';
 import { PROFILE_SESSION_STORAGE_KEYS as PROFILE_SESSION_STORAGE_KEY_VALUES } from './profile-session-storage';
 
 export type ProfileSessionState = {
@@ -102,6 +113,7 @@ type StoredProfileSessionEntry = {
   status?: 'received' | 'queued' | 'delivered' | 'completed' | 'skipped';
   stopOnFailure?: boolean;
   continuationReason?: string;
+  missingDependencies?: string[];
   waitForMilestone?: string;
   minimumSettleMs?: number;
   plannedSettleMs?: number;
@@ -177,6 +189,11 @@ const processedProfileCommandIds = new Set<string>();
 let lastProfileCommandSignature: string | null = null;
 let lastProfileCommandTimestamp = 0;
 let profileCommandMilestoneGate: ProfileCommandMilestoneGate | null = null;
+const profileCommandDependencyController = createProfileCommandDependencyController<ProfileSessionCommand>();
+const profileSessionLifecycleController = createProfileSessionLifecycleController();
+const profileCommandScheduleController = createProfileCommandScheduleController(
+  profileSessionLifecycleController,
+);
 let profileCommandProcessingScheduled = false;
 let profileCommandProcessingTimeoutId: ReturnType<typeof setTimeout> | null = null;
 let profileCommandProcessingAvailableAt = 0;
@@ -286,6 +303,7 @@ function clearPendingProfileCommands(storagePolicy: ProfileCommandClearStoragePo
   pendingProfileCommands.length = 0;
   sequencedProfileCommands.length = 0;
   clearProfileCommandMilestoneGate();
+  clearProfileCommandDependencyGate();
   clearProfileCommandProcessingSchedule();
   if (storagePolicy === 'preserve-storage') {
     return;
@@ -293,6 +311,19 @@ function clearPendingProfileCommands(storagePolicy: ProfileCommandClearStoragePo
   queueProfileStorageMutation(async () => {
     await AsyncStorage.removeItem(PROFILE_COMMAND_STORAGE_KEY);
   });
+}
+
+function suspendProfileCommandQueueForBootstrapUnmount() {
+  const blockedCommand = sequencedProfileCommands[0];
+  pendingProfileCommands.length = 0;
+  sequencedProfileCommands.length = 0;
+  clearProfileCommandMilestoneGate();
+  clearProfileCommandProcessingSchedule();
+  if (blockedCommand?.source === 'storage') {
+    profileCommandDependencyController.suspend();
+  } else {
+    clearProfileCommandDependencyGate();
+  }
 }
 
 /**
@@ -469,6 +500,14 @@ function logProfileSession(kind: 'start' | 'stop' | 'command', payload: Record<s
     }
     if (typeof payload.continuationReason === 'string') {
       entry.continuationReason = payload.continuationReason;
+    }
+    if (Array.isArray(payload.missingDependencies)) {
+      const missingDependencies = payload.missingDependencies.filter((milestone) => (
+        typeof milestone === 'string' && milestone.length > 0
+      ));
+      if (missingDependencies.length > 0) {
+        entry.missingDependencies = missingDependencies;
+      }
     }
     if (typeof payload.reason === 'string') {
       entry.reason = payload.reason;
@@ -747,7 +786,12 @@ function clearProfileCommandMilestoneGate() {
   profileCommandMilestoneGate = null;
 }
 
+function clearProfileCommandDependencyGate() {
+  profileCommandDependencyController.clear();
+}
+
 function clearProfileCommandProcessingSchedule() {
+  profileCommandScheduleController.invalidate();
   if (profileCommandProcessingTimeoutId) {
     clearTimeout(profileCommandProcessingTimeoutId);
   }
@@ -842,8 +886,13 @@ function startProfileCommandMilestoneTimeout(command: ProfileSessionCommand) {
     return;
   }
 
+  const scheduledGate = profileCommandMilestoneGate;
+  const lifecycleGeneration = profileSessionLifecycleController.capture();
   profileCommandMilestoneGate.timeoutId = setTimeout(() => {
-    if (!profileCommandMilestoneGate || profileCommandMilestoneGate.id !== command.id) {
+    if (
+      !profileSessionLifecycleController.isCurrent(lifecycleGeneration) ||
+      profileCommandMilestoneGate !== scheduledGate
+    ) {
       return;
     }
 
@@ -870,8 +919,8 @@ function startProfileCommandMilestoneTimeout(command: ProfileSessionCommand) {
       timeoutAvoided: timeoutOutcome.telemetry.timeoutAvoided,
     });
 
-    const queueTransition = resolveProfileCommandTimeoutQueueTransition({
-      activeGateId: profileCommandMilestoneGate.id,
+    const queueTransition = resolveProfileCommandFailFastQueueTransition({
+      blockedCommand: command,
       pendingCommands: pendingProfileCommands,
       sequencedCommands: sequencedProfileCommands,
       stopOnFailure: timeoutOutcome.kind === 'terminal',
@@ -897,6 +946,7 @@ function startProfileCommandMilestoneTimeout(command: ProfileSessionCommand) {
       }
       clearProfileCommandProcessingSchedule();
       persistPendingProfileCommands();
+      processSequencedProfileCommands();
       return;
     }
 
@@ -904,7 +954,79 @@ function startProfileCommandMilestoneTimeout(command: ProfileSessionCommand) {
   }, command.waitTimeoutMs);
 }
 
+function installProfileCommandDependencyGate(command: ProfileSessionCommand) {
+  profileCommandDependencyController.install({
+    command,
+    observedEvents: observedProfileEvents,
+    onTimeout: (gate) => {
+      const currentCommand = sequencedProfileCommands[0];
+      if (
+        !currentCommand ||
+        !doesProfileCommandMatchDependencyGate(gate, currentCommand)
+      ) {
+        return;
+      }
+
+      const currentGate = buildProfileCommandDependencyGate(currentCommand, observedProfileEvents);
+      if (!currentGate) {
+        clearProfileCommandDependencyGate();
+        processSequencedProfileCommands();
+        return;
+      }
+
+      const timeoutOutcome = resolveProfileCommandDependencyTimeoutOutcome(
+        resolveProfileCommandStopOnFailure(currentCommand.stopOnFailure),
+      );
+      sequencedProfileCommands.shift();
+      markProfileCommandIdProcessed(currentCommand);
+      logProfileSession('command', {
+        ...currentCommand,
+        status: 'skipped',
+        reason: 'dependency-milestone-timeout',
+        continuationReason: timeoutOutcome.reason,
+        missingDependencies: currentGate.missingDependencies,
+        stopOnFailure: timeoutOutcome.kind === 'terminal',
+        waitTimeoutMs: currentGate.waitTimeoutMs,
+      });
+
+      const queueTransition = resolveDependencyTimeoutQueueTransition({
+        blockedCommand: currentCommand,
+        pendingCommands: pendingProfileCommands,
+        sequencedCommands: sequencedProfileCommands,
+        stopOnFailure: timeoutOutcome.kind === 'terminal',
+      });
+      clearProfileCommandDependencyGate();
+      pendingProfileCommands.length = 0;
+      pendingProfileCommands.push(...queueTransition.pendingCommands);
+      sequencedProfileCommands.length = 0;
+      sequencedProfileCommands.push(...queueTransition.sequencedCommands);
+
+      if (timeoutOutcome.kind === 'terminal') {
+        for (const remainingCommand of queueTransition.skippedCommands) {
+          if (!remainingCommand) {
+            continue;
+          }
+          logProfileSession('command', {
+            ...remainingCommand,
+            status: 'skipped',
+            reason: 'prior-command-failure',
+            continuationReason: 'dependency-timeout-stop',
+          });
+          markProfileCommandIdProcessed(remainingCommand);
+        }
+        clearProfileCommandProcessingSchedule();
+        persistPendingProfileCommands();
+        processSequencedProfileCommands();
+        return;
+      }
+
+      processSequencedProfileCommands();
+    },
+  });
+}
+
 function scheduleProfileCommandProcessing(waitMs = 0) {
+  const scheduleToken = profileCommandScheduleController.captureNext();
   const availableAt = waitMs > 0 ? Date.now() + waitMs : 0;
   if (availableAt > profileCommandProcessingAvailableAt) {
     profileCommandProcessingAvailableAt = availableAt;
@@ -918,6 +1040,9 @@ function scheduleProfileCommandProcessing(waitMs = 0) {
 
   profileCommandProcessingScheduled = true;
   const run = () => {
+    if (!profileCommandScheduleController.isCurrent(scheduleToken)) {
+      return;
+    }
     profileCommandProcessingTimeoutId = null;
     const remainingMs = Math.max(0, profileCommandProcessingAvailableAt - Date.now());
     if (remainingMs > 0) {
@@ -995,6 +1120,7 @@ function processSequencedProfileCommands() {
       break;
   }
   if (pendingProfileCommands.length > 0) {
+    clearProfileCommandDependencyGate();
     flushPendingProfileCommands();
     return;
   }
@@ -1007,8 +1133,10 @@ function processSequencedProfileCommands() {
     }
 
     if (!hasObservedProfileCommandDependencies(command, observedProfileEvents)) {
+      installProfileCommandDependencyGate(command);
       return;
     }
+    clearProfileCommandDependencyGate();
 
     sequencedProfileCommands.shift();
     markProfileCommandIdProcessed(command);
@@ -1058,12 +1186,10 @@ function processSequencedProfileCommands() {
 
 function enqueueSequencedProfileCommands(commands: ProfileSessionCommand[]) {
   const nextCommands = commands.filter(shouldQueueProfileCommand);
-  if (nextCommands.length === 0) {
-    return;
+  if (nextCommands.length > 0) {
+    sequencedProfileCommands.push(...nextCommands);
+    sequencedProfileCommands.sort(compareProfileCommands);
   }
-
-  sequencedProfileCommands.push(...nextCommands);
-  sequencedProfileCommands.sort(compareProfileCommands);
   processSequencedProfileCommands();
 }
 
@@ -1089,6 +1215,14 @@ function releaseProfileCommandMilestoneGate(eventPayload: StoredProfileEvent) {
   };
   clearProfileCommandMilestoneGate();
   scheduleProfileCommandProcessing(remainingSettleMs);
+}
+
+function releaseProfileCommandDependencyGate() {
+  const command = sequencedProfileCommands[0];
+  if (!command || !profileCommandDependencyController.release(command, observedProfileEvents)) {
+    return;
+  }
+  processSequencedProfileCommands();
 }
 
 function flushPendingProfileCommands() {
@@ -1121,6 +1255,7 @@ function startProfileSessionInternal(
   nextState: ProfileSessionState,
   options?: { commandStoragePolicy?: ProfileCommandClearStoragePolicy },
 ) {
+  profileSessionLifecycleController.invalidate();
   clearPendingProfileCommands(options?.commandStoragePolicy ?? 'remove-storage');
   clearProfileCommandDedupe();
   resetStoredProfileArtifacts();
@@ -1133,6 +1268,7 @@ function startProfileSessionInternal(
 }
 
 function stopProfileSessionInternal() {
+  profileSessionLifecycleController.invalidate();
   const previousState = profileSessionState;
   clearPendingProfileCommands();
   clearProfileCommandDedupe();
@@ -1185,7 +1321,7 @@ export function applyProfileSessionUrl(url: string | null | undefined): boolean 
         profileSessionState.scenario !== route.scenario ||
         profileSessionState.runId !== route.runId)
     ) {
-      setProfileSessionState({
+      startProfileSessionInternal({
         active: true,
         scenario: route.scenario,
         runId: route.runId,
@@ -1255,6 +1391,7 @@ export function emitProfileEvent(event: string, metadata?: ProfileEventMetadata)
     observedProfileEvents.shift();
   }
   appendStoredProfileEvent(eventPayload);
+  releaseProfileCommandDependencyGate();
   releaseProfileCommandMilestoneGate(eventPayload);
   scheduleProfileCommandProcessing();
 }
@@ -1350,10 +1487,27 @@ export function useProfileSessionBootstrap(): void {
     let isMounted = true;
 
     const syncStoredProfileState = async () => {
-      const [storedSession, storedCommands] = await Promise.all([
-        readStoredJson<ProfileSessionState | null>(PROFILE_SESSION_STORAGE_KEY, null),
-        readStoredJson<ProfileSessionCommand[]>(PROFILE_COMMAND_STORAGE_KEY, []),
-      ]);
+      let lifecycleGeneration = profileSessionLifecycleController.capture();
+      const storedSessionRead = await readProfileSessionLifecycleValue({
+        generation: lifecycleGeneration,
+        isActive: () => isMounted,
+        lifecycle: profileSessionLifecycleController,
+        read: () => readStoredJson<ProfileSessionState | null>(PROFILE_SESSION_STORAGE_KEY, null),
+      });
+      if (!storedSessionRead.current) {
+        return;
+      }
+      const storedSession = storedSessionRead.value;
+      const storedCommandsRead = await readProfileSessionLifecycleValue({
+        generation: lifecycleGeneration,
+        isActive: () => isMounted,
+        lifecycle: profileSessionLifecycleController,
+        read: () => readStoredJson<ProfileSessionCommand[]>(PROFILE_COMMAND_STORAGE_KEY, []),
+      });
+      if (!storedCommandsRead.current) {
+        return;
+      }
+      const storedCommands = storedCommandsRead.value;
 
       if (
         storedSession &&
@@ -1383,9 +1537,11 @@ export function useProfileSessionBootstrap(): void {
             },
             { commandStoragePolicy: 'preserve-storage' },
           );
+          lifecycleGeneration = profileSessionLifecycleController.capture();
         }
       } else if (profileSessionState.active) {
         stopProfileSessionInternal();
+        return;
       }
 
       if (!Array.isArray(storedCommands) || storedCommands.length === 0) {
@@ -1434,20 +1590,24 @@ export function useProfileSessionBootstrap(): void {
         nextCommands.push(storageCommand);
       }
 
+      if (
+        !isMounted ||
+        !profileSessionLifecycleController.isCurrent(lifecycleGeneration) ||
+        profileSessionState.scenario !== activeSession.scenario ||
+        profileSessionState.runId !== activeSession.runId
+      ) {
+        return;
+      }
       enqueueSequencedProfileCommands(nextCommands);
     };
 
-    syncStoredProfileState()
-      .catch(() => {})
-      .finally(() => {
-        Linking.getInitialURL()
-          .then((url) => {
-            if (isMounted) {
-              applyProfileSessionUrl(url);
-            }
-          })
-          .catch(() => {});
-      });
+    runProfileSessionBootstrapSequence({
+      applyInitialValue: applyProfileSessionUrl,
+      isActive: () => isMounted,
+      lifecycle: profileSessionLifecycleController,
+      readInitialValue: () => Linking.getInitialURL(),
+      synchronizeStorage: syncStoredProfileState,
+    }).catch(() => {});
 
     const subscription = Linking.addEventListener('url', ({ url }) => {
       applyProfileSessionUrl(url);
@@ -1461,8 +1621,10 @@ export function useProfileSessionBootstrap(): void {
 
     return () => {
       isMounted = false;
+      profileSessionLifecycleController.invalidate();
       subscription.remove();
       clearInterval(storagePollInterval);
+      suspendProfileCommandQueueForBootstrapUnmount();
     };
   }, []);
 }

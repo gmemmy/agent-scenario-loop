@@ -105,7 +105,7 @@ const PACKED_FILE_ALLOWLIST = [
   /^LICENSE$/u,
   /^README\.md$/u,
   /^package\.json$/u,
-  /^app\/profile-session(?:-command-ordering|-storage)?\.(?:d\.ts|ts)$/u,
+  /^app\/profile-session(?:-command-ordering|-dependency-controller|-storage)?\.(?:d\.ts|ts)$/u,
   /^core\/config-template\.json$/u,
   /^dist\/index\.(?:js|d\.ts)$/u,
   /^dist\/profile-session(?:-command-ordering|-storage)\.(?:js|d\.ts)$/u,
@@ -942,6 +942,7 @@ function main(): void {
     assert.equal(fs.existsSync(path.join(initOutputDir, 'src', 'devtools', 'profile-session.ts')), true);
     assert.equal(fs.existsSync(path.join(initOutputDir, 'src', 'devtools', 'profile-session-storage.ts')), true);
     assert.equal(fs.existsSync(path.join(initOutputDir, 'src', 'devtools', 'profile-session-command-ordering.ts')), true);
+    assert.equal(fs.existsSync(path.join(initOutputDir, 'src', 'devtools', 'profile-session-dependency-controller.ts')), true);
     const initWithSkillOutputDir = path.join(tempRoot, 'initialized-app-with-skill');
     const initWithSkillOutput = run(packageBinPath(installDir, 'asl-init'), [
       '--out',
@@ -2509,6 +2510,7 @@ function main(): void {
       "assert.equal(fs.existsSync('node_modules/agent-scenario-loop/app/profile-session.ts'), true);",
       "assert.equal(fs.existsSync('node_modules/agent-scenario-loop/app/profile-session-command-ordering.ts'), true);",
       "assert.equal(fs.existsSync('node_modules/agent-scenario-loop/app/profile-session-command-ordering.d.ts'), true);",
+      "assert.equal(fs.existsSync('node_modules/agent-scenario-loop/app/profile-session-dependency-controller.ts'), true);",
       "assert.equal(fs.existsSync('node_modules/agent-scenario-loop/app/profile-session-storage.ts'), true);",
       "assert.equal(fs.existsSync('node_modules/agent-scenario-loop/app/profile-session-storage.d.ts'), true);",
       "assert.equal(fs.existsSync('node_modules/agent-scenario-loop/app/profile-session.d.ts'), true);",
