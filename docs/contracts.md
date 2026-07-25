@@ -96,6 +96,16 @@ For repeated mobile command scenarios, `cycles.setupStepIds` names leading setup
 `cycles.stopOnFailure` is fail-fast by default: when a milestone wait times out,
 the timed-out command is skipped and remaining queued commands are skipped with
 reason `prior-command-failure`. Set `cycles.stopOnFailure: false` to continue.
+For storage-backed iOS captures with queued commands, the simctl sidecar observes
+same-scenario, same-run session entries during the bounded capture window. It may
+close the window early only after every expected sequence has an explicit
+terminal status. A successful queue requires terminal completion for every
+sequence; a fail-fast queue additionally requires the canonical milestone
+timeout stop entry and `prior-command-failure` skips for the remaining
+sequences. Received, queued, delivered, malformed, wrong-run, wrong-scenario, or
+partial evidence never shortens the window. Early fail-fast closeout finalizes
+requested video, preserves the completion observation, and publishes failed
+health with an inconclusive verdict through the normal artifact path.
 
 Runner capabilities describe ownership, such as launch, session control, command execution, log capture, artifact writing, or profiler support. Driver actions describe the concrete operations an adapter can perform inside a run. UI contexts describe which surface the runner or provider can own: `app`, `systemDialog`, `notificationShade`, `externalBrowser`, `webView`, `shareSheet`, `picker`, or `otherApp`. UI and capture driver actions default to `app` when a step omits `uiContext`; a scenario must opt into system or external contexts explicitly. A runner may be able to own a scenario lifecycle without supporting every driver action or UI context; the planner fails when a required step declares a `driverAction` or `uiContext` that the selected runner or an active provider does not declare. `tap`, `longPress`, `drag`, `pressButton`, and `pressKey` are separate input contracts even when one adapter maps them to related low-level commands; scenario truth must still prove the intended result. `rotate` is a device-orientation input contract, not proof that the app relaid out, preserved state, or kept the expected surface usable.
 
