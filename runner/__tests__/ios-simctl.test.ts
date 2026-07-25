@@ -194,12 +194,21 @@ async function captureMissingProfileSessionStartForApplicationState({
 }
 
 async function captureProfileSessionCompletionFixture({
+  commands,
   entries,
   record = false,
   runId,
   t,
   waitMs = 1000,
 }: {
+  commands?: Array<{
+    command: string;
+    commandId?: string;
+    id?: string;
+    queueId?: string;
+    sequence?: number;
+    timestamp?: number;
+  }>;
   entries: Record<string, unknown>[];
   record?: boolean;
   runId: string;
@@ -223,12 +232,29 @@ async function captureProfileSessionCompletionFixture({
     },
   });
   const waits: number[] = [];
+  const expectedCommands = commands ?? [
+    { command: 'first', commandId: 'first', id: 'completion-command-1', queueId: 'completion-queue', sequence: 1 },
+    { command: 'second', commandId: 'second', id: 'completion-command-2', queueId: 'completion-queue', sequence: 2 },
+    { command: 'third', commandId: 'third', id: 'completion-command-3', queueId: 'completion-queue', sequence: 3 },
+  ];
   const delay = async (ms: number) => {
     waits.push(ms);
     const storageDir = resolveAsyncStorageDirectory({ bundleId, dataContainer });
     const manifestPath = path.join(storageDir, 'manifest.json');
     const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
-    manifest['agent-scenario-loop.profile-session-entries.1'] = JSON.stringify(entries);
+    const correlatedEntries = entries.map((entry) => {
+      if (!entry || typeof entry !== 'object' || entry.kind !== 'command' || !Number.isInteger(entry.sequence)) {
+        return entry;
+      }
+      const expectedCommand = typeof entry.id === 'string'
+        ? expectedCommands.find((command) => command.id === entry.id)
+        : expectedCommands.filter((command) => (
+            command.sequence === entry.sequence &&
+            (entry.queueId === undefined || command.queueId === entry.queueId)
+          )).find((_, _index, candidates) => candidates.length === 1);
+      return expectedCommand ? { ...expectedCommand, ...entry } : entry;
+    });
+    manifest['agent-scenario-loop.profile-session-entries.1'] = JSON.stringify(correlatedEntries);
     fs.writeFileSync(manifestPath, JSON.stringify(manifest), 'utf8');
   };
   const recorder = new EventEmitter() as import('node:events').EventEmitter & {
@@ -252,11 +278,7 @@ async function captureProfileSessionCompletionFixture({
     executor,
     outputDir,
     profileSessionStorage: {
-      commands: [
-        { command: 'first', sequence: 1 },
-        { command: 'second', sequence: 2 },
-        { command: 'third', sequence: 3 },
-      ],
+      commands: expectedCommands,
       runId,
       scenario,
     },
@@ -363,6 +385,396 @@ test('ends iOS capture early and finalizes video after decisive stop-on-failure 
   assert.ok(fs.existsSync(path.join(outputDir, 'captures', 'ios-recording.mp4')));
 });
 
+test('ends iOS capture early after a canonical dependency timeout stop', async (t: TestContext) => {
+  const runId = 'ios-dependency-stop';
+  const scenario = 'profile-session-completion';
+  const { result, waits } = await captureProfileSessionCompletionFixture({
+    entries: [
+      { kind: 'start', runId, scenario, status: 'started' },
+      { kind: 'command', runId, scenario, sequence: 1, status: 'completed' },
+      {
+        command: 'second',
+        commandId: 'second',
+        continuationReason: 'dependency-timeout-stop',
+        kind: 'command',
+        missingDependencies: ['second_ready'],
+        queueId: 'completion-queue',
+        reason: 'dependency-milestone-timeout',
+        runId,
+        scenario,
+        sequence: 2,
+        status: 'skipped',
+        stopOnFailure: true,
+      },
+      {
+        continuationReason: 'dependency-timeout-stop',
+        kind: 'command',
+        reason: 'prior-command-failure',
+        runId,
+        scenario,
+        sequence: 3,
+        status: 'skipped',
+      },
+    ],
+    runId,
+    t,
+  });
+
+  assert.ok(waits[0] !== undefined && waits[0] > 0 && waits[0] <= 100);
+  const completionWait = result.metadata.profileSessionCompletionWait as Record<string, unknown>;
+  assert.equal(completionWait.completionKind, 'stop-on-failure');
+  const commandFailure = (result.health.checks as Array<Record<string, unknown>>).find(
+    (check) => check.code === 'profile_command_gate_timeout',
+  );
+  assert.deepEqual(commandFailure?.metadata, {
+    command: 'second',
+    commandId: 'second',
+    commandStatus: 'skipped',
+    completionKind: 'stop-on-failure',
+    continuationReason: 'dependency-timeout-stop',
+    expectedCommandCount: 3,
+    missingDependencies: 'second_ready',
+    observedTerminalCommands: 3,
+    queueId: 'completion-queue',
+    rawPath: 'raw/ios-profile-session-completion-wait.json',
+    reason: 'dependency-milestone-timeout',
+    sequence: 2,
+    stopOnFailure: true,
+  });
+});
+
+test('ends iOS capture when commandId is omitted and stable id is used', async (t: TestContext) => {
+  const runId = 'ios-command-id-fallback';
+  const scenario = 'profile-session-completion';
+  const { result, waits } = await captureProfileSessionCompletionFixture({
+    commands: [
+      { command: 'first', id: 'fallback-command-1', queueId: 'fallback-queue', sequence: 1 },
+    ],
+    entries: [
+      { kind: 'start', runId, scenario, status: 'started' },
+      {
+        id: 'fallback-command-1',
+        kind: 'command',
+        queueId: 'fallback-queue',
+        runId,
+        scenario,
+        sequence: 1,
+        status: 'completed',
+      },
+    ],
+    runId,
+    t,
+  });
+
+  assert.equal(waits.slice(1).reduce((total, value) => total + value, 0), 0);
+  const completionWait = result.metadata.profileSessionCompletionWait as Record<string, unknown>;
+  assert.equal(completionWait.completed, true);
+  assert.equal(completionWait.malformed, false);
+});
+
+test('classifies fail-fast tails by canonical command order instead of seed ordinal', async (t: TestContext) => {
+  const runId = 'ios-out-of-order-seed';
+  const scenario = 'profile-session-completion';
+  const { result, waits } = await captureProfileSessionCompletionFixture({
+    commands: [
+      { command: 'later', commandId: 'later', id: 'queue-a-2', queueId: 'queue-a', sequence: 2 },
+      { command: 'blocked', commandId: 'blocked', id: 'queue-a-1', queueId: 'queue-a', sequence: 1 },
+    ],
+    entries: [
+      { kind: 'start', runId, scenario, status: 'started' },
+      {
+        commandId: 'blocked', continuationReason: 'dependency-timeout-stop', id: 'queue-a-1',
+        kind: 'command', queueId: 'queue-a', reason: 'dependency-milestone-timeout', runId,
+        scenario, sequence: 1, status: 'skipped', stopOnFailure: true,
+      },
+      {
+        commandId: 'later', continuationReason: 'dependency-timeout-stop', id: 'queue-a-2',
+        kind: 'command', queueId: 'queue-a', reason: 'prior-command-failure', runId,
+        scenario, sequence: 2, status: 'skipped',
+      },
+    ],
+    runId,
+    t,
+  });
+
+  assert.equal(waits.slice(1).reduce((total, value) => total + value, 0), 0);
+  assert.equal(
+    (result.metadata.profileSessionCompletionWait as Record<string, unknown>).completionKind,
+    'stop-on-failure',
+  );
+  const commandFailure = (result.health.checks as Array<Record<string, unknown>>).find(
+    (check) => check.name === 'profile_command_sequence',
+  );
+  assert.equal(commandFailure?.code, 'profile_command_gate_timeout');
+  assert.deepEqual(commandFailure?.metadata, {
+    command: 'blocked',
+    commandId: 'blocked',
+    commandStatus: 'skipped',
+    completionKind: 'stop-on-failure',
+    continuationReason: 'dependency-timeout-stop',
+    expectedCommandCount: 2,
+    observedTerminalCommands: 2,
+    queueId: 'queue-a',
+    rawPath: 'raw/ios-profile-session-completion-wait.json',
+    reason: 'dependency-milestone-timeout',
+    sequence: 1,
+    stopOnFailure: true,
+  });
+});
+
+test('classifies equal and missing sequences by timestamp then stable id', async (t: TestContext) => {
+  const runId = 'ios-sequence-tie-breaks';
+  const scenario = 'profile-session-completion';
+  const { result, waits } = await captureProfileSessionCompletionFixture({
+    commands: [
+      { command: 'unsequenced', commandId: 'unsequenced', id: 'queue-a-c', queueId: 'queue-a', timestamp: 300 },
+      { command: 'equal-later', commandId: 'equal-later', id: 'queue-a-b', queueId: 'queue-a', sequence: 1, timestamp: 100 },
+      { command: 'blocked', commandId: 'blocked', id: 'queue-a-a', queueId: 'queue-a', sequence: 1, timestamp: 100 },
+    ],
+    entries: [
+      { kind: 'start', runId, scenario, status: 'started' },
+      {
+        commandId: 'blocked', continuationReason: 'dependency-timeout-stop', id: 'queue-a-a',
+        kind: 'command', queueId: 'queue-a', reason: 'dependency-milestone-timeout', runId,
+        scenario, sequence: 1, status: 'skipped', stopOnFailure: true,
+      },
+      {
+        commandId: 'equal-later', continuationReason: 'dependency-timeout-stop', id: 'queue-a-b',
+        kind: 'command', queueId: 'queue-a', reason: 'prior-command-failure', runId,
+        scenario, sequence: 1, status: 'skipped',
+      },
+      {
+        commandId: 'unsequenced', continuationReason: 'dependency-timeout-stop', id: 'queue-a-c',
+        kind: 'command', queueId: 'queue-a', reason: 'prior-command-failure', runId,
+        scenario, status: 'skipped',
+      },
+    ],
+    runId,
+    t,
+  });
+
+  assert.equal(waits.slice(1).reduce((total, value) => total + value, 0), 0);
+  assert.equal(
+    (result.metadata.profileSessionCompletionWait as Record<string, unknown>).completionKind,
+    'stop-on-failure',
+  );
+});
+
+test('allows sequence reuse across independent queues during fail-fast completion', async (t: TestContext) => {
+  const runId = 'ios-sequence-reuse-across-queues';
+  const scenario = 'profile-session-completion';
+  const { result, waits } = await captureProfileSessionCompletionFixture({
+    commands: [
+      { command: 'blocked', commandId: 'blocked', id: 'queue-a-1', queueId: 'queue-a', sequence: 1 },
+      { command: 'independent', commandId: 'independent', id: 'queue-b-1', queueId: 'queue-b', sequence: 1 },
+    ],
+    entries: [
+      { kind: 'start', runId, scenario, status: 'started' },
+      {
+        commandId: 'blocked', continuationReason: 'dependency-timeout-stop', id: 'queue-a-1',
+        kind: 'command', queueId: 'queue-a', reason: 'dependency-milestone-timeout', runId,
+        scenario, sequence: 1, status: 'skipped', stopOnFailure: true,
+      },
+      {
+        commandId: 'independent', id: 'queue-b-1', kind: 'command', queueId: 'queue-b',
+        runId, scenario, sequence: 1, status: 'completed',
+      },
+    ],
+    runId,
+    t,
+  });
+
+  assert.equal(waits.slice(1).reduce((total, value) => total + value, 0), 0);
+  assert.equal(
+    (result.metadata.profileSessionCompletionWait as Record<string, unknown>).completionKind,
+    'stop-on-failure',
+  );
+});
+
+test('ends iOS capture after one failed queue while another expected queue completes', async (t: TestContext) => {
+  const runId = 'ios-scoped-dependency-stop';
+  const scenario = 'profile-session-completion';
+  const { result, waits } = await captureProfileSessionCompletionFixture({
+    commands: [
+      { command: 'first', commandId: 'first', id: 'queue-a-1', queueId: 'queue-a', sequence: 1 },
+      { command: 'second', commandId: 'second', id: 'queue-a-2', queueId: 'queue-a', sequence: 2 },
+      { command: 'third', commandId: 'third', id: 'queue-b-1', queueId: 'queue-b', sequence: 3 },
+    ],
+    entries: [
+      { kind: 'start', runId, scenario, status: 'started' },
+      {
+        continuationReason: 'dependency-timeout-stop',
+        kind: 'command',
+        reason: 'dependency-milestone-timeout',
+        runId,
+        scenario,
+        sequence: 1,
+        status: 'skipped',
+        stopOnFailure: true,
+      },
+      {
+        continuationReason: 'dependency-timeout-stop',
+        kind: 'command',
+        reason: 'prior-command-failure',
+        runId,
+        scenario,
+        sequence: 2,
+        status: 'skipped',
+      },
+      { kind: 'command', runId, scenario, sequence: 3, status: 'completed' },
+    ],
+    runId,
+    t,
+  });
+
+  assert.ok(waits[0] !== undefined && waits[0] > 0 && waits[0] <= 100);
+  const completionWait = result.metadata.profileSessionCompletionWait as Record<string, unknown>;
+  assert.equal(completionWait.completionKind, 'stop-on-failure');
+  assert.equal(completionWait.observedTerminalCommands, 3);
+});
+
+test('keeps the full iOS capture window for partial dependency timeout evidence', async (t: TestContext) => {
+  const runId = 'ios-partial-dependency-stop';
+  const scenario = 'profile-session-completion';
+  const { result, waits } = await captureProfileSessionCompletionFixture({
+    entries: [
+      { kind: 'start', runId, scenario, status: 'started' },
+      {
+        continuationReason: 'dependency-timeout-stop',
+        kind: 'command',
+        reason: 'dependency-milestone-timeout',
+        runId,
+        scenario,
+        sequence: 1,
+        status: 'skipped',
+        stopOnFailure: true,
+      },
+      { kind: 'command', runId, scenario, sequence: 2, status: 'delivered' },
+    ],
+    runId,
+    t,
+  });
+
+  assert.equal(waits.slice(1).reduce((total, value) => total + value, 0), 1000);
+  const completionWait = result.metadata.profileSessionCompletionWait as Record<string, unknown>;
+  assert.equal(completionWait.completed, false);
+  assert.equal(completionWait.observedTerminalCommands, 1);
+});
+
+test('keeps the full iOS capture window for a noncanonical dependency timeout tail', async (t: TestContext) => {
+  const runId = 'ios-wrong-dependency-tail';
+  const scenario = 'profile-session-completion';
+  const { result, waits } = await captureProfileSessionCompletionFixture({
+    entries: [
+      { kind: 'start', runId, scenario, status: 'started' },
+      {
+        continuationReason: 'dependency-timeout-stop', kind: 'command',
+        reason: 'dependency-milestone-timeout', runId, scenario, sequence: 1,
+        status: 'skipped', stopOnFailure: true,
+      },
+      { kind: 'command', runId, scenario, sequence: 2, status: 'completed' },
+      { kind: 'command', runId, scenario, sequence: 3, status: 'completed' },
+    ],
+    runId,
+    t,
+  });
+
+  assert.equal(waits.slice(1).reduce((total, value) => total + value, 0), 1000);
+  assert.equal(
+    (result.metadata.profileSessionCompletionWait as Record<string, unknown>).completed,
+    false,
+  );
+});
+
+test('keeps the full iOS capture window for a noncanonical milestone timeout tail', async (t: TestContext) => {
+  const runId = 'ios-wrong-milestone-tail';
+  const scenario = 'profile-session-completion';
+  const { result, waits } = await captureProfileSessionCompletionFixture({
+    entries: [
+      { kind: 'start', runId, scenario, status: 'started' },
+      {
+        continuationReason: 'milestone-timeout-stop', kind: 'command',
+        reason: 'wait-for-milestone-timeout', runId, scenario, sequence: 1,
+        status: 'skipped', stopOnFailure: true,
+      },
+      {
+        continuationReason: 'dependency-timeout-stop', kind: 'command',
+        reason: 'prior-command-failure', runId, scenario, sequence: 2, status: 'skipped',
+      },
+      { kind: 'command', runId, scenario, sequence: 3, status: 'completed' },
+    ],
+    runId,
+    t,
+  });
+
+  assert.equal(waits.slice(1).reduce((total, value) => total + value, 0), 1000);
+  assert.equal(
+    (result.metadata.profileSessionCompletionWait as Record<string, unknown>).completed,
+    false,
+  );
+});
+
+test('keeps the full iOS capture window for a wrong-queue dependency timeout set', async (t: TestContext) => {
+  const runId = 'ios-wrong-queue-dependency-stop';
+  const scenario = 'profile-session-completion';
+  const { result, waits } = await captureProfileSessionCompletionFixture({
+    entries: [
+      { kind: 'start', runId, scenario, status: 'started' },
+      { kind: 'command', runId, scenario, sequence: 1, status: 'completed' },
+      {
+        continuationReason: 'dependency-timeout-stop',
+        kind: 'command',
+        queueId: 'wrong-queue',
+        reason: 'dependency-milestone-timeout',
+        runId,
+        scenario,
+        sequence: 2,
+        status: 'skipped',
+        stopOnFailure: true,
+      },
+      {
+        continuationReason: 'dependency-timeout-stop',
+        kind: 'command',
+        queueId: 'wrong-queue',
+        reason: 'prior-command-failure',
+        runId,
+        scenario,
+        sequence: 3,
+        status: 'skipped',
+      },
+    ],
+    runId,
+    t,
+  });
+
+  assert.equal(waits.slice(1).reduce((total, value) => total + value, 0), 1000);
+  const completionWait = result.metadata.profileSessionCompletionWait as Record<string, unknown>;
+  assert.equal(completionWait.completed, false);
+  assert.equal(completionWait.malformed, true);
+});
+
+test('keeps the full iOS capture window for ambiguous expected command identities', async (t: TestContext) => {
+  const runId = 'ios-duplicate-expected-command';
+  const scenario = 'profile-session-completion';
+  const { result, waits } = await captureProfileSessionCompletionFixture({
+    commands: [
+      { command: 'first', commandId: 'first', id: 'duplicate-id', queueId: 'completion-queue', sequence: 1, timestamp: 100 },
+      { command: 'second', commandId: 'second', id: 'duplicate-id', queueId: 'completion-queue', sequence: 1, timestamp: 100 },
+    ],
+    entries: [
+      { kind: 'start', runId, scenario, status: 'started' },
+      { id: 'duplicate-id', kind: 'command', queueId: 'completion-queue', runId, scenario, sequence: 1, status: 'completed' },
+    ],
+    runId,
+    t,
+  });
+
+  assert.equal(waits.slice(1).reduce((total, value) => total + value, 0), 1000);
+  const completionWait = result.metadata.profileSessionCompletionWait as Record<string, unknown>;
+  assert.equal(completionWait.completed, false);
+  assert.equal(completionWait.malformed, true);
+});
+
 test('keeps the full iOS capture window for wrong-run and nonterminal command evidence', async (t: TestContext) => {
   const runId = 'ios-nonterminal';
   const scenario = 'profile-session-completion';
@@ -378,7 +790,7 @@ test('keeps the full iOS capture window for wrong-run and nonterminal command ev
     t,
   });
 
-  assert.equal(waits[0], 100);
+  assert.ok(waits[0] !== undefined && waits[0] > 0 && waits[0] <= 100);
   assert.equal(waits.slice(1).reduce((total, value) => total + value, 0), 1000);
   const completionWait = result.metadata.profileSessionCompletionWait as Record<string, unknown>;
   assert.equal(completionWait.completed, false);

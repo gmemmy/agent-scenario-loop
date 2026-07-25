@@ -13,8 +13,13 @@ const {
   resolveRemainingProfileCommandSettleMs,
 } = require('../../profile-session-command-ordering');
 const {
+  buildProfileCommandDependencyGate,
+  doesProfileCommandMatchDependencyGate,
+  resolveMissingProfileCommandDependencies,
+  resolveProfileCommandDependencyTimeoutOutcome,
   resolveProfileCommandQueueBlocker,
   resolveProfileCommandTimeoutQueueTransition,
+  resolveProfileCommandWaitTimeoutMs,
   takeNextProfileCommand,
 } = require('../../app/profile-session-command-ordering');
 
@@ -33,6 +38,24 @@ test('profile-session command ordering sorts sequence before timestamp', () => {
     'seq-1-late',
     'seq-2',
     'late-unsequenced',
+  ]);
+});
+
+test('profile-session command ordering uses id as the deterministic final tie-break', () => {
+  const commands = [
+    { id: 'command-b', command: 'second', sequence: 2, timestamp: 100 },
+    { id: 'command-a', command: 'first', sequence: 2, timestamp: 100 },
+    { id: 'unsequenced-b', command: 'fourth', timestamp: 200 },
+    { id: 'unsequenced-a', command: 'third', timestamp: 200 },
+  ];
+
+  commands.sort(compareProfileCommands);
+
+  assert.deepEqual(commands.map((command) => command.id), [
+    'command-a',
+    'command-b',
+    'unsequenced-a',
+    'unsequenced-b',
   ]);
 });
 
@@ -510,4 +533,110 @@ test('profile-session command dependencies wait for setup milestones without seq
       timestamp: 1200,
     },
   ]), true);
+});
+
+test('profile-session dependency queue ownership is symmetric when queue id is absent', () => {
+  const queueLessCommand = {
+    command: 'open-surface',
+    dependsOnMilestones: ['surface_ready'],
+    id: 'queue-less-command',
+    runId: 'run-1',
+    scenario: 'surface-flow',
+    timestamp: 100,
+  };
+  const event = {
+    event: 'surface_ready',
+    runId: 'run-1',
+    scenario: 'surface-flow',
+    timestamp: 200,
+  };
+
+  assert.equal(hasObservedProfileCommandDependencies(queueLessCommand, [event]), true);
+  assert.equal(hasObservedProfileCommandDependencies(queueLessCommand, [{
+    ...event,
+    queueId: 'explicit-other-queue',
+  }]), false);
+  assert.equal(hasObservedProfileCommandDependencies({
+    ...queueLessCommand,
+    queueId: 'explicit-queue',
+  }, [event]), false);
+});
+
+test('profile-session dependency gates resolve missing milestones and bounded deadlines', () => {
+  const command = {
+    commandId: 'open-viewer',
+    dependsOnMilestones: ['gallery_ready', 'video_ready'],
+    id: 'command-8',
+    queueId: 'gallery-flow',
+    runId: 'run-1',
+    scenario: 'gallery-stress',
+    sequence: 8,
+    stopOnFailure: true,
+    timestamp: 1_000,
+  };
+  const observedEvents = [{
+    event: 'gallery_ready',
+    queueId: 'gallery-flow',
+    runId: 'run-1',
+    scenario: 'gallery-stress',
+    timestamp: 1_100,
+  }];
+
+  assert.deepEqual(resolveMissingProfileCommandDependencies(command, observedEvents), ['video_ready']);
+  const gate = buildProfileCommandDependencyGate(command, observedEvents);
+  assert.deepEqual(gate, {
+    commandId: 'open-viewer',
+    commandTimestamp: 1_000,
+    id: 'command-8',
+    missingDependencies: ['video_ready'],
+    queueId: 'gallery-flow',
+    runId: 'run-1',
+    scenario: 'gallery-stress',
+    sequence: 8,
+    stopOnFailure: true,
+    waitTimeoutMs: 30_000,
+  });
+  assert.equal(doesProfileCommandMatchDependencyGate(gate, command), true);
+  assert.equal(doesProfileCommandMatchDependencyGate(gate, { ...command, runId: 'other-run' }), false);
+  assert.equal(doesProfileCommandMatchDependencyGate(gate, { ...command, sequence: 9 }), false);
+  assert.deepEqual(resolveMissingProfileCommandDependencies(command, [
+    ...observedEvents,
+    {
+      event: 'video_ready',
+      queueId: 'gallery-flow',
+      runId: 'other-run',
+      scenario: 'gallery-stress',
+      timestamp: 1_200,
+    },
+  ]), ['video_ready'], 'wrong-run evidence cannot release the dependency gate');
+  assert.equal(buildProfileCommandDependencyGate(command, [
+    ...observedEvents,
+    {
+      event: 'video_ready',
+      queueId: 'gallery-flow',
+      runId: 'run-1',
+      scenario: 'gallery-stress',
+      timestamp: 1_300,
+    },
+  ]), null, 'matching evidence releases the dependency before its deadline');
+  assert.equal(resolveProfileCommandWaitTimeoutMs(4_500), 4_500);
+  assert.equal(resolveProfileCommandWaitTimeoutMs(0), 30_000);
+  assert.equal(resolveProfileCommandWaitTimeoutMs(Number.NaN), 30_000);
+});
+
+test('profile-session dependency timeout policy preserves stop and continue semantics', () => {
+  const stop = resolveProfileCommandDependencyTimeoutOutcome(true);
+  assert.deepEqual(stop, {
+    kind: 'terminal',
+    reason: 'dependency-timeout-stop',
+  });
+  assert.deepEqual(resolveProfileCommandDependencyTimeoutOutcome(undefined), {
+    kind: 'terminal',
+    reason: 'dependency-timeout-stop',
+  });
+  const proceed = resolveProfileCommandDependencyTimeoutOutcome(false);
+  assert.deepEqual(proceed, {
+    kind: 'continue',
+    reason: 'dependency-timeout-continue',
+  });
 });

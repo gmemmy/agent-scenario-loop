@@ -160,6 +160,22 @@ When a scenario requests a screenshot, pass supported simulator screenshot optio
 
 For profile-session capture on Android or iOS, omitting `--wait-ms` lets ASL derive the final evidence window from scenario execution waits and cycle count. Command-backed profile sessions use the expanded command queue, including setup commands, repeated cycle body commands, resolved scenario cadence or command pacing `waitMs`, milestone-gate `waitTimeoutMs`, and a conservative buffer. Explicit `--wait-ms` remains authoritative when a consuming app has a known startup or logging delay that the scenario cannot express.
 
+The shared profile-session helper applies `waitTimeoutMs` to both post-command
+`waitForMilestone` gates and pre-command `dependsOnMilestones` gates. A blocked
+dependency becomes a terminal skipped command at that deadline; fail-fast queues
+terminalize the remainder of the same scenario/run/queue with matching
+`prior-command-failure` entries while independent queues continue. Post-command
+milestone timeouts use the same queue-local fail-fast boundary. The iOS
+completion observer may end capture early only from a complete terminal set that
+matches every exact command identity seeded by the runner. Duplicate expected
+identities and partial, malformed, ambiguous, wrong-queue, or otherwise mismatched
+timeout evidence continue through the declared capture window; a decisive timeout
+with a noncanonical tail cannot fall back to ordinary all-terminal completion.
+Queue-less dependency commands match only queue-less events. Fail-fast tail
+ordering follows sequence, timestamp, then stable command id, so seed-array order
+does not determine which same-queue commands are later. When `commandId` is absent,
+both the helper and observer use the stable command envelope `id` as the fallback.
+
 On Android storage-backed runs, the adb sidecar may record an early
 `profileSessionCompletionWait` timeout before the final profile artifact has
 parsed all same-run app-owned profile-session records. When final profile

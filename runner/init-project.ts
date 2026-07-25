@@ -210,6 +210,10 @@ function buildScaffoldFiles({
       source: path.join(packageRoot, 'app', 'profile-session-command-ordering.ts'),
       destination: path.join(targetDir, 'src', 'devtools', 'profile-session-command-ordering.ts'),
     },
+    {
+      source: path.join(packageRoot, 'app', 'profile-session-dependency-controller.ts'),
+      destination: path.join(targetDir, 'src', 'devtools', 'profile-session-dependency-controller.ts'),
+    },
   ];
 
   if (withAgentSkill) {

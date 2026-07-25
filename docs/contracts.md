@@ -95,15 +95,37 @@ coverage fields.
 For repeated mobile command scenarios, `cycles.setupStepIds` names leading setup commands that run once before measured cycle work, while `cycles.bodyStepIds` names the first repeated body commands when inference would be ambiguous. Built-in profile-session runners also infer a setup prefix conservatively: leading readiness commands or leading commands before the first measured milestone command run once, and the remaining command body repeats for `cycles.iterations`. Wait gates remain strict; ASL does not synthesize missing app-owned truth events. When app truth events include command correlation such as `queueId` and `sequence`, the profile-session helper uses that correlation before releasing a waiting command gate.
 `cycles.stopOnFailure` is fail-fast by default: when a milestone wait times out,
 the timed-out command is skipped and remaining queued commands are skipped with
-reason `prior-command-failure`. Set `cycles.stopOnFailure: false` to continue.
+reason `prior-command-failure` within that command's exact scenario, run, and
+queue. Independent queues remain runnable. Set `cycles.stopOnFailure: false`
+to continue.
+The same `waitTimeoutMs` also bounds a sequenced command waiting for its
+`dependsOnMilestones` prerequisites; absent or invalid values use the existing
+30-second milestone-gate default. An unmet dependency records
+`dependency-milestone-timeout` with `dependency-timeout-stop` or
+`dependency-timeout-continue` and the missing dependency names. Fail-fast mode
+then records later commands in the same `scenario` + `runId` + `queueId` as
+`prior-command-failure`; commands owned by another logical queue remain runnable.
+Queue ownership is symmetric: a command without `queueId` is owned only by the
+queue-less event/command stream and does not match an explicitly named queue.
+Later-command classification uses sequence, timestamp, then stable command id
+rather than storage seed position.
+Continue mode skips only the blocked command. Replacing the active session clears
+the prior in-memory queue. A bootstrap unmount suspends a storage-backed dependency
+gate and a remount resumes its original wall-clock deadline from the unchanged
+stored command; deep-link-only work is not retained across unmount. In-flight
+storage reads are generation-guarded, so unmount or a newer session replacement
+cannot enqueue commands from an older stored snapshot after an asynchronous read.
 For storage-backed iOS captures with queued commands, the simctl sidecar observes
 same-scenario, same-run session entries during the bounded capture window. It may
 close the window early only after every expected sequence has an explicit
 terminal status. A successful queue requires terminal completion for every
-sequence; a fail-fast queue additionally requires the canonical milestone
-timeout stop entry and `prior-command-failure` skips for the remaining
-sequences. Received, queued, delivered, malformed, wrong-run, wrong-scenario, or
-partial evidence never shortens the window. Early fail-fast closeout finalizes
+sequence; a fail-fast queue additionally requires a canonical milestone-timeout
+or dependency-timeout stop entry and matching `prior-command-failure` skips for
+the remaining commands in that logical queue. Completion records must match the
+exact seeded command identities, including generated `id`, normalized `commandId`,
+`queueId`, and `sequence` where present. Duplicate expected identities and mixed,
+wrong-queue, wrong-run, wrong-scenario, malformed, or partial evidence never
+shorten the window. Early fail-fast closeout finalizes
 requested video, preserves the completion observation, and publishes failed
 health with an inconclusive verdict through the normal artifact path.
 
