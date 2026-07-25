@@ -27,6 +27,24 @@ const {
 const { SCHEMAS, assertValidJson } = require('../core/schema-validator');
 const { readScenarioHashes } = require('../core/scenario-compatibility');
 const { writeUsage } = require('./cli');
+const { createProviderResourceLeaseSession } = require('./provider-resource-lease');
+const {
+  resolveEvidenceProviderId,
+  resolveProviderExclusiveResourceClaims,
+  validateProviderExclusiveResources,
+} = require('./provider-exclusive-resources');
+
+import type {
+  ProviderExclusiveResourceClaim,
+  ProviderExclusiveResourcePhase,
+  ProviderManifestExclusiveResourceShape,
+  ResolvedProviderExclusiveResourceClaim,
+  ValidatedProviderExclusiveResourceClaim,
+} from './provider-exclusive-resources';
+import type {
+  ProviderResourceLeaseFailure,
+  ProviderResourceLeaseSession,
+} from './provider-resource-lease';
 
 type CliArgValue = string | boolean | Array<string | boolean>;
 type CliArgs = {
@@ -117,6 +135,7 @@ type ProfileMobileOptions = {
   platform: ProfilePlatform;
   providerCommandExecution?: ProviderCommandExecution;
   providerCommandIdentity?: ProviderCommandIdentity;
+  providerResourceLeaseSession?: ProviderResourceLeaseSession;
   providerCommandSupportMode?: ProviderCommandSupportMode;
   provenanceCohort?: Record<string, unknown>;
 };
@@ -336,6 +355,7 @@ const PROFILE_SESSION_TERMINAL_COMMAND_STATUSES = new Set([
 ]);
 type ProviderManifest = {
   artifactOutputs?: string[];
+  exclusiveResources?: ProviderExclusiveResourceClaim[];
   kind?: string;
   platforms?: string[];
   providerCommands?: ProviderCommand[];
@@ -405,6 +425,7 @@ type ProviderCommandExecutionOptions = {
   includeProviders?: boolean;
   includeStaticFailures?: boolean;
   phases?: ProviderCommand['phase'][];
+  resourceLeaseSession?: ProviderResourceLeaseSession;
   supportMode?: ProviderCommandSupportMode;
 };
 type ProviderCommandOutputSnapshot = {
@@ -995,6 +1016,22 @@ function buildProviderTargetIdentitySnapshot(context: ProviderCommandContext): R
   };
 }
 
+function resolveProviderResourceLeasePhase(phase: ProviderCommand['phase']): ProviderExclusiveResourcePhase | null {
+  if (phase === 'capture') {
+    return 'afterCapture';
+  }
+  if (
+    phase === 'startWindow' ||
+    phase === 'afterCapture' ||
+    phase === 'stopWindow' ||
+    phase === 'postRun' ||
+    phase === 'finalize'
+  ) {
+    return phase;
+  }
+  return null;
+}
+
 /**
  * Resolves the timeout applied to provider commands.
  *
@@ -1165,16 +1202,6 @@ function resolveProviderPath({
 }): string {
   const resolved = applyProviderPlaceholders(value, context);
   return path.isAbsolute(resolved) ? resolved : path.resolve(manifestDir, resolved);
-}
-
-/**
- * Makes a provider id safe for run-local raw artifact filenames.
- *
- * @param {string} value
- * @returns {string}
- */
-function safeProviderSegment(value: string): string {
-  return value.replace(/[^a-z0-9-]+/giu, '-').replace(/^-|-$/gu, '') || 'provider';
 }
 
 async function readProviderCommandOutputSnapshot(sourcePath: string): Promise<ProviderCommandOutputSnapshot> {
@@ -1432,10 +1459,32 @@ function assertUniqueProviderCommandIds({
 }
 
 type LoadedEvidenceProviderManifest = {
+  exclusiveResources: ValidatedProviderExclusiveResourceClaim[];
   manifest: ProviderManifest;
   manifestPath: string;
   providerId: string;
 };
+
+function buildProviderResourceLeaseCommandFailure({
+  failure,
+  phase,
+}: {
+  failure: ProviderResourceLeaseFailure;
+  phase: ProviderCommand['phase'];
+}): ProviderCommandFailure {
+  return {
+    commandId: 'exclusive-resources',
+    code: failure.code,
+    exitCode: null,
+    message: failure.message,
+    name: 'evidence_provider_resources_owned',
+    nextAction: failure.nextAction,
+    nextActionCode: failure.nextActionCode,
+    phase,
+    providerId: failure.providerId,
+    rawPath: failure.rawPath,
+  };
+}
 
 function readEvidenceProviderManifest({
   label,
@@ -1453,11 +1502,21 @@ function readEvidenceProviderManifest({
   if (manifest.kind !== 'evidenceProvider') {
     throw new Error(`Provider manifest must use kind "evidenceProvider": ${manifestPath}`);
   }
+  const providerId = resolveEvidenceProviderId({
+    manifestPath,
+    runnerId: manifest.runnerId,
+  });
+  const exclusiveResources = validateProviderExclusiveResources({
+    manifest: manifest as ProviderManifestExclusiveResourceShape,
+    manifestPath,
+    providerId,
+  });
 
   return {
+    exclusiveResources,
     manifest,
     manifestPath,
-    providerId: safeProviderSegment(String(manifest.runnerId ?? path.basename(manifestPath, '.json'))),
+    providerId,
   };
 }
 
@@ -1536,6 +1595,7 @@ async function executeProviderCommands({
   includeStaticFailures = true,
   identity,
   nativePerformanceRequest,
+  resourceLeaseSession,
   supportMode = 'post-capture-only',
 }: {
   args: CliArgs;
@@ -1549,6 +1609,7 @@ async function executeProviderCommands({
   includeStaticFailures?: boolean;
   identity?: ProviderCommandIdentity;
   nativePerformanceRequest?: NativePerformanceRequestDescriptor;
+  resourceLeaseSession?: ProviderResourceLeaseSession;
   supportMode?: ProviderCommandSupportMode;
 }): Promise<ProviderCommandExecution> {
   const failures: ProviderCommandFailure[] = [];
@@ -1569,6 +1630,37 @@ async function executeProviderCommands({
 
   const commandRecordDir = path.join(layout.raw, 'provider-commands');
   await ensureDir(commandRecordDir);
+  const recordBlockedProviderCommand = async ({
+    nextAction,
+    phase,
+    providerCommand,
+    providerId,
+    reason,
+    status,
+  }: {
+    nextAction?: string;
+    phase: ProviderCommand['phase'];
+    providerCommand: ProviderCommand;
+    providerId: string;
+    reason: string;
+    status: 'blocked' | 'unsupported';
+  }): Promise<string> => {
+    const commandRecordFileName = `${providerId}-${providerCommand.id}.json`;
+    const commandRecordPath = path.join(commandRecordDir, commandRecordFileName);
+    await fsp.writeFile(
+      commandRecordPath,
+      `${JSON.stringify({
+        command: providerCommand.command,
+        phase,
+        providerId,
+        reason,
+        ...(nextAction ? { nextAction } : {}),
+        status,
+      }, null, 2)}\n`,
+      'utf8',
+    );
+    return `raw/provider-commands/${commandRecordFileName}`;
+  };
 
   for (const loadedProvider of loadedProviders) {
     const manifestDir = path.dirname(loadedProvider.manifestPath);
@@ -1637,11 +1729,157 @@ async function executeProviderCommands({
       ...(identity?.targetId ? { targetId: identity.targetId } : {}),
       ...(identity?.udid ? { udid: identity.udid } : {}),
     };
-
-    for (const providerCommand of provider.providerCommands ?? []) {
-      if (!providerCommandSupportsPlatform(providerCommand, platform)) {
+    const selectedProviderCommands = (provider.providerCommands ?? []).filter((providerCommand) => (
+      providerCommandSupportsPlatform(providerCommand, platform)
+      && supportedPhases.has(providerCommand.phase)
+      && matchesSelectedProviderPhase(providerCommand.phase, selectedPhases)
+    ));
+    const applicableExclusiveResources = loadedProvider.exclusiveResources.filter((claim) => (
+      claim.platforms === undefined || claim.platforms.includes(platform)
+    ));
+    if (applicableExclusiveResources.length > 0 && selectedProviderCommands.length > 0 && supportMode !== 'live-window') {
+      const reason = `Evidence provider ${providerId} declares exclusiveResources, but this profile execution mode does not support provider-owned resource leasing.`;
+      const nextAction = 'Run this provider only from a live Android or iOS profile that supports provider-owned resource leases.';
+      for (const providerCommand of selectedProviderCommands) {
+        for (const output of providerCommand.outputs ?? []) {
+          outputStatuses.push({
+            channel: output.channel,
+            commandId: providerCommand.id,
+            kind: output.kind,
+            path: output.path,
+            phase: providerCommand.phase,
+            providerId,
+            reason,
+            required: output.required === true,
+            status: 'unsupported',
+          });
+        }
+        failures.push({
+          commandId: providerCommand.id,
+          code: 'provider_exclusive_resources_unsupported',
+          exitCode: null,
+          message: reason,
+          name: 'evidence_provider_resources_owned',
+          nextAction,
+          nextActionCode: 'use_live_window_provider_resource_mode',
+          phase: providerCommand.phase,
+          providerId,
+          rawPath: await recordBlockedProviderCommand({
+            nextAction,
+            phase: providerCommand.phase,
+            providerCommand,
+            providerId,
+            reason,
+            status: 'unsupported',
+          }),
+        });
+      }
+      continue;
+    }
+    let resolvedExclusiveResources: ResolvedProviderExclusiveResourceClaim[] = [];
+    if (applicableExclusiveResources.length > 0) {
+      try {
+        resolvedExclusiveResources = resolveProviderExclusiveResourceClaims({
+          claims: applicableExclusiveResources,
+          platform,
+          providerId,
+          ...(context.targetId ? { targetId: context.targetId } : {}),
+        });
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        const nextAction = 'Bind the exact selected target identity before running live-window provider resource claims.';
+        for (const providerCommand of selectedProviderCommands) {
+          for (const output of providerCommand.outputs ?? []) {
+            outputStatuses.push({
+              channel: output.channel,
+              commandId: providerCommand.id,
+              kind: output.kind,
+              path: output.path,
+              phase: providerCommand.phase,
+              providerId,
+              reason,
+              required: output.required === true,
+              status: 'missing',
+            });
+          }
+          failures.push(buildProviderResourceLeaseCommandFailure({
+            failure: {
+              code: 'provider_resource_target_identity_missing',
+              message: reason,
+              nextAction,
+              nextActionCode: 'select_exact_provider_target',
+              providerId,
+              rawPath: await recordBlockedProviderCommand({
+                nextAction,
+                phase: providerCommand.phase,
+                providerCommand,
+                providerId,
+                reason,
+                status: 'blocked',
+              }),
+            },
+            phase: providerCommand.phase,
+          }));
+        }
         continue;
       }
+    }
+    let enteredProviderResourcePhase = false;
+    let enteredProviderResourcePhaseName: ProviderExclusiveResourcePhase | null = null;
+    if (resolvedExclusiveResources.length > 0 && selectedProviderCommands.length > 0) {
+      if (!resourceLeaseSession) {
+        throw new Error('Live-window provider exclusive resources require an active provider resource lease session.');
+      }
+      const providerResourcePhase = resolveProviderResourceLeasePhase(selectedProviderCommands[0]?.phase ?? 'prepare');
+      if (!providerResourcePhase) {
+        throw new Error('Provider exclusive resources require a canonical live-window provider phase.');
+      }
+      enteredProviderResourcePhaseName = providerResourcePhase;
+      const leaseFailure = await resourceLeaseSession.beforeProviderPhase({
+        claims: resolvedExclusiveResources,
+        phase: enteredProviderResourcePhaseName,
+        providerId,
+      });
+      if (leaseFailure) {
+        for (const providerCommand of selectedProviderCommands) {
+          for (const output of providerCommand.outputs ?? []) {
+            outputStatuses.push({
+              channel: output.channel,
+              commandId: providerCommand.id,
+              kind: output.kind,
+              path: output.path,
+              phase: providerCommand.phase,
+              providerId,
+              reason: leaseFailure.message,
+              required: output.required === true,
+              status: 'missing',
+            });
+          }
+          failures.push(buildProviderResourceLeaseCommandFailure({
+            failure: {
+              ...leaseFailure,
+              rawPath: await recordBlockedProviderCommand({
+                nextAction: leaseFailure.nextAction,
+                phase: providerCommand.phase,
+                providerCommand,
+                providerId,
+                reason: leaseFailure.message,
+                status: 'blocked',
+              }),
+            },
+            phase: providerCommand.phase,
+          }));
+        }
+        continue;
+      }
+      enteredProviderResourcePhase = true;
+    }
+
+    try {
+      for (const providerCommand of provider.providerCommands ?? []) {
+        if (!providerCommandSupportsPlatform(providerCommand, platform)) {
+          continue;
+        }
       const commandRecordFileName = `${providerId}-${providerCommand.id}.json`;
       const startedRecordFileName = `${providerId}-${providerCommand.id}.started.json`;
       const stdoutFileName = `${providerId}-${providerCommand.id}.stdout.txt`;
@@ -1702,60 +1940,60 @@ async function executeProviderCommands({
         continue;
       }
 
-      if (!matchesSelectedProviderPhase(providerCommand.phase, selectedPhases)) {
-        continue;
-      }
-
-      if (supportMode === 'live-window' && phaseRequiresLiveWindowIdentity(providerCommand.phase)) {
-        if (!hasRequiredLiveWindowIdentity({ context, platform })) {
-          const message = resolveMissingProviderIdentityMessage({
-            phase: providerCommand.phase,
-            platform,
-            providerCommandId: providerCommand.id,
-            providerId,
-          });
-          const nextAction = resolveMissingProviderIdentityNextAction(platform);
-          for (const output of providerCommand.outputs ?? []) {
-            outputStatuses.push({
-              channel: output.channel,
-              commandId: providerCommand.id,
-              kind: output.kind,
-              path: output.path,
-              phase: providerCommand.phase,
-              providerId,
-              reason: message,
-              required: output.required === true,
-              status: 'missing',
-            });
-          }
-          await fsp.writeFile(
-            commandRecordPath,
-            `${JSON.stringify({
-              command: providerCommand.command,
-              phase: providerCommand.phase,
-              providerId,
-              reason: message,
-              nextAction,
-              status: 'blocked',
-              targetIdentity: buildProviderTargetIdentitySnapshot(context),
-            }, null, 2)}\n`,
-            'utf8',
-          );
-          failures.push({
-            commandId: providerCommand.id,
-            code: 'provider_target_identity_missing',
-            exitCode: null,
-            message,
-            name: 'evidence_provider_target_bound',
-            nextAction,
-            nextActionCode: 'select_exact_provider_target',
-            phase: providerCommand.phase,
-            providerId,
-            rawPath: `raw/provider-commands/${commandRecordFileName}`,
-          });
+        if (!matchesSelectedProviderPhase(providerCommand.phase, selectedPhases)) {
           continue;
         }
-      }
+
+        if (supportMode === 'live-window' && phaseRequiresLiveWindowIdentity(providerCommand.phase)) {
+          if (!hasRequiredLiveWindowIdentity({ context, platform })) {
+            const message = resolveMissingProviderIdentityMessage({
+              phase: providerCommand.phase,
+              platform,
+              providerCommandId: providerCommand.id,
+              providerId,
+            });
+            const nextAction = resolveMissingProviderIdentityNextAction(platform);
+            for (const output of providerCommand.outputs ?? []) {
+              outputStatuses.push({
+                channel: output.channel,
+                commandId: providerCommand.id,
+                kind: output.kind,
+                path: output.path,
+                phase: providerCommand.phase,
+                providerId,
+                reason: message,
+                required: output.required === true,
+                status: 'missing',
+              });
+            }
+            await fsp.writeFile(
+              commandRecordPath,
+              `${JSON.stringify({
+                command: providerCommand.command,
+                phase: providerCommand.phase,
+                providerId,
+                reason: message,
+                nextAction,
+                status: 'blocked',
+                targetIdentity: buildProviderTargetIdentitySnapshot(context),
+              }, null, 2)}\n`,
+              'utf8',
+            );
+            failures.push({
+              commandId: providerCommand.id,
+              code: 'provider_target_identity_missing',
+              exitCode: null,
+              message,
+              name: 'evidence_provider_target_bound',
+              nextAction,
+              nextActionCode: 'select_exact_provider_target',
+              phase: providerCommand.phase,
+              providerId,
+              rawPath: `raw/provider-commands/${commandRecordFileName}`,
+            });
+            continue;
+          }
+        }
 
       const resolvedCommand = applyProviderPlaceholders(providerCommand.command, context);
       const resolvedArgs = (providerCommand.args ?? []).map((arg) => applyProviderPlaceholders(arg, context));
@@ -1978,6 +2216,19 @@ async function executeProviderCommands({
           providerId,
           sourcePath,
         }));
+      }
+      }
+    } finally {
+      if (enteredProviderResourcePhase && enteredProviderResourcePhaseName) {
+        const leaseFailures = await resourceLeaseSession!.afterProviderPhase({
+          claims: resolvedExclusiveResources,
+          phase: enteredProviderResourcePhaseName,
+          providerId,
+        });
+        failures.push(...leaseFailures.map((failure) => buildProviderResourceLeaseCommandFailure({
+          failure,
+          phase: enteredProviderResourcePhaseName,
+        })));
       }
     }
   }
@@ -6601,6 +6852,7 @@ async function runProfileMobile(args: CliArgs, options: ProfileMobileOptions): P
       supportMode: providerCommandSupportMode,
       ...(options.providerCommandIdentity ? { identity: options.providerCommandIdentity } : {}),
       ...(options.nativePerformanceRequest ? { nativePerformanceRequest: options.nativePerformanceRequest } : {}),
+      ...(options.providerResourceLeaseSession ? { resourceLeaseSession: options.providerResourceLeaseSession } : {}),
     });
     postRunPhaseProviderExecution = await executeProviderCommands({
       args,
@@ -6615,6 +6867,7 @@ async function runProfileMobile(args: CliArgs, options: ProfileMobileOptions): P
       supportMode: providerCommandSupportMode,
       ...(options.providerCommandIdentity ? { identity: options.providerCommandIdentity } : {}),
       ...(options.nativePerformanceRequest ? { nativePerformanceRequest: options.nativePerformanceRequest } : {}),
+      ...(options.providerResourceLeaseSession ? { resourceLeaseSession: options.providerResourceLeaseSession } : {}),
     });
     if (providerCommandSupportMode === 'live-window') {
       finalizePhaseProviderExecution = await executeProviderCommands({
@@ -6630,6 +6883,7 @@ async function runProfileMobile(args: CliArgs, options: ProfileMobileOptions): P
         supportMode: providerCommandSupportMode,
         ...(options.providerCommandIdentity ? { identity: options.providerCommandIdentity } : {}),
         ...(options.nativePerformanceRequest ? { nativePerformanceRequest: options.nativePerformanceRequest } : {}),
+        ...(options.providerResourceLeaseSession ? { resourceLeaseSession: options.providerResourceLeaseSession } : {}),
       });
     }
     providerExecution = mergeProviderCommandExecutions(

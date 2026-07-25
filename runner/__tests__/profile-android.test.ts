@@ -3525,6 +3525,97 @@ test('profile-android fails health for unsupported provider lifecycle phases', a
   assert.match(summary, /Next action `select_supported_provider_lifecycle_phase`/u);
 });
 
+test('profile-android blocks provider commands that declare exclusive resources outside live-window mode', async (t: TestContext) => {
+  const artifactRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-android-provider-exclusive-mode-'));
+  const providerRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-provider-exclusive-mode-'));
+  t.after(async () => {
+    await fsp.rm(artifactRoot, { recursive: true, force: true });
+    await fsp.rm(providerRoot, { recursive: true, force: true });
+  });
+  const markerPath = path.join(providerRoot, 'provider-ran.txt');
+  const providerManifestPath = path.join(providerRoot, 'provider.json');
+  await fsp.writeFile(
+    providerManifestPath,
+    `${JSON.stringify({
+      schemaVersion: '1.1.0',
+      runnerId: 'exclusive-mode-provider',
+      kind: 'evidenceProvider',
+      platforms: ['android'],
+      capabilities: ['accessibility'],
+      artifactOutputs: ['accessibility'],
+      lifecycle: ['afterCapture'],
+      exclusiveResources: [
+        {
+          id: 'provider-target',
+          acquireAt: 'afterCapture',
+          releaseAfter: 'postRun',
+          resource: {
+            kind: 'provider',
+            providerId: 'self',
+            target: 'selected-target',
+          },
+        },
+      ],
+      providerCommands: [
+        {
+          id: 'capture-accessibility',
+          phase: 'afterCapture',
+          command: process.execPath,
+          args: ['-e', `require('node:fs').writeFileSync(${JSON.stringify(markerPath)}, 'ran\\n')`],
+          outputs: [
+            {
+              channel: 'provider',
+              kind: 'accessibility',
+              path: '{providerDir}/accessibility.json',
+            },
+          ],
+        },
+      ],
+    }, null, 2)}\n`,
+    'utf8',
+  );
+
+  const { stdout } = await execFileAsync(process.execPath, [
+    PROFILE_ANDROID,
+    '--config',
+    fixturePath('examples/mobile-app/asl.config.json'),
+    '--scenario',
+    fixturePath('examples/mobile-app/scenarios/android/app-startup.json'),
+    '--events',
+    fixturePath('examples/mobile-app/event-logs/android-app-startup.log'),
+    '--provider',
+    providerManifestPath,
+    '--out',
+    artifactRoot,
+    '--run-id',
+    'android-provider-exclusive-mode',
+  ]);
+
+  const runDir = stdout.trim();
+  const health = readJson(path.join(runDir, 'health.json'));
+  const verdict = readJson(path.join(runDir, 'verdict.json'));
+  const summary = fs.readFileSync(path.join(runDir, 'agent-summary.md'), 'utf8');
+  const commandRecord = readJson(
+    path.join(runDir, 'raw', 'provider-commands', 'exclusive-mode-provider-capture-accessibility.json'),
+  ) as { reason?: string; status?: string };
+
+  assert.equal(fs.existsSync(markerPath), false);
+  assert.equal(health.healthStatus, 'failed');
+  assert.equal(verdict.verdictStatus, 'inconclusive');
+  assert.equal(commandRecord.status, 'unsupported');
+  assert.equal(commandRecord.reason?.includes('exclusiveResources'), true);
+  assert.ok(
+    (health.checks as Array<{ code: string; metadata?: { nextActionCode?: string; providerId?: string } }>).some(
+      (check) => (
+        check.code === 'provider_exclusive_resources_unsupported' &&
+        check.metadata?.nextActionCode === 'use_live_window_provider_resource_mode' &&
+        check.metadata?.providerId === 'exclusive-mode-provider'
+      ),
+    ),
+  );
+  assert.match(summary, /use_live_window_provider_resource_mode/u);
+});
+
 test('profile-android brackets live capture with provider startWindow and stopWindow commands', async (t: TestContext) => {
   const tempRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-android-live-window-'));
   const providerRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-provider-android-live-window-'));

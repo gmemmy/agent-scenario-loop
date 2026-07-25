@@ -8,6 +8,7 @@ const { writeJsonArtifact, writeTextArtifact } = require('../core/artifact-write
 const { SCHEMAS } = require('../core/schema-validator');
 const { hasHelpFlag, writeUsage } = require('./cli');
 const { buildPlanArtifacts } = require('./check-plan');
+const { validateProviderExclusiveResources } = require('./provider-exclusive-resources');
 
 type CliArgs = {
   config?: string | boolean;
@@ -1729,6 +1730,10 @@ function validateProviderCommandReferences({
 
   for (const providerPath of providerPaths) {
     const provider = readJson(providerPath);
+    validateProviderExclusiveResources({
+      manifest: provider,
+      manifestPath: providerPath,
+    });
     const providerCommands = Array.isArray(provider.providerCommands)
       ? provider.providerCommands as ProviderCommandReference[]
       : [];
