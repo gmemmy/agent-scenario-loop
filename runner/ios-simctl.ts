@@ -77,6 +77,7 @@ type IosProfileSessionStorageCommand = {
   label?: string;
   queueId?: string;
   sequence?: number;
+  stopOnFailure?: boolean;
   timestamp?: number;
   waitForMilestone?: string;
   waitMs?: number;
@@ -187,6 +188,24 @@ type ProfileSessionStartWait = ProfileSessionStartObservation & {
   pollCount: number;
   timeoutMs: number;
 };
+type ProfileSessionCompletionKind = 'all-commands-terminal' | 'stop-on-failure' | null;
+type ProfileSessionCompletionObservation = {
+  ambiguous: boolean;
+  completed: boolean;
+  completionKind: ProfileSessionCompletionKind;
+  decisiveFailure: Record<string, unknown> | null;
+  expectedCommandCount: number;
+  malformed: boolean;
+  observedTerminalCommands: number;
+  started: boolean;
+  terminalFailure: Record<string, unknown> | null;
+  terminalSequences: number[];
+};
+type ProfileSessionCompletionWait = ProfileSessionCompletionObservation & {
+  elapsedMs: number;
+  pollCount: number;
+  timeoutMs: number;
+};
 type ProfileSessionStartRepairAttempt = {
   completed: boolean;
   elapsedMs: number | null;
@@ -254,6 +273,21 @@ const IOS_SIMCTL_CAPTURE_COMMAND_OVERHEAD_MS = 3000;
 const IOS_SIMCTL_CAPTURE_COMMAND_OVERHEAD_CEILING_MS = 45000;
 const DEFAULT_IOS_PROFILE_SESSION_START_WAIT_MS = 10000;
 const IOS_PROFILE_SESSION_START_POLL_MS = 250;
+const IOS_PROFILE_SESSION_COMPLETION_POLL_MS = 250;
+const PROFILE_SESSION_TERMINAL_COMMAND_STATUSES = new Set([
+  'cancelled',
+  'completed',
+  'failed',
+  'skipped',
+  'timeout',
+  'timed-out',
+]);
+const PROFILE_SESSION_COMMAND_STATUSES = new Set([
+  ...PROFILE_SESSION_TERMINAL_COMMAND_STATUSES,
+  'delivered',
+  'queued',
+  'received',
+]);
 const SCREENSHOT_EXTENSIONS = new Set(['bmp', 'gif', 'jpeg', 'png', 'tiff']);
 const SIMULATOR_LAUNCH_ENV_KEYS = [
   'DYLD_INSERT_LIBRARIES',
@@ -1030,6 +1064,7 @@ async function seedProfileSessionStorage({
     ...(typeof profileCommand.label === 'string' ? { label: profileCommand.label } : {}),
     ...(typeof profileCommand.queueId === 'string' ? { queueId: profileCommand.queueId } : {}),
     ...(typeof profileCommand.sequence === 'number' ? { sequence: profileCommand.sequence } : {}),
+    ...(typeof profileCommand.stopOnFailure === 'boolean' ? { stopOnFailure: profileCommand.stopOnFailure } : {}),
     timestamp: typeof profileCommand.timestamp === 'number' ? profileCommand.timestamp : startedAt + index + 1,
     ...(typeof profileCommand.waitForMilestone === 'string' ? { waitForMilestone: profileCommand.waitForMilestone } : {}),
     ...(typeof profileCommand.waitMs === 'number' ? { waitMs: profileCommand.waitMs } : {}),
@@ -1110,6 +1145,14 @@ function filterProfileRecordsForRun(
     !Array.isArray(record) &&
     (record as Record<string, unknown>).runId === runId
   ));
+}
+
+function filterProfileRecordsForSession(
+  records: unknown,
+  runId: string,
+  scenario: string,
+): Record<string, unknown>[] {
+  return filterProfileRecordsForRun(records, runId).filter((record) => record.scenario === scenario);
 }
 
 function hasProfileSessionStart(entries: Record<string, unknown>[]): boolean {
@@ -1197,6 +1240,188 @@ async function waitForStoredProfileSessionStart({
     ...latest,
     completed: latest.observed,
     elapsedMs,
+    pollCount,
+    timeoutMs,
+  };
+}
+
+function observeStoredProfileSessionCompletion({
+  bundleId,
+  dataContainer,
+  expectedCommandCount,
+  profileStorageKeys,
+  runId,
+  scenario,
+}: {
+  bundleId: string;
+  dataContainer: string;
+  expectedCommandCount: number;
+  profileStorageKeys: ProfileStorageKeys;
+  runId: string;
+  scenario: string;
+}): ProfileSessionCompletionObservation {
+  let storedEntries: unknown;
+  try {
+    storedEntries = readProfileStorageJson({
+      bundleId,
+      dataContainer,
+      fallback: [],
+      key: profileStorageKeys.sessionEntries,
+    });
+  } catch {
+    return {
+      ambiguous: false,
+      completed: false,
+      completionKind: null,
+      decisiveFailure: null,
+      expectedCommandCount,
+      malformed: true,
+      observedTerminalCommands: 0,
+      started: false,
+      terminalFailure: null,
+      terminalSequences: [],
+    };
+  }
+
+  const matchingRecords = Array.isArray(storedEntries)
+    ? storedEntries.filter((record): record is Record<string, unknown> => (
+        Boolean(record) &&
+        typeof record === 'object' &&
+        !Array.isArray(record) &&
+        (record as Record<string, unknown>).runId === runId &&
+        (record as Record<string, unknown>).scenario === scenario
+      ))
+    : [];
+  const malformed = !Array.isArray(storedEntries) || matchingRecords.some((entry) => {
+    if (entry.kind === 'start' || entry.kind === 'stop') {
+      return false;
+    }
+    if (entry.kind !== 'command') {
+      return true;
+    }
+    return !Number.isInteger(entry.sequence) ||
+      typeof entry.status !== 'string' ||
+      !PROFILE_SESSION_COMMAND_STATUSES.has(entry.status);
+  });
+  const entries = filterProfileRecordsForSession(storedEntries, runId, scenario);
+  const started = hasProfileSessionStart(entries);
+  const latestCommands = new Map<number, Record<string, unknown>>();
+  for (const entry of entries) {
+    if (entry.kind !== 'command' || !Number.isInteger(entry.sequence)) {
+      continue;
+    }
+    const sequence = entry.sequence as number;
+    if (sequence <= 0 || sequence > expectedCommandCount) {
+      continue;
+    }
+    latestCommands.set(sequence, entry);
+  }
+
+  const terminalCommands = new Map<number, Record<string, unknown>>();
+  for (const [sequence, entry] of latestCommands) {
+    if (typeof entry.status === 'string' && PROFILE_SESSION_TERMINAL_COMMAND_STATUSES.has(entry.status)) {
+      terminalCommands.set(sequence, entry);
+    }
+  }
+  const terminalSequences = Array.from(terminalCommands.keys()).sort((left, right) => left - right);
+  const allCommandsTerminal = started && !malformed && terminalCommands.size === expectedCommandCount;
+  const decisiveFailures = terminalSequences.filter((sequence) => {
+    const entry = terminalCommands.get(sequence);
+    return entry?.status === 'skipped' &&
+      entry.stopOnFailure === true &&
+      entry.reason === 'wait-for-milestone-timeout' &&
+      entry.continuationReason === 'milestone-timeout-stop';
+  });
+  const decisiveSequence = decisiveFailures.length === 1 ? decisiveFailures[0] : undefined;
+  const ambiguous = decisiveFailures.length > 1;
+  const queueStopped = allCommandsTerminal && typeof decisiveSequence === 'number' && terminalSequences.every((sequence) => {
+    const entry = terminalCommands.get(sequence);
+    if (sequence < decisiveSequence) {
+      return entry?.status === 'completed';
+    }
+    if (sequence === decisiveSequence) {
+      return true;
+    }
+    return entry?.status === 'skipped' &&
+      entry.reason === 'prior-command-failure' &&
+      entry.continuationReason === 'milestone-timeout-stop';
+  });
+  const decisiveFailure = queueStopped && typeof decisiveSequence === 'number'
+    ? terminalCommands.get(decisiveSequence) ?? null
+    : null;
+  let completionKind: ProfileSessionCompletionKind = null;
+  if (decisiveFailure) {
+    completionKind = 'stop-on-failure';
+  } else if (allCommandsTerminal && !ambiguous) {
+    completionKind = 'all-commands-terminal';
+  }
+  const terminalFailure = terminalSequences
+    .map((sequence) => terminalCommands.get(sequence) ?? null)
+    .find((entry) => entry?.status !== 'completed') ?? null;
+
+  return {
+    ambiguous,
+    completed: completionKind !== null,
+    completionKind,
+    decisiveFailure,
+    expectedCommandCount,
+    malformed,
+    observedTerminalCommands: terminalCommands.size,
+    started,
+    terminalFailure,
+    terminalSequences,
+  };
+}
+
+async function waitForStoredProfileSessionCompletion({
+  bundleId,
+  dataContainer,
+  expectedCommandCount,
+  profileStorageKeys,
+  runId,
+  scenario,
+  timeoutMs,
+  wait,
+}: {
+  bundleId: string;
+  dataContainer: string;
+  expectedCommandCount: number;
+  profileStorageKeys: ProfileStorageKeys;
+  runId: string;
+  scenario: string;
+  timeoutMs: number;
+  wait: (ms: number) => Promise<void>;
+}): Promise<ProfileSessionCompletionWait> {
+  const startedAt = Date.now();
+  let waitedMs = 0;
+  let pollCount = 0;
+  let latest = observeStoredProfileSessionCompletion({
+    bundleId,
+    dataContainer,
+    expectedCommandCount,
+    profileStorageKeys,
+    runId,
+    scenario,
+  });
+
+  while (!latest.completed && waitedMs < timeoutMs) {
+    const pollMs = Math.min(IOS_PROFILE_SESSION_COMPLETION_POLL_MS, timeoutMs - waitedMs);
+    pollCount += 1;
+    await wait(pollMs);
+    waitedMs += pollMs;
+    latest = observeStoredProfileSessionCompletion({
+      bundleId,
+      dataContainer,
+      expectedCommandCount,
+      profileStorageKeys,
+      runId,
+      scenario,
+    });
+  }
+
+  return {
+    ...latest,
+    elapsedMs: Math.max(Date.now() - startedAt, waitedMs),
     pollCount,
     timeoutMs,
   };
@@ -2921,29 +3146,112 @@ async function runIosSimctlCapture(options: IosSimctlCaptureOptions = {}): Promi
         }));
         profileSessionStartReady = startWait.completed;
       }
-      if (activeRecording && profileSessionStartReady && waitMs > 0) {
-        setCurrentPhase('waiting_for_capture_window', { recording: true, waitMs });
-        await wait(waitMs);
+      if (waitMs > 0 && profileSessionStartReady) {
+        const expectedCommandCount = profileSessionStorage?.commands?.length ?? 0;
+        const canObserveCommandCompletion = Boolean(
+          bundleId &&
+          dataContainerPath &&
+          profileSessionStorage &&
+          expectedCommandCount > 0,
+        );
+        setCurrentPhase('waiting_for_capture_window', {
+          ...(activeRecording ? { recording: true } : {}),
+          ...(canObserveCommandCompletion
+            ? {
+                expectedCommandCount,
+                expectedEvidence: 'same-run-terminal-profile-session-commands',
+                runId: profileSessionStorage?.runId,
+                scenario: profileSessionStorage?.scenario,
+              }
+            : {}),
+          waitMs,
+        });
+        let completionWait: ProfileSessionCompletionWait | null = null;
+        if (canObserveCommandCompletion && bundleId && dataContainerPath && profileSessionStorage) {
+          completionWait = await waitForStoredProfileSessionCompletion({
+            bundleId,
+            dataContainer: dataContainerPath,
+            expectedCommandCount,
+            profileStorageKeys,
+            runId: profileSessionStorage.runId,
+            scenario: profileSessionStorage.scenario,
+            timeoutMs: waitMs,
+            wait,
+          });
+          raw['ios-profile-session-completion-wait.json'] = JSON.stringify(completionWait, null, 2);
+          metadata.profileSessionCompletionWait = {
+            ...completionWait,
+            rawPath: 'raw/ios-profile-session-completion-wait.json',
+            runId: profileSessionStorage.runId,
+            scenario: profileSessionStorage.scenario,
+          };
+          if (completionWait.terminalFailure) {
+            const terminalFailure = completionWait.terminalFailure;
+            const milestoneTimedOut = terminalFailure.reason === 'wait-for-milestone-timeout';
+            checks.push({
+              name: 'profile_command_sequence',
+              status: 'failed',
+              source: 'runner',
+              code: milestoneTimedOut ? 'profile_command_gate_timeout' : 'profile_command_skipped',
+              message: milestoneTimedOut
+                ? 'One or more profile-session commands waited for a milestone that was not observed before timeout.'
+                : 'One or more profile-session commands ended without completing before the scenario finished.',
+              metadata: {
+                completionKind: completionWait.completionKind,
+                expectedCommandCount,
+                observedTerminalCommands: completionWait.observedTerminalCommands,
+                rawPath: 'raw/ios-profile-session-completion-wait.json',
+                ...(typeof terminalFailure.command === 'string' ? { command: terminalFailure.command } : {}),
+                ...(typeof terminalFailure.commandId === 'string' ? { commandId: terminalFailure.commandId } : {}),
+                ...(typeof terminalFailure.continuationReason === 'string'
+                  ? { continuationReason: terminalFailure.continuationReason }
+                  : {}),
+                ...(typeof terminalFailure.queueId === 'string' ? { queueId: terminalFailure.queueId } : {}),
+                ...(typeof terminalFailure.reason === 'string' ? { reason: terminalFailure.reason } : {}),
+                ...(typeof terminalFailure.sequence === 'number' ? { sequence: terminalFailure.sequence } : {}),
+                ...(typeof terminalFailure.status === 'string' ? { commandStatus: terminalFailure.status } : {}),
+                ...(typeof terminalFailure.stopOnFailure === 'boolean'
+                  ? { stopOnFailure: terminalFailure.stopOnFailure }
+                  : {}),
+              },
+            });
+          }
+        } else {
+          await wait(waitMs);
+        }
+        const captureWindowElapsedMs = completionWait?.elapsedMs ?? waitMs;
+        const endedEarly = Boolean(completionWait?.completed && captureWindowElapsedMs < waitMs);
+        let captureWindowMessage = `Waited ${waitMs}ms before capturing iOS simulator logs.`;
+        if (activeRecording) {
+          captureWindowMessage = `Waited ${waitMs}ms while recording bounded iOS simulator video evidence.`;
+        }
+        if (endedEarly) {
+          captureWindowMessage = `Ended the bounded iOS simulator capture window after ${captureWindowElapsedMs}ms when same-run profile-session commands reached an authoritative terminal state.`;
+        }
         checks.push({
           name: 'ios_capture_window_waited',
           status: 'passed',
           source: 'runner',
           code: 'ios_capture_window_waited',
-          message: `Waited ${waitMs}ms while recording bounded iOS simulator video evidence.`,
+          message: captureWindowMessage,
+          ...(completionWait
+            ? {
+                metadata: {
+                  completionKind: completionWait.completionKind,
+                  elapsedMs: completionWait.elapsedMs,
+                  endedEarly,
+                  expectedCommandCount,
+                  observedTerminalCommands: completionWait.observedTerminalCommands,
+                  rawPath: 'raw/ios-profile-session-completion-wait.json',
+                },
+              }
+            : {}),
         });
-        await finalizeRecording('completed');
+        if (activeRecording) {
+          await finalizeRecording('completed');
+        }
       } else if (activeRecording) {
         await finalizeRecording('cancelled');
-      } else if (waitMs > 0 && profileSessionStartReady) {
-        setCurrentPhase('waiting_for_capture_window', { waitMs });
-        await wait(waitMs);
-        checks.push({
-          name: 'ios_capture_window_waited',
-          status: 'passed',
-          source: 'runner',
-          code: 'ios_capture_window_waited',
-          message: `Waited ${waitMs}ms before capturing iOS simulator logs.`,
-        });
       } else if (record && !profileSessionStartReady && !metadata.video) {
         metadata.video = {
           capturePath: null,

@@ -193,6 +193,83 @@ async function captureMissingProfileSessionStartForApplicationState({
   return { readiness, startWaitCheck };
 }
 
+async function captureProfileSessionCompletionFixture({
+  entries,
+  record = false,
+  runId,
+  t,
+  waitMs = 1000,
+}: {
+  entries: Record<string, unknown>[];
+  record?: boolean;
+  runId: string;
+  t: TestContext;
+  waitMs?: number;
+}) {
+  const bundleId = 'dev.agent-scenario-loop.example';
+  const scenario = 'profile-session-completion';
+  const outputDir = await fsp.mkdtemp(path.join(os.tmpdir(), `asl-ios-simctl-${runId}-`));
+  const dataContainer = await fsp.mkdtemp(path.join(os.tmpdir(), `asl-ios-simctl-${runId}-data-`));
+  t.after(async () => {
+    await fsp.rm(outputDir, { recursive: true, force: true });
+    await fsp.rm(dataContainer, { recursive: true, force: true });
+  });
+  const executor = createBootedSimctlExecutor({
+    [`simctl get_app_container ${IOS_TEST_SIMULATOR_UDID} ${bundleId} app`]: {
+      stdout: '/tmp/ASLExampleMobile.app\n',
+    },
+    [`simctl get_app_container ${IOS_TEST_SIMULATOR_UDID} ${bundleId} data`]: {
+      stdout: `${dataContainer}\n`,
+    },
+  });
+  const waits: number[] = [];
+  const delay = async (ms: number) => {
+    waits.push(ms);
+    const storageDir = resolveAsyncStorageDirectory({ bundleId, dataContainer });
+    const manifestPath = path.join(storageDir, 'manifest.json');
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+    manifest['agent-scenario-loop.profile-session-entries.1'] = JSON.stringify(entries);
+    fs.writeFileSync(manifestPath, JSON.stringify(manifest), 'utf8');
+  };
+  const recorder = new EventEmitter() as import('node:events').EventEmitter & {
+    kill: (signal: NodeJS.Signals) => boolean;
+    stderr: import('node:events').EventEmitter;
+    stdout: import('node:events').EventEmitter;
+  };
+  recorder.stderr = new EventEmitter();
+  recorder.stdout = new EventEmitter();
+  recorder.kill = () => {
+    const videoPath = path.join(outputDir, 'captures', 'ios-recording.mp4');
+    void fsp.writeFile(videoPath, Buffer.from('000000106674797069736f6d00000000', 'hex'))
+      .then(() => recorder.emit('close', 0, 'SIGINT'));
+    return true;
+  };
+
+  const result = await runIosSimctlCapture({
+    bundleId,
+    collectProfileStorage: true,
+    delay,
+    executor,
+    outputDir,
+    profileSessionStorage: {
+      commands: [
+        { command: 'first', sequence: 1 },
+        { command: 'second', sequence: 2 },
+        { command: 'third', sequence: 3 },
+      ],
+      runId,
+      scenario,
+    },
+    profileSessionStartWaitMs: 100,
+    record,
+    ...(record ? { recorderFactory: () => recorder } : {}),
+    runId,
+    waitMs,
+  });
+
+  return { outputDir, result, waits };
+}
+
 test('parses and selects booted iOS simulators', () => {
   const simulators = parseSimctlDevices([
     '== Devices ==',
@@ -216,6 +293,208 @@ test('ignores package-manager argument separator', () => {
     xcrun: 'fake-xcrun',
     'run-id': 'run-1',
   });
+});
+
+test('ends iOS capture early and finalizes video after decisive stop-on-failure evidence', async (t: TestContext) => {
+  const runId = 'ios-decisive-stop';
+  const scenario = 'profile-session-completion';
+  const { outputDir, result, waits } = await captureProfileSessionCompletionFixture({
+    entries: [
+      { kind: 'start', runId, scenario, status: 'started' },
+      { kind: 'command', runId, scenario, sequence: 1, status: 'completed' },
+      {
+        command: 'second',
+        commandId: 'second',
+        continuationReason: 'milestone-timeout-stop',
+        kind: 'command',
+        queueId: 'completion-queue',
+        reason: 'wait-for-milestone-timeout',
+        runId,
+        scenario,
+        sequence: 2,
+        status: 'skipped',
+        stopOnFailure: true,
+      },
+      {
+        continuationReason: 'milestone-timeout-stop',
+        kind: 'command',
+        reason: 'prior-command-failure',
+        runId,
+        scenario,
+        sequence: 3,
+        status: 'skipped',
+      },
+    ],
+    record: true,
+    runId,
+    t,
+  });
+
+  assert.equal(waits.length, 1);
+  assert.ok(waits[0] !== undefined && waits[0] > 0 && waits[0] <= 100);
+  assert.equal(result.health.healthStatus, 'failed');
+  assert.equal(result.verdict.verdictStatus, 'inconclusive');
+  assert.equal(result.captures.video, 'captures/ios-recording.mp4');
+  assert.equal((result.metadata.video as Record<string, unknown>).state, 'finalized');
+  const completionWait = result.metadata.profileSessionCompletionWait as Record<string, unknown>;
+  assert.equal(completionWait.completionKind, 'stop-on-failure');
+  assert.equal(completionWait.observedTerminalCommands, 3);
+  assert.equal(completionWait.rawPath, 'raw/ios-profile-session-completion-wait.json');
+  const commandFailure = (result.health.checks as Array<Record<string, unknown>>).find(
+    (check) => check.code === 'profile_command_gate_timeout',
+  );
+  assert.equal(commandFailure?.status, 'failed');
+  assert.deepEqual(commandFailure?.metadata, {
+    command: 'second',
+    commandId: 'second',
+    commandStatus: 'skipped',
+    completionKind: 'stop-on-failure',
+    continuationReason: 'milestone-timeout-stop',
+    expectedCommandCount: 3,
+    observedTerminalCommands: 3,
+    queueId: 'completion-queue',
+    rawPath: 'raw/ios-profile-session-completion-wait.json',
+    reason: 'wait-for-milestone-timeout',
+    sequence: 2,
+    stopOnFailure: true,
+  });
+  assert.ok(fs.existsSync(path.join(outputDir, 'raw', 'ios-profile-session-completion-wait.json')));
+  assert.ok(fs.existsSync(path.join(outputDir, 'raw', 'ios-profile-session-entries.json')));
+  assert.ok(fs.existsSync(path.join(outputDir, 'captures', 'ios-recording.mp4')));
+});
+
+test('keeps the full iOS capture window for wrong-run and nonterminal command evidence', async (t: TestContext) => {
+  const runId = 'ios-nonterminal';
+  const scenario = 'profile-session-completion';
+  const { result, waits } = await captureProfileSessionCompletionFixture({
+    entries: [
+      { kind: 'start', runId, scenario, status: 'started' },
+      { kind: 'command', runId, scenario, sequence: 1, status: 'delivered' },
+      { kind: 'command', runId: 'other-run', scenario, sequence: 1, status: 'completed' },
+      { kind: 'command', runId, scenario: 'other-scenario', sequence: 2, status: 'completed' },
+      null as unknown as Record<string, unknown>,
+    ],
+    runId,
+    t,
+  });
+
+  assert.equal(waits[0], 100);
+  assert.equal(waits.slice(1).reduce((total, value) => total + value, 0), 1000);
+  const completionWait = result.metadata.profileSessionCompletionWait as Record<string, unknown>;
+  assert.equal(completionWait.completed, false);
+  assert.equal(completionWait.observedTerminalCommands, 0);
+  assert.equal(
+    (result.health.checks as Array<Record<string, unknown>>).some((check) => check.name === 'profile_command_sequence'),
+    false,
+  );
+});
+
+test('keeps the full iOS capture window for malformed same-run command evidence', async (t: TestContext) => {
+  const runId = 'ios-malformed-terminal';
+  const scenario = 'profile-session-completion';
+  const { result, waits } = await captureProfileSessionCompletionFixture({
+    entries: [
+      { kind: 'start', runId, scenario, status: 'started' },
+      { kind: 'command', runId, scenario, sequence: 1, status: 'completed' },
+      { kind: 'command', runId, scenario, sequence: 2, status: 'completed' },
+      { kind: 'command', runId, scenario, sequence: 3, status: 'completed' },
+      { kind: 'command', runId, scenario, sequence: 'invalid', status: 'completed' },
+    ],
+    runId,
+    t,
+  });
+
+  assert.equal(waits.slice(1).reduce((total, value) => total + value, 0), 1000);
+  const completionWait = result.metadata.profileSessionCompletionWait as Record<string, unknown>;
+  assert.equal(completionWait.completed, false);
+  assert.equal(completionWait.malformed, true);
+});
+
+test('keeps the full iOS capture window for ambiguous decisive failures', async (t: TestContext) => {
+  const runId = 'ios-ambiguous-stop';
+  const scenario = 'profile-session-completion';
+  const decisiveFailure = (sequence: number) => ({
+    continuationReason: 'milestone-timeout-stop',
+    kind: 'command',
+    reason: 'wait-for-milestone-timeout',
+    runId,
+    scenario,
+    sequence,
+    status: 'skipped',
+    stopOnFailure: true,
+  });
+  const { result, waits } = await captureProfileSessionCompletionFixture({
+    entries: [
+      { kind: 'start', runId, scenario, status: 'started' },
+      { kind: 'command', runId, scenario, sequence: 1, status: 'completed' },
+      decisiveFailure(2),
+      decisiveFailure(3),
+    ],
+    runId,
+    t,
+  });
+
+  assert.equal(waits.slice(1).reduce((total, value) => total + value, 0), 1000);
+  const completionWait = result.metadata.profileSessionCompletionWait as Record<string, unknown>;
+  assert.equal(completionWait.ambiguous, true);
+  assert.equal(completionWait.completed, false);
+});
+
+test('does not fail fast when milestone timeout evidence has stopOnFailure false', async (t: TestContext) => {
+  const runId = 'ios-stop-disabled';
+  const scenario = 'profile-session-completion';
+  const { result, waits } = await captureProfileSessionCompletionFixture({
+    entries: [
+      { kind: 'start', runId, scenario, status: 'started' },
+      {
+        continuationReason: 'milestone-timeout-continue',
+        kind: 'command',
+        reason: 'wait-for-milestone-timeout',
+        runId,
+        scenario,
+        sequence: 1,
+        status: 'skipped',
+        stopOnFailure: false,
+      },
+      { kind: 'command', runId, scenario, sequence: 2, status: 'delivered' },
+    ],
+    runId,
+    t,
+  });
+
+  assert.equal(waits.slice(1).reduce((total, value) => total + value, 0), 1000);
+  const completionWait = result.metadata.profileSessionCompletionWait as Record<string, unknown>;
+  assert.equal(completionWait.completed, false);
+  assert.equal(completionWait.completionKind, null);
+  const captureWindowCheck = (result.health.checks as Array<Record<string, unknown>>).find(
+    (check) => check.name === 'ios_capture_window_waited',
+  );
+  assert.equal((captureWindowCheck?.metadata as Record<string, unknown>).endedEarly, false);
+});
+
+test('ends iOS capture early when every expected command completed successfully', async (t: TestContext) => {
+  const runId = 'ios-all-completed';
+  const scenario = 'profile-session-completion';
+  const { result, waits } = await captureProfileSessionCompletionFixture({
+    entries: [
+      { kind: 'start', runId, scenario, status: 'started' },
+      { kind: 'command', runId, scenario, sequence: 1, status: 'completed' },
+      { kind: 'command', runId, scenario, sequence: 2, status: 'completed' },
+      { kind: 'command', runId, scenario, sequence: 3, status: 'completed' },
+    ],
+    runId,
+    t,
+  });
+
+  assert.equal(waits.length, 1);
+  assert.ok(waits[0] !== undefined && waits[0] > 0 && waits[0] <= 100);
+  assert.equal(result.health.healthStatus, 'passed', JSON.stringify(result.health.checks, null, 2));
+  const completionWait = result.metadata.profileSessionCompletionWait as Record<string, unknown>;
+  assert.equal(completionWait.completionKind, 'all-commands-terminal');
+  const captureWindowCheck = (result.health.checks as Array<Record<string, unknown>>).find(
+    (check) => check.name === 'ios_capture_window_waited',
+  );
+  assert.equal((captureWindowCheck?.metadata as Record<string, unknown>).endedEarly, true);
 });
 
 test('writes next-action hints when no iOS simulator is booted', async (t: TestContext) => {
@@ -1728,7 +2007,7 @@ test('seeds profile-session AsyncStorage while preserving unrelated app keys', a
     bundleId: 'dev.agent-scenario-loop.example',
     commands: [
       { command: 'activate-target:example-card-1', dependsOnMilestones: ['surface_ready'], id: 'open-card' },
-      { command: 'activate-target:close-card', id: 'close-card' },
+      { command: 'activate-target:close-card', id: 'close-card', stopOnFailure: false },
     ],
     dataContainer,
     runId: 'ios-live-startup',
@@ -1763,6 +2042,7 @@ test('seeds profile-session AsyncStorage while preserving unrelated app keys', a
       scenario: 'app-startup',
       runId: 'ios-live-startup',
       command: 'activate-target:close-card',
+      stopOnFailure: false,
       timestamp: 125,
     },
   ]);
