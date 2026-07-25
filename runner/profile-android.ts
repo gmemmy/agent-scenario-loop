@@ -31,6 +31,7 @@ const { PROFILE_SESSION_STORAGE_KEYS } = require('../profile-session-storage');
 const { runAgentDeviceCapture } = require('./agent-device');
 const { assertConcreteMobileAppId } = require('./app-identity');
 const { loadAslLocalEnv, readStringArgOrEnv } = require('./local-env');
+const { createProviderResourceLeaseSession } = require('./provider-resource-lease');
 
 type AndroidProfileOptions = {
   agentDeviceExecutor?: import('./agent-device').CommandExecutor;
@@ -1573,6 +1574,13 @@ async function runProfileAndroid(
         scenarioId: scenarioName,
       })
     : null;
+  const liveProviderResourceLeaseSession = liveWindowProviderLifecycle && liveProviderLayout
+    ? await createProviderResourceLeaseSession({
+        evidencePath: path.join(liveProviderLayout.raw, 'provider-resource-leases.json'),
+        ownerId: `android-adb-profile-runner:provider-resources:${runId}`,
+        runId,
+      })
+    : null;
   const liveProviderExecutionOptions = liveProviderIdentity
     ? { identity: liveProviderIdentity }
     : {};
@@ -1597,10 +1605,33 @@ async function runProfileAndroid(
         runId,
         scenarioId: scenarioName,
         supportMode: 'live-window',
+        ...(liveProviderResourceLeaseSession ? { resourceLeaseSession: liveProviderResourceLeaseSession } : {}),
         ...(nativePerformanceRequest ? { nativePerformanceRequest } : {}),
         ...liveProviderExecutionOptions,
       }),
     );
+    if (liveProviderResourceLeaseSession) {
+      providerExecution = mergeProviderCommandExecutions(
+        providerExecution,
+        {
+          failures: (await liveProviderResourceLeaseSession.finalize()).map((failure: import('./provider-resource-lease').ProviderResourceLeaseFailure) => ({
+            commandId: 'exclusive-resources',
+            code: failure.code,
+            exitCode: null,
+            message: failure.message,
+            name: 'evidence_provider_resources_owned',
+            nextAction: failure.nextAction,
+            nextActionCode: failure.nextActionCode,
+            phase: 'finalize',
+            providerId: failure.providerId,
+            rawPath: failure.rawPath,
+          })),
+          inputs: [],
+          outputStatuses: [],
+          providers: [],
+        },
+      );
+    }
   };
   if (liveWindowProviderLifecycle && liveProviderLayout) {
     providerExecution = mergeProviderCommandExecutions(
@@ -1616,6 +1647,7 @@ async function runProfileAndroid(
         runId,
         scenarioId: scenarioName,
         supportMode: 'live-window',
+        ...(liveProviderResourceLeaseSession ? { resourceLeaseSession: liveProviderResourceLeaseSession } : {}),
         ...(nativePerformanceRequest ? { nativePerformanceRequest } : {}),
         ...liveProviderExecutionOptions,
       }),
@@ -1692,6 +1724,7 @@ async function runProfileAndroid(
             runId,
             scenarioId: scenarioName,
             supportMode: 'live-window',
+            ...(liveProviderResourceLeaseSession ? { resourceLeaseSession: liveProviderResourceLeaseSession } : {}),
             ...(nativePerformanceRequest ? { nativePerformanceRequest } : {}),
             ...liveProviderExecutionOptions,
           }),
@@ -1816,6 +1849,9 @@ async function runProfileAndroid(
     }
     if (liveProviderIdentity) {
       profileMobileOptions.providerCommandIdentity = liveProviderIdentity;
+    }
+    if (liveProviderResourceLeaseSession) {
+      profileMobileOptions.providerResourceLeaseSession = liveProviderResourceLeaseSession;
     }
   }
   try {

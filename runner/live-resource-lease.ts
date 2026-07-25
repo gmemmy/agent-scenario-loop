@@ -23,6 +23,7 @@ import type {
 const LIVE_RESOURCE_LEASE_JOURNAL_VERSION = 1 as const;
 const DEFAULT_LIVE_RESOURCE_LEASE_TTL_MS = 120_000;
 const DEFAULT_LIVE_RESOURCE_LEASE_HEARTBEAT_MS = 30_000;
+type TimerHandle = ReturnType<typeof setTimeout>;
 
 type LiveResourceLeasePlatform = 'android' | 'ios';
 
@@ -30,8 +31,8 @@ type LiveResourceLeaseDependencies = {
   acquire: (options: ResourceLeaseAcquireOptions) => Promise<ResourceLeaseAcquireResult>;
   heartbeat: (options: ResourceLeaseHeartbeatOptions) => Promise<ResourceLeaseHeartbeatResult>;
   release: (options: ResourceLeaseReleaseOptions) => Promise<ResourceLeaseReleaseResult>;
-  setTimer: (callback: () => void, ms: number) => NodeJS.Timeout;
-  clearTimer: (timer: NodeJS.Timeout) => void;
+  setTimer: (callback: () => void, ms: number) => TimerHandle;
+  clearTimer: (timer: TimerHandle) => void;
 };
 
 type LiveResourceLeaseJournal = {
@@ -248,7 +249,7 @@ async function runWithLiveResourceLease<T>(
   journal.status = 'held';
   await writeJournal(options.evidencePath, journal);
   let stopped = false;
-  let timer: NodeJS.Timeout | null = null;
+  let timer: TimerHandle | null = null;
   let heartbeatInFlight: Promise<void> | null = null;
   let heartbeatFailure: ResourceLeaseHeartbeatResult | null = null;
   let heartbeatError: unknown;

@@ -25,6 +25,38 @@
     {
       "if": {
         "properties": {
+          "kind": {
+            "const": "primary"
+          }
+        },
+        "required": ["kind"]
+      },
+      "then": {
+        "not": {
+          "description": "Primary runner manifests cannot declare exclusiveResources; live resource ownership belongs to evidence providers.",
+          "required": ["exclusiveResources"]
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "schemaVersion": {
+            "const": "1.0.0"
+          }
+        },
+        "required": ["schemaVersion"]
+      },
+      "then": {
+        "not": {
+          "description": "exclusiveResources require schemaVersion 1.1.0.",
+          "required": ["exclusiveResources"]
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
           "platforms": {
             "not": {
               "contains": {
@@ -90,7 +122,7 @@
   "properties": {
     "schemaVersion": {
       "type": "string",
-      "pattern": "^1\\.0\\.0$"
+      "pattern": "^1\\.(0|1)\\.0$"
     },
     "runnerId": {
       "type": "string",
@@ -168,6 +200,13 @@
       "type": "array",
       "items": {
         "$ref": "#/$defs/providerCommand"
+      }
+    },
+    "exclusiveResources": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/exclusiveResourceClaim"
       }
     }
   },
@@ -334,6 +373,113 @@
           "description": "Producer-declared privacy status for this output. Omit or use unknown when the provider has not inspected or transformed the artifact for sensitive data."
         }
       }
+    },
+    "exclusiveResourceClaim": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "acquireAt", "releaseAfter", "resource"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]*$"
+        },
+        "acquireAt": {
+          "type": "string",
+          "enum": ["startWindow", "afterCapture", "stopWindow", "postRun", "finalize"]
+        },
+        "releaseAfter": {
+          "type": "string",
+          "enum": ["startWindow", "afterCapture", "stopWindow", "postRun", "finalize"]
+        },
+        "platforms": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "enum": ["ios", "android"]
+          }
+        },
+        "resource": {
+          "$ref": "#/$defs/exclusiveResourceDescriptor"
+        }
+      }
+    },
+    "exclusiveResourceDescriptor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": ["provider", "tcpPort"]
+        },
+        "providerId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "target": {
+          "type": "string",
+          "enum": ["selected-target"]
+        },
+        "host": {
+          "type": "string",
+          "minLength": 1
+        },
+        "port": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "provider"
+              }
+            },
+            "required": ["kind"]
+          },
+          "then": {
+            "required": ["providerId"],
+            "not": {
+              "anyOf": [
+                {
+                  "required": ["host"]
+                },
+                {
+                  "required": ["port"]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "tcpPort"
+              }
+            },
+            "required": ["kind"]
+          },
+          "then": {
+            "required": ["host", "port"],
+            "not": {
+              "anyOf": [
+                {
+                  "required": ["providerId"]
+                },
+                {
+                  "required": ["target"]
+                }
+              ]
+            }
+          }
+        }
+      ]
     }
   }
 }

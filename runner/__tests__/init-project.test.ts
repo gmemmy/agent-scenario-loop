@@ -153,13 +153,17 @@ test('init-project scaffolds templates into a consuming app layout', async (t: T
   assert.match(nativePerformanceProviderScript, /ASL_NATIVE_PERFORMANCE_IOS_CAPTURE/u);
   assert.match(nativePerformanceProviderScript, /captureIosXctraceEvidence/u);
   const evidenceProviderManifest = readJson(path.join(targetDir, 'runner-manifests', 'evidence-provider.json')) as {
+    exclusiveResources?: unknown;
     providerCommands: Array<{
       args?: string[];
       id: string;
       outputs?: Array<{kind: string; path: string}>;
       platforms?: string[];
     }>;
+    schemaVersion: string;
   };
+  assert.equal(evidenceProviderManifest.schemaVersion, '1.1.0');
+  assert.equal(evidenceProviderManifest.exclusiveResources, undefined);
   assert.deepEqual(
     evidenceProviderManifest.providerCommands.find((command) => command.id === 'start-android-native-window')?.platforms,
     ['android'],
