@@ -12,6 +12,9 @@ const { createArtifactLayout } = require('../core/artifact-layout');
 const { writeJsonArtifact, writeTextArtifact } = require('../core/artifact-writer');
 const { SCHEMAS, assertValidJson } = require('../core/schema-validator');
 const { PROFILE_STORAGE_RESET_KEYS, PROFILE_SESSION_STORAGE_KEYS } = require('../profile-session-storage');
+
+const PROFILE_SESSION_AUTHORITY_SCHEMA_VERSION = 1;
+const PROFILE_SESSION_AUTHORITY_CHUNK_SIZE = 32;
 const { compareProfileCommands } = require('../profile-session-command-ordering');
 const { hasHelpFlag, writeUsage } = require('./cli');
 const {
@@ -1104,23 +1107,147 @@ async function seedProfileSessionStorage({
  * @returns {unknown}
  */
 function readProfileStorageJson({
+  authorityProjection,
+  authoritySessionKey,
   bundleId,
   dataContainer,
   fallback,
   key,
 }: {
+  authorityProjection?: 'event' | 'session-entry';
+  authoritySessionKey?: string;
   bundleId: string;
   dataContainer: string;
   fallback: unknown;
   key: string;
 }): unknown {
   const storageDir = resolveAsyncStorageDirectory({ bundleId, dataContainer });
+  if (authoritySessionKey && authorityProjection) {
+    const authoritativeValue = readProfileSessionAuthorityProjectionSync({
+      projection: authorityProjection,
+      sessionKey: authoritySessionKey,
+      storageDir,
+    });
+    if (authoritativeValue !== null) {
+      return authoritativeValue;
+    }
+  }
   const rawValue = readAsyncStorageValueSync({ key, storageDir });
   if (!rawValue) {
     return fallback;
   }
 
   return JSON.parse(rawValue);
+}
+
+function readProfileSessionAuthorityProjectionSync({
+  projection,
+  sessionKey,
+  storageDir,
+}: {
+  projection?: 'event' | 'session-entry';
+  sessionKey: string;
+  storageDir: string;
+}): Record<string, unknown>[] | null {
+  const authorityKey = `${sessionKey}.authority.${PROFILE_SESSION_AUTHORITY_SCHEMA_VERSION}`;
+  const rawManifest = readAsyncStorageValueSync({ key: authorityKey, storageDir });
+  if (rawManifest === null) {
+    return null;
+  }
+  const manifest = JSON.parse(rawManifest) as unknown;
+  if (!manifest || typeof manifest !== 'object' || Array.isArray(manifest)) {
+    throw new Error('Profile-session authority manifest is invalid.');
+  }
+  const authority = manifest as Record<string, unknown>;
+  const session = authority.session;
+  if (
+    authority.schemaVersion !== PROFILE_SESSION_AUTHORITY_SCHEMA_VERSION ||
+    !Number.isInteger(authority.generation) ||
+    (authority.generation as number) < 0 ||
+    (authority.status !== 'active' && authority.status !== 'failed' && authority.status !== 'stopped') ||
+    !session ||
+    typeof session !== 'object' ||
+    Array.isArray(session)
+  ) {
+    throw new Error('Profile-session authority manifest is invalid.');
+  }
+  if (authority.status === 'failed') {
+    throw new Error('Profile-session authority records a storage failure.');
+  }
+  const sessionIdentity = session as Record<string, unknown>;
+  if (
+    typeof sessionIdentity.scenario !== 'string' ||
+    typeof sessionIdentity.runId !== 'string' ||
+    typeof sessionIdentity.startedAt !== 'number' ||
+    !Number.isFinite(sessionIdentity.startedAt)
+  ) {
+    throw new Error('Profile-session authority identity is invalid.');
+  }
+  if (!projection) {
+    return null;
+  }
+  const projectionKeys = projection === 'event'
+    ? authority.eventChunkKeys
+    : authority.sessionEntryChunkKeys;
+  if (!Array.isArray(projectionKeys) || !projectionKeys.every((chunkKey) => typeof chunkKey === 'string')) {
+    throw new Error(`Profile-session ${projection} authority keys are invalid.`);
+  }
+  const records: Record<string, unknown>[] = [];
+  for (const [index, chunkKey] of projectionKeys.entries()) {
+    const expectedKey = `${authorityKey}.${String(authority.generation)}.${projection}.${index}`;
+    if (chunkKey !== expectedKey) {
+      throw new Error(`Profile-session ${projection} authority key is invalid.`);
+    }
+    const rawChunk = readAsyncStorageValueSync({ key: chunkKey, storageDir });
+    if (rawChunk === null) {
+      throw new Error(`Profile-session ${projection} authority chunk is missing.`);
+    }
+    const chunk = JSON.parse(rawChunk) as unknown;
+    if (
+      !Array.isArray(chunk) ||
+      chunk.length === 0 ||
+      chunk.length > PROFILE_SESSION_AUTHORITY_CHUNK_SIZE
+    ) {
+      throw new Error(`Profile-session ${projection} authority chunk has invalid length.`);
+    }
+    for (const value of chunk) {
+      if (!value || typeof value !== 'object' || Array.isArray(value)) {
+        throw new Error(`Profile-session ${projection} authority record is invalid.`);
+      }
+      const record = value as Record<string, unknown>;
+      if (
+        record.scenario !== sessionIdentity.scenario ||
+        record.runId !== sessionIdentity.runId ||
+        typeof record.timestamp !== 'number' ||
+        !Number.isFinite(record.timestamp)
+      ) {
+        throw new Error(`Profile-session ${projection} authority record is invalid.`);
+      }
+      if (
+        (projection === 'event' && typeof record.event !== 'string') ||
+        (projection === 'session-entry' &&
+          record.kind !== 'start' && record.kind !== 'stop' && record.kind !== 'command')
+      ) {
+        throw new Error(`Profile-session ${projection} authority record is invalid.`);
+      }
+      if (
+        projection === 'session-entry' &&
+        record.kind === 'command' && (
+          typeof record.id !== 'string' ||
+          typeof record.command !== 'string' ||
+          (record.status !== 'received' &&
+            record.status !== 'queued' &&
+            record.status !== 'delivered' &&
+            record.status !== 'completed' &&
+            record.status !== 'skipped')
+        )
+      ) {
+        throw new Error('Profile-session session-entry authority command is invalid.');
+      }
+      records.push(record);
+    }
+  }
+  return records;
 }
 
 /**
@@ -1263,12 +1390,16 @@ function observeStoredProfileSessionStart({
   runId: string;
 }): ProfileSessionStartObservation {
   const storedEvents = readProfileStorageJson({
+    authorityProjection: 'event',
+    authoritySessionKey: profileStorageKeys.session,
     bundleId,
     dataContainer,
     fallback: [],
     key: profileStorageKeys.event,
   });
   const storedEntries = readProfileStorageJson({
+    authorityProjection: 'session-entry',
+    authoritySessionKey: profileStorageKeys.session,
     bundleId,
     dataContainer,
     fallback: [],
@@ -1352,6 +1483,8 @@ function observeStoredProfileSessionCompletion({
   let storedEntries: unknown;
   try {
     storedEntries = readProfileStorageJson({
+      authorityProjection: 'session-entry',
+      authoritySessionKey: profileStorageKeys.session,
       bundleId,
       dataContainer,
       fallback: [],
@@ -3623,12 +3756,16 @@ async function runIosSimctlCapture(options: IosSimctlCaptureOptions = {}): Promi
               scenario: profileSessionStorage?.scenario ?? null,
             });
             const storedEvents = readProfileStorageJson({
+              authorityProjection: 'event',
+              authoritySessionKey: profileStorageKeys.session,
               bundleId,
               dataContainer: dataContainerPath,
               fallback: [],
               key: profileStorageKeys.event,
             });
             const storedEntries = readProfileStorageJson({
+              authorityProjection: 'session-entry',
+              authoritySessionKey: profileStorageKeys.session,
               bundleId,
               dataContainer: dataContainerPath,
               fallback: [],

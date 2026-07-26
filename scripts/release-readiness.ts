@@ -189,6 +189,7 @@ const REQUIRED_PACKAGE_FILES = [
   'README.md',
   'app/profile-session-command-ordering.d.ts',
   'app/profile-session-command-ordering.ts',
+  'app/profile-session-authoritative-storage.ts',
   'app/profile-session.ts',
   'app/profile-session.d.ts',
   'app/profile-session-storage.d.ts',

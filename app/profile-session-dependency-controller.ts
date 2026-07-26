@@ -32,6 +32,23 @@ export type ProfileCommandDependencyController<Command extends ProfileSessionOrd
   suspend: () => void;
 };
 
+export type ProfileSessionDependencyMilestoneFacts = {
+  observe: (event: ProfileSessionObservedEvent) => void;
+  reset: () => void;
+  snapshot: () => readonly ProfileSessionObservedEvent[];
+};
+
+export type ProfileSessionProcessedCommandIds = {
+  has: (id: string) => boolean;
+  mark: (id: string) => void;
+  reset: () => void;
+};
+
+export type RecoveredProfileCommandLifecycle = {
+  delivered: Map<string, number>;
+  terminal: Set<string>;
+};
+
 export type ProfileSessionLifecycleController = {
   capture: () => number;
   invalidate: () => number;
@@ -48,6 +65,109 @@ export type ProfileCommandScheduleController = {
   invalidate: () => void;
   isCurrent: (token: ProfileCommandScheduleToken) => boolean;
 };
+
+function dependencyMilestoneFactKey(event: ProfileSessionObservedEvent): string {
+  return JSON.stringify([
+    event.scenario,
+    event.runId,
+    event.queueId ?? null,
+    event.sequence ?? null,
+    event.event,
+  ]);
+}
+
+/**
+ * Retains one compact fact per session-owned milestone identity.
+ *
+ * The set is intentionally not evicted within an active session: an arbitrary
+ * fact cap would reintroduce the dependency correctness loss this index avoids.
+ * Growth follows unique scenario/run/queue/milestone vocabulary, not raw event
+ * volume, and the whole set is reset at the logical session boundary.
+ */
+export function createProfileSessionDependencyMilestoneFacts(): ProfileSessionDependencyMilestoneFacts {
+  const facts = new Map<string, ProfileSessionObservedEvent>();
+
+  return {
+    observe: (event) => {
+      const key = dependencyMilestoneFactKey(event);
+      if (facts.has(key)) {
+        return;
+      }
+      facts.set(key, {
+        event: event.event,
+        runId: event.runId,
+        scenario: event.scenario,
+        timestamp: event.timestamp,
+        ...(typeof event.queueId === 'string' ? { queueId: event.queueId } : {}),
+        ...(typeof event.sequence === 'number' ? { sequence: event.sequence } : {}),
+      });
+    },
+    reset: () => {
+      facts.clear();
+    },
+    snapshot: () => [...facts.values()],
+  };
+}
+
+export function appendBoundedProfileEventHistory<Event>(
+  history: Event[],
+  event: Event,
+  limit: number,
+): void {
+  history.push(event);
+  while (history.length > limit) {
+    history.shift();
+  }
+}
+
+export function appendCompleteProfileSessionHistory<Entry>(history: Entry[], entry: Entry): void {
+  history.push(entry);
+}
+
+export function createProfileSessionProcessedCommandIds(): ProfileSessionProcessedCommandIds {
+  const ids = new Set<string>();
+  return {
+    has: (id) => ids.has(id),
+    mark: (id) => {
+      ids.add(id);
+    },
+    reset: () => {
+      ids.clear();
+    },
+  };
+}
+
+/**
+ * Reconstructs the durable command boundary after a module reload.
+ *
+ * A received-only command remains replayable because dispatch may not have
+ * happened. A delivered command resumes only its pending wait/settle phase,
+ * while completed and skipped commands are terminal.
+ */
+export function recoverProfileCommandLifecycle(
+  entries: readonly {
+    id?: string;
+    status?: 'received' | 'queued' | 'delivered' | 'completed' | 'skipped';
+    timestamp: number;
+  }[],
+): RecoveredProfileCommandLifecycle {
+  const delivered = new Map<string, number>();
+  const terminal = new Set<string>();
+  for (const entry of entries) {
+    if (typeof entry.id !== 'string' || entry.id.length === 0) {
+      continue;
+    }
+    if (entry.status === 'delivered' && !terminal.has(entry.id)) {
+      delivered.set(entry.id, entry.timestamp);
+      continue;
+    }
+    if (entry.status === 'completed' || entry.status === 'skipped') {
+      terminal.add(entry.id);
+      delivered.delete(entry.id);
+    }
+  }
+  return { delivered, terminal };
+}
 
 export function createProfileSessionLifecycleController(): ProfileSessionLifecycleController {
   let generation = 0;

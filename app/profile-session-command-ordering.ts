@@ -409,6 +409,19 @@ export function hasObservedProfileCommandMilestone(
   ));
 }
 
+export function hasObservedDeliveredProfileCommandMilestone(
+  command: ProfileSessionOrderedCommand,
+  observedEvents: readonly ProfileSessionObservedEvent[],
+): boolean {
+  if (typeof command.waitForMilestone !== 'string' || command.waitForMilestone.length === 0) {
+    return false;
+  }
+  return observedEvents.some((eventPayload) => (
+    eventPayload.event === command.waitForMilestone &&
+    doesProfileEventMatchCommandScope(command, eventPayload)
+  ));
+}
+
 function readProfileCommandDependencies(command: ProfileSessionOrderedCommand): string[] {
   if (!Array.isArray(command.dependsOnMilestones)) {
     return [];

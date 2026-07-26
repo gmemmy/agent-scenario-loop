@@ -15,6 +15,7 @@ const {
 const {
   buildProfileCommandDependencyGate,
   doesProfileCommandMatchDependencyGate,
+  hasObservedDeliveredProfileCommandMilestone,
   resolveMissingProfileCommandDependencies,
   resolveProfileCommandDependencyTimeoutOutcome,
   resolveProfileCommandQueueBlocker,
@@ -375,6 +376,31 @@ test('profile-session command ordering only reuses observed readiness for first 
     timestamp: 500,
     waitForMilestone: 'surface_ready',
   }, observedEvents), false);
+});
+
+test('delivered-command recovery reuses only sequence-correlated readiness', () => {
+  const command = {
+    id: 'command-29',
+    queueId: 'queue-a',
+    runId: 'run-a',
+    scenario: 'gallery',
+    sequence: 29,
+    timestamp: 100,
+    waitForMilestone: 'viewer_ready',
+  };
+  const matching = {
+    event: 'viewer_ready',
+    queueId: 'queue-a',
+    runId: 'run-a',
+    scenario: 'gallery',
+    sequence: 29,
+    timestamp: 150,
+  };
+  assert.equal(hasObservedProfileCommandMilestone(command, [matching]), false);
+  assert.equal(hasObservedDeliveredProfileCommandMilestone(command, [matching]), true);
+  assert.equal(hasObservedDeliveredProfileCommandMilestone(command, [
+    { ...matching, sequence: 28 },
+  ]), false);
 });
 
 test('profile-session command ordering rejects readiness events missing required command scope', () => {
