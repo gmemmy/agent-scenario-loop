@@ -7,7 +7,13 @@ const ts = require('typescript');
 type LoadedProfileSession = {
   cleanupEffects: () => void;
   exports: {
-    subscribeToProfileCommands: (listener: (command: { id: string }) => void) => () => void;
+    applyProfileSessionUrl: (url: string) => boolean;
+    subscribeToProfileCommands: (listener: (command: {
+      commandId?: string;
+      id: string;
+      queueId?: string;
+      sequence?: number;
+    }) => void) => () => void;
     useProfileSession: () => { active: boolean; runId: string | null; scenario: string | null; startedAt: number | null };
     useProfileSessionBootstrap: () => void;
   };
@@ -54,7 +60,14 @@ function loadProfileSessionModule(storage: Map<string, string>): LoadedProfileSe
       Platform: { OS: 'android' },
     },
     'expo-linking': {
-      parse: () => ({ path: null, queryParams: {} }),
+      parse: (url: string) => {
+        const parsed = new URL(url);
+        return {
+          hostname: parsed.hostname,
+          path: parsed.pathname.replace(/^\//u, ''),
+          queryParams: Object.fromEntries(parsed.searchParams.entries()),
+        };
+      },
     },
   };
 
@@ -106,6 +119,33 @@ function loadProfileSessionModule(storage: Map<string, string>): LoadedProfileSe
     exports: profileSession,
   };
 }
+
+test('profile-session command deep links preserve explicit runner command ids', async () => {
+  const storage = new Map<string, string>();
+  const loaded = loadProfileSessionModule(storage);
+  const dispatches: Array<{ commandId?: string; id: string; queueId?: string; sequence?: number }> = [];
+  const unsubscribe = loaded.exports.subscribeToProfileCommands((command) => {
+    dispatches.push(command);
+  });
+
+  try {
+    assert.equal(loaded.exports.applyProfileSessionUrl(
+      'asl-example://profile-session/start?scenario=gallery&runId=deep-link-run',
+    ), true);
+    assert.equal(loaded.exports.applyProfileSessionUrl(
+      'asl-example://profile-session/command?scenario=gallery&runId=deep-link-run&id=ios-storage-command-1&command=page-forward&commandId=page-forward&queueId=gallery&sequence=1&waitMs=0',
+    ), true);
+
+    await waitFor(() => dispatches.length === 1);
+    assert.equal(dispatches[0]?.id, 'ios-storage-command-1');
+    assert.equal(dispatches[0]?.commandId, 'page-forward');
+    assert.equal(dispatches[0]?.queueId, 'gallery');
+    assert.equal(dispatches[0]?.sequence, 1);
+  } finally {
+    unsubscribe();
+    loaded.cleanupEffects();
+  }
+});
 
 test('fresh helper modules recover durable command boundaries without replaying delivered work', async () => {
   const sessionKey = 'agent-scenario-loop.profile-session.1';

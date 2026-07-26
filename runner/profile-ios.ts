@@ -44,6 +44,7 @@ type IosSimctlProfileCommand = {
   command: string;
   commandId?: string;
   dependsOnMilestones?: string[];
+  id?: string;
   label?: string;
   queueId?: string;
   sequence?: number;
@@ -302,6 +303,7 @@ function buildProfileSessionUrl({
   commandId,
   config,
   dependsOnMilestones,
+  id,
   queueId,
   runId,
   scenario,
@@ -316,6 +318,7 @@ function buildProfileSessionUrl({
   commandId?: string;
   config: Record<string, any>;
   dependsOnMilestones?: string[];
+  id?: string;
   queueId?: string;
   runId: string;
   scenario: string;
@@ -333,6 +336,9 @@ function buildProfileSessionUrl({
   const params = new URLSearchParams({ runId, scenario });
   if (action === 'command' && command) {
     params.set('command', command);
+    if (id) {
+      params.set('id', id);
+    }
     if (commandId) {
       params.set('commandId', commandId);
     }
@@ -1185,6 +1191,46 @@ async function runProfileIos(
     profileSessionStorageEnabled &&
     profileSessionCommands.length > 0,
   );
+  const profileSessionStorageCommands = profileSessionCommands.map((profileCommand, index) => ({
+    command: profileCommand.command,
+    ...(typeof profileCommand.commandId === 'string' ? { commandId: profileCommand.commandId } : {}),
+    ...(Array.isArray(profileCommand.dependsOnMilestones) && profileCommand.dependsOnMilestones.length > 0
+      ? { dependsOnMilestones: profileCommand.dependsOnMilestones }
+      : {}),
+    id: `ios-storage-command-${index + 1}`,
+    ...(typeof profileCommand.label === 'string' ? { label: profileCommand.label } : {}),
+    ...(typeof profileCommand.queueId === 'string' ? { queueId: profileCommand.queueId } : {}),
+    ...(typeof profileCommand.sequence === 'number' ? { sequence: profileCommand.sequence } : {}),
+    ...(typeof profileCommand.waitForMilestone === 'string' ? { waitForMilestone: profileCommand.waitForMilestone } : {}),
+    ...(typeof profileCommand.waitMs === 'number' ? { waitMs: profileCommand.waitMs } : {}),
+    ...(typeof profileCommand.waitTimeoutMs === 'number' ? { waitTimeoutMs: profileCommand.waitTimeoutMs } : {}),
+    ...(typeof profileCommand.stopOnFailure === 'boolean'
+      ? { stopOnFailure: profileCommand.stopOnFailure }
+      : {}),
+  }));
+  const deferredProfileSessionCommandDeepLinks = profileSessionStorageCommands.map((profileCommand, index) => ({
+    label: profileCommand.label ?? `profile-command-${index + 1}`,
+    url: buildProfileSessionUrl({
+      action: 'command',
+      command: profileCommand.command,
+      ...(typeof profileCommand.commandId === 'string' ? { commandId: profileCommand.commandId } : {}),
+      ...(Array.isArray(profileCommand.dependsOnMilestones) && profileCommand.dependsOnMilestones.length > 0
+        ? { dependsOnMilestones: profileCommand.dependsOnMilestones }
+        : {}),
+      config,
+      id: profileCommand.id,
+      runId,
+      scenario: scenarioName,
+      ...(typeof profileCommand.queueId === 'string' ? { queueId: profileCommand.queueId } : {}),
+      ...(typeof profileCommand.sequence === 'number' ? { sequence: profileCommand.sequence } : {}),
+      ...(typeof profileCommand.waitForMilestone === 'string' ? { waitForMilestone: profileCommand.waitForMilestone } : {}),
+      ...(typeof profileCommand.waitMs === 'number' ? { waitMs: profileCommand.waitMs } : {}),
+      ...(typeof profileCommand.waitTimeoutMs === 'number' ? { waitTimeoutMs: profileCommand.waitTimeoutMs } : {}),
+      ...(typeof profileCommand.stopOnFailure === 'boolean'
+        ? { stopOnFailure: profileCommand.stopOnFailure }
+        : {}),
+    }),
+  }));
   if (liveWindowProviderLifecycle && liveProviderLayout && !deferLiveProviderStartUntilCommandWindow) {
     await startLiveWindowProviderExecution();
   }
@@ -1204,6 +1250,7 @@ async function runProfileIos(
         ...(deferLiveProviderStartUntilCommandWindow
           ? {
               deferProfileSessionStorageCommandsUntilCommandWindow: true,
+              profileSessionCommandReleaseDeepLinks: deferredProfileSessionCommandDeepLinks,
               onProfileSessionCommandWindowReady: async () => {
                 await startLiveWindowProviderExecution();
               },
@@ -1222,23 +1269,7 @@ async function runProfileIos(
                 signal: profileSignalStorageKey,
               },
               profileSessionStorage: {
-                commands: profileSessionCommands.map((profileCommand, index) => ({
-                  command: profileCommand.command,
-                  ...(typeof profileCommand.commandId === 'string' ? { commandId: profileCommand.commandId } : {}),
-                  ...(Array.isArray(profileCommand.dependsOnMilestones) && profileCommand.dependsOnMilestones.length > 0
-                    ? { dependsOnMilestones: profileCommand.dependsOnMilestones }
-                    : {}),
-                  id: `ios-storage-command-${index + 1}`,
-                  ...(typeof profileCommand.label === 'string' ? { label: profileCommand.label } : {}),
-                  ...(typeof profileCommand.queueId === 'string' ? { queueId: profileCommand.queueId } : {}),
-                  ...(typeof profileCommand.sequence === 'number' ? { sequence: profileCommand.sequence } : {}),
-                  ...(typeof profileCommand.waitForMilestone === 'string' ? { waitForMilestone: profileCommand.waitForMilestone } : {}),
-                  ...(typeof profileCommand.waitMs === 'number' ? { waitMs: profileCommand.waitMs } : {}),
-                  ...(typeof profileCommand.waitTimeoutMs === 'number' ? { waitTimeoutMs: profileCommand.waitTimeoutMs } : {}),
-                  ...(typeof profileCommand.stopOnFailure === 'boolean'
-                    ? { stopOnFailure: profileCommand.stopOnFailure }
-                    : {}),
-                })),
+                commands: profileSessionStorageCommands,
                 runId,
                 scenario: scenarioName,
               },
