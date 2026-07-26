@@ -16,6 +16,7 @@ const { runAgentDeviceCapture } = require('./agent-device');
 const { assertConcreteMobileAppId } = require('./app-identity');
 const { parseBaseArgs: parseArgentBaseArgs, runArgentCapture } = require('./argent');
 const { loadAslLocalEnv, readStringArgOrEnv } = require('./local-env');
+const { normalizeBoundedIdentitySegment } = require('./run-identity') as typeof import('./run-identity');
 const {
   DEFAULT_LIVE_RESOURCE_LEASE_HEARTBEAT_MS,
   DEFAULT_LIVE_RESOURCE_LEASE_TTL_MS,
@@ -150,17 +151,7 @@ function resolveIosConflictingBundleIds(config: Record<string, unknown>): string
  * @returns {string | null}
  */
 function normalizeRunSuffix(value: unknown): string | null {
-  if (typeof value !== 'string') {
-    return null;
-  }
-
-  const normalized = value
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9._-]+/gu, '-')
-    .replace(/^-+|-+$/gu, '')
-    .slice(0, 64);
-  return normalized.length > 0 ? normalized : null;
+  return normalizeBoundedIdentitySegment(value, 64);
 }
 
 /**
