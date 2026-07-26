@@ -697,6 +697,7 @@ function getProfileSessionRoute(url: string): {
   action: 'start' | 'stop' | 'command';
   scenario?: string;
   runId?: string;
+  id?: string;
   command?: string;
   commandId?: string;
   dependsOnMilestones?: string[];
@@ -727,6 +728,8 @@ function getProfileSessionRoute(url: string): {
     typeof parsed.queryParams?.runId === 'string' ? parsed.queryParams.runId : undefined;
   const command =
     typeof parsed.queryParams?.command === 'string' ? parsed.queryParams.command : undefined;
+  const id =
+    typeof parsed.queryParams?.id === 'string' ? parsed.queryParams.id : undefined;
   const commandId =
     typeof parsed.queryParams?.commandId === 'string' ? parsed.queryParams.commandId : undefined;
   const sequence =
@@ -763,6 +766,7 @@ function getProfileSessionRoute(url: string): {
     action,
     scenario,
     runId,
+    id,
     command,
     commandId,
     ...(dependsOnMilestones.length > 0 ? { dependsOnMilestones } : {}),
@@ -1548,7 +1552,7 @@ export function applyProfileSessionUrl(url: string | null | undefined): boolean 
     }
 
     const command = {
-      id: `${timestamp}-${route.scenario ?? 'profile'}-${route.command}`,
+      id: route.id ?? `${timestamp}-${route.scenario ?? 'profile'}-${route.command}`,
       scenario: route.scenario,
       runId: route.runId,
       command: route.command,

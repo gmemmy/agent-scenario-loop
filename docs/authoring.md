@@ -303,7 +303,7 @@ saved versus sequential waits, whether the timeout was avoided, and the
 continuation reason. Queue execution does not invent retries. Cross-run retry
 count and terminal lineage remain owned by `manifest.attempt`.
 
-For deep-link profile-session transport, the app helper suppresses exact duplicate commands that arrive inside the short native handoff window. The duplicate key includes scenario, run id, queue id, command id or command envelope id, sequence, and command text, so repeated scenario-cycle commands with distinct sequence or command identity remain valid commands. Unsequenced repeated commands should use storage transport or explicit command ids when the scenario expects multiple deliveries of the same semantic command.
+For deep-link profile-session transport, the app helper suppresses exact duplicate commands that arrive inside the short native handoff window. The duplicate key includes scenario, run id, queue id, command id or command envelope id, sequence, and command text, so repeated scenario-cycle commands with distinct sequence or command identity remain valid commands. ASL-owned deep-link command envelopes may include `id` when the runner needs terminal command evidence to match a precomputed queue entry exactly. Unsequenced repeated commands should use storage transport or explicit command ids when the scenario expects multiple deliveries of the same semantic command.
 
 Use `selector` to describe the intended app target without committing the scenario to one driver. Supported selector kinds are `testId`, `accessibilityId`, `accessibilityLabel`, `text`, `resourceId`, and `xpath`.
 

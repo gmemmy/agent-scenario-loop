@@ -123,6 +123,7 @@ type IosSimctlCaptureOptions = {
   outputDir?: string;
   onProfileSessionCommandWindowReady?: (context: IosProfileSessionCommandWindowReadyContext) => Promise<void>;
   deferProfileSessionStorageCommandsUntilCommandWindow?: boolean;
+  profileSessionCommandReleaseDeepLinks?: IosSimctlDeepLink[];
   profileSessionStorage?: IosProfileSessionStorageSeed | null;
   profileSessionStartWaitMs?: number;
   profileStorageKeys?: Partial<ProfileStorageKeys>;
@@ -801,6 +802,7 @@ function deriveIosSimctlCaptureWatchdogBudget({
   conflictingBundleIds = [],
   deepLinks = [],
   launch = false,
+  profileSessionCommandReleaseDeepLinks = [],
   profileSessionStorage = null,
   profileSessionStartWaitMs = 0,
   record = false,
@@ -832,6 +834,7 @@ function deriveIosSimctlCaptureWatchdogBudget({
     profileSessionStorage ? profileSessionStartWaitMs : 0,
     canRepairDevClientReadiness ? profileSessionStartWaitMs : 0,
     ...deepLinks.map((deepLink) => deepLink.waitMs),
+    ...profileSessionCommandReleaseDeepLinks.map((deepLink) => deepLink.waitMs),
   ]);
   const commandUnits = 4 +
     (bundleId ? 1 : 0) +
@@ -841,6 +844,7 @@ function deriveIosSimctlCaptureWatchdogBudget({
     (profileSessionStorage ? 1 : 0) +
     (launch ? 3 : 0) +
     deepLinks.length +
+    profileSessionCommandReleaseDeepLinks.length +
     (canRepairDevClientReadiness ? 1 : 0) +
     (screenshot ? 1 : 0) +
     (record ? 1 : 0);
@@ -2944,6 +2948,7 @@ async function runIosSimctlCapture(options: IosSimctlCaptureOptions = {}): Promi
     onProfileSessionCommandWindowReady,
     outputDir = path.resolve('artifacts/ios-simctl-capture'),
     deferProfileSessionStorageCommandsUntilCommandWindow = false,
+    profileSessionCommandReleaseDeepLinks = [],
     profileSessionStorage = null,
     profileSessionStartWaitMs = profileSessionStorage ? DEFAULT_IOS_PROFILE_SESSION_START_WAIT_MS : 0,
     profileStorageKeys: profileStorageKeyOverrides,
@@ -3002,6 +3007,7 @@ async function runIosSimctlCapture(options: IosSimctlCaptureOptions = {}): Promi
     conflictingBundleIds,
     deepLinks,
     launch,
+    profileSessionCommandReleaseDeepLinks,
     profileSessionStorage,
     profileSessionStartWaitMs,
     record,
@@ -3763,38 +3769,116 @@ async function runIosSimctlCapture(options: IosSimctlCaptureOptions = {}): Promi
             runId: profileSessionStorage.runId,
             scenario: profileSessionStorage.scenario,
           });
-          setCurrentPhase('releasing_profile_session_storage_commands', {
+          setCurrentPhase('preparing_profile_session_command_release', {
             commandCount: deferredProfileSessionStorageCommands.length,
             runId: profileSessionStorage.runId,
             scenario: profileSessionStorage.scenario,
           });
-          const released = await writeProfileSessionStorageCommands({
-            bundleId,
+          const releasedCommands = buildProfileSessionStorageCommands({
             commands: deferredProfileSessionStorageCommands,
-            dataContainer: dataContainerPath,
-            profileStorageKeys,
             runId: profileSessionStorage.runId,
             scenario: profileSessionStorage.scenario,
             startedAt: seededProfileSessionStartedAt,
           });
-          seededProfileSessionCommands = released.commands;
-          raw['ios-profile-session-command-release.json'] = JSON.stringify({
-            commands: released.commands,
-            manifestPath: released.manifestPath,
-            releasedAfter: 'profile-session-start-ready',
-          }, null, 2);
-          metadata.profileSessionCommandRelease = {
-            commandCount: released.commands.length,
-            rawPath: 'raw/ios-profile-session-command-release.json',
-            releasedAfter: 'profile-session-start-ready',
-          };
-          checks.push({
-            name: 'ios_profile_session_commands_released',
-            status: 'passed',
-            source: 'runner',
-            code: 'ios_profile_session_commands_released',
-            message: `Released ${released.commands.length} storage-backed iOS profile-session command${released.commands.length === 1 ? '' : 's'} after the active evidence window opened.`,
-          });
+          if (profileSessionCommandReleaseDeepLinks.length > 0) {
+            const commandReleaseDeepLinksMatch =
+              profileSessionCommandReleaseDeepLinks.length === releasedCommands.length;
+            const commandReleaseResults: Record<string, unknown>[] = [];
+            if (commandReleaseDeepLinksMatch) {
+              setCurrentPhase('releasing_profile_session_deeplink_commands', {
+                commandCount: deferredProfileSessionStorageCommands.length,
+                runId: profileSessionStorage.runId,
+                scenario: profileSessionStorage.scenario,
+              });
+              for (const [index, deepLink] of profileSessionCommandReleaseDeepLinks.entries()) {
+                const rawFileName = `ios-profile-session-command-release-${index + 1}.txt`;
+                const deepLinkResult = await driver.openDeepLink({ rawFileName, url: deepLink.url });
+                raw[deepLinkResult.rawFileName] = formatIosSimctlRawOutput(deepLinkResult);
+                const result = {
+                  args: deepLinkResult.args,
+                  exitCode: deepLinkResult.exitCode,
+                  label: deepLink.label ?? `profile-command-${index + 1}`,
+                  rawPath: `raw/${deepLinkResult.rawFileName}`,
+                  url: deepLink.url,
+                  waitMs: deepLink.waitMs ?? 0,
+                };
+                commandReleaseResults.push(result);
+                deepLinkResults.push(result);
+                if (deepLink.waitMs && deepLink.waitMs > 0) {
+                  setCurrentPhase('waiting_after_profile_session_command_release', {
+                    label: deepLink.label ?? index + 1,
+                    waitMs: deepLink.waitMs,
+                  });
+                  await wait(deepLink.waitMs);
+                }
+              }
+            }
+            const commandsOpened = commandReleaseDeepLinksMatch &&
+              commandReleaseResults.every((result) => result.exitCode === 0);
+            seededProfileSessionCommands = commandsOpened ? releasedCommands : null;
+            raw['ios-profile-session-command-release.json'] = JSON.stringify({
+              commands: releasedCommands,
+              deepLinks: commandReleaseResults,
+              releasedAfter: 'profile-session-start-ready',
+              transport: 'profile-session-deeplink',
+            }, null, 2);
+            metadata.profileSessionCommandRelease = {
+              commandCount: releasedCommands.length,
+              openedCommandCount: commandReleaseResults.filter((result) => result.exitCode === 0).length,
+              rawPath: 'raw/ios-profile-session-command-release.json',
+              releasedAfter: 'profile-session-start-ready',
+              transport: 'profile-session-deeplink',
+            };
+            checks.push({
+              name: 'ios_profile_session_commands_released',
+              status: commandsOpened ? 'passed' : 'failed',
+              source: 'runner',
+              code: commandsOpened
+                ? 'ios_profile_session_commands_released'
+                : 'ios_profile_session_command_release_failed',
+              message: commandsOpened
+                ? `Released ${releasedCommands.length} iOS profile-session command${releasedCommands.length === 1 ? '' : 's'} through app-visible deep links after the active evidence window opened.`
+                : 'Failed to release all iOS profile-session commands through app-visible deep links after the active evidence window opened.',
+              ...(!commandsOpened
+                ? {
+                    metadata: nextActionHint(
+                      'inspect_ios_profile_session_command_release',
+                      'Inspect raw/ios-profile-session-command-release.json and the per-command openurl outputs before rerunning the live proof.',
+                    ),
+                  }
+                : {}),
+            });
+          } else {
+            const released = await writeProfileSessionStorageCommands({
+              bundleId,
+              commands: deferredProfileSessionStorageCommands,
+              dataContainer: dataContainerPath,
+              profileStorageKeys,
+              runId: profileSessionStorage.runId,
+              scenario: profileSessionStorage.scenario,
+              startedAt: seededProfileSessionStartedAt,
+            });
+            seededProfileSessionCommands = released.commands;
+            raw['ios-profile-session-command-release.json'] = JSON.stringify({
+              commands: released.commands,
+              manifestPath: released.manifestPath,
+              releasedAfter: 'profile-session-start-ready',
+              transport: 'profile-session-storage',
+            }, null, 2);
+            metadata.profileSessionCommandRelease = {
+              commandCount: released.commands.length,
+              rawPath: 'raw/ios-profile-session-command-release.json',
+              releasedAfter: 'profile-session-start-ready',
+              transport: 'profile-session-storage',
+            };
+            checks.push({
+              name: 'ios_profile_session_commands_released',
+              status: 'passed',
+              source: 'runner',
+              code: 'ios_profile_session_commands_released',
+              message: `Released ${released.commands.length} storage-backed iOS profile-session command${released.commands.length === 1 ? '' : 's'} after the active evidence window opened.`,
+            });
+          }
         }
       }
       if (waitMs > 0 && profileSessionStartReady) {

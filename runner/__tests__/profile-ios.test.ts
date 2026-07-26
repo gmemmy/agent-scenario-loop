@@ -2826,6 +2826,7 @@ test('profile-ios starts live-window providers after dev-client readiness before
     'utf8',
   );
   const calls: string[] = [];
+  const releasedCommandUrls: string[] = [];
   let profileStartWritten = false;
   let completionWritten = false;
   const writeProfileStartIfNeeded = () => {
@@ -2869,13 +2870,35 @@ test('profile-ios starts live-window providers after dev-client readiness before
       return;
     }
     const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
-    const commandsRaw = manifest['agent-scenario-loop.profile-commands.1'];
-    if (typeof commandsRaw !== 'string') {
+    if (releasedCommandUrls.length < 6) {
       return;
     }
     const session = JSON.parse(manifest['agent-scenario-loop.profile-session.1']);
     const startedAt = Number(session.startedAt);
-    const commands = JSON.parse(commandsRaw) as Array<Record<string, unknown>>;
+    const commands = releasedCommandUrls.map((url) => {
+      const parsed = new URL(url);
+      const commandId = parsed.searchParams.get('commandId');
+      const queueId = parsed.searchParams.get('queueId');
+      const sequence = Number(parsed.searchParams.get('sequence'));
+      const waitForMilestone = parsed.searchParams.get('waitForMilestone');
+      const waitMs = Number(parsed.searchParams.get('waitMs'));
+      const waitTimeoutMs = Number(parsed.searchParams.get('waitTimeoutMs'));
+      const dependsOnMilestones = parsed.searchParams.get('dependsOnMilestones');
+      return {
+        id: parsed.searchParams.get('id') ?? '',
+        command: parsed.searchParams.get('command') ?? '',
+        ...(commandId ? { commandId } : {}),
+        ...(dependsOnMilestones
+          ? { dependsOnMilestones: dependsOnMilestones.split(',').filter(Boolean) }
+          : {}),
+        ...(queueId ? { queueId } : {}),
+        ...(Number.isInteger(sequence) ? { sequence } : {}),
+        timestamp: Date.now(),
+        ...(waitForMilestone ? { waitForMilestone } : {}),
+        ...(Number.isInteger(waitMs) ? { waitMs } : {}),
+        ...(Number.isInteger(waitTimeoutMs) ? { waitTimeoutMs } : {}),
+      };
+    });
     fs.appendFileSync(orderPath, 'commands-released\n');
     manifest['agent-scenario-loop.profile-events.1'] = fs
       .readFileSync(fixturePath('examples/mobile-app/event-logs/open-close-cycle.log'), 'utf8')
@@ -2903,7 +2926,7 @@ test('profile-ios starts live-window providers after dev-client readiness before
           kind: 'command',
           runId: 'ios-live-window-provider',
           scenario: 'open-close-cycle',
-          source: 'storage',
+          source: 'deeplink',
           status: 'received',
           timestamp: Date.now(),
         },
@@ -2913,7 +2936,7 @@ test('profile-ios starts live-window providers after dev-client readiness before
           kind: 'command',
           runId: 'ios-live-window-provider',
           scenario: 'open-close-cycle',
-          source: 'storage',
+          source: 'deeplink',
           status: 'completed',
           timestamp: Date.now(),
         },
@@ -2926,6 +2949,18 @@ test('profile-ios starts live-window providers after dev-client readiness before
     const key = args.join(' ');
     calls.push(key);
     if (key.startsWith('simctl openurl A692ED28-893E-453F-8866-C69331AE757F asl-example://expo-development-client/')) {
+      return {
+        command,
+        args,
+        exitCode: 0,
+        stderr: '',
+        stdout: '',
+      };
+    }
+    if (key.startsWith('simctl openurl A692ED28-893E-453F-8866-C69331AE757F asl-example://profile-session/command')) {
+      if (typeof args[3] === 'string') {
+        releasedCommandUrls.push(args[3]);
+      }
       return {
         command,
         args,
@@ -3001,8 +3036,12 @@ test('profile-ios starts live-window providers after dev-client readiness before
   assert.equal(seed.deferredCommandCount, 6);
   assert.deepEqual(seed.commands, []);
   assert.equal((release.commands as unknown[]).length, 6);
+  assert.equal(release.transport, 'profile-session-deeplink');
+  assert.equal((release.deepLinks as unknown[]).length, 6);
+  assert.match(releasedCommandUrls[0] ?? '', /id=ios-storage-command-1/u);
   assert.equal(providerSummary.commandStoragePresent, false);
   assert.deepEqual(order, ['startWindow', 'commands-released', 'stopWindow', 'finalize']);
+  assert.ok(fs.existsSync(path.join(simctlCaptureRoot, 'raw', 'ios-profile-session-command-release-1.txt')));
   assert.ok(fs.existsSync(path.join(result.runDir, 'raw', 'runner-active-loop-window.json')));
   assert.ok(calls.includes('simctl terminate A692ED28-893E-453F-8866-C69331AE757F dev.agent-scenario-loop.example'));
   assert.ok(calls.some((call) => call.startsWith('simctl openurl A692ED28-893E-453F-8866-C69331AE757F asl-example://expo-development-client/')));
