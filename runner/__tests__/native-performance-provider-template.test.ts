@@ -140,6 +140,12 @@ function buildNativePerformanceRequestRecord(platform: 'android' | 'ios') {
       };
 }
 
+function readLoggedCommands(commandLog: string): Array<string[]> {
+  return fs.existsSync(commandLog)
+    ? fs.readFileSync(commandLog, 'utf8').trim().split('\n').filter(Boolean).map((line: string) => JSON.parse(line))
+    : [];
+}
+
 async function writeNativePerformanceRequest({
   platform,
   record,
@@ -444,6 +450,23 @@ if (args[0] === 'simctl' && args[1] === 'spawn' && args[3] === 'launchctl' && ar
 
 if (args[0] === 'xctrace' && args[1] === 'record') {
   failIfNeeded('xctrace-record');
+  const attachIndex = args.indexOf('--attach');
+  const attachTarget = attachIndex !== -1 ? args[attachIndex + 1] : 'unknown';
+  if (process.env.FAKE_XCRUN_ATTACH_FAIL_ALWAYS === '1') {
+    process.stderr.write(\`Cannot find process for provided pid: \${attachTarget}\\n\`);
+    process.exit(21);
+  }
+  if (process.env.FAKE_XCRUN_ATTACH_FAIL_ONCE_STATE) {
+    const statePath = process.env.FAKE_XCRUN_ATTACH_FAIL_ONCE_STATE;
+    const attempts = fs.existsSync(statePath)
+      ? Number.parseInt(fs.readFileSync(statePath, 'utf8'), 10) || 0
+      : 0;
+    fs.writeFileSync(statePath, String(attempts + 1), 'utf8');
+    if (attempts === 0) {
+      process.stderr.write(\`Cannot find process for provided pid: \${attachTarget}\\n\`);
+      process.exit(21);
+    }
+  }
   const outputIndex = args.indexOf('--output');
   if (outputIndex !== -1 && args[outputIndex + 1]) {
     const tracePath = args[outputIndex + 1];
@@ -1007,6 +1030,44 @@ test('generated provider keeps iOS target binding immutable after finalize', asy
   assert.deepEqual(finalizedTargetProof.sourceCommands, normalizedTargetProof.sourceCommands);
 });
 
+test('generated provider retries a transient iOS xctrace attach failure during start-window', async (t: TestContext) => {
+  const provider = await createGeneratedProvider(t);
+  const commandLog = path.join(provider.targetDir, 'xcrun-commands.jsonl');
+  const failOnceStatePath = path.join(provider.targetDir, 'xctrace-attach-fail-once.txt');
+  const env = {
+    ...process.env,
+    ASL_NATIVE_PERFORMANCE_IOS_CAPTURE: '1',
+    FAKE_XCRUN_ATTACH_FAIL_ONCE_STATE: failOnceStatePath,
+    FAKE_XCRUN_LOG: commandLog,
+  };
+  await writeNativePerformanceRequest({ platform: 'ios', runDir: provider.runDir });
+
+  let result = await execFileResult(process.execPath, iosLifecycleArgs(provider, 'start-window'), {
+    cwd: provider.targetDir,
+    env,
+  });
+  assert.equal(result.exitCode, 0, result.stderr);
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  result = await execFileResult(process.execPath, iosLifecycleArgs(provider, 'stop-window'), {
+    cwd: provider.targetDir,
+    env,
+  });
+  assert.equal(result.exitCode, 0, result.stderr);
+  result = await execFileResult(process.execPath, iosLifecycleArgs(provider, 'normalize'), {
+    cwd: provider.targetDir,
+    env,
+  });
+  assert.equal(result.exitCode, 0, result.stderr);
+
+  const targetProof = JSON.parse(await fsp.readFile(path.join(provider.runDir, 'raw', 'providers', provider.providerId, 'target-binding.json'), 'utf8'));
+  assert.equal(targetProof.status, 'verified');
+  assert.equal(targetProof.requestedPid, 4242);
+  assert.equal(fs.readFileSync(failOnceStatePath, 'utf8'), '2');
+  const commands = readLoggedCommands(commandLog);
+  assert.equal(commands.filter((command) => command[0] === 'xctrace' && command[1] === 'record').length, 2);
+  assert.equal(commands.filter((command) => command[0] === 'simctl' && command[1] === 'spawn' && command[3] === 'launchctl').length, 2);
+});
+
 test('generated provider iOS after-capture xctrace output stays diagnostic-only after finalize', async (t: TestContext) => {
   const provider = await createGeneratedProvider(t);
   const env = { ...process.env, ASL_NATIVE_PERFORMANCE_IOS_CAPTURE: '1' };
@@ -1530,6 +1591,29 @@ test('generated provider preserves partial iOS xctrace evidence and exits nonzer
   assert.equal(evidence.diagnosticSources.find((source: Record<string, unknown>) => source.sourceId === 'xctrace').status, 'failed');
   assert.equal(fs.existsSync(path.join(provider.runDir, 'raw', 'providers', 'example-evidence-provider', 'ios-xctrace', 'xctrace-export-toc.command.json')), true);
   assert.equal(fs.existsSync(path.join(provider.runDir, 'raw', 'providers', 'example-evidence-provider', 'ios-xctrace', 'trace-bundle-inventory.json')), true);
+});
+
+test('generated provider fails iOS start-window when xctrace cannot attach to the observed pid', async (t: TestContext) => {
+  const provider = await createGeneratedProvider(t);
+  await writeNativePerformanceRequest({ platform: 'ios', runDir: provider.runDir });
+  const result = await execFileResult(process.execPath, iosLifecycleArgs(provider, 'start-window'), {
+    cwd: provider.targetDir,
+    env: {
+      ...process.env,
+      ASL_NATIVE_PERFORMANCE_IOS_CAPTURE: '1',
+      FAKE_XCRUN_ATTACH_FAIL_ALWAYS: '1',
+    },
+  });
+  assert.equal(result.exitCode, 1);
+  const captureDir = path.join(provider.runDir, 'raw', 'providers', provider.providerId, 'ios-xctrace');
+  const commandRecord = JSON.parse(await fsp.readFile(path.join(captureDir, 'xctrace-record.command.json'), 'utf8'));
+  assert.equal(commandRecord.status, 'failed');
+  assert.equal(commandRecord.exitCode, 21);
+  const stderrText = await fsp.readFile(path.join(captureDir, 'xctrace-record.stderr.txt'), 'utf8');
+  assert.match(stderrText, /Cannot find process for provided pid: 4242/u);
+  const startWindowRecord = JSON.parse(await fsp.readFile(path.join(captureDir, 'start-window.command.json'), 'utf8'));
+  assert.equal(startWindowRecord.status, 'failed');
+  assert.equal(startWindowRecord.exitCode, 21);
 });
 
 test('generated provider rejects contradictory iOS xctrace duration metadata', async (t: TestContext) => {
