@@ -1901,6 +1901,565 @@ test('fails iOS video capture when recorder output is invalid media', async (t: 
   assert.equal(metadata.video.capturePath, null);
 });
 
+function createAmbiguousIosLifecycleExecutor(
+  beforeLifecycleResult?: () => Promise<void>,
+) {
+  const executor = createExecutor({
+    'simctl list devices': {
+      stdout: [
+        '== Devices ==',
+        '-- iOS 26.3 --',
+        '    iPhone 17 Pro Max (A692ED28-893E-453F-8866-C69331AE757F) (Booted)',
+      ].join('\n'),
+    },
+    'simctl get_app_container A692ED28-893E-453F-8866-C69331AE757F dev.agent-scenario-loop.example app': {
+      stdout: '/tmp/ASLExampleMobile.app\n',
+    },
+    'simctl launch A692ED28-893E-453F-8866-C69331AE757F dev.agent-scenario-loop.example': {
+      stdout: 'dev.agent-scenario-loop.example: 74759\n',
+    },
+    'simctl spawn A692ED28-893E-453F-8866-C69331AE757F log show --style compact --last 1m --predicate eventMessage CONTAINS "dev.agent-scenario-loop.example" AND eventMessage CONTAINS "74759"': {
+      stdout: 'runningboardd app<dev.agent-scenario-loop.example>:74759 exited with context unknown',
+    },
+    'simctl appinfo A692ED28-893E-453F-8866-C69331AE757F dev.agent-scenario-loop.example': {
+      stdout: '{"Bundle":"dev.agent-scenario-loop.example"}\n',
+    },
+    'simctl spawn A692ED28-893E-453F-8866-C69331AE757F log show --style compact --last 1m --predicate eventMessage CONTAINS "[profile-event]" OR eventMessage CONTAINS "[profile-session]"': {
+      stdout: 'Timestamp Ty Process[PID:TID]\n',
+    },
+  });
+  return async (command: string, args: string[]): Promise<CommandResult> => {
+    if (
+      beforeLifecycleResult &&
+      args.join(' ').includes('eventMessage CONTAINS "dev.agent-scenario-loop.example" AND eventMessage CONTAINS "74759"')
+    ) {
+      await beforeLifecycleResult();
+    }
+    return executor(command, args);
+  };
+}
+
+async function writeDiagnosticReportFixture({
+  bundleId,
+  diagnosticReportsDir,
+  modifiedAtMs,
+  name,
+  reportContent,
+}: {
+  bundleId: string;
+  diagnosticReportsDir: string;
+  modifiedAtMs: number;
+  name: string;
+  reportContent?: string;
+}): Promise<string> {
+  const reportPath = path.join(diagnosticReportsDir, name);
+  await fsp.writeFile(
+    reportPath,
+    reportContent ?? `{"app_name":"ASLExampleMobile","bundleID":"${bundleId}","exception":{"type":"EXC_BAD_ACCESS"}}\n`,
+    'utf8',
+  );
+  const modifiedAt = new Date(modifiedAtMs);
+  await fsp.utimes(reportPath, modifiedAt, modifiedAt);
+  return reportPath;
+}
+
+async function runAmbiguousIosLifecycleCapture({
+  diagnosticReportsDir,
+  executor = createAmbiguousIosLifecycleExecutor(),
+  outputDir,
+  runId,
+}: {
+  diagnosticReportsDir: string;
+  executor?: ReturnType<typeof createAmbiguousIosLifecycleExecutor>;
+  outputDir: string;
+  runId: string;
+}) {
+  return runIosSimctlCapture({
+    bundleId: 'dev.agent-scenario-loop.example',
+    diagnosticReportsDir,
+    executor,
+    launch: true,
+    logLast: '1m',
+    outputDir,
+    runId,
+  });
+}
+
+test('finds a matching iOS crash report after the diagnostic preview limit', async (t: TestContext) => {
+  const outputDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-ios-simctl-crash-rank-26-'));
+  const diagnosticReportsDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-ios-diagnostic-rank-26-'));
+  t.after(async () => {
+    await fsp.rm(outputDir, { recursive: true, force: true });
+    await fsp.rm(diagnosticReportsDir, { recursive: true, force: true });
+  });
+
+  const now = Date.now();
+  for (let rank = 1; rank <= 25; rank += 1) {
+    await writeDiagnosticReportFixture({
+      bundleId: `dev.agent-scenario-loop.decoy-${rank}`,
+      diagnosticReportsDir,
+      modifiedAtMs: now - rank * 100,
+      name: `Decoy-${String(rank).padStart(2, '0')}.ips`,
+    });
+  }
+  await writeDiagnosticReportFixture({
+    bundleId: 'dev.agent-scenario-loop.example',
+    diagnosticReportsDir,
+    modifiedAtMs: now - 2600,
+    name: 'ASLExampleMobile-rank-26.ips',
+    reportContent: '{\n\t"app_name" : "ASLExampleMobile",\n\t"bundleID"\t:\n\t"dev.agent-scenario-loop.example"\n}\n',
+  });
+
+  const result = await runAmbiguousIosLifecycleCapture({
+    diagnosticReportsDir,
+    outputDir,
+    runId: 'ios-crash-rank-26',
+  });
+  const search = await fsp.readFile(path.join(outputDir, 'raw', 'ios-host-diagnostic-report-search.txt'), 'utf8');
+
+  assert.equal(result.health.healthStatus, 'failed');
+  assert.match(search, /recentCandidateCount=26/u);
+  assert.match(search, /checkedCandidateCount=26/u);
+  assert.match(search, /previewCount=25/u);
+  assert.match(search, /truncatedPreviewCount=1/u);
+  assert.match(search, /matched=.*ASLExampleMobile-rank-26\.ips/u);
+  assert.ok(
+    (result.health.checks as Array<{code: string; status: string}>).some(
+      (check) => check.code === 'ios_app_exited_during_capture' && check.status === 'failed',
+    ),
+  );
+});
+
+test('checks every recent iOS crash report when none matches', async (t: TestContext) => {
+  const outputDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-ios-simctl-crash-no-match-'));
+  const diagnosticReportsDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-ios-diagnostic-no-match-'));
+  t.after(async () => {
+    await fsp.rm(outputDir, { recursive: true, force: true });
+    await fsp.rm(diagnosticReportsDir, { recursive: true, force: true });
+  });
+
+  const now = Date.now();
+  for (let rank = 1; rank <= 30; rank += 1) {
+    await writeDiagnosticReportFixture({
+      bundleId: `dev.agent-scenario-loop.decoy-${rank}`,
+      diagnosticReportsDir,
+      modifiedAtMs: now - rank * 100,
+      name: `Decoy-${String(rank).padStart(2, '0')}.ips`,
+    });
+  }
+
+  const result = await runAmbiguousIosLifecycleCapture({
+    diagnosticReportsDir,
+    outputDir,
+    runId: 'ios-crash-no-match',
+  });
+  const search = await fsp.readFile(path.join(outputDir, 'raw', 'ios-host-diagnostic-report-search.txt'), 'utf8');
+
+  assert.equal(result.health.healthStatus, 'passed');
+  assert.match(search, /recentCandidateCount=30/u);
+  assert.match(search, /checkedCandidateCount=30/u);
+  assert.match(search, /previewCount=25/u);
+  assert.match(search, /truncatedPreviewCount=5/u);
+  assert.match(search, /matched=\n?$/u);
+  assert.ok(
+    (result.health.checks as Array<{code: string; status: string}>).some(
+      (check) => check.code === 'ios_app_lifecycle_exit_unconfirmed' && check.status === 'warning',
+    ),
+  );
+});
+
+test('does not match a target bundle mentioned only in the iOS crash-report body', async (t: TestContext) => {
+  const outputDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-ios-simctl-crash-body-collision-'));
+  const diagnosticReportsDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-ios-diagnostic-body-collision-'));
+  t.after(async () => {
+    await fsp.rm(outputDir, { recursive: true, force: true });
+    await fsp.rm(diagnosticReportsDir, { recursive: true, force: true });
+  });
+
+  await writeDiagnosticReportFixture({
+    bundleId: 'dev.agent-scenario-loop.other',
+    diagnosticReportsDir,
+    modifiedAtMs: Date.now() - 100,
+    name: 'OtherApp-body-collision.ips',
+    reportContent: [
+      '{"bundleID":"dev.agent-scenario-loop.other","app_name":"OtherApp"}',
+      '{"diagnostic":"target reference","bundleID":"dev.agent-scenario-loop.example"}',
+    ].join('\n'),
+  });
+
+  const result = await runAmbiguousIosLifecycleCapture({
+    diagnosticReportsDir,
+    outputDir,
+    runId: 'ios-crash-body-collision',
+  });
+  const search = await fsp.readFile(path.join(outputDir, 'raw', 'ios-host-diagnostic-report-search.txt'), 'utf8');
+
+  assert.equal(result.health.healthStatus, 'passed');
+  assert.match(search, /checkedCandidateCount=1/u);
+  assert.match(search, /unreadableHeaderCount=0/u);
+  assert.match(search, /searchState=not_found/u);
+  assert.match(search, /matched=\n?$/u);
+});
+
+test('fails closed when the leading iOS crash-report header has no usable bundle identity', async (t: TestContext) => {
+  const cases = [
+    { name: 'missing', reportContent: '{"app_name":"MissingBundle"}\n' },
+    { name: 'empty', reportContent: '{"app_name":"EmptyBundle","bundleID":"   "}\n' },
+    { name: 'non-string', reportContent: '{"app_name":"NumericBundle","bundleID":42}\n' },
+  ];
+
+  for (const fixture of cases) {
+    await t.test(fixture.name, async () => {
+      const outputDir = await fsp.mkdtemp(path.join(os.tmpdir(), `asl-ios-simctl-crash-${fixture.name}-bundle-`));
+      const diagnosticReportsDir = await fsp.mkdtemp(
+        path.join(os.tmpdir(), `asl-ios-diagnostic-${fixture.name}-bundle-`),
+      );
+      try {
+        await writeDiagnosticReportFixture({
+          bundleId: 'unused-by-explicit-content',
+          diagnosticReportsDir,
+          modifiedAtMs: Date.now() - 100,
+          name: `InvalidBundle-${fixture.name}.ips`,
+          reportContent: fixture.reportContent,
+        });
+
+        const result = await runAmbiguousIosLifecycleCapture({
+          diagnosticReportsDir,
+          outputDir,
+          runId: `ios-crash-${fixture.name}-bundle`,
+        });
+        const search = await fsp.readFile(
+          path.join(outputDir, 'raw', 'ios-host-diagnostic-report-search.txt'),
+          'utf8',
+        );
+
+        assert.equal(result.health.healthStatus, 'failed');
+        assert.match(search, /checkedCandidateCount=1/u);
+        assert.match(search, /unreadableHeaderCount=1/u);
+        assert.match(search, /searchState=search_incomplete/u);
+        assert.match(search, /matched=\n?$/u);
+        assert.ok(
+          (result.health.checks as Array<{code: string; status: string}>).some(
+            (check) => check.code === 'ios_host_diagnostic_report_missing' && check.status === 'failed',
+          ),
+        );
+      } finally {
+        await fsp.rm(outputDir, { recursive: true, force: true });
+        await fsp.rm(diagnosticReportsDir, { recursive: true, force: true });
+      }
+    });
+  }
+});
+
+test('excludes stale matching iOS crash reports from lifecycle classification', async (t: TestContext) => {
+  const outputDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-ios-simctl-crash-stale-'));
+  const diagnosticReportsDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-ios-diagnostic-stale-'));
+  t.after(async () => {
+    await fsp.rm(outputDir, { recursive: true, force: true });
+    await fsp.rm(diagnosticReportsDir, { recursive: true, force: true });
+  });
+
+  await writeDiagnosticReportFixture({
+    bundleId: 'dev.agent-scenario-loop.example',
+    diagnosticReportsDir,
+    modifiedAtMs: Date.now() - 11 * 60 * 1000,
+    name: 'ASLExampleMobile-stale.ips',
+  });
+
+  const result = await runAmbiguousIosLifecycleCapture({
+    diagnosticReportsDir,
+    outputDir,
+    runId: 'ios-crash-stale',
+  });
+  const search = await fsp.readFile(path.join(outputDir, 'raw', 'ios-host-diagnostic-report-search.txt'), 'utf8');
+
+  assert.equal(result.health.healthStatus, 'passed');
+  assert.match(search, /candidateCount=1/u);
+  assert.match(search, /recentCandidateCount=0/u);
+  assert.match(search, /checkedCandidateCount=0/u);
+  assert.match(search, /matched=\n?$/u);
+  assert.ok(
+    (result.health.checks as Array<{code: string; status: string}>).some(
+      (check) => check.code === 'ios_app_lifecycle_exit_unconfirmed' && check.status === 'warning',
+    ),
+  );
+});
+
+test('continues after an unreadable iOS crash candidate and finds a later match', async (t: TestContext) => {
+  const outputDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-ios-simctl-crash-unreadable-'));
+  const diagnosticReportsDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-ios-diagnostic-unreadable-'));
+  t.after(async () => {
+    await fsp.rm(outputDir, { recursive: true, force: true });
+    await fsp.rm(diagnosticReportsDir, { recursive: true, force: true });
+  });
+
+  const now = Date.now();
+  const unreadablePath = await writeDiagnosticReportFixture({
+    bundleId: 'dev.agent-scenario-loop.unreadable',
+    diagnosticReportsDir,
+    modifiedAtMs: now - 100,
+    name: 'Unreadable.ips',
+  });
+  await fsp.chmod(unreadablePath, 0o000);
+  await writeDiagnosticReportFixture({
+    bundleId: 'dev.agent-scenario-loop.example',
+    diagnosticReportsDir,
+    modifiedAtMs: now - 200,
+    name: 'ASLExampleMobile-after-unreadable.ips',
+  });
+
+  const result = await runAmbiguousIosLifecycleCapture({
+    diagnosticReportsDir,
+    outputDir,
+    runId: 'ios-crash-after-unreadable',
+  });
+  const search = await fsp.readFile(path.join(outputDir, 'raw', 'ios-host-diagnostic-report-search.txt'), 'utf8');
+
+  assert.equal(result.health.healthStatus, 'failed');
+  assert.match(search, /checkedCandidateCount=2/u);
+  assert.match(search, /readErrorCount=1/u);
+  assert.match(search, /searchState=matched/u);
+  assert.match(search, /matched=.*ASLExampleMobile-after-unreadable\.ips/u);
+});
+
+test('fails closed when an iOS crash report changes during its bounded read', async (t: TestContext) => {
+  const outputDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-ios-simctl-crash-growing-'));
+  const diagnosticReportsDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-ios-diagnostic-growing-'));
+  t.after(async () => {
+    await fsp.rm(outputDir, { recursive: true, force: true });
+    await fsp.rm(diagnosticReportsDir, { recursive: true, force: true });
+  });
+
+  const growingReportPath = await writeDiagnosticReportFixture({
+    bundleId: 'dev.agent-scenario-loop.example',
+    diagnosticReportsDir,
+    modifiedAtMs: Date.now() - 100,
+    name: 'ASLExampleMobile-growing.ips',
+  });
+  const originalOpen = fsp.open.bind(fsp);
+  t.mock.method(fsp, 'open', async (filePath: string, flags: string) => {
+    const handle = await originalOpen(filePath, filePath === growingReportPath ? 'r+' : flags);
+    if (filePath !== growingReportPath) {
+      return handle;
+    }
+    let statCallCount = 0;
+    return {
+      close: () => handle.close(),
+      read: (
+        buffer: Buffer,
+        offset: number,
+        length: number,
+        position: number,
+      ) => handle.read(buffer, offset, length, position),
+      stat: async () => {
+        statCallCount += 1;
+        if (statCallCount === 2) {
+          const beforeGrowth = await handle.stat();
+          const growth = Buffer.from('growth');
+          await handle.write(growth, 0, growth.length, beforeGrowth.size);
+        }
+        return handle.stat();
+      },
+    };
+  });
+
+  const result = await runAmbiguousIosLifecycleCapture({
+    diagnosticReportsDir,
+    outputDir,
+    runId: 'ios-crash-growing',
+  });
+  const search = await fsp.readFile(path.join(outputDir, 'raw', 'ios-host-diagnostic-report-search.txt'), 'utf8');
+  const attachmentPath = path.join(
+    outputDir,
+    'raw',
+    'ios-host-diagnostic-report-dev.agent-scenario-loop.example.ips',
+  );
+
+  assert.equal(result.health.healthStatus, 'failed');
+  assert.match(search, /changedReadCount=1/u);
+  assert.match(search, /searchState=search_incomplete/u);
+  assert.match(search, /matched=\n?$/u);
+  assert.equal(fs.existsSync(attachmentPath), false);
+  assert.ok(
+    (result.health.checks as Array<{code: string; status: string}>).some(
+      (check) => check.code === 'ios_host_diagnostic_report_missing' && check.status === 'failed',
+    ),
+  );
+});
+
+test('fails closed when a bounded iOS crash-report read cannot establish absence', async (t: TestContext) => {
+  const outputDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-ios-simctl-crash-incomplete-'));
+  const diagnosticReportsDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-ios-diagnostic-incomplete-'));
+  t.after(async () => {
+    await fsp.rm(outputDir, { recursive: true, force: true });
+    await fsp.rm(diagnosticReportsDir, { recursive: true, force: true });
+  });
+
+  await writeDiagnosticReportFixture({
+    bundleId: 'dev.agent-scenario-loop.decoy',
+    diagnosticReportsDir,
+    modifiedAtMs: Date.now() - 100,
+    name: 'Oversized-no-match.ips',
+    reportContent: `${'x'.repeat(4 * 1024 * 1024 + 1)}\n`,
+  });
+
+  const result = await runAmbiguousIosLifecycleCapture({
+    diagnosticReportsDir,
+    outputDir,
+    runId: 'ios-crash-incomplete',
+  });
+  const search = await fsp.readFile(path.join(outputDir, 'raw', 'ios-host-diagnostic-report-search.txt'), 'utf8');
+
+  assert.equal(result.health.healthStatus, 'failed');
+  assert.match(search, /incompleteReadCount=1/u);
+  assert.match(search, /searchState=search_incomplete/u);
+  assert.ok(
+    (result.health.checks as Array<{code: string; status: string}>).some(
+      (check) => check.code === 'ios_app_exited_during_capture' && check.status === 'failed',
+    ),
+  );
+  assert.ok(
+    (result.health.checks as Array<{code: string; status: string}>).some(
+      (check) => check.code === 'ios_host_diagnostic_report_missing' && check.status === 'failed',
+    ),
+  );
+});
+
+test('does not publish a partial iOS crash report as a complete attachment', async (t: TestContext) => {
+  const outputDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-ios-simctl-crash-partial-attachment-'));
+  const diagnosticReportsDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-ios-diagnostic-partial-attachment-'));
+  t.after(async () => {
+    await fsp.rm(outputDir, { recursive: true, force: true });
+    await fsp.rm(diagnosticReportsDir, { recursive: true, force: true });
+  });
+
+  const oversizedReportPath = await writeDiagnosticReportFixture({
+    bundleId: 'dev.agent-scenario-loop.example',
+    diagnosticReportsDir,
+    modifiedAtMs: Date.now() - 100,
+    name: 'Oversized-match.ips',
+    reportContent: `{"bundleID":"dev.agent-scenario-loop.example"}\n${'x'.repeat(4 * 1024 * 1024)}`,
+  });
+
+  const originalSizeBytes = (await fsp.stat(oversizedReportPath)).size;
+  const result = await runAmbiguousIosLifecycleCapture({
+    diagnosticReportsDir,
+    outputDir,
+    runId: 'ios-crash-partial-attachment',
+  });
+  const attachmentPath = path.join(
+    outputDir,
+    'raw',
+    'ios-host-diagnostic-report-dev.agent-scenario-loop.example.ips',
+  );
+  const hostReport = (result.metadata.appLifecycle as {
+    hostDiagnosticReport: Record<string, unknown>;
+  }).hostDiagnosticReport;
+
+  assert.equal(result.health.healthStatus, 'failed');
+  assert.equal(hostReport.searchState, 'matched');
+  assert.equal(hostReport.attachmentComplete, false);
+  assert.equal(hostReport.originalSizeBytes, originalSizeBytes);
+  assert.equal(hostReport.capturedSizeBytes, 4 * 1024 * 1024);
+  assert.equal(hostReport.rawPath, undefined);
+  assert.equal(fs.existsSync(attachmentPath), false);
+  assert.ok(
+    (result.health.checks as Array<{code: string; status: string}>).some(
+      (check) => check.code === 'ios_host_diagnostic_report_missing' && check.status === 'warning',
+    ),
+  );
+});
+
+test('rejects matching iOS crash reports created before the capture interval', async (t: TestContext) => {
+  const outputDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-ios-simctl-crash-pre-capture-'));
+  const diagnosticReportsDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-ios-diagnostic-pre-capture-'));
+  t.after(async () => {
+    await fsp.rm(outputDir, { recursive: true, force: true });
+    await fsp.rm(diagnosticReportsDir, { recursive: true, force: true });
+  });
+
+  await writeDiagnosticReportFixture({
+    bundleId: 'dev.agent-scenario-loop.example',
+    diagnosticReportsDir,
+    modifiedAtMs: Date.now() - 60000,
+    name: 'ASLExampleMobile-pre-capture.ips',
+  });
+
+  const result = await runAmbiguousIosLifecycleCapture({
+    diagnosticReportsDir,
+    outputDir,
+    runId: 'ios-crash-pre-capture',
+  });
+  const search = await fsp.readFile(path.join(outputDir, 'raw', 'ios-host-diagnostic-report-search.txt'), 'utf8');
+
+  assert.equal(result.health.healthStatus, 'passed');
+  assert.match(search, /recentCandidateCount=0/u);
+  assert.match(search, /searchState=not_found/u);
+});
+
+test('includes a matching iOS crash report at the capture-start boundary', async (t: TestContext) => {
+  const outputDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-ios-simctl-crash-boundary-'));
+  const diagnosticReportsDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-ios-diagnostic-boundary-'));
+  t.after(async () => {
+    await fsp.rm(outputDir, { recursive: true, force: true });
+    await fsp.rm(diagnosticReportsDir, { recursive: true, force: true });
+  });
+
+  const reportPath = await writeDiagnosticReportFixture({
+    bundleId: 'dev.agent-scenario-loop.example',
+    diagnosticReportsDir,
+    modifiedAtMs: Date.now() - 60000,
+    name: 'ASLExampleMobile-boundary.ips',
+  });
+  const executor = createAmbiguousIosLifecycleExecutor(async () => {
+    const checkpoint = JSON.parse(
+      await fsp.readFile(path.join(outputDir, 'raw', 'ios-simctl-capture-started.json'), 'utf8'),
+    ) as {startedAt: string};
+    const boundary = new Date(checkpoint.startedAt);
+    await fsp.utimes(reportPath, boundary, boundary);
+  });
+
+  const result = await runAmbiguousIosLifecycleCapture({
+    diagnosticReportsDir,
+    executor,
+    outputDir,
+    runId: 'ios-crash-boundary',
+  });
+
+  assert.equal(result.health.healthStatus, 'failed');
+  assert.equal(
+    (result.metadata.appLifecycle as {hostDiagnosticReport: {searchState: string}}).hostDiagnosticReport.searchState,
+    'matched',
+  );
+});
+
+test('rejects materially future-dated matching iOS crash reports', async (t: TestContext) => {
+  const outputDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-ios-simctl-crash-future-'));
+  const diagnosticReportsDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-ios-diagnostic-future-'));
+  t.after(async () => {
+    await fsp.rm(outputDir, { recursive: true, force: true });
+    await fsp.rm(diagnosticReportsDir, { recursive: true, force: true });
+  });
+
+  await writeDiagnosticReportFixture({
+    bundleId: 'dev.agent-scenario-loop.example',
+    diagnosticReportsDir,
+    modifiedAtMs: Date.now() + 60000,
+    name: 'ASLExampleMobile-future.ips',
+  });
+
+  const result = await runAmbiguousIosLifecycleCapture({
+    diagnosticReportsDir,
+    outputDir,
+    runId: 'ios-crash-future',
+  });
+  const search = await fsp.readFile(path.join(outputDir, 'raw', 'ios-host-diagnostic-report-search.txt'), 'utf8');
+
+  assert.equal(result.health.healthStatus, 'passed');
+  assert.match(search, /recentCandidateCount=0/u);
+  assert.match(search, /searchState=not_found/u);
+});
+
 test('fails iOS capture when launched app exits during the capture window', async (t: TestContext) => {
   const outputDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-ios-simctl-crash-'));
   const diagnosticReportsDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-ios-diagnostic-reports-'));
@@ -1991,11 +2550,16 @@ test('fails iOS capture when launched app exits during the capture window', asyn
     ],
     exitCode: 0,
     hostDiagnosticReport: {
+      attachmentComplete: true,
+      capturedSizeBytes: Buffer.byteLength(attachedCrashReport),
+      checkedCandidateCount: 1,
       matched: true,
       modifiedAt: appLifecycle.hostDiagnosticReport.modifiedAt,
+      originalSizeBytes: Buffer.byteLength(attachedCrashReport),
       rawPath: 'raw/ios-host-diagnostic-report-dev.agent-scenario-loop.example.ips',
       reportPath: crashReportPath,
       searchRawPath: 'raw/ios-host-diagnostic-report-search.txt',
+      searchState: 'matched',
     },
     pid: '74759',
     rawPath: 'raw/ios-app-lifecycle-log.txt',

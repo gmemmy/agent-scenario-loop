@@ -158,8 +158,21 @@ type SimulatorLaunchEnvironmentProbe = {
   metadata: Record<string, unknown>;
   raw: Record<string, string>;
 };
+type HostDiagnosticReportSearchState = 'matched' | 'not_found' | 'search_incomplete';
 type HostDiagnosticReportProbe = {
-  metadata: Record<string, unknown>;
+  metadata: {
+    attachmentComplete: boolean;
+    capturedSizeBytes?: number;
+    checkedCandidateCount: number;
+    error?: string;
+    matched: boolean;
+    modifiedAt?: string;
+    originalSizeBytes?: number;
+    rawPath?: string;
+    reportPath: string | null;
+    searchRawPath: string;
+    searchState: HostDiagnosticReportSearchState;
+  };
   raw: Record<string, string>;
 };
 type IosSimctlCaptureWatchdogBudget = {
@@ -305,8 +318,17 @@ const SIMULATOR_LAUNCH_ENV_KEYS = [
   'DYLD_INSERT_LIBRARIES',
   'NATIVE_DEVTOOLS_IOS_CDP_SOCKET',
 ];
-const HOST_DIAGNOSTIC_REPORT_MAX_AGE_MS = 10 * 60 * 1000;
-const HOST_DIAGNOSTIC_REPORT_SEARCH_LIMIT = 25;
+const HOST_DIAGNOSTIC_REPORT_CLOCK_SKEW_MS = 5000;
+const HOST_DIAGNOSTIC_REPORT_PREVIEW_LIMIT = 25;
+const HOST_DIAGNOSTIC_REPORT_MAX_READ_BYTES = 4 * 1024 * 1024;
+
+type HostDiagnosticReportFileIdentity = {
+  ctimeMs: number;
+  dev: number;
+  ino: number;
+  mtimeMs: number;
+  size: number;
+};
 
 /**
  * Builds a filesystem-safe raw artifact suffix for a bundle identifier.
@@ -353,78 +375,279 @@ function hostDiagnosticReportRawFileName(bundleId: string): string {
   return `ios-host-diagnostic-report-${rawBundleIdSuffix(bundleId)}.ips`;
 }
 
+function hostDiagnosticReportFileIdentity(stat: import('node:fs').Stats): HostDiagnosticReportFileIdentity {
+  return {
+    ctimeMs: stat.ctimeMs,
+    dev: stat.dev,
+    ino: stat.ino,
+    mtimeMs: stat.mtimeMs,
+    size: stat.size,
+  };
+}
+
+function sameHostDiagnosticReportFileIdentity(
+  left: HostDiagnosticReportFileIdentity,
+  right: HostDiagnosticReportFileIdentity,
+): boolean {
+  return left.ctimeMs === right.ctimeMs &&
+    left.dev === right.dev &&
+    left.ino === right.ino &&
+    left.mtimeMs === right.mtimeMs &&
+    left.size === right.size;
+}
+
+async function readBoundedHostDiagnosticReport(
+  filePath: string,
+  expectedIdentity: HostDiagnosticReportFileIdentity,
+): Promise<{
+  content: string;
+  identityStable: boolean;
+  sizeBytes: number;
+  truncated: boolean;
+}> {
+  const handle = await fsp.open(filePath, 'r');
+  try {
+    const beforeIdentity = hostDiagnosticReportFileIdentity(await handle.stat());
+    const bytesToRead = Math.min(beforeIdentity.size, HOST_DIAGNOSTIC_REPORT_MAX_READ_BYTES);
+    const buffer = Buffer.alloc(bytesToRead);
+    const {bytesRead} = await handle.read(buffer, 0, bytesToRead, 0);
+    const afterIdentity = hostDiagnosticReportFileIdentity(await handle.stat());
+    return {
+      content: buffer.subarray(0, bytesRead).toString('utf8'),
+      identityStable: sameHostDiagnosticReportFileIdentity(expectedIdentity, beforeIdentity) &&
+        sameHostDiagnosticReportFileIdentity(beforeIdentity, afterIdentity),
+      sizeBytes: afterIdentity.size,
+      truncated: afterIdentity.size > bytesRead,
+    };
+  } finally {
+    await handle.close();
+  }
+}
+
+function leadingHostDiagnosticReportHeader(content: string): Record<string, unknown> | null {
+  const start = content.search(/\S/u);
+  if (start < 0 || content[start] !== '{') {
+    return null;
+  }
+
+  let depth = 0;
+  let escaped = false;
+  let inString = false;
+  for (let index = start; index < content.length; index += 1) {
+    const character = content[index];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (character === '\\') {
+        escaped = true;
+      } else if (character === '"') {
+        inString = false;
+      }
+      continue;
+    }
+    if (character === '"') {
+      inString = true;
+    } else if (character === '{') {
+      depth += 1;
+    } else if (character === '}') {
+      depth -= 1;
+      if (depth === 0) {
+        const headerText = content.slice(start, index + 1);
+        try {
+          const header = JSON.parse(headerText) as unknown;
+          return header && typeof header === 'object' && !Array.isArray(header)
+            ? header as Record<string, unknown>
+            : null;
+        } catch {
+          return null;
+        }
+      }
+    }
+  }
+  return null;
+}
+
+function hostDiagnosticReportBundleIdentity(content: string): {
+  bundleId: string | null;
+  readable: boolean;
+} {
+  const header = leadingHostDiagnosticReportHeader(content);
+  if (!header) {
+    return { bundleId: null, readable: false };
+  }
+  const headerBundleId = header.bundleID;
+  if (typeof headerBundleId !== 'string' || headerBundleId.trim().length === 0) {
+    return { bundleId: null, readable: false };
+  }
+  return {
+    bundleId: headerBundleId,
+    readable: true,
+  };
+}
+
 /**
  * Searches recent macOS host crash reports for the launched iOS bundle id.
  *
- * @param {{bundleId: string, diagnosticReportsDir?: string | null}} options
+ * @param {{bundleId: string, captureStartedAtMs: number, diagnosticReportsDir?: string | null}} options
  * @returns {Promise<HostDiagnosticReportProbe>}
  */
 async function inspectHostDiagnosticReport({
   bundleId,
+  captureStartedAtMs,
   diagnosticReportsDir,
 }: {
   bundleId: string;
+  captureStartedAtMs: number;
   diagnosticReportsDir?: string | null;
 }): Promise<HostDiagnosticReportProbe> {
   const reportsDir = diagnosticReportsDir || defaultDiagnosticReportsDir();
   const searchRawFileName = 'ios-host-diagnostic-report-search.txt';
   const reportRawFileName = hostDiagnosticReportRawFileName(bundleId);
-  const startedAt = Date.now();
+  const inspectedAtMs = Date.now();
+  const eligibleFromMs = captureStartedAtMs - HOST_DIAGNOSTIC_REPORT_CLOCK_SKEW_MS;
+  const eligibleThroughMs = inspectedAtMs + HOST_DIAGNOSTIC_REPORT_CLOCK_SKEW_MS;
   const lines = [
     `searchDir=${reportsDir}`,
     `bundleId=${bundleId}`,
-    `maxAgeMs=${HOST_DIAGNOSTIC_REPORT_MAX_AGE_MS}`,
-    `limit=${HOST_DIAGNOSTIC_REPORT_SEARCH_LIMIT}`,
+    `captureStartedAt=${new Date(captureStartedAtMs).toISOString()}`,
+    `inspectedAt=${new Date(inspectedAtMs).toISOString()}`,
+    `clockSkewMs=${HOST_DIAGNOSTIC_REPORT_CLOCK_SKEW_MS}`,
+    `eligibleFrom=${new Date(eligibleFromMs).toISOString()}`,
+    `eligibleThrough=${new Date(eligibleThroughMs).toISOString()}`,
+    `previewLimit=${HOST_DIAGNOSTIC_REPORT_PREVIEW_LIMIT}`,
+    `maxReadBytes=${HOST_DIAGNOSTIC_REPORT_MAX_READ_BYTES}`,
   ];
 
   try {
     const entries: import('node:fs').Dirent[] = await fsp.readdir(reportsDir, { withFileTypes: true });
-    const candidates = await Promise.all(
-      entries
-        .filter((entry) => entry.isFile() && entry.name.endsWith('.ips'))
-        .map(async (entry) => {
-          const filePath = path.join(reportsDir, entry.name);
-          const stat = await fsp.stat(filePath);
-          return { filePath, modifiedAtMs: stat.mtimeMs, name: entry.name };
-        }),
-    );
+    const reportEntries = entries.filter((entry) => entry.isFile() && entry.name.endsWith('.ips'));
+    const candidates: Array<{
+      filePath: string;
+      identity: HostDiagnosticReportFileIdentity;
+      modifiedAtMs: number;
+      name: string;
+    }> = [];
+    const statErrors: string[] = [];
+    for (const entry of reportEntries) {
+      const filePath = path.join(reportsDir, entry.name);
+      try {
+        const stat = await fsp.stat(filePath);
+        candidates.push({
+          filePath,
+          identity: hostDiagnosticReportFileIdentity(stat),
+          modifiedAtMs: stat.mtimeMs,
+          name: entry.name,
+        });
+      } catch (error) {
+        statErrors.push(`${entry.name}:${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
     const recentCandidates = candidates
-      .filter((candidate) => startedAt - candidate.modifiedAtMs <= HOST_DIAGNOSTIC_REPORT_MAX_AGE_MS)
-      .sort((a, b) => b.modifiedAtMs - a.modifiedAtMs)
-      .slice(0, HOST_DIAGNOSTIC_REPORT_SEARCH_LIMIT);
+      .filter((candidate) => (
+        candidate.modifiedAtMs >= eligibleFromMs && candidate.modifiedAtMs <= eligibleThroughMs
+      ))
+      .sort((a, b) => b.modifiedAtMs - a.modifiedAtMs);
 
-    lines.push(`candidateCount=${candidates.length}`);
-    lines.push(`recentCandidateCount=${recentCandidates.length}`);
+    const checkedCandidates: string[] = [];
+    const readErrors: string[] = [];
+    let matchedCandidate: typeof recentCandidates[number] | null = null;
+    let matchedReport: Awaited<ReturnType<typeof readBoundedHostDiagnosticReport>> | null = null;
+    let changedReadCount = 0;
+    let unreadableHeaderCount = 0;
+    let incompleteReadCount = 0;
 
     for (const candidate of recentCandidates) {
-      lines.push(`checked=${candidate.name}`);
-      const content = await fsp.readFile(candidate.filePath, 'utf8');
-      if (!content.includes(`"bundleID":"${bundleId}"`) && !content.includes(`"bundleID" : "${bundleId}"`)) {
+      checkedCandidates.push(candidate.name);
+      let report: Awaited<ReturnType<typeof readBoundedHostDiagnosticReport>>;
+      try {
+        report = await readBoundedHostDiagnosticReport(candidate.filePath, candidate.identity);
+      } catch (error) {
+        readErrors.push(`${candidate.name}:${error instanceof Error ? error.message : String(error)}`);
         continue;
       }
+      if (!report.identityStable) {
+        changedReadCount += 1;
+        continue;
+      }
+      const identity = hostDiagnosticReportBundleIdentity(report.content);
+      if (!identity.readable) {
+        unreadableHeaderCount += 1;
+        if (report.truncated) {
+          incompleteReadCount += 1;
+        }
+        continue;
+      }
+      if (identity.bundleId !== bundleId) {
+        if (report.truncated) {
+          incompleteReadCount += 1;
+        }
+        continue;
+      }
+      matchedCandidate = candidate;
+      matchedReport = report;
+      break;
+    }
 
-      lines.push(`matched=${candidate.filePath}`);
+    const preview = checkedCandidates.slice(0, HOST_DIAGNOSTIC_REPORT_PREVIEW_LIMIT);
+    const searchIncomplete = statErrors.length > 0 ||
+      readErrors.length > 0 ||
+      changedReadCount > 0 ||
+      unreadableHeaderCount > 0 ||
+      incompleteReadCount > 0;
+    const searchState: HostDiagnosticReportSearchState = matchedCandidate
+      ? 'matched'
+      : searchIncomplete
+        ? 'search_incomplete'
+        : 'not_found';
+    lines.push(`candidateCount=${reportEntries.length}`);
+    lines.push(`statErrorCount=${statErrors.length}`);
+    lines.push(`recentCandidateCount=${recentCandidates.length}`);
+    lines.push(`checkedCandidateCount=${checkedCandidates.length}`);
+    lines.push(`readErrorCount=${readErrors.length}`);
+    lines.push(`changedReadCount=${changedReadCount}`);
+    lines.push(`unreadableHeaderCount=${unreadableHeaderCount}`);
+    lines.push(`previewCount=${preview.length}`);
+    lines.push(`truncatedPreviewCount=${checkedCandidates.length - preview.length}`);
+    lines.push(`incompleteReadCount=${incompleteReadCount}`);
+    lines.push(`searchState=${searchState}`);
+    lines.push(...preview.map((name) => `checked=${name}`));
+    lines.push(...statErrors.slice(0, HOST_DIAGNOSTIC_REPORT_PREVIEW_LIMIT).map((error) => `statError=${error}`));
+    lines.push(...readErrors.slice(0, HOST_DIAGNOSTIC_REPORT_PREVIEW_LIMIT).map((error) => `readError=${error}`));
+    lines.push(`matched=${matchedCandidate?.filePath ?? ''}`);
+
+    if (matchedCandidate && matchedReport) {
+      const attachmentComplete = !matchedReport.truncated;
+      lines.push(`matchedReportSizeBytes=${matchedReport.sizeBytes}`);
+      lines.push(`matchedReportCapturedBytes=${Buffer.byteLength(matchedReport.content)}`);
+      lines.push(`matchedReportAttachmentComplete=${attachmentComplete}`);
       return {
         metadata: {
+          attachmentComplete,
+          capturedSizeBytes: Buffer.byteLength(matchedReport.content),
+          checkedCandidateCount: checkedCandidates.length,
           matched: true,
-          modifiedAt: new Date(candidate.modifiedAtMs).toISOString(),
-          rawPath: `raw/${reportRawFileName}`,
-          reportPath: candidate.filePath,
+          modifiedAt: new Date(matchedCandidate.modifiedAtMs).toISOString(),
+          originalSizeBytes: matchedReport.sizeBytes,
+          ...(attachmentComplete ? { rawPath: `raw/${reportRawFileName}` } : {}),
+          reportPath: matchedCandidate.filePath,
           searchRawPath: `raw/${searchRawFileName}`,
+          searchState,
         },
         raw: {
-          [reportRawFileName]: content,
+          ...(attachmentComplete ? { [reportRawFileName]: matchedReport.content } : {}),
           [searchRawFileName]: lines.join('\n'),
         },
       };
     }
 
-    lines.push('matched=');
     return {
       metadata: {
+        attachmentComplete: false,
+        checkedCandidateCount: checkedCandidates.length,
         matched: false,
         reportPath: null,
         searchRawPath: `raw/${searchRawFileName}`,
+        searchState,
       },
       raw: {
         [searchRawFileName]: lines.join('\n'),
@@ -434,10 +657,13 @@ async function inspectHostDiagnosticReport({
     lines.push(`error=${error instanceof Error ? error.message : String(error)}`);
     return {
       metadata: {
+        attachmentComplete: false,
+        checkedCandidateCount: 0,
         error: error instanceof Error ? error.message : String(error),
         matched: false,
         reportPath: null,
         searchRawPath: `raw/${searchRawFileName}`,
+        searchState: 'search_incomplete',
       },
       raw: {
         [searchRawFileName]: lines.join('\n'),
@@ -1969,16 +2195,18 @@ function iosAppLifecycleStatus({
   appLifecycleAmbiguousExit,
   appLifecycleCaptured,
   appLifecycleCrashed,
+  appLifecycleSearchIncomplete,
 }: {
   appLifecycleAmbiguousExit: boolean;
   appLifecycleCaptured: boolean;
   appLifecycleCrashed: boolean;
+  appLifecycleSearchIncomplete: boolean;
 }): 'failed' | 'passed' | 'warning' {
   if (!appLifecycleCaptured) {
     return 'warning';
   }
 
-  if (appLifecycleCrashed) {
+  if (appLifecycleCrashed || appLifecycleSearchIncomplete) {
     return 'failed';
   }
 
@@ -1993,16 +2221,18 @@ function iosAppLifecycleCode({
   appLifecycleAmbiguousExit,
   appLifecycleCaptured,
   appLifecycleCrashed,
+  appLifecycleSearchIncomplete,
 }: {
   appLifecycleAmbiguousExit: boolean;
   appLifecycleCaptured: boolean;
   appLifecycleCrashed: boolean;
+  appLifecycleSearchIncomplete: boolean;
 }): string {
   if (!appLifecycleCaptured) {
     return 'ios_app_lifecycle_log_unavailable';
   }
 
-  if (appLifecycleCrashed) {
+  if (appLifecycleCrashed || appLifecycleSearchIncomplete) {
     return 'ios_app_exited_during_capture';
   }
 
@@ -2017,11 +2247,13 @@ function iosAppLifecycleMessage({
   appLifecycleAmbiguousExit,
   appLifecycleCaptured,
   appLifecycleCrashed,
+  appLifecycleSearchIncomplete,
   bundleId,
 }: {
   appLifecycleAmbiguousExit: boolean;
   appLifecycleCaptured: boolean;
   appLifecycleCrashed: boolean;
+  appLifecycleSearchIncomplete: boolean;
   bundleId: string;
 }): string {
   if (!appLifecycleCaptured) {
@@ -2030,6 +2262,10 @@ function iosAppLifecycleMessage({
 
   if (appLifecycleCrashed) {
     return `App ${bundleId} exited during the simulator capture window.`;
+  }
+
+  if (appLifecycleSearchIncomplete) {
+    return `Simulator logs mentioned an app exit for ${bundleId}, but the host crash-report search was incomplete.`;
   }
 
   if (appLifecycleAmbiguousExit) {
@@ -2043,12 +2279,14 @@ function iosAppLifecycleMetadata({
   appLifecycleAmbiguousExit,
   appLifecycleCaptured,
   appLifecycleCrashed,
+  appLifecycleSearchIncomplete,
   appLifecycleRawFileName,
   hostDiagnosticReport,
 }: {
   appLifecycleAmbiguousExit: boolean;
   appLifecycleCaptured: boolean;
   appLifecycleCrashed: boolean;
+  appLifecycleSearchIncomplete: boolean;
   appLifecycleRawFileName: string;
   hostDiagnosticReport: HostDiagnosticReportProbe | null;
 }): {metadata: NextActionHint} | Record<string, never> {
@@ -2061,7 +2299,7 @@ function iosAppLifecycleMetadata({
     };
   }
 
-  if (!appLifecycleCrashed && !appLifecycleAmbiguousExit) {
+  if (!appLifecycleCrashed && !appLifecycleAmbiguousExit && !appLifecycleSearchIncomplete) {
     return {};
   }
 
@@ -2069,7 +2307,7 @@ function iosAppLifecycleMetadata({
   let nextAction = `Inspect raw/${appLifecycleRawFileName}, raw/ios-host-diagnostic-report-search.txt, and simulator UI/process evidence before treating this as an app crash.`;
   if (appLifecycleCrashed) {
     nextActionCode = 'inspect_ios_app_crash';
-    if (hostDiagnosticReport?.metadata?.matched) {
+    if (hostDiagnosticReport?.metadata?.matched && hostDiagnosticReport.metadata.rawPath) {
       nextAction = `Inspect raw/${appLifecycleRawFileName} and ${hostDiagnosticReport.metadata.rawPath}; do not trust timing or profile evidence until the app remains foregrounded.`;
     }
   }
@@ -3559,10 +3797,17 @@ async function runIosSimctlCapture(options: IosSimctlCaptureOptions = {}): Promi
           : null;
         raw[appLifecycleRawFileName] = appLifecycleOutput;
         const hostDiagnosticReport = appLifecycleInstability
-          ? await inspectHostDiagnosticReport({ bundleId, diagnosticReportsDir })
+          ? await inspectHostDiagnosticReport({
+              bundleId,
+              captureStartedAtMs: captureStartedAt.getTime(),
+              diagnosticReportsDir,
+            })
           : null;
         const appLifecycleCrashed = appLifecycleInstability === 'crash' || Boolean(hostDiagnosticReport?.metadata?.matched);
-        const appLifecycleAmbiguousExit = appLifecycleInstability === 'exit' && !hostDiagnosticReport?.metadata?.matched;
+        const appLifecycleSearchIncomplete = appLifecycleInstability === 'exit' &&
+          hostDiagnosticReport?.metadata?.searchState === 'search_incomplete';
+        const appLifecycleAmbiguousExit = appLifecycleInstability === 'exit' &&
+          hostDiagnosticReport?.metadata?.searchState === 'not_found';
         if (hostDiagnosticReport) {
           Object.assign(raw, hostDiagnosticReport.raw);
         }
@@ -3572,23 +3817,27 @@ async function runIosSimctlCapture(options: IosSimctlCaptureOptions = {}): Promi
             appLifecycleAmbiguousExit,
             appLifecycleCaptured,
             appLifecycleCrashed,
+            appLifecycleSearchIncomplete,
           }),
           source: 'runner',
           code: iosAppLifecycleCode({
             appLifecycleAmbiguousExit,
             appLifecycleCaptured,
             appLifecycleCrashed,
+            appLifecycleSearchIncomplete,
           }),
           message: iosAppLifecycleMessage({
             appLifecycleAmbiguousExit,
             appLifecycleCaptured,
             appLifecycleCrashed,
+            appLifecycleSearchIncomplete,
             bundleId,
           }),
           ...iosAppLifecycleMetadata({
             appLifecycleAmbiguousExit,
             appLifecycleCaptured,
             appLifecycleCrashed,
+            appLifecycleSearchIncomplete,
             appLifecycleRawFileName,
             hostDiagnosticReport,
           }),
@@ -3601,17 +3850,25 @@ async function runIosSimctlCapture(options: IosSimctlCaptureOptions = {}): Promi
           ...(hostDiagnosticReport ? { hostDiagnosticReport: hostDiagnosticReport.metadata } : {}),
         };
         if (appLifecycleInstability) {
+          const crashReportAttached = Boolean(
+            hostDiagnosticReport?.metadata?.matched && hostDiagnosticReport.metadata.attachmentComplete,
+          );
+          const crashReportSearchIncomplete = hostDiagnosticReport?.metadata?.searchState === 'search_incomplete';
           checks.push({
             name: 'ios_host_diagnostic_report_attached',
-            status: hostDiagnosticReport?.metadata?.matched ? 'passed' : 'warning',
+            status: crashReportAttached ? 'passed' : crashReportSearchIncomplete ? 'failed' : 'warning',
             source: 'runner',
-            code: hostDiagnosticReport?.metadata?.matched
+            code: crashReportAttached
               ? 'ios_host_diagnostic_report_attached'
               : 'ios_host_diagnostic_report_missing',
-            message: hostDiagnosticReport?.metadata?.matched
+            message: crashReportAttached
               ? 'Attached the latest matching host DiagnosticReports crash file.'
-              : 'Could not find a recent matching host DiagnosticReports crash file.',
-            ...(!hostDiagnosticReport?.metadata?.matched
+              : hostDiagnosticReport?.metadata?.matched
+                ? 'Found a matching host DiagnosticReports crash file, but it exceeded the complete attachment read bound.'
+                : crashReportSearchIncomplete
+                  ? 'Could not complete the host DiagnosticReports crash search.'
+                  : 'Could not find a matching host DiagnosticReports crash file in the capture interval.',
+            ...(!crashReportAttached
               ? {
                   metadata: nextActionHint(
                     'inspect_host_diagnostic_reports',
