@@ -37,6 +37,7 @@ const REQUIRED_EXPORTS: Record<string, string | Record<string, string>> = {
   './app/profile-session': {
     require: './app/profile-session.ts',
     types: './app/profile-session.d.ts',
+    'react-native': './app/profile-session.ts',
     import: './app/profile-session.ts',
     default: './app/profile-session.ts',
   },
