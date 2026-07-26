@@ -195,6 +195,24 @@ async function stageRunnerLifecycleCommandRecords({
     const commandId = typeof sourceCommand.commandId === 'string'
       ? sourceCommand.commandId
       : String(sourceCommand.sourceId);
+    const declaredOutputs = Array.isArray(sourceCommand.outputs) && sourceCommand.outputs.length > 0
+      ? sourceCommand.outputs
+      : commandId === 'stop-native-window'
+        ? [
+            {
+              channel: 'provider',
+              kind: 'logs',
+              path: `raw/providers/${providerId}/ios-xctrace/xctrace-toc.xml`,
+              required: false,
+            },
+            {
+              channel: 'provider',
+              kind: 'logs',
+              path: `raw/providers/${providerId}/ios-xctrace/trace-bundle-inventory.json`,
+              required: false,
+            },
+          ]
+        : [];
     const stdout = `${commandId} stdout\n`;
     const stderr = `${commandId} stderr\n`;
     const stdoutSha256 = sha256(stdout);
@@ -226,13 +244,16 @@ async function stageRunnerLifecycleCommandRecords({
     await fsp.writeFile(stdoutPath, stdout, 'utf8');
     await fsp.writeFile(stderrPath, stderr, 'utf8');
     await fsp.writeFile(
-      startedRecordPath,
-      `${JSON.stringify({
-        args: sourceCommand.args,
-        command: sourceCommand.command,
-        outputs: Array.isArray(sourceCommand.outputs) ? sourceCommand.outputs : [],
-        phase: sourceCommand.phase,
-        providerId,
+        startedRecordPath,
+        `${JSON.stringify({
+          args: sourceCommand.args,
+          command: sourceCommand.command,
+        outputs: declaredOutputs.map((output) => ({
+              ...output,
+              ...(typeof output.path === 'string' ? { runRelativePath: output.path } : {}),
+            })),
+          phase: sourceCommand.phase,
+          providerId,
         ...(typeof sourceCommand.requestPath === 'string' ? { requestPath: sourceCommand.requestPath } : {}),
         ...(typeof sourceCommand.requestSha256 === 'string' ? { requestSha256: sourceCommand.requestSha256 } : {}),
         startedAt,
@@ -249,13 +270,13 @@ async function stageRunnerLifecycleCommandRecords({
       command: sourceCommand.command,
       endedAt,
       exitCode: 0,
-      outputs: Array.isArray(sourceCommand.outputs)
-        ? sourceCommand.outputs.map((output) => ({
+      outputs: declaredOutputs.map((output) => ({
             ...output,
+            ...(typeof output.path === 'string' ? { runRelativePath: output.path } : {}),
+            ...(typeof output.path === 'string' ? { sha256: sha256(fs.readFileSync(path.join(runDir, output.path))) } : {}),
             status: 'captured',
             stale: false,
-          }))
-        : [],
+          })),
       phase: sourceCommand.phase,
       providerId,
       ...(typeof sourceCommand.requestPath === 'string' ? { requestPath: sourceCommand.requestPath } : {}),
@@ -429,7 +450,22 @@ if (args[0] === 'xctrace' && args[1] === 'record') {
     fs.mkdirSync(tracePath, { recursive: true });
     fs.writeFileSync(path.join(tracePath, 'tracev3.data'), 'trace-data', 'utf8');
   }
-  process.exit(0);
+  if (args.includes('--time-limit')) {
+    process.exit(0);
+  }
+
+  let exiting = false;
+  const finish = () => {
+    if (exiting) {
+      return;
+    }
+    exiting = true;
+    process.exit(0);
+  };
+  process.on('SIGINT', finish);
+  process.on('SIGTERM', finish);
+  setInterval(() => {}, 1000);
+  return;
 }
 
 if (args[0] === 'xctrace' && args[1] === 'export' && args.includes('--toc')) {
@@ -906,11 +942,14 @@ test('generated provider keeps iOS target binding immutable after finalize', asy
   });
   assert.equal(result.exitCode, 0, result.stderr);
   assert.equal(fs.existsSync(targetProofPath), false);
+  const commandCountAfterStop = (await fsp.readFile(commandLog, 'utf8')).trim().split('\n').length;
   result = await execFileResult(process.execPath, iosLifecycleArgs(provider, 'normalize'), {
     cwd: provider.targetDir,
     env,
   });
   assert.equal(result.exitCode, 0, result.stderr);
+  const commandCountAfterNormalize = (await fsp.readFile(commandLog, 'utf8')).trim().split('\n').length;
+  assert.equal(commandCountAfterNormalize, commandCountAfterStop, 'afterCapture normalization must not recollect xctrace evidence');
 
   const normalizedTargetProof = JSON.parse(await fsp.readFile(targetProofPath, 'utf8'));
   assert.equal(normalizedTargetProof.window.phase, 'activeLoop');
@@ -1000,14 +1039,6 @@ test('generated provider iOS after-capture xctrace output stays diagnostic-only 
   const generatedEvidence = JSON.parse(await fsp.readFile(path.join(provider.runDir, artifactPath), 'utf8'));
   const targetBinding = JSON.parse(await fsp.readFile(path.join(provider.runDir, targetBindingPath), 'utf8'));
   assert.equal(targetBinding.captureArtifacts, undefined);
-  const sourceCommands = targetBinding.sourceCommands as Array<Record<string, unknown>>;
-  await stageRunnerLifecycleCommandRecords({
-    providerId: provider.providerId,
-    runDir: provider.runDir,
-    sourceCommands,
-    windowEndedAt: targetBinding.window.endedAt,
-    windowStartedAt: targetBinding.window.startedAt,
-  });
   const comparableTargetBinding = targetBinding.status === 'verified'
     ? {
         status: 'verified',

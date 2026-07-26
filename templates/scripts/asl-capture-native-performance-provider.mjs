@@ -905,6 +905,569 @@ function commandSucceeded(result) {
   return !result.timedOut && !result.errorCode && result.exitCode === 0;
 }
 
+const IOS_XCTRACE_SESSION_START_TIMEOUT_MS = 2_000;
+const IOS_XCTRACE_SESSION_STOP_TIMEOUT_MS = 30_000;
+const IOS_XCTRACE_SESSION_FORCE_KILL_WAIT_MS = 1_000;
+const IOS_XCTRACE_SESSION_STREAM_LIMIT_BYTES = 256 * 1024;
+const IOS_XCTRACE_SESSION_STREAM_TRUNCATED_MARKER = '\n[output truncated at 262144 bytes]';
+
+function appendBoundedSessionOutput(current, chunk) {
+  if (Buffer.byteLength(current) >= IOS_XCTRACE_SESSION_STREAM_LIMIT_BYTES) {
+    return current.endsWith(IOS_XCTRACE_SESSION_STREAM_TRUNCATED_MARKER)
+      ? current
+      : current + IOS_XCTRACE_SESSION_STREAM_TRUNCATED_MARKER;
+  }
+  const remainingBytes = IOS_XCTRACE_SESSION_STREAM_LIMIT_BYTES - Buffer.byteLength(current);
+  const next = Buffer.from(chunk);
+  if (next.byteLength <= remainingBytes) {
+    return current + next.toString('utf8');
+  }
+  return current + next.subarray(0, remainingBytes).toString('utf8') + IOS_XCTRACE_SESSION_STREAM_TRUNCATED_MARKER;
+}
+
+function isProcessAlive(pid) {
+  if (!Number.isSafeInteger(pid) || pid <= 0) {
+    return false;
+  }
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function waitForCondition({
+  check,
+  pollMs = 25,
+  timeoutMs,
+}) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() <= deadline) {
+    const value = await check();
+    if (value) {
+      return value;
+    }
+    await new Promise((resolve) => setTimeout(resolve, pollMs));
+  }
+  return null;
+}
+
+function readJsonArtifactIfExists(filePath) {
+  const record = readJsonArtifactIfAvailable(filePath);
+  return record && typeof record === 'object' && !Array.isArray(record)
+    ? record
+    : null;
+}
+
+function resolveIosXctraceCaptureContext({
+  args,
+  outPath,
+  providerId,
+  requireRequest,
+  runId,
+  scenarioId,
+}) {
+  const bundleId = resolveRequestedAppId(args, 'ios');
+  const deviceId = resolveRequestedTargetId(args, 'ios');
+  if (!bundleId || !deviceId) {
+    throw new Error('iOS xctrace capture requires --app-id or --bundle plus --target-id or --device.');
+  }
+
+  const xcrunPath = optionalStringArg(args, 'xcrun', 'ASL_XCRUN_PATH') ?? 'xcrun';
+  const runDir = optionalStringArg(args, 'run-dir', 'ASL_RUN_DIR');
+  if (!runDir) {
+    throw new Error('iOS xctrace capture requires --run-dir so evidence paths can remain durable and run-relative.');
+  }
+  validateNativePerformanceRequest({
+    args,
+    platform: 'ios',
+    required: requireRequest,
+    requestedAppId: bundleId,
+    requestedTargetId: deviceId,
+    runDir,
+    runId,
+    scenarioId,
+  });
+  toRunRelativePath(runDir, outPath);
+
+  const xctraceTemplate = optionalStringArg(args, 'ios-xctrace-template', 'ASL_NATIVE_PERFORMANCE_IOS_XCTRACE_TEMPLATE') ?? 'Time Profiler';
+  const commandTimeoutMs = parseStrictPositiveInteger(
+    optionalStringArg(args, 'ios-command-timeout-ms', 'ASL_NATIVE_PERFORMANCE_IOS_COMMAND_TIMEOUT_MS'),
+    IOS_XCTRACE_SESSION_STOP_TIMEOUT_MS,
+    '--ios-command-timeout-ms/ASL_NATIVE_PERFORMANCE_IOS_COMMAND_TIMEOUT_MS',
+  );
+  const captureDir = path.join(path.dirname(outPath), 'ios-xctrace');
+  const traceBundlePath = path.join(captureDir, 'capture.trace');
+  const tocPath = path.join(captureDir, 'xctrace-toc.xml');
+  const traceInventoryPath = path.join(captureDir, 'trace-bundle-inventory.json');
+  const sessionStatusPath = path.join(captureDir, 'xctrace-session.json');
+  const startWindowCommandPath = path.join(captureDir, 'start-window.command.json');
+  const stopWindowCommandPath = path.join(captureDir, 'stop-window.command.json');
+  const recordStdoutPath = path.join(captureDir, 'xctrace-record.stdout.txt');
+  const recordStderrPath = path.join(captureDir, 'xctrace-record.stderr.txt');
+
+  return {
+    bundleId,
+    captureDir,
+    commandTimeoutMs,
+    deviceId,
+    providerId,
+    recordStderrPath,
+    recordStdoutPath,
+    runDir,
+    sessionStatusPath,
+    startWindowCommandPath,
+    stopWindowCommandPath,
+    tocPath,
+    traceBundlePath,
+    traceInventoryPath,
+    xcrunPath,
+    xctraceTemplate,
+  };
+}
+
+function buildIosXctraceStartWindowDefinitions({ bundleId, deviceId }) {
+  return [
+    { id: 'simctl-list-devices', args: ['simctl', 'list', 'devices', '--json'], phase: 'startWindow' },
+    { id: 'simctl-get-app-container', args: ['simctl', 'get_app_container', deviceId, bundleId, 'app'], phase: 'startWindow' },
+    { id: 'simctl-launchctl-list', args: ['simctl', 'spawn', deviceId, 'launchctl', 'list'], phase: 'startWindow' },
+  ];
+}
+
+function buildIosXctraceStopWindowDefinitions(context) {
+  return [
+    {
+      id: 'xctrace-record',
+      args: [
+        'xctrace',
+        'record',
+        '--template',
+        context.xctraceTemplate,
+        '--device',
+        context.deviceId,
+        '--attach',
+        '<pid>',
+        '--output',
+        context.traceBundlePath,
+        '--no-prompt',
+      ],
+      phase: 'startWindow',
+    },
+    { id: 'xctrace-export-toc', args: ['xctrace', 'export', '--input', context.traceBundlePath, '--toc'], phase: 'stopWindow' },
+  ];
+}
+
+async function startManagedIosXctraceWindow(context) {
+  fs.rmSync(context.captureDir, { force: true, recursive: true });
+  fs.mkdirSync(context.captureDir, { recursive: true });
+
+  const captures = new Map();
+  for (const definition of buildIosXctraceStartWindowDefinitions(context)) {
+    const result = await runCommand(context.xcrunPath, definition.args, context.commandTimeoutMs);
+    captures.set(definition.id, {
+      result,
+      paths: writeCommandArtifacts({
+        captureDir: context.captureDir,
+        id: definition.id,
+        phase: definition.phase,
+        providerId: context.providerId,
+        result,
+        runDir: context.runDir,
+      }),
+    });
+  }
+
+  const bootedDeviceCapture = captures.get('simctl-list-devices').result;
+  const appContainerCapture = captures.get('simctl-get-app-container').result;
+  const launchctlCapture = captures.get('simctl-launchctl-list').result;
+  const bootedDeviceObservation = commandSucceeded(bootedDeviceCapture)
+    ? readBootedDeviceObservation(bootedDeviceCapture.stdout, context.deviceId)
+    : { status: 'failed' };
+  const appContainerAvailable = commandSucceeded(appContainerCapture) && appContainerCapture.stdout.trim().length > 0;
+  const launchctlProcess = commandSucceeded(launchctlCapture)
+    ? readLaunchctlProcessObservation(launchctlCapture.stdout, context.bundleId)
+    : { status: 'failed' };
+  const requestedPid = launchctlProcess.status === 'observed' ? launchctlProcess.pid : 0;
+  if (
+    bootedDeviceObservation.status !== 'observed' ||
+    bootedDeviceObservation.matchesRequestedDevice !== true ||
+    !appContainerAvailable ||
+    launchctlProcess.status !== 'observed' ||
+    requestedPid <= 0
+  ) {
+    return false;
+  }
+
+  const helperArgs = [
+    process.argv[1],
+    '__internal-ios-xctrace-session',
+    '--xcrun', context.xcrunPath,
+    '--device', context.deviceId,
+    '--bundle', context.bundleId,
+    '--pid', String(requestedPid),
+    '--template', context.xctraceTemplate,
+    '--trace-bundle', context.traceBundlePath,
+    '--stdout-path', context.recordStdoutPath,
+    '--stderr-path', context.recordStderrPath,
+    '--status-path', context.sessionStatusPath,
+    '--stop-timeout-ms', String(context.commandTimeoutMs),
+  ];
+  const child = spawn(process.execPath, helperArgs, {
+    detached: process.platform !== 'win32',
+    shell: false,
+    stdio: ['ignore', 'ignore', 'ignore'],
+  });
+  child.unref();
+
+  const startedStatus = await waitForCondition({
+    timeoutMs: IOS_XCTRACE_SESSION_START_TIMEOUT_MS,
+    check: async () => {
+      const status = readJsonArtifactIfExists(context.sessionStatusPath);
+      return status?.status === 'started' ? status : null;
+    },
+  });
+  if (!startedStatus || !isProcessAlive(startedStatus.helperPid)) {
+    return false;
+  }
+
+  writeJsonArtifact(context.startWindowCommandPath, {
+    args: helperArgs.slice(2),
+    bundleId: context.bundleId,
+    command: process.execPath,
+    helperPid: startedStatus.helperPid,
+    pid: requestedPid,
+    providerId: context.providerId,
+    startedAt: startedStatus.startedAt,
+    status: 'started',
+    traceBundlePath: toRunRelativePath(context.runDir, context.traceBundlePath),
+    xcrun: context.xcrunPath,
+  });
+  return true;
+}
+
+function signalProcess(pid, signal) {
+  if (!Number.isSafeInteger(pid) || pid <= 0) {
+    return false;
+  }
+  try {
+    process.kill(pid, signal);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function stopManagedIosXctraceWindow(context) {
+  const sessionStatus = readJsonArtifactIfExists(context.sessionStatusPath);
+  const helperPid = Number.isSafeInteger(sessionStatus?.helperPid) ? sessionStatus.helperPid : 0;
+  if (helperPid > 0) {
+    signalProcess(helperPid, 'SIGINT');
+  }
+
+  const completedStatus = await waitForCondition({
+    timeoutMs: context.commandTimeoutMs + IOS_XCTRACE_SESSION_FORCE_KILL_WAIT_MS,
+    check: async () => {
+      const status = readJsonArtifactIfExists(context.sessionStatusPath);
+      return status?.status === 'completed' ? status : null;
+    },
+  });
+  if (!completedStatus) {
+    return false;
+  }
+
+  writeJsonArtifact(path.join(context.captureDir, 'xctrace-record.command.json'), {
+    args: Array.isArray(completedStatus.args)
+      ? completedStatus.args.map((arg) => normalizeCommandArgForEvidence(context.runDir, arg))
+      : [],
+    command: typeof completedStatus.command === 'string'
+      ? path.basename(completedStatus.command)
+      : path.basename(context.xcrunPath),
+    endedAt: completedStatus.endedAt,
+    errorCode: completedStatus.errorCode ?? null,
+    errorMessage: completedStatus.errorMessage ?? null,
+    exitCode: completedStatus.exitCode,
+    phase: 'startWindow',
+    providerId: context.providerId,
+    startedAt: completedStatus.startedAt,
+    status: completedStatus.exitCode === 0 && completedStatus.timedOut !== true ? 'completed' : 'failed',
+    stderrPath: toRunRelativePath(context.runDir, context.recordStderrPath),
+    stderrSha256: sha256File(context.recordStderrPath),
+    stdoutPath: toRunRelativePath(context.runDir, context.recordStdoutPath),
+    stdoutSha256: sha256File(context.recordStdoutPath),
+    timedOut: completedStatus.timedOut === true,
+    ...(typeof completedStatus.signal === 'string' ? { signal: completedStatus.signal } : {}),
+  });
+
+  const exportArgs = ['xctrace', 'export', '--input', context.traceBundlePath, '--toc'];
+  const exportResult = await runCommand(context.xcrunPath, exportArgs, context.commandTimeoutMs);
+  writeCommandArtifacts({
+    captureDir: context.captureDir,
+    id: 'xctrace-export-toc',
+    phase: 'stopWindow',
+    providerId: context.providerId,
+    result: exportResult,
+    runDir: context.runDir,
+  });
+  writeTextArtifact(context.tocPath, exportResult.stdout);
+  writeJsonArtifact(context.traceInventoryPath, {
+    ...buildTraceBundleInventory(context.traceBundlePath),
+    traceBundlePath: toRunRelativePath(context.runDir, context.traceBundlePath),
+  });
+  writeJsonArtifact(context.stopWindowCommandPath, {
+    endedAt: completedStatus.endedAt,
+    exitCode: completedStatus.exitCode,
+    providerId: context.providerId,
+    signal: completedStatus.signal,
+    status: completedStatus.exitCode === 0 && completedStatus.timedOut !== true ? 'completed' : 'failed',
+    timedOut: completedStatus.timedOut === true,
+    traceBundlePath: toRunRelativePath(context.runDir, context.traceBundlePath),
+  });
+  return completedStatus.exitCode === 0 && completedStatus.timedOut !== true && commandSucceeded(exportResult);
+}
+
+function readPreservedIosCommandCapture({ captureDir, id, phase, providerId, runDir }) {
+  const stdoutPath = path.join(captureDir, `${id}.stdout.txt`);
+  const stderrPath = path.join(captureDir, `${id}.stderr.txt`);
+  const recordPath = path.join(captureDir, `${id}.command.json`);
+  const record = readJsonArtifactIfAvailable(recordPath);
+  if (!record || !fs.existsSync(stdoutPath) || !fs.existsSync(stderrPath)) {
+    return null;
+  }
+  const result = {
+    args: Array.isArray(record.args) && record.args.every((arg) => typeof arg === 'string') ? record.args : [],
+    command: typeof record.command === 'string' ? record.command : '',
+    errorCode: typeof record.errorCode === 'string' ? record.errorCode : null,
+    errorMessage: typeof record.errorMessage === 'string' ? record.errorMessage : null,
+    exitCode: typeof record.exitCode === 'number' ? record.exitCode : 1,
+    signal: record.signal === null || typeof record.signal === 'string' ? record.signal : null,
+    stderr: fs.readFileSync(stderrPath, 'utf8'),
+    stdout: fs.readFileSync(stdoutPath, 'utf8'),
+    timedOut: record.timedOut === true,
+  };
+  if (
+    record.providerId !== providerId ||
+    record.phase !== phase ||
+    record.stdoutPath !== toRunRelativePath(runDir, stdoutPath) ||
+    record.stderrPath !== toRunRelativePath(runDir, stderrPath)
+  ) {
+    return null;
+  }
+  return {
+    result,
+    paths: {
+      recordPath,
+      stderrPath,
+      stderrSha256: sha256File(stderrPath),
+      stdoutPath,
+      stdoutSha256: sha256File(stdoutPath),
+    },
+  };
+}
+
+function readTrustedIosStopOutputs({ context }) {
+  const commandId = 'stop-native-window';
+  const completedRecord = readJsonArtifactIfAvailable(
+    path.join(context.runDir, `raw/provider-commands/${context.providerId}-${commandId}.json`),
+  );
+  const startedRecord = readJsonArtifactIfAvailable(
+    path.join(context.runDir, `raw/provider-commands/${context.providerId}-${commandId}.started.json`),
+  );
+  if (!runnerLifecycleCompletedRecordMatches({
+    commandId,
+    completedRecord,
+    phase: 'stopWindow',
+    providerId: context.providerId,
+    startedRecord,
+  }) || !providerCommandOutputsEqual(startedRecord.outputs, completedRecord.outputs)) {
+    return new Set();
+  }
+
+  const expectedOutputs = new Map([
+    [toRunRelativePath(context.runDir, context.tocPath), 'logs'],
+    [toRunRelativePath(context.runDir, context.traceInventoryPath), 'signals'],
+  ]);
+  if (completedRecord.outputs.length !== expectedOutputs.size) {
+    return new Set();
+  }
+
+  const trustedPaths = new Set();
+  for (const output of completedRecord.outputs) {
+    const expectedKind = expectedOutputs.get(output.runRelativePath);
+    if (
+      output.channel !== 'provider' ||
+      output.kind !== expectedKind ||
+      output.status !== 'captured' ||
+      output.stale !== false ||
+      !expectedKind
+    ) {
+      return new Set();
+    }
+    const outputPath = path.join(context.runDir, output.runRelativePath);
+    if (!fs.existsSync(outputPath) || (fs.statSync(outputPath).isFile() && output.sha256 !== sha256File(outputPath))) {
+      return new Set();
+    }
+    trustedPaths.add(output.runRelativePath);
+  }
+  return trustedPaths.size === expectedOutputs.size ? trustedPaths : new Set();
+}
+
+async function runInternalIosXctraceSession(args) {
+  const xcrunPath = requireStringArg(args, 'xcrun');
+  const deviceId = requireStringArg(args, 'device');
+  const bundleId = requireStringArg(args, 'bundle');
+  const pid = requireStringArg(args, 'pid');
+  const xctraceTemplate = requireStringArg(args, 'template');
+  const traceBundlePath = requireStringArg(args, 'trace-bundle');
+  const stdoutPath = requireStringArg(args, 'stdout-path');
+  const stderrPath = requireStringArg(args, 'stderr-path');
+  const statusPath = requireStringArg(args, 'status-path');
+  const stopTimeoutMs = parseStrictPositiveInteger(
+    optionalStringArg(args, 'stop-timeout-ms', 'ASL_NATIVE_PERFORMANCE_IOS_COMMAND_TIMEOUT_MS'),
+    IOS_XCTRACE_SESSION_STOP_TIMEOUT_MS,
+    '--stop-timeout-ms/ASL_NATIVE_PERFORMANCE_IOS_COMMAND_TIMEOUT_MS',
+  );
+  fs.rmSync(traceBundlePath, { force: true, recursive: true });
+  fs.mkdirSync(path.dirname(traceBundlePath), { recursive: true });
+
+  const recordArgs = [
+    'xctrace',
+    'record',
+    '--template',
+    xctraceTemplate,
+    '--device',
+    deviceId,
+    '--attach',
+    pid,
+    '--output',
+    traceBundlePath,
+    '--no-prompt',
+  ];
+  const child = spawn(xcrunPath, recordArgs, {
+    detached: false,
+    shell: false,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  const startedAt = new Date().toISOString();
+  let stdout = '';
+  let stderr = '';
+  let settled = false;
+  let timedOut = false;
+  let exitCode = 1;
+  let exitSignal = null;
+  let errorCode = null;
+  let errorMessage = null;
+  let closeResolver;
+  const closePromise = new Promise((resolve) => {
+    closeResolver = resolve;
+  });
+
+  child.stdout?.on('data', (chunk) => {
+    stdout = appendBoundedSessionOutput(stdout, chunk);
+  });
+  child.stderr?.on('data', (chunk) => {
+    stderr = appendBoundedSessionOutput(stderr, chunk);
+  });
+
+  const writeStatus = (status, overrides = {}) => {
+    writeJsonArtifact(statusPath, {
+      args: recordArgs,
+      bundleId,
+      command: xcrunPath,
+      deviceId,
+      helperPid: process.pid,
+      pid,
+      startedAt,
+      status,
+      stderrPath,
+      stdoutPath,
+      traceBundlePath,
+      ...overrides,
+    });
+  };
+  writeStatus('started', {
+    childPid: child.pid ?? null,
+    template: xctraceTemplate,
+  });
+
+  const finalize = (overrides = {}) => {
+    if (settled) {
+      return;
+    }
+    settled = true;
+    writeTextArtifact(stdoutPath, stdout);
+    writeTextArtifact(stderrPath, stderr);
+    writeStatus('completed', {
+      endedAt: new Date().toISOString(),
+      errorCode,
+      errorMessage,
+      exitCode,
+      signal: exitSignal,
+      stderrSha256: sha256File(stderrPath),
+      stdoutSha256: sha256File(stdoutPath),
+      timedOut,
+      ...overrides,
+    });
+    closeResolver();
+  };
+
+  const signalChild = (signal) => {
+    try {
+      return child.kill(signal);
+    } catch {
+      return false;
+    }
+  };
+
+  const waitForChild = async (timeoutMs) => Promise.race([
+    closePromise.then(() => true),
+    new Promise((resolve) => setTimeout(() => resolve(false), timeoutMs)),
+  ]);
+
+  const stopChild = async () => {
+    if (settled) {
+      return;
+    }
+    signalChild('SIGINT');
+    let exited = await waitForChild(stopTimeoutMs);
+    if (!exited) {
+      signalChild('SIGTERM');
+      exited = await waitForChild(IOS_XCTRACE_SESSION_FORCE_KILL_WAIT_MS);
+    }
+    if (!exited) {
+      timedOut = true;
+      signalChild('SIGKILL');
+      await waitForChild(IOS_XCTRACE_SESSION_FORCE_KILL_WAIT_MS);
+    }
+    if (!settled) {
+      exitCode = timedOut ? 124 : 1;
+      exitSignal = timedOut ? 'SIGKILL' : 'SIGTERM';
+      finalize();
+    }
+  };
+
+  process.on('SIGINT', () => {
+    void stopChild();
+  });
+  process.on('SIGTERM', () => {
+    void stopChild();
+  });
+  child.on('error', (error) => {
+    errorCode = error.code ?? 'UNKNOWN';
+    errorMessage = error.message;
+    exitCode = 1;
+    exitSignal = null;
+    finalize();
+  });
+  child.on('close', (code, signal) => {
+    exitCode = typeof code === 'number' ? code : 1;
+    exitSignal = signal;
+    finalize();
+  });
+
+  await closePromise;
+}
+
 function commandStatus(result) {
   if (result.timedOut) {
     return 'timeout';
@@ -1720,8 +2283,14 @@ function normalizeCommandArgForEvidence(runDir, arg) {
 function buildIosDiagnosticSource({ commandResults, dataClasses, path: sourcePath, reason, runDir, sourceId, status, toolName }) {
   const command = commandResults
     .map((result) => [
-      path.basename(result.command),
-      ...result.args.map((arg) => normalizeCommandArgForEvidence(runDir, arg)),
+      typeof result.command === 'string' && result.command.length > 0
+        ? path.basename(result.command)
+        : toolName,
+      ...(Array.isArray(result.args)
+        ? result.args
+          .filter((arg) => typeof arg === 'string')
+          .map((arg) => normalizeCommandArgForEvidence(runDir, arg))
+        : []),
     ].join(' '))
     .join(' / ');
   return {
@@ -2174,6 +2743,412 @@ async function captureIosXctraceEvidence({ args, outPath, providerId, rawInvocat
   }
 }
 
+async function normalizeManagedIosXctraceEvidence({ args, outPath, providerId, rawInvocationArgs, runId, scenarioId }) {
+  const context = resolveIosXctraceCaptureContext({
+    args,
+    outPath,
+    providerId,
+    requireRequest: true,
+    runId,
+    scenarioId,
+  });
+  const captures = new Map();
+  for (const definition of buildIosXctraceStartWindowDefinitions(context)) {
+    captures.set(
+      definition.id,
+      readPreservedIosCommandCapture({
+        captureDir: context.captureDir,
+        id: definition.id,
+        phase: definition.phase,
+        providerId: context.providerId,
+        runDir: context.runDir,
+      }),
+    );
+  }
+  for (const definition of buildIosXctraceStopWindowDefinitions(context)) {
+    captures.set(
+      definition.id,
+      readPreservedIosCommandCapture({
+        captureDir: context.captureDir,
+        id: definition.id,
+        phase: definition.phase,
+        providerId: context.providerId,
+        runDir: context.runDir,
+      }),
+    );
+  }
+
+  const bootedDeviceCapture = captures.get('simctl-list-devices')?.result;
+  const appContainerCapture = captures.get('simctl-get-app-container')?.result;
+  const launchctlCapture = captures.get('simctl-launchctl-list')?.result;
+  const recordCapture = captures.get('xctrace-record')?.result;
+  const exportCapture = captures.get('xctrace-export-toc')?.result;
+  const bootedDeviceObservation = bootedDeviceCapture && commandSucceeded(bootedDeviceCapture)
+    ? readBootedDeviceObservation(bootedDeviceCapture.stdout, context.deviceId)
+    : { status: 'failed' };
+  const appContainerAvailable = Boolean(appContainerCapture && commandSucceeded(appContainerCapture) && appContainerCapture.stdout.trim().length > 0);
+  const launchctlProcess = launchctlCapture && commandSucceeded(launchctlCapture)
+    ? readLaunchctlProcessObservation(launchctlCapture.stdout, context.bundleId)
+    : { status: 'failed' };
+  const requestedPid = launchctlProcess.status === 'observed' ? launchctlProcess.pid : 0;
+  const tocText = fs.existsSync(context.tocPath) ? fs.readFileSync(context.tocPath, 'utf8') : '';
+  const tocSummary = exportCapture && commandSucceeded(exportCapture) && tocText.trim().length > 0
+    ? parseXctraceTocSummary(tocText)
+    : {};
+  const traceInventory = readJsonArtifactIfAvailable(context.traceInventoryPath) ?? {
+    ...buildTraceBundleInventory(context.traceBundlePath),
+    traceBundlePath: toRunRelativePath(context.runDir, context.traceBundlePath),
+  };
+  if (!fs.existsSync(context.traceInventoryPath)) {
+    writeJsonArtifact(context.traceInventoryPath, traceInventory);
+  }
+
+  const tocVerified = Boolean(
+    tocSummary.startAt &&
+    tocSummary.endAt &&
+    tocSummary.durationMs !== undefined &&
+    tocSummary.template &&
+    tocSummary.toolVersion &&
+    tocSummary.endReason &&
+    tocSummary.deviceId &&
+    tocSummary.processPid !== undefined &&
+    tocSummary.processName
+  );
+  const startMs = tocSummary.startAt ? Date.parse(tocSummary.startAt) : Number.NaN;
+  const endMs = tocSummary.endAt ? Date.parse(tocSummary.endAt) : Number.NaN;
+  const elapsedMs = endMs - startMs;
+  const durationToleranceMs = Math.max(1, elapsedMs * 0.01);
+  const observedDeviceId = typeof tocSummary.deviceId === 'string' ? tocSummary.deviceId : null;
+  const observedPid = Number.isSafeInteger(tocSummary.processPid) ? tocSummary.processPid : null;
+  const observedProcessName = typeof tocSummary.processName === 'string' ? tocSummary.processName : null;
+  const recordedSimulator = typeof tocSummary.devicePlatform === 'string' && /simulator/iu.test(tocSummary.devicePlatform);
+  const runnerWindow = readRunnerActiveLoopWindowRecord(context.runDir);
+  const windowVerified = tocVerified &&
+    Number.isFinite(elapsedMs) &&
+    elapsedMs > 0 &&
+    tocSummary.durationMs > 0 &&
+    (
+      runnerWindow
+        ? (
+            tocSummary.startAt === runnerWindow.startedAt &&
+            tocSummary.endAt === runnerWindow.endedAt &&
+            Math.abs(tocSummary.durationMs - runnerWindow.durationMs) <= durationToleranceMs
+          )
+        : Math.abs(tocSummary.durationMs - elapsedMs) <= durationToleranceMs
+    );
+  const deviceMismatch = observedDeviceId && observedDeviceId !== context.deviceId;
+  const pidMismatch = launchctlProcess.status === 'observed' && observedPid !== null && observedPid !== requestedPid;
+
+  let targetStatus = 'unverified';
+  if (
+    recordCapture && commandSucceeded(recordCapture) &&
+    exportCapture && commandSucceeded(exportCapture) &&
+    bootedDeviceObservation.status === 'observed' &&
+    bootedDeviceObservation.matchesRequestedDevice === true &&
+    appContainerAvailable &&
+    launchctlProcess.status === 'observed' &&
+    windowVerified &&
+    recordedSimulator &&
+    !deviceMismatch &&
+    !pidMismatch
+  ) {
+    targetStatus = 'verified';
+  } else if (deviceMismatch || pidMismatch) {
+    targetStatus = 'mismatch';
+  }
+
+  const targetProofPath = resolveTargetBindingArtifactPath({
+    args,
+    providerDir: path.dirname(outPath),
+  });
+  toRunRelativePath(context.runDir, targetProofPath);
+  const existingTargetProof = readJsonArtifactIfAvailable(targetProofPath);
+  const lifecycleSourceCommands = buildLifecycleSourceCommandsForTargetBinding({
+    baseArgs: rawInvocationArgs,
+    includeCaptureCommand: true,
+    normalizeOutputPath: outPath,
+    platform: 'ios',
+    providerDir: path.dirname(outPath),
+    providerId,
+    runDir: context.runDir,
+    targetBindingPath: targetProofPath,
+  });
+  const targetWindow = resolveTargetBindingWindowRecord({
+    existingTargetBinding: existingTargetProof,
+    providerDir: path.dirname(outPath),
+    runDir: context.runDir,
+  });
+  const observedSourceCommands = [
+    ['simctl-list-devices', 'startWindow', undefined],
+    ['simctl-get-app-container', 'startWindow', undefined],
+    ['simctl-launchctl-list', 'startWindow', undefined],
+    ['xctrace-record', 'startWindow', undefined],
+    ['xctrace-export-toc', 'stopWindow', context.tocPath],
+  ].flatMap(([sourceId, phase, outputPath]) => {
+    const capture = captures.get(sourceId);
+    return capture ? [buildTargetBindingSourceCommand({
+      capture,
+      outputPath,
+      phase,
+      runDir: context.runDir,
+      sourceId,
+    })] : [];
+  });
+
+  const trustedStopOutputs = readTrustedIosStopOutputs({ context });
+  const captureArtifacts = [
+    context.tocPath,
+    context.traceInventoryPath,
+  ].flatMap((artifactPath) => {
+    const runRelativePath = toRunRelativePath(context.runDir, artifactPath);
+    return trustedStopOutputs.has(runRelativePath)
+      ? [{ commandId: 'stop-native-window', path: runRelativePath }]
+      : [];
+  });
+
+  writeJsonArtifact(targetProofPath, {
+    ...(captureArtifacts.length > 0 ? { captureArtifacts } : {}),
+    capturedAt: new Date().toISOString(),
+    observedDevice: bootedDeviceObservation,
+    observedLaunchctlProcess: launchctlProcess,
+    ...(observedDeviceId ? { observedTargetId: observedDeviceId } : {}),
+    ...(observedProcessName ? { observedProcessName } : {}),
+    ...(observedPid !== null ? { observedProcessPid: observedPid } : {}),
+    ...(typeof tocSummary.devicePlatform === 'string' ? { observedTargetPlatform: tocSummary.devicePlatform } : {}),
+    ...(typeof tocSummary.template === 'string' ? { observedTemplate: tocSummary.template } : {}),
+    ...(typeof tocSummary.toolVersion === 'string' ? { observedToolVersion: tocSummary.toolVersion } : {}),
+    bundleId: context.bundleId,
+    endReason: tocSummary.endReason ?? null,
+    observedAppContainerName: appContainerAvailable ? path.basename(appContainerCapture.stdout.trim()) : null,
+    platform: 'ios',
+    providerId,
+    recordedDeviceId: observedDeviceId,
+    recordedDevicePlatform: tocSummary.devicePlatform ?? null,
+    recordedProcessName: observedProcessName,
+    recordedProcessPid: observedPid,
+    requestedAppId: context.bundleId,
+    requestedDeviceId: context.deviceId,
+    requestedPid,
+    requestedTargetId: context.deviceId,
+    runId,
+    scenarioId,
+    schemaVersion: '1.0.0',
+    sourceCommands: mergeTargetBindingSourceCommands(lifecycleSourceCommands, observedSourceCommands),
+    status: targetStatus,
+    template: tocSummary.template ?? null,
+    tocVerified,
+    toolVersion: tocSummary.toolVersion ?? null,
+    traceBundleObserved: traceInventory.exists && traceInventory.fileCount > 0,
+    windowVerified,
+    window: targetWindow ?? {
+      ...(tocSummary.durationMs !== undefined ? { durationMs: tocSummary.durationMs } : {}),
+      ...(tocSummary.endAt ? { endedAt: tocSummary.endAt } : {}),
+      phase: 'activeLoop',
+      ...(tocSummary.startAt ? { startedAt: tocSummary.startAt } : {}),
+    },
+  });
+
+  const attachments = [
+    {
+      kind: 'xctrace-export',
+      path: toRunRelativePath(context.runDir, context.tocPath),
+      sizeBytes: fs.statSync(context.tocPath).size,
+    },
+    {
+      kind: 'ios-target-binding',
+      path: toRunRelativePath(context.runDir, targetProofPath),
+      sizeBytes: fs.statSync(targetProofPath).size,
+    },
+    {
+      kind: 'xctrace-trace-bundle-inventory',
+      path: toRunRelativePath(context.runDir, context.traceInventoryPath),
+      sizeBytes: fs.statSync(context.traceInventoryPath).size,
+    },
+  ];
+
+  const xctraceCaptured = Boolean(
+    recordCapture &&
+    commandSucceeded(recordCapture) &&
+    exportCapture &&
+    commandSucceeded(exportCapture) &&
+    windowVerified &&
+    recordedSimulator &&
+    traceInventory.exists &&
+    traceInventory.fileCount > 0
+  );
+  const simctlCaptured = Boolean(
+    bootedDeviceCapture &&
+    commandSucceeded(bootedDeviceCapture) &&
+    appContainerCapture &&
+    commandSucceeded(appContainerCapture) &&
+    launchctlCapture &&
+    commandSucceeded(launchctlCapture) &&
+    bootedDeviceObservation.status === 'observed' &&
+    bootedDeviceObservation.matchesRequestedDevice === true &&
+    appContainerAvailable &&
+    launchctlProcess.status === 'observed'
+  );
+  const diagnosticSources = [
+    buildIosDiagnosticSource({
+      commandResults: [recordCapture ?? { exitCode: 1, timedOut: false }, exportCapture ?? { exitCode: 1, timedOut: false }],
+      dataClasses: ['cpu', 'thread-scheduling', 'native-trace'],
+      path: context.tocPath,
+      reason: tocVerified
+        ? 'The provider preserved managed xctrace output but did not verify full target/window binding.'
+        : 'The provider could not verify bounded xctrace TOC facts for target/window evidence.',
+      runDir: context.runDir,
+      sourceId: 'xctrace',
+      status: combinedCommandStatus(
+        [recordCapture ?? { timedOut: false, exitCode: 1 }, exportCapture ?? { timedOut: false, exitCode: 1 }],
+        xctraceCaptured,
+      ),
+      toolName: 'xctrace',
+    }),
+    buildIosDiagnosticSource({
+      commandResults: [
+        bootedDeviceCapture ?? { timedOut: false, exitCode: 1 },
+        appContainerCapture ?? { timedOut: false, exitCode: 1 },
+        launchctlCapture ?? { timedOut: false, exitCode: 1 },
+      ],
+      dataClasses: ['unknown'],
+      path: targetProofPath,
+      reason: 'The provider could not verify the requested simulator, installed app container, and launchctl process binding.',
+      runDir: context.runDir,
+      sourceId: 'simctl',
+      status: combinedCommandStatus(
+        [
+          bootedDeviceCapture ?? { timedOut: false, exitCode: 1 },
+          appContainerCapture ?? { timedOut: false, exitCode: 1 },
+          launchctlCapture ?? { timedOut: false, exitCode: 1 },
+        ],
+        simctlCaptured,
+      ),
+      toolName: 'xcrun simctl',
+    }),
+  ];
+
+  let targetBinding;
+  const targetEvidencePath = toRunRelativePath(context.runDir, targetProofPath);
+  if (targetStatus === 'verified') {
+    targetBinding = {
+      status: 'verified',
+      appId: context.bundleId,
+      deviceId: context.deviceId,
+      source: 'provider simctl/xctrace target verification',
+      candidateTargets: [{
+        appId: context.bundleId,
+        bindingStatus: 'observed',
+        deviceId: context.deviceId,
+        evidencePath: targetEvidencePath,
+        platform: 'ios',
+        source: 'simctl launchctl list plus xctrace TOC verification',
+      }],
+    };
+  } else if (targetStatus === 'mismatch') {
+    targetBinding = {
+      status: 'mismatch',
+      appId: context.bundleId,
+      deviceId: context.deviceId,
+      source: 'provider simctl/xctrace target verification',
+      reason: 'xctrace recorded a device or pid that does not match the requested simulator launchctl target.',
+      candidateTargets: [
+        {
+          appId: context.bundleId,
+          bindingStatus: 'expected',
+          deviceId: context.deviceId,
+          evidencePath: targetEvidencePath,
+          platform: 'ios',
+          source: 'provider request',
+        },
+        {
+          bindingStatus: 'observed',
+          ...(observedDeviceId ? { deviceId: observedDeviceId } : {}),
+          evidencePath: targetEvidencePath,
+          platform: 'ios',
+          source: 'xctrace TOC',
+        },
+      ],
+    };
+  } else {
+    targetBinding = {
+      status: 'unverified',
+      appId: context.bundleId,
+      deviceId: context.deviceId,
+      source: 'provider simctl/xctrace target verification',
+      reason: 'The provider could not verify all requested simulator/app/process/xctrace binding surfaces.',
+    };
+  }
+
+  const allCommandsSucceeded = [
+    bootedDeviceCapture,
+    appContainerCapture,
+    launchctlCapture,
+    recordCapture,
+    exportCapture,
+  ].every((capture) => capture && commandSucceeded(capture));
+  const captureSucceeded = allCommandsSucceeded && xctraceCaptured && simctlCaptured && targetStatus === 'verified';
+  const evidence = buildIosNativePerformanceEvidence({
+    appId: context.bundleId,
+    attachments,
+    bundleId: context.bundleId,
+    captureMode: 'session',
+    capturedAt: targetWindow?.startedAt ?? tocSummary.startAt ?? new Date().toISOString(),
+    claimSufficiency: captureSucceeded
+      ? {
+          status: 'sufficient-for-diagnosis',
+          claim: 'iOS simulator native-performance diagnosis from managed active-loop xctrace capture.',
+          reason: 'The provider verified simulator/app/process/window ownership but did not export structured comparison metrics.',
+          supportingEvidence: ['xctrace', 'simctl', 'targetBinding'],
+          missingEvidence: ['structured performance sample suitable for comparison baselines'],
+          nextAction: 'Export structured xctrace performance samples before making comparison or release claims.',
+        }
+      : {
+          status: 'insufficient-for-claim',
+          claim: 'iOS simulator native-performance diagnosis from managed active-loop xctrace capture.',
+          reason: 'One or more managed simctl/xctrace capture, export, or binding verification steps failed or remained unverified.',
+          supportingEvidence: ['xctrace-toc', 'target-binding'],
+          missingEvidence: ['verified simulator/app/process binding', 'verified bounded xctrace TOC metadata'],
+          nextAction: 'Repair the failed lifecycle step, rerun capture, and inspect preserved command records and raw outputs.',
+        },
+    comparability: {
+      status: 'diagnostic-only',
+      reason: 'Simulator xctrace metadata and target proof are useful for diagnosis but do not supply structured comparable native-performance samples.',
+      policy: 'Use this capture for diagnosis and target/window trust checks, not baseline comparison selection.',
+    },
+    completenessStatus: captureSucceeded ? 'complete' : 'partial',
+    deviceId: context.deviceId,
+    diagnosticSources,
+    lifecycle: targetWindow
+      ? {
+          durationMs: targetWindow.durationMs,
+          endedAt: targetWindow.endedAt,
+          perturbsTiming: true,
+          phase: 'activeLoop',
+          startedAt: targetWindow.startedAt,
+        }
+      : {
+          perturbsTiming: true,
+          phase: 'afterCapture',
+        },
+    providerId,
+    runId,
+    scenarioId,
+    targetBinding,
+    xctraceSummary: xctraceCaptured
+      ? {
+          durationMs: targetWindow?.durationMs ?? tocSummary.durationMs,
+          traceId: `${runId}-xctrace`,
+          windowEndMs: targetWindow?.durationMs ?? tocSummary.windowEndMs,
+          windowStartMs: 0,
+        }
+      : undefined,
+  });
+  writeJsonArtifact(outPath, evidence);
+  if (!captureSucceeded) {
+    process.exitCode = 1;
+  }
+}
+
 /**
  * Writes a formatted JSON artifact.
  *
@@ -2219,8 +3194,22 @@ async function runLifecycleAction({ action, args, platform, rawInvocationArgs })
     normalizePlatform(platform) === 'android' &&
     (args['capture-android-adb'] === true || process.env.ASL_NATIVE_PERFORMANCE_ANDROID_CAPTURE === '1')
   );
+  const iosCaptureEnabled = (
+    normalizePlatform(platform) === 'ios' &&
+    (args['capture-ios-xctrace'] === true || process.env.ASL_NATIVE_PERFORMANCE_IOS_CAPTURE === '1')
+  );
   const androidContext = androidCaptureEnabled
     ? resolveAndroidAdbCaptureContext({
+        args,
+        outPath: normalizeOutputPath,
+        providerId,
+        requireRequest: true,
+        runId,
+        scenarioId,
+      })
+    : null;
+  const iosContext = iosCaptureEnabled
+    ? resolveIosXctraceCaptureContext({
         args,
         outPath: normalizeOutputPath,
         providerId,
@@ -2240,7 +3229,11 @@ async function runLifecycleAction({ action, args, platform, rawInvocationArgs })
   };
 
   if (action === 'start-window') {
-    const actionSucceeded = androidContext ? await resetAndroidAdbWindow(androidContext) : true;
+    const actionSucceeded = androidContext
+      ? await resetAndroidAdbWindow(androidContext)
+      : iosContext
+        ? await startManagedIosXctraceWindow(iosContext)
+        : true;
     nextState.startedAt = now;
     nextState.startWindowStatus = actionSucceeded ? 'completed' : 'failed';
     delete nextState.endedAt;
@@ -2250,7 +3243,11 @@ async function runLifecycleAction({ action, args, platform, rawInvocationArgs })
       process.exitCode = 1;
     }
   } else if (action === 'stop-window') {
-    const actionSucceeded = androidContext ? await captureAndroidAdbWindow(androidContext) : true;
+    const actionSucceeded = androidContext
+      ? await captureAndroidAdbWindow(androidContext)
+      : iosContext
+        ? await stopManagedIosXctraceWindow(iosContext)
+        : true;
     nextState.startedAt = typeof nextState.startedAt === 'string' ? nextState.startedAt : now;
     nextState.endedAt = now;
     nextState.stopWindowStatus = actionSucceeded ? 'completed' : 'failed';
@@ -2506,6 +3503,10 @@ function writeNativePerformanceScaffold({
  */
 async function main() {
   const invocation = resolvePositionalAction(process.argv.slice(2));
+  if (invocation.action === '__internal-ios-xctrace-session') {
+    await runInternalIosXctraceSession(parseArgs(invocation.args));
+    return;
+  }
   const args = parseArgs(invocation.args);
   const platform = requireStringArg(args, 'platform');
   if (
@@ -2564,15 +3565,26 @@ async function main() {
   if (platform === 'ios') {
     const liveXctraceCapture = args['capture-ios-xctrace'] === true || process.env.ASL_NATIVE_PERFORMANCE_IOS_CAPTURE === '1';
     if (liveXctraceCapture) {
-      await captureIosXctraceEvidence({
-        args,
-        outPath,
-        providerId,
-        rawInvocationArgs: invocation.args,
-        requireRequest: requireManagedRequest,
-        runId,
-        scenarioId,
-      });
+      if (requireManagedRequest) {
+        await normalizeManagedIosXctraceEvidence({
+          args,
+          outPath,
+          providerId,
+          rawInvocationArgs: invocation.args,
+          runId,
+          scenarioId,
+        });
+      } else {
+        await captureIosXctraceEvidence({
+          args,
+          outPath,
+          providerId,
+          rawInvocationArgs: invocation.args,
+          requireRequest: false,
+          runId,
+          scenarioId,
+        });
+      }
       return;
     }
     const metricKitText = readOptionalText(args, 'metrickit-summary');

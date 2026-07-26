@@ -173,7 +173,18 @@
         "--request-sha256",
         "{nativePerformanceRequestSha256}"
       ],
-      "outputs": []
+      "outputs": [
+        {
+          "channel": "provider",
+          "kind": "logs",
+          "path": "{providerDir}/ios-xctrace/xctrace-toc.xml"
+        },
+        {
+          "channel": "provider",
+          "kind": "logs",
+          "path": "{providerDir}/ios-xctrace/trace-bundle-inventory.json"
+        }
+      ]
     },
     {
       "id": "capture-accessibility",
