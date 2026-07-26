@@ -906,6 +906,9 @@ function commandSucceeded(result) {
 }
 
 const IOS_XCTRACE_SESSION_START_TIMEOUT_MS = 2_000;
+const IOS_XCTRACE_SESSION_START_STABILITY_MS = 250;
+const IOS_XCTRACE_SESSION_ATTACH_RETRY_DELAY_MS = 250;
+const IOS_XCTRACE_SESSION_ATTACH_MAX_ATTEMPTS = 2;
 const IOS_XCTRACE_SESSION_STOP_TIMEOUT_MS = 30_000;
 const IOS_XCTRACE_SESSION_FORCE_KILL_WAIT_MS = 1_000;
 const IOS_XCTRACE_SESSION_STREAM_LIMIT_BYTES = 256 * 1024;
@@ -958,6 +961,83 @@ function readJsonArtifactIfExists(filePath) {
   return record && typeof record === 'object' && !Array.isArray(record)
     ? record
     : null;
+}
+
+function writeManagedIosStartWindowCommand({
+  context,
+  helperPid,
+  pid,
+  startedAt,
+  status,
+  endedAt,
+  exitCode,
+  signal,
+  timedOut,
+}) {
+  writeJsonArtifact(context.startWindowCommandPath, {
+    args: [
+      '__internal-ios-xctrace-session',
+      '--xcrun', context.xcrunPath,
+      '--device', context.deviceId,
+      '--bundle', context.bundleId,
+      '--pid', String(pid),
+      '--template', context.xctraceTemplate,
+      '--trace-bundle', toRunRelativePath(context.runDir, context.traceBundlePath),
+      '--stdout-path', toRunRelativePath(context.runDir, context.recordStdoutPath),
+      '--stderr-path', toRunRelativePath(context.runDir, context.recordStderrPath),
+      '--status-path', toRunRelativePath(context.runDir, context.sessionStatusPath),
+      '--stop-timeout-ms', String(context.commandTimeoutMs),
+    ],
+    bundleId: context.bundleId,
+    command: path.basename(process.execPath),
+    ...(typeof endedAt === 'string' ? { endedAt } : {}),
+    ...(typeof exitCode === 'number' ? { exitCode } : {}),
+    helperPid,
+    pid,
+    providerId: context.providerId,
+    ...(typeof signal === 'string' ? { signal } : {}),
+    startedAt,
+    status,
+    ...(typeof timedOut === 'boolean' ? { timedOut } : {}),
+    traceBundlePath: toRunRelativePath(context.runDir, context.traceBundlePath),
+    xcrun: context.xcrunPath,
+  });
+}
+
+function writeManagedIosRecordCommand(context, completedStatus) {
+  writeJsonArtifact(path.join(context.captureDir, 'xctrace-record.command.json'), {
+    args: Array.isArray(completedStatus.args)
+      ? completedStatus.args.map((arg) => normalizeCommandArgForEvidence(context.runDir, arg))
+      : [],
+    command: typeof completedStatus.command === 'string'
+      ? path.basename(completedStatus.command)
+      : path.basename(context.xcrunPath),
+    endedAt: completedStatus.endedAt,
+    errorCode: completedStatus.errorCode ?? null,
+    errorMessage: completedStatus.errorMessage ?? null,
+    exitCode: completedStatus.exitCode,
+    phase: 'startWindow',
+    providerId: context.providerId,
+    startedAt: completedStatus.startedAt,
+    status: completedStatus.exitCode === 0 && completedStatus.timedOut !== true ? 'completed' : 'failed',
+    stderrPath: toRunRelativePath(context.runDir, context.recordStderrPath),
+    stderrSha256: sha256File(context.recordStderrPath),
+    stdoutPath: toRunRelativePath(context.runDir, context.recordStdoutPath),
+    stdoutSha256: sha256File(context.recordStdoutPath),
+    timedOut: completedStatus.timedOut === true,
+    ...(typeof completedStatus.signal === 'string' ? { signal: completedStatus.signal } : {}),
+  });
+}
+
+function isManagedIosAttachFailure(context, completedStatus) {
+  if (completedStatus?.exitCode !== 21) {
+    return false;
+  }
+  if (!fs.existsSync(context.recordStderrPath)) {
+    return false;
+  }
+  const stderr = fs.readFileSync(context.recordStderrPath, 'utf8');
+  return /Cannot find process for provided pid/iu.test(stderr);
 }
 
 function resolveIosXctraceCaptureContext({
@@ -1061,89 +1141,152 @@ function buildIosXctraceStopWindowDefinitions(context) {
 async function startManagedIosXctraceWindow(context) {
   fs.rmSync(context.captureDir, { force: true, recursive: true });
   fs.mkdirSync(context.captureDir, { recursive: true });
+  let lastCompletedStatus = null;
 
-  const captures = new Map();
-  for (const definition of buildIosXctraceStartWindowDefinitions(context)) {
-    const result = await runCommand(context.xcrunPath, definition.args, context.commandTimeoutMs);
-    captures.set(definition.id, {
-      result,
-      paths: writeCommandArtifacts({
-        captureDir: context.captureDir,
-        id: definition.id,
-        phase: definition.phase,
-        providerId: context.providerId,
+  for (let attempt = 1; attempt <= IOS_XCTRACE_SESSION_ATTACH_MAX_ATTEMPTS; attempt += 1) {
+    const captures = new Map();
+    for (const definition of buildIosXctraceStartWindowDefinitions(context)) {
+      const result = await runCommand(context.xcrunPath, definition.args, context.commandTimeoutMs);
+      captures.set(definition.id, {
         result,
-        runDir: context.runDir,
-      }),
+        paths: writeCommandArtifacts({
+          captureDir: context.captureDir,
+          id: definition.id,
+          phase: definition.phase,
+          providerId: context.providerId,
+          result,
+          runDir: context.runDir,
+        }),
+      });
+    }
+
+    const bootedDeviceCapture = captures.get('simctl-list-devices').result;
+    const appContainerCapture = captures.get('simctl-get-app-container').result;
+    const launchctlCapture = captures.get('simctl-launchctl-list').result;
+    const bootedDeviceObservation = commandSucceeded(bootedDeviceCapture)
+      ? readBootedDeviceObservation(bootedDeviceCapture.stdout, context.deviceId)
+      : { status: 'failed' };
+    const appContainerAvailable = commandSucceeded(appContainerCapture) && appContainerCapture.stdout.trim().length > 0;
+    const launchctlProcess = commandSucceeded(launchctlCapture)
+      ? readLaunchctlProcessObservation(launchctlCapture.stdout, context.bundleId)
+      : { status: 'failed' };
+    const requestedPid = launchctlProcess.status === 'observed' ? launchctlProcess.pid : 0;
+    if (
+      bootedDeviceObservation.status !== 'observed' ||
+      bootedDeviceObservation.matchesRequestedDevice !== true ||
+      !appContainerAvailable ||
+      launchctlProcess.status !== 'observed' ||
+      requestedPid <= 0
+    ) {
+      return false;
+    }
+
+    fs.rmSync(context.traceBundlePath, { force: true, recursive: true });
+    fs.rmSync(context.recordStdoutPath, { force: true });
+    fs.rmSync(context.recordStderrPath, { force: true });
+    fs.rmSync(context.sessionStatusPath, { force: true });
+
+    const helperArgs = [
+      process.argv[1],
+      '__internal-ios-xctrace-session',
+      '--xcrun', context.xcrunPath,
+      '--device', context.deviceId,
+      '--bundle', context.bundleId,
+      '--pid', String(requestedPid),
+      '--template', context.xctraceTemplate,
+      '--trace-bundle', context.traceBundlePath,
+      '--stdout-path', context.recordStdoutPath,
+      '--stderr-path', context.recordStderrPath,
+      '--status-path', context.sessionStatusPath,
+      '--stop-timeout-ms', String(context.commandTimeoutMs),
+    ];
+    const child = spawn(process.execPath, helperArgs, {
+      detached: process.platform !== 'win32',
+      shell: false,
+      stdio: ['ignore', 'ignore', 'ignore'],
     });
-  }
+    child.unref();
 
-  const bootedDeviceCapture = captures.get('simctl-list-devices').result;
-  const appContainerCapture = captures.get('simctl-get-app-container').result;
-  const launchctlCapture = captures.get('simctl-launchctl-list').result;
-  const bootedDeviceObservation = commandSucceeded(bootedDeviceCapture)
-    ? readBootedDeviceObservation(bootedDeviceCapture.stdout, context.deviceId)
-    : { status: 'failed' };
-  const appContainerAvailable = commandSucceeded(appContainerCapture) && appContainerCapture.stdout.trim().length > 0;
-  const launchctlProcess = commandSucceeded(launchctlCapture)
-    ? readLaunchctlProcessObservation(launchctlCapture.stdout, context.bundleId)
-    : { status: 'failed' };
-  const requestedPid = launchctlProcess.status === 'observed' ? launchctlProcess.pid : 0;
-  if (
-    bootedDeviceObservation.status !== 'observed' ||
-    bootedDeviceObservation.matchesRequestedDevice !== true ||
-    !appContainerAvailable ||
-    launchctlProcess.status !== 'observed' ||
-    requestedPid <= 0
-  ) {
+    const sessionOutcome = await waitForCondition({
+      timeoutMs: IOS_XCTRACE_SESSION_START_TIMEOUT_MS,
+      check: async () => {
+        const status = readJsonArtifactIfExists(context.sessionStatusPath);
+        if (!status) {
+          return null;
+        }
+        if (status.status === 'completed') {
+          return { kind: 'completed', status };
+        }
+        if (status.status === 'started' && isProcessAlive(status.helperPid)) {
+          return { kind: 'started', status };
+        }
+        return null;
+      },
+    });
+    if (!sessionOutcome) {
+      return false;
+    }
+
+    if (sessionOutcome.kind === 'started') {
+      await new Promise((resolve) => setTimeout(resolve, IOS_XCTRACE_SESSION_START_STABILITY_MS));
+      const stabilizedStatus = readJsonArtifactIfExists(context.sessionStatusPath);
+      if (stabilizedStatus?.status !== 'completed' && isProcessAlive(sessionOutcome.status.helperPid)) {
+        writeManagedIosStartWindowCommand({
+          context,
+          helperPid: sessionOutcome.status.helperPid,
+          pid: requestedPid,
+          startedAt: sessionOutcome.status.startedAt,
+          status: 'started',
+        });
+        return true;
+      }
+      if (stabilizedStatus?.status === 'completed') {
+        lastCompletedStatus = stabilizedStatus;
+        writeManagedIosRecordCommand(context, stabilizedStatus);
+        writeManagedIosStartWindowCommand({
+          context,
+          helperPid: stabilizedStatus.helperPid ?? sessionOutcome.status.helperPid ?? null,
+          pid: requestedPid,
+          startedAt: stabilizedStatus.startedAt ?? sessionOutcome.status.startedAt,
+          status: 'failed',
+          endedAt: stabilizedStatus.endedAt,
+          exitCode: stabilizedStatus.exitCode,
+          signal: stabilizedStatus.signal,
+          timedOut: stabilizedStatus.timedOut === true,
+        });
+        if (attempt < IOS_XCTRACE_SESSION_ATTACH_MAX_ATTEMPTS && isManagedIosAttachFailure(context, stabilizedStatus)) {
+          await new Promise((resolve) => setTimeout(resolve, IOS_XCTRACE_SESSION_ATTACH_RETRY_DELAY_MS));
+          continue;
+        }
+        return false;
+      }
+      return false;
+    }
+
+    lastCompletedStatus = sessionOutcome.status;
+    writeManagedIosRecordCommand(context, sessionOutcome.status);
+    writeManagedIosStartWindowCommand({
+      context,
+      helperPid: sessionOutcome.status.helperPid ?? null,
+      pid: requestedPid,
+      startedAt: sessionOutcome.status.startedAt,
+      status: 'failed',
+      endedAt: sessionOutcome.status.endedAt,
+      exitCode: sessionOutcome.status.exitCode,
+      signal: sessionOutcome.status.signal,
+      timedOut: sessionOutcome.status.timedOut === true,
+    });
+    if (attempt < IOS_XCTRACE_SESSION_ATTACH_MAX_ATTEMPTS && isManagedIosAttachFailure(context, sessionOutcome.status)) {
+      await new Promise((resolve) => setTimeout(resolve, IOS_XCTRACE_SESSION_ATTACH_RETRY_DELAY_MS));
+      continue;
+    }
     return false;
   }
 
-  const helperArgs = [
-    process.argv[1],
-    '__internal-ios-xctrace-session',
-    '--xcrun', context.xcrunPath,
-    '--device', context.deviceId,
-    '--bundle', context.bundleId,
-    '--pid', String(requestedPid),
-    '--template', context.xctraceTemplate,
-    '--trace-bundle', context.traceBundlePath,
-    '--stdout-path', context.recordStdoutPath,
-    '--stderr-path', context.recordStderrPath,
-    '--status-path', context.sessionStatusPath,
-    '--stop-timeout-ms', String(context.commandTimeoutMs),
-  ];
-  const child = spawn(process.execPath, helperArgs, {
-    detached: process.platform !== 'win32',
-    shell: false,
-    stdio: ['ignore', 'ignore', 'ignore'],
-  });
-  child.unref();
-
-  const startedStatus = await waitForCondition({
-    timeoutMs: IOS_XCTRACE_SESSION_START_TIMEOUT_MS,
-    check: async () => {
-      const status = readJsonArtifactIfExists(context.sessionStatusPath);
-      return status?.status === 'started' ? status : null;
-    },
-  });
-  if (!startedStatus || !isProcessAlive(startedStatus.helperPid)) {
-    return false;
+  if (lastCompletedStatus) {
+    writeManagedIosRecordCommand(context, lastCompletedStatus);
   }
-
-  writeJsonArtifact(context.startWindowCommandPath, {
-    args: helperArgs.slice(2),
-    bundleId: context.bundleId,
-    command: process.execPath,
-    helperPid: startedStatus.helperPid,
-    pid: requestedPid,
-    providerId: context.providerId,
-    startedAt: startedStatus.startedAt,
-    status: 'started',
-    traceBundlePath: toRunRelativePath(context.runDir, context.traceBundlePath),
-    xcrun: context.xcrunPath,
-  });
-  return true;
+  return false;
 }
 
 function signalProcess(pid, signal) {
@@ -1176,28 +1319,7 @@ async function stopManagedIosXctraceWindow(context) {
     return false;
   }
 
-  writeJsonArtifact(path.join(context.captureDir, 'xctrace-record.command.json'), {
-    args: Array.isArray(completedStatus.args)
-      ? completedStatus.args.map((arg) => normalizeCommandArgForEvidence(context.runDir, arg))
-      : [],
-    command: typeof completedStatus.command === 'string'
-      ? path.basename(completedStatus.command)
-      : path.basename(context.xcrunPath),
-    endedAt: completedStatus.endedAt,
-    errorCode: completedStatus.errorCode ?? null,
-    errorMessage: completedStatus.errorMessage ?? null,
-    exitCode: completedStatus.exitCode,
-    phase: 'startWindow',
-    providerId: context.providerId,
-    startedAt: completedStatus.startedAt,
-    status: completedStatus.exitCode === 0 && completedStatus.timedOut !== true ? 'completed' : 'failed',
-    stderrPath: toRunRelativePath(context.runDir, context.recordStderrPath),
-    stderrSha256: sha256File(context.recordStderrPath),
-    stdoutPath: toRunRelativePath(context.runDir, context.recordStdoutPath),
-    stdoutSha256: sha256File(context.recordStdoutPath),
-    timedOut: completedStatus.timedOut === true,
-    ...(typeof completedStatus.signal === 'string' ? { signal: completedStatus.signal } : {}),
-  });
+  writeManagedIosRecordCommand(context, completedStatus);
 
   const exportArgs = ['xctrace', 'export', '--input', context.traceBundlePath, '--toc'];
   const exportResult = await runCommand(context.xcrunPath, exportArgs, context.commandTimeoutMs);

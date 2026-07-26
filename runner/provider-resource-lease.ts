@@ -319,6 +319,7 @@ async function createProviderResourceLeaseSession(
     ttlMs,
   };
   await writeJournal(options.evidencePath, journal);
+  let persistChain = Promise.resolve();
 
   const providerStates = new Map<string, ProviderState>();
   const activeLeases = new Map<string, ActiveProviderLease>();
@@ -338,7 +339,9 @@ async function createProviderResourceLeaseSession(
     } else if (journal.claims.length === 0) {
       journal.status = 'idle';
     }
-    await writeJournal(options.evidencePath, journal);
+    const snapshot = structuredClone(journal);
+    persistChain = persistChain.then(() => writeJournal(options.evidencePath, snapshot));
+    await persistChain;
   }
 
   async function releaseActiveLease(activeLease: ActiveProviderLease): Promise<ProviderResourceLeaseFailure | null> {
