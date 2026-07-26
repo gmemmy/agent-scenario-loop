@@ -61,6 +61,7 @@
     },
     "./app/profile-session": {
       "types": "./app/profile-session.d.ts",
+      "react-native": "./app/profile-session.ts",
       "import": "./app/profile-session.ts",
       "require": "./app/profile-session.ts",
       "default": "./app/profile-session.ts"
