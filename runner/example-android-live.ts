@@ -17,6 +17,7 @@ const { writeLiveProofSummary } = require('./live-proof-summary');
 const { runAgentDeviceCapture } = require('./agent-device');
 const { parseBaseArgs: parseArgentBaseArgs, runArgentCapture } = require('./argent');
 const { loadAslLocalEnv, readStringArgOrEnv } = require('./local-env');
+const { normalizeBoundedIdentitySegment } = require('./run-identity') as typeof import('./run-identity');
 const { runProfileAndroid } = require('./profile-android');
 
 type CliArgs = import('./android-adb').CliArgs;
@@ -175,17 +176,7 @@ function resolveAndroidSerial(args: CliArgs): string {
  * @returns {string | null}
  */
 function normalizeRunSuffix(value: unknown): string | null {
-  if (typeof value !== 'string') {
-    return null;
-  }
-
-  const normalized = value
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9._-]+/gu, '-')
-    .replace(/^-+|-+$/gu, '')
-    .slice(0, 64);
-  return normalized.length > 0 ? normalized : null;
+  return normalizeBoundedIdentitySegment(value, 64);
 }
 
 /**

@@ -7,6 +7,7 @@ const { createArtifactLayout } = require('../core/artifact-layout');
 const { writeJsonArtifact, writeTextArtifact } = require('../core/artifact-writer');
 const { SCHEMAS, assertValidJson } = require('../core/schema-validator');
 const { hasHelpFlag, writeUsage } = require('./cli');
+const { normalizeBoundedIdentitySegment } = require('./run-identity') as typeof import('./run-identity');
 
 type CliArgs = {
   'artifact-base-dir'?: string | boolean;
@@ -1093,17 +1094,7 @@ function resolveLiveProofSetOutputDir(args: CliArgs): string | null {
  * @returns {string}
  */
 function resolveLiveProofSetRunId(args: CliArgs): string {
-  if (typeof args['run-id'] !== 'string') {
-    return 'live-proof-set';
-  }
-
-  const normalized = args['run-id']
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9._-]+/gu, '-')
-    .replace(/^-+|-+$/gu, '')
-    .slice(0, 96);
-  return normalized.length > 0 ? normalized : 'live-proof-set';
+  return normalizeBoundedIdentitySegment(args['run-id'], 96) ?? 'live-proof-set';
 }
 
 /**
