@@ -1095,6 +1095,43 @@ async function runProfileIos(
     : {};
   let providerExecution = mergeProviderCommandExecutions();
   let finalizedLiveWindowProviderExecution = false;
+  let startedLiveWindowProviderExecution = false;
+  let runnerActiveLoopStartedAt: string | null = null;
+  const startLiveWindowProviderExecution = async (): Promise<void> => {
+    if (startedLiveWindowProviderExecution || !liveWindowProviderLifecycle || !liveProviderLayout) {
+      return;
+    }
+
+    const startWindowExecution = await executeProviderCommands({
+      args,
+      includeProviders: true,
+      includeStaticFailures: true,
+      layout: liveProviderLayout,
+      phases: ['startWindow'],
+      platform: 'ios',
+      runDir: liveProviderRunDir,
+      runId,
+      scenarioId: scenarioName,
+      supportMode: 'live-window',
+      ...(liveProviderResourceLeaseSession ? { resourceLeaseSession: liveProviderResourceLeaseSession } : {}),
+      ...(nativePerformanceRequest ? { nativePerformanceRequest } : {}),
+      ...liveProviderExecutionOptions,
+    });
+    providerExecution = mergeProviderCommandExecutions(
+      providerExecution,
+      startWindowExecution,
+    );
+    const startWindowFailures = startWindowExecution.failures.filter((failure: { phase?: string }) => (
+      failure.phase === 'startWindow'
+    ));
+    if (startWindowFailures.length > 0) {
+      throw new Error(
+        `iOS live-window provider start failed; inspect ${liveProviderRunDir}/raw/provider-commands.`,
+      );
+    }
+    runnerActiveLoopStartedAt = new Date().toISOString();
+    startedLiveWindowProviderExecution = true;
+  };
   const finalizeLiveWindowProviderExecution = async (): Promise<void> => {
     if (finalizedLiveWindowProviderExecution || !liveWindowProviderLifecycle || !liveProviderLayout) {
       return;
@@ -1142,31 +1179,18 @@ async function runProfileIos(
       );
     }
   };
-  if (liveWindowProviderLifecycle && liveProviderLayout) {
-    providerExecution = mergeProviderCommandExecutions(
-      providerExecution,
-      await executeProviderCommands({
-        args,
-        includeProviders: true,
-        includeStaticFailures: true,
-        layout: liveProviderLayout,
-        phases: ['startWindow'],
-        platform: 'ios',
-        runDir: liveProviderRunDir,
-        runId,
-        scenarioId: scenarioName,
-        supportMode: 'live-window',
-        ...(liveProviderResourceLeaseSession ? { resourceLeaseSession: liveProviderResourceLeaseSession } : {}),
-        ...(nativePerformanceRequest ? { nativePerformanceRequest } : {}),
-        ...liveProviderExecutionOptions,
-      }),
-    );
+  const deferLiveProviderStartUntilCommandWindow = Boolean(
+    liveWindowProviderLifecycle &&
+    nativePerformanceRequest &&
+    profileSessionStorageEnabled &&
+    profileSessionCommands.length > 0,
+  );
+  if (liveWindowProviderLifecycle && liveProviderLayout && !deferLiveProviderStartUntilCommandWindow) {
+    await startLiveWindowProviderExecution();
   }
   let preRunFailure: Error | null = null;
   let simctlCapture: IosSimctlProfileResult | null = null;
-  let runnerActiveLoopStartedAt: string | null = null;
   if (isEnabled(args['simctl-capture'])) {
-    runnerActiveLoopStartedAt = new Date().toISOString();
     try {
       simctlCapture = await runIosSimctlCapture({
         bundleId: iosBundleId,
@@ -1177,6 +1201,14 @@ async function runProfileIos(
         ...(typeof args.device === 'string' ? { device: args.device } : {}),
         ...(options.executor ? { executor: options.executor } : {}),
         ...(options.recorderFactory ? { recorderFactory: options.recorderFactory } : {}),
+        ...(deferLiveProviderStartUntilCommandWindow
+          ? {
+              deferProfileSessionStorageCommandsUntilCommandWindow: true,
+              onProfileSessionCommandWindowReady: async () => {
+                await startLiveWindowProviderExecution();
+              },
+            }
+          : {}),
         launch: shouldLaunchWithSimctl,
         ...(typeof args['log-last'] === 'string' ? { logLast: args['log-last'] } : {}),
         outputDir: resolveSimctlCaptureOutputDir({ args, runId }),
@@ -1246,7 +1278,7 @@ async function runProfileIos(
           }
         }
       }
-      if (liveWindowProviderLifecycle && liveProviderLayout) {
+      if (liveWindowProviderLifecycle && liveProviderLayout && startedLiveWindowProviderExecution) {
         providerExecution = mergeProviderCommandExecutions(
           providerExecution,
           await executeProviderCommands({

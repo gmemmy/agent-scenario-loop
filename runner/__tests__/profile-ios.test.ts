@@ -2749,6 +2749,265 @@ test('profile-ios seeds iOS scenario commands through app storage', async (t: Te
   assert.equal(calls.some((call) => call.startsWith('simctl openurl ')), false);
 });
 
+test('profile-ios starts live-window providers after dev-client readiness before releasing storage commands', async (t: TestContext) => {
+  const tempRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-ios-provider-window-'));
+  const dataContainer = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-ios-provider-window-data-'));
+  const providerRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-provider-ios-window-'));
+  t.after(async () => {
+    await fsp.rm(tempRoot, { recursive: true, force: true });
+    await fsp.rm(dataContainer, { recursive: true, force: true });
+    await fsp.rm(providerRoot, { recursive: true, force: true });
+  });
+  const simctlCaptureRoot = path.join(tempRoot, 'simctl-capture');
+  const profileRoot = path.join(tempRoot, 'profile');
+  const orderPath = path.join(providerRoot, 'window-order.log');
+  const providerScript = path.join(providerRoot, 'provider-window-phase.js');
+  await fsp.writeFile(
+    providerScript,
+    [
+      "const fs = require('node:fs');",
+      "const path = require('node:path');",
+      "const [phase, orderPath, storageManifestPath, commandStorageKey, summaryPath] = process.argv.slice(2);",
+      "fs.mkdirSync(path.dirname(orderPath), { recursive: true });",
+      "fs.appendFileSync(orderPath, `${phase}\\n`);",
+      "if (phase === 'startWindow') {",
+      "  const manifest = JSON.parse(fs.readFileSync(storageManifestPath, 'utf8'));",
+      "  fs.mkdirSync(path.dirname(summaryPath), { recursive: true });",
+      "  fs.writeFileSync(summaryPath, JSON.stringify({ commandStoragePresent: typeof manifest[commandStorageKey] === 'string' }) + '\\n');",
+      "}",
+    ].join('\n'),
+    'utf8',
+  );
+  const providerManifestPath = path.join(providerRoot, 'provider.json');
+  await fsp.writeFile(
+    providerManifestPath,
+    `${JSON.stringify({
+      schemaVersion: '1.0.0',
+      runnerId: 'ios-window-provider',
+      kind: 'evidenceProvider',
+      platforms: ['ios'],
+      capabilities: ['nativePerformance'],
+      artifactOutputs: ['nativePerformance'],
+      lifecycle: ['startWindow', 'stopWindow', 'finalize'],
+      providerCommands: [
+        {
+          id: 'start-native-window',
+          phase: 'startWindow',
+          command: process.execPath,
+          args: [
+            providerScript,
+            'startWindow',
+            orderPath,
+            path.join(resolveAsyncStorageDirectory({
+              bundleId: 'dev.agent-scenario-loop.example',
+              dataContainer,
+            }), 'manifest.json'),
+            'agent-scenario-loop.profile-commands.1',
+            '{providerDir}/start-window-summary.json',
+          ],
+          outputs: [],
+        },
+        {
+          id: 'stop-native-window',
+          phase: 'stopWindow',
+          command: process.execPath,
+          args: [providerScript, 'stopWindow', orderPath, '', '', ''],
+          outputs: [],
+        },
+        {
+          id: 'cleanup-native-window',
+          phase: 'finalize',
+          command: process.execPath,
+          args: [providerScript, 'finalize', orderPath, '', '', ''],
+          outputs: [],
+        },
+      ],
+    }, null, 2)}\n`,
+    'utf8',
+  );
+  const calls: string[] = [];
+  let profileStartWritten = false;
+  let completionWritten = false;
+  const writeProfileStartIfNeeded = () => {
+    if (profileStartWritten) {
+      return;
+    }
+    const storageDir = resolveAsyncStorageDirectory({
+      bundleId: 'dev.agent-scenario-loop.example',
+      dataContainer,
+    });
+    const manifestPath = path.join(storageDir, 'manifest.json');
+    if (!fs.existsSync(manifestPath)) {
+      return;
+    }
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+    const session = JSON.parse(manifest['agent-scenario-loop.profile-session.1']);
+    const startedAt = Number(session.startedAt);
+    manifest['agent-scenario-loop.profile-session-entries.1'] = JSON.stringify([
+      {
+        helperVersion: '1.1.0',
+        kind: 'start',
+        runId: 'ios-live-window-provider',
+        scenario: 'open-close-cycle',
+        startedAt,
+        timestamp: startedAt,
+      },
+    ]);
+    fs.writeFileSync(manifestPath, JSON.stringify(manifest), 'utf8');
+    profileStartWritten = true;
+  };
+  const writeCommandCompletionIfReleased = () => {
+    if (completionWritten) {
+      return;
+    }
+    const storageDir = resolveAsyncStorageDirectory({
+      bundleId: 'dev.agent-scenario-loop.example',
+      dataContainer,
+    });
+    const manifestPath = path.join(storageDir, 'manifest.json');
+    if (!fs.existsSync(manifestPath)) {
+      return;
+    }
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+    const commandsRaw = manifest['agent-scenario-loop.profile-commands.1'];
+    if (typeof commandsRaw !== 'string') {
+      return;
+    }
+    const session = JSON.parse(manifest['agent-scenario-loop.profile-session.1']);
+    const startedAt = Number(session.startedAt);
+    const commands = JSON.parse(commandsRaw) as Array<Record<string, unknown>>;
+    fs.appendFileSync(orderPath, 'commands-released\n');
+    manifest['agent-scenario-loop.profile-events.1'] = fs
+      .readFileSync(fixturePath('examples/mobile-app/event-logs/open-close-cycle.log'), 'utf8')
+      .split(/\r?\n/u)
+      .filter(Boolean)
+      .map((line: string) => JSON.parse(line.slice(line.indexOf('[profile-event]') + '[profile-event]'.length).trim()))
+      .map((event: Record<string, unknown>) => ({
+        ...event,
+        runId: 'ios-live-window-provider',
+      }));
+    manifest['agent-scenario-loop.profile-events.1'] = JSON.stringify(manifest['agent-scenario-loop.profile-events.1']);
+    manifest['agent-scenario-loop.profile-session-entries.1'] = JSON.stringify([
+      {
+        helperVersion: '1.1.0',
+        kind: 'start',
+        runId: 'ios-live-window-provider',
+        scenario: 'open-close-cycle',
+        startedAt,
+        timestamp: startedAt,
+      },
+      ...commands.flatMap((command) => ([
+        {
+          ...command,
+          helperVersion: '1.1.0',
+          kind: 'command',
+          runId: 'ios-live-window-provider',
+          scenario: 'open-close-cycle',
+          source: 'storage',
+          status: 'received',
+          timestamp: Date.now(),
+        },
+        {
+          ...command,
+          helperVersion: '1.1.0',
+          kind: 'command',
+          runId: 'ios-live-window-provider',
+          scenario: 'open-close-cycle',
+          source: 'storage',
+          status: 'completed',
+          timestamp: Date.now(),
+        },
+      ])),
+    ]);
+    fs.writeFileSync(manifestPath, JSON.stringify(manifest), 'utf8');
+    completionWritten = true;
+  };
+  const executor = async (command: string, args: string[]): Promise<CommandResult> => {
+    const key = args.join(' ');
+    calls.push(key);
+    if (key.startsWith('simctl openurl A692ED28-893E-453F-8866-C69331AE757F asl-example://expo-development-client/')) {
+      return {
+        command,
+        args,
+        exitCode: 0,
+        stderr: '',
+        stdout: '',
+      };
+    }
+    const responses: Record<string, Partial<CommandResult>> = {
+      'simctl list devices': {
+        stdout: [
+          '== Devices ==',
+          '-- iOS 26.3 --',
+          '    iPhone 17 Pro Max (A692ED28-893E-453F-8866-C69331AE757F) (Booted)',
+        ].join('\n'),
+      },
+      'simctl get_app_container A692ED28-893E-453F-8866-C69331AE757F dev.agent-scenario-loop.example app': {
+        stdout: '/tmp/ASLExampleMobile.app\n',
+      },
+      'simctl get_app_container A692ED28-893E-453F-8866-C69331AE757F dev.agent-scenario-loop.example data': {
+        stdout: `${dataContainer}\n`,
+      },
+      'simctl terminate A692ED28-893E-453F-8866-C69331AE757F dev.agent-scenario-loop.example': {
+        stdout: '',
+      },
+      'simctl spawn A692ED28-893E-453F-8866-C69331AE757F log show --style compact --last 2m --predicate eventMessage CONTAINS "[profile-event]" OR eventMessage CONTAINS "[profile-session]"': {
+        stdout: 'Timestamp Ty Process[PID:TID]\n',
+      },
+    };
+    const response = responses[key] ?? { exitCode: 1, stderr: `unexpected command: ${key}` };
+    return {
+      command,
+      args,
+      exitCode: response.exitCode ?? 0,
+      stderr: response.stderr ?? '',
+      stdout: response.stdout ?? '',
+    };
+  };
+
+  const result = await runProfileIos({
+    config: fixturePath('examples/mobile-app/asl.config.json'),
+    device: 'A692ED28-893E-453F-8866-C69331AE757F',
+    launch: true,
+    out: profileRoot,
+    'ios-dev-client-url': 'asl-example://expo-development-client/?url=http%3A%2F%2Flocalhost%3A8097',
+    'ios-dev-client-wait-ms': '15',
+    'ios-profile-session-start-wait-ms': '20',
+    'profile-session': true,
+    'profile-session-storage': true,
+    provider: providerManifestPath,
+    'run-id': 'ios-live-window-provider',
+    scenario: fixturePath('examples/mobile-app/scenarios/ios/open-close-cycle.json'),
+    'simctl-capture': true,
+    'simctl-out': simctlCaptureRoot,
+    'wait-ms': '25',
+  }, {
+    delay: async () => {
+      writeProfileStartIfNeeded();
+      writeCommandCompletionIfReleased();
+    },
+    executor,
+  });
+
+  const health = readJson(path.join(result.runDir, 'health.json'));
+  const seed = readJson(path.join(simctlCaptureRoot, 'raw', 'ios-profile-session-seed.json'));
+  const release = readJson(path.join(simctlCaptureRoot, 'raw', 'ios-profile-session-command-release.json'));
+  const providerSummary = readJson(
+    path.join(result.runDir, 'raw', 'providers', 'ios-window-provider', 'start-window-summary.json'),
+  );
+  const order = fs.readFileSync(orderPath, 'utf8').split(/\r?\n/u).filter(Boolean);
+
+  assert.equal(health.healthStatus, 'passed');
+  assert.equal(seed.deferredCommandCount, 6);
+  assert.deepEqual(seed.commands, []);
+  assert.equal((release.commands as unknown[]).length, 6);
+  assert.equal(providerSummary.commandStoragePresent, false);
+  assert.deepEqual(order, ['startWindow', 'commands-released', 'stopWindow', 'finalize']);
+  assert.ok(fs.existsSync(path.join(result.runDir, 'raw', 'runner-active-loop-window.json')));
+  assert.ok(calls.includes('simctl terminate A692ED28-893E-453F-8866-C69331AE757F dev.agent-scenario-loop.example'));
+  assert.ok(calls.some((call) => call.startsWith('simctl openurl A692ED28-893E-453F-8866-C69331AE757F asl-example://expo-development-client/')));
+});
+
 test('profile-ios executes iOS scenario commands through deep links when storage is disabled', async (t: TestContext) => {
   const tempRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-profile-ios-command-deeplinks-'));
   t.after(async () => {
