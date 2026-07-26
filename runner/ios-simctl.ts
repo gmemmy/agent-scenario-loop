@@ -93,6 +93,13 @@ type IosProfileSessionStorageSeed = {
   runId: string;
   startedAt?: number;
 };
+type IosProfileSessionCommandWindowReadyContext = {
+  bundleId: string;
+  dataContainerPath: string;
+  deviceUdid: string;
+  runId: string;
+  scenario: string;
+};
 type ProfileStorageKeys = {
   command: string;
   event: string;
@@ -114,6 +121,8 @@ type IosSimctlCaptureOptions = {
   launch?: boolean;
   logLast?: string;
   outputDir?: string;
+  onProfileSessionCommandWindowReady?: (context: IosProfileSessionCommandWindowReadyContext) => Promise<void>;
+  deferProfileSessionStorageCommandsUntilCommandWindow?: boolean;
   profileSessionStorage?: IosProfileSessionStorageSeed | null;
   profileSessionStartWaitMs?: number;
   profileStorageKeys?: Partial<ProfileStorageKeys>;
@@ -1290,7 +1299,48 @@ async function seedProfileSessionStorage({
     runId,
     startedAt,
   };
-  const queuedCommands = commands.map((profileCommand, index) => ({
+  const queuedCommands = buildProfileSessionStorageCommands({
+    commands,
+    runId,
+    scenario,
+    startedAt,
+  });
+  manifest[profileStorageKeys.session] = JSON.stringify(session);
+  if (queuedCommands.length > 0) {
+    manifest[profileStorageKeys.command] = JSON.stringify(queuedCommands);
+  }
+  await removeAsyncStorageSpillFiles({
+    keys: [profileStorageKeys.session, ...resetKeys],
+    storageDir,
+  });
+  await writeAsyncStorageManifest({ manifest, storageDir });
+
+  return {
+    commands: queuedCommands,
+    manifestPath: path.join(storageDir, 'manifest.json'),
+    session,
+    storageDir,
+  };
+}
+
+/**
+ * Builds the storage-backed command queue payload for an iOS profile session.
+ *
+ * @param {{commands: IosProfileSessionStorageCommand[], runId: string, scenario: string, startedAt: number}} options
+ * @returns {Record<string, unknown>[]}
+ */
+function buildProfileSessionStorageCommands({
+  commands,
+  runId,
+  scenario,
+  startedAt,
+}: {
+  commands: IosProfileSessionStorageCommand[];
+  runId: string;
+  scenario: string;
+  startedAt: number;
+}): Record<string, unknown>[] {
+  return commands.map((profileCommand, index) => ({
     id: profileCommand.id ?? `ios-storage-command-${index + 1}-${profileCommand.command}`,
     scenario,
     runId,
@@ -1308,12 +1358,46 @@ async function seedProfileSessionStorage({
     ...(typeof profileCommand.waitMs === 'number' ? { waitMs: profileCommand.waitMs } : {}),
     ...(typeof profileCommand.waitTimeoutMs === 'number' ? { waitTimeoutMs: profileCommand.waitTimeoutMs } : {}),
   }));
-  manifest[profileStorageKeys.session] = JSON.stringify(session);
+}
+
+/**
+ * Releases storage-backed iOS profile commands after the active evidence window is ready.
+ *
+ * @param {{bundleId: string, commands: IosProfileSessionStorageCommand[], dataContainer: string, profileStorageKeys?: ProfileStorageKeys, runId: string, scenario: string, startedAt: number}} options
+ * @returns {Promise<{commands: Record<string, unknown>[], manifestPath: string, storageDir: string}>}
+ */
+async function writeProfileSessionStorageCommands({
+  bundleId,
+  commands,
+  dataContainer,
+  profileStorageKeys = DEFAULT_PROFILE_STORAGE_KEYS,
+  runId,
+  scenario,
+  startedAt,
+}: {
+  bundleId: string;
+  commands: IosProfileSessionStorageCommand[];
+  dataContainer: string;
+  profileStorageKeys?: ProfileStorageKeys;
+  runId: string;
+  scenario: string;
+  startedAt: number;
+}): Promise<{commands: Record<string, unknown>[]; manifestPath: string; storageDir: string}> {
+  const storageDir = resolveAsyncStorageDirectory({ bundleId, dataContainer });
+  const manifest = readAsyncStorageManifestSync(storageDir);
+  const queuedCommands = buildProfileSessionStorageCommands({
+    commands,
+    runId,
+    scenario,
+    startedAt,
+  });
   if (queuedCommands.length > 0) {
     manifest[profileStorageKeys.command] = JSON.stringify(queuedCommands);
+  } else {
+    delete manifest[profileStorageKeys.command];
   }
   await removeAsyncStorageSpillFiles({
-    keys: [profileStorageKeys.session, ...resetKeys],
+    keys: [profileStorageKeys.command],
     storageDir,
   });
   await writeAsyncStorageManifest({ manifest, storageDir });
@@ -1321,7 +1405,6 @@ async function seedProfileSessionStorage({
   return {
     commands: queuedCommands,
     manifestPath: path.join(storageDir, 'manifest.json'),
-    session,
     storageDir,
   };
 }
@@ -2858,7 +2941,9 @@ async function runIosSimctlCapture(options: IosSimctlCaptureOptions = {}): Promi
     executor: providedExecutor,
     launch = false,
     logLast = '2m',
+    onProfileSessionCommandWindowReady,
     outputDir = path.resolve('artifacts/ios-simctl-capture'),
+    deferProfileSessionStorageCommandsUntilCommandWindow = false,
     profileSessionStorage = null,
     profileSessionStartWaitMs = profileSessionStorage ? DEFAULT_IOS_PROFILE_SESSION_START_WAIT_MS : 0,
     profileStorageKeys: profileStorageKeyOverrides,
@@ -2890,7 +2975,9 @@ async function runIosSimctlCapture(options: IosSimctlCaptureOptions = {}): Promi
   };
   const checks: Record<string, unknown>[] = [];
   const deepLinkResults: Record<string, unknown>[] = [];
+  let deferredProfileSessionStorageCommands: IosProfileSessionStorageCommand[] = [];
   let seededProfileSessionCommands: Record<string, unknown>[] | null = null;
+  let seededProfileSessionStartedAt: number | null = null;
   let profileSessionStartReady = true;
   let simulator: IosSimulator | null = null;
   let currentPhase: IosSimctlCapturePhase = {
@@ -3326,11 +3413,20 @@ async function runIosSimctlCapture(options: IosSimctlCaptureOptions = {}): Promi
             runId: profileSessionStorage.runId,
             scenario: profileSessionStorage.scenario,
           });
+          const profileSessionStorageCommands = Array.isArray(profileSessionStorage.commands)
+            ? profileSessionStorage.commands
+            : [];
+          const deferProfileSessionStorageCommands = Boolean(
+            deferProfileSessionStorageCommandsUntilCommandWindow &&
+            onProfileSessionCommandWindowReady &&
+            profileSessionStorageCommands.length > 0,
+          );
+          deferredProfileSessionStorageCommands = deferProfileSessionStorageCommands
+            ? profileSessionStorageCommands
+            : [];
           const seeded = await seedProfileSessionStorage({
             bundleId,
-            ...(Array.isArray(profileSessionStorage.commands)
-              ? { commands: profileSessionStorage.commands }
-              : {}),
+            commands: deferProfileSessionStorageCommands ? [] : profileSessionStorageCommands,
             dataContainer: dataContainerPath,
             profileStorageKeys,
             runId: profileSessionStorage.runId,
@@ -3339,9 +3435,18 @@ async function runIosSimctlCapture(options: IosSimctlCaptureOptions = {}): Promi
               ? { startedAt: profileSessionStorage.startedAt }
               : {}),
           });
-          seededProfileSessionCommands = seeded.commands;
+          seededProfileSessionCommands = deferProfileSessionStorageCommands ? null : seeded.commands;
+          seededProfileSessionStartedAt = typeof seeded.session.startedAt === 'number'
+            ? seeded.session.startedAt
+            : null;
           raw['ios-profile-session-seed.json'] = JSON.stringify({
             commands: seeded.commands,
+            ...(deferProfileSessionStorageCommands
+              ? {
+                  deferredCommandCount: profileSessionStorageCommands.length,
+                  deferredCommandRelease: 'after-profile-session-start-ready',
+                }
+              : {}),
             session: seeded.session,
           }, null, 2);
           checks.push({
@@ -3352,7 +3457,13 @@ async function runIosSimctlCapture(options: IosSimctlCaptureOptions = {}): Promi
             message: `Seeded profile session ${profileSessionStorage.scenario}/${profileSessionStorage.runId} into app storage.`,
           });
           metadata.profileSessionSeed = {
-            commandCount: seeded.commands.length,
+            commandCount: deferProfileSessionStorageCommands ? profileSessionStorageCommands.length : seeded.commands.length,
+            ...(deferProfileSessionStorageCommands
+              ? {
+                  deferredCommandCount: profileSessionStorageCommands.length,
+                  deferredCommandRelease: 'after-profile-session-start-ready',
+                }
+              : {}),
             rawPath: 'raw/ios-profile-session-seed.json',
           };
         }
@@ -3634,6 +3745,57 @@ async function runIosSimctlCapture(options: IosSimctlCaptureOptions = {}): Promi
           startWait,
         }));
         profileSessionStartReady = startWait.completed;
+        if (
+          profileSessionStartReady &&
+          onProfileSessionCommandWindowReady &&
+          deferredProfileSessionStorageCommands.length > 0 &&
+          seededProfileSessionStartedAt !== null
+        ) {
+          setCurrentPhase('opening_profile_session_command_window', {
+            commandCount: deferredProfileSessionStorageCommands.length,
+            runId: profileSessionStorage.runId,
+            scenario: profileSessionStorage.scenario,
+          });
+          await onProfileSessionCommandWindowReady({
+            bundleId,
+            dataContainerPath,
+            deviceUdid: simulator.udid,
+            runId: profileSessionStorage.runId,
+            scenario: profileSessionStorage.scenario,
+          });
+          setCurrentPhase('releasing_profile_session_storage_commands', {
+            commandCount: deferredProfileSessionStorageCommands.length,
+            runId: profileSessionStorage.runId,
+            scenario: profileSessionStorage.scenario,
+          });
+          const released = await writeProfileSessionStorageCommands({
+            bundleId,
+            commands: deferredProfileSessionStorageCommands,
+            dataContainer: dataContainerPath,
+            profileStorageKeys,
+            runId: profileSessionStorage.runId,
+            scenario: profileSessionStorage.scenario,
+            startedAt: seededProfileSessionStartedAt,
+          });
+          seededProfileSessionCommands = released.commands;
+          raw['ios-profile-session-command-release.json'] = JSON.stringify({
+            commands: released.commands,
+            manifestPath: released.manifestPath,
+            releasedAfter: 'profile-session-start-ready',
+          }, null, 2);
+          metadata.profileSessionCommandRelease = {
+            commandCount: released.commands.length,
+            rawPath: 'raw/ios-profile-session-command-release.json',
+            releasedAfter: 'profile-session-start-ready',
+          };
+          checks.push({
+            name: 'ios_profile_session_commands_released',
+            status: 'passed',
+            source: 'runner',
+            code: 'ios_profile_session_commands_released',
+            message: `Released ${released.commands.length} storage-backed iOS profile-session command${released.commands.length === 1 ? '' : 's'} after the active evidence window opened.`,
+          });
+        }
       }
       if (waitMs > 0 && profileSessionStartReady) {
         const expectedCommandCount = seededProfileSessionCommands?.length ?? 0;
