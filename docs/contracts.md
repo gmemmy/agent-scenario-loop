@@ -115,6 +115,27 @@ gate and a remount resumes its original wall-clock deadline from the unchanged
 stored command; deep-link-only work is not retained across unmount. In-flight
 storage reads are generation-guarded, so unmount or a newer session replacement
 cannot enqueue commands from an older stored snapshot after an asynchronous read.
+Storage-backed helper authority is session-scoped and recoverable across a full
+JavaScript module reload. Bounded in-memory event history is diagnostic only;
+dependency facts derived from committed truth events, committed lifecycle
+entries, and committed terminal command identities remain complete for the
+active logical session. The iOS storage runner reads those authoritative chunks
+when collecting or finalizing evidence, including no-command and interrupted
+runs, and fails closed on corrupt or foreign-session authority instead of using
+a stale compatibility array. Legacy active-session storage without `startedAt` is
+normalized once with the bootstrap time and persists that identity before
+authority recovery, so later reloads use the same session boundary. A durably
+delivered but nonterminal command resumes only its pending readiness or settle
+phase after reload and is not dispatched again. A received-only command remains
+replayable: the unavoidable at-least-once boundary is a process failure after an
+app handler is invoked and returns but before the helper durably records the
+delivered lifecycle row. ASL does not infer completion of asynchronous app-side
+effects from that synchronous return. Storage corruption, missing authority chunks, quota
+failure, or write failure stops command processing and makes the run untrusted;
+the helper best-effort records an internal failed-authority tombstone and removes the stored session
+and command queue so stale work cannot normally revive after reload. If the
+storage engine rejects both that tombstone and the removals, durable recovery is
+not possible and the consumer must clear or repair app storage before rerunning.
 For storage-backed iOS captures with queued commands, the simctl sidecar observes
 same-scenario, same-run session entries during the bounded capture window. It may
 close the window early only after every expected sequence has an explicit

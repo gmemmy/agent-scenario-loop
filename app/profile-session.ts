@@ -8,6 +8,7 @@ import {
   compareProfileCommands,
   doesProfileCommandMatchDependencyGate,
   doesProfileEventReleaseCommandGate,
+  hasObservedDeliveredProfileCommandMilestone,
   hasObservedProfileCommandDependencies,
   hasObservedProfileCommandMilestone,
   resolveProfileCommandCadenceOutcome,
@@ -20,14 +21,23 @@ import {
   type ProfileCommandMilestoneGate as BaseProfileCommandMilestoneGate,
 } from './profile-session-command-ordering';
 import {
+  appendBoundedProfileEventHistory,
+  createProfileSessionDependencyMilestoneFacts,
   createProfileCommandDependencyController,
   createProfileCommandScheduleController,
+  createProfileSessionProcessedCommandIds,
   createProfileSessionLifecycleController,
   readProfileSessionLifecycleValue,
+  recoverProfileCommandLifecycle,
   resolveDependencyTimeoutQueueTransition,
   resolveProfileCommandFailFastQueueTransition,
   runProfileSessionBootstrapSequence,
 } from './profile-session-dependency-controller';
+import {
+  createProfileSessionAuthoritativeStorage,
+  normalizeProfileSessionAuthorityIdentity,
+  resolveProfileSessionAuthorityStartedAt,
+} from './profile-session-authoritative-storage';
 import { PROFILE_SESSION_STORAGE_KEYS as PROFILE_SESSION_STORAGE_KEY_VALUES } from './profile-session-storage';
 
 export type ProfileSessionState = {
@@ -147,6 +157,52 @@ type ProfileCommandCadenceObservation =
 type ProfileCommandClearStoragePolicy = 'preserve-storage' | 'remove-storage';
 type ProfileCommandDispatchOutcome = 'dispatched' | 'queued' | 'skipped';
 
+function isStoredProfileEvent(
+  value: unknown,
+  session?: { scenario: string; runId: string },
+): value is StoredProfileEvent {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return false;
+  }
+  const event = value as Partial<StoredProfileEvent>;
+  return typeof event.scenario === 'string' &&
+    typeof event.runId === 'string' &&
+    typeof event.event === 'string' &&
+    typeof event.timestamp === 'number' &&
+    Number.isFinite(event.timestamp) &&
+    (!session || (event.scenario === session.scenario && event.runId === session.runId));
+}
+
+function isStoredProfileSessionEntry(
+  value: unknown,
+  session?: { scenario: string; runId: string },
+): value is StoredProfileSessionEntry {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return false;
+  }
+  const entry = value as Partial<StoredProfileSessionEntry>;
+  if (
+    (entry.kind !== 'start' && entry.kind !== 'stop' && entry.kind !== 'command') ||
+    typeof entry.scenario !== 'string' ||
+    typeof entry.runId !== 'string' ||
+    typeof entry.timestamp !== 'number' ||
+    !Number.isFinite(entry.timestamp) ||
+    (session && (entry.scenario !== session.scenario || entry.runId !== session.runId))
+  ) {
+    return false;
+  }
+  if (entry.kind === 'command') {
+    return typeof entry.id === 'string' &&
+      typeof entry.command === 'string' &&
+      (entry.status === 'received' ||
+        entry.status === 'queued' ||
+        entry.status === 'delivered' ||
+        entry.status === 'completed' ||
+        entry.status === 'skipped');
+  }
+  return true;
+}
+
 export const PROFILE_SESSION_HELPER_VERSION = '1.1.0';
 const PROFILE_SESSION_DEFAULT_STOP_ON_FAILURE = true;
 
@@ -165,9 +221,7 @@ const PROFILE_SESSION_ENTRIES_STORAGE_KEY = PROFILE_SESSION_STORAGE_KEY_VALUES.s
 const PROFILE_STORAGE_POLL_INTERVAL_MS = 350;
 const PROFILE_SESSION_MAX_AGE_MS = 2 * 60 * 60_000;
 const PROFILE_COMMAND_DUPLICATE_WINDOW_MS = 750;
-const PROCESSED_PROFILE_COMMAND_ID_LIMIT = 120;
-const MAX_STORED_PROFILE_EVENTS = 300;
-const MAX_STORED_PROFILE_SESSION_ENTRIES = 120;
+const MAX_DIAGNOSTIC_PROFILE_EVENTS = 300;
 
 export const PROFILE_SESSION_STORAGE_KEYS = Object.freeze({
   command: PROFILE_COMMAND_STORAGE_KEY,
@@ -178,14 +232,17 @@ export const PROFILE_SESSION_STORAGE_KEYS = Object.freeze({
 });
 
 let profileSessionState: ProfileSessionState = INITIAL_STATE;
-let profileStorageWriteChain = Promise.resolve();
 const listeners = new Set<() => void>();
 const profileCommandListeners = new Set<(command: ProfileSessionCommand) => void>();
 const profileCommandTargetHandlers = new Map<string, (command: ProfileSessionCommand) => void>();
 const pendingProfileCommands: ProfileSessionCommand[] = [];
 const sequencedProfileCommands: ProfileSessionCommand[] = [];
 const observedProfileEvents: StoredProfileEvent[] = [];
-const processedProfileCommandIds = new Set<string>();
+const profileSessionDependencyMilestoneFacts = createProfileSessionDependencyMilestoneFacts();
+const processedProfileCommandIds = createProfileSessionProcessedCommandIds();
+const deliveredProfileCommandTimestamps = new Map<string, number>();
+const terminalProfileCommandIds = new Set<string>();
+const resumingDeliveredProfileCommandTimestamps = new Map<string, number>();
 let lastProfileCommandSignature: string | null = null;
 let lastProfileCommandTimestamp = 0;
 let profileCommandMilestoneGate: ProfileCommandMilestoneGate | null = null;
@@ -198,6 +255,23 @@ let profileCommandProcessingScheduled = false;
 let profileCommandProcessingTimeoutId: ReturnType<typeof setTimeout> | null = null;
 let profileCommandProcessingAvailableAt = 0;
 let profileCommandCadenceObservation: ProfileCommandCadenceObservation | null = null;
+let profileStorageFailureReported = false;
+
+const profileSessionAuthoritativeStorage = createProfileSessionAuthoritativeStorage<
+  StoredProfileEvent,
+  StoredProfileSessionEntry
+>({
+  keys: {
+    command: PROFILE_COMMAND_STORAGE_KEY,
+    event: PROFILE_EVENT_STORAGE_KEY,
+    session: PROFILE_SESSION_STORAGE_KEY,
+    sessionEntries: PROFILE_SESSION_ENTRIES_STORAGE_KEY,
+  },
+  onFailure: handleProfileStorageFailure,
+  storage: AsyncStorage,
+  validateEvent: isStoredProfileEvent,
+  validateSessionEntry: isStoredProfileSessionEntry,
+});
 
 function writeProfileLog(line: string) {
   if (Platform.OS === 'ios') {
@@ -248,8 +322,32 @@ function notifyListeners() {
   }
 }
 
+function handleProfileStorageFailure() {
+  if (profileStorageFailureReported) {
+    return;
+  }
+  profileStorageFailureReported = true;
+  const failedSession = profileSessionState;
+  profileSessionLifecycleController.invalidate();
+  pendingProfileCommands.length = 0;
+  sequencedProfileCommands.length = 0;
+  clearProfileCommandMilestoneGate();
+  clearProfileCommandDependencyGate();
+  clearProfileCommandProcessingSchedule();
+  profileSessionState = INITIAL_STATE;
+  notifyListeners();
+  writeProfileLog(buildLogLine('profile-session', {
+    kind: 'stop',
+    scenario: failedSession.scenario ?? 'unknown',
+    runId: failedSession.runId ?? 'unknown',
+    reason: 'profile-storage-write-failed',
+    stoppedAt: Date.now(),
+    helperVersion: PROFILE_SESSION_HELPER_VERSION,
+  }));
+}
+
 function queueProfileStorageMutation(mutation: () => Promise<void>) {
-  profileStorageWriteChain = profileStorageWriteChain.then(mutation).catch(() => {});
+  void profileSessionAuthoritativeStorage.enqueue(mutation).catch(() => {});
 }
 
 async function readStoredJson<Value>(key: string, fallback: Value): Promise<Value> {
@@ -270,32 +368,24 @@ async function writeStoredJson(key: string, value: unknown) {
 }
 
 function appendStoredProfileSessionEntry(entry: StoredProfileSessionEntry) {
-  queueProfileStorageMutation(async () => {
-    const currentEntries = await readStoredJson<StoredProfileSessionEntry[]>(
-      PROFILE_SESSION_ENTRIES_STORAGE_KEY,
-      [],
+  const forceMaterialize = entry.kind === 'start' ||
+    entry.kind === 'stop' || (
+      (entry.status === 'completed' || entry.status === 'skipped') &&
+      pendingProfileCommands.length === 0 &&
+      sequencedProfileCommands.length === 0
     );
-    const nextEntries = [...currentEntries, entry].slice(-MAX_STORED_PROFILE_SESSION_ENTRIES);
-    await writeStoredJson(PROFILE_SESSION_ENTRIES_STORAGE_KEY, nextEntries);
-  });
+  profileSessionAuthoritativeStorage.appendSessionEntry(entry, forceMaterialize);
 }
 
 function appendStoredProfileEvent(event: StoredProfileEvent) {
-  queueProfileStorageMutation(async () => {
-    const currentEvents = await readStoredJson<StoredProfileEvent[]>(PROFILE_EVENT_STORAGE_KEY, []);
-    const nextEvents = [...currentEvents, event].slice(-MAX_STORED_PROFILE_EVENTS);
-    await writeStoredJson(PROFILE_EVENT_STORAGE_KEY, nextEvents);
-  });
+  profileSessionAuthoritativeStorage.appendEvent(event);
 }
 
 function resetStoredProfileArtifacts() {
   observedProfileEvents.length = 0;
+  profileSessionDependencyMilestoneFacts.reset();
   queueProfileStorageMutation(async () => {
-    await Promise.all([
-      AsyncStorage.removeItem(PROFILE_EVENT_STORAGE_KEY),
-      AsyncStorage.removeItem(PROFILE_SIGNAL_STORAGE_KEY),
-      AsyncStorage.removeItem(PROFILE_SESSION_ENTRIES_STORAGE_KEY),
-    ]);
+    await AsyncStorage.removeItem(PROFILE_SIGNAL_STORAGE_KEY);
   });
 }
 
@@ -332,7 +422,52 @@ function suspendProfileCommandQueueForBootstrapUnmount() {
 function clearProfileCommandDedupe() {
   lastProfileCommandSignature = null;
   lastProfileCommandTimestamp = 0;
-  processedProfileCommandIds.clear();
+  processedProfileCommandIds.reset();
+  deliveredProfileCommandTimestamps.clear();
+  terminalProfileCommandIds.clear();
+  resumingDeliveredProfileCommandTimestamps.clear();
+}
+
+function getProfileSessionAuthoritySession(state: ProfileSessionState) {
+  if (
+    !state.active ||
+    !state.scenario ||
+    !state.runId ||
+    typeof state.startedAt !== 'number' ||
+    !Number.isFinite(state.startedAt)
+  ) {
+    return null;
+  }
+  return {
+    scenario: state.scenario,
+    runId: state.runId,
+    startedAt: state.startedAt,
+  };
+}
+
+function hydrateRecoveredProfileSessionAuthority({
+  events,
+  sessionEntries,
+}: {
+  events: StoredProfileEvent[];
+  sessionEntries: StoredProfileSessionEntry[];
+}) {
+  observedProfileEvents.length = 0;
+  observedProfileEvents.push(...events.slice(-MAX_DIAGNOSTIC_PROFILE_EVENTS));
+  profileSessionDependencyMilestoneFacts.reset();
+  for (const event of events) {
+    profileSessionDependencyMilestoneFacts.observe(event);
+  }
+  clearProfileCommandDedupe();
+  const recoveredCommands = recoverProfileCommandLifecycle(sessionEntries);
+  for (const [id, timestamp] of recoveredCommands.delivered) {
+    processedProfileCommandIds.mark(id);
+    deliveredProfileCommandTimestamps.set(id, timestamp);
+  }
+  for (const id of recoveredCommands.terminal) {
+    processedProfileCommandIds.mark(id);
+    terminalProfileCommandIds.add(id);
+  }
 }
 
 function setProfileSessionState(nextState: ProfileSessionState) {
@@ -545,6 +680,14 @@ function logProfileSession(kind: 'start' | 'stop' | 'command', payload: Record<s
     if (typeof payload.waitTimeoutMs === 'number') {
       entry.waitTimeoutMs = payload.waitTimeoutMs;
     }
+    if (entry.id && entry.status === 'delivered') {
+      deliveredProfileCommandTimestamps.set(entry.id, entry.timestamp);
+    }
+    if (entry.id && (entry.status === 'completed' || entry.status === 'skipped')) {
+      terminalProfileCommandIds.add(entry.id);
+      deliveredProfileCommandTimestamps.delete(entry.id);
+      resumingDeliveredProfileCommandTimestamps.delete(entry.id);
+    }
   }
 
   appendStoredProfileSessionEntry(entry);
@@ -756,26 +899,18 @@ function hasProcessedProfileCommandId(command: ProfileSessionCommand): boolean {
   return command.id.length > 0 && processedProfileCommandIds.has(command.id);
 }
 
-/**
- * Records a stored command id while keeping the replay cache bounded.
- */
+/** Records a stored command id for exactly-once delivery within the active session. */
 function markProfileCommandIdProcessed(command: ProfileSessionCommand) {
   if (!command.id) {
     return;
   }
 
-  processedProfileCommandIds.add(command.id);
-  while (processedProfileCommandIds.size > PROCESSED_PROFILE_COMMAND_ID_LIMIT) {
-    const oldestId = processedProfileCommandIds.keys().next().value;
-    if (typeof oldestId !== 'string') {
-      break;
-    }
-    processedProfileCommandIds.delete(oldestId);
-  }
+  processedProfileCommandIds.mark(command.id);
 }
 
 function shouldQueueProfileCommand(command: ProfileSessionCommand): boolean {
-  return !hasProcessedProfileCommandId(command) &&
+  const resumesDurableDelivery = resumingDeliveredProfileCommandTimestamps.has(command.id);
+  return (resumesDurableDelivery || !hasProcessedProfileCommandId(command)) &&
     !sequencedProfileCommands.some((queuedCommand) => queuedCommand.id === command.id);
 }
 
@@ -957,7 +1092,7 @@ function startProfileCommandMilestoneTimeout(command: ProfileSessionCommand) {
 function installProfileCommandDependencyGate(command: ProfileSessionCommand) {
   profileCommandDependencyController.install({
     command,
-    observedEvents: observedProfileEvents,
+    observedEvents: profileSessionDependencyMilestoneFacts.snapshot(),
     onTimeout: (gate) => {
       const currentCommand = sequencedProfileCommands[0];
       if (
@@ -967,7 +1102,10 @@ function installProfileCommandDependencyGate(command: ProfileSessionCommand) {
         return;
       }
 
-      const currentGate = buildProfileCommandDependencyGate(currentCommand, observedProfileEvents);
+      const currentGate = buildProfileCommandDependencyGate(
+        currentCommand,
+        profileSessionDependencyMilestoneFacts.snapshot(),
+      );
       if (!currentGate) {
         clearProfileCommandDependencyGate();
         processSequencedProfileCommands();
@@ -1103,6 +1241,9 @@ function notifyProfileCommandListeners(command: ProfileSessionCommand): ProfileC
 }
 
 function processSequencedProfileCommands() {
+  if (!profileSessionAuthoritativeStorage.isAvailable()) {
+    return;
+  }
   const remainingMs = Math.max(0, profileCommandProcessingAvailableAt - Date.now());
   const queueBlocker = resolveProfileCommandQueueBlocker({
     hasActiveGate: profileCommandMilestoneGate !== null,
@@ -1127,12 +1268,36 @@ function processSequencedProfileCommands() {
 
   while (sequencedProfileCommands.length > 0) {
     const command = sequencedProfileCommands[0];
-    if (!command || hasProcessedProfileCommandId(command)) {
+    if (!command) {
+      sequencedProfileCommands.shift();
+      continue;
+    }
+    const resumedCommandReleasedAtMs = resumingDeliveredProfileCommandTimestamps.get(command.id);
+    if (typeof resumedCommandReleasedAtMs === 'number') {
+      sequencedProfileCommands.shift();
+      resumingDeliveredProfileCommandTimestamps.delete(command.id);
+      const nextGate = hasObservedDeliveredProfileCommandMilestone(
+        command,
+        profileSessionDependencyMilestoneFacts.snapshot(),
+      )
+        ? null
+        : buildProfileCommandMilestoneGate(command);
+      installProfileCommandWait(command, nextGate, resumedCommandReleasedAtMs);
+      if (nextGate) {
+        return;
+      }
+      scheduleProfileCommandSettle(command, resumedCommandReleasedAtMs);
+      return;
+    }
+    if (hasProcessedProfileCommandId(command)) {
       sequencedProfileCommands.shift();
       continue;
     }
 
-    if (!hasObservedProfileCommandDependencies(command, observedProfileEvents)) {
+    if (!hasObservedProfileCommandDependencies(
+      command,
+      profileSessionDependencyMilestoneFacts.snapshot(),
+    )) {
       installProfileCommandDependencyGate(command);
       return;
     }
@@ -1140,7 +1305,10 @@ function processSequencedProfileCommands() {
 
     sequencedProfileCommands.shift();
     markProfileCommandIdProcessed(command);
-    const nextGate = hasObservedProfileCommandMilestone(command, observedProfileEvents)
+    const nextGate = hasObservedProfileCommandMilestone(
+      command,
+      profileSessionDependencyMilestoneFacts.snapshot(),
+    )
       ? null
       : buildProfileCommandMilestoneGate(command);
     const resolvedCommand = nextGate && (
@@ -1185,6 +1353,9 @@ function processSequencedProfileCommands() {
 }
 
 function enqueueSequencedProfileCommands(commands: ProfileSessionCommand[]) {
+  if (!profileSessionAuthoritativeStorage.isAvailable()) {
+    return;
+  }
   const nextCommands = commands.filter(shouldQueueProfileCommand);
   if (nextCommands.length > 0) {
     sequencedProfileCommands.push(...nextCommands);
@@ -1219,7 +1390,10 @@ function releaseProfileCommandMilestoneGate(eventPayload: StoredProfileEvent) {
 
 function releaseProfileCommandDependencyGate() {
   const command = sequencedProfileCommands[0];
-  if (!command || !profileCommandDependencyController.release(command, observedProfileEvents)) {
+  if (!command || !profileCommandDependencyController.release(
+    command,
+    profileSessionDependencyMilestoneFacts.snapshot(),
+  )) {
     return;
   }
   processSequencedProfileCommands();
@@ -1235,7 +1409,10 @@ function flushPendingProfileCommands() {
     return;
   }
 
-  const nextGate = hasObservedProfileCommandMilestone(command, observedProfileEvents)
+  const nextGate = hasObservedProfileCommandMilestone(
+    command,
+    profileSessionDependencyMilestoneFacts.snapshot(),
+  )
     ? null
     : buildProfileCommandMilestoneGate(command);
   const commandReleasedAtMs = Date.now();
@@ -1255,10 +1432,27 @@ function startProfileSessionInternal(
   nextState: ProfileSessionState,
   options?: { commandStoragePolicy?: ProfileCommandClearStoragePolicy },
 ) {
+  if (!profileSessionAuthoritativeStorage.isAvailable()) {
+    profileSessionState = INITIAL_STATE;
+    notifyListeners();
+    return;
+  }
   profileSessionLifecycleController.invalidate();
-  clearPendingProfileCommands(options?.commandStoragePolicy ?? 'remove-storage');
+  const commandStoragePolicy = options?.commandStoragePolicy ?? 'remove-storage';
+  clearPendingProfileCommands('preserve-storage');
   clearProfileCommandDedupe();
   resetStoredProfileArtifacts();
+  const authoritySession = getProfileSessionAuthoritySession(nextState);
+  if (!authoritySession) {
+    handleProfileStorageFailure();
+    return;
+  }
+  profileSessionAuthoritativeStorage.start(authoritySession);
+  if (commandStoragePolicy === 'remove-storage') {
+    queueProfileStorageMutation(async () => {
+      await AsyncStorage.removeItem(PROFILE_COMMAND_STORAGE_KEY);
+    });
+  }
   setProfileSessionState(nextState);
   logProfileSession('start', {
     scenario: nextState.scenario ?? 'unknown',
@@ -1267,17 +1461,41 @@ function startProfileSessionInternal(
   });
 }
 
+function recoverProfileSessionInternal(
+  nextState: ProfileSessionState,
+  recovery: { events: StoredProfileEvent[]; sessionEntries: StoredProfileSessionEntry[] },
+) {
+  profileSessionLifecycleController.invalidate();
+  clearPendingProfileCommands('preserve-storage');
+  hydrateRecoveredProfileSessionAuthority(recovery);
+  profileSessionState = nextState;
+  notifyListeners();
+}
+
 function stopProfileSessionInternal() {
   profileSessionLifecycleController.invalidate();
   const previousState = profileSessionState;
-  clearPendingProfileCommands();
-  clearProfileCommandDedupe();
-  setProfileSessionState(INITIAL_STATE);
+  clearPendingProfileCommands('preserve-storage');
   logProfileSession('stop', {
     scenario: previousState.scenario ?? 'unknown',
     runId: previousState.runId ?? 'unknown',
     stoppedAt: Date.now(),
   });
+  const authoritySession = getProfileSessionAuthoritySession(previousState);
+  if (authoritySession) {
+    profileSessionAuthoritativeStorage.stop(authoritySession);
+  } else {
+    queueProfileStorageMutation(async () => {
+      await Promise.all([
+        AsyncStorage.removeItem(PROFILE_COMMAND_STORAGE_KEY),
+        AsyncStorage.removeItem(PROFILE_SESSION_STORAGE_KEY),
+      ]);
+    });
+  }
+  clearProfileCommandDedupe();
+  profileSessionDependencyMilestoneFacts.reset();
+  profileSessionState = INITIAL_STATE;
+  notifyListeners();
 }
 
 /**
@@ -1386,10 +1604,12 @@ export function emitProfileEvent(event: string, metadata?: ProfileEventMetadata)
   };
 
   writeProfileLog(buildLogLine('profile-event', eventPayload));
-  observedProfileEvents.push(eventPayload);
-  while (observedProfileEvents.length > MAX_STORED_PROFILE_EVENTS) {
-    observedProfileEvents.shift();
-  }
+  appendBoundedProfileEventHistory(
+    observedProfileEvents,
+    eventPayload,
+    MAX_DIAGNOSTIC_PROFILE_EVENTS,
+  );
+  profileSessionDependencyMilestoneFacts.observe(eventPayload);
   appendStoredProfileEvent(eventPayload);
   releaseProfileCommandDependencyGate();
   releaseProfileCommandMilestoneGate(eventPayload);
@@ -1487,6 +1707,7 @@ export function useProfileSessionBootstrap(): void {
     let isMounted = true;
 
     const syncStoredProfileState = async () => {
+      await profileSessionAuthoritativeStorage.barrier();
       let lifecycleGeneration = profileSessionLifecycleController.capture();
       const storedSessionRead = await readProfileSessionLifecycleValue({
         generation: lifecycleGeneration,
@@ -1497,7 +1718,7 @@ export function useProfileSessionBootstrap(): void {
       if (!storedSessionRead.current) {
         return;
       }
-      const storedSession = storedSessionRead.value;
+      let storedSession = storedSessionRead.value;
       const storedCommandsRead = await readProfileSessionLifecycleValue({
         generation: lifecycleGeneration,
         isActive: () => isMounted,
@@ -1508,6 +1729,7 @@ export function useProfileSessionBootstrap(): void {
         return;
       }
       const storedCommands = storedCommandsRead.value;
+      let recoveredAuthoritativeState = false;
 
       if (
         storedSession &&
@@ -1515,6 +1737,27 @@ export function useProfileSessionBootstrap(): void {
         typeof storedSession.scenario === 'string' &&
         typeof storedSession.runId === 'string'
       ) {
+        const storedStartedAt = readProfileSessionStartedAt(storedSession);
+        let normalizedStartedAt = resolveProfileSessionAuthorityStartedAt(storedStartedAt, Date.now());
+        if (storedStartedAt === null) {
+          try {
+            storedSession = await normalizeProfileSessionAuthorityIdentity(
+              storedSession,
+              normalizedStartedAt,
+              async (normalizedSession) => {
+                await profileSessionAuthoritativeStorage.enqueue(async () => {
+                  await writeStoredJson(PROFILE_SESSION_STORAGE_KEY, normalizedSession);
+                });
+              },
+            );
+            normalizedStartedAt = storedSession.startedAt;
+          } catch {
+            return;
+          }
+          if (!isMounted || !profileSessionLifecycleController.isCurrent(lifecycleGeneration)) {
+            return;
+          }
+        }
         if (!isProfileSessionFresh(storedSession)) {
           stopProfileSessionInternal();
           return;
@@ -1527,16 +1770,33 @@ export function useProfileSessionBootstrap(): void {
             profileSessionState.runId !== storedSession.runId);
 
         if (shouldStartFromStorage) {
-          startProfileSessionInternal(
-            {
-              active: true,
-              scenario: storedSession.scenario,
-              runId: storedSession.runId,
-              startedAt:
-                typeof storedSession.startedAt === 'number' ? storedSession.startedAt : Date.now(),
-            },
-            { commandStoragePolicy: 'preserve-storage' },
-          );
+          const recoveredState: ProfileSessionState = {
+            active: true,
+            scenario: storedSession.scenario,
+            runId: storedSession.runId,
+            startedAt: normalizedStartedAt,
+          };
+          const authoritySession = getProfileSessionAuthoritySession(recoveredState);
+          if (!authoritySession) {
+            stopProfileSessionInternal();
+            return;
+          }
+          const recovery = await profileSessionAuthoritativeStorage.recover(authoritySession);
+          if (recovery.kind === 'stopped-session') {
+            profileSessionAuthoritativeStorage.stop(authoritySession);
+            profileSessionState = INITIAL_STATE;
+            notifyListeners();
+            return;
+          }
+          if (recovery.kind === 'recovered') {
+            recoverProfileSessionInternal(recoveredState, recovery);
+            recoveredAuthoritativeState = true;
+          } else {
+            startProfileSessionInternal(
+              recoveredState,
+              { commandStoragePolicy: 'preserve-storage' },
+            );
+          }
           lifecycleGeneration = profileSessionLifecycleController.capture();
         }
       } else if (profileSessionState.active) {
@@ -1583,6 +1843,15 @@ export function useProfileSessionBootstrap(): void {
           source: 'storage' as const,
         };
 
+        if (terminalProfileCommandIds.has(storageCommand.id)) {
+          continue;
+        }
+        const deliveredAt = deliveredProfileCommandTimestamps.get(storageCommand.id);
+        if (recoveredAuthoritativeState && typeof deliveredAt === 'number') {
+          resumingDeliveredProfileCommandTimestamps.set(storageCommand.id, deliveredAt);
+          nextCommands.push(storageCommand);
+          continue;
+        }
         if (hasProcessedProfileCommandId(storageCommand)) {
           continue;
         }

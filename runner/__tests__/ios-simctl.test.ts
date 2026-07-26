@@ -14,6 +14,7 @@ const {
   parseArgs,
   parseSimctlDevices,
   readAsyncStorageValueSync,
+  readProfileStorageJson,
   resolveAsyncStorageDirectory,
   runIosSimctlCapture,
   seedProfileSessionStorage,
@@ -2525,6 +2526,124 @@ test('reads inline and spilled AsyncStorage profile event values', async (t: Tes
 
   assert.equal(readAsyncStorageValueSync({ key: eventKey, storageDir }), spilledValue);
   assert.ok(formatStoredProfileEventLog(JSON.parse(spilledValue)).includes('[profile-event] {"event":"home_ready"'));
+});
+
+test('reads complete authoritative events instead of a stale compatibility projection', async (t: TestContext) => {
+  const dataContainer = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-ios-storage-authority-'));
+  t.after(async () => {
+    await fsp.rm(dataContainer, { recursive: true, force: true });
+  });
+  const bundleId = 'dev.agent-scenario-loop.example';
+  const storageDir = resolveAsyncStorageDirectory({ bundleId, dataContainer });
+  await fsp.mkdir(storageDir, { recursive: true });
+  const sessionKey = 'consumer.profile-session.v1';
+  const eventKey = 'consumer.profile-events.v1';
+  const authorityKey = `${sessionKey}.authority.1`;
+  const chunkKey = `${authorityKey}.1.event.0`;
+  const events = [
+    { event: 'profile_ready', scenario: 'app-startup', runId: 'authority-run', timestamp: 101 },
+    { event: 'home_ready', scenario: 'app-startup', runId: 'authority-run', timestamp: 102 },
+  ];
+  await fsp.writeFile(path.join(storageDir, 'manifest.json'), JSON.stringify({
+    [authorityKey]: JSON.stringify({
+      schemaVersion: 1,
+      generation: 1,
+      status: 'active',
+      session: { scenario: 'app-startup', runId: 'authority-run', startedAt: 100 },
+      eventChunkKeys: [chunkKey],
+      sessionEntryChunkKeys: [],
+    }),
+    [chunkKey]: JSON.stringify(events),
+    [eventKey]: JSON.stringify([events[0]]),
+  }), 'utf8');
+
+  assert.deepEqual(readProfileStorageJson({
+    authorityProjection: 'event',
+    authoritySessionKey: sessionKey,
+    bundleId,
+    dataContainer,
+    fallback: [],
+    key: eventKey,
+  }), events);
+});
+
+test('fails closed when an authoritative runner projection is corrupt', async (t: TestContext) => {
+  const dataContainer = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-ios-storage-authority-corrupt-'));
+  t.after(async () => {
+    await fsp.rm(dataContainer, { recursive: true, force: true });
+  });
+  const bundleId = 'dev.agent-scenario-loop.example';
+  const storageDir = resolveAsyncStorageDirectory({ bundleId, dataContainer });
+  await fsp.mkdir(storageDir, { recursive: true });
+  const sessionKey = 'consumer.profile-session.v1';
+  const eventKey = 'consumer.profile-events.v1';
+  const authorityKey = `${sessionKey}.authority.1`;
+  const chunkKey = `${authorityKey}.2.event.0`;
+  await fsp.writeFile(path.join(storageDir, 'manifest.json'), JSON.stringify({
+    [authorityKey]: JSON.stringify({
+      schemaVersion: 1,
+      generation: 2,
+      status: 'active',
+      session: { scenario: 'app-startup', runId: 'authority-run', startedAt: 100 },
+      eventChunkKeys: [chunkKey],
+      sessionEntryChunkKeys: [],
+    }),
+    [chunkKey]: JSON.stringify([
+      { event: 'foreign', scenario: 'app-startup', runId: 'other-run', timestamp: 101 },
+    ]),
+  }), 'utf8');
+
+  assert.throws(() => readProfileStorageJson({
+    authorityProjection: 'event',
+    authoritySessionKey: sessionKey,
+    bundleId,
+    dataContainer,
+    fallback: [],
+    key: eventKey,
+  }), /authority record is invalid/u);
+});
+
+test('fails closed on failed authority and malformed command lifecycle rows', async (t: TestContext) => {
+  const dataContainer = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-ios-storage-authority-failed-'));
+  t.after(async () => {
+    await fsp.rm(dataContainer, { recursive: true, force: true });
+  });
+  const bundleId = 'dev.agent-scenario-loop.example';
+  const storageDir = resolveAsyncStorageDirectory({ bundleId, dataContainer });
+  await fsp.mkdir(storageDir, { recursive: true });
+  const sessionKey = 'consumer.profile-session.v1';
+  const entriesKey = 'consumer.profile-session-entries.v1';
+  const authorityKey = `${sessionKey}.authority.1`;
+  const chunkKey = `${authorityKey}.3.session-entry.0`;
+  const manifest = {
+    schemaVersion: 1,
+    generation: 3,
+    status: 'failed',
+    session: { scenario: 'app-startup', runId: 'authority-run', startedAt: 100 },
+    eventChunkKeys: [],
+    sessionEntryChunkKeys: [chunkKey],
+  };
+  await fsp.writeFile(path.join(storageDir, 'manifest.json'), JSON.stringify({
+    [authorityKey]: JSON.stringify(manifest),
+    [chunkKey]: JSON.stringify([
+      { kind: 'command', id: 'command-1', status: 'completed', scenario: 'app-startup', runId: 'authority-run', timestamp: 101 },
+    ]),
+  }), 'utf8');
+
+  const readEntries = () => readProfileStorageJson({
+    authorityProjection: 'session-entry',
+    authoritySessionKey: sessionKey,
+    bundleId,
+    dataContainer,
+    fallback: [],
+    key: entriesKey,
+  });
+  assert.throws(readEntries, /records a storage failure/u);
+
+  const storageManifest = JSON.parse(fs.readFileSync(path.join(storageDir, 'manifest.json'), 'utf8'));
+  storageManifest[authorityKey] = JSON.stringify({ ...manifest, status: 'active' });
+  await fsp.writeFile(path.join(storageDir, 'manifest.json'), JSON.stringify(storageManifest), 'utf8');
+  assert.throws(readEntries, /authority command is invalid/u);
 });
 
 test('captures stored iOS profile events from app data container', async (t: TestContext) => {

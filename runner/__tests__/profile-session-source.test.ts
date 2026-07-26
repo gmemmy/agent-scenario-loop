@@ -79,13 +79,15 @@ test('profile-session helper keeps storage-backed command control safeguards', (
   );
   assert.match(source, /const sequencedProfileCommands: ProfileSessionCommand\[\] = \[\];/u);
   assert.match(source, /const observedProfileEvents: StoredProfileEvent\[\] = \[\];/u);
+  assert.match(source, /const profileSessionDependencyMilestoneFacts = createProfileSessionDependencyMilestoneFacts\(\);/u);
+  assert.match(source, /const processedProfileCommandIds = createProfileSessionProcessedCommandIds\(\);/u);
   assert.match(source, /let profileCommandMilestoneGate: ProfileCommandMilestoneGate \| null = null;/u);
   assert.match(source, /const profileCommandDependencyController = createProfileCommandDependencyController<ProfileSessionCommand>\(\);/u);
   assert.match(source, /let profileCommandProcessingTimeoutId: ReturnType<typeof setTimeout> \| null = null;/u);
   assert.match(source, /let profileCommandProcessingAvailableAt = 0;/u);
   assert.match(source, /from '\.\/profile-session-command-ordering';/u);
   assert.match(source, /resolveRemainingProfileCommandSettleMs/u);
-  assert.match(source, /hasObservedProfileCommandDependencies\(command, observedProfileEvents\)/u);
+  assert.match(source, /profileSessionDependencyMilestoneFacts\.snapshot\(\)/u);
   assert.match(source, /sequencedProfileCommands\.sort\(compareProfileCommands\);/u);
   assert.match(source, /function processSequencedProfileCommands/u);
   assert.match(source, /const queueBlocker = resolveProfileCommandQueueBlocker/u);
@@ -104,12 +106,29 @@ test('profile-session helper keeps storage-backed command control safeguards', (
   assert.match(orderingSource, /export function resolveMissingProfileCommandDependencies/u);
   assert.match(orderingSource, /export function resolveProfileCommandDependencyTimeoutOutcome/u);
   assert.match(orderingSource, /doesProfileEventMatchCommandDependency/u);
-  assert.match(source, /hasObservedProfileCommandMilestone\(command, observedProfileEvents\)/u);
-  assert.match(source, /observedProfileEvents\.push\(eventPayload\);/u);
+  assert.match(source, /appendBoundedProfileEventHistory\(/u);
+  assert.match(source, /profileSessionAuthoritativeStorage\.appendEvent\(event\);/u);
+  assert.match(source, /profileSessionAuthoritativeStorage\.appendSessionEntry\(entry, forceMaterialize\);/u);
+  assert.match(source, /profileSessionAuthoritativeStorage\.recover\(authoritySession\)/u);
+  assert.match(source, /recoverProfileSessionInternal\(recoveredState, recovery\);/u);
+  assert.match(source, /profileSessionAuthoritativeStorage\.barrier\(\)/u);
+  assert.match(source, /profileSessionAuthoritativeStorage\.isAvailable\(\)/u);
+  assert.match(source, /normalizeProfileSessionAuthorityIdentity\(/u);
+  assert.match(source, /await writeStoredJson\(PROFILE_SESSION_STORAGE_KEY, normalizedSession\);/u);
+  assert.match(source, /reason: 'profile-storage-write-failed'/u);
+  assert.match(source, /resumingDeliveredProfileCommandTimestamps/u);
+  assert.match(source, /profileSessionDependencyMilestoneFacts\.observe\(eventPayload\);/u);
+  assert.match(source, /hasObservedProfileCommandMilestone\(\s+command,\s+profileSessionDependencyMilestoneFacts\.snapshot\(\),\s+\)/u);
+  assert.match(source, /hasObservedDeliveredProfileCommandMilestone\(\s+command,\s+profileSessionDependencyMilestoneFacts\.snapshot\(\),\s+\)/u);
   assert.match(declarationSource, /export const PROFILE_SESSION_HELPER_VERSION: '1\.1\.0';/u);
   assert.match(declarationSource, /dependsOnMilestones\?: string\[\];/u);
   assert.match(declarationSource, /handler: \(command: ProfileSessionCommand\) => void/u);
   assert.match(source, /observedProfileEvents\.length = 0;/u);
+  assert.match(source, /profileSessionDependencyMilestoneFacts\.reset\(\);/u);
+  assert.doesNotMatch(source, /PROCESSED_PROFILE_COMMAND_ID_LIMIT/u);
+  assert.doesNotMatch(source, /MAX_STORED_PROFILE_SESSION_ENTRIES/u);
+  assert.match(source, /const MAX_DIAGNOSTIC_PROFILE_EVENTS = 300;/u);
+  assert.doesNotMatch(source, /MAX_STORED_PROFILE_EVENTS/u);
   assert.doesNotMatch(source, /command\.timestamp < activeSession\.startedAt/u);
   assert.match(source, /runId\?: string;/u);
   assert.match(source, /scenario\?: string;/u);
@@ -144,6 +163,10 @@ test('profile-session helper keeps storage-backed command control safeguards', (
   assert.match(source, /startProfileSessionInternal\(\{\s+active: true,\s+scenario: route\.scenario,\s+runId: route\.runId,/u);
   assert.match(source, /doesProfileCommandMatchDependencyGate\(gate, currentCommand\)/u);
   assert.match(source, /clearInterval\(storagePollInterval\);\s+suspendProfileCommandQueueForBootstrapUnmount\(\);/u);
+  assert.doesNotMatch(
+    source,
+    /profileSessionLifecycleController\.invalidate\(\);\s+profileSessionDependencyMilestoneFacts\.reset\(\);\s+subscription\.remove\(\);/u,
+  );
   assert.match(source, /if \(nextCommands\.length > 0\) \{\s+sequencedProfileCommands\.push/u);
   assert.match(source, /const queueTransition = resolveDependencyTimeoutQueueTransition/u);
   assert.match(source, /stopOnFailure: timeoutOutcome\.kind === 'terminal'/u);

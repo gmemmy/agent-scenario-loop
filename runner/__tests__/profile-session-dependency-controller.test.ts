@@ -1,14 +1,35 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  appendBoundedProfileEventHistory,
+  appendCompleteProfileSessionHistory,
+  createProfileSessionDependencyMilestoneFacts,
   createProfileCommandDependencyController,
   createProfileCommandScheduleController,
   createProfileSessionLifecycleController,
+  createProfileSessionProcessedCommandIds,
   readProfileSessionLifecycleValue,
+  recoverProfileCommandLifecycle,
   resolveDependencyTimeoutQueueTransition,
   resolveProfileCommandFailFastQueueTransition,
   runProfileSessionBootstrapSequence,
 } from '../../app/profile-session-dependency-controller';
+
+test('reload recovery separates replayable, delivered, and terminal command boundaries', () => {
+  const lifecycle = recoverProfileCommandLifecycle([
+    { id: 'received-only', status: 'received', timestamp: 1 },
+    { id: 'queued-only', status: 'queued', timestamp: 2 },
+    { id: 'delivered', status: 'delivered', timestamp: 3 },
+    { id: 'completed', status: 'delivered', timestamp: 4 },
+    { id: 'completed', status: 'completed', timestamp: 5 },
+    { id: 'skipped', status: 'skipped', timestamp: 6 },
+  ]);
+
+  assert.deepEqual([...lifecycle.delivered], [['delivered', 3]]);
+  assert.deepEqual([...lifecycle.terminal].sort(), ['completed', 'skipped']);
+  assert.equal(lifecycle.delivered.has('received-only'), false);
+  assert.equal(lifecycle.delivered.has('queued-only'), false);
+});
 
 type TestCommand = {
   commandId: string;
@@ -104,6 +125,148 @@ test('dependency controller releases only from exact queue and run evidence', ()
   assert.equal(tasks[0]?.cancelled, true);
   tasks[0]?.callback();
   assert.equal(timeoutCount, 0, 'a released stale timer cannot mutate queue state');
+});
+
+test('dependency milestone facts outlive bounded diagnostic history without retaining duplicates', () => {
+  const facts = createProfileSessionDependencyMilestoneFacts();
+  const diagnosticHistory: Array<ReturnType<typeof matchingEvent>> = [];
+  const storedTruth: Array<ReturnType<typeof matchingEvent>> = [];
+  const earlyMilestone = matchingEvent({ event: 'gallery_ready', timestamp: 1 });
+  facts.observe(earlyMilestone);
+  appendBoundedProfileEventHistory(diagnosticHistory, earlyMilestone, 300);
+  appendCompleteProfileSessionHistory(storedTruth, earlyMilestone);
+
+  const noisyVocabulary = [
+    'gallery_progress',
+    'gallery_buffering',
+    'gallery_playing',
+    'gallery_settled',
+    'gallery_frame',
+  ];
+  for (let index = 0; index < 350; index += 1) {
+    const noisyEvent = matchingEvent({
+      event: noisyVocabulary[index % noisyVocabulary.length],
+      timestamp: index + 2,
+    });
+    facts.observe(noisyEvent);
+    appendBoundedProfileEventHistory(diagnosticHistory, noisyEvent, 300);
+    appendCompleteProfileSessionHistory(storedTruth, noisyEvent);
+  }
+  facts.observe(matchingEvent({ event: 'gallery_ready', timestamp: 999 }));
+
+  const laterCommand = command({
+    dependsOnMilestones: ['gallery_ready'],
+    id: 'later-command',
+    sequence: 29,
+    timestamp: 1_000,
+  });
+  assert.equal(diagnosticHistory.length, 300);
+  assert.equal(storedTruth.length, 351);
+  assert.equal(storedTruth[0]?.event, 'gallery_ready');
+  assert.equal(diagnosticHistory.some((event) => event.event === 'gallery_ready'), false);
+  assert.equal(facts.snapshot().filter((event) => event.event === 'gallery_ready').length, 1);
+  assert.equal(facts.snapshot().length, noisyVocabulary.length + 1);
+
+  const { controller } = createFakeScheduler();
+  assert.equal(controller.install({
+    command: laterCommand,
+    observedEvents: facts.snapshot(),
+    onTimeout: () => assert.fail('durable dependency fact must prevent a gate'),
+  }), null);
+});
+
+test('processed storage command identity remains exact beyond the former replay window', () => {
+  const processed = createProfileSessionProcessedCommandIds();
+  const delivered: string[] = [];
+  const poll = (ids: readonly string[]) => {
+    for (const id of ids) {
+      if (processed.has(id)) {
+        continue;
+      }
+      processed.mark(id);
+      delivered.push(id);
+    }
+  };
+  const commands = Array.from({ length: 150 }, (_, index) => `command-${index + 1}`);
+  poll(commands);
+  poll(commands);
+  poll(commands.slice(0, 30));
+  assert.deepEqual(delivered, commands);
+
+  processed.reset();
+  poll([commands[0] ?? 'command-1']);
+  assert.equal(delivered.length, 151, 'a logical replacement resets exactly-once identity');
+});
+
+test('complete session history preserves start and every terminal command beyond 120 rows', () => {
+  const entries: Array<{ kind: 'start' | 'command'; sequence?: number; status?: 'completed' }> = [];
+  appendCompleteProfileSessionHistory(entries, { kind: 'start' });
+  for (let sequence = 1; sequence <= 140; sequence += 1) {
+    appendCompleteProfileSessionHistory(entries, {
+      kind: 'command',
+      sequence,
+      status: 'completed',
+    });
+  }
+  assert.equal(entries.length, 141);
+  assert.deepEqual(entries[0], { kind: 'start' });
+  assert.deepEqual(entries.at(-1), { kind: 'command', sequence: 140, status: 'completed' });
+  assert.equal(entries.filter((entry) => entry.kind === 'command').length, 140);
+});
+
+test('dependency milestone facts preserve exact run and queue ownership and reset on replacement', () => {
+  const facts = createProfileSessionDependencyMilestoneFacts();
+  facts.observe(matchingEvent());
+
+  const { controller } = createFakeScheduler();
+  assert.notEqual(controller.install({
+    command: command({ queueId: 'queue-b' }),
+    observedEvents: facts.snapshot(),
+    onTimeout: () => {},
+  }), null);
+  controller.clear();
+  assert.notEqual(controller.install({
+    command: command({ runId: 'run-b' }),
+    observedEvents: facts.snapshot(),
+    onTimeout: () => {},
+  }), null);
+  controller.clear();
+  assert.equal(controller.install({
+    command: command(),
+    observedEvents: facts.snapshot(),
+    onTimeout: () => assert.fail('matching fact must prevent a gate'),
+  }), null);
+
+  facts.reset();
+  assert.equal(facts.snapshot().length, 0);
+  assert.notEqual(controller.install({
+    command: command({ id: 'replacement-command' }),
+    observedEvents: facts.snapshot(),
+    onTimeout: () => {},
+  }), null);
+  controller.clear();
+});
+
+test('dependency milestone facts survive bootstrap suspension and remount for the active session', () => {
+  const lifecycle = createProfileSessionLifecycleController();
+  const facts = createProfileSessionDependencyMilestoneFacts();
+  const { controller } = createFakeScheduler();
+  facts.observe(matchingEvent({ event: 'gallery_ready' }));
+
+  lifecycle.invalidate();
+  controller.suspend();
+
+  const remountedCommand = command({
+    dependsOnMilestones: ['gallery_ready'],
+    id: 'remounted-command',
+    sequence: 29,
+  });
+  assert.equal(controller.install({
+    command: remountedCommand,
+    observedEvents: facts.snapshot(),
+    onTimeout: () => assert.fail('bootstrap churn must not discard active-session facts'),
+  }), null);
+  assert.equal(facts.snapshot().length, 1);
 });
 
 test('dependency controller replacement prevents a stale callback from acting', () => {
