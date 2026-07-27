@@ -407,6 +407,7 @@ if [ "$source" = meminfo ]; then printf 'TOTAL PSS: 180000 KB\\nNative Heap: 420
   await fsp.chmod(fakeAdbPath, 0o755);
   const fakeXcrunPath = path.join(targetDir, 'fake-xcrun');
   await fsp.writeFile(fakeXcrunPath, `#!/usr/bin/env node
+const { spawn } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
 
@@ -471,6 +472,38 @@ if (args[0] === 'xctrace' && args[1] === 'record') {
   if (outputIndex !== -1 && args[outputIndex + 1]) {
     const tracePath = args[outputIndex + 1];
     fs.mkdirSync(tracePath, { recursive: true });
+    if (process.env.FAKE_XCRUN_REQUIRE_GROUP_SIGINT === '1') {
+      const traceDataPath = path.join(tracePath, 'tracev3.data');
+      const issuesPath = path.join(tracePath, 'Trace1.run', 'RunIssues.storedata');
+      const recorder = spawn(process.execPath, [
+        '-e',
+        [
+          "const fs = require('node:fs');",
+          "const path = require('node:path');",
+          "const traceDataPath = process.argv[1];",
+          "process.on('SIGINT', () => { fs.mkdirSync(path.dirname(traceDataPath), { recursive: true }); fs.writeFileSync(traceDataPath, 'trace-data', 'utf8'); process.exit(0); });",
+          "process.on('SIGTERM', () => process.exit(1));",
+          "setInterval(() => {}, 1000);",
+        ].join(''),
+        traceDataPath,
+      ], { stdio: 'ignore' });
+      const finish = () => {
+        setTimeout(() => {
+          if (fs.existsSync(traceDataPath)) {
+            process.exit(0);
+          }
+          fs.mkdirSync(path.dirname(issuesPath), { recursive: true });
+          fs.writeFileSync(issuesPath, 'issues-only', 'utf8');
+          process.stderr.write('Document Missing Template Error\\n');
+          recorder.kill('SIGTERM');
+          process.exit(1);
+        }, 100);
+      };
+      process.on('SIGINT', finish);
+      process.on('SIGTERM', finish);
+      setInterval(() => {}, 1000);
+      return;
+    }
     fs.writeFileSync(path.join(tracePath, 'tracev3.data'), 'trace-data', 'utf8');
   }
   if (args.includes('--time-limit')) {
@@ -1066,6 +1099,47 @@ test('generated provider retries a transient iOS xctrace attach failure during s
   const commands = readLoggedCommands(commandLog);
   assert.equal(commands.filter((command) => command[0] === 'xctrace' && command[1] === 'record').length, 2);
   assert.equal(commands.filter((command) => command[0] === 'simctl' && command[1] === 'spawn' && command[3] === 'launchctl').length, 2);
+});
+
+test('generated provider interrupts managed iOS xctrace recorder process groups during stop-window', async (t: TestContext) => {
+  const provider = await createGeneratedProvider(t);
+  const env = {
+    ...process.env,
+    ASL_NATIVE_PERFORMANCE_IOS_CAPTURE: '1',
+    FAKE_XCRUN_REQUIRE_GROUP_SIGINT: '1',
+  };
+  await writeNativePerformanceRequest({ platform: 'ios', runDir: provider.runDir });
+
+  let result = await execFileResult(process.execPath, iosLifecycleArgs(provider, 'start-window'), {
+    cwd: provider.targetDir,
+    env,
+  });
+  assert.equal(result.exitCode, 0, result.stderr);
+
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  result = await execFileResult(process.execPath, iosLifecycleArgs(provider, 'stop-window'), {
+    cwd: provider.targetDir,
+    env,
+  });
+  assert.equal(result.exitCode, 0, result.stderr);
+
+  result = await execFileResult(process.execPath, iosLifecycleArgs(provider, 'normalize'), {
+    cwd: provider.targetDir,
+    env,
+  });
+  assert.equal(result.exitCode, 0, result.stderr);
+
+  const providerDir = path.join(provider.runDir, 'raw', 'providers', provider.providerId);
+  const traceInventory = JSON.parse(await fsp.readFile(path.join(providerDir, 'ios-xctrace', 'trace-bundle-inventory.json'), 'utf8'));
+  assert.equal(traceInventory.exists, true);
+  assert.equal(traceInventory.fileCount, 1);
+  assert.equal(traceInventory.files[0].path, 'tracev3.data');
+  const targetProof = JSON.parse(await fsp.readFile(path.join(providerDir, 'target-binding.json'), 'utf8'));
+  assert.equal(targetProof.status, 'verified');
+  assert.equal(targetProof.tocVerified, true);
+  const evidence = JSON.parse(await fsp.readFile(path.join(providerDir, 'native-performance.json'), 'utf8'));
+  assert.equal(evidence.completenessStatus, 'complete');
+  assert.equal(evidence.targetBinding.status, 'verified');
 });
 
 test('generated provider iOS after-capture xctrace output stays diagnostic-only after finalize', async (t: TestContext) => {

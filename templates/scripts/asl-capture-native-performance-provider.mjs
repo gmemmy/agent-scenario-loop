@@ -1466,7 +1466,7 @@ async function runInternalIosXctraceSession(args) {
     '--no-prompt',
   ];
   const child = spawn(xcrunPath, recordArgs, {
-    detached: false,
+    detached: process.platform !== 'win32',
     shell: false,
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -1534,6 +1534,14 @@ async function runInternalIosXctraceSession(args) {
   };
 
   const signalChild = (signal) => {
+    if (process.platform !== 'win32' && typeof child.pid === 'number') {
+      try {
+        process.kill(-child.pid, signal);
+        return true;
+      } catch {
+        // Fall through to direct child signaling when a process group is not available.
+      }
+    }
     try {
       return child.kill(signal);
     } catch {
