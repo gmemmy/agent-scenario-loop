@@ -86,7 +86,7 @@ That is the loop: execute, preserve evidence, classify trust, compare when valid
 
 ASL keeps several trust boundaries explicit:
 
-- **Runtime identity**: package or bundle id, foreground ownership, helper version, sidecar target, and stale profile-session evidence are runner-owned proof surfaces. When they cannot be verified, the run should not become product evidence.
+- **Runtime identity**: package or bundle id, foreground ownership, helper version/payload identity, sidecar target, and stale profile-session evidence are runner-owned proof surfaces. When they cannot be verified, the run should not become product evidence.
 - **App-owned truth**: application milestones are not synthesized by ASL. Missing truth means the scenario or app instrumentation needs inspection before timing claims are trusted.
 - **Provider diagnostics**: provider outputs can be complete, partial, failed, unsupported, or diagnostic-only. Useful native or profiler evidence can survive a provider failure without pretending a missing surface exists.
 - **Native performance**: `nativePerformance` is a first-class evidence kind for platform frame, render, memory, and trace summaries. Built-in Perfetto, gfxinfo/framestats, meminfo, Instruments, MetricKit, and trace-processor capture are not bundled; providers can attach structured summaries under the stable contract.

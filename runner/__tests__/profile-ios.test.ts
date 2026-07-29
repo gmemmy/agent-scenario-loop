@@ -24,6 +24,13 @@ const {
   classifyNativePerformanceComparisonReadiness,
 } = require('../../core/native-performance');
 
+const EXPECTED_PROFILE_SESSION_HELPER_PAYLOAD_ID = 'agent-scenario-loop/profile-session-helper@1.1.0+setup-unscoped-milestones';
+const EXPECTED_PROFILE_SESSION_HELPER_PAYLOAD_SHA256 = 'b7421a84e8e39346702af2e7017a99ba492ced00de47446780e42a93146db275';
+const EXPECTED_PROFILE_SESSION_HELPER_PAYLOAD_FIELDS = {
+  helperPayloadId: EXPECTED_PROFILE_SESSION_HELPER_PAYLOAD_ID,
+  helperPayloadSha256: EXPECTED_PROFILE_SESSION_HELPER_PAYLOAD_SHA256,
+};
+
 type ExecOutput = {
   stdout: string;
   stderr: string;
@@ -2302,6 +2309,7 @@ test('profile-ios can seed and profile stored iOS app truth events', async (t: T
       manifest['agent-scenario-loop.profile-session-entries.1'] = JSON.stringify([
         {
           helperVersion: '1.1.0',
+          ...EXPECTED_PROFILE_SESSION_HELPER_PAYLOAD_FIELDS,
           kind: 'command',
           scenario: 'app-startup',
           runId: 'ios-live-startup',
@@ -2431,6 +2439,7 @@ test('profile-ios seeds iOS scenario commands through app storage', async (t: Te
           command: 'activate-target:example-card-1',
           commandId: 'open-card',
           helperVersion: '1.1.0',
+          ...EXPECTED_PROFILE_SESSION_HELPER_PAYLOAD_FIELDS,
           kind: 'command',
           queueId: 'open-close-cycle',
           runId: 'ios-live-open-close',
@@ -2449,6 +2458,7 @@ test('profile-ios seeds iOS scenario commands through app storage', async (t: Te
           commandId: 'open-card',
           continuationReason: 'readiness-and-settle-satisfied',
           helperVersion: '1.1.0',
+          ...EXPECTED_PROFILE_SESSION_HELPER_PAYLOAD_FIELDS,
           kind: 'command',
           maxReadinessWaitMs: 1500,
           minimumSettleMs: 300,
@@ -2472,6 +2482,7 @@ test('profile-ios seeds iOS scenario commands through app storage', async (t: Te
           command: 'activate-target:close-card',
           commandId: 'close-card',
           helperVersion: '1.1.0',
+          ...EXPECTED_PROFILE_SESSION_HELPER_PAYLOAD_FIELDS,
           kind: 'command',
           queueId: 'open-close-cycle',
           runId: 'ios-live-open-close',
@@ -2490,6 +2501,7 @@ test('profile-ios seeds iOS scenario commands through app storage', async (t: Te
           commandId: 'close-card',
           continuationReason: 'readiness-released-before-settle-complete',
           helperVersion: '1.1.0',
+          ...EXPECTED_PROFILE_SESSION_HELPER_PAYLOAD_FIELDS,
           kind: 'command',
           maxReadinessWaitMs: 1200,
           minimumSettleMs: 300,
@@ -2513,6 +2525,7 @@ test('profile-ios seeds iOS scenario commands through app storage', async (t: Te
           command: 'activate-target:example-card-1',
           commandId: 'open-card',
           helperVersion: '1.1.0',
+          ...EXPECTED_PROFILE_SESSION_HELPER_PAYLOAD_FIELDS,
           kind: 'command',
           queueId: 'open-close-cycle',
           runId: 'ios-live-open-close',
@@ -2531,6 +2544,7 @@ test('profile-ios seeds iOS scenario commands through app storage', async (t: Te
           commandId: 'open-card',
           continuationReason: 'readiness-and-settle-satisfied',
           helperVersion: '1.1.0',
+          ...EXPECTED_PROFILE_SESSION_HELPER_PAYLOAD_FIELDS,
           kind: 'command',
           maxReadinessWaitMs: 1500,
           minimumSettleMs: 300,
@@ -2554,6 +2568,7 @@ test('profile-ios seeds iOS scenario commands through app storage', async (t: Te
           command: 'activate-target:close-card',
           commandId: 'close-card',
           helperVersion: '1.1.0',
+          ...EXPECTED_PROFILE_SESSION_HELPER_PAYLOAD_FIELDS,
           kind: 'command',
           queueId: 'open-close-cycle',
           runId: 'ios-live-open-close',
@@ -2572,6 +2587,7 @@ test('profile-ios seeds iOS scenario commands through app storage', async (t: Te
           commandId: 'close-card',
           continuationReason: 'readiness-and-settle-satisfied',
           helperVersion: '1.1.0',
+          ...EXPECTED_PROFILE_SESSION_HELPER_PAYLOAD_FIELDS,
           kind: 'command',
           maxReadinessWaitMs: 1200,
           minimumSettleMs: 300,
@@ -2923,6 +2939,7 @@ test('profile-ios starts live-window providers after dev-client readiness before
         {
           ...command,
           helperVersion: '1.1.0',
+          ...EXPECTED_PROFILE_SESSION_HELPER_PAYLOAD_FIELDS,
           kind: 'command',
           runId: 'ios-live-window-provider',
           scenario: 'open-close-cycle',
@@ -2933,6 +2950,7 @@ test('profile-ios starts live-window providers after dev-client readiness before
         {
           ...command,
           helperVersion: '1.1.0',
+          ...EXPECTED_PROFILE_SESSION_HELPER_PAYLOAD_FIELDS,
           kind: 'command',
           runId: 'ios-live-window-provider',
           scenario: 'open-close-cycle',

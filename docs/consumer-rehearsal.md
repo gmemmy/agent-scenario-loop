@@ -39,6 +39,14 @@ The gate packs the current checkout, installs the tarball into the downstream ap
 
 For Expo or React Native live proof commands, restart Metro from the downstream app root after installing a local ASL tarball and before launching the app. A running Metro graph can keep serving the previous helper bundle after `node_modules` changes, which makes helper-version, storage-key, and profile-session evidence look stale even when the installed package is correct. Record the Metro workdir/port in the downstream packet when the proof depends on a dev-client URL.
 
+Command-backed profile-session proof also requires app-side helper payload
+identity, not only matching `helperVersion`. If a local tarball candidate changes
+the app helper behavior, install the exact tarball into the consuming app,
+restart Metro with a clean bundle graph, and treat any
+`profile_session_helper_identity_missing` or
+`profile_session_helper_identity_mismatch` health check as package-consumption
+drift until the app evidence emits the expected helper payload id/hash.
+
 For live probes, pass direct package CLI commands as additional JSON arrays so the target scenario and artifact root are explicit:
 
 ```bash

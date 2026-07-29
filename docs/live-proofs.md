@@ -178,6 +178,9 @@ both the helper and observer use the stable command envelope `id` as the fallbac
 Setup readiness milestones listed in `unscopedMilestones` still require exact
 same-run and same-scenario identity, and they release only from events without
 `queueId` or `sequence`; command-result milestones remain queue-correlated.
+Command-bearing profile-session evidence must also carry the helper payload
+id/hash expected by the runner. A matching helper version string alone is not
+enough to trust command transport or milestone-gate behavior.
 
 On Android storage-backed runs, the adb sidecar may record an early
 `profileSessionCompletionWait` timeout before the final profile artifact has

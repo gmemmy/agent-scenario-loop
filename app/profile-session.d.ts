@@ -64,6 +64,8 @@ export declare const PROFILE_SESSION_STORAGE_KEYS: Readonly<{
 }>;
 
 export const PROFILE_SESSION_HELPER_VERSION: '1.1.0';
+export const PROFILE_SESSION_HELPER_PAYLOAD_ID: 'agent-scenario-loop/profile-session-helper@1.1.0+setup-unscoped-milestones';
+export const PROFILE_SESSION_HELPER_PAYLOAD_SHA256: 'b7421a84e8e39346702af2e7017a99ba492ced00de47446780e42a93146db275';
 
 export function isProfileSessionFresh(
   session: Pick<ProfileSessionState, 'active' | 'startedAt'>,
