@@ -17,6 +17,7 @@ export type ProfileSessionCommand = {
   stopOnFailure?: boolean;
   source?: 'deeplink' | 'storage';
   timestamp: number;
+  unscopedMilestones?: string[];
   waitForMilestone?: string;
   waitMs?: number;
   waitTimeoutMs?: number;

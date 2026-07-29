@@ -3424,6 +3424,64 @@ test('profile-ios runs readiness setup commands once before repeated cycle comma
   ]);
 });
 
+test('profile-ios marks explicit setup readiness waits as unscoped milestones', () => {
+  const scenario = {
+    id: 'comments-sheet-stress',
+    defaultIterations: 2,
+    cycles: {
+      setupStepIds: ['reset-home-surface', 'wait-for-app-usable'],
+    },
+    milestones: [
+      { id: 'appReady', event: 'app_first_usable_screen', phase: 'visual' },
+      { id: 'sheetOpened', event: 'comments_sheet_opened', phase: 'visual' },
+    ],
+    steps: [
+      { id: 'reset-home-surface', kind: 'command', command: 'reset-home-surface' },
+      { id: 'wait-for-app-usable', kind: 'waitForMilestone', milestone: 'appReady', timeoutMs: 30000 },
+      { id: 'open-comments-sheet', kind: 'command', command: 'comments:open-sheet' },
+      { id: 'wait-for-sheet-opened', kind: 'waitForMilestone', milestone: 'sheetOpened', timeoutMs: 10000 },
+    ],
+  };
+
+  assert.deepEqual(resolveIosSimctlProfileCommands(scenario), [
+    {
+      command: 'reset-home-surface',
+      commandId: 'reset-home-surface',
+      label: 'reset-home-surface',
+      queueId: 'comments-sheet-stress',
+      sequence: 1,
+      unscopedMilestones: ['app_first_usable_screen'],
+      waitForMilestone: 'app_first_usable_screen',
+      waitMs: 0,
+      waitTimeoutMs: 30000,
+    },
+    {
+      command: 'comments:open-sheet',
+      commandId: 'open-comments-sheet',
+      dependsOnMilestones: ['app_first_usable_screen'],
+      label: 'open-comments-sheet',
+      queueId: 'comments-sheet-stress',
+      sequence: 2,
+      unscopedMilestones: ['app_first_usable_screen'],
+      waitForMilestone: 'comments_sheet_opened',
+      waitMs: 0,
+      waitTimeoutMs: 10000,
+    },
+    {
+      command: 'comments:open-sheet',
+      commandId: 'open-comments-sheet',
+      dependsOnMilestones: ['app_first_usable_screen'],
+      label: 'open-comments-sheet',
+      queueId: 'comments-sheet-stress',
+      sequence: 3,
+      unscopedMilestones: ['app_first_usable_screen'],
+      waitForMilestone: 'comments_sheet_opened',
+      waitMs: 0,
+      waitTimeoutMs: 10000,
+    },
+  ]);
+});
+
 test('profile-ios gates first storage body command on leading setup milestones', () => {
   const scenario = {
     id: 'home-feed-pagination-stress',

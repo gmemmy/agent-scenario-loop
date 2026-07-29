@@ -291,11 +291,14 @@ add a fixed post-readiness sleep. A timer alone is not proof that the product is
 stable: scenarios that require stability must name an app-owned stable-readiness
 milestone.
 
-When a queued profile command declares `queueId` and `sequence`, every truth
-event used to release that command must echo those correlation values. Target
-handlers receive the full command envelope so apps can attach `commandId`,
-`queueId`, and `sequence` to the resulting app-owned milestone. Missing
-correlation does not release a scoped gate.
+When a queued profile command declares `queueId` and `sequence`, command-result
+truth events used to release that command must echo those correlation values.
+Target handlers receive the full command envelope so apps can attach
+`commandId`, `queueId`, and `sequence` to the resulting app-owned milestone.
+Setup readiness is the one sanctioned queue-less path: a `waitForMilestone`
+step listed in `cycles.setupStepIds` is sent as `unscopedMilestones`, and it can
+release from a same-scenario, same-run truth event only when that event has no
+`queueId` or `sequence`. Events from another queue do not release the gate.
 
 Profile-session command acknowledgements record the resolved minimum settle,
 maximum readiness wait, readiness wait, actual wait at continuation, overlap

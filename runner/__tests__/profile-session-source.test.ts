@@ -43,6 +43,7 @@ test('profile-session helper keeps storage-backed command control safeguards', (
   assert.match(source, /entry\.commandId = payload\.commandId;/u);
   assert.match(source, /else if \(typeof payload\.id === 'string'\)/u);
   assert.match(source, /entry\.dependsOnMilestones = dependsOnMilestones;/u);
+  assert.match(source, /entry\.unscopedMilestones = unscopedMilestones;/u);
   assert.match(source, /entry\.queueId = payload\.queueId;/u);
   assert.match(source, /entry\.sequence = payload\.sequence;/u);
   assert.match(source, /entry\.waitForMilestone = payload\.waitForMilestone;/u);
@@ -122,6 +123,7 @@ test('profile-session helper keeps storage-backed command control safeguards', (
   assert.match(source, /hasObservedDeliveredProfileCommandMilestone\(\s+command,\s+profileSessionDependencyMilestoneFacts\.snapshot\(\),\s+\)/u);
   assert.match(declarationSource, /export const PROFILE_SESSION_HELPER_VERSION: '1\.1\.0';/u);
   assert.match(declarationSource, /dependsOnMilestones\?: string\[\];/u);
+  assert.match(declarationSource, /unscopedMilestones\?: string\[\];/u);
   assert.match(declarationSource, /handler: \(command: ProfileSessionCommand\) => void/u);
   assert.match(source, /observedProfileEvents\.length = 0;/u);
   assert.match(source, /profileSessionDependencyMilestoneFacts\.reset\(\);/u);

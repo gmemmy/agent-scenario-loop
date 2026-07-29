@@ -49,6 +49,7 @@ type IosSimctlProfileCommand = {
   queueId?: string;
   sequence?: number;
   stopOnFailure?: boolean;
+  unscopedMilestones?: string[];
   waitForMilestone?: string;
   waitMs?: number;
   waitTimeoutMs?: number;
@@ -309,6 +310,7 @@ function buildProfileSessionUrl({
   scenario,
   sequence,
   stopOnFailure,
+  unscopedMilestones,
   waitForMilestone,
   waitMs,
   waitTimeoutMs,
@@ -324,6 +326,7 @@ function buildProfileSessionUrl({
   scenario: string;
   sequence?: number;
   stopOnFailure?: boolean;
+  unscopedMilestones?: string[];
   waitForMilestone?: string;
   waitMs?: number;
   waitTimeoutMs?: number;
@@ -344,6 +347,9 @@ function buildProfileSessionUrl({
     }
     if (Array.isArray(dependsOnMilestones) && dependsOnMilestones.length > 0) {
       params.set('dependsOnMilestones', dependsOnMilestones.join(','));
+    }
+    if (Array.isArray(unscopedMilestones) && unscopedMilestones.length > 0) {
+      params.set('unscopedMilestones', unscopedMilestones.join(','));
     }
     if (typeof sequence === 'number') {
       params.set('sequence', String(sequence));
@@ -489,10 +495,14 @@ function resolveExecutionPlanProfileCommands(scenario: Record<string, any>): Ios
   const repeat = readPositiveInteger(scenario.defaultIterations, readPositiveInteger(scenario.cycles?.iterations, 1));
   const stopOnFailure = readScenarioStopOnFailure(scenario);
   const commands: IosSimctlProfileCommand[] = [];
-  const dependencies: string[] = [];
+  const dependencies: Array<{ event: string; unscoped: boolean }> = [];
+  const setupStepIds = readCycleStepIdSet(scenario.cycles?.setupStepIds);
   for (const [index, step] of executionPlan.steps.entries()) {
     if (step.portMethod === 'waitForTruthEvent' && typeof step.milestone === 'string') {
-      dependencies.push(resolveMilestoneEventName(scenario, step.milestone));
+      dependencies.push({
+        event: resolveMilestoneEventName(scenario, step.milestone),
+        unscoped: typeof step.id === 'string' && setupStepIds.has(step.id),
+      });
       continue;
     }
     if (step.portMethod !== 'executeStep' || typeof step.command !== 'string') {
@@ -500,7 +510,20 @@ function resolveExecutionPlanProfileCommands(scenario: Record<string, any>): Ios
     }
 
     const nextStep = executionPlan.steps[index + 1];
-    const commandDependencies = dependencies.length > 0 ? Array.from(new Set(dependencies)) : [];
+    const nextWaitForMilestone = nextStep?.portMethod === 'waitForTruthEvent' &&
+      typeof nextStep.milestone === 'string'
+      ? resolveMilestoneEventName(scenario, nextStep.milestone)
+      : undefined;
+    const nextWaitIsUnscoped = Boolean(
+      nextWaitForMilestone &&
+      typeof nextStep?.id === 'string' &&
+      setupStepIds.has(nextStep.id),
+    );
+    const commandDependencies = uniqueProfileCommandMilestones(dependencies.map((dependency) => dependency.event));
+    const unscopedMilestones = uniqueProfileCommandMilestones([
+      ...dependencies.filter((dependency) => dependency.unscoped).map((dependency) => dependency.event),
+      ...(nextWaitIsUnscoped && nextWaitForMilestone ? [nextWaitForMilestone] : []),
+    ]);
     commands.push({
       command: step.command as string,
       commandId: step.id,
@@ -508,10 +531,11 @@ function resolveExecutionPlanProfileCommands(scenario: Record<string, any>): Ios
       label: step.id,
       queueId: scenario.id ?? scenario.name,
       ...(stopOnFailure === false ? { stopOnFailure: false } : {}),
+      ...(unscopedMilestones.length > 0 ? { unscopedMilestones } : {}),
       waitMs: readStepWaitMs(step),
-      ...(nextStep?.portMethod === 'waitForTruthEvent' && typeof nextStep.milestone === 'string'
+      ...(nextWaitForMilestone
         ? {
-            waitForMilestone: resolveMilestoneEventName(scenario, nextStep.milestone),
+            waitForMilestone: nextWaitForMilestone,
             waitTimeoutMs: readPositiveInteger(
               nextStep.timeoutMs,
               DEFAULT_PROFILE_COMMAND_MILESTONE_TIMEOUT_MS,
@@ -522,6 +546,10 @@ function resolveExecutionPlanProfileCommands(scenario: Record<string, any>): Ios
   }
 
   return expandProfileCommandCycles(scenario, commands, repeat);
+}
+
+function uniqueProfileCommandMilestones(milestones: string[]): string[] {
+  return Array.from(new Set(milestones.filter((milestone) => milestone.length > 0)));
 }
 
 /**
@@ -717,6 +745,11 @@ function applyExecutionPlanCommandPolicy(
       Array.isArray(planCommand.dependsOnMilestones) &&
       planCommand.dependsOnMilestones.length > 0
     ) ? { dependsOnMilestones: planCommand.dependsOnMilestones } : {};
+    const inheritedUnscopedMilestones = (
+      !Array.isArray(command.unscopedMilestones) &&
+      Array.isArray(planCommand.unscopedMilestones) &&
+      planCommand.unscopedMilestones.length > 0
+    ) ? { unscopedMilestones: planCommand.unscopedMilestones } : {};
     const waitForMilestone = typeof command.waitForMilestone === 'string'
       ? command.waitForMilestone
       : planCommand.waitForMilestone;
@@ -729,6 +762,7 @@ function applyExecutionPlanCommandPolicy(
     return {
       ...command,
       ...inheritedDependencies,
+      ...inheritedUnscopedMilestones,
       ...(typeof waitForMilestone === 'string' ? { waitForMilestone } : {}),
       ...(typeof command.waitMs === 'number'
         ? {}
@@ -771,6 +805,13 @@ function resolveIosSimctlProfileCommands(scenario: Record<string, any>): IosSimc
         ...(Array.isArray(command.dependsOnMilestones)
           ? {
               dependsOnMilestones: command.dependsOnMilestones.filter((milestone: unknown): milestone is string => (
+                typeof milestone === 'string' && milestone.length > 0
+              )),
+            }
+          : {}),
+        ...(Array.isArray(command.unscopedMilestones)
+          ? {
+              unscopedMilestones: command.unscopedMilestones.filter((milestone: unknown): milestone is string => (
                 typeof milestone === 'string' && milestone.length > 0
               )),
             }
@@ -1043,6 +1084,9 @@ async function runProfileIos(
             ...(Array.isArray(profileCommand.dependsOnMilestones) && profileCommand.dependsOnMilestones.length > 0
               ? { dependsOnMilestones: profileCommand.dependsOnMilestones }
               : {}),
+            ...(Array.isArray(profileCommand.unscopedMilestones) && profileCommand.unscopedMilestones.length > 0
+              ? { unscopedMilestones: profileCommand.unscopedMilestones }
+              : {}),
             config,
             runId,
             scenario: scenarioName,
@@ -1197,6 +1241,9 @@ async function runProfileIos(
     ...(Array.isArray(profileCommand.dependsOnMilestones) && profileCommand.dependsOnMilestones.length > 0
       ? { dependsOnMilestones: profileCommand.dependsOnMilestones }
       : {}),
+    ...(Array.isArray(profileCommand.unscopedMilestones) && profileCommand.unscopedMilestones.length > 0
+      ? { unscopedMilestones: profileCommand.unscopedMilestones }
+      : {}),
     id: `ios-storage-command-${index + 1}`,
     ...(typeof profileCommand.label === 'string' ? { label: profileCommand.label } : {}),
     ...(typeof profileCommand.queueId === 'string' ? { queueId: profileCommand.queueId } : {}),
@@ -1216,6 +1263,9 @@ async function runProfileIos(
       ...(typeof profileCommand.commandId === 'string' ? { commandId: profileCommand.commandId } : {}),
       ...(Array.isArray(profileCommand.dependsOnMilestones) && profileCommand.dependsOnMilestones.length > 0
         ? { dependsOnMilestones: profileCommand.dependsOnMilestones }
+        : {}),
+      ...(Array.isArray(profileCommand.unscopedMilestones) && profileCommand.unscopedMilestones.length > 0
+        ? { unscopedMilestones: profileCommand.unscopedMilestones }
         : {}),
       config,
       id: profileCommand.id,

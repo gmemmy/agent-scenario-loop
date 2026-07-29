@@ -59,6 +59,7 @@ export type ProfileSessionCommand = {
   stopOnFailure?: boolean;
   source?: 'deeplink' | 'storage';
   timestamp: number;
+  unscopedMilestones?: string[];
   waitForMilestone?: string;
   waitMs?: number;
   waitTimeoutMs?: number;
@@ -122,6 +123,7 @@ type StoredProfileSessionEntry = {
   source?: 'deeplink' | 'storage';
   status?: 'received' | 'queued' | 'delivered' | 'completed' | 'skipped';
   stopOnFailure?: boolean;
+  unscopedMilestones?: string[];
   continuationReason?: string;
   missingDependencies?: string[];
   waitForMilestone?: string;
@@ -612,6 +614,14 @@ function logProfileSession(kind: 'start' | 'stop' | 'command', payload: Record<s
         entry.dependsOnMilestones = dependsOnMilestones;
       }
     }
+    if (Array.isArray(payload.unscopedMilestones)) {
+      const unscopedMilestones = payload.unscopedMilestones.filter((milestone) => (
+        typeof milestone === 'string' && milestone.length > 0
+      ));
+      if (unscopedMilestones.length > 0) {
+        entry.unscopedMilestones = unscopedMilestones;
+      }
+    }
     if (typeof payload.queueId === 'string') {
       entry.queueId = payload.queueId;
     }
@@ -704,6 +714,7 @@ function getProfileSessionRoute(url: string): {
   queueId?: string;
   sequence?: number;
   stopOnFailure?: boolean;
+  unscopedMilestones?: string[];
   waitForMilestone?: string;
   waitMs?: number;
   waitTimeoutMs?: number;
@@ -748,13 +759,8 @@ function getProfileSessionRoute(url: string): {
     typeof parsed.queryParams?.waitMs === 'string' && Number.isInteger(Number(parsed.queryParams.waitMs))
       ? Number(parsed.queryParams.waitMs)
       : undefined;
-  const dependsOnMilestones = (
-    Array.isArray(parsed.queryParams?.dependsOnMilestones)
-      ? parsed.queryParams.dependsOnMilestones
-      : (typeof parsed.queryParams?.dependsOnMilestones === 'string'
-          ? parsed.queryParams.dependsOnMilestones.split(',')
-          : [])
-  ).filter((milestone): milestone is string => typeof milestone === 'string' && milestone.length > 0);
+  const dependsOnMilestones = readProfileSessionQueryList(parsed.queryParams?.dependsOnMilestones);
+  const unscopedMilestones = readProfileSessionQueryList(parsed.queryParams?.unscopedMilestones);
   const stopOnFailure =
     parsed.queryParams?.stopOnFailure === 'true'
       ? true
@@ -773,10 +779,19 @@ function getProfileSessionRoute(url: string): {
     queueId,
     sequence,
     stopOnFailure,
+    ...(unscopedMilestones.length > 0 ? { unscopedMilestones } : {}),
     waitForMilestone,
     waitMs,
     waitTimeoutMs,
   };
+}
+
+function readProfileSessionQueryList(value: unknown): string[] {
+  return (
+    Array.isArray(value)
+      ? value.flatMap((entry) => (typeof entry === 'string' ? entry.split(',') : []))
+      : (typeof value === 'string' ? value.split(',') : [])
+  ).filter((entry): entry is string => typeof entry === 'string' && entry.length > 0);
 }
 
 function persistPendingProfileCommands() {
@@ -1565,6 +1580,9 @@ export function applyProfileSessionUrl(url: string | null | undefined): boolean 
       stopOnFailure: resolveProfileCommandStopOnFailure(route.stopOnFailure),
       source: 'deeplink' as const,
       timestamp,
+      ...(Array.isArray(route.unscopedMilestones) && route.unscopedMilestones.length > 0
+        ? { unscopedMilestones: route.unscopedMilestones }
+        : {}),
       ...(route.waitForMilestone ? { waitForMilestone: route.waitForMilestone } : {}),
       ...(typeof route.waitMs === 'number' ? { waitMs: route.waitMs } : {}),
       ...(typeof route.waitTimeoutMs === 'number' ? { waitTimeoutMs: route.waitTimeoutMs } : {}),
