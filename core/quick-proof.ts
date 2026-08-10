@@ -1033,9 +1033,11 @@ async function coordinateQuickProof(options: QuickProofOptions): Promise<QuickPr
   authorizationResult = isAuthorizationResult(authPhase.value)
     ? { ...authPhase.value }
     : { status: 'denied', reason: authPhase.reason ?? 'Authorization validation failed.' };
-  const authorizationTimeoutFailure = setupPhaseTimeoutFailure(authPhase);
-  if (authorizationTimeoutFailure) {
-    return finish(authorizationTimeoutFailure);
+  if (authPhase.timedOut) {
+    return finish({
+      code: 'authorization-denied',
+      reason: authPhase.reason ?? 'Authorization validation reached its deadline.',
+    });
   }
   if (!authPhase.ok) {
     return finish({ code: 'authorization-denied', reason: authorizationResult.reason ?? 'Authorization was denied.' });
@@ -1269,9 +1271,14 @@ async function coordinateQuickProof(options: QuickProofOptions): Promise<QuickPr
                 status: 'denied',
                 reason: preLeaseAuthorization.reason ?? 'Authorization revalidation failed before lease acquisition.',
               };
-          const preLeaseAuthorizationTimeoutFailure = setupPhaseTimeoutFailure(preLeaseAuthorization);
-          if (preLeaseAuthorizationTimeoutFailure) {
-            return { terminalDecision: preLeaseAuthorizationTimeoutFailure };
+          if (preLeaseAuthorization.timedOut) {
+            return {
+              terminalDecision: {
+                code: 'authorization-denied',
+                reason: preLeaseAuthorization.reason ??
+                  'Authorization revalidation reached its deadline before lease acquisition.',
+              },
+            };
           }
           if (!preLeaseAuthorization.ok) {
             return {
@@ -1358,9 +1365,13 @@ async function coordinateQuickProof(options: QuickProofOptions): Promise<QuickPr
         authorizationResult = isAuthorizationResult(reauthorization.value)
           ? { ...reauthorization.value }
           : { status: 'denied', reason: reauthorization.reason ?? 'Authorization revalidation failed.' };
-        const reauthorizationTimeoutFailure = setupPhaseTimeoutFailure(reauthorization);
-        if (reauthorizationTimeoutFailure) {
-          return { terminalDecision: reauthorizationTimeoutFailure };
+        if (reauthorization.timedOut) {
+          return {
+            terminalDecision: {
+              code: 'authorization-denied',
+              reason: reauthorization.reason ?? 'Authorization revalidation reached its deadline.',
+            },
+          };
         }
         if (!reauthorization.ok) {
           return {

@@ -493,6 +493,78 @@ test('does not acquire a lease when authorization expires during preflight', asy
   assert.equal(artifact.product.started, false);
 });
 
+test('emits schema-valid authorization denial when authorization validation times out', async (t: TestContext) => {
+  await t.test('initial validation', async () => {
+    let acquireCalls = 0;
+    const artifact = await coordinateQuickProof(baseOptions(createClock(), {
+      now: Date.now,
+      budgets: { setupMs: 20, totalMs: 100, minimumProductRatio: 0.5 },
+      authorization: {
+        grantId: 'grant-1', goalId: 'goal-1', operations: ['inspect'],
+        expiresAt: '2099-01-01T00:00:00.000Z', delegationChain: ['cos'],
+        targetResource: 'mobile-target:ios:device-1',
+      },
+      authorizationPort: {
+        async validate(input: { signal: AbortSignal }) {
+          return new Promise((_resolve) => {
+            input.signal.addEventListener('abort', () => undefined);
+          });
+        },
+      },
+      leasePort: {
+        async acquire() {
+          acquireCalls += 1;
+          throw new Error('lease acquisition must not run');
+        },
+        async release() { return { status: 'released' }; },
+      },
+    }));
+
+    assert.equal(acquireCalls, 0);
+    assert.equal(artifact.authorization.status, 'denied');
+    assert.equal(artifact.decision.code, 'authorization-denied');
+    assert.equal(validateJson(artifact, SCHEMAS.quickProof, 'initial authorization timeout').valid, true);
+  });
+
+  await t.test('pre-lease revalidation', async () => {
+    let authorizationCalls = 0;
+    let acquireCalls = 0;
+    const artifact = await coordinateQuickProof(baseOptions(createClock(), {
+      now: Date.now,
+      budgets: { setupMs: 20, totalMs: 100, minimumProductRatio: 0.5 },
+      authorization: {
+        grantId: 'grant-1', goalId: 'goal-1', operations: ['inspect'],
+        expiresAt: '2099-01-01T00:00:00.000Z', delegationChain: ['cos'],
+        targetResource: 'mobile-target:ios:device-1',
+      },
+      authorizationPort: {
+        async validate(input: { signal: AbortSignal }) {
+          authorizationCalls += 1;
+          if (authorizationCalls === 1) {
+            return { status: 'authorized' as const };
+          }
+          return new Promise((_resolve) => {
+            input.signal.addEventListener('abort', () => undefined);
+          });
+        },
+      },
+      leasePort: {
+        async acquire() {
+          acquireCalls += 1;
+          throw new Error('lease acquisition must not run');
+        },
+        async release() { return { status: 'released' }; },
+      },
+    }));
+
+    assert.equal(authorizationCalls, 2);
+    assert.equal(acquireCalls, 0);
+    assert.equal(artifact.authorization.status, 'denied');
+    assert.equal(artifact.decision.code, 'authorization-denied');
+    assert.equal(validateJson(artifact, SCHEMAS.quickProof, 'pre-lease authorization timeout').valid, true);
+  });
+});
+
 test('turns a malformed custom authorization result into durable denied evidence', async () => {
   const artifact = await coordinateQuickProof(baseOptions(createClock(), {
     authorizationPort: { async validate() { return {} as never; } },
