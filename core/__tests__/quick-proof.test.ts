@@ -563,6 +563,100 @@ test('emits schema-valid authorization denial when authorization validation time
     assert.equal(artifact.decision.code, 'authorization-denied');
     assert.equal(validateJson(artifact, SCHEMAS.quickProof, 'pre-lease authorization timeout').valid, true);
   });
+
+  await t.test('post-lease revalidation releases ownership', async () => {
+    let authorizationCalls = 0;
+    let acquireCalls = 0;
+    let releaseCalls = 0;
+    const artifact = await coordinateQuickProof(baseOptions(createClock(), {
+      now: Date.now,
+      budgets: { setupMs: 20, totalMs: 100, minimumProductRatio: 0.5 },
+      authorization: {
+        grantId: 'grant-1', goalId: 'goal-1', operations: ['inspect'],
+        expiresAt: '2099-01-01T00:00:00.000Z', delegationChain: ['cos'],
+        targetResource: 'mobile-target:ios:device-1',
+      },
+      authorizationPort: {
+        async validate(input: { signal: AbortSignal }) {
+          authorizationCalls += 1;
+          if (authorizationCalls < 3) {
+            return { status: 'authorized' as const };
+          }
+          return new Promise((_resolve) => {
+            input.signal.addEventListener('abort', () => undefined);
+          });
+        },
+      },
+      leasePort: {
+        async acquire({ resource }: { resource: string }) {
+          acquireCalls += 1;
+          return {
+            leaseId: 'lease-1', resource, status: 'trusted' as const,
+            acquiredAt: new Date().toISOString(), expiresAt: '2099-01-01T00:00:00.000Z',
+          };
+        },
+        async release() {
+          releaseCalls += 1;
+          return { status: 'released' as const };
+        },
+      },
+    }));
+
+    assert.equal(authorizationCalls, 3);
+    assert.equal(acquireCalls, 1);
+    assert.equal(releaseCalls, 1);
+    assert.equal(artifact.authorization.status, 'denied');
+    assert.equal(artifact.decision.code, 'authorization-denied');
+    assert.equal(artifact.lease.status, 'released');
+    assert.equal(validateJson(artifact, SCHEMAS.quickProof, 'post-lease authorization timeout').valid, true);
+  });
+
+  await t.test('mutable-boundary revalidation is explicitly accounted', async () => {
+    let authorizationCalls = 0;
+    let fallbackCalls = 0;
+    const artifact = await coordinateQuickProof(baseOptions(createClock(), {
+      now: Date.now,
+      targetResource: undefined,
+      leasePort: undefined,
+      budgets: { setupMs: 20, totalMs: 100, minimumProductRatio: 0.5 },
+      authorization: {
+        grantId: 'grant-1', goalId: 'goal-1', operations: ['inspect'],
+        expiresAt: '2099-01-01T00:00:00.000Z', delegationChain: ['cos'],
+      },
+      authorizationPort: {
+        async validate(input: { signal: AbortSignal }) {
+          authorizationCalls += 1;
+          if (authorizationCalls < 3) {
+            return { status: 'authorized' as const };
+          }
+          return new Promise((_resolve) => {
+            input.signal.addEventListener('abort', () => undefined);
+          });
+        },
+      },
+      adapters: [
+        baseAdapter(),
+        baseAdapter({
+          id: 'direct', tier: 'degraded-direct',
+          async runProduct() {
+            fallbackCalls += 1;
+            return { status: 'passed', productActionStarted: true };
+          },
+        }),
+      ],
+    }));
+
+    assert.equal(authorizationCalls, 3);
+    assert.equal(fallbackCalls, 0);
+    assert.equal(artifact.authorization.status, 'denied');
+    assert.equal(artifact.decision.code, 'authorization-denied');
+    assert.equal(artifact.product.started, false);
+    assert.equal(artifact.phases.some((phase: { name: string; status: string }) =>
+      phase.name === 'mutable-boundary-authorization' && phase.status === 'failed'), true);
+    assert.equal(artifact.phases.some((phase: { name: string; status: string }) =>
+      phase.name === 'mutable-boundary-validation' && phase.status === 'failed'), true);
+    assert.equal(validateJson(artifact, SCHEMAS.quickProof, 'mutable-boundary authorization timeout').valid, true);
+  });
 });
 
 test('turns a malformed custom authorization result into durable denied evidence', async () => {

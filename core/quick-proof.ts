@@ -1425,21 +1425,26 @@ async function coordinateQuickProof(options: QuickProofOptions): Promise<QuickPr
             if (boundaryBudgetFailure) {
               failBoundary(boundaryBudgetFailure);
             }
-            let boundaryAuthorization: unknown = undefined;
-            try {
-              boundaryAuthorization = await validateAuthorization(signal);
-            } catch (error) {
-              const reason = errorReason(error, 'Authorization revalidation failed at the mutable boundary.');
-              authorizationResult = { status: 'denied', reason };
-              failBoundary({ code: 'authorization-denied', reason });
-            }
+            const boundaryAuthorizationPhase = await record({
+              name: 'mutable-boundary-authorization', adapterId: adapter.id, attempt,
+              timeoutMs: setupRemaining(),
+              action: validateAuthorization,
+              success: (value) => isAuthorizationResult(value) && value.status === 'authorized',
+              reason: (value, ok) => phaseResultReason(
+                value, ok, isAuthorizationResult, 'Authorization revalidation was denied at the mutable boundary.',
+                'Authorization revalidation returned a malformed result at the mutable boundary.'),
+            });
             if (!mutableBoundaryOpen) {
               throw new Error('The mutable-boundary callback expired while authorization was being revalidated.');
             }
-            authorizationResult = isAuthorizationResult(boundaryAuthorization)
-              ? { ...boundaryAuthorization }
-              : { status: 'denied', reason: 'Authorization revalidation returned a malformed result.' };
-            if (authorizationResult.status !== 'authorized') {
+            authorizationResult = isAuthorizationResult(boundaryAuthorizationPhase.value)
+              ? { ...boundaryAuthorizationPhase.value }
+              : {
+                  status: 'denied',
+                  reason: boundaryAuthorizationPhase.reason ??
+                    'Authorization revalidation failed at the mutable boundary.',
+                };
+            if (!boundaryAuthorizationPhase.ok) {
               failBoundary({
                 code: 'authorization-denied',
                 reason: authorizationResult.reason ?? 'Authorization was not valid at the mutable boundary.',
@@ -1498,8 +1503,19 @@ async function coordinateQuickProof(options: QuickProofOptions): Promise<QuickPr
             adapter.runProduct({
               ...context({ signal: productController.signal }),
               beginProductAction: async () => {
-                await validateMutableBoundary(productController.signal);
-                armProductDeadline(totalRemaining(), 'product execution');
+                if (productDeadline) {
+                  clearTimeout(productDeadline);
+                  productDeadline = undefined;
+                }
+                try {
+                  await validateMutableBoundary(productController.signal);
+                  armProductDeadline(totalRemaining(), 'product execution');
+                } catch (error) {
+                  if (mutableBoundaryOpen) {
+                    armProductDeadline(totalRemaining(), 'post-boundary failure handling');
+                  }
+                  throw error;
+                }
               },
             }),
             productDeadlinePromise,
