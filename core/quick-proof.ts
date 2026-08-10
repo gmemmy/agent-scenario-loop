@@ -1254,6 +1254,33 @@ async function coordinateQuickProof(options: QuickProofOptions): Promise<QuickPr
             const reason = 'No lease port was supplied for the required resource.';
             return { fallbackDecision: { code: 'lease-unavailable', reason } };
           }
+          const preLeaseAuthorization = await record({
+            name: 'authorization-pre-lease-revalidation', adapterId: adapter.id, attempt,
+            timeoutMs: setupRemaining(),
+            action: validateAuthorization,
+            success: (value) => isAuthorizationResult(value) && value.status === 'authorized',
+            reason: (value, ok) => phaseResultReason(
+              value, ok, isAuthorizationResult, 'Authorization revalidation was denied before lease acquisition.',
+              'Authorization revalidation returned a malformed result before lease acquisition.'),
+          });
+          authorizationResult = isAuthorizationResult(preLeaseAuthorization.value)
+            ? { ...preLeaseAuthorization.value }
+            : {
+                status: 'denied',
+                reason: preLeaseAuthorization.reason ?? 'Authorization revalidation failed before lease acquisition.',
+              };
+          const preLeaseAuthorizationTimeoutFailure = setupPhaseTimeoutFailure(preLeaseAuthorization);
+          if (preLeaseAuthorizationTimeoutFailure) {
+            return { terminalDecision: preLeaseAuthorizationTimeoutFailure };
+          }
+          if (!preLeaseAuthorization.ok) {
+            return {
+              terminalDecision: {
+                code: 'authorization-denied',
+                reason: authorizationResult.reason ?? 'Authorization was not valid before lease acquisition.',
+              },
+            };
+          }
           const leasePhase = await record({
             name: 'lease-acquisition', adapterId: adapter.id, attempt,
             timeoutMs: setupRemaining(),

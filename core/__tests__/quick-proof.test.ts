@@ -458,6 +458,41 @@ test('revalidates authorization after setup and passes only sanitized fields to 
   assert.equal(artifact.lease.status, 'released');
 });
 
+test('does not acquire a lease when authorization expires during preflight', async () => {
+  const clock = createClock();
+  const options = baseOptions(clock);
+  let acquireCalls = 0;
+  const artifact = await coordinateQuickProof({
+    ...options,
+    authorization: {
+      ...options.authorization,
+      expiresAt: '2026-08-10T00:00:00.100Z',
+    },
+    adapters: [baseAdapter({
+      async preflight() {
+        clock.advance(200);
+        return { status: 'passed', identities: [observedIdentity()] };
+      },
+    })],
+    leasePort: {
+      async acquire({ resource }: { resource: string }) {
+        acquireCalls += 1;
+        return {
+          leaseId: 'lease-1', resource, status: 'trusted',
+          acquiredAt: '2026-08-10T00:00:00.000Z', expiresAt: '2026-08-10T00:10:00.000Z',
+        };
+      },
+      async release() { return { status: 'released' }; },
+    },
+  });
+
+  assert.equal(acquireCalls, 0);
+  assert.equal(artifact.decision.code, 'authorization-denied');
+  assert.equal(artifact.authorization.status, 'denied');
+  assert.equal(artifact.lease.status, 'not-acquired');
+  assert.equal(artifact.product.started, false);
+});
+
 test('turns a malformed custom authorization result into durable denied evidence', async () => {
   const artifact = await coordinateQuickProof(baseOptions(createClock(), {
     authorizationPort: { async validate() { return {} as never; } },
@@ -800,7 +835,7 @@ test('distinguishes valid reasonless negative states from malformed output', asy
     },
     {
       name: 'authorization revalidation denied',
-      phaseName: 'authorization-revalidation',
+      phaseName: 'authorization-pre-lease-revalidation',
       options: () => {
         let calls = 0;
         return {
