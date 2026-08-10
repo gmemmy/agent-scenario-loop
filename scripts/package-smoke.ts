@@ -791,6 +791,9 @@ function main(): void {
       "assert.equal(typeof asl.buildRunIndex, 'function');",
       "assert.equal(typeof asl.createArtifactLayout, 'function');",
       "assert.equal(typeof asl.validateJson, 'function');",
+      "assert.equal(typeof asl.coordinateQuickProof, 'function');",
+      "assert.equal(typeof asl.createQuickProofAuthorizationPort, 'function');",
+      "assert.equal(typeof asl.writeQuickProofArtifacts, 'function');",
       "assert.equal(typeof demoLoop.runDemoLoop, 'function');",
     ].join('\n'), 'utf8');
     run(process.execPath, [esmSmokeScriptPath], {
@@ -2416,6 +2419,9 @@ function main(): void {
       "assert.equal(typeof asl.findLatestTrustedRun, 'function');",
       "assert.equal(typeof asl.validateJson, 'function');",
       "assert.equal(typeof asl.validateHistoricalEvaluationArtifact, 'function');",
+      "assert.equal(typeof asl.coordinateQuickProof, 'function');",
+      "assert.equal(typeof asl.createQuickProofAuthorizationPort, 'function');",
+      "assert.equal(typeof asl.writeQuickProofArtifacts, 'function');",
       "assert.equal(typeof asl.assertValidJson, 'function');",
       "assert.deepEqual(asl.PRIMARY_RUNNER_PORT, ['prepare', 'launch', 'startSession', 'executeStep', 'waitForTruthEvent', 'captureEvidence', 'stopSession', 'finalize']);",
       "assert.deepEqual(asl.EVIDENCE_PROVIDER_PORT, ['prepare', 'startWindow', 'capture', 'stopWindow', 'finalize']);",
@@ -2464,6 +2470,7 @@ function main(): void {
       "require.resolve('agent-scenario-loop/schemas/metrics.schema.json');",
       "require.resolve('agent-scenario-loop/schemas/native-performance.schema.json');",
       "require.resolve('agent-scenario-loop/schemas/project-validation.schema.json');",
+      "require.resolve('agent-scenario-loop/schemas/quick-proof.schema.json');",
       "require.resolve('agent-scenario-loop/schemas/runner-capabilities.schema.json');",
       "require.resolve('agent-scenario-loop/schemas/verdict.schema.json');",
       "require.resolve('agent-scenario-loop/examples/scenarios/mobile/app-startup.json');",
@@ -2570,6 +2577,7 @@ function main(): void {
       "  type PortResult,",
       "  type PortValidationResult,",
       "  type PrimaryRunnerPort,",
+      "  type QuickProofSourceIdentity,",
       "} from 'agent-scenario-loop';",
       "import { resolveAgentDeviceDriverSteps, runAgentDeviceCapture } from 'agent-scenario-loop/runner/agent-device';",
       "import { resolveArgentDriverSteps, runArgentCapture } from 'agent-scenario-loop/runner/argent';",
@@ -2831,6 +2839,8 @@ function main(): void {
       "void resolveResourceLeasePath({ leaseRoot: 'leases', resourceId: 'mobile-target:android:emulator-5554' });",
       'void resourceLeaseResultSample;',
       'void validateProject;',
+      "const quickProofSource: QuickProofSourceIdentity = { revision: 'source', packageName: 'agent-scenario-loop', packageVersion: 'packed', packageIntegrity: 'packed-tarball' };",
+      'void quickProofSource;',
       '',
     ].join('\n');
     fs.writeFileSync(path.join(installDir, 'package-smoke-types.ts'), typeSmokeSource, 'utf8');

@@ -14,7 +14,9 @@ const {
   buildAndroidNativePerformanceEvidence,
   classifyNativePerformanceComparisonReadiness,
   compareRunDirectories,
+  coordinateQuickProof,
   createArtifactLayout,
+  createQuickProofAuthorizationPort,
   dispatchDriverAction,
   evaluateRunnerCompatibility,
   validateJson,
@@ -34,12 +36,71 @@ The root package is for stable, runner-neutral behavior:
 - comparison artifacts, including `comparison.json` schemaVersion `1.1.0` with optional native-performance comparison truth
 - local historical evaluation structural types and semantic validation for consumer-produced `historical-evaluation.json`
 - aggregate live-proof artifacts
+- quick-proof coordination for bounded setup, operation-specific capability
+  discovery, scoped authorization and lease propagation, one retry per adapter
+  path, deterministic pre-product fallback, and setup-only friction evidence
 - schema validation
 - Android native-performance evidence normalization from provider-captured `gfxinfo`, framestats, `meminfo`, and trace-processor summaries
 - iOS native-performance evidence normalization from provider-captured Instruments, xctrace, MetricKit, simctl, or native-trace summaries, including parser helpers for common xctrace and MetricKit text summaries
 - shared Android/iOS native-performance comparison-readiness classification from captured source, bounded window, observed target, completeness, comparability, and claim evidence
 
 TypeScript consumers can import `HistoricalEvaluationArtifact`, the explicitly named `UnvalidatedHistoricalEvaluationArtifact`, and the branded `ValidatedHistoricalEvaluationArtifact` from the package root. `HistoricalEvaluationArtifact` is an unvalidated structural alias; TypeScript cannot prove schema refinements or cross-record integrity. Call `validateHistoricalEvaluationArtifact(unknown)` to run both the strict schema and semantic integrity checks before accepting the branded result. The schema is shipped at `agent-scenario-loop/schemas/historical-evaluation.schema.json` and registered as `SCHEMAS.historicalEvaluation`. This V1 surface remains consumer-produced and local-only; it does not export an evaluator, selector, reader, writer, or CLI command, and it does not alter `comparison.json` or process exit behavior.
+
+Use `coordinateQuickProof()` when an owning runner needs to bound setup before
+starting a product scenario. Callers provide adapter paths, operation and
+argument requirements, identities that preflight must observe, a credential-free
+authorization grant, exact source/package identity, and a lease port for any exclusive resource. The
+coordinator allows one retry per adapter path, orders trusted, direct, and manual
+paths deterministically, and stops all retry/fallback once any product action
+starts. `unresolved-until-observed` is valid during read-only discovery but must
+become an observed compatible identity before product execution. Manual and
+direct paths remain explicit proof tiers.
+
+Every adapter phase receives an `AbortSignal` and is bounded by the remaining
+setup or total deadline. The product adapter context requires
+`beginProductAction()`; adapters must call and await it immediately before their first mutable
+action. That boundary call revalidates authorization, lease lifetime, and budget
+reserve, then closes retry and fallback even if the operation later
+throws or returns malformed output. Authorization and lease lifetime are checked
+again at that boundary.
+An adapter that reports mutation without successfully crossing the boundary is
+recorded as failed `observed-late` product execution. ASL does not invent an
+exact mutation timestamp or allow another adapter to retry the action.
+If an adapter times out, throws, or returns malformed output before the boundary and ASL
+cannot prove whether mutation occurred, the artifact is `inconclusive` with
+`product.started: "unknown"`. It is neither setup-only evidence nor permission
+to retry or fall back.
+Crossing `beginProductAction()` validates authority and ownership; it is not by
+itself mutation proof. The adapter must also return
+`productActionStarted: true`. Missing confirmation remains inconclusive and
+blocks another path.
+
+`writeQuickProofArtifacts()` writes schema-validated `quick-proof.json` and an
+`agent-summary.md`. A setup-only artifact records phase duration, capability,
+source/package identity, target identity, authorization, lease, retry, fallback,
+and cleanup truth. It is not a
+product health, runtime, performance, or release verdict. The public schema is
+`agent-scenario-loop/schemas/quick-proof.schema.json` and is registered as
+`SCHEMAS.quickProof`. This foundation does not launch a device or replace the
+existing durable resource-lease owner.
+`identityObservations` preserves adapter-, attempt-, and phase-scoped identity
+evidence across retries and fallback; `identities` remains the final selected
+attempt state.
+
+Lease ports must synchronously call `registerAcquiredLease()` at the instant
+ownership is established, before later asynchronous work can delay or fail the
+acquisition promise. This lets the coordinator release ownership even when the
+acquisition call itself reaches its deadline.
+If a timed-out acquisition does not settle during bounded cleanup, cleanup fails
+closed; the retained callback remains an automatic release guard for any later
+contract-violating registration, but that later result cannot rewrite the
+already-published artifact.
+
+Malformed coordinator input is a caller contract error: empty identifiers or
+resources, duplicate operation or identity declarations, unsupported adapter
+tiers, and incomplete port or adapter method surfaces throw before capability
+discovery or product work begins. Authorization denial remains an evidence
+outcome when a structurally valid grant is expired, out of scope, or revoked.
 
 Use `dispatchDriverAction()` when a runner has already normalized a scenario step and needs to call the active stable built-in `DriverPort` implementation without binding to adb, simctl, agent-device, Argent, or another concrete tool. The shared port recognizes the same portable driver-action vocabulary as scenario manifests, including richer primitives such as `drag`, `rotateGesture`, `customGesture`, and `runSequence`. A driver still has to implement and declare each action explicitly; unsupported actions fail as missing methods instead of silently downgrading.
 

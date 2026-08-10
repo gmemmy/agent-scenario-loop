@@ -1,0 +1,332 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-scenario-loop.dev/schemas/quick-proof.schema.json",
+  "title": "Agent Scenario Loop Quick Proof",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "artifactType", "runId", "scenarioId", "goalId", "source", "startedAt", "endedAt", "status", "proofTier", "budgets", "authorization", "lease", "identities", "identityObservations", "phases", "adapters", "decision", "product", "cleanup"],
+  "allOf": [
+    {
+      "if": { "properties": { "status": { "const": "setup-only" } }, "required": ["status"] },
+      "then": {
+        "properties": {
+          "proofTier": { "type": ["string", "null"], "enum": ["manual-assisted", null] },
+          "budgets": {
+            "properties": {
+              "setupDurationMs": { "type": "number", "minimum": 0 },
+              "timeToFirstProductActionMs": { "type": "null" }
+            }
+          },
+          "decision": { "properties": { "code": { "enum": ["setup-budget-exceeded", "product-budget-reserve-insufficient", "authorization-denied", "capability-unavailable", "identity-unresolved", "lease-unavailable", "manual-required", "adapter-paths-exhausted"] } } },
+          "product": {
+            "properties": { "started": { "const": false } },
+            "required": ["started"],
+            "not": { "anyOf": [{ "required": ["startedAt"] }, { "required": ["detectedAt"] }, { "required": ["timingStatus"] }, { "required": ["status"] }] }
+          }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "status": { "const": "product-executed" } }, "required": ["status"] },
+      "then": {
+        "properties": {
+          "proofTier": { "enum": ["trusted-automated", "degraded-direct"] },
+          "lease": { "properties": { "status": { "enum": ["not-required", "released", "release-failed"] } } },
+          "decision": { "properties": { "code": { "enum": ["product-completed", "product-failed"] } } },
+          "product": { "properties": { "started": { "const": true } }, "required": ["started", "status", "timingStatus"] }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "status": { "const": "inconclusive" } }, "required": ["status"] },
+      "then": {
+        "properties": {
+          "proofTier": { "type": "null" },
+          "budgets": {
+            "properties": {
+              "setupDurationMs": { "type": "null" },
+              "timeToFirstProductActionMs": { "type": "null" }
+            }
+          },
+          "decision": { "properties": { "code": { "const": "adapter-paths-exhausted" } } },
+          "product": {
+            "properties": { "started": { "const": "unknown" } },
+            "required": ["started"],
+            "not": { "anyOf": [{ "required": ["startedAt"] }, { "required": ["detectedAt"] }, { "required": ["timingStatus"] }, { "required": ["status"] }] }
+          }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "authorization": { "properties": { "status": { "const": "denied" } }, "required": ["status"] } }, "required": ["authorization"] },
+      "then": {
+        "if": { "properties": { "status": { "const": "setup-only" } }, "required": ["status"] },
+        "then": {
+          "properties": {
+            "decision": { "properties": { "code": { "const": "authorization-denied" } } }
+          }
+        },
+        "else": {
+          "properties": {
+            "status": { "const": "product-executed" },
+            "decision": { "properties": { "code": { "const": "product-failed" } } },
+            "product": {
+              "properties": {
+                "started": { "const": true },
+                "timingStatus": { "const": "observed-late" },
+                "status": { "const": "failed" }
+              },
+              "required": ["started", "timingStatus", "status"]
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "decision": { "properties": { "code": { "const": "product-completed" } }, "required": ["code"] } }, "required": ["decision"] },
+      "then": {
+        "properties": {
+          "product": { "properties": { "status": { "const": "passed" } } }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "decision": { "properties": { "code": { "const": "product-failed" } }, "required": ["code"] } }, "required": ["decision"] },
+      "then": {
+        "properties": {
+          "product": { "properties": { "status": { "const": "failed" } } }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "decision": { "properties": { "code": { "const": "manual-required" } }, "required": ["code"] } }, "required": ["decision"] },
+      "then": {
+        "properties": {
+          "proofTier": { "const": "manual-assisted" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "proofTier": { "const": "manual-assisted" } }, "required": ["proofTier"] },
+      "then": { "properties": { "decision": { "properties": { "code": { "const": "manual-required" } } } } }
+    },
+    {
+      "if": { "properties": { "cleanup": { "properties": { "status": { "const": "passed" } }, "required": ["status"] } }, "required": ["cleanup"] },
+      "then": { "properties": { "cleanup": { "properties": { "failures": { "maxItems": 0 } } } } }
+    },
+    {
+      "if": { "properties": { "cleanup": { "properties": { "status": { "const": "failed" } }, "required": ["status"] } }, "required": ["cleanup"] },
+      "then": { "properties": { "cleanup": { "properties": { "failures": { "minItems": 1 } } } } }
+    },
+    {
+      "if": { "properties": { "lease": { "properties": { "status": { "enum": ["released", "release-failed"] } }, "required": ["status"] } }, "required": ["lease"] },
+      "then": { "properties": { "lease": { "required": ["resource", "leaseId"] } } }
+    },
+    {
+      "if": { "properties": { "lease": { "properties": { "status": { "const": "not-acquired" } }, "required": ["status"] } }, "required": ["lease"] },
+      "then": {
+        "properties": { "lease": { "required": ["resource"], "not": { "required": ["leaseId"] } } }
+      }
+    },
+    {
+      "if": { "properties": { "lease": { "properties": { "status": { "const": "not-required" } }, "required": ["status"] } }, "required": ["lease"] },
+      "then": {
+        "properties": { "lease": { "not": { "anyOf": [{ "required": ["resource"] }, { "required": ["leaseId"] }] } } }
+      }
+    },
+    {
+      "if": { "properties": { "lease": { "properties": { "status": { "const": "release-failed" } }, "required": ["status"] } }, "required": ["lease"] },
+      "then": { "properties": { "cleanup": { "properties": { "status": { "const": "failed" } } } } }
+    },
+    {
+      "if": { "properties": { "product": { "properties": { "timingStatus": { "const": "exact" } }, "required": ["timingStatus"] } }, "required": ["product"] },
+      "then": {
+        "properties": {
+          "authorization": { "properties": { "status": { "const": "authorized" } } },
+          "budgets": {
+            "properties": {
+              "setupDurationMs": { "type": "number", "minimum": 0 },
+              "timeToFirstProductActionMs": { "type": "number", "minimum": 0 }
+            }
+          },
+          "product": { "required": ["startedAt"], "not": { "required": ["detectedAt"] } }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "product": { "properties": { "timingStatus": { "const": "observed-late" } }, "required": ["timingStatus"] } }, "required": ["product"] },
+      "then": {
+        "properties": {
+          "budgets": {
+            "properties": {
+              "setupDurationMs": { "type": "null" },
+              "timeToFirstProductActionMs": { "type": "null" }
+            }
+          },
+          "decision": { "properties": { "code": { "const": "product-failed" } } },
+          "product": {
+            "properties": { "status": { "const": "failed" } },
+            "required": ["detectedAt", "status"],
+            "not": { "required": ["startedAt"] }
+          }
+        }
+      }
+    }
+  ],
+  "properties": {
+    "schemaVersion": { "const": "1.0.0" },
+    "artifactType": { "const": "quick-proof" },
+    "runId": { "$ref": "#/$defs/nonEmpty" },
+    "scenarioId": { "$ref": "#/$defs/nonEmpty" },
+    "goalId": { "$ref": "#/$defs/nonEmpty" },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["revision", "packageName", "packageVersion", "packageIntegrity"],
+      "properties": {
+        "revision": { "$ref": "#/$defs/nonEmpty" },
+        "packageName": { "$ref": "#/$defs/nonEmpty" },
+        "packageVersion": { "$ref": "#/$defs/nonEmpty" },
+        "packageIntegrity": { "$ref": "#/$defs/nonEmpty" },
+        "helperIdentity": { "$ref": "#/$defs/nonEmpty" }
+      }
+    },
+    "startedAt": { "$ref": "#/$defs/nonEmpty" },
+    "endedAt": { "$ref": "#/$defs/nonEmpty" },
+    "status": { "enum": ["setup-only", "product-executed", "inconclusive"] },
+    "proofTier": { "type": ["string", "null"], "enum": ["trusted-automated", "degraded-direct", "manual-assisted", null] },
+    "budgets": {
+      "type": "object", "additionalProperties": false,
+      "required": ["setupMs", "totalMs", "minimumProductRatio", "setupDurationMs", "totalDurationMs", "timeToFirstProductActionMs"],
+      "properties": {
+        "setupMs": { "type": "number", "exclusiveMinimum": 0 },
+        "totalMs": { "type": "number", "exclusiveMinimum": 0 },
+        "minimumProductRatio": { "type": "number", "minimum": 0, "maximum": 1 },
+        "setupDurationMs": { "type": ["number", "null"], "minimum": 0 },
+        "totalDurationMs": { "type": "number", "minimum": 0 },
+        "timeToFirstProductActionMs": { "type": ["number", "null"], "minimum": 0 }
+      }
+    },
+    "authorization": {
+      "type": "object", "additionalProperties": false,
+      "required": ["status", "grantId", "goalId", "operations", "delegationDepth"],
+      "properties": {
+        "status": { "enum": ["authorized", "denied"] },
+        "grantId": { "$ref": "#/$defs/nonEmpty" },
+        "goalId": { "$ref": "#/$defs/nonEmpty" },
+        "operations": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/nonEmpty" } },
+        "delegationDepth": { "type": "integer", "minimum": 0 },
+        "targetResource": { "$ref": "#/$defs/nonEmpty" },
+        "reason": { "$ref": "#/$defs/nonEmpty" }
+      }
+    },
+    "lease": {
+      "type": "object", "additionalProperties": false,
+      "required": ["status"],
+      "properties": {
+        "status": { "enum": ["not-required", "not-acquired", "released", "release-failed"] },
+        "resource": { "$ref": "#/$defs/nonEmpty" },
+        "leaseId": { "$ref": "#/$defs/nonEmpty" },
+        "reason": { "$ref": "#/$defs/nonEmpty" }
+      }
+    },
+    "identities": { "type": "array", "items": { "$ref": "#/$defs/identity" } },
+    "identityObservations": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/identityObservation" }
+    },
+    "phases": { "type": "array", "items": { "$ref": "#/$defs/phase" } },
+    "adapters": {
+      "type": "array", "minItems": 1,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["adapterId", "tier", "attempts", "status"],
+        "properties": {
+          "adapterId": { "$ref": "#/$defs/nonEmpty" },
+          "tier": { "$ref": "#/$defs/tier" },
+          "attempts": { "type": "integer", "minimum": 0, "maximum": 2 },
+          "status": { "enum": ["not-attempted", "failed", "selected"] },
+          "reason": { "$ref": "#/$defs/nonEmpty" }
+        }
+      }
+    },
+    "decision": {
+      "type": "object", "additionalProperties": false,
+      "required": ["code", "reason"],
+      "properties": {
+        "code": { "enum": ["product-completed", "product-failed", "setup-budget-exceeded", "product-budget-reserve-insufficient", "authorization-denied", "capability-unavailable", "identity-unresolved", "lease-unavailable", "manual-required", "adapter-paths-exhausted"] },
+        "reason": { "$ref": "#/$defs/nonEmpty" }
+      }
+    },
+    "product": {
+      "type": "object", "additionalProperties": false,
+      "required": ["started"],
+      "properties": {
+        "started": { "enum": [true, false, "unknown"] },
+        "startedAt": { "$ref": "#/$defs/nonEmpty" },
+        "detectedAt": { "$ref": "#/$defs/nonEmpty" },
+        "timingStatus": { "enum": ["exact", "observed-late"] },
+        "status": { "enum": ["passed", "failed"] }
+      }
+    },
+    "cleanup": {
+      "type": "object", "additionalProperties": false,
+      "required": ["status", "failures"],
+      "properties": {
+        "status": { "enum": ["passed", "failed"] },
+        "failures": { "type": "array", "items": { "$ref": "#/$defs/nonEmpty" } }
+      }
+    }
+  },
+  "$defs": {
+    "nonEmpty": { "type": "string", "minLength": 1 },
+    "tier": { "enum": ["trusted-automated", "degraded-direct", "manual-assisted"] },
+    "identity": {
+      "type": "object", "additionalProperties": false,
+      "required": ["name", "status"],
+      "properties": {
+        "name": { "$ref": "#/$defs/nonEmpty" },
+        "status": { "enum": ["observed", "unresolved-until-observed", "mismatched", "unavailable"] },
+        "expected": { "$ref": "#/$defs/nonEmpty" },
+        "observed": { "$ref": "#/$defs/nonEmpty" },
+        "reason": { "$ref": "#/$defs/nonEmpty" }
+      },
+      "allOf": [{
+        "if": { "properties": { "status": { "const": "observed" } }, "required": ["status"] },
+        "then": { "required": ["observed"] }
+      }]
+    },
+    "identityObservation": {
+      "type": "object", "additionalProperties": false,
+      "required": ["name", "status", "adapterId", "attempt", "phase"],
+      "properties": {
+        "name": { "$ref": "#/$defs/nonEmpty" },
+        "status": { "enum": ["observed", "unresolved-until-observed", "mismatched", "unavailable"] },
+        "expected": { "$ref": "#/$defs/nonEmpty" },
+        "observed": { "$ref": "#/$defs/nonEmpty" },
+        "reason": { "$ref": "#/$defs/nonEmpty" },
+        "adapterId": { "$ref": "#/$defs/nonEmpty" },
+        "attempt": { "type": "integer", "minimum": 1, "maximum": 2 },
+        "phase": { "enum": ["discovery", "preflight"] }
+      },
+      "allOf": [{
+        "if": { "properties": { "status": { "const": "observed" } }, "required": ["status"] },
+        "then": { "required": ["observed"] }
+      }]
+    },
+    "phase": {
+      "type": "object", "additionalProperties": false,
+      "required": ["name", "adapterId", "attempt", "status", "startedAt", "endedAt", "durationMs", "reason"],
+      "properties": {
+        "name": { "$ref": "#/$defs/nonEmpty" },
+        "adapterId": { "$ref": "#/$defs/nonEmpty" },
+        "attempt": { "type": "integer", "minimum": 1, "maximum": 2 },
+        "status": { "enum": ["passed", "failed"] },
+        "startedAt": { "$ref": "#/$defs/nonEmpty" },
+        "endedAt": { "$ref": "#/$defs/nonEmpty" },
+        "durationMs": { "type": "number", "minimum": 0 },
+        "reason": { "$ref": "#/$defs/nonEmpty" }
+      }
+    }
+  }
+}

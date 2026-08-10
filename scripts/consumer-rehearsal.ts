@@ -5,6 +5,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
+const { createHash } = require('node:crypto');
 
 type RunOptions = {
   cwd: string;
@@ -724,20 +725,71 @@ function assertProjectPathConfigFails({
 /**
  * Asserts that the installed package can initialize and validate an existing app.
  *
- * @param {{appRoot: string, env: NodeJS.ProcessEnv, tarballPath: string}} options
+ * @param {{appRoot: string, env: NodeJS.ProcessEnv, tarballPath: string, sourceRevision: string}} options
  * @returns {void}
  */
 function rehearseConsumerInstall({
   appRoot,
   env,
   tarballPath,
+  sourceRevision,
 }: {
   appRoot: string;
   env: NodeJS.ProcessEnv;
   tarballPath: string;
+  sourceRevision: string;
 }): void {
   writeExistingAppFixture(appRoot);
   run('npm', ['install', tarballPath, '--ignore-scripts'], {
+    cwd: appRoot,
+    env,
+  });
+  const installedPackage = readJson(path.join(appRoot, 'node_modules', 'agent-scenario-loop', 'package.json')) as {
+    name: string;
+    version: string;
+  };
+  const packageIntegrity = `sha256:${createHash('sha256').update(fs.readFileSync(tarballPath)).digest('hex')}`;
+  const quickProofScriptPath = path.join(appRoot, 'quick-proof-rehearsal.js');
+  fs.writeFileSync(quickProofScriptPath, [
+    "const assert = require('node:assert/strict');",
+    "const fs = require('node:fs');",
+    "const path = require('node:path');",
+    "const asl = require('agent-scenario-loop');",
+    "(async () => {",
+    "  const artifact = await asl.coordinateQuickProof({",
+    "    runId: 'consumer-quick-proof',",
+    "    scenarioId: 'account-overview',",
+    "    goalId: 'consumer-rehearsal',",
+    `    source: { revision: ${JSON.stringify(sourceRevision)}, packageName: ${JSON.stringify(installedPackage.name)}, packageVersion: ${JSON.stringify(installedPackage.version)}, packageIntegrity: ${JSON.stringify(packageIntegrity)} },`,
+    "    authorization: {",
+    "      grantId: 'consumer-grant', goalId: 'consumer-rehearsal', operations: ['inspect'],",
+    "      expiresAt: '2099-01-01T00:00:00.000Z', delegationChain: ['consumer-rehearsal'],",
+    "    },",
+    "    requirements: {",
+    "      operations: [{ operation: 'inspect', requiredArguments: ['target'] }],",
+    "      identities: [{ name: 'target', expected: 'consumer-target' }],",
+    "    },",
+    "    budgets: { setupMs: 1000, totalMs: 2000, minimumProductRatio: 0.5 },",
+    "    adapters: [{",
+    "      id: 'consumer-adapter', tier: 'trusted-automated',",
+    "      async discover() { return { status: 'passed', capabilities: [{ operation: 'inspect', supportedArguments: ['target'] }], identities: [{ name: 'target', status: 'unresolved-until-observed' }] }; },",
+    "      async preflight() { return { status: 'passed', identities: [{ name: 'target', status: 'observed', observed: 'consumer-target' }] }; },",
+    "      async runProduct(context) { await context.beginProductAction(); return { status: 'passed', productActionStarted: true }; },",
+    "      async cleanup() { return { status: 'passed' }; },",
+    "    }],",
+    "  });",
+    "  assert.equal(artifact.status, 'product-executed');",
+    "  assert.equal(artifact.decision.code, 'product-completed');",
+    `  assert.equal(artifact.source.revision, ${JSON.stringify(sourceRevision)});`,
+    `  assert.equal(artifact.source.packageVersion, ${JSON.stringify(installedPackage.version)});`,
+    `  assert.equal(artifact.source.packageIntegrity, ${JSON.stringify(packageIntegrity)});`,
+    "  const outDir = path.join(process.cwd(), 'artifacts', 'asl', 'quick-proof-rehearsal');",
+    "  const written = await asl.writeQuickProofArtifacts({ outDir, artifact });",
+    "  assert.equal(JSON.parse(fs.readFileSync(written.artifactPath, 'utf8')).status, 'product-executed');",
+    "  assert.match(fs.readFileSync(written.summaryPath, 'utf8'), /Product interpretation remains/);",
+    "})().catch((error) => { console.error(error); process.exitCode = 1; });",
+  ].join('\n'), 'utf8');
+  run(process.execPath, [quickProofScriptPath], {
     cwd: appRoot,
     env,
   });
@@ -925,10 +977,13 @@ function main(): void {
       packageRoot,
       packDir: path.join(tempRoot, 'pack'),
     });
+    const packageDigest = createHash('sha256').update(fs.readFileSync(tarballPath)).digest('hex');
+    const sourceRevision = `package-sha256:${packageDigest}`;
     rehearseConsumerInstall({
       appRoot,
       env,
       tarballPath,
+      sourceRevision,
     });
     process.stdout.write(`consumer rehearsal passed: ${appRoot}\n`);
   } catch (error) {

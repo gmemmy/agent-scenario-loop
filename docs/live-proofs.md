@@ -25,6 +25,29 @@ It writes:
 
 This is not a replacement for live device proof. It is a stable contract check that keeps the evidence loop reproducible through trusted prior-run selection while iOS or Android runtime setup is unavailable.
 
+## Bounded quick-proof setup
+
+Owning runners can use the root `coordinateQuickProof()` API before a live
+scenario when setup must leave most of a fixed run budget for product work. The
+caller supplies operation-level capability requirements, identities for
+read-only preflight to observe, a scoped authorization grant, adapter paths, and
+the existing lease owner through a lease port. Configure the setup deadline,
+total deadline, and minimum product ratio explicitly; a warm path may target a
+shorter setup budget than a cold candidate path without changing scenario truth.
+
+The coordinator permits one retry per adapter path and can fall back from a
+trusted adapter to a declared direct or manual path only before product work
+starts. Once an adapter reports that a product action began, no retry or fallback
+can hide its outcome. Adapter implementations must call the supplied
+`beginProductAction()` boundary immediately before the first mutable
+operation; phase abort signals and deadlines do not make an uncooperative child
+process safe, so adapters must propagate cancellation to their subprocesses.
+Always write `quick-proof.json` and `agent-summary.md` when
+setup exhausts its budget, cannot resolve identity, lacks an operation argument,
+loses authorization or lease trust, or requires manual action. Those files are
+setup-friction evidence only. Continue to require the normal health, verdict,
+continuous artifact, and platform gates for any product claim.
+
 ## Plan Check
 
 Use `check-plan` to validate a scenario, runner manifest, and optional evidence-provider manifests before execution:
