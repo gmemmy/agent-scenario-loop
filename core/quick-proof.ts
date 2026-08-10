@@ -868,13 +868,15 @@ async function coordinateQuickProof(options: QuickProofOptions): Promise<QuickPr
     action: (signal: AbortSignal) => Promise<T>;
     success: (value: T) => boolean;
     reason: (value: T, ok: boolean) => string | undefined;
-  }): Promise<{ ok: boolean; value?: T; reason?: string; startedMs: number }> => {
+  }): Promise<{ ok: boolean; value?: T; reason?: string; startedMs: number; timedOut: boolean }> => {
     const phaseStarted = now();
     const controller = new AbortController();
     let timeout: NodeJS.Timeout | undefined;
+    let timedOut = false;
     try {
       const timeoutPromise = new Promise<never>((_resolve, reject) => {
         timeout = setTimeout(() => {
+          timedOut = true;
           controller.abort();
           reject(new Error(`${input.name} exceeded its ${input.timeoutMs} ms deadline`));
         }, Math.max(1, input.timeoutMs));
@@ -893,7 +895,7 @@ async function coordinateQuickProof(options: QuickProofOptions): Promise<QuickPr
         durationMs: Math.max(0, phaseEnded - phaseStarted),
         reason,
       });
-      return { ok, value, reason, startedMs: phaseStarted };
+      return { ok, value, reason, startedMs: phaseStarted, timedOut: false };
     } catch (error) {
       const phaseEnded = now();
       const reason = errorReason(error, `${input.name} failed without a reason.`);
@@ -907,7 +909,7 @@ async function coordinateQuickProof(options: QuickProofOptions): Promise<QuickPr
         durationMs: Math.max(0, phaseEnded - phaseStarted),
         reason,
       });
-      return { ok: false, reason, startedMs: phaseStarted };
+      return { ok: false, reason, startedMs: phaseStarted, timedOut };
     } finally {
       if (timeout) {
         clearTimeout(timeout);
@@ -933,6 +935,15 @@ async function coordinateQuickProof(options: QuickProofOptions): Promise<QuickPr
       };
     }
     return null;
+  };
+  const setupPhaseTimeoutFailure = (phase: { timedOut: boolean }): QuickProofArtifact['decision'] | null => {
+    if (!phase.timedOut) {
+      return null;
+    }
+    return setupBudgetFailure() ?? {
+      code: 'setup-budget-exceeded',
+      reason: 'A bounded setup phase reached its deadline before product work began.',
+    };
   };
 
   const finish = (decision: QuickProofArtifact['decision']): QuickProofArtifact => {
@@ -1022,6 +1033,10 @@ async function coordinateQuickProof(options: QuickProofOptions): Promise<QuickPr
   authorizationResult = isAuthorizationResult(authPhase.value)
     ? { ...authPhase.value }
     : { status: 'denied', reason: authPhase.reason ?? 'Authorization validation failed.' };
+  const authorizationTimeoutFailure = setupPhaseTimeoutFailure(authPhase);
+  if (authorizationTimeoutFailure) {
+    return finish(authorizationTimeoutFailure);
+  }
   if (!authPhase.ok) {
     return finish({ code: 'authorization-denied', reason: authorizationResult.reason ?? 'Authorization was denied.' });
   }
@@ -1153,6 +1168,10 @@ async function coordinateQuickProof(options: QuickProofOptions): Promise<QuickPr
             value, ok, isDiscoveryResult, 'Capability discovery failed.',
             'Capability discovery returned a malformed result.'),
         });
+        const discoveryTimeoutFailure = setupPhaseTimeoutFailure(discovery);
+        if (discoveryTimeoutFailure) {
+          return { terminalDecision: discoveryTimeoutFailure };
+        }
         if (isDiscoveryResult(discovery.value)) {
           mergeAndRecordIdentityObservations('discovery', discovery.value.identities);
           const terminalFailure = terminalIdentityFailure(identityRequirements, attemptIdentities);
@@ -1193,6 +1212,10 @@ async function coordinateQuickProof(options: QuickProofOptions): Promise<QuickPr
           reason: (value, ok) => phaseResultReason(
             value, ok, isPreflightResult, 'Adapter preflight failed.', 'Preflight returned a malformed result.'),
         });
+        const preflightTimeoutFailure = setupPhaseTimeoutFailure(preflight);
+        if (preflightTimeoutFailure) {
+          return { terminalDecision: preflightTimeoutFailure };
+        }
         if (isPreflightResult(preflight.value)) {
           mergeAndRecordIdentityObservations('preflight', preflight.value.identities);
           const terminalFailure = terminalIdentityFailure(identityRequirements, attemptIdentities);
@@ -1281,6 +1304,10 @@ async function coordinateQuickProof(options: QuickProofOptions): Promise<QuickPr
               ...(leasePhase.value.reason ? { reason: leasePhase.value.reason } : {}),
             };
           }
+          const leaseTimeoutFailure = setupPhaseTimeoutFailure(leasePhase);
+          if (leaseTimeoutFailure) {
+            return { terminalDecision: leaseTimeoutFailure };
+          }
           if (!leasePhase.ok || !lease) {
             const reason = leasePhase.reason ?? 'The required resource lease was not trusted.';
             leaseState = { status: 'not-acquired', resource: targetResource, reason };
@@ -1304,6 +1331,10 @@ async function coordinateQuickProof(options: QuickProofOptions): Promise<QuickPr
         authorizationResult = isAuthorizationResult(reauthorization.value)
           ? { ...reauthorization.value }
           : { status: 'denied', reason: reauthorization.reason ?? 'Authorization revalidation failed.' };
+        const reauthorizationTimeoutFailure = setupPhaseTimeoutFailure(reauthorization);
+        if (reauthorizationTimeoutFailure) {
+          return { terminalDecision: reauthorizationTimeoutFailure };
+        }
         if (!reauthorization.ok) {
           return {
             terminalDecision: {

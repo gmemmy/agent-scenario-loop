@@ -1593,6 +1593,50 @@ test('aborts a hanging setup phase at the real setup deadline', async () => {
   assert.ok(Date.now() - startedAt < 500);
 });
 
+test('terminalizes a hanging preflight as a setup deadline rather than an identity failure', async () => {
+  let aborted = false;
+  const artifact = await coordinateQuickProof(baseOptions(createClock(), {
+    now: Date.now,
+    targetResource: undefined,
+    leasePort: undefined,
+    authorization: {
+      grantId: 'grant-1', goalId: 'goal-1', operations: ['inspect'],
+      expiresAt: '2099-01-01T00:00:00.000Z', delegationChain: ['cos'],
+    },
+    budgets: { setupMs: 20, totalMs: 100, minimumProductRatio: 0.5 },
+    adapters: [baseAdapter({
+      async preflight(context: { signal?: AbortSignal }) {
+        return new Promise((_resolve) => {
+          context.signal?.addEventListener('abort', () => { aborted = true; });
+        });
+      },
+    })],
+  }));
+
+  assert.equal(aborted, true);
+  assert.equal(artifact.status, 'setup-only');
+  assert.equal(artifact.decision.code, 'setup-budget-exceeded');
+});
+
+test('does not trust adapter-supplied timeout-like text as coordinator timeout provenance', async () => {
+  let discoveryCalls = 0;
+  const artifact = await coordinateQuickProof(baseOptions(createClock(), {
+    adapters: [baseAdapter({
+      async discover() {
+        discoveryCalls += 1;
+        return {
+          status: 'failed', capabilities: [], identities: [],
+          reason: 'capability-discovery exceeded its 20 ms deadline',
+        };
+      },
+    })],
+  }));
+
+  assert.equal(discoveryCalls, 2);
+  assert.equal(artifact.status, 'setup-only');
+  assert.equal(artifact.decision.code, 'capability-unavailable');
+});
+
 test('aborts a hanging product phase without retry or fallback', async () => {
   let productAborted = false;
   let fallbackCalls = 0;
