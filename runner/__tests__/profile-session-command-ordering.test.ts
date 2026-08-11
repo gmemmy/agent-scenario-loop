@@ -425,6 +425,69 @@ test('profile-session command ordering rejects readiness events missing required
   }, observedEvents), false);
 });
 
+test('profile-session command ordering releases explicit unscoped setup milestones', () => {
+  const command = {
+    id: 'ready-command',
+    command: 'reset-surface',
+    queueId: 'comments-sheet-stress',
+    runId: 'run-1',
+    scenario: 'comments-sheet-stress',
+    sequence: 1,
+    timestamp: 200,
+    unscopedMilestones: ['app_first_usable_screen'],
+    waitForMilestone: 'app_first_usable_screen',
+  };
+
+  assert.equal(hasObservedProfileCommandMilestone(command, [{
+    event: 'app_first_usable_screen',
+    runId: 'run-1',
+    scenario: 'comments-sheet-stress',
+    timestamp: 18_528,
+  }]), true);
+
+  assert.equal(hasObservedProfileCommandMilestone(command, [{
+    event: 'app_first_usable_screen',
+    queueId: 'other-queue',
+    runId: 'run-1',
+    scenario: 'comments-sheet-stress',
+    timestamp: 18_528,
+  }]), false);
+
+  assert.equal(hasObservedProfileCommandMilestone(command, [{
+    event: 'comments_sheet_opened',
+    runId: 'run-1',
+    scenario: 'comments-sheet-stress',
+    timestamp: 18_528,
+  }]), false);
+
+  const dependentCommand = {
+    id: 'body-command',
+    command: 'comments:open-sheet',
+    dependsOnMilestones: ['app_first_usable_screen'],
+    queueId: 'comments-sheet-stress',
+    runId: 'run-1',
+    scenario: 'comments-sheet-stress',
+    sequence: 2,
+    timestamp: 300,
+    unscopedMilestones: ['app_first_usable_screen'],
+  };
+
+  assert.equal(hasObservedProfileCommandDependencies(dependentCommand, [{
+    event: 'app_first_usable_screen',
+    runId: 'run-1',
+    scenario: 'comments-sheet-stress',
+    timestamp: 18_528,
+  }]), true);
+
+  assert.deepEqual(resolveMissingProfileCommandDependencies(dependentCommand, [{
+    event: 'app_first_usable_screen',
+    queueId: 'other-queue',
+    runId: 'run-1',
+    scenario: 'comments-sheet-stress',
+    timestamp: 18_528,
+  }]), ['app_first_usable_screen']);
+});
+
 test('profile-session command ordering releases gates only for matching run and scenario', () => {
   const gate = {
     id: 'command-1',

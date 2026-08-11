@@ -6144,6 +6144,7 @@ test('profile-android seeds Android scenario commands as one ordered storage que
   const profileRoot = path.join(tempRoot, 'profile');
   const calls: string[] = [];
   const storageWrites: string[] = [];
+  const helperPayloadLogFields = 'helperPayloadId=agent-scenario-loop/profile-session-helper@1.1.0+setup-unscoped-milestones helperPayloadSha256=b7421a84e8e39346702af2e7017a99ba492ced00de47446780e42a93146db275';
   const executor = async (command: string, args: string[]): Promise<CommandResult> => {
     const key = args.join(' ');
     calls.push(key);
@@ -6180,19 +6181,19 @@ test('profile-android seeds Android scenario commands as one ordered storage que
       },
       '-s emulator-5554 logcat -d -v time -t 10000': {
         stdout: [
-          '2026-01-01T00:00:00.000Z public-android [profile-session] kind=start scenario=open-close-cycle runId=android-storage-open-close startedAt=1800000000000 timestamp=1800000000000 atMs=0 helperVersion=1.1.0',
-          '2026-01-01T00:00:00.050Z public-android [profile-session] kind=command scenario=open-close-cycle runId=android-storage-open-close command=activate-target:example-card-1 commandId=open-card queueId=open-close-cycle sequence=1 source=storage status=received atMs=50 waitForMilestone=card_opened waitMs=300 waitTimeoutMs=1500 helperVersion=1.1.0',
-          '2026-01-01T00:00:00.420Z public-android [profile-session] kind=command scenario=open-close-cycle runId=android-storage-open-close command=activate-target:example-card-1 commandId=open-card queueId=open-close-cycle sequence=1 source=storage status=completed result=cadence-settled continuationReason=readiness-and-settle-satisfied atMs=420 minimumSettleMs=300 plannedSettleMs=300 maxReadinessWaitMs=1500 readinessWaitMs=370 actualWaitMs=370 settleOverlapSavedMs=300 timeoutAvoided=true waitForMilestone=card_opened waitMs=300 waitTimeoutMs=1500 helperVersion=1.1.0',
-          '2026-01-01T00:00:00.820Z public-android [profile-session] kind=command scenario=open-close-cycle runId=android-storage-open-close command=activate-target:close-card commandId=close-card queueId=open-close-cycle sequence=2 source=storage status=received atMs=820 waitForMilestone=card_dismissed waitMs=300 waitTimeoutMs=1200 helperVersion=1.1.0',
-          '2026-01-01T00:00:01.120Z public-android [profile-session] kind=command scenario=open-close-cycle runId=android-storage-open-close command=activate-target:close-card commandId=close-card queueId=open-close-cycle sequence=2 source=storage status=completed result=cadence-settled continuationReason=readiness-and-settle-satisfied atMs=1120 minimumSettleMs=300 plannedSettleMs=300 maxReadinessWaitMs=1200 readinessWaitMs=300 actualWaitMs=300 settleOverlapSavedMs=300 timeoutAvoided=true waitForMilestone=card_dismissed waitMs=300 waitTimeoutMs=1200 helperVersion=1.1.0',
-          '2026-01-01T00:00:02.020Z public-android [profile-session] kind=command scenario=open-close-cycle runId=android-storage-open-close command=activate-target:example-card-1 commandId=open-card queueId=open-close-cycle sequence=3 source=storage status=received atMs=2020 waitForMilestone=card_opened waitMs=300 waitTimeoutMs=1500 helperVersion=1.1.0',
-          '2026-01-01T00:00:02.450Z public-android [profile-session] kind=command scenario=open-close-cycle runId=android-storage-open-close command=activate-target:example-card-1 commandId=open-card queueId=open-close-cycle sequence=3 source=storage status=completed result=cadence-settled continuationReason=readiness-and-settle-satisfied atMs=2450 minimumSettleMs=300 plannedSettleMs=300 maxReadinessWaitMs=1500 readinessWaitMs=430 actualWaitMs=430 settleOverlapSavedMs=300 timeoutAvoided=true waitForMilestone=card_opened waitMs=300 waitTimeoutMs=1500 helperVersion=1.1.0',
-          '2026-01-01T00:00:02.900Z public-android [profile-session] kind=command scenario=open-close-cycle runId=android-storage-open-close command=activate-target:close-card commandId=close-card queueId=open-close-cycle sequence=4 source=storage status=received atMs=2900 waitForMilestone=card_dismissed waitMs=300 waitTimeoutMs=1200 helperVersion=1.1.0',
-          '2026-01-01T00:00:03.200Z public-android [profile-session] kind=command scenario=open-close-cycle runId=android-storage-open-close command=activate-target:close-card commandId=close-card queueId=open-close-cycle sequence=4 source=storage status=completed result=cadence-settled continuationReason=readiness-released-before-settle-complete atMs=3200 minimumSettleMs=300 plannedSettleMs=300 maxReadinessWaitMs=1200 readinessWaitMs=270 actualWaitMs=300 settleOverlapSavedMs=270 timeoutAvoided=true waitForMilestone=card_dismissed waitMs=300 waitTimeoutMs=1200 helperVersion=1.1.0',
-          '2026-01-01T00:00:04.020Z public-android [profile-session] kind=command scenario=open-close-cycle runId=android-storage-open-close command=activate-target:example-card-1 commandId=open-card queueId=open-close-cycle sequence=5 source=storage status=received atMs=4020 waitForMilestone=card_opened waitMs=300 waitTimeoutMs=1500 helperVersion=1.1.0',
-          '2026-01-01T00:00:04.480Z public-android [profile-session] kind=command scenario=open-close-cycle runId=android-storage-open-close command=activate-target:example-card-1 commandId=open-card queueId=open-close-cycle sequence=5 source=storage status=completed result=cadence-settled continuationReason=readiness-and-settle-satisfied atMs=4480 minimumSettleMs=300 plannedSettleMs=300 maxReadinessWaitMs=1500 readinessWaitMs=460 actualWaitMs=460 settleOverlapSavedMs=300 timeoutAvoided=true waitForMilestone=card_opened waitMs=300 waitTimeoutMs=1500 helperVersion=1.1.0',
-          '2026-01-01T00:00:04.900Z public-android [profile-session] kind=command scenario=open-close-cycle runId=android-storage-open-close command=activate-target:close-card commandId=close-card queueId=open-close-cycle sequence=6 source=storage status=received atMs=4900 waitForMilestone=card_dismissed waitMs=300 waitTimeoutMs=1200 helperVersion=1.1.0',
-          '2026-01-01T00:00:05.230Z public-android [profile-session] kind=command scenario=open-close-cycle runId=android-storage-open-close command=activate-target:close-card commandId=close-card queueId=open-close-cycle sequence=6 source=storage status=completed result=cadence-settled continuationReason=readiness-and-settle-satisfied atMs=5230 minimumSettleMs=300 plannedSettleMs=300 maxReadinessWaitMs=1200 readinessWaitMs=330 actualWaitMs=330 settleOverlapSavedMs=300 timeoutAvoided=true waitForMilestone=card_dismissed waitMs=300 waitTimeoutMs=1200 helperVersion=1.1.0',
+          `2026-01-01T00:00:00.000Z public-android [profile-session] kind=start scenario=open-close-cycle runId=android-storage-open-close startedAt=1800000000000 timestamp=1800000000000 atMs=0 helperVersion=1.1.0 ${helperPayloadLogFields}`,
+          `2026-01-01T00:00:00.050Z public-android [profile-session] kind=command scenario=open-close-cycle runId=android-storage-open-close command=activate-target:example-card-1 commandId=open-card queueId=open-close-cycle sequence=1 source=storage status=received atMs=50 waitForMilestone=card_opened waitMs=300 waitTimeoutMs=1500 helperVersion=1.1.0 ${helperPayloadLogFields}`,
+          `2026-01-01T00:00:00.420Z public-android [profile-session] kind=command scenario=open-close-cycle runId=android-storage-open-close command=activate-target:example-card-1 commandId=open-card queueId=open-close-cycle sequence=1 source=storage status=completed result=cadence-settled continuationReason=readiness-and-settle-satisfied atMs=420 minimumSettleMs=300 plannedSettleMs=300 maxReadinessWaitMs=1500 readinessWaitMs=370 actualWaitMs=370 settleOverlapSavedMs=300 timeoutAvoided=true waitForMilestone=card_opened waitMs=300 waitTimeoutMs=1500 helperVersion=1.1.0 ${helperPayloadLogFields}`,
+          `2026-01-01T00:00:00.820Z public-android [profile-session] kind=command scenario=open-close-cycle runId=android-storage-open-close command=activate-target:close-card commandId=close-card queueId=open-close-cycle sequence=2 source=storage status=received atMs=820 waitForMilestone=card_dismissed waitMs=300 waitTimeoutMs=1200 helperVersion=1.1.0 ${helperPayloadLogFields}`,
+          `2026-01-01T00:00:01.120Z public-android [profile-session] kind=command scenario=open-close-cycle runId=android-storage-open-close command=activate-target:close-card commandId=close-card queueId=open-close-cycle sequence=2 source=storage status=completed result=cadence-settled continuationReason=readiness-and-settle-satisfied atMs=1120 minimumSettleMs=300 plannedSettleMs=300 maxReadinessWaitMs=1200 readinessWaitMs=300 actualWaitMs=300 settleOverlapSavedMs=300 timeoutAvoided=true waitForMilestone=card_dismissed waitMs=300 waitTimeoutMs=1200 helperVersion=1.1.0 ${helperPayloadLogFields}`,
+          `2026-01-01T00:00:02.020Z public-android [profile-session] kind=command scenario=open-close-cycle runId=android-storage-open-close command=activate-target:example-card-1 commandId=open-card queueId=open-close-cycle sequence=3 source=storage status=received atMs=2020 waitForMilestone=card_opened waitMs=300 waitTimeoutMs=1500 helperVersion=1.1.0 ${helperPayloadLogFields}`,
+          `2026-01-01T00:00:02.450Z public-android [profile-session] kind=command scenario=open-close-cycle runId=android-storage-open-close command=activate-target:example-card-1 commandId=open-card queueId=open-close-cycle sequence=3 source=storage status=completed result=cadence-settled continuationReason=readiness-and-settle-satisfied atMs=2450 minimumSettleMs=300 plannedSettleMs=300 maxReadinessWaitMs=1500 readinessWaitMs=430 actualWaitMs=430 settleOverlapSavedMs=300 timeoutAvoided=true waitForMilestone=card_opened waitMs=300 waitTimeoutMs=1500 helperVersion=1.1.0 ${helperPayloadLogFields}`,
+          `2026-01-01T00:00:02.900Z public-android [profile-session] kind=command scenario=open-close-cycle runId=android-storage-open-close command=activate-target:close-card commandId=close-card queueId=open-close-cycle sequence=4 source=storage status=received atMs=2900 waitForMilestone=card_dismissed waitMs=300 waitTimeoutMs=1200 helperVersion=1.1.0 ${helperPayloadLogFields}`,
+          `2026-01-01T00:00:03.200Z public-android [profile-session] kind=command scenario=open-close-cycle runId=android-storage-open-close command=activate-target:close-card commandId=close-card queueId=open-close-cycle sequence=4 source=storage status=completed result=cadence-settled continuationReason=readiness-released-before-settle-complete atMs=3200 minimumSettleMs=300 plannedSettleMs=300 maxReadinessWaitMs=1200 readinessWaitMs=270 actualWaitMs=300 settleOverlapSavedMs=270 timeoutAvoided=true waitForMilestone=card_dismissed waitMs=300 waitTimeoutMs=1200 helperVersion=1.1.0 ${helperPayloadLogFields}`,
+          `2026-01-01T00:00:04.020Z public-android [profile-session] kind=command scenario=open-close-cycle runId=android-storage-open-close command=activate-target:example-card-1 commandId=open-card queueId=open-close-cycle sequence=5 source=storage status=received atMs=4020 waitForMilestone=card_opened waitMs=300 waitTimeoutMs=1500 helperVersion=1.1.0 ${helperPayloadLogFields}`,
+          `2026-01-01T00:00:04.480Z public-android [profile-session] kind=command scenario=open-close-cycle runId=android-storage-open-close command=activate-target:example-card-1 commandId=open-card queueId=open-close-cycle sequence=5 source=storage status=completed result=cadence-settled continuationReason=readiness-and-settle-satisfied atMs=4480 minimumSettleMs=300 plannedSettleMs=300 maxReadinessWaitMs=1500 readinessWaitMs=460 actualWaitMs=460 settleOverlapSavedMs=300 timeoutAvoided=true waitForMilestone=card_opened waitMs=300 waitTimeoutMs=1500 helperVersion=1.1.0 ${helperPayloadLogFields}`,
+          `2026-01-01T00:00:04.900Z public-android [profile-session] kind=command scenario=open-close-cycle runId=android-storage-open-close command=activate-target:close-card commandId=close-card queueId=open-close-cycle sequence=6 source=storage status=received atMs=4900 waitForMilestone=card_dismissed waitMs=300 waitTimeoutMs=1200 helperVersion=1.1.0 ${helperPayloadLogFields}`,
+          `2026-01-01T00:00:05.230Z public-android [profile-session] kind=command scenario=open-close-cycle runId=android-storage-open-close command=activate-target:close-card commandId=close-card queueId=open-close-cycle sequence=6 source=storage status=completed result=cadence-settled continuationReason=readiness-and-settle-satisfied atMs=5230 minimumSettleMs=300 plannedSettleMs=300 maxReadinessWaitMs=1200 readinessWaitMs=330 actualWaitMs=330 settleOverlapSavedMs=300 timeoutAvoided=true waitForMilestone=card_dismissed waitMs=300 waitTimeoutMs=1200 helperVersion=1.1.0 ${helperPayloadLogFields}`,
           fs
             .readFileSync(fixturePath('examples/mobile-app/event-logs/android-open-close-cycle.log'), 'utf8')
             .replace(/android-example-open-close/gu, 'android-storage-open-close'),
@@ -6754,6 +6755,64 @@ test('profile-android runs readiness setup commands once before repeated cycle c
     { command: 'scroll-by:600', commandId: 'scroll-surface', dependsOnMilestones: ['surface_ready'], label: 'scroll-surface', queueId: 'ready-scroll-cycle', sequence: 2, waitForMilestone: 'surface_settled', waitMs: 0, waitTimeoutMs: 8000 },
     { command: 'scroll-by:600', commandId: 'scroll-surface', dependsOnMilestones: ['surface_ready'], label: 'scroll-surface', queueId: 'ready-scroll-cycle', sequence: 3, waitForMilestone: 'surface_settled', waitMs: 0, waitTimeoutMs: 8000 },
     { command: 'scroll-by:600', commandId: 'scroll-surface', dependsOnMilestones: ['surface_ready'], label: 'scroll-surface', queueId: 'ready-scroll-cycle', sequence: 4, waitForMilestone: 'surface_settled', waitMs: 0, waitTimeoutMs: 8000 },
+  ]);
+});
+
+test('profile-android marks explicit setup readiness waits as unscoped milestones', () => {
+  const scenario = {
+    id: 'comments-sheet-stress',
+    defaultIterations: 2,
+    cycles: {
+      setupStepIds: ['reset-home-surface', 'wait-for-app-usable'],
+    },
+    milestones: [
+      { id: 'appReady', event: 'app_first_usable_screen', phase: 'visual' },
+      { id: 'sheetOpened', event: 'comments_sheet_opened', phase: 'visual' },
+    ],
+    steps: [
+      { id: 'reset-home-surface', kind: 'command', command: 'reset-home-surface' },
+      { id: 'wait-for-app-usable', kind: 'waitForMilestone', milestone: 'appReady', timeoutMs: 30000 },
+      { id: 'open-comments-sheet', kind: 'command', command: 'comments:open-sheet' },
+      { id: 'wait-for-sheet-opened', kind: 'waitForMilestone', milestone: 'sheetOpened', timeoutMs: 10000 },
+    ],
+  };
+
+  assert.deepEqual(resolveAndroidAdbProfileCommands(scenario), [
+    {
+      command: 'reset-home-surface',
+      commandId: 'reset-home-surface',
+      label: 'reset-home-surface',
+      queueId: 'comments-sheet-stress',
+      sequence: 1,
+      unscopedMilestones: ['app_first_usable_screen'],
+      waitForMilestone: 'app_first_usable_screen',
+      waitMs: 0,
+      waitTimeoutMs: 30000,
+    },
+    {
+      command: 'comments:open-sheet',
+      commandId: 'open-comments-sheet',
+      dependsOnMilestones: ['app_first_usable_screen'],
+      label: 'open-comments-sheet',
+      queueId: 'comments-sheet-stress',
+      sequence: 2,
+      unscopedMilestones: ['app_first_usable_screen'],
+      waitForMilestone: 'comments_sheet_opened',
+      waitMs: 0,
+      waitTimeoutMs: 10000,
+    },
+    {
+      command: 'comments:open-sheet',
+      commandId: 'open-comments-sheet',
+      dependsOnMilestones: ['app_first_usable_screen'],
+      label: 'open-comments-sheet',
+      queueId: 'comments-sheet-stress',
+      sequence: 3,
+      unscopedMilestones: ['app_first_usable_screen'],
+      waitForMilestone: 'comments_sheet_opened',
+      waitMs: 0,
+      waitTimeoutMs: 10000,
+    },
   ]);
 });
 

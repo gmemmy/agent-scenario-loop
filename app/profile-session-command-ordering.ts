@@ -8,6 +8,7 @@ export type ProfileSessionOrderedCommand = {
   sequence?: number;
   stopOnFailure?: boolean;
   timestamp: number;
+  unscopedMilestones?: string[];
   waitForMilestone?: string;
   waitMs?: number;
   waitTimeoutMs?: number;
@@ -31,6 +32,7 @@ export type ProfileCommandMilestoneGate = {
   scenario?: string;
   sequence?: number;
   stopOnFailure?: boolean;
+  unscopedMilestones?: string[];
   waitMs?: number;
   waitTimeoutMs?: number;
 };
@@ -45,6 +47,7 @@ export type ProfileCommandDependencyGate = {
   scenario?: string;
   sequence?: number;
   stopOnFailure?: boolean;
+  unscopedMilestones?: string[];
   waitTimeoutMs: number;
 };
 
@@ -187,6 +190,9 @@ export function buildProfileCommandMilestoneGate(
     ...(typeof command.scenario === 'string' ? { scenario: command.scenario } : {}),
     ...(typeof command.sequence === 'number' ? { sequence: command.sequence } : {}),
     ...(typeof command.stopOnFailure === 'boolean' ? { stopOnFailure: command.stopOnFailure } : {}),
+    ...(Array.isArray(command.unscopedMilestones) && command.unscopedMilestones.length > 0
+      ? { unscopedMilestones: readProfileCommandUnscopedMilestones(command) }
+      : {}),
     ...(typeof command.waitMs === 'number' && command.waitMs > 0 ? { waitMs: command.waitMs } : {}),
     waitTimeoutMs: resolveProfileCommandWaitTimeoutMs(command.waitTimeoutMs),
   };
@@ -370,16 +376,49 @@ function optionalQueueIdentityMatches(expected: string | undefined, actual: stri
   return expected === actual;
 }
 
+function readProfileCommandUnscopedMilestones(
+  command: Pick<ProfileSessionOrderedCommand, 'unscopedMilestones'>,
+): string[] {
+  if (!Array.isArray(command.unscopedMilestones)) {
+    return [];
+  }
+
+  return command.unscopedMilestones.filter((milestone) => (
+    typeof milestone === 'string' && milestone.length > 0
+  ));
+}
+
+function isQueueLessEvent(eventPayload: ProfileSessionObservedEvent): boolean {
+  return typeof eventPayload.queueId !== 'string' && typeof eventPayload.sequence !== 'number';
+}
+
+function doesProfileEventMatchUnscopedCommandMilestone(
+  command: Pick<ProfileSessionOrderedCommand, 'unscopedMilestones'>,
+  eventPayload: ProfileSessionObservedEvent,
+): boolean {
+  return isQueueLessEvent(eventPayload) &&
+    readProfileCommandUnscopedMilestones(command).includes(eventPayload.event);
+}
+
 function doesProfileEventMatchCommandScope(
   command: ProfileCommandMilestoneGate | ProfileSessionOrderedCommand,
   eventPayload: ProfileSessionObservedEvent,
 ): boolean {
-  return (
-    optionalStringScopeMatches(command.runId, eventPayload.runId) &&
-    optionalStringScopeMatches(command.scenario, eventPayload.scenario) &&
+  if (
+    !optionalStringScopeMatches(command.runId, eventPayload.runId) ||
+    !optionalStringScopeMatches(command.scenario, eventPayload.scenario)
+  ) {
+    return false;
+  }
+
+  if (
     optionalStringScopeMatches(command.queueId, eventPayload.queueId) &&
     optionalNumberScopeMatches(command.sequence, eventPayload.sequence)
-  );
+  ) {
+    return true;
+  }
+
+  return doesProfileEventMatchUnscopedCommandMilestone(command, eventPayload);
 }
 
 export function doesProfileEventReleaseCommandGate(
@@ -463,6 +502,9 @@ export function buildProfileCommandDependencyGate(
     ...(typeof command.scenario === 'string' ? { scenario: command.scenario } : {}),
     ...(typeof command.sequence === 'number' ? { sequence: command.sequence } : {}),
     ...(typeof command.stopOnFailure === 'boolean' ? { stopOnFailure: command.stopOnFailure } : {}),
+    ...(Array.isArray(command.unscopedMilestones) && command.unscopedMilestones.length > 0
+      ? { unscopedMilestones: readProfileCommandUnscopedMilestones(command) }
+      : {}),
     waitTimeoutMs: resolveProfileCommandWaitTimeoutMs(command.waitTimeoutMs),
   };
 }
@@ -495,7 +537,10 @@ function doesProfileEventMatchCommandDependency(
   return (
     optionalStringScopeMatches(command.runId, eventPayload.runId) &&
     optionalStringScopeMatches(command.scenario, eventPayload.scenario) &&
-    optionalQueueIdentityMatches(command.queueId, eventPayload.queueId)
+    (
+      optionalQueueIdentityMatches(command.queueId, eventPayload.queueId) ||
+      doesProfileEventMatchUnscopedCommandMilestone(command, eventPayload)
+    )
   );
 }
 

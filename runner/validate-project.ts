@@ -188,6 +188,8 @@ const COVERAGE_ROLE_ORDER = [
 
 const REQUIRED_APP_HELPER_EXPORTS = [
   'emitProfileEvent',
+  'PROFILE_SESSION_HELPER_PAYLOAD_ID',
+  'PROFILE_SESSION_HELPER_PAYLOAD_SHA256',
   'PROFILE_SESSION_STORAGE_KEYS',
   'registerProfileCommandTargetHandler',
   'useProfileSessionBootstrap',

@@ -31,7 +31,7 @@ After filling in app identifiers, validate the whole initialized project before 
 asl-validate-project --root . --platform all --out artifacts/asl/project-validation
 ```
 
-Project validation checks the app-side profile-session helper, package-script snippets, app `package.json` script merge and drift, project config required fields, declared `drivers.supported` entries for fixture, adb, simctl, agent-device, and Argent lanes, scenario manifests, runner manifests, provider manifests, local provider-command script references, and planner compatibility. The helper check requires the control/truth exports plus `PROFILE_SESSION_STORAGE_KEYS`, so storage-backed Android and iOS runners can detect stale helper wiring before runtime proof. Validation also classifies declared drivers into package-supported lanes, known external target contracts such as XcodeBuildMCP, and custom driver names, so agents can distinguish bundled ASL execution paths from adapter targets that must be supplied by the host project. Missing live app identifiers such as `app.profileSessionScheme`, `app.iosBundleId`, or `app.androidPackage` are errors for the selected platform, as are missing artifact roots and missing scenario-root declarations for the selected platform. Placeholder app identity values are reported as warnings so a fresh scaffold can still prove installability while real app setup remains visible before live proof. The JSON artifact also includes structured `nextActions` for agents.
+Project validation checks the app-side profile-session helper, package-script snippets, app `package.json` script merge and drift, project config required fields, declared `drivers.supported` entries for fixture, adb, simctl, agent-device, and Argent lanes, scenario manifests, runner manifests, provider manifests, local provider-command script references, and planner compatibility. The helper check requires the control/truth exports plus `PROFILE_SESSION_STORAGE_KEYS` and helper payload identity exports, so storage-backed Android and iOS runners can detect stale helper wiring before runtime proof. Validation also classifies declared drivers into package-supported lanes, known external target contracts such as XcodeBuildMCP, and custom driver names, so agents can distinguish bundled ASL execution paths from adapter targets that must be supplied by the host project. Missing live app identifiers such as `app.profileSessionScheme`, `app.iosBundleId`, or `app.androidPackage` are errors for the selected platform, as are missing artifact roots and missing scenario-root declarations for the selected platform. Placeholder app identity values are reported as warnings so a fresh scaffold can still prove installability while real app setup remains visible before live proof. The JSON artifact also includes structured `nextActions` for agents.
 
 Project validation also checks whether `.gitignore` includes the generated `asl/gitignore-snippet` patterns for runtime artifacts, local runner config, traces, and local proof captures. Missing patterns are warnings with an `ignore_runtime_artifacts` next action; they do not block setup, but they should be fixed before running live scenarios repeatedly.
 
@@ -291,11 +291,14 @@ add a fixed post-readiness sleep. A timer alone is not proof that the product is
 stable: scenarios that require stability must name an app-owned stable-readiness
 milestone.
 
-When a queued profile command declares `queueId` and `sequence`, every truth
-event used to release that command must echo those correlation values. Target
-handlers receive the full command envelope so apps can attach `commandId`,
-`queueId`, and `sequence` to the resulting app-owned milestone. Missing
-correlation does not release a scoped gate.
+When a queued profile command declares `queueId` and `sequence`, command-result
+truth events used to release that command must echo those correlation values.
+Target handlers receive the full command envelope so apps can attach
+`commandId`, `queueId`, and `sequence` to the resulting app-owned milestone.
+Setup readiness is the one sanctioned queue-less path: a `waitForMilestone`
+step listed in `cycles.setupStepIds` is sent as `unscopedMilestones`, and it can
+release from a same-scenario, same-run truth event only when that event has no
+`queueId` or `sequence`. Events from another queue do not release the gate.
 
 Profile-session command acknowledgements record the resolved minimum settle,
 maximum readiness wait, readiness wait, actual wait at continuation, overlap

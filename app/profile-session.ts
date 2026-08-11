@@ -59,6 +59,7 @@ export type ProfileSessionCommand = {
   stopOnFailure?: boolean;
   source?: 'deeplink' | 'storage';
   timestamp: number;
+  unscopedMilestones?: string[];
   waitForMilestone?: string;
   waitMs?: number;
   waitTimeoutMs?: number;
@@ -108,6 +109,8 @@ type StoredProfileSessionEntry = {
   runId: string;
   timestamp: number;
   helperVersion?: string;
+  helperPayloadId?: string;
+  helperPayloadSha256?: string;
   atMs?: number;
   startedAt?: number;
   stoppedAt?: number;
@@ -122,6 +125,7 @@ type StoredProfileSessionEntry = {
   source?: 'deeplink' | 'storage';
   status?: 'received' | 'queued' | 'delivered' | 'completed' | 'skipped';
   stopOnFailure?: boolean;
+  unscopedMilestones?: string[];
   continuationReason?: string;
   missingDependencies?: string[];
   waitForMilestone?: string;
@@ -204,6 +208,8 @@ function isStoredProfileSessionEntry(
 }
 
 export const PROFILE_SESSION_HELPER_VERSION = '1.1.0';
+export const PROFILE_SESSION_HELPER_PAYLOAD_ID = 'agent-scenario-loop/profile-session-helper@1.1.0+setup-unscoped-milestones';
+export const PROFILE_SESSION_HELPER_PAYLOAD_SHA256 = 'b7421a84e8e39346702af2e7017a99ba492ced00de47446780e42a93146db275';
 const PROFILE_SESSION_DEFAULT_STOP_ON_FAILURE = true;
 
 const INITIAL_STATE: ProfileSessionState = {
@@ -343,6 +349,8 @@ function handleProfileStorageFailure() {
     reason: 'profile-storage-write-failed',
     stoppedAt: Date.now(),
     helperVersion: PROFILE_SESSION_HELPER_VERSION,
+    helperPayloadId: PROFILE_SESSION_HELPER_PAYLOAD_ID,
+    helperPayloadSha256: PROFILE_SESSION_HELPER_PAYLOAD_SHA256,
   }));
 }
 
@@ -564,6 +572,8 @@ function logProfileSession(kind: 'start' | 'stop' | 'command', payload: Record<s
     kind,
     ...payload,
     helperVersion: PROFILE_SESSION_HELPER_VERSION,
+    helperPayloadId: PROFILE_SESSION_HELPER_PAYLOAD_ID,
+    helperPayloadSha256: PROFILE_SESSION_HELPER_PAYLOAD_SHA256,
     timestamp,
     ...(atMs !== undefined ? { atMs } : {}),
   };
@@ -581,6 +591,8 @@ function logProfileSession(kind: 'start' | 'stop' | 'command', payload: Record<s
     runId,
     timestamp,
     helperVersion: PROFILE_SESSION_HELPER_VERSION,
+    helperPayloadId: PROFILE_SESSION_HELPER_PAYLOAD_ID,
+    helperPayloadSha256: PROFILE_SESSION_HELPER_PAYLOAD_SHA256,
     ...(atMs !== undefined ? { atMs } : {}),
   };
 
@@ -610,6 +622,14 @@ function logProfileSession(kind: 'start' | 'stop' | 'command', payload: Record<s
       ));
       if (dependsOnMilestones.length > 0) {
         entry.dependsOnMilestones = dependsOnMilestones;
+      }
+    }
+    if (Array.isArray(payload.unscopedMilestones)) {
+      const unscopedMilestones = payload.unscopedMilestones.filter((milestone) => (
+        typeof milestone === 'string' && milestone.length > 0
+      ));
+      if (unscopedMilestones.length > 0) {
+        entry.unscopedMilestones = unscopedMilestones;
       }
     }
     if (typeof payload.queueId === 'string') {
@@ -704,6 +724,7 @@ function getProfileSessionRoute(url: string): {
   queueId?: string;
   sequence?: number;
   stopOnFailure?: boolean;
+  unscopedMilestones?: string[];
   waitForMilestone?: string;
   waitMs?: number;
   waitTimeoutMs?: number;
@@ -748,13 +769,8 @@ function getProfileSessionRoute(url: string): {
     typeof parsed.queryParams?.waitMs === 'string' && Number.isInteger(Number(parsed.queryParams.waitMs))
       ? Number(parsed.queryParams.waitMs)
       : undefined;
-  const dependsOnMilestones = (
-    Array.isArray(parsed.queryParams?.dependsOnMilestones)
-      ? parsed.queryParams.dependsOnMilestones
-      : (typeof parsed.queryParams?.dependsOnMilestones === 'string'
-          ? parsed.queryParams.dependsOnMilestones.split(',')
-          : [])
-  ).filter((milestone): milestone is string => typeof milestone === 'string' && milestone.length > 0);
+  const dependsOnMilestones = readProfileSessionQueryList(parsed.queryParams?.dependsOnMilestones);
+  const unscopedMilestones = readProfileSessionQueryList(parsed.queryParams?.unscopedMilestones);
   const stopOnFailure =
     parsed.queryParams?.stopOnFailure === 'true'
       ? true
@@ -773,10 +789,19 @@ function getProfileSessionRoute(url: string): {
     queueId,
     sequence,
     stopOnFailure,
+    ...(unscopedMilestones.length > 0 ? { unscopedMilestones } : {}),
     waitForMilestone,
     waitMs,
     waitTimeoutMs,
   };
+}
+
+function readProfileSessionQueryList(value: unknown): string[] {
+  return (
+    Array.isArray(value)
+      ? value.flatMap((entry) => (typeof entry === 'string' ? entry.split(',') : []))
+      : (typeof value === 'string' ? value.split(',') : [])
+  ).filter((entry): entry is string => typeof entry === 'string' && entry.length > 0);
 }
 
 function persistPendingProfileCommands() {
@@ -1565,6 +1590,9 @@ export function applyProfileSessionUrl(url: string | null | undefined): boolean 
       stopOnFailure: resolveProfileCommandStopOnFailure(route.stopOnFailure),
       source: 'deeplink' as const,
       timestamp,
+      ...(Array.isArray(route.unscopedMilestones) && route.unscopedMilestones.length > 0
+        ? { unscopedMilestones: route.unscopedMilestones }
+        : {}),
       ...(route.waitForMilestone ? { waitForMilestone: route.waitForMilestone } : {}),
       ...(typeof route.waitMs === 'number' ? { waitMs: route.waitMs } : {}),
       ...(typeof route.waitTimeoutMs === 'number' ? { waitTimeoutMs: route.waitTimeoutMs } : {}),
@@ -1605,6 +1633,8 @@ export function emitProfileEvent(event: string, metadata?: ProfileEventMetadata)
     ...(atMs !== undefined ? { atMs } : {}),
     ...(metadata ?? {}),
     helperVersion: PROFILE_SESSION_HELPER_VERSION,
+    helperPayloadId: PROFILE_SESSION_HELPER_PAYLOAD_ID,
+    helperPayloadSha256: PROFILE_SESSION_HELPER_PAYLOAD_SHA256,
   };
 
   writeProfileLog(buildLogLine('profile-event', eventPayload));

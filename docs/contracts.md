@@ -92,7 +92,7 @@ the profile `scenarioHash` because it is part of the declared scenario contract.
 Health, verdict, budget, command delivery, and comparison logic do not interpret
 coverage fields.
 
-For repeated mobile command scenarios, `cycles.setupStepIds` names leading setup commands that run once before measured cycle work, while `cycles.bodyStepIds` names the first repeated body commands when inference would be ambiguous. Built-in profile-session runners also infer a setup prefix conservatively: leading readiness commands or leading commands before the first measured milestone command run once, and the remaining command body repeats for `cycles.iterations`. Wait gates remain strict; ASL does not synthesize missing app-owned truth events. When app truth events include command correlation such as `queueId` and `sequence`, the profile-session helper uses that correlation before releasing a waiting command gate.
+For repeated mobile command scenarios, `cycles.setupStepIds` names leading setup commands that run once before measured cycle work, while `cycles.bodyStepIds` names the first repeated body commands when inference would be ambiguous. Built-in profile-session runners also infer a setup prefix conservatively: leading readiness commands or leading commands before the first measured milestone command run once, and the remaining command body repeats for `cycles.iterations`. Wait gates remain strict; ASL does not synthesize missing app-owned truth events. When app truth events include command correlation such as `queueId` and `sequence`, the profile-session helper uses that correlation before releasing a waiting command gate. A wait milestone declared by an explicit `cycles.setupStepIds` wait step is carried in the command envelope as `unscopedMilestones`; it may release from a queue-less truth event only when `scenario` and `runId` still match. A truth event with a different queue or sequence never releases that setup gate, and command-result milestones still require their command correlation.
 `cycles.stopOnFailure` is fail-fast by default: when a milestone wait times out,
 the timed-out command is skipped and remaining queued commands are skipped with
 reason `prior-command-failure` within that command's exact scenario, run, and
@@ -308,14 +308,21 @@ When a provider command fails after writing some declared outputs, ASL keeps the
 
 Profile runs that ingest adb or simctl sidecar artifacts verify runtime identity when the profile command supplies an expected package, bundle, serial, or concrete simulator UDID, or when project config supplies a non-placeholder app id. A proven sidecar package, bundle, or target mismatch fails health with `runtime_identity_mismatch` before timing evidence is trusted. If the selected sidecar lacks metadata that can prove identity, health fails with `runtime_identity_unverified` instead of letting agents optimize from a run whose app or target cannot be proven.
 
-Profile-session helper evidence also carries `helperVersion`. The cadence state,
-fail-fast queue policy, and observed settle telemetry require helper version
-`1.1.0`; the runner expects that exact helper contract. When profile events or
-session entries prove a helper version that does not match, profile health fails
-with `profile_session_helper_version_mismatch` so agents do not optimize from a
-stale app helper. Evidence that lacks the field fails health with
-`profile_session_helper_version_missing`; cadence and truth evidence are not
-accepted from an unverifiable helper contract.
+Profile-session helper evidence carries `helperVersion` and, for command-bearing
+session evidence, helper payload identity fields. The cadence state, fail-fast
+queue policy, and observed settle telemetry require helper version `1.1.0` plus
+the expected payload id/hash for the command behavior the runner released. When
+profile events or session entries prove a missing or mismatched helper version,
+profile health fails with `profile_session_helper_version_missing` or
+`profile_session_helper_version_mismatch`. When command-bearing session evidence
+proves a same-version stale payload id/hash, profile health fails with
+`profile_session_helper_identity_mismatch` so agents do not optimize from stale
+app-helper behavior that merely shares the same version string. Command-bearing
+session evidence that lacks helper payload identity fails health with
+`profile_session_helper_identity_missing`; command, cadence, and truth evidence
+are not accepted from an unverifiable helper payload. The helper payload hash is
+a helper-emitted semantic contract digest, not a host-side byte attestation of
+the Metro bundle.
 
 The current profile runner writes health, verdict, agent summary, metrics, causal-run, and budget-verdict artifacts.
 

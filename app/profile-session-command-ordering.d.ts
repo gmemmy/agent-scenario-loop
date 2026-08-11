@@ -8,6 +8,7 @@ export type ProfileSessionOrderedCommand = {
   sequence?: number;
   stopOnFailure?: boolean;
   timestamp: number;
+  unscopedMilestones?: string[];
   waitForMilestone?: string;
   waitMs?: number;
   waitTimeoutMs?: number;
@@ -31,6 +32,7 @@ export type ProfileCommandMilestoneGate = {
   scenario?: string;
   sequence?: number;
   stopOnFailure?: boolean;
+  unscopedMilestones?: string[];
   waitMs?: number;
   waitTimeoutMs?: number;
 };
@@ -63,6 +65,20 @@ export type ProfileCommandCadenceOutcome =
 export type ProfileCommandPendingTransition<Command> = {
   command: Command | null;
   remainingCommands: Command[];
+};
+
+export type ProfileCommandDependencyGate = {
+  commandId?: string;
+  commandTimestamp: number;
+  id: string;
+  missingDependencies: string[];
+  queueId?: string;
+  runId?: string;
+  scenario?: string;
+  sequence?: number;
+  stopOnFailure?: boolean;
+  unscopedMilestones?: string[];
+  waitTimeoutMs: number;
 };
 
 export type ProfileCommandTimeoutQueueTransition<Command> = {

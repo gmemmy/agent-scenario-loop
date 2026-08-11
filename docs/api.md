@@ -100,6 +100,12 @@ For concrete runner and evidence-provider integration steps, see [Adapter Onboar
 
 `agent-scenario-loop/app/profile-session` is shipped as React Native source with a package-owned declaration file. Apps can copy `app/profile-session.ts` into their own codebase or re-export the package subpath from an app-local helper module. The `react-native` runtime condition points at `app/profile-session.ts` because the helper depends on app-side React Native modules, app bundling, and platform storage behavior; the `types` condition points at `app/profile-session.d.ts` so consumer TypeScript does not need to parse the implementation file from `node_modules`.
 
+The helper emits both `PROFILE_SESSION_HELPER_VERSION` and payload identity
+constants in app-owned profile evidence. Version equality alone is not a
+payload match: command-backed live proof requires the app bundle to emit the
+payload id/hash expected by the runner, otherwise ASL fails health before
+trusting command timing or milestone behavior.
+
 The intended integration is:
 
 1. Copy `app/profile-session.ts` into the app, or re-export `agent-scenario-loop/app/profile-session` from an app-local helper.

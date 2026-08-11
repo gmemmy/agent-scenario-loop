@@ -803,6 +803,8 @@ test('validates app profile-session helper exports', async (t: TestContext) => {
 
   assert.equal(helper.status, 'incomplete');
   assert.deepEqual(helper.missingExports, [
+    'PROFILE_SESSION_HELPER_PAYLOAD_ID',
+    'PROFILE_SESSION_HELPER_PAYLOAD_SHA256',
     'PROFILE_SESSION_STORAGE_KEYS',
     'registerProfileCommandTargetHandler',
     'useProfileSessionBootstrap',
@@ -821,6 +823,8 @@ test('validates app profile-session helper exports', async (t: TestContext) => {
   helper = validateAppHelper(targetDir);
   assert.equal(helper.status, 'incomplete');
   assert.deepEqual(helper.missingExports, [
+    'PROFILE_SESSION_HELPER_PAYLOAD_ID',
+    'PROFILE_SESSION_HELPER_PAYLOAD_SHA256',
     'PROFILE_SESSION_STORAGE_KEYS',
     'registerProfileCommandTargetHandler',
     'useProfileSessionBootstrap',
@@ -831,6 +835,8 @@ test('validates app profile-session helper exports', async (t: TestContext) => {
     [
       'export {',
       '  emitProfileEvent,',
+      '  PROFILE_SESSION_HELPER_PAYLOAD_ID,',
+      '  PROFILE_SESSION_HELPER_PAYLOAD_SHA256,',
       '  PROFILE_SESSION_STORAGE_KEYS,',
       '  registerProfileCommandTargetHandler,',
       '  useProfileSessionBootstrap,',

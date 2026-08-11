@@ -498,10 +498,14 @@ type ProfileSessionFreshness = {
   status: 'fresh' | 'missing-app-session' | 'stale';
 };
 type ProfileHelperVersionCheck = {
+  expectedPayloadId: string;
+  expectedPayloadSha256: string;
   expectedVersion: string;
+  observedPayloadIds: string[];
+  observedPayloadSha256s: string[];
   observedVersions: string[];
   reason: string;
-  status: 'matched' | 'missing' | 'mismatched';
+  status: 'matched' | 'payload-missing' | 'payload-mismatched' | 'version-missing' | 'version-mismatched';
 };
 type ExpectedRuntimeIdentityValue = {
   source: 'cli' | 'config';
@@ -527,6 +531,8 @@ const SIGNAL_EVIDENCE_KINDS = new Set(['js', 'memory', 'network']);
 const DEFAULT_PROVIDER_COMMAND_TIMEOUT_MS = 180_000;
 const PLACEHOLDER_APP_IDS = new Set(['com.example.app']);
 const EXPECTED_PROFILE_SESSION_HELPER_VERSION = '1.1.0';
+const EXPECTED_PROFILE_SESSION_HELPER_PAYLOAD_ID = 'agent-scenario-loop/profile-session-helper@1.1.0+setup-unscoped-milestones';
+const EXPECTED_PROFILE_SESSION_HELPER_PAYLOAD_SHA256 = 'b7421a84e8e39346702af2e7017a99ba492ced00de47446780e42a93146db275';
 
 /**
  * Prints CLI usage to stderr.
@@ -4179,9 +4185,10 @@ function profileHelperVersionHealthStatus(
   switch (status) {
     case 'matched':
       return 'passed';
-    case 'missing':
-      return 'failed';
-    case 'mismatched':
+    case 'version-missing':
+    case 'version-mismatched':
+    case 'payload-missing':
+    case 'payload-mismatched':
       return 'failed';
   }
 }
@@ -4196,10 +4203,14 @@ function profileHelperVersionHealthCode(status: ProfileHelperVersionCheck['statu
   switch (status) {
     case 'matched':
       return 'profile_session_helper_version_matched';
-    case 'missing':
+    case 'version-missing':
       return 'profile_session_helper_version_missing';
-    case 'mismatched':
+    case 'version-mismatched':
       return 'profile_session_helper_version_mismatch';
+    case 'payload-missing':
+      return 'profile_session_helper_identity_missing';
+    case 'payload-mismatched':
+      return 'profile_session_helper_identity_mismatch';
   }
 }
 
@@ -4219,14 +4230,24 @@ function profileHelperVersionNextAction(status: ProfileHelperVersionCheck['statu
         nextAction: 'No action required.',
         nextActionCode: 'none',
       };
-    case 'missing':
+    case 'version-missing':
       return {
         nextAction: 'Use an app-side profile-session helper that emits helperVersion in session entries and profile events so ASL can verify helper/package compatibility.',
         nextActionCode: 'emit_profile_session_helper_version',
       };
-    case 'mismatched':
+    case 'version-mismatched':
       return {
         nextAction: 'Update the app-side profile-session helper to the package version used by the runner, then rerun before trusting timing evidence.',
+        nextActionCode: 'update_profile_session_helper',
+      };
+    case 'payload-missing':
+      return {
+        nextAction: 'Use an app-side profile-session helper that emits helper payload identity in command-bearing session evidence so ASL can verify helper/package compatibility.',
+        nextActionCode: 'emit_profile_session_helper_identity',
+      };
+    case 'payload-mismatched':
+      return {
+        nextAction: 'Update or reinstall the app-side profile-session helper so its payload identity matches the package used by the runner, then rerun before trusting command evidence.',
         nextActionCode: 'update_profile_session_helper',
       };
   }
@@ -4257,7 +4278,13 @@ function buildProfileHelperVersionHealthChecks(
       code: healthCode,
       message: helperVersion.reason,
       metadata: {
+        expectedPayloadId: helperVersion.expectedPayloadId,
+        expectedPayloadSha256: helperVersion.expectedPayloadSha256,
         expectedVersion: helperVersion.expectedVersion,
+        observedPayloadIds: helperVersion.observedPayloadIds.join(','),
+        observedPayloadIdCount: helperVersion.observedPayloadIds.length,
+        observedPayloadSha256s: helperVersion.observedPayloadSha256s.join(','),
+        observedPayloadSha256Count: helperVersion.observedPayloadSha256s.length,
         observedVersions: helperVersion.observedVersions.join(','),
         observedVersionCount: helperVersion.observedVersions.length,
         nextAction: nextAction.nextAction,
@@ -5352,30 +5379,81 @@ function resolveProfileHelperVersionCheck({
 
   const evidenceRecords = [...events, ...sessionEntries];
   const recordVersions = evidenceRecords.map((record) => readTrimmedString(record.helperVersion));
+  const recordPayloadIds = evidenceRecords.map((record) => readTrimmedString(record.helperPayloadId));
+  const recordPayloadSha256s = evidenceRecords.map((record) => readTrimmedString(record.helperPayloadSha256));
   const observedVersions = uniqueStrings(recordVersions);
+  const observedPayloadIds = uniqueStrings(recordPayloadIds);
+  const observedPayloadSha256s = uniqueStrings(recordPayloadSha256s);
+  const baseResult = {
+    expectedPayloadId: EXPECTED_PROFILE_SESSION_HELPER_PAYLOAD_ID,
+    expectedPayloadSha256: EXPECTED_PROFILE_SESSION_HELPER_PAYLOAD_SHA256,
+    expectedVersion: EXPECTED_PROFILE_SESSION_HELPER_VERSION,
+    observedPayloadIds,
+    observedPayloadSha256s,
+    observedVersions,
+  };
+
   if (recordVersions.some((version) => !version)) {
     return {
-      expectedVersion: EXPECTED_PROFILE_SESSION_HELPER_VERSION,
-      observedVersions,
+      ...baseResult,
       reason: 'Profile evidence did not include app helper version metadata.',
-      status: 'missing',
+      status: 'version-missing',
     };
   }
 
   const mismatchedVersion = observedVersions.find((version) => version !== EXPECTED_PROFILE_SESSION_HELPER_VERSION);
   if (mismatchedVersion) {
     return {
-      expectedVersion: EXPECTED_PROFILE_SESSION_HELPER_VERSION,
-      observedVersions,
+      ...baseResult,
       reason: `Profile evidence was emitted by app helper version ${mismatchedVersion}, but this runner expects ${EXPECTED_PROFILE_SESSION_HELPER_VERSION}.`,
-      status: 'mismatched',
+      status: 'version-mismatched',
+    };
+  }
+
+  const commandSessionEntries = sessionEntries.filter((record) => (
+    readTrimmedString(record.kind) === 'command'
+  ));
+  const payloadIdentityRequired = commandSessionEntries.length > 0;
+  const mismatchedPayloadId = observedPayloadIds.find((payloadId) => (
+    payloadId !== EXPECTED_PROFILE_SESSION_HELPER_PAYLOAD_ID
+  ));
+  if (mismatchedPayloadId) {
+    return {
+      ...baseResult,
+      reason: `Profile evidence was emitted by app helper payload ${mismatchedPayloadId}, but this runner expects ${EXPECTED_PROFILE_SESSION_HELPER_PAYLOAD_ID}.`,
+      status: 'payload-mismatched',
+    };
+  }
+
+  const mismatchedPayloadSha256 = observedPayloadSha256s.find((sha256) => (
+    sha256 !== EXPECTED_PROFILE_SESSION_HELPER_PAYLOAD_SHA256
+  ));
+  if (mismatchedPayloadSha256) {
+    return {
+      ...baseResult,
+      reason: `Profile evidence was emitted by app helper payload hash ${mismatchedPayloadSha256}, but this runner expects ${EXPECTED_PROFILE_SESSION_HELPER_PAYLOAD_SHA256}.`,
+      status: 'payload-mismatched',
+    };
+  }
+
+  const commandPayloadIds = commandSessionEntries.map((record) => readTrimmedString(record.helperPayloadId));
+  const commandPayloadSha256s = commandSessionEntries.map((record) => readTrimmedString(record.helperPayloadSha256));
+  if (
+    payloadIdentityRequired &&
+    (commandPayloadIds.some((payloadId) => !payloadId) || commandPayloadSha256s.some((sha256) => !sha256))
+  ) {
+    return {
+      ...baseResult,
+      reason: 'Command-bearing profile-session evidence did not include app helper payload identity metadata.',
+      status: 'payload-missing',
     };
   }
 
   return {
-    expectedVersion: EXPECTED_PROFILE_SESSION_HELPER_VERSION,
-    observedVersions,
-    reason: 'Profile evidence helper version matched the runner contract.',
+    ...baseResult,
+    reason: payloadIdentityRequired
+      ? 'Profile evidence helper version and payload identity matched the runner contract.'
+      : 'Profile evidence helper version matched the runner contract.',
     status: 'matched',
   };
 }

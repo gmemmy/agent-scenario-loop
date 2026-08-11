@@ -31,6 +31,14 @@ test('profile-session helper keeps storage-backed command control safeguards', (
   assert.match(source, /const PROFILE_SESSION_ENTRIES_STORAGE_KEY = PROFILE_SESSION_STORAGE_KEY_VALUES\.sessionEntries;/u);
   assert.match(source, /export const PROFILE_SESSION_STORAGE_KEYS = Object\.freeze/u);
   assert.match(source, /export const PROFILE_SESSION_HELPER_VERSION = '1\.1\.0';/u);
+  assert.match(
+    source,
+    /export const PROFILE_SESSION_HELPER_PAYLOAD_ID = 'agent-scenario-loop\/profile-session-helper@1\.1\.0\+setup-unscoped-milestones';/u,
+  );
+  assert.match(
+    source,
+    /export const PROFILE_SESSION_HELPER_PAYLOAD_SHA256 = 'b7421a84e8e39346702af2e7017a99ba492ced00de47446780e42a93146db275';/u,
+  );
   assert.match(source, /const PROFILE_COMMAND_DUPLICATE_WINDOW_MS = 750;/u);
   assert.match(source, /reason: 'duplicate-command-window'/u);
   assert.match(source, /command\.queueId \?\? ''/u);
@@ -43,6 +51,7 @@ test('profile-session helper keeps storage-backed command control safeguards', (
   assert.match(source, /entry\.commandId = payload\.commandId;/u);
   assert.match(source, /else if \(typeof payload\.id === 'string'\)/u);
   assert.match(source, /entry\.dependsOnMilestones = dependsOnMilestones;/u);
+  assert.match(source, /entry\.unscopedMilestones = unscopedMilestones;/u);
   assert.match(source, /entry\.queueId = payload\.queueId;/u);
   assert.match(source, /entry\.sequence = payload\.sequence;/u);
   assert.match(source, /entry\.waitForMilestone = payload\.waitForMilestone;/u);
@@ -62,6 +71,8 @@ test('profile-session helper keeps storage-backed command control safeguards', (
   assert.match(source, /const atMs = resolveProfileSessionElapsedAtMs\(timestamp, payload\.atMs, sessionStartedAt\);/u);
   assert.match(source, /writeProfileLog\(buildLogLine\('profile-session', logPayload\)\);/u);
   assert.match(source, /helperVersion: PROFILE_SESSION_HELPER_VERSION/u);
+  assert.match(source, /helperPayloadId: PROFILE_SESSION_HELPER_PAYLOAD_ID/u);
+  assert.match(source, /helperPayloadSha256: PROFILE_SESSION_HELPER_PAYLOAD_SHA256/u);
   assert.match(source, /\.\.\.\(atMs !== undefined \? \{ atMs \} : \{\}\),/u);
   assert.match(source, /status: 'received'/u);
   assert.match(source, /status: 'queued'/u);
@@ -121,7 +132,16 @@ test('profile-session helper keeps storage-backed command control safeguards', (
   assert.match(source, /hasObservedProfileCommandMilestone\(\s+command,\s+profileSessionDependencyMilestoneFacts\.snapshot\(\),\s+\)/u);
   assert.match(source, /hasObservedDeliveredProfileCommandMilestone\(\s+command,\s+profileSessionDependencyMilestoneFacts\.snapshot\(\),\s+\)/u);
   assert.match(declarationSource, /export const PROFILE_SESSION_HELPER_VERSION: '1\.1\.0';/u);
+  assert.match(
+    declarationSource,
+    /export const PROFILE_SESSION_HELPER_PAYLOAD_ID: 'agent-scenario-loop\/profile-session-helper@1\.1\.0\+setup-unscoped-milestones';/u,
+  );
+  assert.match(
+    declarationSource,
+    /export const PROFILE_SESSION_HELPER_PAYLOAD_SHA256: 'b7421a84e8e39346702af2e7017a99ba492ced00de47446780e42a93146db275';/u,
+  );
   assert.match(declarationSource, /dependsOnMilestones\?: string\[\];/u);
+  assert.match(declarationSource, /unscopedMilestones\?: string\[\];/u);
   assert.match(declarationSource, /handler: \(command: ProfileSessionCommand\) => void/u);
   assert.match(source, /observedProfileEvents\.length = 0;/u);
   assert.match(source, /profileSessionDependencyMilestoneFacts\.reset\(\);/u);
