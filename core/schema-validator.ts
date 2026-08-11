@@ -98,6 +98,7 @@ const SCHEMAS = {
   nativeTargetBinding: loadSchema('native-target-binding.schema.json'),
   profiler: loadSchema('profiler.schema.json'),
   projectValidation: loadSchema('project-validation.schema.json'),
+  quickProof: loadSchema('quick-proof.schema.json'),
   scenario: loadSchema('scenario.schema.json'),
   runnerCapabilities: loadSchema('runner-capabilities.schema.json'),
   verdict: loadSchema('verdict.schema.json'),

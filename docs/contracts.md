@@ -18,6 +18,10 @@ See [Architecture](architecture.md) for the TypeScript-first implementation and 
 - [core/execution-plan.ts](../core/execution-plan.ts): scenario-step normalizer that maps portable steps to runner port methods before adapter execution
 - [core/planner.ts](../core/planner.ts): compatibility checks between scenario requirements, primary runner capabilities, and evidence providers
 - [core/ports.ts](../core/ports.ts): ports-and-adapters method surfaces for runners, drivers, providers, writers, and interpreters
+- [core/quick-proof.ts](../core/quick-proof.ts): bounded setup coordinator for
+  operation-specific capability discovery, scoped authorization and lease
+  propagation, one retry per adapter path, deterministic fallback before
+  product work, and setup-only friction evidence
 - [core/run-index.ts](../core/run-index.ts): read-only artifact root index for finding trusted prior runs
 - [core/schema-validator.ts](../core/schema-validator.ts): dependency-free validation for the JSON Schema subset used by the public contracts
 - [runner/profile-android.ts](../runner/profile-android.ts): Android profile runner that can ingest profile-event logs directly, read adb artifact folders, or own a bounded adb capture window before writing the full artifact set
@@ -326,7 +330,74 @@ the Metro bundle.
 
 The current profile runner writes health, verdict, agent summary, metrics, causal-run, and budget-verdict artifacts.
 
-Budgets are supported but optional for adoption.
+## Quick-proof setup contract
+
+`coordinateQuickProof()` is a runner-neutral setup boundary for small or
+time-sensitive proof work. It accepts explicit setup and total budgets plus a
+minimum product-budget ratio. Product work cannot begin after the setup deadline
+or when doing so would consume the reserved product share. Each adapter path can
+receive one initial attempt and one retry. Paths are considered in
+`trusted-automated`, `degraded-direct`, then `manual-assisted` order while
+preserving caller order inside each tier. Fallback is forbidden after any
+product action starts. Every phase is raced against the remaining deadline and
+receives an abort signal. The product adapter context requires the mutable
+boundary callback, and the adapter must await `beginProductAction()` immediately
+before its first product action;
+that successful boundary remains authoritative if
+the adapter subsequently throws or returns malformed output.
+
+Capabilities are matched by operation and required argument. Tool-wide support
+does not satisfy a missing operation argument. Read-only discovery may report an
+identity as `unresolved-until-observed`; preflight must resolve every required
+identity and prove any expected value before product execution. Authorization is
+a credential-free, expiring grant scoped to the goal, operations, optional
+target, and delegation chain. Required resources must be returned by the caller's
+lease port as an exact trusted match. The coordinator passes that grant and lease
+to the selected adapter but does not replace the durable resource lease contract.
+Authorization and lease identity/lifetime are revalidated immediately before
+the mutable boundary. Acquired leases are released during cleanup even when
+their trust validation fails. A lease port must synchronously call
+`registerAcquiredLease()` when it establishes ownership, before later async work,
+so a timed-out acquisition can still be released. Product execution that throws
+or returns malformed output before the boundary leaves product-start state
+unknown and blocks retry or fallback.
+
+`quick-proof.json` records phase accounting, adapter attempts, identity state,
+exact source/package identity, authorization and lease summaries, cleanup, time to first product action, proof
+tier, and the final coordination decision. `setup-only` means no product action
+started. It cannot contain a product result and must not be interpreted as
+scenario health, a product verdict, performance evidence, or release acceptance.
+The matching summary repeats that boundary. `product-executed` only records that
+mutation was confirmed, either with exact mutable-boundary timing or as failed
+`observed-late` evidence; normal scenario health and verdict artifacts remain
+authoritative for product interpretation.
+If an adapter reports mutation without passing `beginProductAction()`, the
+artifact fails product execution with `timingStatus: observed-late`; exact setup
+duration and time to first product action remain null rather than being inferred.
+This remains product-failed evidence when mutable-boundary authorization was
+revoked, and retains that denied authorization truth instead of rewriting the
+mutation as setup-only evidence. Public identifiers, requirements, adapter
+surfaces, and optional resources are validated before any adapter phase;
+malformed values are caller contract errors rather than setup evidence.
+If an adapter times out, throws, or returns malformed output before the mutable boundary
+and ASL cannot prove whether mutation occurred, the artifact is `inconclusive`
+with `product.started: "unknown"`, null setup timing, and no proof tier. That
+state blocks retry and fallback and must not be interpreted as setup-only or
+product-executed evidence.
+The same inconclusive rule applies when mutable-boundary validation passes but
+the adapter does not confirm `productActionStarted: true`: authorization and
+lease validation are not themselves mutation proof. Attempt-scoped
+`identityObservations` preserve discovery and preflight identity truth across
+retries and fallback while `identities` records the final selected attempt
+state.
+Each observation contains only identity evidence returned by that exact adapter
+phase after coordinator interpretation; it is not a snapshot copied from an
+earlier phase. Timed-out lease acquisition that does not settle during bounded
+cleanup fails cleanup closed while retaining an automatic release guard for any
+late registration.
+
+Scenario milestone budgets remain optional outside the quick-proof contract,
+whose setup and total budgets are required coordinator inputs.
 
 Milestone budget interval semantics are explicit:
 
