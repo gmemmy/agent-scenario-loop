@@ -57,6 +57,35 @@ function writeCurrentSessionEvents(dataContainer: string): void {
   fs.writeFileSync(manifestPath, JSON.stringify(manifest), 'utf8');
 }
 
+test('generic iOS live proof rejects reader-only scenarios before preflight or output creation', async (t: TestContext) => {
+  const tempRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-live-ios-reader-only-'));
+  t.after(async () => {
+    await fsp.rm(tempRoot, { recursive: true, force: true });
+  });
+  const scenarioPath = path.join(tempRoot, 'reader-only.json');
+  const outputDir = path.join(tempRoot, 'output');
+  await fsp.writeFile(scenarioPath, JSON.stringify({ schemaVersion: '1.1.0', id: 'reader-only' }), 'utf8');
+  const calls: string[] = [];
+
+  await assert.rejects(
+    () => runIosLiveProof({
+      bundle: BUNDLE_ID,
+      config: path.join(ROOT, 'examples', 'mobile-app', 'asl.config.json'),
+      device: DEVICE_ID,
+      out: outputDir,
+      scenario: scenarioPath,
+    }, {
+      executor: async (command: string, args: string[]): Promise<CommandResult> => {
+        calls.push(`${command} ${args.join(' ')}`);
+        return { command, args, exitCode: 0, stderr: '', stdout: '' };
+      },
+    }),
+    /Scenario schemaVersion 1\.1\.0 is reader-only/u,
+  );
+  assert.deepEqual(calls, []);
+  assert.equal(fs.existsSync(outputDir), false);
+});
+
 test('generic iOS live proof rejects scaffold bundle placeholders before device commands', async (t: TestContext) => {
   const tempRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-live-ios-placeholder-'));
   t.after(async () => {

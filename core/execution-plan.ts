@@ -1,4 +1,5 @@
 const { collectScenarioDriverActions } = require('./planner');
+const { assertScenarioExecutionContractSupported } = require('./claim-contract');
 
 type ScenarioManifest = import('./planner').ScenarioManifest;
 
@@ -227,6 +228,7 @@ function normalizeScenarioStep(
  * @returns {ScenarioExecutionPlan}
  */
 function buildScenarioExecutionPlan(scenario: ScenarioManifest): ScenarioExecutionPlan {
+  assertScenarioExecutionContractSupported(scenario);
   const scenarioCadence = scenario.cadence && typeof scenario.cadence === 'object' && !Array.isArray(scenario.cadence)
     ? scenario.cadence as Record<string, unknown>
     : undefined;

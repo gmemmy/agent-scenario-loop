@@ -4,11 +4,45 @@
   "title": "Agent Scenario Loop Verdict",
   "type": "object",
   "additionalProperties": false,
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "schemaVersion": { "const": "1.0.0" }
+        },
+        "required": ["schemaVersion"]
+      },
+      "then": {
+        "not": {
+          "required": ["claimResults"],
+          "description": "Legacy verdict schemaVersion 1.0.0 cannot contain claim-complete results."
+        }
+      },
+      "else": {
+        "required": ["claimResults"],
+        "properties": {
+          "verdictStatus": {
+            "type": "string",
+            "enum": ["passed", "failed", "inconclusive"]
+          },
+          "claimResults": {
+            "contains": {
+              "type": "object",
+              "properties": {
+                "role": { "const": "mandatory" }
+              },
+              "required": ["role"]
+            }
+          }
+        }
+      }
+    }
+  ],
   "required": ["schemaVersion", "scenarioId", "runId", "healthStatus", "verdictStatus"],
   "properties": {
     "schemaVersion": {
       "type": "string",
-      "pattern": "^1\\.0\\.0$"
+      "enum": ["1.0.0", "1.1.0"]
     },
     "scenarioId": {
       "type": "string"
@@ -33,6 +67,13 @@
         "$ref": "#/$defs/budgetCheck"
       }
     },
+    "claimResults": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/claimResult"
+      }
+    },
     "comparison": {
       "type": "object",
       "additionalProperties": false,
@@ -51,6 +92,211 @@
     }
   },
   "$defs": {
+    "claimResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "claimId",
+        "claimHash",
+        "role",
+        "status",
+        "reasonCode",
+        "assertionResults",
+        "evidenceReferences",
+        "missingProof",
+        "nextActionOwner",
+        "nextAction"
+      ],
+      "allOf": [
+        {
+          "if": {
+            "properties": { "status": { "const": "supported" } },
+            "required": ["status"]
+          },
+          "then": {
+            "properties": { "reasonCode": { "const": "all_assertions_supported" } }
+          }
+        },
+        {
+          "if": {
+            "properties": { "status": { "const": "rejected" } },
+            "required": ["status"]
+          },
+          "then": {
+            "properties": { "reasonCode": { "const": "authoritative_evidence_rejected" } }
+          }
+        },
+        {
+          "if": {
+            "properties": { "status": { "const": "not_evaluable" } },
+            "required": ["status"]
+          },
+          "then": {
+            "properties": { "reasonCode": { "$ref": "#/$defs/notEvaluableReasonCode" } }
+          }
+        }
+      ],
+      "properties": {
+        "claimId": { "$ref": "#/$defs/stableId" },
+        "claimHash": { "$ref": "#/$defs/sha256" },
+        "role": { "$ref": "#/$defs/claimRole" },
+        "status": { "$ref": "#/$defs/claimStatus" },
+        "reasonCode": { "$ref": "#/$defs/claimReasonCode" },
+        "assertionResults": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/assertionResult" }
+        },
+        "evidenceReferences": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/evidenceReference" }
+        },
+        "missingProof": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "nextActionOwner": { "$ref": "#/$defs/nextActionOwner" },
+        "nextAction": { "type": "string", "minLength": 1 }
+      }
+    },
+    "assertionResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["assertionId", "status", "reasonCode", "expected", "observed"],
+      "allOf": [
+        {
+          "if": {
+            "properties": { "status": { "const": "supported" } },
+            "required": ["status"]
+          },
+          "then": {
+            "properties": { "reasonCode": { "const": "all_assertions_supported" } }
+          }
+        },
+        {
+          "if": {
+            "properties": { "status": { "const": "rejected" } },
+            "required": ["status"]
+          },
+          "then": {
+            "properties": { "reasonCode": { "const": "authoritative_evidence_rejected" } }
+          }
+        },
+        {
+          "if": {
+            "properties": { "status": { "const": "not_evaluable" } },
+            "required": ["status"]
+          },
+          "then": {
+            "properties": { "reasonCode": { "$ref": "#/$defs/notEvaluableReasonCode" } }
+          }
+        }
+      ],
+      "properties": {
+        "assertionId": { "$ref": "#/$defs/stableId" },
+        "status": { "$ref": "#/$defs/claimStatus" },
+        "reasonCode": { "$ref": "#/$defs/claimReasonCode" },
+        "expected": { "$ref": "#/$defs/claimScalar" },
+        "observed": { "$ref": "#/$defs/claimScalar" },
+        "matchedEvidence": { "type": "string", "minLength": 1 },
+        "countedEvidence": { "type": "integer", "minimum": 0 },
+        "rejectedEvidence": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "evidenceReferences": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/evidenceReference" }
+        },
+        "missingProof": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "claimRole": {
+      "type": "string",
+      "enum": ["mandatory", "supplemental"]
+    },
+    "claimStatus": {
+      "type": "string",
+      "enum": ["supported", "rejected", "not_evaluable"]
+    },
+    "claimReasonCode": {
+      "type": "string",
+      "enum": [
+        "all_assertions_supported",
+        "authoritative_evidence_rejected",
+        "health_gate_failed",
+        "missing_authoritative_evidence",
+        "partial_evidence",
+        "ambiguous_evidence",
+        "identity_mismatch",
+        "identity_capability_unavailable",
+        "authoritative_evidence_conflict",
+        "unsupported_authority_path",
+        "incomplete_observation_window",
+        "invalid_evidence",
+        "cleanup_incomplete"
+      ]
+    },
+    "notEvaluableReasonCode": {
+      "type": "string",
+      "enum": [
+        "health_gate_failed",
+        "missing_authoritative_evidence",
+        "partial_evidence",
+        "ambiguous_evidence",
+        "identity_mismatch",
+        "identity_capability_unavailable",
+        "authoritative_evidence_conflict",
+        "unsupported_authority_path",
+        "incomplete_observation_window",
+        "invalid_evidence",
+        "cleanup_incomplete"
+      ]
+    },
+    "evidenceReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path"],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^(?![A-Za-z]:)(?![/\\\\])(?!\\.\\.(?:[/\\\\]|$))(?!.*[/\\\\]\\.\\.(?:[/\\\\]|$))[^\\\\]+$"
+        },
+        "sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "nextActionOwner": {
+      "type": "string",
+      "enum": [
+        "app_truth",
+        "asl_runner",
+        "product_optimization",
+        "provider_tooling",
+        "runtime_environment",
+        "scenario_contract",
+        "unresolved"
+      ]
+    },
+    "claimScalar": {
+      "type": ["string", "number", "boolean", "null"]
+    },
+    "stableId": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
     "budgetCheck": {
       "type": "object",
       "additionalProperties": false,

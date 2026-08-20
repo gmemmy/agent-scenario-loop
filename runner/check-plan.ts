@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { buildAgentSummaryMarkdown } = require('../core/agent-summary');
+const { assertScenarioExecutionContractSupported } = require('../core/claim-contract');
 const { createArtifactLayout } = require('../core/artifact-layout');
 const { writeJsonArtifact, writeTextArtifact } = require('../core/artifact-writer');
 const {
@@ -154,6 +155,7 @@ async function buildPlanArtifacts({
     SCHEMAS.scenario,
     'Scenario manifest',
   );
+  assertScenarioExecutionContractSupported(scenario);
   const runner = readValidatedJson(
     path.resolve(runnerPath),
     SCHEMAS.runnerCapabilities,

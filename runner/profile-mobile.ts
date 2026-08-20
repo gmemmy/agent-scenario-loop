@@ -6,6 +6,7 @@ const fsp = require('node:fs/promises');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { buildAgentSummaryMarkdown } = require('../core/agent-summary');
+const { assertScenarioExecutionContractSupported } = require('../core/claim-contract');
 const { createArtifactLayout } = require('../core/artifact-layout');
 const { writeJsonArtifact, writeTextArtifact } = require('../core/artifact-writer');
 const { classifyNativePerformanceComparisonReadiness } = require('../core/native-performance');
@@ -6866,6 +6867,7 @@ async function runProfileMobile(args: CliArgs, options: ProfileMobileOptions): P
   const scenarioPath = path.resolve(args.scenario);
   const config = readJson(configPath);
   const scenario = readJson(scenarioPath);
+  assertScenarioExecutionContractSupported(scenario);
   const scenarioName = resolveProfileScenarioName({ scenario, scenarioPath });
   const profileScenario = { ...scenario, name: scenarioName };
   const scenarioHash = hashScenarioContract(profileScenario);

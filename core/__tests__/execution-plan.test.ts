@@ -61,6 +61,16 @@ test('builds a stable execution plan from scenario steps', () => {
   assert.equal(plan.steps[2].timeoutMs, 2500);
 });
 
+test('refuses claim-complete scenarios before execution planning', () => {
+  const scenario = readJson('examples/scenarios/mobile/open-close-cycle.json');
+  scenario.schemaVersion = '1.1.0';
+
+  assert.throws(
+    () => buildScenarioExecutionPlan(scenario),
+    /reader-only.*execution is unsupported/u,
+  );
+});
+
 test('preserves required and optional driver actions in execution plans', () => {
   const scenario = readJson('examples/scenarios/mobile/app-startup.json');
   scenario.steps.push(

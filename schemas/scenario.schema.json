@@ -4,6 +4,44 @@
   "title": "Agent Scenario Loop Scenario",
   "type": "object",
   "additionalProperties": false,
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "schemaVersion": { "const": "1.0.0" }
+        },
+        "required": ["schemaVersion"]
+      },
+      "then": {
+        "properties": {
+          "journey": {
+            "$ref": "#/$defs/journey"
+          }
+        },
+        "not": {
+          "required": ["claims"],
+          "description": "Legacy scenario schemaVersion 1.0.0 cannot declare claim-complete claims."
+        }
+      },
+      "else": {
+        "required": ["journey", "claims"],
+        "properties": {
+          "journey": {
+            "$ref": "#/$defs/claimCompleteJourney"
+          },
+          "claims": {
+            "contains": {
+              "type": "object",
+              "properties": {
+                "role": { "const": "mandatory" }
+              },
+              "required": ["role"]
+            }
+          }
+        }
+      }
+    }
+  ],
   "required": [
     "schemaVersion",
     "id",
@@ -16,7 +54,7 @@
   "properties": {
     "schemaVersion": {
       "type": "string",
-      "pattern": "^1\\.0\\.0$"
+      "enum": ["1.0.0", "1.1.0"]
     },
     "id": {
       "type": "string",
@@ -45,7 +83,17 @@
       "$ref": "#/$defs/scenarioMetadata"
     },
     "journey": {
-      "$ref": "#/$defs/journey"
+      "oneOf": [
+        { "$ref": "#/$defs/journey" },
+        { "$ref": "#/$defs/claimCompleteJourney" }
+      ]
+    },
+    "claims": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/scenarioClaim"
+      }
     },
     "platforms": {
       "type": "array",
@@ -244,6 +292,341 @@
           "type": "string"
         }
       }
+    },
+    "claimCompleteJourney": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "intent",
+        "actor",
+        "startState",
+        "endState",
+        "phases",
+        "terminalInvariants",
+        "recovery"
+      ],
+      "properties": {
+        "name": { "type": "string" },
+        "intent": { "type": "string" },
+        "actor": { "type": "string" },
+        "startState": { "type": "string" },
+        "endState": { "type": "string" },
+        "phases": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/journeyContractItem"
+          }
+        },
+        "terminalInvariants": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/journeyContractItem"
+          }
+        },
+        "recovery": {
+          "$ref": "#/$defs/recoveryContract"
+        }
+      }
+    },
+    "journeyContractItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "description"],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/stableId"
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "recoveryContract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "rationale"],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": ["required", "not_required"]
+        },
+        "rationale": {
+          "type": "string",
+          "minLength": 1
+        },
+        "variants": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/journeyContractItem"
+          }
+        }
+      }
+    },
+    "scenarioClaim": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "role", "applicability", "closes", "assertions"],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/stableId"
+        },
+        "role": {
+          "$ref": "#/$defs/claimRole"
+        },
+        "applicability": {
+          "$ref": "#/$defs/claimApplicability"
+        },
+        "closes": {
+          "$ref": "#/$defs/claimClosure"
+        },
+        "assertions": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/claimAssertion"
+          }
+        }
+      }
+    },
+    "claimRole": {
+      "type": "string",
+      "enum": ["mandatory", "supplemental"]
+    },
+    "claimApplicability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["platforms"],
+      "properties": {
+        "platforms": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "enum": ["ios", "android"]
+          }
+        },
+        "variants": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "claimClosure": {
+      "type": "object",
+      "additionalProperties": false,
+      "anyOf": [
+        { "required": ["phases"] },
+        { "required": ["terminalInvariants"] }
+      ],
+      "properties": {
+        "phases": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/stableId"
+          }
+        },
+        "terminalInvariants": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/stableId"
+          }
+        }
+      }
+    },
+    "claimAssertion": {
+      "anyOf": [
+        { "$ref": "#/$defs/eventOccurrenceAssertion" },
+        { "$ref": "#/$defs/eventOrderAssertion" },
+        { "$ref": "#/$defs/terminalStateAssertion" },
+        { "$ref": "#/$defs/boundedCountAssertion" },
+        { "$ref": "#/$defs/absenceAssertion" },
+        { "$ref": "#/$defs/validatedEvidenceAssertion" }
+      ]
+    },
+    "claimAssertionBase": {
+      "type": "object",
+      "required": ["id", "kind", "authority"],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/stableId"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "authority": {
+          "$ref": "#/$defs/claimAuthority"
+        }
+      }
+    },
+    "eventOccurrenceAssertion": {
+      "allOf": [
+        { "$ref": "#/$defs/claimAssertionBase" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id", "kind", "authority", "event"],
+          "properties": {
+            "id": { "$ref": "#/$defs/stableId" },
+            "kind": { "const": "eventOccurrence" },
+            "authority": { "$ref": "#/$defs/claimAuthority" },
+            "event": { "type": "string", "minLength": 1 }
+          }
+        }
+      ]
+    },
+    "eventOrderAssertion": {
+      "allOf": [
+        { "$ref": "#/$defs/claimAssertionBase" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id", "kind", "authority", "beforeEvent", "afterEvent"],
+          "properties": {
+            "id": { "$ref": "#/$defs/stableId" },
+            "kind": { "const": "eventOrder" },
+            "authority": { "$ref": "#/$defs/claimAuthority" },
+            "beforeEvent": { "type": "string", "minLength": 1 },
+            "afterEvent": { "type": "string", "minLength": 1 }
+          }
+        }
+      ]
+    },
+    "terminalStateAssertion": {
+      "allOf": [
+        { "$ref": "#/$defs/claimAssertionBase" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id", "kind", "authority", "path", "expected"],
+          "properties": {
+            "id": { "$ref": "#/$defs/stableId" },
+            "kind": { "const": "terminalState" },
+            "authority": { "$ref": "#/$defs/claimAuthority" },
+            "path": { "type": "string", "minLength": 1 },
+            "expected": { "type": ["string", "number", "boolean", "null"] }
+          }
+        }
+      ]
+    },
+    "boundedCountAssertion": {
+      "allOf": [
+        { "$ref": "#/$defs/claimAssertionBase" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "anyOf": [
+            { "required": ["minimum"] },
+            { "required": ["maximum"] }
+          ],
+          "required": ["id", "kind", "authority", "selector", "observationWindow"],
+          "properties": {
+            "id": { "$ref": "#/$defs/stableId" },
+            "kind": { "const": "boundedCount" },
+            "authority": { "$ref": "#/$defs/windowedClaimAuthority" },
+            "selector": { "type": "string", "minLength": 1 },
+            "observationWindow": { "$ref": "#/$defs/claimObservationWindow" },
+            "minimum": { "type": "integer", "minimum": 0 },
+            "maximum": { "type": "integer", "minimum": 0 }
+          }
+        }
+      ]
+    },
+    "absenceAssertion": {
+      "allOf": [
+        { "$ref": "#/$defs/claimAssertionBase" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id", "kind", "authority", "selector", "observationWindow"],
+          "properties": {
+            "id": { "$ref": "#/$defs/stableId" },
+            "kind": { "const": "absence" },
+            "authority": { "$ref": "#/$defs/windowedClaimAuthority" },
+            "selector": { "type": "string", "minLength": 1 },
+            "observationWindow": { "$ref": "#/$defs/claimObservationWindow" }
+          }
+        }
+      ]
+    },
+    "validatedEvidenceAssertion": {
+      "allOf": [
+        { "$ref": "#/$defs/claimAssertionBase" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id", "kind", "authority", "artifactKind", "validationContract"],
+          "properties": {
+            "id": { "$ref": "#/$defs/stableId" },
+            "kind": { "const": "validatedEvidence" },
+            "authority": { "$ref": "#/$defs/claimAuthority" },
+            "artifactKind": { "$ref": "#/$defs/artifactKind" },
+            "validationContract": { "type": "string", "minLength": 1 }
+          }
+        }
+      ]
+    },
+    "claimAuthority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["role", "producerId", "evidenceSelector", "requiredStrength", "completeness"],
+      "properties": {
+        "role": {
+          "type": "string",
+          "enum": ["app", "runner", "adapter", "provider", "comparator"]
+        },
+        "producerId": { "type": "string", "minLength": 1 },
+        "evidenceSelector": { "type": "string", "minLength": 1 },
+        "requiredStrength": {
+          "type": "string",
+          "enum": ["observed", "verified"]
+        },
+        "completeness": {
+          "type": "string",
+          "enum": ["point", "bounded", "continuous-complete"]
+        }
+      }
+    },
+    "windowedClaimAuthority": {
+      "allOf": [
+        { "$ref": "#/$defs/claimAuthority" },
+        {
+          "properties": {
+            "completeness": {
+              "type": "string",
+              "enum": ["bounded", "continuous-complete"]
+            }
+          }
+        }
+      ]
+    },
+    "claimObservationWindow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["from", "to", "completeSourceRequired"],
+      "properties": {
+        "from": { "type": "string", "minLength": 1 },
+        "to": { "type": "string", "minLength": 1 },
+        "completeSourceRequired": { "const": true }
+      }
+    },
+    "stableId": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*$"
     },
     "cycles": {
       "type": "object",

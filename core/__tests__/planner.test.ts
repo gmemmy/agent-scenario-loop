@@ -58,6 +58,25 @@ function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value));
 }
 
+test('refuses claim-complete scenarios before compatibility planning or legacy verdict construction', () => {
+  const scenario = readJson('examples/scenarios/mobile/app-startup.json');
+  scenario.schemaVersion = '1.1.0';
+  const runner = readJson('examples/runners/xcodebuildmcp-ios.json');
+
+  assert.throws(
+    () => evaluateRunnerCompatibility({ scenario, runner, platform: 'ios' }),
+    /reader-only.*execution is unsupported/u,
+  );
+  assert.throws(
+    () => buildCompatibilityHealth({ scenario, runId: 'claim-run', compatibility: { errors: [], warnings: [] } }),
+    /reader-only.*execution is unsupported/u,
+  );
+  assert.throws(
+    () => buildUnevaluatedVerdict({ scenario, runId: 'claim-run', health: { healthStatus: 'passed' } }),
+    /reader-only.*execution is unsupported/u,
+  );
+});
+
 /**
  * Lists JSON fixture paths under a repo-local directory.
  *

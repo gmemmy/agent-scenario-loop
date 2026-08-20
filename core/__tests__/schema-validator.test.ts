@@ -38,6 +38,111 @@ function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value));
 }
 
+function sampleClaimCompleteScenario(): JsonRecord {
+  const scenario = clone(readJson('examples/scenarios/mobile/app-startup.json'));
+  scenario.schemaVersion = '1.1.0';
+  scenario.journey = {
+    name: 'Start the app',
+    intent: 'Reach the first usable product surface from a cold app state.',
+    actor: 'returning user',
+    startState: 'app process is not running',
+    endState: 'first usable product surface is visible and ready',
+    phases: [
+      {
+        id: 'launch-app',
+        description: 'Launch the selected app on the selected target.',
+      },
+      {
+        id: 'reach-usable-surface',
+        description: 'Reach the first usable product surface.',
+      },
+    ],
+    terminalInvariants: [
+      {
+        id: 'usable-surface-ready',
+        description: 'The app remains on the first usable product surface.',
+      },
+    ],
+    recovery: {
+      status: 'not_required',
+      rationale: 'This foundational fixture models one bounded cold launch without interruption.',
+    },
+  };
+  scenario.claims = [
+    {
+      id: 'first-usable-surface-reached',
+      role: 'mandatory',
+      applicability: {
+        platforms: ['ios', 'android'],
+      },
+      closes: {
+        phases: ['launch-app', 'reach-usable-surface'],
+        terminalInvariants: ['usable-surface-ready'],
+      },
+      assertions: [
+        {
+          id: 'first-usable-event',
+          kind: 'eventOccurrence',
+          event: 'app_first_usable_screen',
+          authority: {
+            role: 'app',
+            producerId: 'app-profile-session',
+            evidenceSelector: 'profileEvents.app_first_usable_screen',
+            requiredStrength: 'observed',
+            completeness: 'point',
+          },
+        },
+      ],
+    },
+  ];
+  return scenario;
+}
+
+function sampleClaimCompleteVerdict(): JsonRecord {
+  return {
+    schemaVersion: '1.1.0',
+    scenarioId: 'app-startup',
+    runId: 'app-startup-run-1',
+    healthStatus: 'passed',
+    verdictStatus: 'passed',
+    claimResults: [
+      {
+        claimId: 'first-usable-surface-reached',
+        claimHash: 'a'.repeat(64),
+        role: 'mandatory',
+        status: 'supported',
+        reasonCode: 'all_assertions_supported',
+        assertionResults: [
+          {
+            assertionId: 'first-usable-event',
+            status: 'supported',
+            reasonCode: 'all_assertions_supported',
+            expected: 'present',
+            observed: 'app_first_usable_screen',
+            matchedEvidence: 'profile-event-17',
+            evidenceReferences: [
+              {
+                path: 'raw/profile-events.json',
+                sha256: 'b'.repeat(64),
+              },
+            ],
+            missingProof: [],
+          },
+        ],
+        evidenceReferences: [
+          {
+            path: 'raw/profile-events.json',
+            sha256: 'b'.repeat(64),
+          },
+        ],
+        missingProof: [],
+        nextActionOwner: 'product_optimization',
+        nextAction: 'Retain this evidence with the run.',
+      },
+    ],
+  };
+}
+
 function unknownLifecycleAssertion() {
   return {
     evidence: 'not-asserted',
@@ -206,6 +311,189 @@ test('accepts canonical mobile scenario manifests', () => {
 
   assert.equal(result.valid, true);
   assert.deepEqual(result.errors, []);
+});
+
+test('accepts a structurally complete scenario 1.1.0 claim declaration', () => {
+  const result = validateJson(sampleClaimCompleteScenario(), SCHEMAS.scenario, 'Claim-complete scenario');
+
+  assert.equal(result.valid, true, result.message);
+});
+
+test('keeps scenario 1.0.0 diagnostic contracts free of claim declarations', () => {
+  const scenario = readJson('examples/scenarios/mobile/app-startup.json');
+  scenario.claims = sampleClaimCompleteScenario().claims;
+
+  const result = validateJson(scenario, SCHEMAS.scenario, 'Legacy scenario');
+
+  assert.equal(result.valid, false);
+  assert.match(result.message, /Legacy scenario schemaVersion 1\.0\.0/u);
+});
+
+test('keeps claim-complete journey fields out of legacy scenario 1.0.0', () => {
+  const completeJourney = sampleClaimCompleteScenario().journey;
+
+  for (const field of ['phases', 'terminalInvariants', 'recovery']) {
+    const scenario = readJson('examples/scenarios/mobile/app-startup.json');
+    scenario.journey[field] = clone(completeJourney[field]);
+    const result = validateJson(scenario, SCHEMAS.scenario, `Legacy journey ${field}`);
+    assert.equal(result.valid, false, `${field} unexpectedly expanded the legacy journey contract`);
+  }
+});
+
+test('requires a mandatory claim and complete journey shape for scenario 1.1.0', () => {
+  const noMandatory = sampleClaimCompleteScenario();
+  noMandatory.claims[0].role = 'supplemental';
+  assert.equal(validateJson(noMandatory, SCHEMAS.scenario, 'No mandatory claim').valid, false);
+
+  const incompleteJourney = sampleClaimCompleteScenario();
+  delete incompleteJourney.journey.terminalInvariants;
+  assert.equal(validateJson(incompleteJourney, SCHEMAS.scenario, 'Incomplete journey').valid, false);
+});
+
+test('requires flat claim assertions with explicit authority', () => {
+  const missingAuthority = sampleClaimCompleteScenario();
+  delete missingAuthority.claims[0].assertions[0].authority;
+  assert.equal(validateJson(missingAuthority, SCHEMAS.scenario, 'Missing authority').valid, false);
+
+  const nestedAssertion = sampleClaimCompleteScenario();
+  nestedAssertion.claims[0].assertions[0].assertions = [
+    clone(nestedAssertion.claims[0].assertions[0]),
+  ];
+  assert.equal(validateJson(nestedAssertion, SCHEMAS.scenario, 'Nested assertion').valid, false);
+});
+
+test('accepts every closed claim assertion family', () => {
+  const authority = {
+    role: 'app',
+    producerId: 'app-profile-session',
+    evidenceSelector: 'profileEvents',
+    requiredStrength: 'observed',
+    completeness: 'point',
+  };
+  const observationWindow = {
+    from: 'journey_started',
+    to: 'journey_completed',
+    completeSourceRequired: true,
+  };
+  const assertions = [
+    { id: 'event-present', kind: 'eventOccurrence', authority, event: 'journey_completed' },
+    { id: 'event-ordered', kind: 'eventOrder', authority, beforeEvent: 'journey_started', afterEvent: 'journey_completed' },
+    { id: 'terminal-state', kind: 'terminalState', authority, path: 'ui.status', expected: 'ready' },
+    { id: 'bounded-count', kind: 'boundedCount', authority: { ...authority, completeness: 'bounded' }, selector: 'events.retry', observationWindow, maximum: 1 },
+    { id: 'event-absent', kind: 'absence', authority: { ...authority, completeness: 'continuous-complete' }, selector: 'events.crash', observationWindow },
+    { id: 'evidence-present', kind: 'validatedEvidence', authority: { ...authority, role: 'runner' }, artifactKind: 'logs', validationContract: 'device-log-v1' },
+  ];
+
+  for (const assertion of assertions) {
+    const scenario = sampleClaimCompleteScenario();
+    scenario.claims[0].assertions = [assertion];
+    const result = validateJson(scenario, SCHEMAS.scenario, assertion.kind);
+    assert.equal(result.valid, true, result.message);
+  }
+});
+
+test('rejects unbounded count and absence assertions', () => {
+  for (const assertion of [
+    {
+      id: 'unbounded-count',
+      kind: 'boundedCount',
+      selector: 'events.retry',
+      authority: sampleClaimCompleteScenario().claims[0].assertions[0].authority,
+      observationWindow: { from: 'start', to: 'end', completeSourceRequired: true },
+    },
+    {
+      id: 'unbounded-absence',
+      kind: 'absence',
+      selector: 'events.crash',
+      authority: sampleClaimCompleteScenario().claims[0].assertions[0].authority,
+    },
+  ]) {
+    const scenario = sampleClaimCompleteScenario();
+    scenario.claims[0].assertions = [assertion];
+    assert.equal(validateJson(scenario, SCHEMAS.scenario, assertion.kind).valid, false);
+  }
+});
+
+test('rejects point evidence for windowed count and absence assertions', () => {
+  for (const assertion of [
+    {
+      id: 'point-count',
+      kind: 'boundedCount',
+      selector: 'events.retry',
+      authority: sampleClaimCompleteScenario().claims[0].assertions[0].authority,
+      observationWindow: { from: 'start', to: 'end', completeSourceRequired: true },
+      maximum: 1,
+    },
+    {
+      id: 'point-absence',
+      kind: 'absence',
+      selector: 'events.crash',
+      authority: sampleClaimCompleteScenario().claims[0].assertions[0].authority,
+      observationWindow: { from: 'start', to: 'end', completeSourceRequired: true },
+    },
+  ]) {
+    const scenario = sampleClaimCompleteScenario();
+    scenario.claims[0].assertions = [assertion];
+    assert.equal(validateJson(scenario, SCHEMAS.scenario, assertion.kind).valid, false);
+  }
+});
+
+test('accepts compact scenario 1.1.0 claim results', () => {
+  const result = validateJson(sampleClaimCompleteVerdict(), SCHEMAS.verdict, 'Claim-complete verdict');
+
+  assert.equal(result.valid, true, result.message);
+});
+
+test('keeps not_evaluated and absent claim results as legacy verdict behavior only', () => {
+  const claimComplete = sampleClaimCompleteVerdict();
+  claimComplete.verdictStatus = 'not_evaluated';
+  assert.equal(validateJson(claimComplete, SCHEMAS.verdict, 'Claim-complete not evaluated').valid, false);
+
+  const legacyWithClaims = sampleClaimCompleteVerdict();
+  legacyWithClaims.schemaVersion = '1.0.0';
+  legacyWithClaims.verdictStatus = 'not_evaluated';
+  assert.equal(validateJson(legacyWithClaims, SCHEMAS.verdict, 'Legacy claim results').valid, false);
+
+  const legacy = clone(legacyWithClaims);
+  delete legacy.claimResults;
+  assert.equal(validateJson(legacy, SCHEMAS.verdict, 'Legacy verdict').valid, true);
+});
+
+test('enforces terminal claim reason codes and run-relative evidence references', () => {
+  const wrongReason = sampleClaimCompleteVerdict();
+  wrongReason.claimResults[0].reasonCode = 'missing_authoritative_evidence';
+  assert.equal(validateJson(wrongReason, SCHEMAS.verdict, 'Wrong supported reason').valid, false);
+
+  const absoluteEvidence = sampleClaimCompleteVerdict();
+  absoluteEvidence.claimResults[0].evidenceReferences[0].path = '/tmp/profile-events.json';
+  assert.equal(validateJson(absoluteEvidence, SCHEMAS.verdict, 'Absolute evidence path').valid, false);
+
+  const traversingEvidence = sampleClaimCompleteVerdict();
+  traversingEvidence.claimResults[0].evidenceReferences[0].path = '../profile-events.json';
+  assert.equal(validateJson(traversingEvidence, SCHEMAS.verdict, 'Traversing evidence path').valid, false);
+
+  const windowsAbsoluteEvidence = sampleClaimCompleteVerdict();
+  windowsAbsoluteEvidence.claimResults[0].evidenceReferences[0].path = 'C:\\temp\\profile-events.json';
+  assert.equal(validateJson(windowsAbsoluteEvidence, SCHEMAS.verdict, 'Windows absolute evidence path').valid, false);
+
+  const backslashTraversalEvidence = sampleClaimCompleteVerdict();
+  backslashTraversalEvidence.claimResults[0].evidenceReferences[0].path = '..\\profile-events.json';
+  assert.equal(validateJson(backslashTraversalEvidence, SCHEMAS.verdict, 'Backslash traversal evidence path').valid, false);
+
+  const backslashEvidence = sampleClaimCompleteVerdict();
+  backslashEvidence.claimResults[0].evidenceReferences[0].path = 'raw\\profile-events.json';
+  assert.equal(validateJson(backslashEvidence, SCHEMAS.verdict, 'Backslash evidence path').valid, false);
+
+  const notEvaluable = sampleClaimCompleteVerdict();
+  notEvaluable.verdictStatus = 'inconclusive';
+  notEvaluable.healthStatus = 'partial';
+  notEvaluable.claimResults[0].status = 'not_evaluable';
+  notEvaluable.claimResults[0].reasonCode = 'health_gate_failed';
+  notEvaluable.claimResults[0].assertionResults[0].status = 'not_evaluable';
+  notEvaluable.claimResults[0].assertionResults[0].reasonCode = 'health_gate_failed';
+  notEvaluable.claimResults[0].assertionResults[0].observed = null;
+  notEvaluable.claimResults[0].missingProof = ['trusted health'];
+  assert.equal(validateJson(notEvaluable, SCHEMAS.verdict, 'Not evaluable claim').valid, true);
 });
 
 test('accepts scenario-authored comparison lanes', () => {
