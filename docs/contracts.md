@@ -310,6 +310,30 @@ Supplemental outcomes remain visible but do not gate the journey. This
 inspection does not choose a canonical reason or next-action owner when
 multiple not-evaluable causes exist.
 
+`buildScenarioClaimCompleteContractHash()` returns the canonical SHA-256
+identity of the entire closed, schema-valid scenario `1.1.0` document. It uses
+the same deterministic JSON rules as claim hashing: object keys use
+locale-independent code-unit order, authored arrays preserve order, and
+non-JSON, cyclic, non-plain, or non-finite input is rejected. V1 intentionally
+includes every supplied scenario field rather than maintaining a second
+hand-picked semantic subset. Consequently, descriptive, operational, journey,
+claim, safety, capability, cadence, and artifact-demand edits all invalidate
+the identity. This is conservative approval churn, not a claim that every
+field has equal product meaning.
+
+A `scenario-claim-approval` `1.0.0` record is a caller-owned sidecar
+attestation. It names one approval ID, scenario ID, complete scenario hash,
+exact platform and optional variant, the closed decision `approved`, an audit
+timestamp, and an opaque approver reference. It has no expiry, credential,
+role, signature, runtime authorization, evidence, verdict, proof-tier, or
+publication field. `inspectScenarioClaimApproval()` reports `bound` only when
+that exact identity and selection still match, `invalidated` for drift, and
+`outside_contract` for malformed or unsupported input. Every result is marked
+`exact_hash_attestation_only`. ASL does not authenticate the approver, infer
+authority, establish freshness, admit runtime work, evaluate evidence, or
+promote product truth from this record. Runtime authorization and mutable
+boundary revalidation remain separate later gates.
+
 `inspectScenarioClaimClosure(scenario, selection)` performs the pure structural
 closure inspection for one exact platform and optional variant. It reports
 `closed`, `not_closed`, or `outside_contract` with deterministic checks and

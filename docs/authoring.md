@@ -182,6 +182,16 @@ assertion IDs with exactly one applicable claim owner, and bind reconciliation
 to both assertion IDs and authored terminal-invariant IDs. Do not put runtime authorization or human approval in
 the scenario; those are separate run-bound decisions.
 
+Keep human approval outside the scenario JSON. A claim-complete author or
+reviewer can derive the full contract identity with
+`buildScenarioClaimCompleteContractHash()` and preserve a separate closed
+`scenario-claim-approval` record for one platform and optional variant. Any
+scenario edit invalidates that conservative V1 approval. Do not embed the
+approval, approver reference, credentials, runtime grant, or publication
+permission into the scenario; doing so would mix the attestation into the
+contract it attests. A matching approval remains exact-hash attestation only,
+not permission to execute or proof that the journey works.
+
 Use `inspectScenarioClaimSafety()` for one exact platform and optional variant.
 Its `complete` result means only that the authored static safety references are
 coherent. It does not authorize operations, prove a rollback implementation is
