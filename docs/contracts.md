@@ -263,6 +263,32 @@ keys use locale-independent code-unit ordering. The hash identifies the exact cl
 does not by itself establish semantic admissibility, evidence trust, or product
 success.
 
+Verdict `1.1.0` assertion results repeat the assertion kind and its exact
+kind-specific authored expectation instead of reducing every assertion to a
+generic scalar. Event occurrence records the expected event and matched
+evidence identity. Event order records the two evidence identities and the
+normalized `before` or `after` relation without introducing cross-clock
+timestamps. Terminal state records path and value. Bounded count and absence
+record the complete authored observation window plus a non-negative integer
+count. Validated evidence records the artifact kind, validation contract,
+matched evidence identity, and whether that artifact obligation passed or
+failed; it does not evaluate the behavior depicted by the artifact.
+
+Every assertion result includes `evidenceReferences`, `rejectedEvidence`, and
+`missingProof`. Supported and rejected results require referenced evidence;
+rejected results also require at least one authoritative contradiction.
+Not-evaluable results require `observed: null` and at least one missing-proof
+reason. They may also preserve evidence references or `rejectedEvidence`
+entries that explain which candidate inputs were inadmissible; those entries
+are diagnostic inventory and do not change the terminal status to `rejected`.
+Supported results cannot carry rejected-evidence or missing-proof inventory.
+Point-authority event occurrence has no rejected form because an event not
+observed at a point cannot prove bounded absence. These are structural reader
+contracts only. Schema validation does not reconcile repeated expectations
+with a scenario, compare terminal values, apply count bounds, or establish
+evidence authority; the later claim reconciler and evaluator own those
+semantics.
+
 `inspectScenarioClaimClosure(scenario, selection)` performs the pure structural
 closure inspection for one exact platform and optional variant. It reports
 `closed`, `not_closed`, or `outside_contract` with deterministic checks and
