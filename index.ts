@@ -8,6 +8,7 @@ export * from './core/claim-authority';
 export * from './core/claim-safety';
 export * from './core/claim-verdict-reduction';
 export * from './core/scenario-claim-approval';
+export * from './core/scenario-claim-authorization';
 export * from './core/comparison';
 export * from './core/evidence-interpreter';
 export * from './core/execution-plan';
