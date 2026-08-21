@@ -123,6 +123,7 @@ function sampleScenario(safetyClass = 'read_only'): JsonRecord {
       },
     };
   }
+  scenario.dependencies = [];
   return scenario;
 }
 

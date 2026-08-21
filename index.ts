@@ -3,6 +3,7 @@ export * from './core/artifact-contract';
 export * from './core/artifact-layout';
 export * from './core/artifact-writer';
 export * from './core/claim-contract';
+export * from './core/claim-dependencies';
 export * from './core/claim-closure';
 export * from './core/claim-authority';
 export * from './core/claim-safety';

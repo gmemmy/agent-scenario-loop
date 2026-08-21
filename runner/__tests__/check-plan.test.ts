@@ -241,6 +241,7 @@ test('refuses a schema-valid claim-complete scenario before legacy plan artifact
     rationale: 'The scenario observes startup without mutation.',
     allowedOperations: ['launch', 'observe'],
   };
+  scenario.dependencies = [];
   const scenarioPath = path.join(os.tmpdir(), `asl-claim-scenario-${Date.now()}.json`);
   const outputDir = path.join(os.tmpdir(), `asl-claim-plan-${Date.now()}`);
   await fsp.writeFile(scenarioPath, `${JSON.stringify(scenario, null, 2)}\n`, 'utf8');

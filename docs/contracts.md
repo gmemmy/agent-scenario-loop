@@ -224,8 +224,8 @@ budgets, descriptions, or attached evidence, and a legacy scenario cannot add a
 `claims` field to imply otherwise.
 
 A scenario `1.1.0` declaration requires a complete `journey` shape, a
-non-empty `claims` array containing at least one `mandatory` claim, and a
-`safety` declaration. The journey
+non-empty `claims` array containing at least one `mandatory` claim, a
+`safety` declaration, and an explicit `dependencies` inventory. The journey
 names its actor, start and end state, phases, terminal invariants, and recovery
 contract. Every phase, terminal invariant, and recovery variant declares
 `coverageKind: "product"` or `coverageKind: "recovery"`; this identifies the
@@ -317,9 +317,25 @@ locale-independent code-unit order, authored arrays preserve order, and
 non-JSON, cyclic, non-plain, or non-finite input is rejected. V1 intentionally
 includes every supplied scenario field rather than maintaining a second
 hand-picked semantic subset. Consequently, descriptive, operational, journey,
-claim, safety, capability, cadence, and artifact-demand edits all invalidate
+claim, dependency, safety, capability, cadence, and artifact-demand edits all invalidate
 the identity. This is conservative approval churn, not a claim that every
 field has equal product meaning.
+
+Scenario `1.1.0` dependencies are authored, hash-bound prerequisites rather
+than mutable setup state. Every scenario declares the top-level array, including
+an explicit empty array when no prerequisites exist. A `journey_entry`
+dependency gates the journey. A `claim_scoped` dependency gates a non-empty set
+of named claims. Each dependency has exact platform and optional variant
+applicability plus one predicate from the closed claim-assertion vocabulary.
+Dependency IDs are unique, claim references resolve, and dependency
+applicability cannot be broader than the scenario or any referenced claim.
+
+`inspectScenarioClaimDependencies(scenario, selection)` is a pure structural
+reader. It reports `complete`, `incomplete`, or `outside_contract`, preserves
+the applicable dependency IDs in authored order, and emits deterministic checks
+for schema, selected platform, identity, references, applicability, and selected
+inventory. It does not observe predicates, admit execution, or produce runtime
+health or claim results.
 
 A `scenario-claim-approval` `1.0.0` record is a caller-owned sidecar
 attestation. It names one approval ID, scenario ID, complete scenario hash,
@@ -391,7 +407,8 @@ outputs.
 
 `inspectScenarioClaimAuthority(scenario, selection, declarations)` performs a
 pure pre-runtime compatibility check for every applicable mandatory and
-supplemental assertion. Matching is exact for role, producer ID, platform,
+supplemental assertion and every applicable dependency predicate. Matching is
+exact for role, producer ID, platform,
 assertion kind, and evidence selector. Declared identity strength and
 completeness must meet or exceed the assertion requirement; validated evidence
 must also match its artifact kind and validation contract. Results are
@@ -401,13 +418,19 @@ producer and selected platform are a catalog error. Disjoint platform
 declarations are allowed. An in-contract platform with no compatible path is
 `incompatible`, never retroactively non-applicable.
 
+Authority checks discriminate `claim_assertion` from `dependency_predicate`.
+Claim checks identify their claim role and assertion. Dependency checks identify
+the dependency kind and predicate, include claim IDs only for `claim_scoped`
+dependencies, and never manufacture claim identity for `journey_entry` rows.
+
 Authority compatibility remains only one conjunctive admission fact. It does
 not establish safety, authorization, human approval, runtime availability,
 evaluation, product success, or proof-tier identity. Declarations in this
 foundation are caller-supplied and unsigned; exact declaration identity and
-human approval belong to a later gate. When no assertions apply to an exact
-selection, authority inspection is vacuously compatible because structural
-closure remains a separate required gate.
+human approval belong to a later gate. When no claim assertion or dependency
+predicate applies to an exact selection, authority inspection is vacuously
+compatible because structural closure and dependency integrity remain separate
+required gates.
 
 Verdict schemaVersion `1.1.0` requires compact `claimResults`. Claim and
 assertion statuses are `supported`, `rejected`, or `not_evaluable` with closed
@@ -422,7 +445,8 @@ health becomes unsupported and affected requested claims become
 `not_evaluable`, never retroactively non-applicable.
 
 This foundation is reader-only. Schema acceptance, closure inspection,
-authority-capability inspection, and safety inspection prove pre-runtime contract facts, not runtime
+dependency inspection, authority-capability inspection, and safety inspection
+prove pre-runtime contract facts, not runtime
 admission or product truth. Runtime safety enforcement and authorization, exact-hash human
 approval, claim evaluation, stress aggregation, and verdict generation remain
 separate future gates. Current runners continue to emit legacy verdicts only for legacy
