@@ -6,6 +6,8 @@ export * from './core/claim-contract';
 export * from './core/claim-admission';
 export * from './core/claim-evidence-candidate-identity';
 export * from './core/claim-raw-observation-admission';
+export * from './core/claim-validated-evidence-report-identity';
+export * from './core/claim-validated-evidence-admission';
 export * from './core/claim-dependencies';
 export * from './core/claim-closure';
 export * from './core/claim-authority';
