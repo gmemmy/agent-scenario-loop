@@ -102,6 +102,18 @@ applicable mandatory assertions and authored terminal invariants. Read-only
 declarations have no mutation bindings. The inspector performs no authorization,
 approval, resource acquisition, discovery, or runtime admission.
 
+Use `inspectScenarioClaimVerdictReduction(scenario, { platform, variant? },
+candidateVerdict)` to inspect whether a caller-supplied verdict `1.1.0`
+candidate preserves the exact applicable claim and assertion inventory,
+canonical claim hashes, authored expectations, health gate, and deterministic
+claim and journey status reduction. Every return value carries
+`trust: "inventory_reduction_only"` and reports `reduced`, `incoherent`, or
+`outside_contract`. A reduced inspection is not a trusted verdict: the
+function does not read or admit evidence, execute the scenario, return the
+candidate verdict object, or establish that any supported or rejected result
+is true. Current runners still reject scenario `1.1.0` before runtime and do
+not emit verdict `1.1.0`.
+
 Use `coordinateQuickProof()` when an owning runner needs to bound setup before
 starting a product scenario. Callers provide adapter paths, operation and
 argument requirements, identities that preflight must observe, a credential-free
