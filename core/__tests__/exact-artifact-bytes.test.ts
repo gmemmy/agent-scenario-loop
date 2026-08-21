@@ -166,4 +166,25 @@ describe('snapshotAndHashExactArtifactBytes', () => {
     assert.deepEqual(Array.from(snapshot.bytes), [0x11, 0x22, 0x33]);
     assert.equal(snapshot.sha256, sha256Hex(new Uint8Array([0x11, 0x22, 0x33])));
   });
+
+  it('snapshots a non-zero-offset Buffer subarray without the backing prefix or suffix', () => {
+    const backing = Buffer.from([0xaa, 0x11, 0x22, 0x33, 0xbb]);
+    const view = backing.subarray(1, 4);
+    const snapshot = snapshotAndHashExactArtifactBytes(view);
+
+    if (snapshot === null) {
+      assert.fail('expected a snapshot for a non-zero-offset Buffer subarray');
+    }
+
+    assert.deepEqual(Array.from(snapshot.bytes), [0x11, 0x22, 0x33]);
+    assert.equal(snapshot.bytes.byteLength, 3);
+    assert.equal(snapshot.sha256, sha256Hex(new Uint8Array([0x11, 0x22, 0x33])));
+    assert.notEqual(snapshot.sha256, sha256Hex(backing));
+
+    view[0] = 0x00;
+    view[1] = 0xff;
+    view[2] = 0x00;
+    assert.deepEqual(Array.from(snapshot.bytes), [0x11, 0x22, 0x33]);
+    assert.equal(snapshot.sha256, sha256Hex(new Uint8Array([0x11, 0x22, 0x33])));
+  });
 });
