@@ -114,6 +114,32 @@ candidate verdict object, or establish that any supported or rejected result
 is true. Current runners still reject scenario `1.1.0` before runtime and do
 not emit verdict `1.1.0`.
 
+Use `buildScenarioClaimCompleteContractHash(scenario)` to derive the canonical
+SHA-256 identity of one complete, schema-valid scenario `1.1.0` document. The
+hash covers the entire closed scenario object, including descriptive,
+operational, journey, claim, and safety fields. Object-key order does not
+matter and authored array order does. This conservative V1 identity means any
+scenario edit invalidates prior approval; it is not a partial semantic-subset
+hash.
+
+Use `inspectScenarioClaimApproval(scenario, { platform, variant? }, approval)`
+to inspect a caller-supplied `scenario-claim-approval` `1.0.0` sidecar. The
+record binds the exact scenario ID and full contract hash plus the selected
+platform and optional variant. Results are `bound`, `invalidated`, or
+`outside_contract`, and every result carries
+`trust: "exact_hash_attestation_only"`. A bound result proves only that the
+opaque caller attestation still names the current bytes and selection. ASL
+does not authenticate `approverRef`, expire `approvedAt`, grant runtime
+authorization, admit execution, evaluate evidence, issue a verdict, raise a
+proof tier, or permit publication. Runtime authorization remains a separate
+scoped and expiring gate. The closed approval schema is shipped at
+`agent-scenario-loop/schemas/scenario-claim-approval.schema.json` and is
+registered as `SCHEMAS.scenarioClaimApproval`.
+`ScenarioClaimApprovalRecord` is an unvalidated structural TypeScript type;
+TypeScript cannot prove JSON regex, string-length, or date-time refinements.
+Validate unknown records against the shipped schema before inspection or
+storage.
+
 Use `coordinateQuickProof()` when an owning runner needs to bound setup before
 starting a product scenario. Callers provide adapter paths, operation and
 argument requirements, identities that preflight must observe, a credential-free
