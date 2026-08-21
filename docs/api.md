@@ -28,7 +28,7 @@ The root package is for stable, runner-neutral behavior:
 
 - artifact layout and artifact writers
 - claim-complete scenario/verdict structural types and deterministic claim hashing
-- claim prerequisite declarations plus dependency and authority-capability inspection
+- claim prerequisite declarations plus dependency, authority-capability, and final admission inspection
 - profile-event parsing, metrics, manifests, causal runs, budget verdicts, and summaries
 - scenario execution-plan normalization, including resolved cadence pacing metadata
 - scenario/runner/provider compatibility checks
@@ -176,6 +176,29 @@ to execute scenario `1.1.0`. Validate unknown grants against
 `agent-scenario-loop/schemas/scenario-claim-authorization-grant.schema.json`,
 registered as `SCHEMAS.scenarioClaimAuthorizationGrant`. The structural
 TypeScript type does not prove JSON patterns or calendar validity.
+
+Use `inspectScenarioClaimAdmission({ scenario, selection, authorityCatalog,
+authorizationRequest, authorizationGrant, approval })` to compose the complete
+static admission decision for one exact scenario `1.1.0` selection. The
+returned `ScenarioClaimAdmissionInspection` is a closed union:
+`outside_contract` carries only the failed schema-and-selection gate; `blocked`
+carries all six owner inspections, ordered gate summaries, and a non-empty
+blocking-gate inventory; `admitted` carries all six successful inspections and
+an empty blocking inventory. A blocked result names the first gate in the fixed
+closure, authority, safety, authorization, approval, and dependency order while
+retaining every later failure.
+
+The package exports the input, selection, gate, inspection, and result types.
+Gate summaries index owner status only. Detailed checks, blocking reasons, and
+next actions remain on the owning reader result and are not flattened or
+reinterpreted. Missing selected-platform assertion or dependency-predicate
+authority is blocking, never `not_applicable`.
+
+This API is pure pre-runtime semantic admission. It does not inspect a device,
+discover runtime capability, acquire a lease, read the ambient clock, evaluate
+evidence, emit an artifact, or enable scenario `1.1.0` execution. An `admitted`
+result is not health, product success, verdict, baseline certification, or
+runtime acceptance.
 
 Use `coordinateQuickProof()` when an owning runner needs to bound setup before
 starting a product scenario. Callers provide adapter paths, operation and

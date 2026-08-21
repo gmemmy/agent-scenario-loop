@@ -371,6 +371,33 @@ or permit scenario `1.1.0` execution. The shipped quick-proof authorization
 coordinator remains a separate runtime contract until a later integration
 slice can preserve its existing optional-target and subset behavior explicitly.
 
+`inspectScenarioClaimAdmission(input)` is the final pure pre-runtime composer
+for scenario `1.1.0`. It first validates the closed platform and optional
+variant selection, claim-complete scenario schema, selected platform, and full
+scenario hash. Only then does it collect semantic closure, assertion and
+dependency-predicate authority, static safety, scoped authorization, exact-hash
+approval, and dependency integrity in that fixed order. Every owner inspection
+remains intact; the composer adds only an ordered gate index, the first blocking
+gate, and the complete blocking-gate inventory.
+
+Results are `outside_contract` when scenario or selection identity cannot enter
+the contract, `blocked` when any owner inspection is not successful, and
+`admitted` only when closure is `closed`, authority and authorization are
+`compatible`, safety and dependencies are `complete`, and approval is `bound`.
+After schema and selection pass, all owner readers run so a later valid gate
+cannot hide an earlier failure and multiple failures remain diagnosable.
+Selected-platform authority absence is blocking and never retroactive
+non-applicability. Dependency-predicate capability and dependency inventory
+integrity remain separate required gates.
+
+Admission here means only that the supplied static contract, catalog, grant,
+approval, and exact selection are mutually coherent. The composer performs no
+filesystem, process, target, adapter, provider, credential, clock, network, or
+artifact work. It does not acquire a resource, revalidate a mutable boundary,
+evaluate evidence, emit health or verdict truth, certify a baseline, or enable
+scenario `1.1.0` execution. Current execution entries continue to reject that
+schema version before side effects.
+
 `inspectScenarioClaimClosure(scenario, selection)` performs the pure structural
 closure inspection for one exact platform and optional variant. It reports
 `closed`, `not_closed`, or `outside_contract` with deterministic checks and
@@ -445,11 +472,12 @@ health becomes unsupported and affected requested claims become
 `not_evaluable`, never retroactively non-applicable.
 
 This foundation is reader-only. Schema acceptance, closure inspection,
-dependency inspection, authority-capability inspection, and safety inspection
-prove pre-runtime contract facts, not runtime
-admission or product truth. Runtime safety enforcement and authorization, exact-hash human
-approval, claim evaluation, stress aggregation, and verdict generation remain
-separate future gates. Current runners continue to emit legacy verdicts only for legacy
+dependency inspection, authority-capability inspection, safety inspection,
+authorization compatibility, exact-hash approval, and final admission
+composition prove pre-runtime contract facts, not runtime availability or
+product truth. Mutable-boundary revalidation, resource ownership, claim
+evaluation, stress aggregation, and verdict generation remain separate future
+gates. Current runners continue to emit legacy verdicts only for legacy
 scenarios. Planning or profiling a scenario `1.1.0` fails before runtime and
 does not emit a legacy verdict. A consumer must not hand-author a
 `1.1.0` passing verdict and treat schema validity as ASL evaluation.
