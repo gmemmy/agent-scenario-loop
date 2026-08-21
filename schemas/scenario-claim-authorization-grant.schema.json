@@ -1,0 +1,90 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-scenario-loop.dev/schemas/scenario-claim-authorization-grant.schema.json",
+  "title": "Agent Scenario Loop Scenario Claim Authorization Grant",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "grantId",
+    "scenarioId",
+    "scenarioHash",
+    "selection",
+    "safetyClass",
+    "goalId",
+    "operations",
+    "targetResource",
+    "expiresAt",
+    "delegationChain"
+  ],
+  "allOf": [
+    {
+      "if": {
+        "properties": { "safetyClass": { "const": "read_only" } },
+        "required": ["safetyClass"]
+      },
+      "then": {
+        "not": { "required": ["mutationIdentityId"] }
+      },
+      "else": {
+        "required": ["mutationIdentityId"]
+      }
+    }
+  ],
+  "properties": {
+    "schemaVersion": { "const": "1.0.0" },
+    "grantId": { "$ref": "#/$defs/stableId" },
+    "scenarioId": { "$ref": "#/$defs/stableId" },
+    "scenarioHash": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "selection": { "$ref": "#/$defs/selection" },
+    "safetyClass": {
+      "type": "string",
+      "enum": [
+        "read_only",
+        "local_mutation",
+        "reversible_backend_mutation",
+        "destructive"
+      ]
+    },
+    "mutationIdentityId": { "$ref": "#/$defs/stableId" },
+    "goalId": { "$ref": "#/$defs/nonBlank" },
+    "operations": { "$ref": "#/$defs/nonEmptyUniqueStrings" },
+    "targetResource": { "$ref": "#/$defs/nonBlank" },
+    "expiresAt": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,3})?Z$"
+    },
+    "delegationChain": { "$ref": "#/$defs/nonEmptyUniqueStrings" }
+  },
+  "$defs": {
+    "stableId": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*$"
+    },
+    "nonBlank": {
+      "type": "string",
+      "pattern": ".*\\S.*"
+    },
+    "nonEmptyUniqueStrings": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/nonBlank" }
+    },
+    "selection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["platform"],
+      "properties": {
+        "platform": {
+          "type": "string",
+          "enum": ["ios", "android"]
+        },
+        "variant": { "$ref": "#/$defs/nonBlank" }
+      }
+    }
+  }
+}

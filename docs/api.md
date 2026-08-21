@@ -140,6 +140,27 @@ TypeScript cannot prove JSON regex, string-length, or date-time refinements.
 Validate unknown records against the shipped schema before inspection or
 storage.
 
+Use `inspectScenarioClaimAuthorization(scenario, selection, request, grant)`
+to inspect a credential-free `scenario-claim-authorization-grant` `1.0.0`
+record. The request supplies the goal, exact operation set, mandatory target
+resource, and deterministic `nowMs`; the inspector never reads the ambient
+clock. The package exports `ScenarioClaimAuthorizationGrant`,
+`ScenarioClaimAuthorizationRequest`, and
+`ScenarioClaimAuthorizationInspection`. Results are `compatible`,
+`incompatible`, or `outside_contract` with ordered checks, blocking reasons,
+and a bounded next action. `platform` and `variant` are absent from the result
+when the untrusted selection cannot be validated, so the reader never invents
+coverage identity.
+
+Compatibility requires exact scenario ID and full hash, selection, safety
+class, mutation identity when applicable, goal, target resource, operation
+set, and an unexpired grant. It is not final admission, authenticated
+delegation, resource ownership, mutable-boundary revalidation, or permission
+to execute scenario `1.1.0`. Validate unknown grants against
+`agent-scenario-loop/schemas/scenario-claim-authorization-grant.schema.json`,
+registered as `SCHEMAS.scenarioClaimAuthorizationGrant`. The structural
+TypeScript type does not prove JSON patterns or calendar validity.
+
 Use `coordinateQuickProof()` when an owning runner needs to bound setup before
 starting a product scenario. Callers provide adapter paths, operation and
 argument requirements, identities that preflight must observe, a credential-free
