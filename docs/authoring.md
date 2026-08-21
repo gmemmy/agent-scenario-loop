@@ -109,17 +109,17 @@ looks like this:
     "startState": "home is usable",
     "endState": "home is restored with no overlay owner",
     "phases": [
-      { "id": "open-account", "description": "Open the account surface." },
-      { "id": "return-home", "description": "Dismiss and restore Home." }
+      { "id": "open-account", "description": "Open the account surface.", "coverageKind": "product" },
+      { "id": "return-home", "description": "Dismiss and restore Home.", "coverageKind": "recovery" }
     ],
     "terminalInvariants": [
-      { "id": "home-restored", "description": "Home owns input with no stale overlay." }
+      { "id": "home-restored", "description": "Home owns input with no stale overlay.", "coverageKind": "recovery" }
     ],
     "recovery": {
       "status": "required",
       "rationale": "The surface supports interrupted dismissal.",
       "variants": [
-        { "id": "reverse-dismissal", "description": "Reverse one partial dismissal before closing." }
+        { "id": "reverse-dismissal", "description": "Reverse one partial dismissal before closing.", "coverageKind": "recovery" }
       ]
     }
   },
@@ -129,7 +129,7 @@ looks like this:
       "role": "mandatory",
       "applicability": { "platforms": ["ios", "android"] },
       "closes": {
-        "phases": ["return-home"],
+        "phases": ["open-account", "return-home"],
         "terminalInvariants": ["home-restored"]
       },
       "assertions": [
@@ -157,11 +157,30 @@ their own result. `applicability` is authored before runtime. A missing adapter
 or authority capability on a selected platform is unsupported evidence and a
 `not_evaluable` requested claim, not retroactive `not_applicable` coverage.
 
-This release surface only makes the contract representable and readable. It
-does not yet perform semantic closure checks or generate claim results. Keep
-templates and executable scenarios on `1.0.0` until the claim evaluator and
-admissibility gate ship. Current planning and profile entry points reject
-`1.1.0` before runtime rather than emitting a misleading legacy verdict.
+Use `coverageKind: "product"` for journey nodes that perform or preserve the
+intended product outcome. Use `coverageKind: "recovery"` for authored
+interruption, reversal, retry, cleanup, or restored-state truth. When recovery
+is `required`, declare at least one recovery variant and at least one
+recovery-owned phase or terminal invariant. When recovery is `not_required`,
+declare neither. These labels make authored ownership explicit; they do not
+turn setup, helper, command-delivery, or artifact-presence evidence into product
+truth.
+
+Use `inspectScenarioClaimClosure()` during authoring to inspect one exact
+platform and optional variant. A `closed` result requires every authored phase
+and terminal invariant to be referenced by an applicable mandatory claim.
+Supplemental claims cannot fill mandatory closure gaps, and claims from another
+platform or variant are not combined. Journey node and recovery-variant IDs
+must also remain unique and unambiguous. The result is a structural authoring
+check only, not runtime admission, support, approval, evaluation, or a product
+pass.
+
+This release surface makes the contract representable and provides pure
+structural closure inspection. It does not admit scenarios to runtime or
+generate claim results. Keep templates and executable scenarios on `1.0.0`
+until the admission and claim-evaluation gates ship. Current planning and
+profile entry points reject `1.1.0` before runtime rather than emitting a
+misleading legacy verdict.
 
 Use `comparisonLane` when a scenario should always compare within one stable proof mode, such as `feed-open-android-live`. Profile CLIs can also receive `--comparison-lane`; the CLI flag wins when one-off runs need a different lane.
 

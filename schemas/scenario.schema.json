@@ -334,7 +334,7 @@
     "journeyContractItem": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "description"],
+      "required": ["id", "description", "coverageKind"],
       "properties": {
         "id": {
           "$ref": "#/$defs/stableId"
@@ -342,6 +342,10 @@
         "description": {
           "type": "string",
           "minLength": 1
+        },
+        "coverageKind": {
+          "type": "string",
+          "enum": ["product", "recovery"]
         }
       }
     },

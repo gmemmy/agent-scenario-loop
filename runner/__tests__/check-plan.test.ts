@@ -215,8 +215,8 @@ test('allows evidence providers to satisfy required evidence in CLI plans', asyn
 test('refuses a schema-valid claim-complete scenario before legacy plan artifacts are built', async (t: TestContext) => {
   const scenario = readJson(fixturePath('examples/scenarios/mobile/app-startup.json'));
   scenario.schemaVersion = '1.1.0';
-  scenario.journey.phases = [{ id: 'start-app', description: 'Start the app.' }];
-  scenario.journey.terminalInvariants = [{ id: 'app-usable', description: 'The app is usable.' }];
+  scenario.journey.phases = [{ id: 'start-app', description: 'Start the app.', coverageKind: 'product' }];
+  scenario.journey.terminalInvariants = [{ id: 'app-usable', description: 'The app is usable.', coverageKind: 'product' }];
   scenario.journey.recovery = { status: 'not_required', rationale: 'Startup has no recovery variant.' };
   scenario.claims = [{
     id: 'app-usable',
