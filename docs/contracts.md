@@ -226,7 +226,10 @@ budgets, descriptions, or attached evidence, and a legacy scenario cannot add a
 A scenario `1.1.0` declaration requires a complete `journey` shape and a
 non-empty `claims` array containing at least one `mandatory` claim. The journey
 names its actor, start and end state, phases, terminal invariants, and recovery
-contract. Each claim has a stable ID, a `mandatory` or `supplemental` role,
+contract. Every phase, terminal invariant, and recovery variant declares
+`coverageKind: "product"` or `coverageKind: "recovery"`; this identifies the
+part of the authored journey it belongs to and does not establish runtime
+authority. Each claim has a stable ID, a `mandatory` or `supplemental` role,
 pre-runtime platform and optional variant applicability, explicit phase or
 terminal-invariant closure references, and a flat conjunction of assertions.
 The supported assertion families are app or provider event occurrence and
@@ -251,6 +254,20 @@ keys use locale-independent code-unit ordering. The hash identifies the exact cl
 does not by itself establish semantic admissibility, evidence trust, or product
 success.
 
+`inspectScenarioClaimClosure(scenario, selection)` performs the pure structural
+closure inspection for one exact platform and optional variant. It reports
+`closed`, `not_closed`, or `outside_contract` with deterministic checks and
+blocking reasons. Closure requires unique journey, recovery-variant, claim, and
+assertion IDs with no phase, terminal-invariant, or recovery-variant collisions;
+resolved closure references; and applicable mandatory-claim coverage for every
+authored phase and terminal invariant. Supplemental claims do not close
+mandatory journey truth, and platform- or variant-scoped claims are never
+combined across selections. Required recovery needs an explicit recovery
+variant and at least one recovery-owned phase or terminal invariant; recovery
+marked `not_required` forbids both. `closed` means only that the authored claim
+graph covers the authored journey. It does not mean admitted, executable,
+supported, approved, evaluated, passed, stable, or certified.
+
 Verdict schemaVersion `1.1.0` requires compact `claimResults`. Claim and
 assertion statuses are `supported`, `rejected`, or `not_evaluable` with closed
 reason codes, normalized expected and observed values, run-relative evidence
@@ -263,12 +280,13 @@ a selected platform or adapter cannot supply an expected authority path,
 health becomes unsupported and affected requested claims become
 `not_evaluable`, never retroactively non-applicable.
 
-This foundation is reader-only. Schema acceptance proves structural contract
-validity, not semantic closure or product truth. Current runners continue to
-emit legacy verdicts only for legacy scenarios until the separately reviewed
-semantic-admissibility and claim-evaluation slices are implemented. Planning
-or profiling a scenario `1.1.0` fails before runtime and does not emit a legacy
-verdict. A consumer must not hand-author a
+This foundation is reader-only. Schema acceptance and closure inspection prove
+structural contract facts, not runtime admission or product truth. Authority
+and capability checks, safety and authorization, human approval, claim
+evaluation, stress aggregation, and verdict generation remain separate future
+gates. Current runners continue to emit legacy verdicts only for legacy
+scenarios. Planning or profiling a scenario `1.1.0` fails before runtime and
+does not emit a legacy verdict. A consumer must not hand-author a
 `1.1.0` passing verdict and treat schema validity as ASL evaluation.
 
 ## Public artifact layout
