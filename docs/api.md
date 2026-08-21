@@ -56,6 +56,16 @@ complete claim definition. This is a reader and authoring foundation only:
 current runners reject scenario `1.1.0` before runtime, do not evaluate these
 claims or emit verdict `1.1.0`, and a
 schema-valid claim result is not proof that ASL produced or trusted it.
+`ClaimAssertionResult` is discriminated by assertion kind and terminal status;
+its expectation and observation objects preserve event, order, terminal-state,
+bounded-count, absence, or artifact-validation structure without generic
+`present`/`absent` scalar conventions. Validate JSON consumers against the
+shipped verdict schema. TypeScript alone cannot enforce JSON integer refinements
+or prove that a repeated expectation matches its scenario claim. In
+particular, the schema enforces non-negative integer counts and a positive count
+for rejected absence while the structural TypeScript observation uses
+`number`; consumers must validate unknown JSON before relying on that numeric
+policy.
 
 Use `inspectScenarioClaimClosure(scenario, { platform, variant? })` to inspect
 the authored closure graph for one exact selection. The returned
