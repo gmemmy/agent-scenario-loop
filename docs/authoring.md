@@ -97,7 +97,8 @@ claim-complete product pass, and must not be certified by interpreting prose,
 milestones, budgets, or artifact presence as implicit claims.
 
 Scenario `1.1.0` is the additive claim declaration format. It requires a
-complete journey shape and at least one mandatory claim. A compact declaration
+complete journey shape, at least one mandatory claim, and an explicit static
+safety declaration. A compact declaration
 looks like this:
 
 ```json
@@ -148,7 +149,12 @@ looks like this:
         }
       ]
     }
-  ]
+  ],
+  "safety": {
+    "class": "read_only",
+    "rationale": "The journey observes navigation ownership without mutation.",
+    "allowedOperations": ["navigate", "observe", "dismiss"]
+  }
 }
 ```
 
@@ -166,6 +172,20 @@ recovery-owned phase or terminal invariant. When recovery is `not_required`,
 declare neither. These labels make authored ownership explicit; they do not
 turn setup, helper, command-delivery, or artifact-presence evidence into product
 truth.
+
+Classify the whole coherent journey as `read_only`, `local_mutation`,
+`reversible_backend_mutation`, or `destructive`. Read-only declarations contain
+only rationale and allowed operations. Mutating declarations name a stable
+mutation identity, rollback and cleanup policy, and terminal reconciliation.
+Bind mutation identity and every required safeguard to applicable mandatory
+assertion IDs with exactly one applicable claim owner, and bind reconciliation
+to both assertion IDs and authored terminal-invariant IDs. Do not put runtime authorization or human approval in
+the scenario; those are separate run-bound decisions.
+
+Use `inspectScenarioClaimSafety()` for one exact platform and optional variant.
+Its `complete` result means only that the authored static safety references are
+coherent. It does not authorize operations, prove a rollback implementation is
+available at runtime, acquire a resource, or admit execution.
 
 Use `inspectScenarioClaimClosure()` during authoring to inspect one exact
 platform and optional variant. A `closed` result requires every authored phase
