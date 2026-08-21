@@ -28,7 +28,7 @@ The root package is for stable, runner-neutral behavior:
 
 - artifact layout and artifact writers
 - claim-complete scenario/verdict structural types and deterministic claim hashing
-- claim authority-capability declarations and pure per-selection inspection
+- claim prerequisite declarations plus dependency and authority-capability inspection
 - profile-event parsing, metrics, manifests, causal runs, budget verdicts, and summaries
 - scenario execution-plan normalization, including resolved cadence pacing metadata
 - scenario/runner/provider compatibility checks
@@ -76,20 +76,36 @@ human approval, evidence, or verdict truth, and it has no filesystem or runner
 side effects. A `closed` result must never be presented as admission or product
 success.
 
+Use `inspectScenarioClaimDependencies(scenario, { platform, variant? })` to
+inspect the required top-level dependency inventory for one exact selection.
+The returned `ScenarioClaimDependencyInspection` reports `complete`,
+`incomplete`, or `outside_contract`, preserves applicable dependency IDs in
+authored order, and checks dependency identity, claim references, and
+applicability containment. `JourneyEntryDependency`, `ClaimScopedDependency`,
+and `ScenarioClaimDependency` are exported structural types. The reader does
+not discover, observe, execute, or admit a dependency predicate.
+
 Use `inspectScenarioClaimAuthority(scenario, { platform, variant? },
 declarations)` after schema and closure inspection to check the selected
-claim-complete assertions against caller-supplied authority-capabilities
+claim-complete assertions and dependency predicates against caller-supplied
+authority-capabilities
 `1.0.0` declarations. The returned `ScenarioClaimAuthorityInspection` reports
-`compatible`, `incompatible`, or `outside_contract`, per-assertion checks,
+`compatible`, `incompatible`, or `outside_contract`, per-subject checks,
 blocking reasons, and a bounded next action. The package also exports the
 `AuthorityCapabilities` structural type and registers the shipped schema as
 `SCHEMAS.authorityCapabilities`.
 
+Each authority check discriminates `subjectKind: "claim_assertion"` from
+`subjectKind: "dependency_predicate"`. Claim rows carry `claimId`, `claimRole`,
+and `assertionId`. Dependency rows carry `dependencyId`, `dependencyKind`, and
+`predicateId`; only `claim_scoped` rows carry `claimIds`. Consumers must not
+fabricate claim identity for a journey-entry prerequisite.
+
 The inspector performs no discovery, filesystem reads, runner work, evidence
 evaluation, or artifact writes. `compatible` means only that each applicable
-assertion has an exact declared producer path with sufficient static strength
-and completeness. It does not mean admitted, executable, available at runtime,
-approved, evaluated, or passed. Validate untrusted declarations against
+claim assertion and dependency predicate has an exact declared producer path
+with sufficient static strength and completeness. It does not mean admitted,
+executable, available at runtime, approved, evaluated, or passed. Validate untrusted declarations against
 `agent-scenario-loop/schemas/authority-capabilities.schema.json` before treating
 them as catalog input.
 

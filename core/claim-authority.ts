@@ -7,6 +7,7 @@ import {
   type ClaimRole,
   type ScenarioClaimAssertion,
   type ScenarioClaimDefinition,
+  type ScenarioClaimDependency,
 } from './claim-contract';
 import { SCHEMAS, validateJson } from './schema-validator';
 
@@ -56,10 +57,7 @@ type AuthorityCapabilities = {
   validationContracts?: [string, ...string[]];
 };
 
-type ScenarioClaimAuthorityCheck = {
-  claimId: string;
-  claimRole: ClaimRole;
-  assertionId: string;
+type ScenarioClaimAuthorityCheckBase = {
   assertionKind: ClaimAssertionKind;
   authorityRole: ClaimAuthorityRole;
   producerId: string;
@@ -68,12 +66,30 @@ type ScenarioClaimAuthorityCheck = {
   declarationId?: string;
 };
 
+type ScenarioClaimAuthorityCheck = ScenarioClaimAuthorityCheckBase & (
+  | {
+      subjectKind: 'claim_assertion';
+      claimId: string;
+      claimRole: ClaimRole;
+      assertionId: string;
+    }
+  | {
+      subjectKind: 'dependency_predicate';
+      dependencyId: string;
+      dependencyKind: ScenarioClaimDependency['kind'];
+      predicateId: string;
+      claimIds?: string[];
+    }
+);
+
 type ScenarioClaimAuthorityBlockingReason = {
   code: ClaimAuthorityReasonCode;
   message: string;
   affectedIds: string[];
   claimId?: string;
   assertionId?: string;
+  dependencyId?: string;
+  predicateId?: string;
 };
 
 type ScenarioClaimAuthorityInspection = {
@@ -91,12 +107,20 @@ type ClaimCompleteScenario = {
   schemaVersion: typeof CLAIM_CONTRACT_SCHEMA_VERSION;
   platforms: ClaimAuthorityPlatform[];
   claims: ScenarioClaimDefinition[];
+  dependencies: ScenarioClaimDependency[];
 };
 
-type AssertionContext = {
-  claim: ScenarioClaimDefinition;
-  assertion: ScenarioClaimAssertion;
-};
+type AssertionContext =
+  | {
+      subjectKind: 'claim_assertion';
+      claim: ScenarioClaimDefinition;
+      assertion: ScenarioClaimAssertion;
+    }
+  | {
+      subjectKind: 'dependency_predicate';
+      dependency: ScenarioClaimDependency;
+      assertion: ScenarioClaimAssertion;
+    };
 
 type AssertionMismatch = {
   code: ClaimAuthorityReasonCode;
@@ -178,9 +202,24 @@ function inspectScenarioClaimAuthority(
     };
   }
 
-  const applicableAssertions = candidate.claims
+  const applicableClaimAssertions: AssertionContext[] = candidate.claims
     .filter((claim) => claimApplies(claim, selection))
-    .flatMap((claim) => claim.assertions.map((assertion) => ({ claim, assertion })));
+    .flatMap((claim) => claim.assertions.map((assertion) => ({
+      subjectKind: 'claim_assertion' as const,
+      claim,
+      assertion,
+    })));
+  const applicableDependencyPredicates: AssertionContext[] = candidate.dependencies
+    .filter((dependency) => applicabilityMatches(dependency.applicability, selection))
+    .map((dependency) => ({
+      subjectKind: 'dependency_predicate' as const,
+      dependency,
+      assertion: dependency.predicate,
+    }));
+  const applicableAssertions = [
+    ...applicableClaimAssertions,
+    ...applicableDependencyPredicates,
+  ];
   const checks: ScenarioClaimAuthorityCheck[] = [];
   const blockingReasons: ScenarioClaimAuthorityBlockingReason[] = [];
 
@@ -271,7 +310,7 @@ function inspectAssertionAuthority(
   check: ScenarioClaimAuthorityCheck;
   reasons: ScenarioClaimAuthorityBlockingReason[];
 } {
-  const { claim, assertion } = context;
+  const { assertion } = context;
   const authorityDeclarations = declarations.filter(
     (declaration) =>
       declaration.role === assertion.authority.role &&
@@ -281,27 +320,68 @@ function inspectAssertionAuthority(
     declaration.platforms.includes(platform),
   );
   const mismatches = buildAssertionMismatches(assertion, authorityDeclarations, platformDeclaration);
-  const reasons = mismatches.map((mismatch) => ({
-    code: mismatch.code,
-    message: mismatch.message,
-    affectedIds: [claim.id, assertion.id],
-    claimId: claim.id,
-    assertionId: assertion.id,
-  }));
+  const reasons = mismatches.map((mismatch) => buildBlockingReason(context, mismatch));
 
   return {
-    check: {
-      claimId: claim.id,
-      claimRole: claim.role,
-      assertionId: assertion.id,
-      assertionKind: assertion.kind,
-      authorityRole: assertion.authority.role,
-      producerId: assertion.authority.producerId,
-      outcome: reasons.length === 0 ? 'matched' : 'not_matched',
-      reasonCodes: reasons.map((reason) => reason.code),
-      ...(platformDeclaration ? { declarationId: platformDeclaration.declarationId } : {}),
-    },
+    check: buildAuthorityCheck(
+      context,
+      {
+        assertionKind: assertion.kind,
+        authorityRole: assertion.authority.role,
+        producerId: assertion.authority.producerId,
+        outcome: reasons.length === 0 ? 'matched' : 'not_matched',
+        reasonCodes: reasons.map((reason) => reason.code),
+        ...(platformDeclaration ? { declarationId: platformDeclaration.declarationId } : {}),
+      },
+    ),
     reasons,
+  };
+}
+
+function buildAuthorityCheck(
+  context: AssertionContext,
+  base: ScenarioClaimAuthorityCheckBase,
+): ScenarioClaimAuthorityCheck {
+  if (context.subjectKind === 'claim_assertion') {
+    return {
+      ...base,
+      subjectKind: 'claim_assertion',
+      claimId: context.claim.id,
+      claimRole: context.claim.role,
+      assertionId: context.assertion.id,
+    };
+  }
+  return {
+    ...base,
+    subjectKind: 'dependency_predicate',
+    dependencyId: context.dependency.id,
+    dependencyKind: context.dependency.kind,
+    predicateId: context.assertion.id,
+    ...(context.dependency.kind === 'claim_scoped'
+      ? { claimIds: [...context.dependency.claimIds] }
+      : {}),
+  };
+}
+
+function buildBlockingReason(
+  context: AssertionContext,
+  mismatch: AssertionMismatch,
+): ScenarioClaimAuthorityBlockingReason {
+  if (context.subjectKind === 'claim_assertion') {
+    return {
+      code: mismatch.code,
+      message: mismatch.message,
+      affectedIds: [context.claim.id, context.assertion.id],
+      claimId: context.claim.id,
+      assertionId: context.assertion.id,
+    };
+  }
+  return {
+    code: mismatch.code,
+    message: mismatch.message,
+    affectedIds: [context.dependency.id, context.assertion.id],
+    dependencyId: context.dependency.id,
+    predicateId: context.assertion.id,
   };
 }
 
@@ -381,15 +461,22 @@ function claimApplies(
   claim: ScenarioClaimDefinition,
   selection: ClaimAuthoritySelection,
 ): boolean {
-  if (!claim.applicability.platforms.includes(selection.platform)) {
+  return applicabilityMatches(claim.applicability, selection);
+}
+
+function applicabilityMatches(
+  applicability: ScenarioClaimDefinition['applicability'],
+  selection: ClaimAuthoritySelection,
+): boolean {
+  if (!applicability.platforms.includes(selection.platform)) {
     return false;
   }
-  if (!claim.applicability.variants) {
+  if (!applicability.variants) {
     return true;
   }
   return selection.variant === undefined
     ? false
-    : claim.applicability.variants.includes(selection.variant);
+    : applicability.variants.includes(selection.variant);
 }
 
 function outsideContract(

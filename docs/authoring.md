@@ -154,7 +154,26 @@ looks like this:
     "class": "read_only",
     "rationale": "The journey observes navigation ownership without mutation.",
     "allowedOperations": ["navigate", "observe", "dismiss"]
-  }
+  },
+  "dependencies": [
+    {
+      "id": "authenticated-entry",
+      "kind": "journey_entry",
+      "applicability": { "platforms": ["ios", "android"] },
+      "predicate": {
+        "id": "authenticated-session-ready",
+        "kind": "eventOccurrence",
+        "event": "authenticated_session_ready",
+        "authority": {
+          "role": "app",
+          "producerId": "app-profile-session",
+          "evidenceSelector": "profileEvents.authenticated_session_ready",
+          "requiredStrength": "observed",
+          "completeness": "point"
+        }
+      }
+    }
+  ]
 }
 ```
 
@@ -163,6 +182,22 @@ Claims are flat conjunctions; do not nest assertions or add scripts that decide
 their own result. `applicability` is authored before runtime. A missing adapter
 or authority capability on a selected platform is unsupported evidence and a
 `not_evaluable` requested claim, not retroactive `not_applicable` coverage.
+
+Declare prerequisites in the required top-level `dependencies` inventory; use
+an explicit empty array when the journey has none. A `journey_entry` dependency
+gates the coherent journey. A `claim_scoped` dependency additionally names the
+non-empty claim set it gates. Both reuse the closed assertion vocabulary as a
+single `predicate`, including an exact authority requirement. Dependency IDs
+are unique, claim references must resolve, and dependency applicability cannot
+be broader than the scenario or any referenced claim. These are authored,
+hash-bound contract facts, not mutable setup sidecars or runtime results.
+
+Use `inspectScenarioClaimDependencies()` for one platform and optional variant
+to validate identity, claim references, applicability, and the selected
+dependency inventory. `complete` is structural only. Then include dependency
+predicates in `inspectScenarioClaimAuthority()`; missing producer capability is
+`incompatible`, not retroactive non-applicability. Neither reader observes a
+predicate, releases a command, admits execution, or produces a verdict.
 
 Use `coverageKind: "product"` for journey nodes that perform or preserve the
 intended product outcome. Use `coverageKind: "recovery"` for authored

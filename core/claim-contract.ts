@@ -130,6 +130,28 @@ type ScenarioClaimAssertion =
   | AbsenceAssertion
   | ValidatedEvidenceAssertion;
 
+type ClaimApplicability = {
+  platforms: NonEmptyArray<'ios' | 'android'>;
+  variants?: NonEmptyArray<string>;
+};
+
+type JourneyEntryDependency = {
+  id: string;
+  kind: 'journey_entry';
+  applicability: ClaimApplicability;
+  predicate: ScenarioClaimAssertion;
+};
+
+type ClaimScopedDependency = {
+  id: string;
+  kind: 'claim_scoped';
+  applicability: ClaimApplicability;
+  claimIds: NonEmptyArray<string>;
+  predicate: ScenarioClaimAssertion;
+};
+
+type ScenarioClaimDependency = JourneyEntryDependency | ClaimScopedDependency;
+
 type ClaimClosure =
   | {
       phases: NonEmptyArray<string>;
@@ -143,10 +165,7 @@ type ClaimClosure =
 type ScenarioClaimDefinition = {
   id: string;
   role: ClaimRole;
-  applicability: {
-    platforms: NonEmptyArray<'ios' | 'android'>;
-    variants?: NonEmptyArray<string>;
-  };
+  applicability: ClaimApplicability;
   closes: ClaimClosure;
   assertions: NonEmptyArray<ScenarioClaimAssertion>;
 };
@@ -448,7 +467,7 @@ function assertScenarioExecutionContractSupported(scenario: unknown): void {
     );
   }
 
-  const readerOnlyFields = ['claims', 'safety'].filter((field) =>
+  const readerOnlyFields = ['claims', 'safety', 'dependencies'].filter((field) =>
     Object.prototype.hasOwnProperty.call(candidate, field),
   );
   if (readerOnlyFields.length > 0) {
@@ -476,6 +495,7 @@ export type {
   BoundedCountObservation,
   BoundedCountResult,
   ClaimAssertionResult,
+  ClaimApplicability,
   ClaimAuthority,
   ClaimAuthorityRole,
   ClaimClosure,
@@ -499,6 +519,7 @@ export type {
   EventOrderObservation,
   EventOrderResult,
   DestructiveScenarioSafety,
+  JourneyEntryDependency,
   LocalMutationScenarioSafety,
   NotRequiredSafetyAction,
   ReadOnlyScenarioSafety,
@@ -510,7 +531,9 @@ export type {
   ScenarioSafetyDeclaration,
   ScenarioSafetyReconciliation,
   ScenarioClaimAssertion,
+  ScenarioClaimDependency,
   ScenarioClaimDefinition,
+  ClaimScopedDependency,
   TerminalStateAssertion,
   TerminalStateExpectation,
   TerminalStateObservation,
