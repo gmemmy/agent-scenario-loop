@@ -268,6 +268,37 @@ marked `not_required` forbids both. `closed` means only that the authored claim
 graph covers the authored journey. It does not mean admitted, executable,
 supported, approved, evaluated, passed, stable, or certified.
 
+An authority-capabilities `1.0.0` declaration is a separate, product-neutral
+catalog entry for one named `app`, `runner`, `adapter`, `provider`, or
+`comparator` producer. It declares the exact platforms, assertion kinds,
+evidence selectors, maximum identity strength, and maximum completeness that
+producer can supply. A declaration supporting `validatedEvidence` also names
+its artifact kinds and validation contracts. Scenario assertions name the
+producer they require; the scenario cannot declare or prove that producer's
+capability itself. Authority declarations are not runner manifests, and ASL
+does not infer semantic authority from generic runner capabilities or artifact
+outputs.
+
+`inspectScenarioClaimAuthority(scenario, selection, declarations)` performs a
+pure pre-runtime compatibility check for every applicable mandatory and
+supplemental assertion. Matching is exact for role, producer ID, platform,
+assertion kind, and evidence selector. Declared identity strength and
+completeness must meet or exceed the assertion requirement; validated evidence
+must also match its artifact kind and validation contract. Results are
+`compatible`, `incompatible`, or `outside_contract` with deterministic checks,
+blocking reasons, and next action. Overlapping declarations for the same named
+producer and selected platform are a catalog error. Disjoint platform
+declarations are allowed. An in-contract platform with no compatible path is
+`incompatible`, never retroactively non-applicable.
+
+Authority compatibility remains only one conjunctive admission fact. It does
+not establish safety, authorization, human approval, runtime availability,
+evaluation, product success, or proof-tier identity. Declarations in this
+foundation are caller-supplied and unsigned; exact declaration identity and
+human approval belong to a later gate. When no assertions apply to an exact
+selection, authority inspection is vacuously compatible because structural
+closure remains a separate required gate.
+
 Verdict schemaVersion `1.1.0` requires compact `claimResults`. Claim and
 assertion statuses are `supported`, `rejected`, or `not_evaluable` with closed
 reason codes, normalized expected and observed values, run-relative evidence
@@ -280,11 +311,11 @@ a selected platform or adapter cannot supply an expected authority path,
 health becomes unsupported and affected requested claims become
 `not_evaluable`, never retroactively non-applicable.
 
-This foundation is reader-only. Schema acceptance and closure inspection prove
-structural contract facts, not runtime admission or product truth. Authority
-and capability checks, safety and authorization, human approval, claim
-evaluation, stress aggregation, and verdict generation remain separate future
-gates. Current runners continue to emit legacy verdicts only for legacy
+This foundation is reader-only. Schema acceptance, closure inspection, and
+authority-capability inspection prove pre-runtime contract facts, not runtime
+admission or product truth. Safety and authorization, exact-hash human
+approval, claim evaluation, stress aggregation, and verdict generation remain
+separate future gates. Current runners continue to emit legacy verdicts only for legacy
 scenarios. Planning or profiling a scenario `1.1.0` fails before runtime and
 does not emit a legacy verdict. A consumer must not hand-author a
 `1.1.0` passing verdict and treat schema validity as ASL evaluation.

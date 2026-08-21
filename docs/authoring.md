@@ -47,6 +47,7 @@ You can also copy these files manually and rename them as needed:
 | `templates/mobile-scenario.json` | First portable mobile scenario |
 | `templates/primary-runner.json` | Primary runner capability manifest |
 | `templates/evidence-provider.json` | Optional evidence-provider manifest |
+| `templates/authority-capabilities.json` | Static authority declaration for one named claim-evidence producer |
 | `templates/scripts/asl-capture-accessibility-provider.mjs` | Runnable starter provider command for deterministic accessibility evidence |
 | `templates/scripts/asl-capture-native-performance-provider.mjs` | Starter native-performance provider with scaffold/input ingestion plus opt-in Android adb and iOS Simulator xctrace diagnostics |
 | `templates/scripts/asl-capture-profiler-provider.mjs` | Runnable starter provider command for deterministic profiler, memory, and network evidence |
@@ -175,9 +176,33 @@ must also remain unique and unambiguous. The result is a structural authoring
 check only, not runtime admission, support, approval, evaluation, or a product
 pass.
 
+After closure, use `inspectScenarioClaimAuthority()` with one or more validated
+authority-capabilities declarations. Each declaration belongs to one named
+producer and lists the exact platforms, assertion kinds, evidence selectors,
+maximum identity strength, and maximum completeness it can supply. A
+`validatedEvidence` producer must additionally list artifact kinds and named
+validation contracts. Keep declarations separate from runner manifests:
+generic runner capabilities and artifact outputs do not establish semantic
+authority.
+
+The assertion's `authority.role` and `authority.producerId` select one producer
+exactly. ASL does not search for a more convenient producer after authoring and
+does not combine declarations from different platforms. Missing static paths
+make the selected contract incompatible rather than non-applicable.
+Supplemental assertions require the same compatible path rigor as mandatory
+assertions even though only mandatory claims close journey truth. The template
+at `templates/authority-capabilities.json` is a product-neutral starting point;
+replace its producer and selector vocabulary with the consuming project's
+declared evidence contract.
+
+This inspection is not admission or runtime capability discovery. The initial
+declarations are caller-supplied and unsigned. Keep executable scenarios on
+`1.0.0` until the later safety, authorization, exact-hash approval, and claim
+evaluation gates are available.
+
 This release surface makes the contract representable and provides pure
-structural closure inspection. It does not admit scenarios to runtime or
-generate claim results. Keep templates and executable scenarios on `1.0.0`
+structural closure and authority-capability inspection. It does not admit
+scenarios to runtime or generate claim results. Keep templates and executable scenarios on `1.0.0`
 until the admission and claim-evaluation gates ship. Current planning and
 profile entry points reject `1.1.0` before runtime rather than emitting a
 misleading legacy verdict.

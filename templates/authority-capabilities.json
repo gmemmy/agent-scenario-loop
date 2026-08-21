@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "1.0.0",
+  "declarationId": "example-app-profile-authority",
+  "role": "app",
+  "producerId": "app-profile-session",
+  "platforms": ["ios", "android"],
+  "assertionKinds": ["eventOccurrence", "eventOrder", "terminalState"],
+  "evidenceSelectors": [
+    "profileEvents.journey_completed",
+    "profileEvents.journey_order",
+    "profileState.terminal"
+  ],
+  "maxStrength": "verified",
+  "maxCompleteness": "continuous-complete"
+}

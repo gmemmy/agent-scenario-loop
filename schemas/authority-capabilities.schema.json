@@ -1,0 +1,149 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-scenario-loop.dev/schemas/authority-capabilities.schema.json",
+  "title": "Agent Scenario Loop Authority Capabilities",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "declarationId",
+    "role",
+    "producerId",
+    "platforms",
+    "assertionKinds",
+    "evidenceSelectors",
+    "maxStrength",
+    "maxCompleteness"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "1.0.0"
+    },
+    "declarationId": {
+      "$ref": "#/$defs/stableId"
+    },
+    "role": {
+      "$ref": "#/$defs/authorityRole"
+    },
+    "producerId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "platforms": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/platform"
+      }
+    },
+    "assertionKinds": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/assertionKind"
+      }
+    },
+    "evidenceSelectors": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 512
+      }
+    },
+    "maxStrength": {
+      "$ref": "#/$defs/identityStrength"
+    },
+    "maxCompleteness": {
+      "$ref": "#/$defs/evidenceCompleteness"
+    },
+    "artifactKinds": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/artifactKind"
+      }
+    },
+    "validationContracts": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 512
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "assertionKinds": {
+            "contains": {
+              "const": "validatedEvidence"
+            }
+          }
+        },
+        "required": ["assertionKinds"]
+      },
+      "then": {
+        "required": ["artifactKinds", "validationContracts"]
+      }
+    }
+  ],
+  "$defs": {
+    "stableId": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*$"
+    },
+    "authorityRole": {
+      "type": "string",
+      "enum": ["app", "runner", "adapter", "provider", "comparator"]
+    },
+    "platform": {
+      "type": "string",
+      "enum": ["ios", "android"]
+    },
+    "assertionKind": {
+      "type": "string",
+      "enum": [
+        "eventOccurrence",
+        "eventOrder",
+        "terminalState",
+        "boundedCount",
+        "absence",
+        "validatedEvidence"
+      ]
+    },
+    "identityStrength": {
+      "type": "string",
+      "enum": ["observed", "verified"]
+    },
+    "evidenceCompleteness": {
+      "type": "string",
+      "enum": ["point", "bounded", "continuous-complete"]
+    },
+    "artifactKind": {
+      "type": "string",
+      "enum": [
+        "logs",
+        "screenshot",
+        "video",
+        "uiTree",
+        "memory",
+        "nativePerformance",
+        "network",
+        "profiler",
+        "accessibility",
+        "signals"
+      ]
+    }
+  }
+}
