@@ -18,13 +18,23 @@
             "$ref": "#/$defs/journey"
           }
         },
-        "not": {
-          "required": ["claims"],
-          "description": "Legacy scenario schemaVersion 1.0.0 cannot declare claim-complete claims."
-        }
+        "allOf": [
+          {
+            "not": {
+              "required": ["claims"],
+              "description": "Legacy scenario schemaVersion 1.0.0 cannot declare claim-complete claims."
+            }
+          },
+          {
+            "not": {
+              "required": ["safety"],
+              "description": "Legacy scenario schemaVersion 1.0.0 cannot declare claim-complete safety."
+            }
+          }
+        ]
       },
       "else": {
-        "required": ["journey", "claims"],
+        "required": ["journey", "claims", "safety"],
         "properties": {
           "journey": {
             "$ref": "#/$defs/claimCompleteJourney"
@@ -37,6 +47,9 @@
               },
               "required": ["role"]
             }
+          },
+          "safety": {
+            "$ref": "#/$defs/scenarioSafety"
           }
         }
       }
@@ -94,6 +107,9 @@
       "items": {
         "$ref": "#/$defs/scenarioClaim"
       }
+    },
+    "safety": {
+      "$ref": "#/$defs/scenarioSafety"
     },
     "platforms": {
       "type": "array",
@@ -370,6 +386,165 @@
           }
         }
       }
+    },
+    "scenarioSafety": {
+      "anyOf": [
+        { "$ref": "#/$defs/readOnlyScenarioSafety" },
+        { "$ref": "#/$defs/localMutationScenarioSafety" },
+        { "$ref": "#/$defs/reversibleBackendMutationScenarioSafety" },
+        { "$ref": "#/$defs/destructiveScenarioSafety" }
+      ]
+    },
+    "readOnlyScenarioSafety": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["class", "rationale", "allowedOperations"],
+      "properties": {
+        "class": { "const": "read_only" },
+        "rationale": { "type": "string", "minLength": 1 },
+        "allowedOperations": { "$ref": "#/$defs/safetyOperations" }
+      }
+    },
+    "localMutationScenarioSafety": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "class",
+        "rationale",
+        "allowedOperations",
+        "mutationIdentity",
+        "rollback",
+        "cleanup",
+        "reconciliation"
+      ],
+      "anyOf": [
+        {
+          "properties": {
+            "rollback": { "$ref": "#/$defs/requiredSafetyAction" }
+          }
+        },
+        {
+          "properties": {
+            "cleanup": { "$ref": "#/$defs/requiredSafetyAction" }
+          }
+        }
+      ],
+      "properties": {
+        "class": { "const": "local_mutation" },
+        "rationale": { "type": "string", "minLength": 1 },
+        "allowedOperations": { "$ref": "#/$defs/safetyOperations" },
+        "mutationIdentity": { "$ref": "#/$defs/safetyMutationIdentity" },
+        "rollback": { "$ref": "#/$defs/safetyAction" },
+        "cleanup": { "$ref": "#/$defs/safetyAction" },
+        "reconciliation": { "$ref": "#/$defs/safetyReconciliation" }
+      }
+    },
+    "reversibleBackendMutationScenarioSafety": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "class",
+        "rationale",
+        "allowedOperations",
+        "mutationIdentity",
+        "rollback",
+        "cleanup",
+        "reconciliation"
+      ],
+      "properties": {
+        "class": { "const": "reversible_backend_mutation" },
+        "rationale": { "type": "string", "minLength": 1 },
+        "allowedOperations": { "$ref": "#/$defs/safetyOperations" },
+        "mutationIdentity": { "$ref": "#/$defs/safetyMutationIdentity" },
+        "rollback": { "$ref": "#/$defs/requiredSafetyAction" },
+        "cleanup": { "$ref": "#/$defs/safetyAction" },
+        "reconciliation": { "$ref": "#/$defs/safetyReconciliation" }
+      }
+    },
+    "destructiveScenarioSafety": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "class",
+        "rationale",
+        "allowedOperations",
+        "mutationIdentity",
+        "rollback",
+        "cleanup",
+        "reconciliation"
+      ],
+      "properties": {
+        "class": { "const": "destructive" },
+        "rationale": { "type": "string", "minLength": 1 },
+        "allowedOperations": { "$ref": "#/$defs/safetyOperations" },
+        "mutationIdentity": { "$ref": "#/$defs/safetyMutationIdentity" },
+        "rollback": { "$ref": "#/$defs/safetyAction" },
+        "cleanup": { "$ref": "#/$defs/requiredSafetyAction" },
+        "reconciliation": { "$ref": "#/$defs/safetyReconciliation" }
+      }
+    },
+    "safetyOperations": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "safetyMutationIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "assertionIds"],
+      "properties": {
+        "id": { "$ref": "#/$defs/stableId" },
+        "assertionIds": { "$ref": "#/$defs/safetyAssertionIds" }
+      }
+    },
+    "safetyAction": {
+      "anyOf": [
+        { "$ref": "#/$defs/requiredSafetyAction" },
+        { "$ref": "#/$defs/notRequiredSafetyAction" }
+      ]
+    },
+    "requiredSafetyAction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "rationale", "assertionIds"],
+      "properties": {
+        "status": { "const": "required" },
+        "rationale": { "type": "string", "minLength": 1 },
+        "assertionIds": { "$ref": "#/$defs/safetyAssertionIds" }
+      }
+    },
+    "notRequiredSafetyAction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "rationale"],
+      "properties": {
+        "status": { "const": "not_required" },
+        "rationale": { "type": "string", "minLength": 1 }
+      }
+    },
+    "safetyReconciliation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["terminalInvariantIds", "assertionIds"],
+      "properties": {
+        "terminalInvariantIds": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/stableId" }
+        },
+        "assertionIds": { "$ref": "#/$defs/safetyAssertionIds" }
+      }
+    },
+    "safetyAssertionIds": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/stableId" }
     },
     "scenarioClaim": {
       "type": "object",

@@ -223,8 +223,9 @@ legacy diagnostic contracts. ASL does not infer claims from their milestones,
 budgets, descriptions, or attached evidence, and a legacy scenario cannot add a
 `claims` field to imply otherwise.
 
-A scenario `1.1.0` declaration requires a complete `journey` shape and a
-non-empty `claims` array containing at least one `mandatory` claim. The journey
+A scenario `1.1.0` declaration requires a complete `journey` shape, a
+non-empty `claims` array containing at least one `mandatory` claim, and a
+`safety` declaration. The journey
 names its actor, start and end state, phases, terminal invariants, and recovery
 contract. Every phase, terminal invariant, and recovery variant declares
 `coverageKind: "product"` or `coverageKind: "recovery"`; this identifies the
@@ -236,6 +237,14 @@ The supported assertion families are app or provider event occurrence and
 ordering, terminal-state equality, bounded count, bounded absence, and
 validated evidence presence. Nested Boolean claim expressions and evaluator
 scripts are not part of this contract.
+
+The static `safety` declaration classifies the scenario as `read_only`,
+`local_mutation`, `reversible_backend_mutation`, or `destructive` and names the
+operations the author permits the scenario to request. Mutating declarations
+bind mutation identity and terminal reconciliation to existing assertion IDs.
+Local mutation requires rollback or cleanup truth, reversible backend mutation
+requires rollback truth, and destructive work requires cleanup truth. Runtime
+grants and human approval do not belong in this static declaration.
 
 Every assertion names its authority role, producer, evidence selector,
 required identity strength, and completeness. The closed authority roles are
@@ -267,6 +276,15 @@ variant and at least one recovery-owned phase or terminal invariant; recovery
 marked `not_required` forbids both. `closed` means only that the authored claim
 graph covers the authored journey. It does not mean admitted, executable,
 supported, approved, evaluated, passed, stable, or certified.
+
+`inspectScenarioClaimSafety(scenario, selection)` performs a pure static safety
+inspection for one exact platform and optional variant. It reports `complete`,
+`incomplete`, or `outside_contract`. A mutating safety contract is complete only
+when every referenced assertion has exactly one applicable claim owner, that
+owner is mandatory, and every reconciliation invariant exists in the authored
+journey. `complete` does not grant authority, prove that safeguards are
+available, or admit runtime work. Runtime authorization, resource ownership,
+and mutable-boundary revalidation remain separate gates.
 
 An authority-capabilities `1.0.0` declaration is a separate, product-neutral
 catalog entry for one named `app`, `runner`, `adapter`, `provider`, or
@@ -311,9 +329,9 @@ a selected platform or adapter cannot supply an expected authority path,
 health becomes unsupported and affected requested claims become
 `not_evaluable`, never retroactively non-applicable.
 
-This foundation is reader-only. Schema acceptance, closure inspection, and
-authority-capability inspection prove pre-runtime contract facts, not runtime
-admission or product truth. Safety and authorization, exact-hash human
+This foundation is reader-only. Schema acceptance, closure inspection,
+authority-capability inspection, and safety inspection prove pre-runtime contract facts, not runtime
+admission or product truth. Runtime safety enforcement and authorization, exact-hash human
 approval, claim evaluation, stress aggregation, and verdict generation remain
 separate future gates. Current runners continue to emit legacy verdicts only for legacy
 scenarios. Planning or profiling a scenario `1.1.0` fails before runtime and

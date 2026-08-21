@@ -98,6 +98,11 @@ function sampleClaimCompleteScenario(): JsonRecord {
       ],
     },
   ];
+  scenario.safety = {
+    class: 'read_only',
+    rationale: 'The scenario observes product behavior without mutation.',
+    allowedOperations: ['observe'],
+  };
   return scenario;
 }
 
