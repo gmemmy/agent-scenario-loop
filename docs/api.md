@@ -232,11 +232,30 @@ An `eligible` result includes `eligibleCandidate`, a newly assembled
 detached from the caller candidate: authority, evidence path and SHA, and
 nested observation-window data are copied, and the reader never returns or
 retains the original object. Capture is always `produced`; cleanup is only
-`finalized` or `not_required`. The union is kind-strict:
-`validatedEvidence` carries artifact kind and validation contract only,
-`boundedCount` and `absence` carry the observation window only, and
-`eventOccurrence`, `eventOrder`, and `terminalState` carry neither. Blocked
-and `outside_contract` results omit `eligibleCandidate`.
+`finalized` or `not_required`. The union is kind-strict: `validatedEvidence`
+carries artifact kind and validation contract only, `boundedCount` and
+`absence` carry the observation window only, and `eventOccurrence`,
+`eventOrder`, and `terminalState` carry neither. Blocked and
+`outside_contract` results omit `eligibleCandidate`.
+
+Use `inspectScenarioClaimRawObservationAdmission({ candidate, artifactBytes })`
+with that `eligibleCandidate` projection to bind one JSON observation artifact
+to its exact declared bytes before decoding it. The reader recomputes SHA-256
+over the supplied `Uint8Array`, compares it with the candidate evidence hash,
+then performs fatal UTF-8 decoding and closed-shape JSON parsing. It admits
+`eventOccurrence`, `eventOrder`, `terminalState`, `boundedCount`, and `absence`
+observations. Windowed observations must repeat the exact eligible observation
+window. Results are `outside_contract`, `blocked`, `unsupported`, or `admitted`.
+`validatedEvidence` is explicitly `unsupported` until ASL defines how a
+validator or comparator report receives its own evidence identity.
+
+This pure reader performs no file discovery or writes, and an admitted
+observation is not an assertion result, health result, product verdict,
+baseline, or runtime acceptance. Artifact presence proves only the artifact
+obligation. Production callers must pass the projection returned by the
+candidate-identity reader rather than synthesizing authority. The exported
+raw-observation types describe an in-process decoded view; this slice defines
+no new persisted proof artifact or schema file.
 
 `eligible` means only that the named candidate may enter a future semantic
 assertion evaluator. It does not establish assertion support, contradiction,
