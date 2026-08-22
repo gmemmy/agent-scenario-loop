@@ -484,6 +484,24 @@ baseline, certification, publication, or runtime acceptance. `not_applicable`
 is not a runtime result here. This slice does not enable scenario 1.1.0
 execution.
 
+`inspectScenarioClaimJsonNativeWindowedInterpretation(assertionInput, admittedInput)`
+is the pure post-admission assertion interpreter for JSON-native `boundedCount`
+and `absence` claims. Input must be a matching admitted raw-observation result
+plus the exact assertion. The admitted observation is a prerequisite: this
+slice does not admit artifacts, and an admitted artifact alone is not semantic
+support or product behavior. Inclusive window bounds apply. Interpretation
+requires a complete window; count zero is not absence proof without that
+complete authority. The function returns one `ClaimAssertionResult` only.
+Outputs are `outside_contract` or `interpreted`. Interpreted assertion results
+are `supported`, `rejected`, or `not_evaluable`. `not_applicable` is excluded
+at runtime. Trust is
+`admitted_observation_interpretation_only`. `supported`, `rejected`, and
+`not_evaluable` are assertion-level semantics only, not health, claim result,
+journey verdict, baseline, certification, publication, or runtime acceptance.
+Candidate reconciliation, health, `ClaimResult`, verdict, runtime, artifact
+writes, and publication remain separate. `not_applicable` is not a runtime
+result here. This slice does not enable scenario 1.1.0 execution.
+
 `inspectScenarioClaimValidatedEvidenceReportIdentity(input)` is the pure
 evidence-plane boundary for a distinct closed validator or comparator report
 identity. It accepts only an eligible `validatedEvidence` candidate
