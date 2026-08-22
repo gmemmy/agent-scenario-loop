@@ -3,7 +3,7 @@ const { readFileSync } = require('node:fs');
 const { SCHEMAS, assertValidJson } = require('./schema-validator');
 
 const CI_EVIDENCE_PACK_SCHEMA_VERSION = '1.0.0' as const;
-const SOURCE_SHA_PATTERN = /^[a-f0-9]{40,64}$/;
+const SOURCE_SHA_PATTERN = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/;
 const SHA256_PATTERN = /^[a-f0-9]{64}$/;
 
 export type CiEvidencePackSchemaVersion = typeof CI_EVIDENCE_PACK_SCHEMA_VERSION;
@@ -82,6 +82,8 @@ export interface CiEvidencePackAttemptRecord {
   scenarioId: string;
   runId: string;
   status: CiEvidencePackAttemptStatus;
+  attemptNumber: number;
+  maxAttempts: number;
   startedAt: string;
   endedAt?: string;
   predecessorAttemptId?: string;
@@ -173,9 +175,9 @@ function assertCiEvidencePackRunRelativePath(pathValue: string): void {
     throw new CiEvidencePackError(`run-relative path must not be drive-qualified: ${pathValue}`);
   }
   const segments = pathValue.split('/');
-  if (segments.some((segment) => segment === '..' || segment.length === 0)) {
+  if (segments.some((segment) => segment === '..' || segment === '.' || segment.length === 0)) {
     throw new CiEvidencePackError(
-      `run-relative path must not traverse or be empty-segmented: ${pathValue}`,
+      `run-relative path must not traverse, use dot segments, or be empty-segmented: ${pathValue}`,
     );
   }
 }
@@ -195,8 +197,30 @@ function assertIsoTimestamp(value: string, label: string): void {
 
 function assertSourceSha(value: string, label: string): void {
   if (!SOURCE_SHA_PATTERN.test(value)) {
-    throw new CiEvidencePackError(`${label} must be lowercase 40-64 hex`);
+    throw new CiEvidencePackError(`${label} must be lowercase git-40 or SHA-256-64 hex`);
   }
+}
+
+function assertPositiveInteger(value: number, label: string): void {
+  if (!Number.isInteger(value) || value < 1) {
+    throw new CiEvidencePackError(`${label} must be a positive integer`);
+  }
+}
+
+function assertPositiveByteSize(value: number, label: string): void {
+  if (!Number.isInteger(value) || value < 1) {
+    throw new CiEvidencePackError(`${label} must be a positive byte size`);
+  }
+}
+
+function hasRequiredPlatformPair(platforms: readonly CiEvidencePackPlatform[]): boolean {
+  return (
+    platforms.length === 2 && platforms.includes('android') && platforms.includes('ios')
+  );
+}
+
+function hasMandatoryEvidenceKinds(kinds: readonly CiEvidencePackArtifactKind[]): boolean {
+  return kinds.includes('recording') && kinds.includes('verdict');
 }
 
 function uniqueOrThrow<T>(values: T[], label: string): void {
@@ -235,6 +259,8 @@ function cloneAttemptRecord(record: CiEvidencePackAttemptRecord): CiEvidencePack
     scenarioId: record.scenarioId,
     runId: record.runId,
     status: record.status,
+    attemptNumber: record.attemptNumber,
+    maxAttempts: record.maxAttempts,
     startedAt: record.startedAt,
     evidenceIds: [...record.evidenceIds],
   };
@@ -334,6 +360,29 @@ function assertSourceSemantics(source: CiEvidencePackSource): void {
     if (source.observedSha === undefined || source.observedSha !== source.expectedSha) {
       throw new CiEvidencePackError('current source requires observedSha equal to expectedSha');
     }
+  } else if (source.status === 'missing') {
+    if (source.observedSha !== undefined) {
+      throw new CiEvidencePackError('missing source must not include observedSha');
+    }
+  } else if (source.status === 'stale' || source.status === 'mismatch') {
+    if (source.observedSha === undefined || source.observedSha === source.expectedSha) {
+      throw new CiEvidencePackError(`${source.status} source requires observedSha different from expectedSha`);
+    }
+  }
+}
+
+function assertStatusReasonsCoherence(
+  status: string,
+  reasons: readonly string[],
+  emptyStatus: string,
+  nonemptyStatus: string,
+  label: string,
+): void {
+  if (status === emptyStatus && reasons.length !== 0) {
+    throw new CiEvidencePackError(`${label} ${emptyStatus} must have empty reasons`);
+  }
+  if (status === nonemptyStatus && reasons.length === 0) {
+    throw new CiEvidencePackError(`${label} ${nonemptyStatus} must include reasons`);
   }
 }
 
@@ -341,21 +390,50 @@ function assertInventoryCoherence(artifact: CiEvidencePackBuildInput): void {
   if (artifact.schemaVersion !== CI_EVIDENCE_PACK_SCHEMA_VERSION) {
     throw new CiEvidencePackError('unsupported schemaVersion');
   }
-  if (artifact.requiredPlatforms.length === 0) {
-    throw new CiEvidencePackError('requiredPlatforms must be nonempty');
+  if (!hasRequiredPlatformPair(artifact.requiredPlatforms)) {
+    throw new CiEvidencePackError('requiredPlatforms must be exactly android and ios');
   }
-  if (artifact.requiredEvidenceKinds.length === 0) {
-    throw new CiEvidencePackError('requiredEvidenceKinds must be nonempty');
+  if (!hasMandatoryEvidenceKinds(artifact.requiredEvidenceKinds)) {
+    throw new CiEvidencePackError('requiredEvidenceKinds must include recording and verdict');
   }
 
   assertSourceSemantics(artifact.source);
   assertIsoTimestamp(artifact.createdAt, 'createdAt');
   assertCiEvidencePackRunRelativePath(artifact.liveProofSet.relativePath);
   assertSha256(artifact.liveProofSet.sha256, 'liveProofSet.sha256');
+  assertPositiveByteSize(artifact.liveProofSet.byteSize, 'liveProofSet.byteSize');
+  assertStatusReasonsCoherence(
+    artifact.completeness.status,
+    artifact.completeness.reasons,
+    'complete',
+    'incomplete',
+    'completeness',
+  );
+  assertStatusReasonsCoherence(
+    artifact.assembly.status,
+    artifact.assembly.reasons,
+    'succeeded',
+    'failed',
+    'assembly',
+  );
 
   const { attemptsById, evidenceById } = inventoryMaps(artifact);
 
   for (const platformRecord of artifact.platforms) {
+    if (platformRecord.authorityStatus === 'unsupported') {
+      if (platformRecord.evaluationStatus !== 'not_evaluable') {
+        throw new CiEvidencePackError(
+          `unsupported platform ${platformRecord.platform} must be not_evaluable`,
+        );
+      }
+    } else if (
+      platformRecord.evaluationStatus === 'passed' &&
+      platformRecord.selectedAttemptId === undefined
+    ) {
+      throw new CiEvidencePackError(
+        `supported passed platform ${platformRecord.platform} requires selectedAttemptId`,
+      );
+    }
     if (platformRecord.selectedAttemptId === undefined) {
       continue;
     }
@@ -373,6 +451,13 @@ function assertInventoryCoherence(artifact: CiEvidencePackBuildInput): void {
   }
 
   for (const attempt of artifact.attempts) {
+    assertPositiveInteger(attempt.attemptNumber, `attempt ${attempt.attemptId} attemptNumber`);
+    assertPositiveInteger(attempt.maxAttempts, `attempt ${attempt.attemptId} maxAttempts`);
+    if (attempt.attemptNumber > attempt.maxAttempts) {
+      throw new CiEvidencePackError(
+        `attempt ${attempt.attemptId} attemptNumber must not exceed maxAttempts`,
+      );
+    }
     assertIsoTimestamp(attempt.startedAt, `attempt ${attempt.attemptId} startedAt`);
     if (attempt.endedAt !== undefined) {
       assertIsoTimestamp(attempt.endedAt, `attempt ${attempt.attemptId} endedAt`);
@@ -383,12 +468,49 @@ function assertInventoryCoherence(artifact: CiEvidencePackBuildInput): void {
       }
     }
     uniqueOrThrow(attempt.evidenceIds, `evidenceIds for ${attempt.attemptId}`);
+    if (attempt.attemptNumber === 1) {
+      if (attempt.predecessorAttemptId !== undefined) {
+        throw new CiEvidencePackError(
+          `attempt ${attempt.attemptId} number 1 must not have a predecessor`,
+        );
+      }
+    } else if (attempt.predecessorAttemptId === undefined) {
+      throw new CiEvidencePackError(
+        `attempt ${attempt.attemptId} number ${attempt.attemptNumber} requires a predecessor`,
+      );
+    }
     if (attempt.predecessorAttemptId !== undefined) {
       if (attempt.predecessorAttemptId === attempt.attemptId) {
         throw new CiEvidencePackError(`attempt ${attempt.attemptId} cannot precede itself`);
       }
-      if (!attemptsById.has(attempt.predecessorAttemptId)) {
+      const predecessor = attemptsById.get(attempt.predecessorAttemptId);
+      if (predecessor === undefined) {
         throw new CiEvidencePackError(`attempt ${attempt.attemptId} references unknown predecessor`);
+      }
+      if (predecessor.platform !== attempt.platform || predecessor.scenarioId !== attempt.scenarioId) {
+        throw new CiEvidencePackError(
+          `attempt ${attempt.attemptId} predecessor must share platform and scenarioId`,
+        );
+      }
+      if (predecessor.maxAttempts !== attempt.maxAttempts) {
+        throw new CiEvidencePackError(
+          `attempt ${attempt.attemptId} predecessor must share maxAttempts`,
+        );
+      }
+      if (predecessor.attemptNumber !== attempt.attemptNumber - 1) {
+        throw new CiEvidencePackError(
+          `attempt ${attempt.attemptId} predecessor number must be exactly one less`,
+        );
+      }
+      if (predecessor.endedAt === undefined) {
+        throw new CiEvidencePackError(
+          `attempt ${attempt.attemptId} predecessor must include endedAt`,
+        );
+      }
+      if (Date.parse(predecessor.endedAt) > Date.parse(attempt.startedAt)) {
+        throw new CiEvidencePackError(
+          `attempt ${attempt.attemptId} predecessor endedAt must not follow startedAt`,
+        );
       }
     }
     for (const evidenceId of attempt.evidenceIds) {
@@ -427,8 +549,21 @@ function assertInventoryCoherence(artifact: CiEvidencePackBuildInput): void {
     if (evidence.status === 'present') {
       assertCiEvidencePackRunRelativePath(evidence.relativePath);
       assertSha256(evidence.sha256, `evidence ${evidence.evidenceId} sha256`);
+      assertPositiveByteSize(evidence.byteSize, `evidence ${evidence.evidenceId} byteSize`);
     }
   }
+
+  uniqueOrThrow(
+    artifact.evidence
+      .filter((record) => record.status === 'present')
+      .map((record) => record.relativePath),
+    'present evidence relativePath',
+  );
+
+  uniqueOrThrow(
+    artifact.verdicts.map((verdict) => `${verdict.platform}:${verdict.scenarioId}:${verdict.runId}`),
+    'verdict platform+scenarioId+runId',
+  );
 
   for (const verdict of artifact.verdicts) {
     const evidence = evidenceById.get(verdict.evidenceId);
@@ -462,18 +597,6 @@ function selectedAttemptForPlatform(
     return undefined;
   }
   return input.attempts.find((attempt) => attempt.attemptId === record.selectedAttemptId);
-}
-
-function verdictForAttempt(
-  input: CiEvidencePackBuildInput,
-  attempt: CiEvidencePackAttemptRecord,
-): CiEvidencePackVerdictPointer | undefined {
-  return input.verdicts.find(
-    (verdict) =>
-      verdict.platform === attempt.platform &&
-      verdict.runId === attempt.runId &&
-      verdict.scenarioId === attempt.scenarioId,
-  );
 }
 
 function combinePlatformContribution(
@@ -525,57 +648,32 @@ function classifyRequiredEvidence(
   const notEvaluableReasons: string[] = [];
 
   for (const kind of input.requiredEvidenceKinds) {
-    const match = input.evidence.find(
+    const matches = input.evidence.filter(
       (evidence) => evidence.attemptId === attempt.attemptId && evidence.kind === kind,
     );
+    if (matches.some((evidence) => evidence.status === 'present')) {
+      continue;
+    }
     if (
-      match === undefined ||
-      match.status === 'missing' ||
-      match.status === 'invalid' ||
-      match.status === 'rejected'
+      matches.some(
+        (evidence) =>
+          evidence.status === 'missing' ||
+          evidence.status === 'invalid' ||
+          evidence.status === 'rejected',
+      ) ||
+      matches.length === 0
     ) {
       failedReasons.push(
         `required ${kind} evidence missing/invalid/rejected for ${attempt.attemptId}`,
       );
       continue;
     }
-    if (match.status !== 'present') {
-      notEvaluableReasons.push(
-        `required ${kind} evidence is ${match.status} for ${attempt.attemptId}`,
-      );
-    }
+    notEvaluableReasons.push(
+      `required ${kind} evidence is not_available for ${attempt.attemptId}`,
+    );
   }
 
   return combinePlatformContribution(failedReasons, notEvaluableReasons);
-}
-
-function classifyProductVerdict(
-  input: CiEvidencePackBuildInput,
-  attempt: CiEvidencePackAttemptRecord,
-): PlatformClaimContribution {
-  const verdict = verdictForAttempt(input, attempt);
-  if (verdict === undefined) {
-    return {
-      kind: 'not_evaluable',
-      reasons: [`no verdict pointer for selected attempt ${attempt.attemptId}`],
-    };
-  }
-  switch (verdict.status) {
-    case 'passed':
-      return { kind: 'passed' };
-    case 'failed':
-      return { kind: 'failed', reasons: [`product verdict failed for ${attempt.platform}`] };
-    case 'inconclusive':
-    case 'not_evaluated':
-      return {
-        kind: 'not_evaluable',
-        reasons: [`product verdict ${verdict.status} for ${attempt.platform}`],
-      };
-    default: {
-      const exhaustive: never = verdict.status;
-      return { kind: 'failed', reasons: [`product verdict has unknown status ${exhaustive}`] };
-    }
-  }
 }
 
 function mergeContributions(contributions: PlatformClaimContribution[]): PlatformClaimContribution {
@@ -600,13 +698,14 @@ function evaluateRequiredPlatformClaim(
     return { kind: 'failed', reasons: [`missing required platform record: ${platform}`] };
   }
 
-  const contributions: PlatformClaimContribution[] = [];
   if (record.authorityStatus === 'unsupported') {
-    contributions.push({
+    return {
       kind: 'not_evaluable',
       reasons: [`${platform} authority is unsupported`],
-    });
+    };
   }
+
+  const contributions: PlatformClaimContribution[] = [];
   if (record.evaluationStatus === 'failed') {
     contributions.push({ kind: 'failed', reasons: [`${platform} evaluation failed`] });
   } else if (record.evaluationStatus === 'not_evaluable') {
@@ -627,7 +726,6 @@ function evaluateRequiredPlatformClaim(
 
   contributions.push(classifySelectedAttempt(attempt));
   contributions.push(classifyRequiredEvidence(input, attempt));
-  contributions.push(classifyProductVerdict(input, attempt));
 
   const combined = mergeContributions(contributions);
   if (combined.kind !== 'passed') {
@@ -666,6 +764,7 @@ function deriveCiEvidencePackMechanismStatus(
 function deriveCiEvidencePackTwoPlatformClaim(
   input: CiEvidencePackBuildInput,
 ): CiEvidencePackStatusReasons<CiEvidencePackTwoPlatformClaimStatus> {
+  assertInventoryCoherence(input);
   const contributions: PlatformClaimContribution[] = [];
   const requiredSet = new Set(input.requiredPlatforms);
   const hasAndroidAndIos =

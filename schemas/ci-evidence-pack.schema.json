@@ -37,33 +37,76 @@
       "additionalProperties": false,
       "required": ["expectedSha", "status"],
       "properties": {
-        "expectedSha": { "type": "string", "pattern": "^[a-f0-9]{40,64}$" },
-        "observedSha": { "type": "string", "pattern": "^[a-f0-9]{40,64}$" },
+        "expectedSha": { "type": "string", "pattern": "^[a-f0-9]{40}$|^[a-f0-9]{64}$" },
+        "observedSha": { "type": "string", "pattern": "^[a-f0-9]{40}$|^[a-f0-9]{64}$" },
         "status": { "enum": ["current", "stale", "missing", "mismatch"] }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "status": { "const": "current" } },
+            "required": ["status"]
+          },
+          "then": {
+            "required": ["observedSha"],
+            "properties": {
+              "expectedSha": true,
+              "observedSha": true,
+              "status": true
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "status": { "const": "missing" } },
+            "required": ["status"]
+          },
+          "then": { "not": { "required": ["observedSha"] } }
+        },
+        {
+          "if": {
+            "properties": { "status": { "enum": ["stale", "mismatch"] } },
+            "required": ["status"]
+          },
+          "then": { "required": ["observedSha"] }
+        }
+      ]
     },
     "liveProofSet": {
       "type": "object",
       "additionalProperties": false,
       "required": ["relativePath", "sha256", "byteSize", "runId", "status"],
       "properties": {
-        "relativePath": { "type": "string", "minLength": 1 },
+        "relativePath": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^(?!/)(?![A-Za-z]:)(?!\\\\)(?!.*\\\\)(?!.*//)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*(?:^|/)\\.(?:/|$))[^\\\\]+$"
+        },
         "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
-        "byteSize": { "type": "integer", "minimum": 0 },
+        "byteSize": { "type": "integer", "minimum": 1 },
         "runId": { "type": "string", "minLength": 1 },
         "status": { "enum": ["passed", "failed"] }
       }
     },
     "requiredPlatforms": {
       "type": "array",
-      "minItems": 1,
+      "minItems": 2,
+      "maxItems": 2,
       "uniqueItems": true,
+      "allOf": [
+        { "contains": { "const": "android" } },
+        { "contains": { "const": "ios" } }
+      ],
       "items": { "enum": ["android", "ios"] }
     },
     "requiredEvidenceKinds": {
       "type": "array",
-      "minItems": 1,
+      "minItems": 2,
       "uniqueItems": true,
+      "allOf": [
+        { "contains": { "const": "recording" } },
+        { "contains": { "const": "verdict" } }
+      ],
       "items": {
         "enum": [
           "recording",
@@ -107,9 +150,33 @@
         "status": { "enum": ["succeeded", "failed"] },
         "reasons": {
           "type": "array",
-          "items": { "type": "string" }
+          "items": { "type": "string", "minLength": 1 }
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "status": { "const": "succeeded" } },
+            "required": ["status"]
+          },
+          "then": {
+            "properties": {
+              "reasons": { "maxItems": 0 }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "status": { "const": "failed" } },
+            "required": ["status"]
+          },
+          "then": {
+            "properties": {
+              "reasons": { "minItems": 1 }
+            }
+          }
+        }
+      ]
     },
     "mechanismStatus": { "enum": ["succeeded", "failed"] },
     "twoPlatformClaim": {
@@ -120,7 +187,7 @@
         "status": { "enum": ["passed", "failed", "not_evaluable"] },
         "reasons": {
           "type": "array",
-          "items": { "type": "string" }
+          "items": { "type": "string", "minLength": 1 }
         }
       }
     },
@@ -136,9 +203,33 @@
         "status": { "enum": ["complete", "incomplete"] },
         "reasons": {
           "type": "array",
-          "items": { "type": "string" }
+          "items": { "type": "string", "minLength": 1 }
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "status": { "const": "complete" } },
+            "required": ["status"]
+          },
+          "then": {
+            "properties": {
+              "reasons": { "maxItems": 0 }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "status": { "const": "incomplete" } },
+            "required": ["status"]
+          },
+          "then": {
+            "properties": {
+              "reasons": { "minItems": 1 }
+            }
+          }
+        }
+      ]
     },
     "platformRecord": {
       "type": "object",
@@ -161,6 +252,8 @@
         "runId",
         "status",
         "startedAt",
+        "attemptNumber",
+        "maxAttempts",
         "evidenceIds"
       ],
       "properties": {
@@ -191,6 +284,8 @@
           "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{3}Z$"
         },
         "predecessorAttemptId": { "type": "string", "minLength": 1 },
+        "attemptNumber": { "type": "integer", "minimum": 1 },
+        "maxAttempts": { "type": "integer", "minimum": 1 },
         "evidenceIds": {
           "type": "array",
           "uniqueItems": true,
@@ -261,9 +356,13 @@
                 ]
               },
               "status": { "const": "present" },
-              "relativePath": { "type": "string", "minLength": 1 },
+              "relativePath": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "^(?!/)(?![A-Za-z]:)(?!\\\\)(?!.*\\\\)(?!.*//)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*(?:^|/)\\.(?:/|$))[^\\\\]+$"
+              },
               "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
-              "byteSize": { "type": "integer", "minimum": 0 }
+              "byteSize": { "type": "integer", "minimum": 1 }
             }
           },
           "else": {
