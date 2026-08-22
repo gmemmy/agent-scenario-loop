@@ -27,7 +27,10 @@ function reduceClaimStatus(
   if (assertionStatuses.some((status) => status === 'not_evaluable')) {
     return 'not_evaluable';
   }
-  return 'supported';
+  if (assertionStatuses.every((status) => status === 'supported')) {
+    return 'supported';
+  }
+  return 'not_evaluable';
 }
 
 /**
@@ -37,6 +40,7 @@ function reduceClaimStatus(
  */
 function reduceMandatoryJourneyStatus(
   mandatoryClaimStatuses: readonly ClaimStatus[] | undefined,
+  _supplementalClaimStatuses: readonly ClaimStatus[] | undefined = undefined,
 ): ClaimReductionJourneyResult {
   if (mandatoryClaimStatuses === undefined || mandatoryClaimStatuses.length === 0) {
     return 'missing_inventory';
@@ -47,7 +51,10 @@ function reduceMandatoryJourneyStatus(
   if (mandatoryClaimStatuses.some((status) => status === 'not_evaluable')) {
     return 'inconclusive';
   }
-  return 'passed';
+  if (mandatoryClaimStatuses.every((status) => status === 'supported')) {
+    return 'passed';
+  }
+  return 'missing_inventory';
 }
 
 export { reduceClaimStatus, reduceMandatoryJourneyStatus };

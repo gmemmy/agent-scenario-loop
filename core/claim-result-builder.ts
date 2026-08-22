@@ -8,6 +8,7 @@ import type {
   ClaimReasonCode,
   ClaimResult,
   ClaimRole,
+  ClaimStatus,
   NotEvaluableReasonCode,
   ScenarioClaimDefinition,
 } from "./claim-contract.js";
@@ -31,6 +32,7 @@ export type ClaimResultBuilderInspection =
 
 const HEALTH_STATUSES: readonly ClaimReductionHealthStatus[] = ["passed", "failed", "partial"];
 const CLAIM_ROLES: readonly ClaimRole[] = ["mandatory", "supplemental"];
+const CLAIM_STATUSES: readonly ClaimStatus[] = ["supported", "rejected", "not_evaluable"];
 const OWN_PROPERTY = Object.prototype.hasOwnProperty;
 const STABLE_ID = /^[a-z0-9][a-z0-9-]*$/;
 const SHA256_HEX = /^[a-f0-9]{64}$/;
@@ -42,6 +44,19 @@ function ownKeys(value: object): string[] {
 
 function hasOwn(value: object, key: string): boolean {
   return OWN_PROPERTY.call(value, key);
+}
+
+function exactKeySet(actual: readonly string[], expected: readonly string[]): boolean {
+  if (actual.length !== expected.length) {
+    return false;
+  }
+  const remaining = new Set(expected);
+  for (const key of actual) {
+    if (!remaining.delete(key)) {
+      return false;
+    }
+  }
+  return remaining.size === 0;
 }
 
 function hasOnlyEnumerableDataProperties(value: object): boolean {
@@ -94,6 +109,10 @@ function isSha256Hex(value: unknown): value is string {
 
 function isHealthStatus(value: unknown): value is ClaimReductionHealthStatus {
   return HEALTH_STATUSES.some((status) => status === value);
+}
+
+function isClaimStatus(value: unknown): value is ClaimStatus {
+  return CLAIM_STATUSES.some((status) => status === value);
 }
 
 function isClaimRole(value: unknown): value is ClaimRole {
@@ -205,6 +224,18 @@ function healthGateMissingProof(assertionId: string): [string, ...string[]] {
   return [`${HEALTH_GATE_MISSING_PROOF_PREFIX}${assertionId}.`];
 }
 
+function withHealthGateMissingProof(
+  original: readonly string[],
+  assertionId: string,
+): string[] {
+  const marker = healthGateMissingProof(assertionId)[0];
+  const missingProof = [...original];
+  if (!missingProof.includes(marker)) {
+    missingProof.push(marker);
+  }
+  return missingProof;
+}
+
 function projectHealthGatedAssertion(result: ClaimAssertionResult): ClaimAssertionResult {
   const projected = {
     assertionId: result.assertionId,
@@ -215,16 +246,22 @@ function projectHealthGatedAssertion(result: ClaimAssertionResult): ClaimAsserti
     observed: null,
     evidenceReferences: result.evidenceReferences.map(cloneEvidenceReference),
     rejectedEvidence: [...result.rejectedEvidence],
-    missingProof: healthGateMissingProof(result.assertionId),
+    missingProof: withHealthGateMissingProof(result.missingProof, result.assertionId),
   };
   return projected as ClaimAssertionResult;
 }
 
 function nextActionFor(
   status: ClaimResult["status"],
-  reasonCode: ClaimReasonCode,
+  healthStatus: ClaimReductionHealthStatus,
   claimId: string,
 ): { nextActionOwner: ClaimNextActionOwner; nextAction: string } {
+  if (healthStatus !== "passed") {
+    return {
+      nextActionOwner: "runtime_environment",
+      nextAction: `Restore trusted scenario health before evaluating claim ${claimId}.`,
+    };
+  }
   if (status === "supported") {
     return {
       nextActionOwner: "product_optimization",
@@ -235,12 +272,6 @@ function nextActionFor(
     return {
       nextActionOwner: "app_truth",
       nextAction: `Inspect rejected authoritative evidence for claim ${claimId}.`,
-    };
-  }
-  if (reasonCode === "health_gate_failed") {
-    return {
-      nextActionOwner: "runtime_environment",
-      nextAction: `Restore trusted scenario health before evaluating claim ${claimId}.`,
     };
   }
   return {
@@ -259,8 +290,7 @@ function firstNotEvaluableReason(results: readonly ClaimAssertionResult[]): NotE
 }
 
 function inspectInputKeysMatch(value: object): boolean {
-  const keys = ownKeys(value).sort();
-  return keys.join(",") === "claim,healthStatus,resultSet";
+  return exactKeySet(ownKeys(value), ["claim", "healthStatus", "resultSet"]);
 }
 
 function freezeInspection(inspection: ClaimResultBuilderInspection): ClaimResultBuilderInspection {
@@ -282,14 +312,62 @@ function incoherent(reasons: readonly string[]): ClaimResultBuilderInspection {
   });
 }
 
+function readResultSetReasons(value: Record<string, unknown>): string[] {
+  if (!Array.isArray(value.reasons) || value.reasons.length === 0) {
+    return ["incomplete_result_set"];
+  }
+  const reasons: string[] = [];
+  for (const reason of value.reasons) {
+    if (typeof reason !== "string" || reason.length === 0) {
+      return ["incomplete_result_set"];
+    }
+    reasons.push(reason);
+  }
+  return reasons;
+}
+
+function isEvidenceReference(value: unknown): value is ClaimEvidenceReference {
+  if (!isPlainRecord(value) || !isNonEmptyString(value.path)) {
+    return false;
+  }
+  if (hasOwn(value, "sha256") && value.sha256 !== undefined && !isSha256Hex(value.sha256)) {
+    return false;
+  }
+  return true;
+}
+
+function isAssertionResult(value: unknown): value is ClaimAssertionResult {
+  if (!isPlainRecord(value)) {
+    return false;
+  }
+  if (!isStableId(value.assertionId) || !isNonEmptyString(value.assertionKind)) {
+    return false;
+  }
+  if (!isClaimStatus(value.status) || !isNonEmptyString(value.reasonCode)) {
+    return false;
+  }
+  if (!hasOwn(value, "expected") || !hasOwn(value, "observed")) {
+    return false;
+  }
+  if (!Array.isArray(value.evidenceReferences) || !value.evidenceReferences.every(isEvidenceReference)) {
+    return false;
+  }
+  if (!Array.isArray(value.rejectedEvidence) || !value.rejectedEvidence.every((item) => typeof item === "string")) {
+    return false;
+  }
+  if (!Array.isArray(value.missingProof) || !value.missingProof.every((item) => typeof item === "string")) {
+    return false;
+  }
+  return true;
+}
+
 function isCompleteResultSet(
   value: unknown,
 ): value is Extract<ClaimAssertionResultSetInspection, { status: "complete" }> {
   if (!isPlainRecord(value)) {
     return false;
   }
-  const keys = ownKeys(value).sort();
-  if (keys.join(",") !== "candidates,claimHash,claimId,results,status") {
+  if (!exactKeySet(ownKeys(value), ["candidates", "claimHash", "claimId", "results", "status"])) {
     return false;
   }
   return (
@@ -343,7 +421,7 @@ export function buildClaimResult(input: {
   if (resultSetStatus === "outside_contract" || resultSetStatus === "incoherent") {
     return freezeInspection({
       status: resultSetStatus,
-      reasons: Object.freeze(["incomplete_result_set"]),
+      reasons: Object.freeze(readResultSetReasons(input.resultSet)),
     });
   }
   if (!isCompleteResultSet(input.resultSet)) {
@@ -356,6 +434,14 @@ export function buildClaimResult(input: {
       ClaimAssertionResultSetInspection,
       { status: "complete" }
     >;
+  } catch {
+    return outsideContract(["malformed_result_set"]);
+  }
+
+  try {
+    if (!resultSet.results.every(isAssertionResult)) {
+      return outsideContract(["malformed_result_set"]);
+    }
   } catch {
     return outsideContract(["malformed_result_set"]);
   }
@@ -394,10 +480,15 @@ export function buildClaimResult(input: {
   }
 
   const healthStatus = input.healthStatus;
-  const assertionResults: ClaimAssertionResult[] =
-    healthStatus === "passed"
-      ? resultSet.results.map(cloneAssertionResult)
-      : resultSet.results.map(projectHealthGatedAssertion);
+  let assertionResults: ClaimAssertionResult[];
+  try {
+    assertionResults =
+      healthStatus === "passed"
+        ? resultSet.results.map(cloneAssertionResult)
+        : resultSet.results.map(projectHealthGatedAssertion);
+  } catch {
+    return outsideContract(["malformed_result_set"]);
+  }
 
   const claimStatus = reduceClaimStatus(
     healthStatus,
@@ -415,7 +506,7 @@ export function buildClaimResult(input: {
     reasonCode = firstNotEvaluableReason(assertionResults);
   }
 
-  const { nextActionOwner, nextAction } = nextActionFor(claimStatus, reasonCode, claim.id);
+  const { nextActionOwner, nextAction } = nextActionFor(claimStatus, healthStatus, claim.id);
   const evidenceReferences = unionEvidenceReferences(assertionResults);
   const missingProof = unionMissingProof(assertionResults);
 

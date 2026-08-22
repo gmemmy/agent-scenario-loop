@@ -534,3 +534,77 @@ test('closed output keys stay within interpretation envelope', () => {
   assertClosedEnvelope(outside, 'outside_contract');
   assertNoForbiddenVocabulary(outside);
 });
+
+test('non-negative unsafe integers are outside_contract for bounds, counts, and artifact byteLength', () => {
+  const unsafe = Number.MAX_SAFE_INTEGER + 1;
+
+  const unsafeMinimum = inspectScenarioClaimJsonNativeWindowedInterpretation(
+    boundedCountAssertion({ minimum: unsafe }),
+    windowedAdmitted('boundedCount', 0),
+  );
+  assertClosedEnvelope(unsafeMinimum, 'outside_contract');
+  assert.deepEqual(unsafeMinimum.reasonCodes, ['input_invalid']);
+
+  const unsafeMaximum = inspectScenarioClaimJsonNativeWindowedInterpretation(
+    boundedCountAssertion({ maximum: unsafe }),
+    windowedAdmitted('boundedCount', 0),
+  );
+  assertClosedEnvelope(unsafeMaximum, 'outside_contract');
+  assert.deepEqual(unsafeMaximum.reasonCodes, ['input_invalid']);
+
+  const unsafeCount = inspectScenarioClaimJsonNativeWindowedInterpretation(
+    boundedCountAssertion({ minimum: 0 }),
+    windowedAdmitted('boundedCount', unsafe),
+  );
+  assertClosedEnvelope(unsafeCount, 'outside_contract');
+  assert.deepEqual(unsafeCount.reasonCodes, ['input_invalid']);
+
+  const admitted = windowedAdmitted('boundedCount', 0);
+  admitted.artifact = { ...admitted.artifact, byteLength: unsafe };
+  const unsafeByteLength = inspectScenarioClaimJsonNativeWindowedInterpretation(
+    boundedCountAssertion({ minimum: 0 }),
+    admitted,
+  );
+  assertClosedEnvelope(unsafeByteLength, 'outside_contract');
+  assert.deepEqual(unsafeByteLength.reasonCodes, ['input_invalid']);
+  assertNoForbiddenVocabulary(unsafeByteLength);
+});
+
+test('safe integer bounds and counts remain interpretable at Number.MAX_SAFE_INTEGER', () => {
+  const inspection = inspectScenarioClaimJsonNativeWindowedInterpretation(
+    boundedCountAssertion({ maximum: Number.MAX_SAFE_INTEGER }),
+    windowedAdmitted('boundedCount', Number.MAX_SAFE_INTEGER),
+  );
+  assertClosedEnvelope(inspection, 'interpreted');
+  assertSupportedShape(inspection.result);
+  assert.deepEqual(inspection.result.observed, {
+    selector: 'errors',
+    count: Number.MAX_SAFE_INTEGER,
+  });
+});
+
+test('parsed windowed authority is structurally required but not rematched here', () => {
+  const observedAuthority = windowedAuthority();
+  observedAuthority.requiredStrength = 'observed';
+  const inspection = inspectScenarioClaimJsonNativeWindowedInterpretation(
+    { ...boundedCountAssertion({ minimum: 0 }), authority: observedAuthority },
+    windowedAdmitted('boundedCount', 0),
+  );
+  assertClosedEnvelope(inspection, 'interpreted');
+  assertSupportedShape(inspection.result);
+
+  const rejectedObserved = inspectScenarioClaimJsonNativeWindowedInterpretation(
+    {
+      ...absenceAssertion(),
+      authority: {
+        ...windowedAuthority('continuous-complete'),
+        requiredStrength: 'observed',
+      },
+    },
+    windowedAdmitted('absence', 1),
+  );
+  assertClosedEnvelope(rejectedObserved, 'interpreted');
+  assertRejectedShape(rejectedObserved.result);
+  assert.equal(rejectedObserved.result.reasonCode, 'authoritative_evidence_rejected');
+  assertNoForbiddenVocabulary(rejectedObserved);
+});

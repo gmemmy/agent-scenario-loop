@@ -21,6 +21,11 @@ const assertion: ValidatedEvidenceAssertion = {
   },
 };
 
+const VALIDATOR_HASH = "11".repeat(32);
+const SUBJECT_HASH = "22".repeat(32);
+const REPORT_HASH = "33".repeat(32);
+const RESULT_HASH = "44".repeat(32);
+
 const EVIDENCE_IDENTITY_KEYS = [
   "kind",
   "validationContract",
@@ -36,15 +41,16 @@ function admittedProjection(overrides: Record<string, unknown> = {}) {
   return {
     assertionId: "assertion.validated.alpha",
     validationContract: "asl.validation.contract.v1",
+    artifactKind: "video",
     validatorProducer: "external.validator",
     validatorVersion: "1.0.0",
-    validatorHash: "hash.validator",
+    validatorHash: VALIDATOR_HASH,
     subjectPath: "evidence/subject.json",
-    subjectHash: "hash.subject",
+    subjectHash: SUBJECT_HASH,
     reportPath: "evidence/report.json",
-    reportHash: "hash.report",
+    reportHash: REPORT_HASH,
     resultPath: "evidence/result.json",
-    resultHash: "hash.result",
+    resultHash: RESULT_HASH,
     terminalStatus: "passed",
     reason: "validator passed",
     ...overrides,
@@ -101,7 +107,7 @@ test("exact admitted passed projection becomes supported with matched evidence",
     "external.validator",
   );
   assert.equal(interpreted.result.provenance.validatorVersion, "1.0.0");
-  assert.equal(interpreted.result.provenance.validatorHash, "hash.validator");
+  assert.equal(interpreted.result.provenance.validatorHash, VALIDATOR_HASH);
 });
 
 test("exact admitted failed projection becomes rejected with nonempty rejected evidence", () => {
@@ -115,6 +121,10 @@ test("exact admitted failed projection becomes rejected with nonempty rejected e
   assertContractIdentity(interpreted);
   assert.equal(interpreted.outcome, "rejected");
   if (interpreted.outcome !== "rejected") {
+    throw new Error("expected rejected");
+  }
+  assert.equal(interpreted.result.kind, "rejected");
+  if (interpreted.result.kind !== "rejected") {
     throw new Error("expected rejected");
   }
   assert.equal(interpreted.result.validationStatus, "failed");
@@ -179,7 +189,7 @@ test("assertion and validation-contract mismatch is outside-contract", () => {
   assert.equal(contractMismatch.outcome, "outside_contract");
   assert.equal(
     contractMismatch.reason,
-    "assertion id or validation contract does not bind the admitted projection",
+    "assertion id, kind, artifact kind, or validation contract does not bind the admitted projection",
   );
 });
 
@@ -372,3 +382,298 @@ test("terminal status exhaustiveness never falls through to a real not-evaluable
   assert.equal(impossible.outcome, "outside_contract");
   assert.equal(impossible.result, null);
 });
+
+function assertRecursivelyFrozen(value: object): void {
+  assert.equal(Object.isFrozen(value), true);
+  for (const nested of Object.values(value)) {
+    if (nested !== null && typeof nested === "object") {
+      assertRecursivelyFrozen(nested);
+    }
+  }
+}
+
+test("every interpretation outcome is recursively frozen and detached from input", () => {
+  const passedSource = admittedProjection();
+  const passed = interpretAdmittedValidatedEvidenceResult({
+    assertion,
+    admittedProjection: passedSource,
+  });
+  assert.equal(passed.outcome, "supported");
+  assertRecursivelyFrozen(passed);
+  passedSource.subjectPath = "mutated/subject.json";
+  passedSource.validatorProducer = "mutated.validator";
+  if (passed.outcome !== "supported") {
+    throw new Error("expected supported");
+  }
+  const passedResult = passed.result;
+  assert.equal(passedResult.kind, "supported");
+  if (passedResult.kind !== "supported") {
+    throw new Error("expected supported");
+  }
+  assert.equal(
+    passedResult.matchedEvidence[0]?.subjectPath,
+    "evidence/subject.json",
+  );
+  assert.equal(passedResult.provenance.validatorProducer, "external.validator");
+  assert.throws(() => {
+    (passedResult.matchedEvidence as unknown as { push: (value: unknown) => void }).push(
+      {},
+    );
+  }, TypeError);
+  assert.throws(() => {
+    (passedResult.matchedEvidence[0] as { subjectPath: string }).subjectPath =
+      "mutated";
+  }, TypeError);
+  assert.throws(() => {
+    (passedResult.provenance as { validatorProducer: string }).validatorProducer =
+      "x";
+  }, TypeError);
+
+  const failedSource = admittedProjection({
+    terminalStatus: "failed",
+    reason: "schema mismatch",
+  });
+  const rejected = interpretAdmittedValidatedEvidenceResult({
+    assertion,
+    admittedProjection: failedSource,
+  });
+  assert.equal(rejected.outcome, "rejected");
+  assertRecursivelyFrozen(rejected);
+  failedSource.reason = "mutated";
+  if (rejected.outcome !== "rejected") {
+    throw new Error("expected rejected");
+  }
+  const rejectedResult = rejected.result;
+  assert.equal(rejectedResult.kind, "rejected");
+  if (rejectedResult.kind !== "rejected") {
+    throw new Error("expected rejected");
+  }
+  assert.equal(rejectedResult.rejectedEvidence[0]?.reason, "schema mismatch");
+  assert.throws(() => {
+    (rejectedResult.rejectedEvidence[0] as { reason: string }).reason = "x";
+  }, TypeError);
+
+  const missingSource = admittedProjection({
+    terminalStatus: "not_evaluable",
+    reason: "subject unavailable",
+  });
+  const missing = interpretAdmittedValidatedEvidenceResult({
+    assertion,
+    admittedProjection: missingSource,
+  });
+  assert.equal(missing.outcome, "not_evaluable");
+  assertRecursivelyFrozen(missing);
+  missingSource.reason = "mutated";
+  if (missing.outcome !== "not_evaluable") {
+    throw new Error("expected not_evaluable");
+  }
+  const missingResult = missing.result;
+  assert.equal(missingResult.kind, "not_evaluable");
+  if (missingResult.kind !== "not_evaluable") {
+    throw new Error("expected not_evaluable");
+  }
+  assert.equal(missingResult.reason, "subject unavailable");
+  assert.equal(missingResult.missingProof[0]?.reason, "subject unavailable");
+  assert.throws(() => {
+    (missingResult.missingProof as unknown as { push: (value: unknown) => void }).push({});
+  }, TypeError);
+
+  const outside = interpretAdmittedValidatedEvidenceResult({
+    assertion,
+    admittedProjection: null,
+  });
+  assert.equal(outside.outcome, "outside_contract");
+  assertRecursivelyFrozen(outside);
+  assert.throws(() => {
+    (outside as { reason: string }).reason = "mutated";
+  }, TypeError);
+});
+
+test("wrong assertion kind and artifactKind mismatch are outside-contract", () => {
+  const wrongKind = interpretAdmittedValidatedEvidenceResult({
+    assertion: {
+      ...assertion,
+      kind: "presence",
+    } as unknown as ValidatedEvidenceAssertion,
+    admittedProjection: admittedProjection(),
+  });
+  assertContractIdentity(wrongKind);
+  assert.equal(wrongKind.outcome, "outside_contract");
+  assert.equal(wrongKind.result, null);
+
+  const artifactKindMismatch = interpretAdmittedValidatedEvidenceResult({
+    assertion,
+    admittedProjection: admittedProjection({ artifactKind: "logs" }),
+  });
+  assertContractIdentity(artifactKindMismatch);
+  assert.equal(artifactKindMismatch.outcome, "outside_contract");
+  assert.equal(artifactKindMismatch.result, null);
+  assert.equal(
+    artifactKindMismatch.reason,
+    "assertion id, kind, artifact kind, or validation contract does not bind the admitted projection",
+  );
+});
+
+test("omitted artifactKind cannot bind and exact artifactKind still binds", () => {
+  const omitted = { ...assertion };
+  delete (omitted as { artifactKind?: string }).artifactKind;
+  const omittedInterpreted = interpretAdmittedValidatedEvidenceResult({
+    assertion: omitted as ValidatedEvidenceAssertion,
+    admittedProjection: admittedProjection(),
+  });
+  assertContractIdentity(omittedInterpreted);
+  assert.equal(omittedInterpreted.outcome, "outside_contract");
+  assert.equal(omittedInterpreted.result, null);
+
+  const bound = interpretAdmittedValidatedEvidenceResult({
+    assertion,
+    admittedProjection: admittedProjection(),
+  });
+  assertContractIdentity(bound);
+  assert.equal(bound.outcome, "supported");
+  if (bound.outcome !== "supported") {
+    throw new Error("expected supported");
+  }
+  assert.equal(bound.result.kind, "supported");
+});
+
+test("padded control unsafe path malformed hash and throwing accessors are outside-contract", () => {
+  const cases: Array<readonly [string, string]> = [
+    ["assertionId", " assertion.validated.alpha"],
+    ["assertionId", "assertion.validated.alpha "],
+    ["assertionId", "assertion.validated.alpha\u0007"],
+    ["subjectPath", "../evidence/subject.json"],
+    ["subjectPath", "evidence/subject.json/"],
+    ["subjectPath", "evidence/./subject.json"],
+    ["subjectPath", "."],
+    ["subjectPath", ".."],
+    ["subjectPath", "evidence//subject.json"],
+    ["subjectPath", "/evidence/subject.json"],
+    ["subjectPath", "C:/evidence/subject.json"],
+    ["subjectPath", "evidence\\subject.json"],
+    ["subjectPath", "file:evidence/subject.json"],
+    ["subjectHash", "AA".repeat(32)],
+    ["subjectHash", "zz".repeat(32)],
+    ["subjectHash", "22".repeat(31)],
+    ["validatorHash", "hash.validator"],
+    ["reason", " validator passed"],
+  ];
+  for (const [key, value] of cases) {
+    const interpreted = interpretAdmittedValidatedEvidenceResult({
+      assertion,
+      admittedProjection: admittedProjection({ [key]: value }),
+    });
+    assert.equal(interpreted.outcome, "outside_contract", `${key}=${value}`);
+    assert.equal(interpreted.result, null);
+  }
+
+  const throwingInput: Record<string, unknown> = {};
+  Object.defineProperty(throwingInput, "assertion", {
+    enumerable: true,
+    get() {
+      throw new Error("assertion accessor");
+    },
+  });
+  Object.defineProperty(throwingInput, "admittedProjection", {
+    enumerable: true,
+    get() {
+      throw new Error("projection accessor");
+    },
+  });
+  const interpreted = interpretAdmittedValidatedEvidenceResult(
+    throwingInput as {
+      readonly assertion: ValidatedEvidenceAssertion;
+      readonly admittedProjection: unknown;
+    },
+  );
+  assert.equal(interpreted.outcome, "outside_contract");
+  assert.equal(interpreted.result, null);
+});
+
+test("identity legal under identity rules but not path rules remains interpretable when bound", () => {
+  const identityLegalId = "file:assertion.validated.alpha";
+  const identityLegalContract = "C:asl.validation.contract.v1";
+  const identityLegalProducer = "external.validator/";
+  const identityLegalVersion = "1.0.0/./build";
+  const interpreted = interpretAdmittedValidatedEvidenceResult({
+    assertion: {
+      ...assertion,
+      id: identityLegalId,
+      validationContract: identityLegalContract,
+    },
+    admittedProjection: admittedProjection({
+      assertionId: identityLegalId,
+      validationContract: identityLegalContract,
+      validatorProducer: identityLegalProducer,
+      validatorVersion: identityLegalVersion,
+    }),
+  });
+  assertContractIdentity(interpreted);
+  assert.equal(interpreted.outcome, "supported");
+  if (interpreted.outcome !== "supported") {
+    throw new Error("expected supported");
+  }
+  assert.equal(
+    interpreted.result.provenance.validatorProducer,
+    identityLegalProducer,
+  );
+  assert.equal(interpreted.result.provenance.validatorVersion, identityLegalVersion);
+  assert.equal(interpreted.result.validationContract, identityLegalContract);
+});
+
+test("null-prototype class-instance and proxy inputs stay outside-contract without throwing", () => {
+  class ProjectionHost {}
+  const classInstance = Object.assign(new ProjectionHost(), admittedProjection());
+  const nullPrototype = Object.assign(
+    Object.create(null) as Record<string, unknown>,
+    admittedProjection(),
+  );
+  const proxyProjection = new Proxy(admittedProjection(), {});
+  const classAssertion = Object.assign(new ProjectionHost(), assertion);
+  const nullPrototypeAssertion = Object.assign(
+    Object.create(null) as Record<string, unknown>,
+    assertion,
+  );
+  const proxyAssertion = new Proxy(assertion, {});
+  const nullPrototypeInput = Object.assign(Object.create(null) as Record<string, unknown>, {
+    assertion,
+    admittedProjection: admittedProjection(),
+  });
+  const classInput = Object.assign(new ProjectionHost(), {
+    assertion,
+    admittedProjection: admittedProjection(),
+  });
+  const proxyInput = new Proxy(
+    { assertion, admittedProjection: admittedProjection() },
+    {},
+  );
+
+  for (const admitted of [classInstance, nullPrototype, proxyProjection]) {
+    const interpreted = interpretAdmittedValidatedEvidenceResult({
+      assertion,
+      admittedProjection: admitted,
+    });
+    assert.equal(interpreted.outcome, "outside_contract");
+    assert.equal(interpreted.result, null);
+  }
+
+  for (const nestedAssertion of [classAssertion, nullPrototypeAssertion, proxyAssertion]) {
+    const interpreted = interpretAdmittedValidatedEvidenceResult({
+      assertion: nestedAssertion as ValidatedEvidenceAssertion,
+      admittedProjection: admittedProjection(),
+    });
+    assert.equal(interpreted.outcome, "outside_contract");
+    assert.equal(interpreted.result, null);
+  }
+
+  for (const input of [nullPrototypeInput, classInput, proxyInput]) {
+    const interpreted = interpretAdmittedValidatedEvidenceResult(
+      input as {
+        readonly assertion: ValidatedEvidenceAssertion;
+        readonly admittedProjection: unknown;
+      },
+    );
+    assert.equal(interpreted.outcome, "outside_contract");
+    assert.equal(interpreted.result, null);
+  }
+}); // fail-closed hostile objects

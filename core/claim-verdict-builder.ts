@@ -56,6 +56,17 @@ const CLAIM_RESULT_KEYS = [
   "nextActionOwner",
   "nextAction",
 ] as const;
+const ASSERTION_RESULT_KEYS = [
+  "assertionId",
+  "assertionKind",
+  "status",
+  "reasonCode",
+  "expected",
+  "observed",
+  "evidenceReferences",
+  "rejectedEvidence",
+  "missingProof",
+] as const;
 
 function ownKeys(value: object): Array<string | symbol> {
   return Reflect.ownKeys(value);
@@ -214,6 +225,53 @@ function requireStringArray(value: unknown, label: string): string[] {
   return strings;
 }
 
+function requireNonblankString(value: unknown, label: string): string {
+  const string = requireNonemptyString(value, label);
+  if (string.trim().length === 0 || string !== string.trim()) {
+    throw new Error(`${label} must be a nonblank string`);
+  }
+  return string;
+}
+
+function requireInventoryStringArray(value: unknown, label: string): string[] {
+  const array = requirePlainIndexCompleteArray(value, label);
+  if (array.length === 0) {
+    throw new Error(`${label} must not be empty`);
+  }
+  const strings: string[] = [];
+  const seen = new Set<string>();
+  for (let index = 0; index < array.length; index += 1) {
+    const item = requireNonblankString(array[index], `${label}[${index}]`);
+    if (seen.has(item)) {
+      throw new Error(`${label} must not contain duplicate values`);
+    }
+    seen.add(item);
+    strings[index] = item;
+  }
+  return strings;
+}
+
+function uniqueStrings(values: readonly string[]): string[] {
+  const unique: string[] = [];
+  const seen = new Set<string>();
+  for (const value of values) {
+    if (seen.has(value)) {
+      continue;
+    }
+    seen.add(value);
+    unique.push(value);
+  }
+  return unique;
+}
+
+function requireEvidenceReferenceArray(value: unknown, label: string): unknown[] {
+  const array = requirePlainIndexCompleteArray(value, label);
+  for (let index = 0; index < array.length; index += 1) {
+    requirePlainRecord(array[index], `${label}[${index}]`);
+  }
+  return array;
+}
+
 type ShippedAssertionKind =
   | "eventOccurrence"
   | "eventOrder"
@@ -221,6 +279,8 @@ type ShippedAssertionKind =
   | "boundedCount"
   | "absence"
   | "validatedEvidence";
+type ClaimEvaluableStatus = "supported" | "rejected" | "not_evaluable";
+type ClaimRole = "mandatory" | "supplemental";
 
 function requireShippedAssertionKind(value: unknown, label: string): ShippedAssertionKind {
   switch (value) {
@@ -233,6 +293,235 @@ function requireShippedAssertionKind(value: unknown, label: string): ShippedAsse
       return value;
     default:
       throw new TypeError(`${label} has unexpected assertion kind: ${String(value)}`);
+  }
+}
+
+function requireClaimRole(value: unknown, label: string): ClaimRole {
+  if (value === "mandatory" || value === "supplemental") {
+    return value;
+  }
+  throw new Error(`${label} must be mandatory or supplemental`);
+}
+
+function requireClaimEvaluableStatus(value: unknown, label: string): ClaimEvaluableStatus {
+  if (value === "supported" || value === "rejected" || value === "not_evaluable") {
+    return value;
+  }
+  throw new Error(`${label} must be supported, rejected, or not_evaluable`);
+}
+
+function requireReasonCode(value: unknown, label: string): string {
+  switch (value) {
+    case "all_assertions_supported":
+    case "authoritative_evidence_rejected":
+    case "missing_authoritative_evidence":
+    case "health_gate_failed":
+      return value;
+    default:
+      throw new Error(`${label} has unexpected reasonCode: ${String(value)}`);
+  }
+}
+
+function assertReasonCodeMatchesStatus(
+  status: ClaimEvaluableStatus,
+  reasonCode: string,
+  label: string,
+): void {
+  switch (status) {
+    case "supported":
+      if (reasonCode !== "all_assertions_supported") {
+        throw new Error(`${label} is not valid for status ${status}`);
+      }
+      return;
+    case "rejected":
+      if (reasonCode !== "authoritative_evidence_rejected") {
+        throw new Error(`${label} is not valid for status ${status}`);
+      }
+      return;
+    case "not_evaluable":
+      if (reasonCode !== "missing_authoritative_evidence" && reasonCode !== "health_gate_failed") {
+        throw new Error(`${label} is not valid for status ${status}`);
+      }
+      return;
+    default:
+      return assertNever(status);
+  }
+}
+
+function reduceAssertionStatuses(statuses: readonly ClaimEvaluableStatus[]): ClaimEvaluableStatus {
+  if (statuses.length === 0) {
+    throw new Error("assertion inventory is empty");
+  }
+  if (statuses.every((status) => status === "supported")) {
+    return "supported";
+  }
+  if (statuses.some((status) => status === "rejected")) {
+    return "rejected";
+  }
+  return "not_evaluable";
+}
+
+function parseAuthoredAssertion(
+  value: unknown,
+  label: string,
+): { id: string; kind: ShippedAssertionKind; record: Record<string, unknown> } {
+  const record = requirePlainRecord(value, label);
+  return {
+    id: requireNonemptyString(record.id, `${label}.id`),
+    kind: requireShippedAssertionKind(record.kind, `${label}.kind`),
+    record,
+  };
+}
+
+function requireAuthoredAssertions(
+  claim: Record<string, unknown>,
+  label: string,
+): Array<{ id: string; kind: ShippedAssertionKind; record: Record<string, unknown> }> {
+  const assertions = requirePlainIndexCompleteArray(claim.assertions, `${label}.assertions`);
+  if (assertions.length === 0) {
+    throw new Error(`${label}.assertions must not be empty`);
+  }
+  const parsed: Array<{ id: string; kind: ShippedAssertionKind; record: Record<string, unknown> }> = [];
+  const seen = new Set<string>();
+  for (let index = 0; index < assertions.length; index += 1) {
+    const assertion = parseAuthoredAssertion(assertions[index], `${label}.assertions[${index}]`);
+    if (seen.has(assertion.id)) {
+      throw new Error(`${label}.assertions must not contain duplicate ids`);
+    }
+    seen.add(assertion.id);
+    parsed[index] = assertion;
+  }
+  return parsed;
+}
+
+function assertSameObservationWindow(expected: unknown, authored: unknown, label: string): void {
+  const expectedRecord = requirePlainRecord(expected, label);
+  const authoredRecord = requirePlainRecord(authored, `${label} authored`);
+  if (
+    expectedRecord.from !== authoredRecord.from ||
+    expectedRecord.to !== authoredRecord.to ||
+    expectedRecord.completeSourceRequired !== authoredRecord.completeSourceRequired
+  ) {
+    throw new Error(`${label} does not match authored observationWindow`);
+  }
+}
+
+function assertAssertionExpectedMatchesAuthored(
+  authored: { id: string; kind: ShippedAssertionKind; record: Record<string, unknown> },
+  actual: ClaimAssertionResult,
+  label: string,
+): void {
+  const expected = requirePlainRecord(actual.expected, label);
+  switch (authored.kind) {
+    case "eventOccurrence":
+      if (expected.event !== authored.record.event) {
+        throw new Error(`${label}.event does not match authored assertion`);
+      }
+      return;
+    case "eventOrder":
+      if (
+        expected.beforeEvent !== authored.record.beforeEvent ||
+        expected.afterEvent !== authored.record.afterEvent
+      ) {
+        throw new Error(`${label} does not match authored assertion`);
+      }
+      return;
+    case "terminalState":
+      if (expected.path !== authored.record.path || expected.value !== authored.record.expected) {
+        throw new Error(`${label} does not match authored assertion`);
+      }
+      return;
+    case "boundedCount":
+      if (expected.selector !== authored.record.selector) {
+        throw new Error(`${label}.selector does not match authored assertion`);
+      }
+      if (expected.minimum !== authored.record.minimum || expected.maximum !== authored.record.maximum) {
+        throw new Error(`${label} bounds do not match authored assertion`);
+      }
+      assertSameObservationWindow(
+        expected.observationWindow,
+        authored.record.observationWindow,
+        `${label}.observationWindow`,
+      );
+      return;
+    case "absence":
+      if (expected.selector !== authored.record.selector) {
+        throw new Error(`${label}.selector does not match authored assertion`);
+      }
+      assertSameObservationWindow(
+        expected.observationWindow,
+        authored.record.observationWindow,
+        `${label}.observationWindow`,
+      );
+      return;
+    case "validatedEvidence":
+      if (expected.artifactKind !== authored.record.artifactKind) {
+        throw new Error(`${label}.artifactKind does not match authored assertion`);
+      }
+      if (expected.validationContract !== authored.record.validationContract) {
+        throw new Error(`${label}.validationContract does not match authored assertion`);
+      }
+      return;
+    default:
+      return assertNever(authored.kind);
+  }
+}
+
+function requireAssertionResult(value: unknown, label: string): void {
+  const record = requirePlainRecord(value, label);
+  requireExactOwnKeys(record, ASSERTION_RESULT_KEYS, label);
+  requireNonemptyString(record.assertionId, `${label}.assertionId`);
+  requireShippedAssertionKind(record.assertionKind, `${label}.assertionKind`);
+  const status = requireClaimEvaluableStatus(record.status, `${label}.status`);
+  const reasonCode = requireReasonCode(record.reasonCode, `${label}.reasonCode`);
+  assertReasonCodeMatchesStatus(status, reasonCode, `${label}.reasonCode`);
+  requirePlainRecord(record.expected, `${label}.expected`);
+  if (status === "not_evaluable") {
+    if (record.observed !== null) {
+      throw new Error(`${label}.observed must be null`);
+    }
+  } else if (!isPlainRecord(record.observed)) {
+    throw new Error(`${label}.observed must be a plain object`);
+  }
+  requireEvidenceReferenceArray(record.evidenceReferences, `${label}.evidenceReferences`);
+  requireStringArray(record.rejectedEvidence, `${label}.rejectedEvidence`);
+  requireStringArray(record.missingProof, `${label}.missingProof`);
+}
+
+function reconcileClaimResult(claim: Record<string, unknown>, result: ClaimResult): void {
+  const authored = requireAuthoredAssertions(claim, `claim ${result.claimId}`);
+  if (result.assertionResults.length !== authored.length) {
+    throw new Error(`claim ${result.claimId} assertion inventory does not match authored cardinality`);
+  }
+  for (let index = 0; index < authored.length; index += 1) {
+    const expectedAssertion = authored[index];
+    const actual = result.assertionResults[index];
+    if (!expectedAssertion || !actual) {
+      throw new Error(`claim ${result.claimId} is missing assertion inventory`);
+    }
+    if (actual.assertionId !== expectedAssertion.id) {
+      throw new Error(
+        `claim ${result.claimId} assertionResults[${index}].assertionId does not match authored assertion id`,
+      );
+    }
+    if (actual.assertionKind !== expectedAssertion.kind) {
+      throw new Error(
+        `claim ${result.claimId} assertionResults[${index}].assertionKind does not match authored assertion kind`,
+      );
+    }
+    assertAssertionExpectedMatchesAuthored(
+      expectedAssertion,
+      actual,
+      `claim ${result.claimId} assertionResults[${index}].expected`,
+    );
+  }
+  const reduced = reduceAssertionStatuses(
+    result.assertionResults.map((assertion) =>
+      requireClaimEvaluableStatus(assertion.status, `claim ${result.claimId} assertion status`),
+    ),
+  );
+  if (result.status !== reduced) {
+    throw new Error(`claim ${result.claimId} status is not justified by assertion reduction`);
   }
 }
 
@@ -250,41 +539,38 @@ function requireHealthStatus(value: unknown): ClaimReductionHealthStatus {
   throw new Error("healthStatus must be passed, failed, or partial");
 }
 
-function stringInventory(value: unknown, label: string): string[] {
-  const array = requirePlainIndexCompleteArray(value, label);
-  const strings: string[] = [];
-  for (let index = 0; index < array.length; index += 1) {
-    strings[index] = String(array[index]);
+function requireClaimApplicability(
+  claim: Record<string, unknown>,
+  label: string,
+): { platforms: string[]; variants?: string[] } {
+  const applicability = requirePlainRecord(claim.applicability, `${label}.applicability`);
+  const platforms = requireInventoryStringArray(
+    applicability.platforms,
+    `${label}.applicability.platforms`,
+  );
+  if (!Object.prototype.hasOwnProperty.call(applicability, "variants")) {
+    return { platforms };
   }
-  return strings;
+  const variants = requireInventoryStringArray(
+    applicability.variants,
+    `${label}.applicability.variants`,
+  );
+  return { platforms, variants };
 }
 
-function claimPlatforms(claim: Record<string, unknown>): string[] {
-  const applicability = isPlainRecord(claim.applicability) ? claim.applicability : undefined;
-  if (!applicability || !Array.isArray(applicability.platforms)) {
-    return [];
-  }
-  return stringInventory(applicability.platforms, "claim.applicability.platforms");
-}
-
-function claimVariants(claim: Record<string, unknown>): string[] {
-  const applicability = isPlainRecord(claim.applicability) ? claim.applicability : undefined;
-  if (!applicability || !Array.isArray(applicability.variants)) {
-    return [];
-  }
-  return stringInventory(applicability.variants, "claim.applicability.variants");
-}
-
-function claimApplies(claim: Record<string, unknown>, selection: PreRuntimeClaimSelection): boolean {
-  const platforms = claimPlatforms(claim);
-  if (!platforms.includes(selection.platform)) {
+function claimApplies(
+  claim: Record<string, unknown>,
+  selection: PreRuntimeClaimSelection,
+  label: string,
+): boolean {
+  const applicability = requireClaimApplicability(claim, label);
+  if (!applicability.platforms.includes(selection.platform)) {
     return false;
   }
-  const variants = claimVariants(claim);
-  if (variants.length === 0) {
+  if (applicability.variants === undefined) {
     return true;
   }
-  return selection.variant !== undefined && variants.includes(selection.variant);
+  return selection.variant !== undefined && applicability.variants.includes(selection.variant);
 }
 
 function requireAuthoredClaims(scenario: Record<string, unknown>): Record<string, unknown>[] {
@@ -294,7 +580,12 @@ function requireAuthoredClaims(scenario: Record<string, unknown>): Record<string
   }
   const records: Record<string, unknown>[] = [];
   for (let index = 0; index < claims.length; index += 1) {
-    records[index] = requirePlainRecord(claims[index], `scenario.claims[${index}]`);
+    const record = requirePlainRecord(claims[index], `scenario.claims[${index}]`);
+    records[index] = record;
+    requireNonemptyString(record.id, `scenario.claims[${index}].id`);
+    requireClaimRole(record.role, `scenario.claims[${index}].role`);
+    requireAuthoredAssertions(record, `scenario.claims[${index}]`);
+    requireClaimApplicability(record, `scenario.claims[${index}]`);
   }
   return records;
 }
@@ -308,8 +599,8 @@ function authoredApplicability(scenario: Record<string, unknown>, selection: Pre
     if (!record) {
       throw new Error(`scenario.claims[${index}] is missing`);
     }
-    const id = requireNonemptyString(record.id, "claim.id");
-    if (claimApplies(record, selection)) {
+    const id = requireNonemptyString(record.id, `scenario.claims[${index}].id`);
+    if (claimApplies(record, selection, `scenario.claims[${index}]`)) {
       applicable.push(id);
     } else {
       excluded.push(id);
@@ -333,13 +624,22 @@ function assertSelectionMatchesAuthored(
 function requireClaimResultRecord(value: unknown, label: string): ClaimResult {
   const record = requirePlainRecord(value, label);
   requireExactOwnKeys(record, CLAIM_RESULT_KEYS, label);
+  requireNonemptyString(record.claimId, `${label}.claimId`);
+  requireNonemptyString(record.claimHash, `${label}.claimHash`);
+  requireClaimRole(record.role, `${label}.role`);
+  const status = requireClaimEvaluableStatus(record.status, `${label}.status`);
+  const reasonCode = requireReasonCode(record.reasonCode, `${label}.reasonCode`);
+  assertReasonCodeMatchesStatus(status, reasonCode, `${label}.reasonCode`);
+  requireNonemptyString(record.nextActionOwner, `${label}.nextActionOwner`);
+  requireNonemptyString(record.nextAction, `${label}.nextAction`);
+  requireEvidenceReferenceArray(record.evidenceReferences, `${label}.evidenceReferences`);
+  requireStringArray(record.missingProof, `${label}.missingProof`);
   const assertionResults = requirePlainIndexCompleteArray(record.assertionResults, `${label}.assertionResults`);
   if (assertionResults.length === 0) {
     throw new Error(`${label}.assertionResults must not be empty`);
   }
   for (let index = 0; index < assertionResults.length; index += 1) {
-    const assertion = requirePlainRecord(assertionResults[index], `${label}.assertionResults[${index}]`);
-    requireShippedAssertionKind(assertion.assertionKind, `${label}.assertionResults[${index}]`);
+    requireAssertionResult(assertionResults[index], `${label}.assertionResults[${index}]`);
   }
   return clonePlain(record, label) as ClaimResult;
 }
@@ -405,6 +705,7 @@ function orderedApplicableResults(
     if (result.claimId !== id) {
       throw new Error(`wrong claim id on result for ${id}`);
     }
+    reconcileClaimResult(authoredClaim, result);
     ordered.push(result);
     byId.delete(id);
   }
@@ -467,7 +768,7 @@ function healthGatedClaimResult(result: ClaimResult): ClaimResult {
     reasonCode: "health_gate_failed",
     assertionResults,
     evidenceReferences: [],
-    missingProof: assertionResults.flatMap((assertion) => assertion.missingProof),
+    missingProof: uniqueStrings(assertionResults.flatMap((assertion) => assertion.missingProof)),
     nextActionOwner: "unresolved",
     nextAction: "Restore trusted scenario health before reducing claims.",
   };

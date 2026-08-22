@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 
 import { buildScenarioClaimHash } from "../claim-contract.js";
 import type {
+  BoundedCountExpectation,
   ClaimAssertionResult,
   ClaimAuthority,
   ClaimObservationWindow,
@@ -221,6 +222,123 @@ function makeCandidate(
   };
 }
 
+function completeCandidates(
+  claim: ScenarioClaimDefinition,
+  resultOverrides: { readonly [index: number]: ClaimAssertionResult | undefined } = {},
+): ClaimAssertionCandidateEnvelope[] {
+  return claim.assertions.map((_, index) => {
+    const result = resultOverrides[index];
+    if (result === undefined) {
+      return makeCandidate(claim, index);
+    }
+    return makeCandidate(claim, index, { result });
+  });
+}
+
+function boundedCountAssertion(
+  minimum: number | undefined,
+  maximum: number | undefined,
+): ScenarioClaimAssertion {
+  if (minimum !== undefined && maximum !== undefined) {
+    return {
+      id: "a4",
+      kind: "boundedCount",
+      authority: WINDOWED_AUTHORITY,
+      selector: "retry",
+      observationWindow: WINDOW,
+      minimum,
+      maximum,
+    };
+  }
+  if (minimum !== undefined) {
+    return {
+      id: "a4",
+      kind: "boundedCount",
+      authority: WINDOWED_AUTHORITY,
+      selector: "retry",
+      observationWindow: WINDOW,
+      minimum,
+    };
+  }
+  if (maximum !== undefined) {
+    return {
+      id: "a4",
+      kind: "boundedCount",
+      authority: WINDOWED_AUTHORITY,
+      selector: "retry",
+      observationWindow: WINDOW,
+      maximum,
+    };
+  }
+  throw new Error("boundedCount requires a bound");
+}
+
+function claimWithBoundedCount(
+  minimum: number | undefined,
+  maximum: number | undefined,
+): ScenarioClaimDefinition {
+  const base = makeClaim();
+  const first = base.assertions[0];
+  if (first === undefined) {
+    throw new Error("expected assertions");
+  }
+  return {
+    ...base,
+    assertions: [first, ...base.assertions.slice(1, 3), boundedCountAssertion(minimum, maximum), ...base.assertions.slice(4)],
+  };
+}
+
+function boundedCountExpected(
+  minimum: number | undefined,
+  maximum: number | undefined,
+  selector: string,
+): BoundedCountExpectation {
+  if (minimum !== undefined && maximum !== undefined) {
+    return { selector, observationWindow: WINDOW, minimum, maximum };
+  }
+  if (minimum !== undefined) {
+    return { selector, observationWindow: WINDOW, minimum };
+  }
+  if (maximum !== undefined) {
+    return { selector, observationWindow: WINDOW, maximum };
+  }
+  throw new Error("boundedCount requires a bound");
+}
+
+function boundedCountResult(
+  status: "supported" | "rejected",
+  count: number,
+  minimum: number | undefined,
+  maximum: number | undefined,
+  selector = "retry",
+): ClaimAssertionResult {
+  const expected = boundedCountExpected(minimum, maximum, selector);
+  if (status === "supported") {
+    return {
+      assertionId: "a4",
+      assertionKind: "boundedCount",
+      status: "supported",
+      reasonCode: "all_assertions_supported",
+      expected,
+      observed: { selector, count },
+      evidenceReferences: evidence(),
+      rejectedEvidence: [],
+      missingProof: [],
+    };
+  }
+  return {
+    assertionId: "a4",
+    assertionKind: "boundedCount",
+    status: "rejected",
+    reasonCode: "authoritative_evidence_rejected",
+    expected,
+    observed: { selector, count },
+    evidenceReferences: evidence(),
+    rejectedEvidence: ["count-out-of-bounds"],
+    missingProof: [],
+  };
+}
+
 describe("inspectClaimAssertionResultSet", () => {
   it("builds a complete authored-order inventory across all six kinds", () => {
     const claim = makeClaim();
@@ -344,6 +462,9 @@ describe("inspectClaimAssertionResultSet", () => {
       candidates: [],
     });
     assert.equal(malformed.status, "outside_contract");
+    if (malformed.status === "outside_contract") {
+      assert.deepEqual(malformed.reasons, ["malformed_claim"]);
+    }
     assert.equal(Object.isFrozen(malformed), true);
     if (malformed.status === "outside_contract") {
       assert.equal(Object.isFrozen(malformed.reasons), true);
@@ -375,6 +496,9 @@ describe("inspectClaimAssertionResultSet", () => {
     ) as unknown as { claim: ScenarioClaimDefinition; candidates: ClaimAssertionCandidateEnvelope[] };
     const extra = inspectClaimAssertionResultSet(extraWrapper);
     assert.equal(extra.status, "outside_contract");
+    if (extra.status === "outside_contract") {
+      assert.deepEqual(extra.reasons, ["malformed_input"]);
+    }
     assert.equal(claimReads, 0);
     assert.equal(candidateReads, 0);
     assert.equal(extraReads, 0);
@@ -385,16 +509,25 @@ describe("inspectClaimAssertionResultSet", () => {
       extra: true,
     } as unknown as { claim: ScenarioClaimDefinition; candidates: ClaimAssertionCandidateEnvelope[] });
     assert.equal(extraPlain.status, "outside_contract");
+    if (extraPlain.status === "outside_contract") {
+      assert.deepEqual(extraPlain.reasons, ["malformed_input"]);
+    }
 
     const missingCandidates = inspectClaimAssertionResultSet({
       claim,
     } as unknown as { claim: ScenarioClaimDefinition; candidates: ClaimAssertionCandidateEnvelope[] });
     assert.equal(missingCandidates.status, "outside_contract");
+    if (missingCandidates.status === "outside_contract") {
+      assert.deepEqual(missingCandidates.reasons, ["malformed_input"]);
+    }
 
     const missingClaim = inspectClaimAssertionResultSet({
       candidates,
     } as unknown as { claim: ScenarioClaimDefinition; candidates: ClaimAssertionCandidateEnvelope[] });
     assert.equal(missingClaim.status, "outside_contract");
+    if (missingClaim.status === "outside_contract") {
+      assert.deepEqual(missingClaim.reasons, ["malformed_input"]);
+    }
   });
 
   it("rejects authored boundedCount when minimum is greater than maximum and accepts equal bounds", () => {
@@ -417,6 +550,9 @@ describe("inspectClaimAssertionResultSet", () => {
       candidates: [],
     });
     assert.equal(inverted.status, "outside_contract");
+    if (inverted.status === "outside_contract") {
+      assert.deepEqual(inverted.reasons, ["malformed_claim"]);
+    }
 
     const equalClaim: ScenarioClaimDefinition = {
       ...base,
@@ -503,6 +639,7 @@ describe("inspectClaimAssertionResultSet", () => {
     assert.equal(Object.isFrozen(outside), true);
     if (outside.status === "outside_contract") {
       assert.equal(Object.isFrozen(outside.reasons), true);
+      assert.deepEqual(outside.reasons, ["malformed_claim"]);
     }
   });
 
@@ -516,7 +653,7 @@ describe("inspectClaimAssertionResultSet", () => {
           result: {
             ...makeResult("eventOccurrence", "a1"),
             evidenceReferences: [
-              { path: `evidence/log.json\0${sha}` },
+              { path: `evidence/log.json|${sha}` },
               { path: "evidence/log.json", sha256: sha },
             ],
           },
@@ -540,36 +677,43 @@ describe("inspectClaimAssertionResultSet", () => {
       "../evidence/log.json",
       "evidence/../secret.json",
       "evidence\\log.json",
+      "file:evidence/log.json",
+      "FILE://evidence/log.json",
+      " evidence/log.json",
+      "evidence/log.json ",
+      "",
     ];
     for (const path of invalidPaths) {
       const result = makeResult("eventOccurrence", "a1");
       const inspection = inspectClaimAssertionResultSet({
         claim,
-        candidates: [
-          makeCandidate(claim, 0, {
-            result: { ...result, evidenceReferences: [{ path }] },
-          }),
-        ],
+        candidates: completeCandidates(claim, {
+          0: { ...result, evidenceReferences: [{ path }] },
+        }),
       });
       assert.equal(inspection.status, "outside_contract");
+      if (inspection.status === "outside_contract") {
+        assert.deepEqual(inspection.reasons, ["malformed_candidate:0"]);
+      }
     }
     const badSha = inspectClaimAssertionResultSet({
       claim,
-      candidates: [
-        makeCandidate(claim, 0, {
-          result: {
-            ...makeResult("eventOccurrence", "a1"),
-            evidenceReferences: [
-              {
-                path: "evidence/log.json",
-                sha256: "DEADBEEFDEADBEEFDEADBEEFDEADBEEFDEADBEEFDEADBEEFDEADBEEFDEADBEEF",
-              },
-            ],
-          },
-        }),
-      ],
+      candidates: completeCandidates(claim, {
+        0: {
+          ...makeResult("eventOccurrence", "a1"),
+          evidenceReferences: [
+            {
+              path: "evidence/log.json",
+              sha256: "DEADBEEFDEADBEEFDEADBEEFDEADBEEFDEADBEEFDEADBEEFDEADBEEFDEADBEEF",
+            },
+          ],
+        },
+      }),
     });
     assert.equal(badSha.status, "outside_contract");
+    if (badSha.status === "outside_contract") {
+      assert.deepEqual(badSha.reasons, ["malformed_candidate:0"]);
+    }
   });
 
   it("rejects duplicate evidenceReferences, rejectedEvidence, and missingProof", () => {
@@ -577,16 +721,17 @@ describe("inspectClaimAssertionResultSet", () => {
     const supported = makeResult("eventOccurrence", "a1");
     const dupEvidence = inspectClaimAssertionResultSet({
       claim,
-      candidates: [
-        makeCandidate(claim, 0, {
-          result: {
-            ...supported,
-            evidenceReferences: [{ path: "evidence/log.json" }, { path: "evidence/log.json" }],
-          },
-        }),
-      ],
+      candidates: completeCandidates(claim, {
+        0: {
+          ...supported,
+          evidenceReferences: [{ path: "evidence/log.json" }, { path: "evidence/log.json" }],
+        },
+      }),
     });
     assert.equal(dupEvidence.status, "outside_contract");
+    if (dupEvidence.status === "outside_contract") {
+      assert.deepEqual(dupEvidence.reasons, ["malformed_candidate:0"]);
+    }
 
     const rejected: ClaimAssertionResult = {
       assertionId: "a2",
@@ -601,9 +746,12 @@ describe("inspectClaimAssertionResultSet", () => {
     };
     const dupRejected = inspectClaimAssertionResultSet({
       claim,
-      candidates: [makeCandidate(claim, 1, { result: rejected })],
+      candidates: completeCandidates(claim, { 1: rejected }),
     });
     assert.equal(dupRejected.status, "outside_contract");
+    if (dupRejected.status === "outside_contract") {
+      assert.deepEqual(dupRejected.reasons, ["malformed_candidate:1"]);
+    }
 
     const notEvaluable: ClaimAssertionResult = {
       assertionId: "a1",
@@ -618,9 +766,12 @@ describe("inspectClaimAssertionResultSet", () => {
     };
     const dupMissing = inspectClaimAssertionResultSet({
       claim,
-      candidates: [makeCandidate(claim, 0, { result: notEvaluable })],
+      candidates: completeCandidates(claim, { 0: notEvaluable }),
     });
     assert.equal(dupMissing.status, "outside_contract");
+    if (dupMissing.status === "outside_contract") {
+      assert.deepEqual(dupMissing.reasons, ["malformed_candidate:0"]);
+    }
   });
 
   it("rejects fractional or negative bounded and absence counts", () => {
@@ -631,9 +782,12 @@ describe("inspectClaimAssertionResultSet", () => {
     } as ClaimAssertionResult;
     const fractional = inspectClaimAssertionResultSet({
       claim,
-      candidates: [makeCandidate(claim, 3, { result: fractionalCount })],
+      candidates: completeCandidates(claim, { 3: fractionalCount }),
     });
     assert.equal(fractional.status, "outside_contract");
+    if (fractional.status === "outside_contract") {
+      assert.deepEqual(fractional.reasons, ["malformed_candidate:3"]);
+    }
 
     const negativeCount = {
       ...makeResult("boundedCount", "a4"),
@@ -641,9 +795,12 @@ describe("inspectClaimAssertionResultSet", () => {
     } as ClaimAssertionResult;
     const negative = inspectClaimAssertionResultSet({
       claim,
-      candidates: [makeCandidate(claim, 3, { result: negativeCount })],
+      candidates: completeCandidates(claim, { 3: negativeCount }),
     });
     assert.equal(negative.status, "outside_contract");
+    if (negative.status === "outside_contract") {
+      assert.deepEqual(negative.reasons, ["malformed_candidate:3"]);
+    }
 
     const absenceZeroRejected: ClaimAssertionResult = {
       assertionId: "a5",
@@ -658,9 +815,12 @@ describe("inspectClaimAssertionResultSet", () => {
     };
     const zeroRejected = inspectClaimAssertionResultSet({
       claim,
-      candidates: [makeCandidate(claim, 4, { result: absenceZeroRejected })],
+      candidates: completeCandidates(claim, { 4: absenceZeroRejected }),
     });
     assert.equal(zeroRejected.status, "outside_contract");
+    if (zeroRejected.status === "outside_contract") {
+      assert.deepEqual(zeroRejected.reasons, ["malformed_candidate:4"]);
+    }
 
     const absenceNegativeCount = {
       ...makeResult("absence", "a5"),
@@ -668,9 +828,12 @@ describe("inspectClaimAssertionResultSet", () => {
     } as ClaimAssertionResult;
     const absenceNegative = inspectClaimAssertionResultSet({
       claim,
-      candidates: [makeCandidate(claim, 4, { result: absenceNegativeCount })],
+      candidates: completeCandidates(claim, { 4: absenceNegativeCount }),
     });
     assert.equal(absenceNegative.status, "outside_contract");
+    if (absenceNegative.status === "outside_contract") {
+      assert.deepEqual(absenceNegative.reasons, ["malformed_candidate:4"]);
+    }
   });
 
   it("rejects malformed authored claim identifiers, duplicates, and unknown keys", () => {
@@ -680,18 +843,27 @@ describe("inspectClaimAssertionResultSet", () => {
       candidates: [],
     });
     assert.equal(badId.status, "outside_contract");
+    if (badId.status === "outside_contract") {
+      assert.deepEqual(badId.reasons, ["malformed_claim"]);
+    }
 
     const dupPlatforms = inspectClaimAssertionResultSet({
       claim: { ...base, applicability: { platforms: ["ios", "ios"] } },
       candidates: [],
     });
     assert.equal(dupPlatforms.status, "outside_contract");
+    if (dupPlatforms.status === "outside_contract") {
+      assert.deepEqual(dupPlatforms.reasons, ["malformed_claim"]);
+    }
 
     const emptyClosure = inspectClaimAssertionResultSet({
       claim: { ...base, closes: { phases: [] as unknown as [string, ...string[]] } },
       candidates: [],
     });
     assert.equal(emptyClosure.status, "outside_contract");
+    if (emptyClosure.status === "outside_contract") {
+      assert.deepEqual(emptyClosure.reasons, ["malformed_claim"]);
+    }
 
     const unknownApplicability = inspectClaimAssertionResultSet({
       claim: {
@@ -701,6 +873,9 @@ describe("inspectClaimAssertionResultSet", () => {
       candidates: [],
     });
     assert.equal(unknownApplicability.status, "outside_contract");
+    if (unknownApplicability.status === "outside_contract") {
+      assert.deepEqual(unknownApplicability.reasons, ["malformed_claim"]);
+    }
 
     const firstAssertion = base.assertions[0];
     if (firstAssertion === undefined) {
@@ -717,6 +892,9 @@ describe("inspectClaimAssertionResultSet", () => {
       candidates: [],
     });
     assert.equal(unknownAssertion.status, "outside_contract");
+    if (unknownAssertion.status === "outside_contract") {
+      assert.deepEqual(unknownAssertion.reasons, ["malformed_claim"]);
+    }
 
     const dupVariants = inspectClaimAssertionResultSet({
       claim: {
@@ -726,12 +904,18 @@ describe("inspectClaimAssertionResultSet", () => {
       candidates: [],
     });
     assert.equal(dupVariants.status, "outside_contract");
+    if (dupVariants.status === "outside_contract") {
+      assert.deepEqual(dupVariants.reasons, ["malformed_claim"]);
+    }
 
     const dupClosure = inspectClaimAssertionResultSet({
       claim: { ...base, closes: { phases: ["done", "done"] } },
       candidates: [],
     });
     assert.equal(dupClosure.status, "outside_contract");
+    if (dupClosure.status === "outside_contract") {
+      assert.deepEqual(dupClosure.reasons, ["malformed_claim"]);
+    }
 
     const unknownClosure = inspectClaimAssertionResultSet({
       claim: {
@@ -741,6 +925,9 @@ describe("inspectClaimAssertionResultSet", () => {
       candidates: [],
     });
     assert.equal(unknownClosure.status, "outside_contract");
+    if (unknownClosure.status === "outside_contract") {
+      assert.deepEqual(unknownClosure.reasons, ["malformed_claim"]);
+    }
 
     const emptyVariants = inspectClaimAssertionResultSet({
       claim: {
@@ -750,6 +937,9 @@ describe("inspectClaimAssertionResultSet", () => {
       candidates: [],
     });
     assert.equal(emptyVariants.status, "outside_contract");
+    if (emptyVariants.status === "outside_contract") {
+      assert.deepEqual(emptyVariants.reasons, ["malformed_claim"]);
+    }
 
     const badAssertionId = inspectClaimAssertionResultSet({
       claim: {
@@ -759,6 +949,9 @@ describe("inspectClaimAssertionResultSet", () => {
       candidates: [],
     });
     assert.equal(badAssertionId.status, "outside_contract");
+    if (badAssertionId.status === "outside_contract") {
+      assert.deepEqual(badAssertionId.reasons, ["malformed_claim"]);
+    }
   });
 
   it("rejects candidateId values that are not run-relative POSIX paths", () => {
@@ -770,13 +963,23 @@ describe("inspectClaimAssertionResultSet", () => {
       "../c1",
       "c1/../secret",
       "c1\\id",
+      "file:c1",
+      "FILE://c1",
+      " c1",
+      "c1 ",
+      "",
     ];
     for (const candidateId of invalidIds) {
       const inspection = inspectClaimAssertionResultSet({
         claim,
-        candidates: [makeCandidate(claim, 0, { candidateId })],
+        candidates: completeCandidates(claim).map((candidate, index) =>
+          index === 0 ? makeCandidate(claim, 0, { candidateId }) : candidate,
+        ),
       });
       assert.equal(inspection.status, "outside_contract");
+      if (inspection.status === "outside_contract") {
+        assert.deepEqual(inspection.reasons, ["malformed_candidate:0"]);
+      }
     }
   });
 
@@ -951,9 +1154,14 @@ describe("inspectClaimAssertionResultSet", () => {
     const claim = makeClaim();
     const inspection = inspectClaimAssertionResultSet({
       claim,
-      candidates: [makeCandidate(claim, 0, { claimHash: "not-a-hash" })],
+      candidates: completeCandidates(claim).map((candidate, index) =>
+        index === 0 ? makeCandidate(claim, 0, { claimHash: "not-a-hash" }) : candidate,
+      ),
     });
     assert.equal(inspection.status, "outside_contract");
+    if (inspection.status === "outside_contract") {
+      assert.deepEqual(inspection.reasons, ["malformed_candidate:0"]);
+    }
   });
 
   it("does not treat equivalent key-order permutations as conflicting while duplicates remain incoherent", () => {
@@ -987,5 +1195,465 @@ describe("inspectClaimAssertionResultSet", () => {
     assert.ok(inspection.reasons.includes("duplicate_assertion:a1"));
     assert.ok(!inspection.reasons.includes("conflicting_status:a1"));
     assert.ok(!inspection.reasons.includes("conflicting_observed_value:a1"));
+  });
+
+  it("accepts supported and rejected terminalState results with matching paths and coherent values", () => {
+    const claim = makeClaim();
+    const supported = inspectClaimAssertionResultSet({
+      claim,
+      candidates: completeCandidates(claim),
+    });
+    assert.equal(supported.status, "complete");
+
+    const rejectedResult: ClaimAssertionResult = {
+      assertionId: "a3",
+      assertionKind: "terminalState",
+      status: "rejected",
+      reasonCode: "authoritative_evidence_rejected",
+      expected: { path: "status", value: "ready" },
+      observed: { path: "status", value: "failed" },
+      evidenceReferences: evidence(),
+      rejectedEvidence: ["value-mismatch"],
+      missingProof: [],
+    };
+    const rejected = inspectClaimAssertionResultSet({
+      claim,
+      candidates: completeCandidates(claim, { 2: rejectedResult }),
+    });
+    assert.equal(rejected.status, "complete");
+    if (rejected.status === "complete") {
+      assert.equal(rejected.results[2]?.status, "rejected");
+      assert.deepEqual(rejected.results[2]?.observed, { path: "status", value: "failed" });
+    }
+  });
+
+  it("rejects contradictory terminalState status and value pairings as outside_contract", () => {
+    const claim = makeClaim();
+    const contradictory: ClaimAssertionResult[] = [
+      {
+        assertionId: "a3",
+        assertionKind: "terminalState",
+        status: "supported",
+        reasonCode: "all_assertions_supported",
+        expected: { path: "status", value: "ready" },
+        observed: { path: "status", value: "failed" },
+        evidenceReferences: evidence(),
+        rejectedEvidence: [],
+        missingProof: [],
+      },
+      {
+        assertionId: "a3",
+        assertionKind: "terminalState",
+        status: "rejected",
+        reasonCode: "authoritative_evidence_rejected",
+        expected: { path: "status", value: "ready" },
+        observed: { path: "status", value: "ready" },
+        evidenceReferences: evidence(),
+        rejectedEvidence: ["value-mismatch"],
+        missingProof: [],
+      },
+      {
+        assertionId: "a3",
+        assertionKind: "terminalState",
+        status: "supported",
+        reasonCode: "all_assertions_supported",
+        expected: { path: "status", value: "ready" },
+        observed: { path: "other", value: "ready" },
+        evidenceReferences: evidence(),
+        rejectedEvidence: [],
+        missingProof: [],
+      },
+      {
+        assertionId: "a3",
+        assertionKind: "terminalState",
+        status: "rejected",
+        reasonCode: "authoritative_evidence_rejected",
+        expected: { path: "status", value: "ready" },
+        observed: { path: "other", value: "failed" },
+        evidenceReferences: evidence(),
+        rejectedEvidence: ["value-mismatch"],
+        missingProof: [],
+      },
+    ];
+    for (const result of contradictory) {
+      const inspection = inspectClaimAssertionResultSet({
+        claim,
+        candidates: completeCandidates(claim, { 2: result }),
+      });
+      assert.equal(inspection.status, "outside_contract");
+      if (inspection.status === "outside_contract") {
+        assert.deepEqual(inspection.reasons, ["malformed_candidate:2"]);
+      }
+    }
+  });
+
+  it("accepts boundedCount min-only, max-only, and both-bound supported and rejected inventories", () => {
+    const cases: Array<{
+      minimum: number | undefined;
+      maximum: number | undefined;
+      status: "supported" | "rejected";
+      count: number;
+    }> = [
+      { minimum: 1, maximum: undefined, status: "supported", count: 1 },
+      { minimum: 1, maximum: undefined, status: "supported", count: 4 },
+      { minimum: 1, maximum: undefined, status: "rejected", count: 0 },
+      { minimum: undefined, maximum: 2, status: "supported", count: 0 },
+      { minimum: undefined, maximum: 2, status: "supported", count: 2 },
+      { minimum: undefined, maximum: 2, status: "rejected", count: 3 },
+      { minimum: 0, maximum: 2, status: "supported", count: 0 },
+      { minimum: 0, maximum: 2, status: "supported", count: 2 },
+      { minimum: 0, maximum: 2, status: "rejected", count: 3 },
+    ];
+    for (const testCase of cases) {
+      const claim = claimWithBoundedCount(testCase.minimum, testCase.maximum);
+      const inspection = inspectClaimAssertionResultSet({
+        claim,
+        candidates: completeCandidates(claim, {
+          3: boundedCountResult(testCase.status, testCase.count, testCase.minimum, testCase.maximum),
+        }),
+      });
+      assert.equal(inspection.status, "complete");
+      if (inspection.status === "complete") {
+        assert.equal(inspection.results[3]?.status, testCase.status);
+      }
+    }
+  });
+
+  it("rejects boundedCount supported-outside and rejected-inside pairings as outside_contract", () => {
+    const cases: Array<{
+      minimum: number | undefined;
+      maximum: number | undefined;
+      status: "supported" | "rejected";
+      count: number;
+    }> = [
+      { minimum: 1, maximum: undefined, status: "supported", count: 0 },
+      { minimum: 1, maximum: undefined, status: "rejected", count: 4 },
+      { minimum: undefined, maximum: 2, status: "supported", count: 5 },
+      { minimum: undefined, maximum: 2, status: "rejected", count: 1 },
+      { minimum: 0, maximum: 2, status: "supported", count: 3 },
+      { minimum: 1, maximum: 2, status: "supported", count: 0 },
+      { minimum: 0, maximum: 2, status: "rejected", count: 1 },
+      { minimum: 0, maximum: 2, status: "rejected", count: 0 },
+      { minimum: 0, maximum: 2, status: "rejected", count: 2 },
+    ];
+    for (const testCase of cases) {
+      const claim = claimWithBoundedCount(testCase.minimum, testCase.maximum);
+      const inspection = inspectClaimAssertionResultSet({
+        claim,
+        candidates: completeCandidates(claim, {
+          3: boundedCountResult(testCase.status, testCase.count, testCase.minimum, testCase.maximum),
+        }),
+      });
+      assert.equal(inspection.status, "outside_contract");
+      if (inspection.status === "outside_contract") {
+        assert.deepEqual(inspection.reasons, ["malformed_candidate:3"]);
+      }
+    }
+  });
+
+  it("rejects selector mismatch for boundedCount and absence", () => {
+    const claim = makeClaim();
+    const boundedMismatch: ClaimAssertionResult = {
+      assertionId: "a4",
+      assertionKind: "boundedCount",
+      status: "supported",
+      reasonCode: "all_assertions_supported",
+      expected: {
+        selector: "retry",
+        observationWindow: WINDOW,
+        minimum: 0,
+        maximum: 2,
+      },
+      observed: { selector: "other", count: 1 },
+      evidenceReferences: evidence(),
+      rejectedEvidence: [],
+      missingProof: [],
+    };
+    const bounded = inspectClaimAssertionResultSet({
+      claim,
+      candidates: completeCandidates(claim, { 3: boundedMismatch }),
+    });
+    assert.equal(bounded.status, "outside_contract");
+    if (bounded.status === "outside_contract") {
+      assert.deepEqual(bounded.reasons, ["malformed_candidate:3"]);
+    }
+
+    const absenceSupportedMismatch: ClaimAssertionResult = {
+      assertionId: "a5",
+      assertionKind: "absence",
+      status: "supported",
+      reasonCode: "all_assertions_supported",
+      expected: { selector: "error", observationWindow: WINDOW },
+      observed: { selector: "other", count: 0 },
+      evidenceReferences: evidence(),
+      rejectedEvidence: [],
+      missingProof: [],
+    };
+    const absenceSupported = inspectClaimAssertionResultSet({
+      claim,
+      candidates: completeCandidates(claim, { 4: absenceSupportedMismatch }),
+    });
+    assert.equal(absenceSupported.status, "outside_contract");
+    if (absenceSupported.status === "outside_contract") {
+      assert.deepEqual(absenceSupported.reasons, ["malformed_candidate:4"]);
+    }
+
+    const absenceRejectedMismatch: ClaimAssertionResult = {
+      assertionId: "a5",
+      assertionKind: "absence",
+      status: "rejected",
+      reasonCode: "authoritative_evidence_rejected",
+      expected: { selector: "error", observationWindow: WINDOW },
+      observed: { selector: "other", count: 2 },
+      evidenceReferences: evidence(),
+      rejectedEvidence: ["present"],
+      missingProof: [],
+    };
+    const absenceRejected = inspectClaimAssertionResultSet({
+      claim,
+      candidates: completeCandidates(claim, { 4: absenceRejectedMismatch }),
+    });
+    assert.equal(absenceRejected.status, "outside_contract");
+    if (absenceRejected.status === "outside_contract") {
+      assert.deepEqual(absenceRejected.reasons, ["malformed_candidate:4"]);
+    }
+  });
+
+  it("rejects unsafe integer counts and bounds", () => {
+    const claim = makeClaim();
+    const unsafeValues = [Number.MAX_SAFE_INTEGER + 1, Number.POSITIVE_INFINITY, Number.NaN, -1, 1.5];
+    for (const count of unsafeValues) {
+      const unsafeCount = {
+        ...makeResult("boundedCount", "a4"),
+        observed: { selector: "retry", count },
+      } as ClaimAssertionResult;
+      const inspection = inspectClaimAssertionResultSet({
+        claim,
+        candidates: completeCandidates(claim, { 3: unsafeCount }),
+      });
+      assert.equal(inspection.status, "outside_contract");
+      if (inspection.status === "outside_contract") {
+        assert.deepEqual(inspection.reasons, ["malformed_candidate:3"]);
+      }
+
+      const unsafeAbsence = {
+        assertionId: "a5",
+        assertionKind: "absence",
+        status: "rejected",
+        reasonCode: "authoritative_evidence_rejected",
+        expected: { selector: "error", observationWindow: WINDOW },
+        observed: { selector: "error", count },
+        evidenceReferences: evidence(),
+        rejectedEvidence: ["present"],
+        missingProof: [],
+      } as ClaimAssertionResult;
+      const absenceInspection = inspectClaimAssertionResultSet({
+        claim,
+        candidates: completeCandidates(claim, { 4: unsafeAbsence }),
+      });
+      assert.equal(absenceInspection.status, "outside_contract");
+      if (absenceInspection.status === "outside_contract") {
+        assert.deepEqual(absenceInspection.reasons, ["malformed_candidate:4"]);
+      }
+    }
+
+    const base = makeClaim();
+    const first = base.assertions[0];
+    const bounded = base.assertions[3];
+    if (first === undefined || bounded === undefined || bounded.kind !== "boundedCount") {
+      throw new Error("expected boundedCount assertion");
+    }
+    const unsafeBound = inspectClaimAssertionResultSet({
+      claim: {
+        ...base,
+        assertions: [
+          first,
+          ...base.assertions.slice(1, 3),
+          { ...bounded, minimum: Number.MAX_SAFE_INTEGER + 1, maximum: Number.MAX_SAFE_INTEGER + 1 },
+          ...base.assertions.slice(4),
+        ],
+      },
+      candidates: [],
+    });
+    assert.equal(unsafeBound.status, "outside_contract");
+    if (unsafeBound.status === "outside_contract") {
+      assert.deepEqual(unsafeBound.reasons, ["malformed_claim"]);
+    }
+    const fractionalBound = inspectClaimAssertionResultSet({
+      claim: {
+        ...base,
+        assertions: [
+          first,
+          ...base.assertions.slice(1, 3),
+          { ...bounded, minimum: 1.5, maximum: 2.5 },
+          ...base.assertions.slice(4),
+        ],
+      },
+      candidates: [],
+    });
+    assert.equal(fractionalBound.status, "outside_contract");
+    if (fractionalBound.status === "outside_contract") {
+      assert.deepEqual(fractionalBound.reasons, ["malformed_claim"]);
+    }
+    const negativeBound = inspectClaimAssertionResultSet({
+      claim: {
+        ...base,
+        assertions: [
+          first,
+          ...base.assertions.slice(1, 3),
+          { ...bounded, minimum: -1, maximum: 2 },
+          ...base.assertions.slice(4),
+        ],
+      },
+      candidates: [],
+    });
+    assert.equal(negativeBound.status, "outside_contract");
+    if (negativeBound.status === "outside_contract") {
+      assert.deepEqual(negativeBound.reasons, ["malformed_claim"]);
+    }
+  });
+
+  it("rejects empty, dot, NUL, control, and trailing-slash run-relative path identities", () => {
+    const claim = makeClaim();
+    const invalidPaths = [
+      ".",
+      "./evidence/log.json",
+      "evidence/./log.json",
+      "evidence/.",
+      "evidence/",
+      "evidence//log.json",
+      "evidence/log.json/",
+      "evidence/log.json\0sidecar",
+      "evidence/log.json\nlog",
+      "evidence/log.json\tlog",
+      `evidence/log.json${String.fromCharCode(0x7f)}log`,
+    ];
+    for (const path of invalidPaths) {
+      const inspection = inspectClaimAssertionResultSet({
+        claim,
+        candidates: completeCandidates(claim, {
+          0: { ...makeResult("eventOccurrence", "a1"), evidenceReferences: [{ path }] },
+        }),
+      });
+      assert.equal(inspection.status, "outside_contract");
+      if (inspection.status === "outside_contract") {
+        assert.deepEqual(inspection.reasons, ["malformed_candidate:0"]);
+      }
+    }
+
+    const invalidIds = [
+      ".",
+      "./c1",
+      "c1/.",
+      "c1/./nested",
+      "c1/",
+      "c1//nested",
+      "c1\0hidden",
+      "c1\nid",
+      `c1${String.fromCharCode(0x7f)}id`,
+    ];
+    for (const candidateId of invalidIds) {
+      const inspection = inspectClaimAssertionResultSet({
+        claim,
+        candidates: completeCandidates(claim).map((candidate, index) =>
+          index === 0 ? makeCandidate(claim, 0, { candidateId }) : candidate,
+        ),
+      });
+      assert.equal(inspection.status, "outside_contract");
+      if (inspection.status === "outside_contract") {
+        assert.deepEqual(inspection.reasons, ["malformed_candidate:0"]);
+      }
+    }
+  });
+
+  it("classifies duplicate authored assertion IDs as malformed_claim", () => {
+    const base = makeClaim();
+    const first = base.assertions[0];
+    if (first === undefined) {
+      throw new Error("expected assertion");
+    }
+    const inspection = inspectClaimAssertionResultSet({
+      claim: {
+        ...base,
+        assertions: [first, ...base.assertions],
+      },
+      candidates: [],
+    });
+    assert.equal(inspection.status, "outside_contract");
+    if (inspection.status === "outside_contract") {
+      assert.deepEqual(inspection.reasons, [
+        "duplicate_authored_assertion_id",
+        "malformed_claim",
+      ]);
+    }
+  });
+
+  it("keeps a mixed-status authored inventory complete when rejected and not_evaluable results are coherent", () => {
+    const claim = makeClaim();
+    const notEvaluableOccurrence: ClaimAssertionResult = {
+      assertionId: "a1",
+      assertionKind: "eventOccurrence",
+      status: "not_evaluable",
+      reasonCode: "partial_evidence",
+      expected: { event: "opened" },
+      observed: null,
+      evidenceReferences: [],
+      rejectedEvidence: [],
+      missingProof: ["event-log"],
+    };
+    const rejectedOrder: ClaimAssertionResult = {
+      assertionId: "a2",
+      assertionKind: "eventOrder",
+      status: "rejected",
+      reasonCode: "authoritative_evidence_rejected",
+      expected: { beforeEvent: "opened", afterEvent: "closed" },
+      observed: { beforeEvidence: "evt-2", afterEvidence: "evt-1", relation: "after" },
+      evidenceReferences: evidence(),
+      rejectedEvidence: ["order-reversed"],
+      missingProof: [],
+    };
+    const rejectedState: ClaimAssertionResult = {
+      assertionId: "a3",
+      assertionKind: "terminalState",
+      status: "rejected",
+      reasonCode: "authoritative_evidence_rejected",
+      expected: { path: "status", value: "ready" },
+      observed: { path: "status", value: "blocked" },
+      evidenceReferences: evidence(),
+      rejectedEvidence: ["value-mismatch"],
+      missingProof: [],
+    };
+    const notEvaluableEvidence: ClaimAssertionResult = {
+      assertionId: "a6",
+      assertionKind: "validatedEvidence",
+      status: "not_evaluable",
+      reasonCode: "missing_authoritative_evidence",
+      expected: { artifactKind: "logs", validationContract: "log-schema" },
+      observed: null,
+      evidenceReferences: [],
+      rejectedEvidence: [],
+      missingProof: ["artifact"],
+    };
+    const inspection = inspectClaimAssertionResultSet({
+      claim,
+      candidates: completeCandidates(claim, {
+        0: notEvaluableOccurrence,
+        1: rejectedOrder,
+        2: rejectedState,
+        5: notEvaluableEvidence,
+      }),
+    });
+    assert.equal(inspection.status, "complete");
+    if (inspection.status !== "complete") {
+      return;
+    }
+    assert.deepEqual(
+      inspection.results.map((result) => result.assertionId),
+      claim.assertions.map((assertion) => assertion.id),
+    );
+    assert.deepEqual(
+      inspection.results.map((result) => result.status),
+      ["not_evaluable", "rejected", "rejected", "supported", "supported", "not_evaluable"],
+    );
   });
 });

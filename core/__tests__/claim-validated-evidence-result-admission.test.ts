@@ -110,6 +110,7 @@ test('admits failed and not_evaluable closed vocabularies', () => {
   );
   assert.equal(failed.status, 'admitted');
   assert.equal(failed.validatorResultStatus, 'failed');
+  assert.equal(failed.nextAction, 'treat_validator_result_as_identity_evidence_only');
 
   for (const reasonCode of ['validator_unavailable', 'result_incomplete', 'contract_not_evaluable']) {
     const notEvaluable = inspectScenarioClaimValidatedEvidenceResultAdmission(
@@ -118,6 +119,7 @@ test('admits failed and not_evaluable closed vocabularies', () => {
     assert.equal(notEvaluable.status, 'admitted', reasonCode);
     assert.equal(notEvaluable.validatorResultStatus, 'not_evaluable');
     assert.equal(notEvaluable.validatorReasonCode, reasonCode);
+    assert.equal(notEvaluable.nextAction, 'treat_validator_result_as_identity_evidence_only');
   }
 });
 
@@ -223,6 +225,38 @@ test('blocks identity mismatches and path/hash collisions', () => {
     inspectScenarioClaimValidatedEvidenceResultAdmission(pathCollision).reasonCodes[0],
     'result_identity_collision',
   );
+
+  const subjectHashCollision = {
+    validatedEvidence: envelope({
+      subjectArtifact: {
+        path: 'artifacts/subject.log',
+        sha256: encoded.sha256,
+        byteLength: 12,
+      },
+    }),
+    result: { path: 'artifacts/validator-result.json', sha256: encoded.sha256 },
+    resultBytes: encoded.bytes,
+  };
+  assert.equal(
+    inspectScenarioClaimValidatedEvidenceResultAdmission(subjectHashCollision).reasonCodes[0],
+    'result_identity_collision',
+  );
+
+  const reportHashCollision = {
+    validatedEvidence: envelope({
+      reportArtifact: {
+        path: 'artifacts/report.json',
+        sha256: encoded.sha256,
+        byteLength: 24,
+      },
+    }),
+    result: { path: 'artifacts/validator-result.json', sha256: encoded.sha256 },
+    resultBytes: encoded.bytes,
+  };
+  assert.equal(
+    inspectScenarioClaimValidatedEvidenceResultAdmission(reportHashCollision).reasonCodes[0],
+    'result_identity_collision',
+  );
 });
 
 test('snapshots non-zero-offset Buffer views and isolates mutations', () => {
@@ -237,6 +271,9 @@ test('snapshots non-zero-offset Buffer views and isolates mutations', () => {
   const admitted = inspectScenarioClaimValidatedEvidenceResultAdmission(input);
   assert.equal(admitted.status, 'admitted');
   view.fill(0);
+  const mutatedView = inspectScenarioClaimValidatedEvidenceResultAdmission(input);
+  assert.equal(mutatedView.status, 'blocked');
+  assert.equal(mutatedView.reasonCodes[0], 'result_hash_mismatch');
   const again = inspectScenarioClaimValidatedEvidenceResultAdmission({
     validatedEvidence: envelope(),
     result: { path: 'artifacts/validator-result.json', sha256: encoded.sha256 },
@@ -278,7 +315,7 @@ test('rejects hostile proxy, accessor, and spoofed inputs', () => {
   assert.equal(inspectScenarioClaimValidatedEvidenceResultAdmission(accessor).status, 'outside_contract');
 });
 
-test('rejects traversal, Windows, UNC, and backslash result paths', () => {
+test('rejects traversal, Windows, UNC, backslash, dot, empty, and file URI result paths', () => {
   for (const pathValue of [
     '../artifacts/result.json',
     '/tmp/result.json',
@@ -286,6 +323,21 @@ test('rejects traversal, Windows, UNC, and backslash result paths', () => {
     '\\\\unc\\share\\result.json',
     'artifacts\\result.json',
     'file:artifacts/result.json',
+    'FILE://artifacts/result.json',
+    '.',
+    '..',
+    './artifacts/result.json',
+    'artifacts/./result.json',
+    'artifacts/../result.json',
+    'artifacts/result.json/',
+    'artifacts//result.json',
+    'C:/temp/result.json',
+    '//unc/share/result.json',
+    'artifacts/result.json\u0000hidden',
+    'artifacts/result.json\n',
+    'artifacts/result.json ',
+    ' artifacts/result.json',
+    '',
   ]) {
     const encoded = encodeResult(resultRecord());
     const input = {
@@ -316,4 +368,98 @@ test('schema matrix accepts legal records and rejects extra keys and host paths'
     report: { path: 'artifacts\\report.json', sha256: REPORT_SHA },
   });
   assert.equal(validateJson(backslash, SCHEMAS.validatedEvidenceResult, 'backslash').valid, false);
+});
+
+test('classifies malformed validator records as schema invalid, not identity mismatch', () => {
+  const cases = [
+    resultRecord({ validator: { producerId: 'validators/log-schema' } }),
+    resultRecord({ validator: null }),
+    resultRecord({
+      validator: {
+        producerId: 'validators/log-schema',
+        producerVersion: '1.0.0',
+        producerSha256: PRODUCER_SHA,
+        extra: true,
+      },
+    }),
+    resultRecord({
+      validator: {
+        producerId: 'validators/log-schema',
+        producerVersion: '1.0.0',
+        producerSha256: PRODUCER_SHA.toUpperCase(),
+      },
+    }),
+  ];
+  for (const record of cases) {
+    const result = inspectScenarioClaimValidatedEvidenceResultAdmission(admitInput(record));
+    assert.equal(result.status, 'blocked');
+    assert.equal(result.reasonCodes[0], 'result_schema_invalid');
+    assert.notEqual(result.reasonCodes[0], 'validator_identity_mismatch');
+  }
+});
+
+test('rejects padded, control-bearing, and malformed hash identities', () => {
+  const padded = admitInput();
+  padded.validatedEvidence = envelope({ assertionId: ' assertions/logs-present' });
+  assert.equal(inspectScenarioClaimValidatedEvidenceResultAdmission(padded).status, 'outside_contract');
+
+  const control = admitInput();
+  control.validatedEvidence = envelope({ claimId: 'claims/first-usable\u0007' });
+  assert.equal(inspectScenarioClaimValidatedEvidenceResultAdmission(control).status, 'outside_contract');
+
+  const encoded = encodeResult(resultRecord());
+  const uppercaseHash = {
+    validatedEvidence: envelope(),
+    result: {
+      path: 'artifacts/validator-result.json',
+      sha256: encoded.sha256.toUpperCase(),
+    },
+    resultBytes: encoded.bytes,
+  };
+  assert.equal(
+    inspectScenarioClaimValidatedEvidenceResultAdmission(uppercaseHash).status,
+    'outside_contract',
+  );
+});
+
+test('admits evidenceReferences and rejects noncanonical reference paths', () => {
+  const admitted = inspectScenarioClaimValidatedEvidenceResultAdmission(
+    admitInput(
+      resultRecord({
+        evidenceReferences: [
+          { path: 'artifacts/extra.json', sha256: '1'.repeat(64) },
+          { path: 'artifacts/extra-plain.json', sha256: '2'.repeat(64) },
+        ],
+      }),
+    ),
+  );
+  assert.equal(admitted.status, 'admitted');
+  assert.equal(admitted.evidenceReferences.length, 2);
+  assert.equal(admitted.evidenceReferences[0].path, 'artifacts/extra.json');
+  assert.equal(admitted.evidenceReferences[0].sha256, '1'.repeat(64));
+  assert.equal(admitted.nextAction, 'treat_validator_result_as_identity_evidence_only');
+  assert.throws(() => {
+    admitted.evidenceReferences[0].path = 'mutated';
+  }, TypeError);
+
+  for (const pathValue of [
+    '../artifacts/extra.json',
+    'artifacts/extra.json/',
+    'artifacts/./extra.json',
+    '.',
+    '..',
+    'artifacts//extra.json',
+    'file:artifacts/extra.json',
+    'C:/artifacts/extra.json',
+  ]) {
+    const result = inspectScenarioClaimValidatedEvidenceResultAdmission(
+      admitInput(
+        resultRecord({
+          evidenceReferences: [{ path: pathValue, sha256: '1'.repeat(64) }],
+        }),
+      ),
+    );
+    assert.equal(result.status, 'blocked', pathValue);
+    assert.equal(result.reasonCodes[0], 'result_schema_invalid', pathValue);
+  }
 });
