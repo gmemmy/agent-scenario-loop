@@ -470,6 +470,20 @@ support or rejection, a product verdict, or a persisted proof artifact. This
 slice performs no file I/O, runtime execution, result evaluation, verdict
 reduction, or publication.
 
+`inspectScenarioClaimJsonNativePointInterpretation(assertionInput, admittedInput)`
+is the pure post-admission assertion interpreter for JSON-native
+`eventOccurrence`, `eventOrder`, and `terminalState` claims. Input must be a
+matching admitted raw-observation result plus the exact assertion. Outputs are
+`outside_contract` or `interpreted` with one `ClaimAssertionResult`. Trust is
+`admitted_observation_interpretation_only`. Admitted bytes may be interpreted,
+but artifact presence alone is not semantic support. Duplicate, missing,
+conflicting, or ambiguous point evidence remains `rejected` or `not_evaluable`
+according to the interpreter. `supported`, `rejected`, and `not_evaluable` are
+assertion-level semantics only, not health, claim result, journey verdict,
+baseline, certification, publication, or runtime acceptance. `not_applicable`
+is not a runtime result here. This slice does not enable scenario 1.1.0
+execution.
+
 `inspectScenarioClaimValidatedEvidenceReportIdentity(input)` is the pure
 evidence-plane boundary for a distinct closed validator or comparator report
 identity. It accepts only an eligible `validatedEvidence` candidate

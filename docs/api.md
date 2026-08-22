@@ -258,6 +258,21 @@ candidate-identity reader rather than synthesizing authority. The exported
 raw-observation types describe an in-process decoded view; this slice defines
 no new persisted proof artifact or schema file.
 
+Use `inspectScenarioClaimJsonNativePointInterpretation(assertionInput,
+admittedInput)` as a pure post-admission assertion interpreter for
+`eventOccurrence`, `eventOrder`, and `terminalState`. The input must be a
+matching admitted raw-observation result plus the exact assertion. The
+interpreter does not discover files, write artifacts, or accept an artifact
+path as proof of support. Outputs are `outside_contract` or `interpreted`
+with one `ClaimAssertionResult`. On `interpreted`, `supported`, `rejected`,
+and `not_evaluable` are assertion-level semantics only; they are not health,
+claim result, journey verdict, baseline, certification, publication, or
+runtime acceptance. Trust is `admitted_observation_interpretation_only`:
+admitted bytes may be interpreted, but artifact presence alone is not
+semantic support. Duplicate, missing, conflicting, or ambiguous point
+evidence remains `rejected` or `not_evaluable`. This surface does not emit
+`not_applicable` at runtime and does not enable scenario 1.1.0 execution.
+
 Use `inspectScenarioClaimValidatedEvidenceReportIdentity({ candidate, report,
 reportBytes })` with an eligible `validatedEvidence` projection to bind a
 distinct closed run-relative report identity and its exact bytes. The reader
