@@ -312,6 +312,23 @@ baseline, comparison, or publication authority. Neither reader performs
 filesystem, runtime, device, runner, provider, network, artifact-write, or
 publication side effects.
 
+Use `inspectScenarioClaimValidatedEvidenceResultAdmission({
+validatedEvidence, result, resultBytes })` to bind a closed run-relative
+validator-result identity and its exact bytes after identity-admitted
+validated evidence. The reader recomputes result SHA-256 before any semantic
+interpretation and requires the result payload to match exact `resultId`
+`validator-result`, the validator producer identity
+`{ producerId, producerVersion, producerSha256 }`, the admitted assertion,
+`validationContract`, subject identity, and report identity. Results are
+`outside_contract`, `blocked`, or `admitted`. `admitted` proves only result
+identity and exact bytes plus those identity bindings. Validator `status`
+values `passed`, `failed`, and `not_evaluable` are validator vocabulary only.
+A passing validator result is not a `ClaimAssertionResult`, claim support,
+contradiction, health, verdict, baseline, comparison, or product support.
+This surface performs no filesystem, runtime, device, runner, provider,
+network, artifact-write, verdict, or publication side effects and does not
+enable scenario `1.1.0` execution.
+
 `eligible` means only that the named candidate may enter a future semantic
 assertion evaluator. It does not establish assertion support, contradiction,
 health, product truth, verdict, proof tier, publication eligibility, freshness,
