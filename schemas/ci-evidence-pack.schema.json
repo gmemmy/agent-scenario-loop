@@ -1,0 +1,321 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-scenario-loop.dev/schemas/ci-evidence-pack.schema.json",
+  "title": "CI evidence pack",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "packId",
+    "createdAt",
+    "source",
+    "liveProofSet",
+    "requiredPlatforms",
+    "requiredEvidenceKinds",
+    "platforms",
+    "attempts",
+    "evidence",
+    "verdicts",
+    "comparisonStatus",
+    "completeness",
+    "assembly",
+    "mechanismStatus",
+    "twoPlatformClaim",
+    "summary",
+    "nextAction"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "1.0.0" },
+    "packId": { "type": "string", "minLength": 1 },
+    "createdAt": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{3}Z$"
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["expectedSha", "status"],
+      "properties": {
+        "expectedSha": { "type": "string", "pattern": "^[a-f0-9]{40,64}$" },
+        "observedSha": { "type": "string", "pattern": "^[a-f0-9]{40,64}$" },
+        "status": { "enum": ["current", "stale", "missing", "mismatch"] }
+      }
+    },
+    "liveProofSet": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["relativePath", "sha256", "byteSize", "runId", "status"],
+      "properties": {
+        "relativePath": { "type": "string", "minLength": 1 },
+        "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "byteSize": { "type": "integer", "minimum": 0 },
+        "runId": { "type": "string", "minLength": 1 },
+        "status": { "enum": ["passed", "failed"] }
+      }
+    },
+    "requiredPlatforms": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "enum": ["android", "ios"] }
+    },
+    "requiredEvidenceKinds": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "recording",
+          "screenshot",
+          "log",
+          "metrics",
+          "health",
+          "verdict",
+          "comparison",
+          "summary",
+          "other"
+        ]
+      }
+    },
+    "platforms": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/platformRecord" }
+    },
+    "attempts": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/attemptRecord" }
+    },
+    "evidence": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/evidenceRecord" }
+    },
+    "verdicts": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/verdictPointer" }
+    },
+    "comparisonStatus": {
+      "enum": ["comparable", "not_evaluable", "not_available"]
+    },
+    "completeness": { "$ref": "#/$defs/statusReasons" },
+    "assembly": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "reasons"],
+      "properties": {
+        "status": { "enum": ["succeeded", "failed"] },
+        "reasons": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "mechanismStatus": { "enum": ["succeeded", "failed"] },
+    "twoPlatformClaim": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "reasons"],
+      "properties": {
+        "status": { "enum": ["passed", "failed", "not_evaluable"] },
+        "reasons": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "summary": { "type": "string", "minLength": 1 },
+    "nextAction": { "type": "string", "minLength": 1 }
+  },
+  "$defs": {
+    "statusReasons": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "reasons"],
+      "properties": {
+        "status": { "enum": ["complete", "incomplete"] },
+        "reasons": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "platformRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["platform", "authorityStatus", "evaluationStatus"],
+      "properties": {
+        "platform": { "enum": ["android", "ios"] },
+        "authorityStatus": { "enum": ["supported", "unsupported"] },
+        "evaluationStatus": { "enum": ["passed", "failed", "not_evaluable"] },
+        "selectedAttemptId": { "type": "string", "minLength": 1 }
+      }
+    },
+    "attemptRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "attemptId",
+        "platform",
+        "scenarioId",
+        "runId",
+        "status",
+        "startedAt",
+        "evidenceIds"
+      ],
+      "properties": {
+        "attemptId": { "type": "string", "minLength": 1 },
+        "platform": { "enum": ["android", "ios"] },
+        "scenarioId": { "type": "string", "minLength": 1 },
+        "runId": { "type": "string", "minLength": 1 },
+        "status": {
+          "enum": [
+            "passed",
+            "failed",
+            "partial",
+            "unsupported",
+            "cancelled",
+            "timed_out",
+            "rejected",
+            "incomplete"
+          ]
+        },
+        "startedAt": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{3}Z$"
+        },
+        "endedAt": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{3}Z$"
+        },
+        "predecessorAttemptId": { "type": "string", "minLength": 1 },
+        "evidenceIds": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "evidenceRecord": {
+      "allOf": [
+        {
+          "type": "object",
+          "required": ["evidenceId", "attemptId", "platform", "kind", "status"],
+          "properties": {
+            "evidenceId": { "type": "string", "minLength": 1 },
+            "attemptId": { "type": "string", "minLength": 1 },
+            "platform": { "enum": ["android", "ios"] },
+            "kind": {
+              "enum": [
+                "recording",
+                "screenshot",
+                "log",
+                "metrics",
+                "health",
+                "verdict",
+                "comparison",
+                "summary",
+                "other"
+              ]
+            },
+            "status": {
+              "enum": ["present", "missing", "invalid", "not_available", "rejected"]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "status": { "const": "present" } },
+            "required": ["status"]
+          },
+          "then": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "evidenceId",
+              "attemptId",
+              "platform",
+              "kind",
+              "status",
+              "relativePath",
+              "sha256",
+              "byteSize"
+            ],
+            "properties": {
+              "evidenceId": { "type": "string", "minLength": 1 },
+              "attemptId": { "type": "string", "minLength": 1 },
+              "platform": { "enum": ["android", "ios"] },
+              "kind": {
+                "enum": [
+                  "recording",
+                  "screenshot",
+                  "log",
+                  "metrics",
+                  "health",
+                  "verdict",
+                  "comparison",
+                  "summary",
+                  "other"
+                ]
+              },
+              "status": { "const": "present" },
+              "relativePath": { "type": "string", "minLength": 1 },
+              "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+              "byteSize": { "type": "integer", "minimum": 0 }
+            }
+          },
+          "else": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "evidenceId",
+              "attemptId",
+              "platform",
+              "kind",
+              "status",
+              "reason"
+            ],
+            "properties": {
+              "evidenceId": { "type": "string", "minLength": 1 },
+              "attemptId": { "type": "string", "minLength": 1 },
+              "platform": { "enum": ["android", "ios"] },
+              "kind": {
+                "enum": [
+                  "recording",
+                  "screenshot",
+                  "log",
+                  "metrics",
+                  "health",
+                  "verdict",
+                  "comparison",
+                  "summary",
+                  "other"
+                ]
+              },
+              "status": {
+                "enum": ["missing", "invalid", "not_available", "rejected"]
+              },
+              "reason": { "type": "string", "minLength": 1 }
+            }
+          }
+        }
+      ]
+    },
+    "verdictPointer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scenarioId", "runId", "platform", "status", "evidenceId"],
+      "properties": {
+        "scenarioId": { "type": "string", "minLength": 1 },
+        "runId": { "type": "string", "minLength": 1 },
+        "platform": { "enum": ["android", "ios"] },
+        "status": {
+          "enum": ["passed", "failed", "inconclusive", "not_evaluated"]
+        },
+        "evidenceId": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}
