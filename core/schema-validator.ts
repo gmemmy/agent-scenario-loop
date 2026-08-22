@@ -104,6 +104,7 @@ const SCHEMAS = {
   scenarioClaimAuthorizationGrant: loadSchema('scenario-claim-authorization-grant.schema.json'),
   scenarioClaimApproval: loadSchema('scenario-claim-approval.schema.json'),
   runnerCapabilities: loadSchema('runner-capabilities.schema.json'),
+  validatedEvidenceResult: loadSchema('validated-evidence-result.schema.json'),
   verdict: loadSchema('verdict.schema.json'),
 };
 

@@ -3427,3 +3427,142 @@ test('assertValidJson throws a path-specific schema error', () => {
     },
   );
 });
+
+function sampleValidatedEvidenceResult(overrides: JsonRecord = {}): JsonRecord {
+  return {
+    schemaVersion: '1.0.0',
+    resultId: 'results/validator-1',
+    assertionId: 'assertions/logs-present',
+    validationContract: 'contracts/device-log-v1',
+    validator: {
+      producerId: 'validators/log-schema',
+      producerVersion: '1.0.0',
+      producerSha256: 'e'.repeat(64),
+    },
+    subject: {
+      path: 'artifacts/subject.log',
+      sha256: 'a'.repeat(64),
+    },
+    report: {
+      path: 'artifacts/report.json',
+      sha256: 'b'.repeat(64),
+    },
+    status: 'passed',
+    reasonCode: 'validation_passed',
+    ...overrides,
+  };
+}
+
+test('accepts closed validated-evidence-result status and reason combinations', () => {
+  const passed = sampleValidatedEvidenceResult();
+  assert.equal(
+    validateJson(passed, SCHEMAS.validatedEvidenceResult, 'validated-evidence-result passed').valid,
+    true,
+  );
+
+  const failed = sampleValidatedEvidenceResult({
+    status: 'failed',
+    reasonCode: 'validation_failed',
+  });
+  assert.equal(
+    validateJson(failed, SCHEMAS.validatedEvidenceResult, 'validated-evidence-result failed').valid,
+    true,
+  );
+
+  for (const reasonCode of ['validator_unavailable', 'result_incomplete', 'contract_not_evaluable']) {
+    const notEvaluable = sampleValidatedEvidenceResult({
+      status: 'not_evaluable',
+      reasonCode,
+    });
+    assert.equal(
+      validateJson(
+        notEvaluable,
+        SCHEMAS.validatedEvidenceResult,
+        `validated-evidence-result ${reasonCode}`,
+      ).valid,
+      true,
+      reasonCode,
+    );
+  }
+});
+
+test('rejects incompatible validated-evidence-result status/reason pairs and runtime not_applicable', () => {
+  const incompatible = sampleValidatedEvidenceResult({
+    status: 'passed',
+    reasonCode: 'validation_failed',
+  });
+  assert.equal(
+    validateJson(
+      incompatible,
+      SCHEMAS.validatedEvidenceResult,
+      'validated-evidence-result incompatible',
+    ).valid,
+    false,
+  );
+
+  const notApplicable = sampleValidatedEvidenceResult({
+    status: 'not_applicable',
+    reasonCode: 'validation_passed',
+  });
+  assert.equal(
+    validateJson(
+      notApplicable,
+      SCHEMAS.validatedEvidenceResult,
+      'validated-evidence-result not_applicable',
+    ).valid,
+    false,
+  );
+});
+
+test('rejects unknown keys, malformed identities/hashes, and non-run-relative references', () => {
+  const extraKey = sampleValidatedEvidenceResult({ claimSupport: true });
+  assert.equal(
+    validateJson(extraKey, SCHEMAS.validatedEvidenceResult, 'validated-evidence-result extra key').valid,
+    false,
+  );
+
+  const malformedIdentity = sampleValidatedEvidenceResult({
+    resultId: ' results/validator-1',
+  });
+  assert.equal(
+    validateJson(
+      malformedIdentity,
+      SCHEMAS.validatedEvidenceResult,
+      'validated-evidence-result malformed identity',
+    ).valid,
+    false,
+  );
+
+  const malformedHash = sampleValidatedEvidenceResult({
+    subject: { path: 'artifacts/subject.log', sha256: 'A'.repeat(64) },
+  });
+  assert.equal(
+    validateJson(
+      malformedHash,
+      SCHEMAS.validatedEvidenceResult,
+      'validated-evidence-result malformed hash',
+    ).valid,
+    false,
+  );
+
+  for (const pathValue of [
+    '/tmp/result.json',
+    '../artifacts/result.json',
+    'C:\\temp\\result.json',
+    '\\\\unc\\share\\result.json',
+    'artifacts\\result.json',
+  ]) {
+    const hostPath = sampleValidatedEvidenceResult({
+      report: { path: pathValue, sha256: 'b'.repeat(64) },
+    });
+    assert.equal(
+      validateJson(
+        hostPath,
+        SCHEMAS.validatedEvidenceResult,
+        `validated-evidence-result path ${pathValue}`,
+      ).valid,
+      false,
+      pathValue,
+    );
+  }
+});

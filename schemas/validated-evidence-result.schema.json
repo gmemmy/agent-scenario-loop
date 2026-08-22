@@ -1,0 +1,130 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-scenario-loop.dev/schemas/validated-evidence-result.schema.json",
+  "title": "Validated evidence result",
+  "description": "Persisted exact-byte validator-result identity record. A terminal status of passed is identity evidence only and must not be treated as claim support.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "resultId",
+    "assertionId",
+    "validationContract",
+    "validator",
+    "subject",
+    "report",
+    "status",
+    "reasonCode"
+  ],
+  "allOf": [
+    {
+      "if": {
+        "properties": { "status": { "const": "passed" } },
+        "required": ["status"]
+      },
+      "then": {
+        "properties": { "reasonCode": { "const": "validation_passed" } }
+      }
+    },
+    {
+      "if": {
+        "properties": { "status": { "const": "failed" } },
+        "required": ["status"]
+      },
+      "then": {
+        "properties": { "reasonCode": { "const": "validation_failed" } }
+      }
+    },
+    {
+      "if": {
+        "properties": { "status": { "const": "not_evaluable" } },
+        "required": ["status"]
+      },
+      "then": {
+        "properties": { "reasonCode": { "$ref": "#/$defs/notEvaluableReasonCode" } }
+      }
+    }
+  ],
+  "properties": {
+    "schemaVersion": { "const": "1.0.0" },
+    "resultId": { "$ref": "#/$defs/stableId" },
+    "assertionId": { "$ref": "#/$defs/stableId" },
+    "validationContract": { "$ref": "#/$defs/stableId" },
+    "validator": { "$ref": "#/$defs/validatorIdentity" },
+    "subject": { "$ref": "#/$defs/artifactIdentity" },
+    "report": { "$ref": "#/$defs/artifactIdentity" },
+    "status": { "$ref": "#/$defs/resultStatus" },
+    "reasonCode": { "$ref": "#/$defs/reasonCode" },
+    "evidenceReferences": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/evidenceReference" }
+    }
+  },
+  "$defs": {
+    "stableId": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!\\s)(?![A-Za-z]:)(?![/\\\\])(?!\\.\\.(?:[/\\\\]|$))(?!.*[/\\\\]\\.\\.(?:[/\\\\]|$))(?![fF][iI][lL][eE]:)[^\\\\\\u0000-\\u001f\\u007f]+(?<!\\s)$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "runRelativePath": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!\\s)(?![A-Za-z]:)(?![/\\\\])(?!\\.\\.(?:[/\\\\]|$))(?!.*[/\\\\]\\.\\.(?:[/\\\\]|$))(?![fF][iI][lL][eE]:)[^\\\\\\u0000-\\u001f\\u007f]+(?<!\\s)$"
+    },
+    "validatorIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["producerId", "producerVersion", "producerSha256"],
+      "properties": {
+        "producerId": { "$ref": "#/$defs/stableId" },
+        "producerVersion": { "$ref": "#/$defs/stableId" },
+        "producerSha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "artifactIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": { "$ref": "#/$defs/runRelativePath" },
+        "sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "evidenceReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path"],
+      "properties": {
+        "path": { "$ref": "#/$defs/runRelativePath" },
+        "sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "resultStatus": {
+      "type": "string",
+      "enum": ["passed", "failed", "not_evaluable"]
+    },
+    "notEvaluableReasonCode": {
+      "type": "string",
+      "enum": [
+        "validator_unavailable",
+        "result_incomplete",
+        "contract_not_evaluable"
+      ]
+    },
+    "reasonCode": {
+      "type": "string",
+      "enum": [
+        "validation_passed",
+        "validation_failed",
+        "validator_unavailable",
+        "result_incomplete",
+        "contract_not_evaluable"
+      ]
+    }
+  }
+}
