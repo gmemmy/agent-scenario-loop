@@ -5,6 +5,7 @@ export * from './core/artifact-writer';
 export * from './core/claim-contract';
 export * from './core/claim-closure';
 export * from './core/claim-authority';
+export * from './core/claim-safety';
 export * from './core/comparison';
 export * from './core/evidence-interpreter';
 export * from './core/execution-plan';

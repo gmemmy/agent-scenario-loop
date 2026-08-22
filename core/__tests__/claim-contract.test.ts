@@ -102,6 +102,14 @@ test('refuses claim-complete scenarios at the legacy execution boundary', () => 
   );
   assert.throws(
     () => assertScenarioExecutionContractSupported({ schemaVersion: '1.0.0', claims: [] }),
-    /claims are reader-only.*execution is unsupported/u,
+    /claim-complete fields claims are reader-only.*execution is unsupported/u,
+  );
+  assert.throws(
+    () => assertScenarioExecutionContractSupported({ schemaVersion: '1.0.0', safety: {} }),
+    /claim-complete fields safety are reader-only.*execution is unsupported/u,
+  );
+  assert.throws(
+    () => assertScenarioExecutionContractSupported({ schemaVersion: '1.0.0', claims: [], safety: {} }),
+    /claim-complete fields claims, safety are reader-only.*execution is unsupported/u,
   );
 });

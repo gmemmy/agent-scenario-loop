@@ -8,6 +8,11 @@ type ClaimStatus = 'supported' | 'rejected' | 'not_evaluable';
 type ClaimAuthorityRole = 'app' | 'runner' | 'adapter' | 'provider' | 'comparator';
 type ClaimIdentityStrength = 'observed' | 'verified';
 type ClaimEvidenceCompleteness = 'point' | 'bounded' | 'continuous-complete';
+type ScenarioSafetyClass =
+  | 'read_only'
+  | 'local_mutation'
+  | 'reversible_backend_mutation'
+  | 'destructive';
 type ArtifactKind =
   | 'logs'
   | 'screenshot'
@@ -146,6 +151,67 @@ type ScenarioClaimDefinition = {
   assertions: NonEmptyArray<ScenarioClaimAssertion>;
 };
 
+type RequiredSafetyAction = {
+  status: 'required';
+  rationale: string;
+  assertionIds: NonEmptyArray<string>;
+};
+
+type NotRequiredSafetyAction = {
+  status: 'not_required';
+  rationale: string;
+};
+
+type ScenarioSafetyAction = RequiredSafetyAction | NotRequiredSafetyAction;
+
+type ScenarioMutationIdentity = {
+  id: string;
+  assertionIds: NonEmptyArray<string>;
+};
+
+type ScenarioSafetyReconciliation = {
+  terminalInvariantIds: NonEmptyArray<string>;
+  assertionIds: NonEmptyArray<string>;
+};
+
+type ReadOnlyScenarioSafety = {
+  class: 'read_only';
+  rationale: string;
+  allowedOperations: NonEmptyArray<string>;
+};
+
+type MutatingScenarioSafetyBase = {
+  rationale: string;
+  allowedOperations: NonEmptyArray<string>;
+  mutationIdentity: ScenarioMutationIdentity;
+  reconciliation: ScenarioSafetyReconciliation;
+};
+
+type LocalMutationScenarioSafety = MutatingScenarioSafetyBase & {
+  class: 'local_mutation';
+} & (
+    | { rollback: RequiredSafetyAction; cleanup: ScenarioSafetyAction }
+    | { rollback: ScenarioSafetyAction; cleanup: RequiredSafetyAction }
+  );
+
+type ReversibleBackendMutationScenarioSafety = MutatingScenarioSafetyBase & {
+  class: 'reversible_backend_mutation';
+  rollback: RequiredSafetyAction;
+  cleanup: ScenarioSafetyAction;
+};
+
+type DestructiveScenarioSafety = MutatingScenarioSafetyBase & {
+  class: 'destructive';
+  rollback: ScenarioSafetyAction;
+  cleanup: RequiredSafetyAction;
+};
+
+type ScenarioSafetyDeclaration =
+  | ReadOnlyScenarioSafety
+  | LocalMutationScenarioSafety
+  | ReversibleBackendMutationScenarioSafety
+  | DestructiveScenarioSafety;
+
 type ClaimEvidenceReference = {
   path: string;
   sha256?: string;
@@ -253,9 +319,12 @@ function assertScenarioExecutionContractSupported(scenario: unknown): void {
     );
   }
 
-  if (Object.prototype.hasOwnProperty.call(candidate, 'claims')) {
+  const readerOnlyFields = ['claims', 'safety'].filter((field) =>
+    Object.prototype.hasOwnProperty.call(candidate, field),
+  );
+  if (readerOnlyFields.length > 0) {
     throw new Error(
-      'Scenario claims are reader-only until claim evaluation is available; execution is unsupported.',
+      `Scenario claim-complete fields ${readerOnlyFields.join(', ')} are reader-only until claim evaluation is available; execution is unsupported.`,
     );
   }
 }
@@ -289,6 +358,17 @@ export type {
   ClaimStatus,
   EventOccurrenceAssertion,
   EventOrderAssertion,
+  DestructiveScenarioSafety,
+  LocalMutationScenarioSafety,
+  NotRequiredSafetyAction,
+  ReadOnlyScenarioSafety,
+  RequiredSafetyAction,
+  ReversibleBackendMutationScenarioSafety,
+  ScenarioMutationIdentity,
+  ScenarioSafetyAction,
+  ScenarioSafetyClass,
+  ScenarioSafetyDeclaration,
+  ScenarioSafetyReconciliation,
   ScenarioClaimAssertion,
   ScenarioClaimDefinition,
   TerminalStateAssertion,

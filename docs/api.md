@@ -83,6 +83,15 @@ approved, evaluated, or passed. Validate untrusted declarations against
 `agent-scenario-loop/schemas/authority-capabilities.schema.json` before treating
 them as catalog input.
 
+Use `inspectScenarioClaimSafety(scenario, { platform, variant? })` to inspect
+the claim-complete scenario's static safety declaration. The package exports
+the `ScenarioSafetyDeclaration` and `ScenarioClaimSafetyInspection` types. For
+a mutating declaration, `complete` proves only that mutation identity,
+required safeguards, and terminal reconciliation reference unambiguous,
+applicable mandatory assertions and authored terminal invariants. Read-only
+declarations have no mutation bindings. The inspector performs no authorization,
+approval, resource acquisition, discovery, or runtime admission.
+
 Use `coordinateQuickProof()` when an owning runner needs to bound setup before
 starting a product scenario. Callers provide adapter paths, operation and
 argument requirements, identities that preflight must observe, a credential-free
