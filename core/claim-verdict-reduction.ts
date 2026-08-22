@@ -7,6 +7,10 @@ import {
   type ScenarioClaimAssertion,
   type ScenarioClaimDefinition,
 } from './claim-contract';
+import {
+  reduceClaimStatus,
+  reduceMandatoryJourneyStatus,
+} from './claim-reduction-policy';
 import { SCHEMAS, validateJson } from './schema-validator';
 
 const CLAIM_VERDICT_REDUCTION_INSPECTION_VERSION = '1.0.0' as const;
@@ -327,7 +331,10 @@ function inspectScenarioClaimVerdictReduction(
     inspectAssertionInventory(claim, result, reason);
     inspectHealthGate(verdict.healthStatus, claim, result, reason);
 
-    const derivedStatus = deriveClaimStatus(verdict.healthStatus, result.assertionResults);
+    const derivedStatus = reduceClaimStatus(
+      verdict.healthStatus,
+      result.assertionResults.map((assertion) => assertion.status),
+    );
     derivedClaimStatuses.set(claim.id, derivedStatus);
     if (result.status !== derivedStatus) {
       reason(
@@ -339,7 +346,20 @@ function inspectScenarioClaimVerdictReduction(
     }
   }
 
-  const reducedVerdictStatus = deriveJourneyStatus(mandatoryClaims, derivedClaimStatuses);
+  const mandatoryClaimStatuses = mandatoryClaims.map((claim) =>
+    derivedClaimStatuses.get(claim.id),
+  );
+  const journeyReduction = reduceMandatoryJourneyStatus(
+    mandatoryClaimStatuses.every(
+      (status): status is ClaimResult['status'] => status !== undefined,
+    )
+      ? mandatoryClaimStatuses
+      : undefined,
+  );
+  // Inventory checks already keep missing mandatory claims off this path.
+  // missing_inventory must not become passed or inconclusive.
+  const reducedVerdictStatus =
+    journeyReduction === 'missing_inventory' ? undefined : journeyReduction;
   if (
     reducedVerdictStatus !== undefined &&
     verdict.verdictStatus !== reducedVerdictStatus
@@ -518,39 +538,6 @@ function buildAuthoredExpectation(assertion: ScenarioClaimAssertion): ClaimAsser
         validationContract: assertion.validationContract,
       };
   }
-}
-
-function deriveClaimStatus(
-  healthStatus: ClaimCompleteVerdict['healthStatus'],
-  assertionResults: ClaimAssertionResult[],
-): ClaimResult['status'] {
-  if (healthStatus !== 'passed') {
-    return 'not_evaluable';
-  }
-  if (assertionResults.every((assertion) => assertion.status === 'supported')) {
-    return 'supported';
-  }
-  if (assertionResults.some((assertion) => assertion.status === 'rejected')) {
-    return 'rejected';
-  }
-  return 'not_evaluable';
-}
-
-function deriveJourneyStatus(
-  mandatoryClaims: ScenarioClaimDefinition[],
-  statuses: Map<string, ClaimResult['status']>,
-): ClaimCompleteVerdict['verdictStatus'] | undefined {
-  const mandatoryStatuses = mandatoryClaims.map((claim) => statuses.get(claim.id));
-  if (mandatoryStatuses.some((status) => status === undefined)) {
-    return undefined;
-  }
-  if (mandatoryStatuses.some((status) => status === 'rejected')) {
-    return 'failed';
-  }
-  if (mandatoryStatuses.some((status) => status === 'not_evaluable')) {
-    return 'inconclusive';
-  }
-  return 'passed';
 }
 
 function claimApplies(
