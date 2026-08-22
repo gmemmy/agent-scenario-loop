@@ -88,6 +88,81 @@ Preferred fields:
 - `budgets`: thresholds to evaluate only after truth-event health passes
 - `artifacts`: required and optional evidence outputs
 
+### Claim-Complete Scenario Contracts
+
+Scenario `1.0.0` remains the runnable legacy diagnostic format used by the
+current templates and runners. It cannot declare `claims`, cannot become a
+claim-complete product pass, and must not be certified by interpreting prose,
+milestones, budgets, or artifact presence as implicit claims.
+
+Scenario `1.1.0` is the additive claim declaration format. It requires a
+complete journey shape and at least one mandatory claim. A compact declaration
+looks like this:
+
+```json
+{
+  "schemaVersion": "1.1.0",
+  "journey": {
+    "name": "Open the account surface",
+    "intent": "Reach and use the account surface, then return cleanly.",
+    "actor": "signed-in user",
+    "startState": "home is usable",
+    "endState": "home is restored with no overlay owner",
+    "phases": [
+      { "id": "open-account", "description": "Open the account surface." },
+      { "id": "return-home", "description": "Dismiss and restore Home." }
+    ],
+    "terminalInvariants": [
+      { "id": "home-restored", "description": "Home owns input with no stale overlay." }
+    ],
+    "recovery": {
+      "status": "required",
+      "rationale": "The surface supports interrupted dismissal.",
+      "variants": [
+        { "id": "reverse-dismissal", "description": "Reverse one partial dismissal before closing." }
+      ]
+    }
+  },
+  "claims": [
+    {
+      "id": "home-ownership-restored",
+      "role": "mandatory",
+      "applicability": { "platforms": ["ios", "android"] },
+      "closes": {
+        "phases": ["return-home"],
+        "terminalInvariants": ["home-restored"]
+      },
+      "assertions": [
+        {
+          "id": "home-restored-event",
+          "kind": "eventOccurrence",
+          "event": "home_ownership_restored",
+          "authority": {
+            "role": "app",
+            "producerId": "app-profile-session",
+            "evidenceSelector": "profileEvents.home_ownership_restored",
+            "requiredStrength": "observed",
+            "completeness": "point"
+          }
+        }
+      ]
+    }
+  ]
+}
+```
+
+The omitted ordinary scenario fields remain required by the public schema.
+Claims are flat conjunctions; do not nest assertions or add scripts that decide
+their own result. `applicability` is authored before runtime. A missing adapter
+or authority capability on a selected platform is unsupported evidence and a
+`not_evaluable` requested claim, not retroactive `not_applicable` coverage.
+
+This release surface only makes the contract representable and readable. It
+does not yet perform semantic closure checks or generate claim results. Keep
+templates and executable scenarios on `1.0.0` until the claim evaluator and
+admissibility gate ship. Current planning and profile entry points reject
+`1.1.0` before runtime rather than emitting a misleading legacy verdict.
+
 Use `comparisonLane` when a scenario should always compare within one stable proof mode, such as `feed-open-android-live`. Profile CLIs can also receive `--comparison-lane`; the CLI flag wins when one-off runs need a different lane.
 
 Exact scenario hashes remain the default historical boundary. When a scenario

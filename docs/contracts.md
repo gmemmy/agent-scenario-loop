@@ -215,6 +215,62 @@ The root package also exports `buildIosNativePerformanceEvidence()` for project-
 
 Provider `targetBinding` is a claim boundary, not decoration. Use `verified` only when the provider proved the requested device/app target, `unverified` when it lacks target proof, `ambiguous` when more than one runtime could own the evidence, and `mismatch` when the observed target differs from the requested target. App and device ids state identity but do not prove observation. Native-performance comparison readiness requires a matching `candidateTargets` observation with a run-relative `evidencePath`; that evidence path now points to a package-owned target-binding attachment, typically `raw/providers/<providerId>/target-binding.json`, validated against `schemas/native-target-binding.schema.json`. Trusted target-binding records must preserve provider/platform/run/scenario identity, requested app id and target id, observed target id, observed process pid and name, a bounded `activeLoop` window, `captureArtifacts` entries naming the raw active-window artifacts used by the normalized evidence, and `sourceCommands` entries that point back to immutable provider command records. That `activeLoop` window must exactly match the package-owned `raw/runner-active-loop-window.json` record for `startedAt`, `endedAt`, and `durationMs`; a provider-authored window that only falls inside the command timestamps is not sufficient. Each `captureArtifacts[].path` must be surfaced by the native-performance envelope and must match a hashed `outputs[]` entry from a `startWindow` or `stopWindow` command record whose `runRelativePath` equals that same surfaced artifact path; after-capture normalization can interpret that raw capture, but it cannot stand in for the capture itself. Those `sourceCommands` must validate against the current `target-binding.json` bytes, so any later cleanup must stay append-only in separate command records rather than mutating the bound attachment in place. Android verified records must also preserve `observedAppId`. iOS verified records must also preserve `observedTargetPlatform` and `observedTemplate`. Profiler and native-performance JSON can still include expected, conflicting, or unknown candidates so agents can see exactly why evidence is diagnostic-only. Aggregate live-proof and proof-set native-performance rollups may preserve compact target-binding detail counts so readers can see whether ambiguous or mismatched evidence came from expected, observed, provider, manifest, trace, or other provider-supplied binding context before opening each raw evidence file.
 
+## Claim-complete contract foundation
+
+Scenario and verdict schemaVersion `1.1.0` define the additive public vocabulary
+for claim-complete proof. Existing `1.0.0` scenarios and verdicts remain valid
+legacy diagnostic contracts. ASL does not infer claims from their milestones,
+budgets, descriptions, or attached evidence, and a legacy scenario cannot add a
+`claims` field to imply otherwise.
+
+A scenario `1.1.0` declaration requires a complete `journey` shape and a
+non-empty `claims` array containing at least one `mandatory` claim. The journey
+names its actor, start and end state, phases, terminal invariants, and recovery
+contract. Each claim has a stable ID, a `mandatory` or `supplemental` role,
+pre-runtime platform and optional variant applicability, explicit phase or
+terminal-invariant closure references, and a flat conjunction of assertions.
+The supported assertion families are app or provider event occurrence and
+ordering, terminal-state equality, bounded count, bounded absence, and
+validated evidence presence. Nested Boolean claim expressions and evaluator
+scripts are not part of this contract.
+
+Every assertion names its authority role, producer, evidence selector,
+required identity strength, and completeness. The closed authority roles are
+`app`, `runner`, `adapter`, `provider`, and `comparator`. Evidence presence
+proves only that the named evidence obligation was produced and validated; it
+does not prove the product behavior depicted or measured by that evidence.
+Absence and bounded-count assertions require a named observation window and a
+complete source. Generic screenshots, videos, UI trees, and logs remain
+corroborative unless a separate named validated comparator contract supplies
+the declared authority.
+
+`buildScenarioClaimHash()` returns the canonical SHA-256 identity of the full
+claim definition. Object-key order does not affect the hash; authored array
+order does, including arrays whose schema also requires unique entries. Object
+keys use locale-independent code-unit ordering. The hash identifies the exact claim contract used by a result and
+does not by itself establish semantic admissibility, evidence trust, or product
+success.
+
+Verdict schemaVersion `1.1.0` requires compact `claimResults`. Claim and
+assertion statuses are `supported`, `rejected`, or `not_evaluable` with closed
+reason codes, normalized expected and observed values, run-relative evidence
+references using forward-slash artifact paths, missing-proof inventory, and
+product-neutral next-action routing. Absolute paths, drive-qualified paths,
+backslashes, and parent traversal are rejected.
+`not_evaluated` is legal only for legacy verdict `1.0.0`; `not_applicable` is
+not a runtime claim-result status. Applicability is resolved before runtime. If
+a selected platform or adapter cannot supply an expected authority path,
+health becomes unsupported and affected requested claims become
+`not_evaluable`, never retroactively non-applicable.
+
+This foundation is reader-only. Schema acceptance proves structural contract
+validity, not semantic closure or product truth. Current runners continue to
+emit legacy verdicts only for legacy scenarios until the separately reviewed
+semantic-admissibility and claim-evaluation slices are implemented. Planning
+or profiling a scenario `1.1.0` fails before runtime and does not emit a legacy
+verdict. A consumer must not hand-author a
+`1.1.0` passing verdict and treat schema validity as ASL evaluation.
+
 ## Public artifact layout
 
 Every run should produce a stable artifact folder.
@@ -222,7 +278,7 @@ Every run should produce a stable artifact folder.
 Core artifacts:
 
 - `health.json`: whether the scenario execution was valid enough to interpret
-- `verdict.json`: budget outcome for product behavior, or `not_evaluated` before evidence is collected
+- `verdict.json`: legacy budget outcome or `not_evaluated` state in `1.0.0`, or compact claim results once a claim evaluator produces `1.1.0`
 - `comparison.json`: optional before/after result against a trusted baseline
 - `live-proof.json`: aggregate proof summary for a multi-scenario live run
 - `live-proof-set.json`: aggregate platform-set proof summary across Android and iOS live-proof artifacts

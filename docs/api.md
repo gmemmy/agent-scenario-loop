@@ -9,6 +9,7 @@ Import core contracts from `agent-scenario-loop`:
 ```js
 const {
   buildAgentSummaryMarkdown,
+  buildScenarioClaimHash,
   buildScenarioExecutionPlan,
   buildRunIndex,
   buildAndroidNativePerformanceEvidence,
@@ -26,6 +27,7 @@ const {
 The root package is for stable, runner-neutral behavior:
 
 - artifact layout and artifact writers
+- claim-complete scenario/verdict structural types and deterministic claim hashing
 - profile-event parsing, metrics, manifests, causal runs, budget verdicts, and summaries
 - scenario execution-plan normalization, including resolved cadence pacing metadata
 - scenario/runner/provider compatibility checks
@@ -45,6 +47,14 @@ The root package is for stable, runner-neutral behavior:
 - shared Android/iOS native-performance comparison-readiness classification from captured source, bounded window, observed target, completeness, comparability, and claim evidence
 
 TypeScript consumers can import `HistoricalEvaluationArtifact`, the explicitly named `UnvalidatedHistoricalEvaluationArtifact`, and the branded `ValidatedHistoricalEvaluationArtifact` from the package root. `HistoricalEvaluationArtifact` is an unvalidated structural alias; TypeScript cannot prove schema refinements or cross-record integrity. Call `validateHistoricalEvaluationArtifact(unknown)` to run both the strict schema and semantic integrity checks before accepting the branded result. The schema is shipped at `agent-scenario-loop/schemas/historical-evaluation.schema.json` and registered as `SCHEMAS.historicalEvaluation`. This V1 surface remains consumer-produced and local-only; it does not export an evaluator, selector, reader, writer, or CLI command, and it does not alter `comparison.json` or process exit behavior.
+
+TypeScript consumers can also import the `ScenarioClaimDefinition`,
+`ScenarioClaimAssertion`, `ClaimResult`, and related closed-vocabulary types.
+Use `buildScenarioClaimHash()` to derive the canonical SHA-256 identity for a
+complete claim definition. This is a reader and authoring foundation only:
+current runners reject scenario `1.1.0` before runtime, do not evaluate these
+claims or emit verdict `1.1.0`, and a
+schema-valid claim result is not proof that ASL produced or trusted it.
 
 Use `coordinateQuickProof()` when an owning runner needs to bound setup before
 starting a product scenario. Callers provide adapter paths, operation and

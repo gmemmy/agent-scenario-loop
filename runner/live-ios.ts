@@ -3,6 +3,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 
+const { assertScenarioExecutionContractSupported } = require('../core/claim-contract');
 const { hasHelpFlag, writeUsage } = require('./cli');
 const { parseArgs, parsePositiveInteger, runIosSimctlCapture } = require('./ios-simctl');
 const { compareLiveProfilesToLatest, isEnabledFlag } = require('./live-comparison');
@@ -362,6 +363,7 @@ async function runIosLiveProof(
   const scenarioPath = path.resolve(args.scenario);
   const config = readJson(configPath);
   const scenario = readJson(scenarioPath);
+  assertScenarioExecutionContractSupported(scenario);
   const scenarioId = resolveScenarioId({ scenario, scenarioPath });
   const bundleId = resolveIosBundleId({ args, config });
   assertConcreteMobileAppId({

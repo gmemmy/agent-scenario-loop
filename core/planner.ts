@@ -1,3 +1,5 @@
+const { assertScenarioExecutionContractSupported } = require('./claim-contract');
+
 type ManifestRecord = Record<string, unknown>;
 
 type PlannerIssue = {
@@ -1572,6 +1574,8 @@ function evaluateRunnerCompatibility({
     };
   }
 
+  assertScenarioExecutionContractSupported(scenario);
+
   const effectivePlatforms = resolveEffectivePlatforms({ scenario, runner: primaryRunner, platform, errors });
   errors.push(...collectScenarioStepIdentityErrors(scenario));
   validateScenarioAdapterOptions({ effectivePlatforms, errors, runner: primaryRunner, scenario });
@@ -1745,6 +1749,7 @@ function buildCompatibilityHealth({
   runId?: string;
   compatibility: CompatibilityResult;
 }): ManifestRecord {
+  assertScenarioExecutionContractSupported(scenario);
   const scenarioId = getScenarioId(scenario);
   const resolvedRunId = typeof runId === 'string' && runId.length > 0 ? runId : 'unknown-run';
   const errors = compatibility.errors;
@@ -1800,6 +1805,7 @@ function buildUnevaluatedVerdict({
   runId?: string;
   health: ManifestRecord;
 }): ManifestRecord {
+  assertScenarioExecutionContractSupported(scenario);
   const healthStatus = health?.healthStatus ?? 'failed';
   const scenarioId = health?.scenarioId ?? getScenarioId(scenario);
   const resolvedRunId =

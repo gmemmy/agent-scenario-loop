@@ -29,6 +29,34 @@ function readStartupLog(runId: string): string {
     .replace(/android-example-startup/gu, runId);
 }
 
+test('generic Android live proof rejects reader-only scenarios before preflight or output creation', async (t: TestContext) => {
+  const tempRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-live-android-reader-only-'));
+  t.after(async () => {
+    await fsp.rm(tempRoot, { recursive: true, force: true });
+  });
+  const scenarioPath = path.join(tempRoot, 'reader-only.json');
+  const outputDir = path.join(tempRoot, 'output');
+  await fsp.writeFile(scenarioPath, JSON.stringify({ schemaVersion: '1.1.0', id: 'reader-only' }), 'utf8');
+  const calls: string[] = [];
+
+  await assert.rejects(
+    () => runAndroidLiveProof({
+      config: path.join(ROOT, 'examples', 'mobile-app', 'asl.config.json'),
+      out: outputDir,
+      scenario: scenarioPath,
+      serial: 'emulator-5554',
+    }, {
+      executor: async (command: string, args: string[]): Promise<CommandResult> => {
+        calls.push(`${command} ${args.join(' ')}`);
+        return { command, args, exitCode: 0, stderr: '', stdout: '' };
+      },
+    }),
+    /Scenario schemaVersion 1\.1\.0 is reader-only/u,
+  );
+  assert.deepEqual(calls, []);
+  assert.equal(fs.existsSync(outputDir), false);
+});
+
 test('generic Android live proof rejects scaffold package placeholders before device commands', async (t: TestContext) => {
   const tempRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-live-android-placeholder-'));
   t.after(async () => {

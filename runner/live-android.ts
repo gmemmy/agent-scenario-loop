@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const { writeJsonArtifact } = require('../core/artifact-writer');
+const { assertScenarioExecutionContractSupported } = require('../core/claim-contract');
 const { SCHEMAS } = require('../core/schema-validator');
 const { hasHelpFlag, writeUsage } = require('./cli');
 const { execFileCommand, parseArgs, parsePositiveInteger, runAndroidAdbPreflight } = require('./android-adb');
@@ -407,6 +408,7 @@ async function runAndroidLiveProof(
   const scenarioPath = path.resolve(args.scenario);
   const config = readJson(configPath);
   const scenario = readJson(scenarioPath);
+  assertScenarioExecutionContractSupported(scenario);
   const scenarioId = resolveScenarioId({ scenario, scenarioPath });
   const packageName = resolveAndroidPackageName({ args, config });
   assertConcreteMobileAppId({

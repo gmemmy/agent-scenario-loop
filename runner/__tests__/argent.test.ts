@@ -386,6 +386,31 @@ test('Argent capture executes scenario driver actions and writes artifacts', asy
   assertMetadataCapturePathsExist(tempDir, 'raw/argent-metadata.json');
 });
 
+test('Argent capture rejects reader-only scenarios before output or executor calls', async (t: TestContext) => {
+  const tempRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-argent-reader-only-'));
+  t.after(async () => {
+    await fsp.rm(tempRoot, { recursive: true, force: true });
+  });
+  const outputDir = path.join(tempRoot, 'output');
+  const calls: string[] = [];
+
+  await assert.rejects(
+    () => runArgentCapture({
+      deviceId: 'SIM-123',
+      executor: async (command: string, args: string[]): Promise<CommandResult> => {
+        calls.push(`${command} ${args.join(' ')}`);
+        return { command, args, exitCode: 0, stderr: '', stdout: '' };
+      },
+      outputDir,
+      platform: 'ios',
+      scenario: { schemaVersion: '1.1.0', id: 'reader-only' },
+    }),
+    /Scenario schemaVersion 1\.1\.0 is reader-only/u,
+  );
+  assert.deepEqual(calls, []);
+  assert.equal(fs.existsSync(outputDir), false);
+});
+
 test('Argent capture resolves iOS booted shorthand before running driver actions', async (t: TestContext) => {
   const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-argent-booted-'));
   t.after(async () => {

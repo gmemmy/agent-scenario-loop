@@ -2,6 +2,7 @@ export * from './core/agent-summary';
 export * from './core/artifact-contract';
 export * from './core/artifact-layout';
 export * from './core/artifact-writer';
+export * from './core/claim-contract';
 export * from './core/comparison';
 export * from './core/evidence-interpreter';
 export * from './core/execution-plan';

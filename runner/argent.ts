@@ -9,6 +9,7 @@ const path = require('node:path');
 const { buildAgentSummaryMarkdown } = require('../core/agent-summary');
 const { createArtifactLayout } = require('../core/artifact-layout');
 const { writeJsonArtifact, writeTextArtifact } = require('../core/artifact-writer');
+const { assertScenarioExecutionContractSupported } = require('../core/claim-contract');
 const { buildScenarioExecutionPlan } = require('../core/execution-plan');
 const { SCHEMAS, assertValidJson } = require('../core/schema-validator');
 const { hasHelpFlag, writeUsage } = require('./cli');
@@ -1362,6 +1363,7 @@ async function runArgentCapture({
   waitMs = 0,
   xcrunPath = 'xcrun',
 }: ArgentCaptureOptions): Promise<ArgentCaptureResult> {
+  assertScenarioExecutionContractSupported(scenario);
   const runDir = path.resolve(outputDir);
   const layout = createArtifactLayout({ outputDir: runDir });
   const rawDir = layout.raw;

@@ -212,6 +212,59 @@ test('allows evidence providers to satisfy required evidence in CLI plans', asyn
   }
 });
 
+test('refuses a schema-valid claim-complete scenario before legacy plan artifacts are built', async (t: TestContext) => {
+  const scenario = readJson(fixturePath('examples/scenarios/mobile/app-startup.json'));
+  scenario.schemaVersion = '1.1.0';
+  scenario.journey.phases = [{ id: 'start-app', description: 'Start the app.' }];
+  scenario.journey.terminalInvariants = [{ id: 'app-usable', description: 'The app is usable.' }];
+  scenario.journey.recovery = { status: 'not_required', rationale: 'Startup has no recovery variant.' };
+  scenario.claims = [{
+    id: 'app-usable',
+    role: 'mandatory',
+    applicability: { platforms: ['ios'] },
+    closes: { terminalInvariants: ['app-usable'] },
+    assertions: [{
+      id: 'usable-event',
+      kind: 'eventOccurrence',
+      event: 'app_first_usable_screen',
+      authority: {
+        role: 'app',
+        producerId: 'profile-session',
+        evidenceSelector: 'profileEvents.app_first_usable_screen',
+        requiredStrength: 'observed',
+        completeness: 'point',
+      },
+    }],
+  }];
+  const scenarioPath = path.join(os.tmpdir(), `asl-claim-scenario-${Date.now()}.json`);
+  const outputDir = path.join(os.tmpdir(), `asl-claim-plan-${Date.now()}`);
+  await fsp.writeFile(scenarioPath, `${JSON.stringify(scenario, null, 2)}\n`, 'utf8');
+  t.after(async () => {
+    await fsp.rm(scenarioPath, { force: true });
+    await fsp.rm(outputDir, { force: true, recursive: true });
+  });
+
+  await assert.rejects(
+    execFileAsync(process.execPath, [
+      CHECK_PLAN,
+      '--scenario',
+      scenarioPath,
+      '--runner',
+      fixturePath('examples/runners/xcodebuildmcp-ios.json'),
+      '--platform',
+      'ios',
+      '--out',
+      outputDir,
+    ]),
+    (error: unknown) => {
+      assert.ok(error instanceof Error);
+      assert.match((error as ExecFailure).stderr, /reader-only.*execution is unsupported/u);
+      return true;
+    },
+  );
+  assert.equal(fs.existsSync(path.join(outputDir, 'verdict.json')), false);
+});
+
 test('fails before planning when the scenario manifest does not match the schema', async (t: TestContext) => {
   const scenario = readJson(fixturePath('examples/scenarios/mobile/app-startup.json'));
   scenario.steps[0].kind = 'summon';
