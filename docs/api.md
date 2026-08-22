@@ -273,6 +273,23 @@ semantic support. Duplicate, missing, conflicting, or ambiguous point
 evidence remains `rejected` or `not_evaluable`. This surface does not emit
 `not_applicable` at runtime and does not enable scenario 1.1.0 execution.
 
+Use `inspectScenarioClaimJsonNativeWindowedInterpretation(assertionInput,
+admittedInput)` as a pure post-admission assertion interpreter for
+`boundedCount` and `absence`. The input must be a matching admitted
+JSON-native raw observation plus the exact assertion. Admission is a
+prerequisite: an admitted artifact alone does not support product behavior.
+Window bounds are inclusive. Interpretation requires a complete observation
+window; incomplete authority does not prove absence, and a zero count is not
+absence proof without that complete authority. The function returns one
+`ClaimAssertionResult` only. Outputs are `outside_contract` or
+`interpreted`. On `interpreted`, `supported`, `rejected`, and
+`not_evaluable` are assertion-level semantics only. This closed taxonomy is
+not health, claim result, journey verdict, baseline, certification,
+publication, or runtime acceptance. Candidate reconciliation, health,
+`ClaimResult`, verdict, runtime, artifact writes, and publication remain
+separate. This surface does not emit `not_applicable` at runtime and does
+not enable scenario 1.1.0 execution.
+
 Use `inspectScenarioClaimValidatedEvidenceReportIdentity({ candidate, report,
 reportBytes })` with an eligible `validatedEvidence` projection to bind a
 distinct closed run-relative report identity and its exact bytes. The reader

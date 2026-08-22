@@ -9,6 +9,7 @@ export * from './core/claim-raw-observation-admission';
 export * from './core/claim-validated-evidence-report-identity';
 export * from './core/claim-validated-evidence-admission';
 export * from './core/claim-json-native-point-interpretation';
+export * from './core/claim-json-native-windowed-interpretation';
 export * from './core/claim-dependencies';
 
 export * from './core/claim-closure';
