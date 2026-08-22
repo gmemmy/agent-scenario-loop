@@ -1,5 +1,11 @@
 import { types as nodeTypes } from "node:util";
 import type { ValidatedEvidenceAssertion } from "./claim-contract.js";
+import {
+  isLowerSha256,
+  isSafeRunRelativePath,
+  isTrimmedControlFreeIdentity,
+  isValidatedEvidenceResultArtifactKind,
+} from "./claim-validated-evidence-result-admission.js";
 
 export const CLAIM_VALIDATED_EVIDENCE_RESULT_INTERPRETATION_KIND =
   "asl.claim.validated_evidence_result_interpretation" as const;
@@ -21,6 +27,7 @@ export type ClaimValidatedEvidenceResultInterpretationOutcome =
 export type AdmittedValidatorResultProjection = {
   readonly assertionId: string;
   readonly validationContract: string;
+  readonly artifactKind: string;
   readonly validatorProducer: string;
   readonly validatorVersion: string;
   readonly validatorHash: string;
@@ -128,6 +135,7 @@ export type ClaimValidatedEvidenceResultInterpretation =
 const REQUIRED_PROJECTION_KEYS = [
   "assertionId",
   "validationContract",
+  "artifactKind",
   "validatorProducer",
   "validatorVersion",
   "validatorHash",
@@ -141,21 +149,36 @@ const REQUIRED_PROJECTION_KEYS = [
   "reason",
 ] as const;
 
+const CLOSED_INPUT_KEYS = ["assertion", "admittedProjection"] as const;
+
 const OUTSIDE_CONTRACT_MALFORMED =
   "admitted projection is malformed, synthesized, foreign, or not an exact admitted validator-result record";
+const OUTSIDE_CONTRACT_INPUT =
+  "input is not an authored assertion with a detached admitted projection";
+const OUTSIDE_CONTRACT_BIND =
+  "assertion id, kind, artifact kind, or validation contract does not bind the admitted projection";
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    !Array.isArray(value) &&
-    !nodeTypes.isProxy(value) &&
-    Object.getPrototypeOf(value) === Object.prototype
-  );
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return false;
+  }
+  if (nodeTypes.isProxy(value)) {
+    return false;
+  }
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype;
 }
 
-function isNonemptyString(value: unknown): value is string {
-  return typeof value === "string" && value.trim().length > 0;
+function hasExactOwnKeys(value: object, expected: readonly string[]): boolean {
+  const keys = Reflect.ownKeys(value);
+  if (keys.length !== expected.length) {
+    return false;
+  }
+  return expected.every((key) => keys.includes(key));
+}
+
+function copyString(value: string): string {
+  return value.slice();
 }
 
 function ownDataValue(record: object, key: string): unknown {
@@ -170,6 +193,39 @@ function ownDataValue(record: object, key: string): unknown {
     return undefined;
   }
   return descriptor.value;
+}
+
+type AssertionBinding = {
+  readonly id: string;
+  readonly kind: string;
+  readonly validationContract: string;
+  readonly artifactKind: string;
+};
+
+function snapshotAssertionBinding(value: unknown): AssertionBinding | null {
+  if (!isPlainObject(value)) {
+    return null;
+  }
+
+  const id = ownDataValue(value, "id");
+  const kind = ownDataValue(value, "kind");
+  const validationContract = ownDataValue(value, "validationContract");
+  const artifactKind = ownDataValue(value, "artifactKind");
+  if (
+    typeof id !== "string" ||
+    typeof kind !== "string" ||
+    typeof validationContract !== "string" ||
+    typeof artifactKind !== "string"
+  ) {
+    return null;
+  }
+
+  return {
+    id: copyString(id),
+    kind: copyString(kind),
+    validationContract: copyString(validationContract),
+    artifactKind: copyString(artifactKind),
+  };
 }
 
 function snapshotAdmittedProjection(
@@ -195,6 +251,7 @@ function snapshotAdmittedProjection(
 
   const assertionId = copied.assertionId;
   const validationContract = copied.validationContract;
+  const artifactKind = copied.artifactKind;
   const validatorProducer = copied.validatorProducer;
   const validatorVersion = copied.validatorVersion;
   const validatorHash = copied.validatorHash;
@@ -208,18 +265,19 @@ function snapshotAdmittedProjection(
   const reason = copied.reason;
 
   if (
-    !isNonemptyString(assertionId) ||
-    !isNonemptyString(validationContract) ||
-    !isNonemptyString(validatorProducer) ||
-    !isNonemptyString(validatorVersion) ||
-    !isNonemptyString(validatorHash) ||
-    !isNonemptyString(subjectPath) ||
-    !isNonemptyString(subjectHash) ||
-    !isNonemptyString(reportPath) ||
-    !isNonemptyString(reportHash) ||
-    !isNonemptyString(resultPath) ||
-    !isNonemptyString(resultHash) ||
-    !isNonemptyString(reason)
+    !isTrimmedControlFreeIdentity(assertionId) ||
+    !isTrimmedControlFreeIdentity(validationContract) ||
+    !isValidatedEvidenceResultArtifactKind(artifactKind) ||
+    !isTrimmedControlFreeIdentity(validatorProducer) ||
+    !isTrimmedControlFreeIdentity(validatorVersion) ||
+    !isLowerSha256(validatorHash) ||
+    !isSafeRunRelativePath(subjectPath) ||
+    !isLowerSha256(subjectHash) ||
+    !isSafeRunRelativePath(reportPath) ||
+    !isLowerSha256(reportHash) ||
+    !isSafeRunRelativePath(resultPath) ||
+    !isLowerSha256(resultHash) ||
+    !isTrimmedControlFreeIdentity(reason)
   ) {
     return null;
   }
@@ -233,158 +291,184 @@ function snapshotAdmittedProjection(
   }
 
   return {
-    assertionId,
-    validationContract,
-    validatorProducer,
-    validatorVersion,
-    validatorHash,
-    subjectPath,
-    subjectHash,
-    reportPath,
-    reportHash,
-    resultPath,
-    resultHash,
+    assertionId: copyString(assertionId),
+    validationContract: copyString(validationContract),
+    artifactKind: copyString(artifactKind),
+    validatorProducer: copyString(validatorProducer),
+    validatorVersion: copyString(validatorVersion),
+    validatorHash: copyString(validatorHash),
+    subjectPath: copyString(subjectPath),
+    subjectHash: copyString(subjectHash),
+    reportPath: copyString(reportPath),
+    reportHash: copyString(reportHash),
+    resultPath: copyString(resultPath),
+    resultHash: copyString(resultHash),
     terminalStatus,
-    reason,
+    reason: copyString(reason),
   };
 }
 
 function assertionBindsProjection(
-  assertion: ValidatedEvidenceAssertion,
+  assertion: AssertionBinding,
   projection: AdmittedValidatorResultProjection,
 ): boolean {
   return (
+    assertion.kind === "validatedEvidence" &&
     assertion.id === projection.assertionId &&
-    assertion.validationContract === projection.validationContract
+    assertion.validationContract === projection.validationContract &&
+    assertion.artifactKind === projection.artifactKind
   );
 }
 
-function evidenceIdentities(
+function freezeMatchedEvidence(
   projection: AdmittedValidatorResultProjection,
 ): ValidatedEvidenceMatchedEvidence {
-  return {
+  return Object.freeze({
     kind: "validated_evidence",
-    validationContract: projection.validationContract,
-    subjectPath: projection.subjectPath,
-    subjectHash: projection.subjectHash,
-    reportPath: projection.reportPath,
-    reportHash: projection.reportHash,
-    resultPath: projection.resultPath,
-    resultHash: projection.resultHash,
-  };
+    validationContract: copyString(projection.validationContract),
+    subjectPath: copyString(projection.subjectPath),
+    subjectHash: copyString(projection.subjectHash),
+    reportPath: copyString(projection.reportPath),
+    reportHash: copyString(projection.reportHash),
+    resultPath: copyString(projection.resultPath),
+    resultHash: copyString(projection.resultHash),
+  });
 }
 
-function provenance(
+function freezeReasonedEvidence(
+  projection: AdmittedValidatorResultProjection,
+): ValidatedEvidenceRejectedEvidence {
+  return Object.freeze({
+    kind: "validated_evidence",
+    validationContract: copyString(projection.validationContract),
+    subjectPath: copyString(projection.subjectPath),
+    subjectHash: copyString(projection.subjectHash),
+    reportPath: copyString(projection.reportPath),
+    reportHash: copyString(projection.reportHash),
+    resultPath: copyString(projection.resultPath),
+    resultHash: copyString(projection.resultHash),
+    reason: copyString(projection.reason),
+  });
+}
+
+function freezeProvenance(
   projection: AdmittedValidatorResultProjection,
 ): ValidatedEvidenceInterpretationProvenance {
-  return {
+  return Object.freeze({
     aslRole: "admitted_and_projected_external_validator_truth",
     validatorExecutedByAsl: false,
-    validatorProducer: projection.validatorProducer,
-    validatorVersion: projection.validatorVersion,
-    validatorHash: projection.validatorHash,
-  };
+    validatorProducer: copyString(projection.validatorProducer),
+    validatorVersion: copyString(projection.validatorVersion),
+    validatorHash: copyString(projection.validatorHash),
+  });
 }
 
 function outsideContract(
   reason: string,
 ): ClaimValidatedEvidenceResultInterpretation {
-  return {
+  return Object.freeze({
     interpretationKind: CLAIM_VALIDATED_EVIDENCE_RESULT_INTERPRETATION_KIND,
     interpretationContractVersion:
       CLAIM_VALIDATED_EVIDENCE_RESULT_INTERPRETATION_CONTRACT_VERSION,
     outcome: "outside_contract",
     result: null,
-    reason,
-  };
+    reason: copyString(reason),
+  });
+}
+
+function freezeSupported(
+  projection: AdmittedValidatorResultProjection,
+): ClaimValidatedEvidenceResultInterpretation {
+  return Object.freeze({
+    interpretationKind: CLAIM_VALIDATED_EVIDENCE_RESULT_INTERPRETATION_KIND,
+    interpretationContractVersion:
+      CLAIM_VALIDATED_EVIDENCE_RESULT_INTERPRETATION_CONTRACT_VERSION,
+    outcome: "supported",
+    result: Object.freeze({
+      kind: "supported",
+      observedKind: "validated_evidence",
+      validationContract: copyString(projection.validationContract),
+      validationStatus: "passed",
+      matchedEvidence: Object.freeze([freezeMatchedEvidence(projection)]),
+      provenance: freezeProvenance(projection),
+    }),
+  });
+}
+
+function freezeRejected(
+  projection: AdmittedValidatorResultProjection,
+): ClaimValidatedEvidenceResultInterpretation {
+  return Object.freeze({
+    interpretationKind: CLAIM_VALIDATED_EVIDENCE_RESULT_INTERPRETATION_KIND,
+    interpretationContractVersion:
+      CLAIM_VALIDATED_EVIDENCE_RESULT_INTERPRETATION_CONTRACT_VERSION,
+    outcome: "rejected",
+    result: Object.freeze({
+      kind: "rejected",
+      observedKind: "validated_evidence",
+      validationContract: copyString(projection.validationContract),
+      validationStatus: "failed",
+      rejectedEvidence: Object.freeze([freezeReasonedEvidence(projection)]),
+      provenance: freezeProvenance(projection),
+    }),
+  });
+}
+
+function freezeNotEvaluable(
+  projection: AdmittedValidatorResultProjection,
+): ClaimValidatedEvidenceResultInterpretation {
+  return Object.freeze({
+    interpretationKind: CLAIM_VALIDATED_EVIDENCE_RESULT_INTERPRETATION_KIND,
+    interpretationContractVersion:
+      CLAIM_VALIDATED_EVIDENCE_RESULT_INTERPRETATION_CONTRACT_VERSION,
+    outcome: "not_evaluable",
+    result: Object.freeze({
+      kind: "not_evaluable",
+      observedKind: "validated_evidence",
+      validationContract: copyString(projection.validationContract),
+      validationStatus: "not_evaluable",
+      reason: copyString(projection.reason),
+      missingProof: Object.freeze([freezeReasonedEvidence(projection)]),
+      provenance: freezeProvenance(projection),
+    }),
+  });
 }
 
 export function interpretAdmittedValidatedEvidenceResult(input: {
   readonly assertion: ValidatedEvidenceAssertion;
   readonly admittedProjection: unknown;
 }): ClaimValidatedEvidenceResultInterpretation {
-  if (!isPlainObject(input) || !isPlainObject(input.assertion as unknown)) {
-    return outsideContract(
-      "input is not an authored assertion with a detached admitted projection",
+  try {
+    if (!isPlainObject(input) || !hasExactOwnKeys(input, CLOSED_INPUT_KEYS)) {
+      return outsideContract(OUTSIDE_CONTRACT_INPUT);
+    }
+    const assertion = snapshotAssertionBinding(ownDataValue(input, "assertion"));
+    const snapshot = snapshotAdmittedProjection(
+      ownDataValue(input, "admittedProjection"),
     );
-  }
-
-  const assertion = input.assertion;
-  const snapshot = snapshotAdmittedProjection(input.admittedProjection);
-  if (snapshot === null) {
-    return outsideContract(OUTSIDE_CONTRACT_MALFORMED);
-  }
-
-  if (!assertionBindsProjection(assertion, snapshot)) {
-    return outsideContract(
-      "assertion id or validation contract does not bind the admitted projection",
-    );
-  }
-
-  const identities = evidenceIdentities(snapshot);
-  const recordProvenance = provenance(snapshot);
-
-  switch (snapshot.terminalStatus) {
-    case "passed":
-      return {
-        interpretationKind: CLAIM_VALIDATED_EVIDENCE_RESULT_INTERPRETATION_KIND,
-        interpretationContractVersion:
-          CLAIM_VALIDATED_EVIDENCE_RESULT_INTERPRETATION_CONTRACT_VERSION,
-        outcome: "supported",
-        result: {
-          kind: "supported",
-          observedKind: "validated_evidence",
-          validationContract: snapshot.validationContract,
-          validationStatus: "passed",
-          matchedEvidence: [identities],
-          provenance: recordProvenance,
-        },
-      };
-    case "failed":
-      return {
-        interpretationKind: CLAIM_VALIDATED_EVIDENCE_RESULT_INTERPRETATION_KIND,
-        interpretationContractVersion:
-          CLAIM_VALIDATED_EVIDENCE_RESULT_INTERPRETATION_CONTRACT_VERSION,
-        outcome: "rejected",
-        result: {
-          kind: "rejected",
-          observedKind: "validated_evidence",
-          validationContract: snapshot.validationContract,
-          validationStatus: "failed",
-          rejectedEvidence: [
-            {
-              ...identities,
-              reason: snapshot.reason,
-            },
-          ],
-          provenance: recordProvenance,
-        },
-      };
-    case "not_evaluable":
-      return {
-        interpretationKind: CLAIM_VALIDATED_EVIDENCE_RESULT_INTERPRETATION_KIND,
-        interpretationContractVersion:
-          CLAIM_VALIDATED_EVIDENCE_RESULT_INTERPRETATION_CONTRACT_VERSION,
-        outcome: "not_evaluable",
-        result: {
-          kind: "not_evaluable",
-          observedKind: "validated_evidence",
-          validationContract: snapshot.validationContract,
-          validationStatus: "not_evaluable",
-          reason: snapshot.reason,
-          missingProof: [
-            {
-              ...identities,
-              reason: snapshot.reason,
-            },
-          ],
-          provenance: recordProvenance,
-        },
-      };
-    default: {
-      const _exhaustive: never = snapshot.terminalStatus;
-      void _exhaustive;
+    if (assertion === null) {
+      return outsideContract(OUTSIDE_CONTRACT_INPUT);
+    }
+    if (snapshot === null) {
       return outsideContract(OUTSIDE_CONTRACT_MALFORMED);
     }
+    if (!assertionBindsProjection(assertion, snapshot)) {
+      return outsideContract(OUTSIDE_CONTRACT_BIND);
+    }
+    switch (snapshot.terminalStatus) {
+      case "passed":
+        return freezeSupported(snapshot);
+      case "failed":
+        return freezeRejected(snapshot);
+      case "not_evaluable":
+        return freezeNotEvaluable(snapshot);
+      default: {
+        const _exhaustive: never = snapshot.terminalStatus;
+        void _exhaustive;
+        return outsideContract(OUTSIDE_CONTRACT_MALFORMED);
+      }
+    }
+  } catch {
+    return outsideContract(OUTSIDE_CONTRACT_INPUT);
   }
 }

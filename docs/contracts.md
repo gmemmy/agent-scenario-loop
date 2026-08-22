@@ -489,18 +489,44 @@ is the pure post-admission assertion interpreter for JSON-native `boundedCount`
 and `absence` claims. Input must be a matching admitted raw-observation result
 plus the exact assertion. The admitted observation is a prerequisite: this
 slice does not admit artifacts, and an admitted artifact alone is not semantic
-support or product behavior. Inclusive window bounds apply. Interpretation
-requires a complete window; count zero is not absence proof without that
-complete authority. The function returns one `ClaimAssertionResult` only.
-Outputs are `outside_contract` or `interpreted`. Interpreted assertion results
-are `supported`, `rejected`, or `not_evaluable`. `not_applicable` is excluded
-at runtime. Trust is
+support or product behavior. Inclusive window bounds apply. Bounds, observation
+counts, and admitted artifact `byteLength` must be non-negative values accepted
+by `Number.isSafeInteger`; unsafe integers are `outside_contract`.
+Interpretation requires a complete window; count zero is not absence proof
+without that complete authority. Candidate-identity admission already binds
+assertion authority (role, producer, selector, required strength, and
+completeness). This interpreter does not rematch those fields.
+Unrepresentable `WindowedClaimAuthority`, including `point` completeness, is
+`input_invalid`. The rejected reason `authoritative_evidence_rejected` is the
+closed assertion-result vocabulary when an admitted observation fails the
+inclusive bound or absence check; it does not recast observed strength as
+product authority. JSON-native point and windowed inspectors return either
+`outside_contract` or `interpreted`. Only `interpreted` contains one
+`ClaimAssertionResult`; `outside_contract` contains `reasonCodes` and no
+result. Interpreted assertion results are `supported`, `rejected`, or
+`not_evaluable`. `not_applicable` is excluded at runtime. Trust is
 `admitted_observation_interpretation_only`. `supported`, `rejected`, and
 `not_evaluable` are assertion-level semantics only, not health, claim result,
 journey verdict, baseline, certification, publication, or runtime acceptance.
 Candidate reconciliation, health, `ClaimResult`, verdict, runtime, artifact
 writes, and publication remain separate. `not_applicable` is not a runtime
 result here. This slice does not enable scenario 1.1.0 execution.
+
+`buildClaimCompleteVerdict(input)` is the public claim-complete verdict
+builder for scenario `1.1.0`. Input is one scenario, a pre-runtime
+platform/optional variant selection with applicable and excluded claim IDs,
+`healthStatus`, a run ID, and one reconciled `ClaimResult` per applicable
+claim. Applicability is pre-runtime only: runtime never retroactively emits
+`not_applicable`. Supplemental results remain visible and do not gate
+mandatory journey status. Failed or partial health does not throw: it produces
+an inconclusive candidate and projects every claim/assertion to
+`health_gate_failed`. Artifact presence is not semantic support. Malformed,
+incoherent, sparse, or foreign input, no applicable mandatory claim, an
+unsupported assertion kind, invalid output schema, or a rejected reduction
+inspection throw and fail closed. The builder returns a frozen candidate or
+throws; it does not return a structured fail-closed result. It does not admit
+evidence, execute scenarios, write artifacts, publish verdicts, establish
+product truth, or enable current runners to execute `1.1.0`.
 
 `inspectScenarioClaimValidatedEvidenceReportIdentity(input)` is the pure
 evidence-plane boundary for a distinct closed validator or comparator report
@@ -531,14 +557,20 @@ evidence-plane identity admission reader for one closed validator-result
 artifact. It accepts only `{ validatedEvidence, result, resultBytes }`: an
 eligible identity-admitted candidate projection, a closed run-relative result
 identity, and the exact result bytes. Those bytes must parse as a
-`validatedEvidenceResult` payload. Result SHA-256 is recomputed from those
+`validatedEvidenceResult` payload against
+`agent-scenario-loop/schemas/validated-evidence-result.schema.json`
+(`SCHEMAS.validatedEvidenceResult`). Result SHA-256 is recomputed from those
 bytes before any semantic interpretation. Subject, report, and result path or
-SHA collisions fail closed. Bindings must be exact: `resultId`, matching
-`assertionId`, matching `validationContract`, `validator` producer identity,
-matching `subject`, and matching `report`. Outcomes are `outside_contract`,
-`blocked`, or `admitted`. `passed`, `failed`, and `not_evaluable` are
-validator vocabulary on the result payload only. A passing validator result
-is not a `ClaimAssertionResult`, product support, health, verdict, baseline,
+SHA collisions fail closed. `resultId` is any schema-valid stable safe
+identifier; it is not a required literal and is separate from the result
+artifact path. Exact matching applies to `assertionId`, `validationContract`,
+subject identity, and report identity. The `validator` tuple in the exact
+result bytes is schema-validated and preserved; this reader has no
+independent expected producer declaration to compare against. Outcomes are
+`outside_contract`, `blocked`, or `admitted`. `passed`, `failed`, and
+`not_evaluable` are validator vocabulary on the result payload only. A
+passing validator result remains identity evidence only: it is not a
+`ClaimAssertionResult`, product support, health, verdict, baseline,
 comparison, or publication authority. Admitted result identity proves only
 that the result path and bytes match the declared identity; it does not
 parse or execute `validationContract`, evaluate depicted or measured

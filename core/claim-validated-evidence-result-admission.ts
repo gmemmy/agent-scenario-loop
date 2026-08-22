@@ -216,11 +216,11 @@ function safeGet(record: Record<string, unknown>, key: string): unknown {
   }
 }
 
-function isLowerSha256(value: unknown): value is string {
+export function isLowerSha256(value: unknown): value is string {
   return typeof value === 'string' && /^[0-9a-f]{64}$/.test(value);
 }
 
-function isTrimmedControlFreeIdentity(value: unknown): value is string {
+export function isTrimmedControlFreeIdentity(value: unknown): value is string {
   if (typeof value !== 'string' || value.length === 0) {
     return false;
   }
@@ -233,11 +233,16 @@ function isTrimmedControlFreeIdentity(value: unknown): value is string {
   return true;
 }
 
-function isSafeRunRelativePath(value: unknown): value is string {
+export function isSafeRunRelativePath(value: unknown): value is string {
   if (!isTrimmedControlFreeIdentity(value)) {
     return false;
   }
-  if (value.startsWith('/') || value.startsWith('\\') || value.includes('\\')) {
+  if (
+    value.startsWith('/') ||
+    value.startsWith('\\') ||
+    value.includes('\\') ||
+    value.endsWith('/')
+  ) {
     return false;
   }
   if (/^[A-Za-z]:/.test(value)) {
@@ -246,8 +251,12 @@ function isSafeRunRelativePath(value: unknown): value is string {
   if (/^file:/i.test(value)) {
     return false;
   }
-  for (const segment of value.split('/')) {
-    if (segment === '..') {
+  const segments = value.split('/');
+  if (segments.length === 0) {
+    return false;
+  }
+  for (const segment of segments) {
+    if (segment === '' || segment === '.' || segment === '..') {
       return false;
     }
   }
@@ -259,6 +268,12 @@ function isClosedStringUnion<T extends string>(
   allowed: readonly T[],
 ): value is T {
   return typeof value === 'string' && (allowed as readonly string[]).includes(value);
+}
+
+export function isValidatedEvidenceResultArtifactKind(
+  value: unknown,
+): value is (typeof ARTIFACT_KINDS)[number] {
+  return isClosedStringUnion(value, ARTIFACT_KINDS);
 }
 
 function copyString(value: string): string {
@@ -713,7 +728,7 @@ export function inspectScenarioClaimValidatedEvidenceResultAdmission(
       });
     }
     if (validator === null) {
-      return blocked('validator_identity_mismatch', IDENTITY_NEXT_ACTION, {
+      return blocked('result_schema_invalid', BYTES_NEXT_ACTION, {
         path: copyString(declaredResult.path),
         byteLength,
       });

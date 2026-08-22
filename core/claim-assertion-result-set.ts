@@ -145,22 +145,41 @@ function isSha256Hex(value: unknown): value is string {
 }
 
 function isNonNegativeInteger(value: unknown): value is number {
-  return typeof value === "number" && Number.isInteger(value) && value >= 0;
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
 }
 
 function isPositiveInteger(value: unknown): value is number {
-  return typeof value === "number" && Number.isInteger(value) && value > 0;
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0;
+}
+
+function hasAsciiControlCharacter(value: string): boolean {
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code <= 0x1f || code === 0x7f) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function isRunRelativePosixPath(value: unknown): value is string {
-  if (!isNonEmptyString(value)) {
+  if (!isNonEmptyString(value) || value !== value.trim()) {
     return false;
   }
-  if (value.includes("\\") || value.startsWith("/") || /^[a-zA-Z]:/.test(value)) {
+  if (hasAsciiControlCharacter(value)) {
     return false;
   }
-  if (value === ".." || value.startsWith("../") || value.includes("/../") || value.endsWith("/..")) {
+  if (value.includes("\\") || value.startsWith("/") || value.endsWith("/")) {
     return false;
+  }
+  if (/^[a-zA-Z]:/.test(value) || value.toLowerCase().startsWith("file:")) {
+    return false;
+  }
+  const segments = value.split("/");
+  for (const segment of segments) {
+    if (segment.length === 0 || segment === "." || segment === "..") {
+      return false;
+    }
   }
   return true;
 }
@@ -274,6 +293,28 @@ function isBoundedCountBounds(value: Record<string, unknown>): boolean {
     return false;
   }
   if (hasMinimum && hasMaximum && (value.minimum as number) > (value.maximum as number)) {
+    return false;
+  }
+  return true;
+}
+
+function terminalStateStatusMatchesValues(
+  expectedValue: ClaimScalar,
+  observedValue: ClaimScalar,
+  status: "supported" | "rejected",
+): boolean {
+  const valuesEqual = Object.is(expectedValue, observedValue);
+  if (status === "supported") {
+    return valuesEqual;
+  }
+  return !valuesEqual;
+}
+
+function countSatisfiesInclusiveBounds(count: number, expected: Record<string, unknown>): boolean {
+  if (hasOwn(expected, "minimum") && count < (expected.minimum as number)) {
+    return false;
+  }
+  if (hasOwn(expected, "maximum") && count > (expected.maximum as number)) {
     return false;
   }
   return true;
@@ -422,11 +463,18 @@ function isTerminalStateResult(value: unknown): value is TerminalStateResult {
       return false;
     }
     const keys = ownKeys(value.observed).sort();
-    return (
-      keys.join(",") === "path,value" &&
-      isNonEmptyString(value.observed.path) &&
-      isClaimScalar(value.observed.value)
-    );
+    if (
+      keys.join(",") !== "path,value" ||
+      !isNonEmptyString(value.observed.path) ||
+      !isClaimScalar(value.observed.value) ||
+      value.observed.path !== value.expected.path
+    ) {
+      return false;
+    }
+    if (isSupportedCommon(value)) {
+      return terminalStateStatusMatchesValues(value.expected.value, value.observed.value, "supported");
+    }
+    return terminalStateStatusMatchesValues(value.expected.value, value.observed.value, "rejected");
   }
   return isNotEvaluableCommon(value);
 }
@@ -458,11 +506,19 @@ function isBoundedCountResult(value: unknown): value is BoundedCountResult {
       return false;
     }
     const keys = ownKeys(value.observed).sort();
-    return (
-      keys.join(",") === "count,selector" &&
-      isNonEmptyString(value.observed.selector) &&
-      isNonNegativeInteger(value.observed.count)
-    );
+    if (
+      keys.join(",") !== "count,selector" ||
+      !isNonEmptyString(value.observed.selector) ||
+      value.observed.selector !== value.expected.selector ||
+      !isNonNegativeInteger(value.observed.count)
+    ) {
+      return false;
+    }
+    const withinBounds = countSatisfiesInclusiveBounds(value.observed.count, value.expected);
+    if (isSupportedCommon(value)) {
+      return withinBounds;
+    }
+    return !withinBounds;
   }
   return isNotEvaluableCommon(value);
 }
@@ -493,6 +549,7 @@ function isAbsenceResult(value: unknown): value is AbsenceResult {
     return (
       keys.join(",") === "count,selector" &&
       isNonEmptyString(value.observed.selector) &&
+      value.observed.selector === value.expected.selector &&
       value.observed.count === 0
     );
   }
@@ -504,6 +561,7 @@ function isAbsenceResult(value: unknown): value is AbsenceResult {
     return (
       keys.join(",") === "count,selector" &&
       isNonEmptyString(value.observed.selector) &&
+      value.observed.selector === value.expected.selector &&
       isPositiveInteger(value.observed.count)
     );
   }
@@ -752,7 +810,10 @@ function isScenarioClaimDefinition(value: unknown): value is ScenarioClaimDefini
   if (!isClaimClosure(value.closes)) {
     return false;
   }
-  return isNonEmptyArray(value.assertions, isScenarioClaimAssertion);
+  if (!isNonEmptyArray(value.assertions, isScenarioClaimAssertion)) {
+    return false;
+  }
+  return true;
 }
 
 function freezeDeep(value: unknown): void {
@@ -891,6 +952,22 @@ function freezeInspection(inspection: ClaimAssertionResultSetInspection): ClaimA
   return inspection;
 }
 
+function duplicateAuthoredAssertionReasons(assertionIds: readonly string[]): readonly string[] | undefined {
+  const seen = new Set<string>();
+  let hasDuplicate = false;
+  for (const id of assertionIds) {
+    if (seen.has(id)) {
+      hasDuplicate = true;
+      break;
+    }
+    seen.add(id);
+  }
+  if (!hasDuplicate) {
+    return undefined;
+  }
+  return ["duplicate_authored_assertion_id", "malformed_claim"];
+}
+
 function inspectInputKeysMatch(value: object): boolean {
   const keys = ownKeys(value).sort();
   return keys.length === 2 && keys[0] === "candidates" && keys[1] === "claim";
@@ -928,6 +1005,16 @@ export function inspectClaimAssertionResultSet(input: {
       reasons: Object.freeze(["malformed_claim"]),
     });
   }
+
+  const authoredIds = claim.assertions.map((assertion) => assertion.id);
+  const duplicateReasons = duplicateAuthoredAssertionReasons(authoredIds);
+  if (duplicateReasons !== undefined) {
+    return freezeInspection({
+      status: "outside_contract",
+      reasons: Object.freeze(duplicateReasons),
+    });
+  }
+
   const expectedHash = buildScenarioClaimHash(claim);
   const reasons: string[] = [];
   const detachedCandidates: ClaimAssertionCandidateEnvelope[] = [];
@@ -952,11 +1039,7 @@ export function inspectClaimAssertionResultSet(input: {
   freezeDeep(claim);
   freezeDeep(detachedCandidates);
 
-  const authoredIds = claim.assertions.map((assertion) => assertion.id);
   const authoredIdSet = new Set(authoredIds);
-  if (authoredIdSet.size !== authoredIds.length) {
-    reasons.push("duplicate_authored_assertion_id");
-  }
 
   const byAssertion = new Map<string, ClaimAssertionCandidateEnvelope[]>();
   const seenCandidateIds = new Set<string>();
