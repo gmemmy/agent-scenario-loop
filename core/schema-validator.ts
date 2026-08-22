@@ -84,6 +84,7 @@ function loadSchema(relativePath: string): JsonSchema {
 }
 
 const SCHEMAS = {
+  authorityCapabilities: loadSchema('authority-capabilities.schema.json'),
   budgetVerdict: loadSchema('budget-verdict.schema.json'),
   causalRun: loadSchema('causal-run.schema.json'),
   comparison: loadSchema('comparison.schema.json'),
