@@ -461,12 +461,38 @@ The reader returns `outside_contract` for malformed input or a non-eligible
 candidate projection, `blocked` for byte, decoding, JSON, shape, kind, or
 window failures, `unsupported` for `validatedEvidence`, and `admitted` only
 for an exact byte-bound closed observation. `validatedEvidence` remains
-unsupported because a validator or comparator report needs a separate derived
-evidence identity decision; artifact presence cannot stand in for that report.
-`not_applicable` is not a runtime result here. An admitted observation is an
-in-process reader view, never health, semantic support or rejection, a product
-verdict, or a persisted proof artifact. This slice performs no file I/O,
-runtime execution, result evaluation, verdict reduction, or publication.
+unsupported on this JSON-native observation route because opaque validator
+reports are a different evidence path; artifact presence cannot stand in for
+that report. Use the validated-evidence readers below instead of treating
+report identity as undefined. `not_applicable` is not a runtime result here.
+An admitted observation is an in-process reader view, never health, semantic
+support or rejection, a product verdict, or a persisted proof artifact. This
+slice performs no file I/O, runtime execution, result evaluation, verdict
+reduction, or publication.
+
+`inspectScenarioClaimValidatedEvidenceReportIdentity(input)` is the pure
+evidence-plane boundary for a distinct closed validator or comparator report
+identity. It accepts only an eligible `validatedEvidence` candidate
+projection plus a closed run-relative report identity and exact report bytes.
+Report SHA-256 is recomputed before any semantic interpretation. Subject and
+report path or SHA collisions fail closed. Results are `outside_contract`,
+`blocked`, or `admitted`. Admitted report identity proves only that the
+report path and bytes match the declared identity; it is not validator
+semantics, depicted-behavior evaluation, or product truth.
+
+`inspectScenarioClaimValidatedEvidenceAdmission(input)` composes that
+report-identity check after binding exact subject bytes. It first parses one
+stable eligible candidate projection, binds those subject bytes to
+`candidate.evidence.sha256` before caller report fields are read, then
+delegates report identity, byte, and collision checks to the report-identity
+reader. Results are `outside_contract`, `subject_blocked`, `report_blocked`,
+or `identity_admitted`. `identity_admitted` proves only exact subject and
+distinct report identities and bytes. It does not parse or execute
+`validationContract`, decide support or rejection, evaluate depicted or
+measured behavior, create a `ClaimAssertionResult`, health, verdict,
+baseline, comparison, or publication authority, or perform filesystem,
+runtime, device, runner, provider, network, artifact-write, or publication
+side effects.
 
 Candidate eligibility is not semantic support or rejection. This reader does
 not compare observed product values, count events, prove absence, validate the

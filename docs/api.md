@@ -246,8 +246,9 @@ then performs fatal UTF-8 decoding and closed-shape JSON parsing. It admits
 `eventOccurrence`, `eventOrder`, `terminalState`, `boundedCount`, and `absence`
 observations. Windowed observations must repeat the exact eligible observation
 window. Results are `outside_contract`, `blocked`, `unsupported`, or `admitted`.
-`validatedEvidence` is explicitly `unsupported` until ASL defines how a
-validator or comparator report receives its own evidence identity.
+`validatedEvidence` remains explicitly `unsupported` on this JSON-native
+route because opaque validator reports are a different evidence path; use the
+validated-evidence readers below instead of treating that contract as undefined.
 
 This pure reader performs no file discovery or writes, and an admitted
 observation is not an assertion result, health result, product verdict,
@@ -256,6 +257,28 @@ obligation. Production callers must pass the projection returned by the
 candidate-identity reader rather than synthesizing authority. The exported
 raw-observation types describe an in-process decoded view; this slice defines
 no new persisted proof artifact or schema file.
+
+Use `inspectScenarioClaimValidatedEvidenceReportIdentity({ candidate, report,
+reportBytes })` with an eligible `validatedEvidence` projection to bind a
+distinct closed run-relative report identity and its exact bytes. The reader
+recomputes report SHA-256 before any semantic interpretation and rejects
+subject/report path or SHA collisions. Results are `outside_contract`,
+`blocked`, or `admitted`. An admitted result proves only report identity and
+exact bytes, not validator semantics.
+
+Use `inspectScenarioClaimValidatedEvidenceAdmission({ candidate, subjectBytes,
+report, reportBytes })` to compose that report-identity check after binding
+exact subject bytes to `candidate.evidence.sha256`. The composer first parses
+one stable eligible candidate projection, binds subject bytes before caller
+report fields are read, then delegates report identity, byte, and collision
+checks. Results are `outside_contract`, `subject_blocked`, `report_blocked`,
+or `identity_admitted`. `identity_admitted` proves only exact subject and
+distinct report identities and bytes. It does not parse or execute
+`validationContract`, decide support or rejection, evaluate depicted or
+measured behavior, or create a `ClaimAssertionResult`, health, verdict,
+baseline, comparison, or publication authority. Neither reader performs
+filesystem, runtime, device, runner, provider, network, artifact-write, or
+publication side effects.
 
 `eligible` means only that the named candidate may enter a future semantic
 assertion evaluator. It does not establish assertion support, contradiction,
