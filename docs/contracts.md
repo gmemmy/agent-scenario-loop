@@ -526,6 +526,26 @@ baseline, comparison, or publication authority, or perform filesystem,
 runtime, device, runner, provider, network, artifact-write, or publication
 side effects.
 
+`inspectScenarioClaimValidatedEvidenceResultAdmission(input)` is the pure
+evidence-plane identity admission reader for one closed validator-result
+artifact. It accepts only `{ validatedEvidence, result, resultBytes }`: an
+eligible identity-admitted candidate projection, a closed run-relative result
+identity, and the exact result bytes. Those bytes must parse as a
+`validatedEvidenceResult` payload. Result SHA-256 is recomputed from those
+bytes before any semantic interpretation. Subject, report, and result path or
+SHA collisions fail closed. Bindings must be exact: `resultId`, matching
+`assertionId`, matching `validationContract`, `validator` producer identity,
+matching `subject`, and matching `report`. Outcomes are `outside_contract`,
+`blocked`, or `admitted`. `passed`, `failed`, and `not_evaluable` are
+validator vocabulary on the result payload only. A passing validator result
+is not a `ClaimAssertionResult`, product support, health, verdict, baseline,
+comparison, or publication authority. Admitted result identity proves only
+that the result path and bytes match the declared identity; it does not
+parse or execute `validationContract`, evaluate depicted or measured
+behavior, create assertion or claim results, or perform filesystem, runtime,
+device, runner, provider, network, artifact-write, or publication side
+effects. This slice does not enable scenario `1.1.0` execution.
+
 Candidate eligibility is not semantic support or rejection. This reader does
 not compare observed product values, count events, prove absence, validate the
 depicted behavior in media, reconcile sibling candidates, emit assertion
