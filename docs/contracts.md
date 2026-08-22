@@ -289,6 +289,27 @@ with a scenario, compare terminal values, apply count bounds, or establish
 evidence authority; the later claim reconciler and evaluator own those
 semantics.
 
+`inspectScenarioClaimVerdictReduction(scenario, selection, candidateVerdict)`
+is a reader-side inventory and arithmetic inspection. Applicable claims are
+selected before runtime from the exact platform and optional variant; excluded
+claims remain visible in inspection inventory but must not appear as result
+rows. The inspector requires exact claim ID, role, canonical hash, assertion
+ID, assertion kind, and authored expectation correspondence. It returns no
+verdict object and marks every output `inventory_reduction_only`; structural
+coherence does not admit the caller's evidence or establish product truth.
+
+For passed health, a claim reduces to supported only when every assertion is
+supported, rejected when at least one assertion is rejected, and not-evaluable
+otherwise. Rejection outranks a not-evaluable sibling only after health passes.
+Failed or partial health requires every applicable claim and assertion result
+to already be not-evaluable with `health_gate_failed`; the inspector never
+synthesizes replacement records. Any rejected mandatory claim reduces the
+journey to failed, otherwise any not-evaluable mandatory claim reduces it to
+inconclusive, and only all-supported mandatory claims reduce it to passed.
+Supplemental outcomes remain visible but do not gate the journey. This
+inspection does not choose a canonical reason or next-action owner when
+multiple not-evaluable causes exist.
+
 `inspectScenarioClaimClosure(scenario, selection)` performs the pure structural
 closure inspection for one exact platform and optional variant. It reports
 `closed`, `not_closed`, or `outside_contract` with deterministic checks and
