@@ -398,6 +398,58 @@ evaluate evidence, emit health or verdict truth, certify a baseline, or enable
 scenario `1.1.0` execution. Current execution entries continue to reject that
 schema version before side effects.
 
+`buildScenarioClaimEvidenceRunIdentityHash(runIdentity)` canonically binds one
+closed evidence context before semantic evaluation. The identity includes the
+exact scenario hash and selected platform or variant, run and attempt, source
+and package, target and installed app, runner, adapter, transport, app-helper
+payload, environment cohort, and a non-empty producer inventory. Producer
+entries are unique by role and producer ID and are sorted only in the normalized
+copy used for hashing. Identity strings cannot smuggle absolute local paths,
+file URIs, backslashes, or parent traversal into the public binding.
+
+`inspectScenarioClaimEvidenceCandidateIdentity(input)` is the first pure
+evidence-plane reader after admission. It locates one applicable authored
+assertion and binds one candidate to the exact run identity, claim hash,
+assertion kind, admitted authority declaration, producer version and hash,
+evidence selector, required strength and completeness, and the assertion's
+artifact-validation or observation-window contract. Strength and completeness
+match exactly in this V1 reader; a candidate cannot self-promote by declaring a
+stronger value. The authority catalog is not accepted again as mutable input:
+the reader uses the declaration selected by the admission inspection.
+
+Results are `outside_contract` for malformed or foundationally unbound input,
+`blocked` for one or more identity, authority, evidence, capture, or cleanup
+failures, and `eligible` only when all five ordered gates match. The whole
+input envelope is untrusted: `null`, arrays, primitives, missing required
+fields, extra keys, non-string closed vocabularies, unsafe evidence paths, and
+extra-key admitted authority checks fail closed as `outside_contract` rather
+than throwing. Evidence paths use the same safe identity-string rules as other
+identity fields. Admitted authority checks require exactly the base and
+subject-specific keys produced by claim authority inspection. Capture marked
+partial, missing, or rejected and cleanup marked incomplete remain explicit
+blockers. Evidence path and SHA-256 are structural candidate identity in this
+slice; there is no filesystem comparator, freshness check, or artifact writer.
+Private and redacted evidence can remain locally eligible because publication
+and disclosure policy are separate contracts.
+
+An `eligible` result exposes `eligibleCandidate` as a newly assembled closed
+union, never the caller object. Nested observation-window data is deep-copied.
+The projection always records produced capture, copied evidence path and SHA,
+the complete matched authority identity, and cleanup `finalized` or
+`not_required`. `validatedEvidence` may carry artifact kind and validation
+contract only; `boundedCount` and `absence` may carry the observation window
+only; event-occurrence, event-order, and terminal-state projections carry
+neither. Blocked and `outside_contract` results omit the projection.
+
+Candidate eligibility is not semantic support or rejection. This reader does
+not compare observed product values, count events, prove absence, validate the
+depicted behavior in media, reconcile sibling candidates, emit assertion
+results, produce health or verdict artifacts, certify a baseline, or enable
+scenario `1.1.0` execution. `eligible` remains only admissibility for a future
+evaluator; it is not product truth, health, verdict, proof, publication,
+freshness, certification, or runtime acceptance. A later evaluator must
+preserve these boundaries and cannot reinterpret `eligible` as product success.
+
 `inspectScenarioClaimClosure(scenario, selection)` performs the pure structural
 closure inspection for one exact platform and optional variant. It reports
 `closed`, `not_closed`, or `outside_contract` with deterministic checks and

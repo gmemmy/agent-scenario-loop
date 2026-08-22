@@ -200,6 +200,52 @@ evidence, emit an artifact, or enable scenario `1.1.0` execution. An `admitted`
 result is not health, product success, verdict, baseline certification, or
 runtime acceptance.
 
+Use `buildScenarioClaimEvidenceRunIdentityHash(runIdentity)` to derive the
+canonical identity of one closed evidence run context. The caller supplies the
+exact scenario and selection, source and package, target and installed app,
+runner, adapter, transport, app-helper payload, environment cohort, and every
+named evidence producer. Producer order does not affect the hash; the function
+does not mutate the caller's array. Malformed, cyclic, non-plain, non-finite,
+absolute-path, traversing, duplicate-producer, or invalid-hash input throws
+`InvalidScenarioClaimEvidenceRunIdentityError`.
+
+Use `inspectScenarioClaimEvidenceCandidateIdentity({ admission, scenario,
+runIdentity, claimId, assertionId, candidate })` after an `admitted` result to
+inspect whether one in-memory evidence candidate is identity-compatible and
+eligible for later evaluation. The reader binds the exact run identity,
+applicable claim and assertion, admission authority declaration, producer
+version and payload hash, required evidence strength and completeness,
+kind-specific artifact or observation-window contract, capture status, and
+cleanup status. Results are `outside_contract`, `blocked`, or `eligible` with
+the fixed gate order `run_identity`, `assertion_identity`,
+`authority_binding`, `evidence_binding`, and `lifecycle`. After foundational
+input validation, all gates run so later failures remain visible.
+The whole runtime envelope is untrusted: `null`, arrays, primitives, missing
+required fields, and unexpected keys fail closed as `outside_contract` with the
+existing reason vocabulary. Closed vocabularies require actual strings.
+Evidence paths must be nonempty, trimmed, free of ASCII control characters and
+DEL, and run-relative. Admitted authority checks are closed per subject kind;
+extra keys make that admission unusable for this reader.
+
+An `eligible` result includes `eligibleCandidate`, a newly assembled
+`ScenarioClaimEligibleEvidenceCandidate` projection. The projection is
+detached from the caller candidate: authority, evidence path and SHA, and
+nested observation-window data are copied, and the reader never returns or
+retains the original object. Capture is always `produced`; cleanup is only
+`finalized` or `not_required`. The union is kind-strict:
+`validatedEvidence` carries artifact kind and validation contract only,
+`boundedCount` and `absence` carry the observation window only, and
+`eventOccurrence`, `eventOrder`, and `terminalState` carry neither. Blocked
+and `outside_contract` results omit `eligibleCandidate`.
+
+`eligible` means only that the named candidate may enter a future semantic
+assertion evaluator. It does not establish assertion support, contradiction,
+health, product truth, verdict, proof tier, publication eligibility, freshness,
+certification, or cross-candidate consistency. Private or redacted local
+evidence can remain eligible; this reader does not disclose or publish it. It
+performs no filesystem, clock, runner, provider, target, or artifact-writing
+work and does not enable scenario `1.1.0` execution.
+
 Use `coordinateQuickProof()` when an owning runner needs to bound setup before
 starting a product scenario. Callers provide adapter paths, operation and
 argument requirements, identities that preflight must observe, a credential-free
