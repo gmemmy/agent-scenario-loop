@@ -192,6 +192,20 @@ permission into the scenario; doing so would mix the attestation into the
 contract it attests. A matching approval remains exact-hash attestation only,
 not permission to execute or proof that the journey works.
 
+Keep runtime authorization in another sidecar. A claim-complete grant binds the
+full scenario hash, exact platform and optional variant, safety class, goal,
+target resource, complete operation set, and expiry. Mutating grants also bind
+the scenario's authored mutation identity. Do not copy credentials into this
+record, make the target optional, or broaden its operation set beyond
+`safety.allowedOperations`. Use a caller-supplied clock when inspecting it;
+the exact expiry boundary is no longer compatible.
+
+`inspectScenarioClaimAuthorization()` is still an authoring and integration
+reader. `compatible` does not authenticate the delegation chain, acquire a
+resource, revalidate authorization at the first mutable action, compose final
+admission, or enable scenario `1.1.0` execution. Human approval remains the
+separate exact-hash attestation described above.
+
 Use `inspectScenarioClaimSafety()` for one exact platform and optional variant.
 Its `complete` result means only that the authored static safety references are
 coherent. It does not authorize operations, prove a rollback implementation is

@@ -334,6 +334,27 @@ authority, establish freshness, admit runtime work, evaluate evidence, or
 promote product truth from this record. Runtime authorization and mutable
 boundary revalidation remain separate later gates.
 
+A `scenario-claim-authorization-grant` `1.0.0` record is a separate,
+credential-free run authorization input. It binds one grant ID to the exact
+scenario ID and complete scenario hash, selected platform and optional variant,
+declared safety class, goal, target resource, operation set, delegation chain,
+and UTC expiry. Mutating grants additionally bind the authored mutation
+identity; read-only grants cannot carry one. Target resource is mandatory and
+the scenario safety operations, requested operations, and granted operations
+must be exactly the same set. Reordering does not change that set, while a
+missing or additional operation fails compatibility.
+
+`inspectScenarioClaimAuthorization()` is a pure reader over the scenario,
+selection, explicit request, caller-supplied time, and grant. It reports
+`compatible`, `incompatible`, or `outside_contract` through a deterministic
+check ledger. The exact expiry boundary is expired. A compatible result means
+only that the supplied authorization record matches the inspected contract at
+that caller-supplied time. It does not authenticate the delegation chain,
+acquire the target, revalidate at a mutable boundary, compose final admission,
+or permit scenario `1.1.0` execution. The shipped quick-proof authorization
+coordinator remains a separate runtime contract until a later integration
+slice can preserve its existing optional-target and subset behavior explicitly.
+
 `inspectScenarioClaimClosure(scenario, selection)` performs the pure structural
 closure inspection for one exact platform and optional variant. It reports
 `closed`, `not_closed`, or `outside_contract` with deterministic checks and
