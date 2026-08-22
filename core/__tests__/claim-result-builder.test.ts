@@ -18,7 +18,28 @@ import { buildClaimResult } from "../claim-result-builder.js";
 
 const HASH_A = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 const HASH_B = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
-const ROOT = path.join(__dirname, "..", "..", "..");
+
+function resolveFixtureRoot(): string {
+  const candidates = [
+    path.join(__dirname, "..", ".."),
+    path.join(__dirname, "..", "..", ".."),
+  ];
+  for (const candidate of candidates) {
+    const examplePath = path.join(
+      candidate,
+      "examples",
+      "scenarios",
+      "mobile",
+      "app-startup.json",
+    );
+    if (fs.existsSync(path.join(candidate, "package.json")) && fs.existsSync(examplePath)) {
+      return candidate;
+    }
+  }
+  throw new Error("unable to resolve package root for claim-result-builder fixtures");
+}
+
+const ROOT = resolveFixtureRoot();
 
 const AUTHORITY = {
   role: "app" as const,
@@ -294,6 +315,7 @@ function assertHealthGated(
     assert.deepEqual(assertion.evidenceReferences, original.evidenceReferences);
     assert.deepEqual(assertion.rejectedEvidence, original.rejectedEvidence);
     assert.deepEqual(assertion.missingProof, [
+      ...original.missingProof,
       `Trusted scenario health is required before evaluating assertion ${original.assertionId}.`,
     ]);
   }
@@ -437,6 +459,24 @@ test("claim hash mismatch is incoherent", () => {
     resultSet,
   });
   assert.equal(inspection.status, "incoherent");
+  if (inspection.status !== "incoherent") {
+    return;
+  }
+  assert.deepEqual(inspection.reasons, ["claim_hash_mismatch"]);
+});
+
+test("duplicate-assertion reasons are preserved and not repaired", () => {
+  const claim = claimDefinition();
+  const inspection = buildClaimResult({
+    claim,
+    healthStatus: "passed",
+    resultSet: { status: "incoherent", reasons: ["duplicate_assertion:saw-ready"], candidates: [] },
+  });
+  assert.equal(inspection.status, "incoherent");
+  if (inspection.status !== "incoherent") {
+    return;
+  }
+  assert.deepEqual(inspection.reasons, ["duplicate_assertion:saw-ready"]);
 });
 
 test("incomplete result set is not repaired", () => {
@@ -444,7 +484,7 @@ test("incomplete result set is not repaired", () => {
   const inspection = buildClaimResult({
     claim,
     healthStatus: "passed",
-    resultSet: { status: "incoherent", reasons: ["duplicate_assertion:saw-ready"], candidates: [] },
+    resultSet: { status: "incoherent", reasons: ["incomplete_result_set"], candidates: [] },
   });
   assert.equal(inspection.status, "incoherent");
   if (inspection.status !== "incoherent") {
@@ -461,6 +501,142 @@ test("outside-contract result set is not repaired", () => {
     resultSet: { status: "outside_contract", reasons: ["malformed_input"] },
   });
   assert.equal(inspection.status, "outside_contract");
+  if (inspection.status !== "outside_contract") {
+    return;
+  }
+  assert.deepEqual(inspection.reasons, ["malformed_input"]);
+});
+
+test("incomplete upstream reasons stay incomplete_result_set", () => {
+  const claim = claimDefinition();
+  const inspection = buildClaimResult({
+    claim,
+    healthStatus: "passed",
+    resultSet: { status: "incoherent", reasons: [], candidates: [] },
+  });
+  assert.equal(inspection.status, "incoherent");
+  if (inspection.status !== "incoherent") {
+    return;
+  }
+  assert.deepEqual(inspection.reasons, ["incomplete_result_set"]);
+});
+
+test("nextAction follows builder healthStatus rather than assertion reason strings", () => {
+  const claim = claimDefinition();
+  const spoofed: ClaimAssertionResult = {
+    assertionId: "state-ok",
+    assertionKind: "terminalState",
+    status: "not_evaluable",
+    reasonCode: "health_gate_failed",
+    expected: { path: "session.ready", value: true },
+    observed: null,
+    evidenceReferences: [{ path: "signals/state.json" }],
+    rejectedEvidence: [],
+    missingProof: ["missing state proof"],
+  };
+  const resultSet = completeSet(claim, [
+    supportedEvent("saw-ready", "ready", "signals/ready.json"),
+    supportedOrder("order-ok"),
+    spoofed,
+  ]);
+  const inspection = buildClaimResult({ claim, healthStatus: "passed", resultSet });
+  assert.equal(inspection.status, "complete");
+  if (inspection.status !== "complete") {
+    return;
+  }
+  assert.equal(inspection.result.status, "not_evaluable");
+  assert.equal(inspection.result.nextActionOwner, "unresolved");
+  assert.notEqual(inspection.result.nextActionOwner, "runtime_environment");
+  assert.equal(
+    inspection.result.nextAction,
+    "Resolve missing or insufficient authoritative evidence for claim login-ready.",
+  );
+});
+
+test("malformed complete-set contents are outside contract rather than thrown", () => {
+  const claim = claimDefinition();
+  const valid = completeSet(claim, [
+    supportedEvent("saw-ready", "ready", "signals/ready.json"),
+    supportedOrder("order-ok"),
+    supportedState("state-ok"),
+  ]);
+  assert.equal(valid.status, "complete");
+  if (valid.status !== "complete") {
+    return;
+  }
+
+  const malformedStatus = {
+    ...valid,
+    results: [{ ...valid.results[0], status: "passed" }, valid.results[1], valid.results[2]],
+  };
+  assert.doesNotThrow(() => {
+    const inspection = buildClaimResult({
+      claim,
+      healthStatus: "passed",
+      resultSet: malformedStatus as never,
+    });
+    assert.equal(inspection.status, "outside_contract");
+    if (inspection.status === "outside_contract") {
+      assert.deepEqual(inspection.reasons, ["malformed_result_set"]);
+    }
+  });
+
+  const malformedNull = {
+    ...valid,
+    results: [null, valid.results[1], valid.results[2]],
+  };
+  assert.doesNotThrow(() => {
+    const inspection = buildClaimResult({
+      claim,
+      healthStatus: "passed",
+      resultSet: malformedNull as never,
+    });
+    assert.equal(inspection.status, "outside_contract");
+    if (inspection.status === "outside_contract") {
+      assert.deepEqual(inspection.reasons, ["malformed_result_set"]);
+    }
+  });
+});
+
+test("throwing accessor on complete-set results is outside contract rather than thrown", () => {
+  const claim = claimDefinition();
+  const valid = completeSet(claim, [
+    supportedEvent("saw-ready", "ready", "signals/ready.json"),
+    supportedOrder("order-ok"),
+    supportedState("state-ok"),
+  ]);
+  assert.equal(valid.status, "complete");
+  if (valid.status !== "complete") {
+    return;
+  }
+
+  const hostileResult: Record<string, unknown> = {};
+  for (const key of Object.keys(valid.results[0] as object)) {
+    Object.defineProperty(hostileResult, key, {
+      enumerable: true,
+      configurable: true,
+      get() {
+        throw new Error("hostile getter");
+      },
+    });
+  }
+
+  const hostileSet = {
+    ...valid,
+    results: [hostileResult, valid.results[1], valid.results[2]],
+  };
+
+  assert.doesNotThrow(() => {
+    const inspection = buildClaimResult({
+      claim,
+      healthStatus: "passed",
+      resultSet: hostileSet as never,
+    });
+    assert.equal(inspection.status, "outside_contract");
+    if (inspection.status === "outside_contract") {
+      assert.deepEqual(inspection.reasons, ["malformed_result_set"]);
+    }
+  });
 });
 
 test("malformed input, proxy, accessor, and foreign prototype are outside contract", () => {
@@ -519,10 +695,53 @@ test("caller mutation of input after build does not change detached result", () 
   if (inspection.status !== "complete") {
     return;
   }
+  const originalPath = inspection.result.assertionResults[0]?.evidenceReferences[0]?.path;
+  const originalExpected = structuredClone(inspection.result.assertionResults[0]?.expected);
+  const originalMissing = [...inspection.result.missingProof];
+
   claim.id = "mutated";
+  claim.role = "supplemental";
+  const firstAssertion = claim.assertions[0] as ScenarioClaimAssertion;
+  firstAssertion.id = "mutated-assertion";
   results[0] = notEvaluableState("saw-ready");
+  (results[0].missingProof as string[]).push("post-build");
+  if (results[0].evidenceReferences[0]) {
+    results[0].evidenceReferences[0].path = "mutated-path.json";
+  }
+  try {
+    if (resultSet.status === "complete") {
+      const first = resultSet.results[0];
+      if (first) {
+        (first as { status: string }).status = "rejected";
+        (first.missingProof as string[]).push("mutated-missing");
+        if (first.evidenceReferences[0]) {
+          first.evidenceReferences[0].path = "mutated-result-set.json";
+        }
+      }
+    }
+  } catch {
+    // Upstream inspections may already be frozen; builder output must still stay detached.
+  }
+
   assert.equal(inspection.result.claimId, "login-ready");
+  assert.equal(inspection.result.role, "mandatory");
   assert.equal(inspection.result.assertionResults[0]?.status, "supported");
+  assert.equal(inspection.result.assertionResults[0]?.assertionId, "saw-ready");
+  assert.equal(inspection.result.assertionResults[0]?.evidenceReferences[0]?.path, originalPath);
+  assert.deepEqual(inspection.result.assertionResults[0]?.expected, originalExpected);
+  assert.deepEqual(inspection.result.missingProof, originalMissing);
+  assert.equal(Object.isFrozen(inspection), true);
+  assert.equal(Object.isFrozen(inspection.result), true);
+  assert.equal(Object.isFrozen(inspection.result.assertionResults), true);
+  assert.equal(Object.isFrozen(inspection.result.assertionResults[0]), true);
+  assert.equal(Object.isFrozen(inspection.result.assertionResults[0]?.evidenceReferences), true);
+  assert.equal(Object.isFrozen(inspection.result.missingProof), true);
+  assert.throws(() => {
+    (inspection.result.missingProof as string[]).push("should not land");
+  });
+  assert.throws(() => {
+    (inspection.result.assertionResults[0] as { status: string }).status = "rejected";
+  });
 });
 
 test("constructed result is accepted by verdict-reduction inspector", () => {
@@ -575,4 +794,6 @@ test("constructed result is accepted by verdict-reduction inspector", () => {
   };
   const reduced = inspectScenarioClaimVerdictReduction(scenario, { platform: "ios" }, verdict);
   assert.equal(reduced.reductionStatus, "reduced");
+  assert.equal(reduced.reducedVerdictStatus, "passed");
+  assert.deepEqual(reduced.blockingReasons, []);
 });

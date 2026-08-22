@@ -502,10 +502,16 @@ function parseBoundedCountAssertion(
 }
 
 function isInclusiveBound(value: unknown): value is number {
-  return typeof value === 'number' && Number.isInteger(value) && Number.isFinite(value) && value >= 0;
+  return isNonNegativeSafeInteger(value);
+}
+
+function isNonNegativeSafeInteger(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
 }
 
 function parseWindowedAuthority(value: unknown): WindowedClaimAuthority | null {
+  // Candidate-identity admission owns authority matching; this post-admission
+  // reader only enforces the structural WindowedClaimAuthority boundary.
   const authority = parseAuthority(value);
   if (!authority) {
     return null;
@@ -606,9 +612,7 @@ function parseAdmittedEnvelope(value: unknown): ParsedAdmittedEnvelope | null {
     || artifactPath.length === 0
     || typeof artifactSha256 !== 'string'
     || !/^[a-f0-9]{64}$/u.test(artifactSha256)
-    || typeof artifactByteLength !== 'number'
-    || !Number.isInteger(artifactByteLength)
-    || artifactByteLength < 0
+    || !isNonNegativeSafeInteger(artifactByteLength)
   ) {
     return null;
   }
@@ -667,9 +671,7 @@ function parseWindowedObservation(
   if (
     typeof selector !== 'string'
     || selector.length === 0
-    || typeof count !== 'number'
-    || !Number.isInteger(count)
-    || count < 0
+    || !isNonNegativeSafeInteger(count)
     || !observationWindow
   ) {
     return null;

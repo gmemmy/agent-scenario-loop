@@ -365,10 +365,18 @@ function foreignRecord<T extends object>(base: T): T {
 function assertHealthGated(result: ClaimResult): void {
   assert.equal(result.status, "not_evaluable");
   assert.equal(result.reasonCode, "health_gate_failed");
+  assert.deepEqual(result.evidenceReferences, []);
+  assert.deepEqual(result.missingProof, ["health_gate_failed"]);
+  assert.equal(result.nextActionOwner, "unresolved");
+  assert.equal(result.nextAction, "Restore trusted scenario health before reducing claims.");
   assert.ok(result.assertionResults.length > 0);
   for (const assertion of result.assertionResults) {
     assert.equal(assertion.status, "not_evaluable");
     assert.equal(assertion.reasonCode, "health_gate_failed");
+    assert.equal(assertion.observed, null);
+    assert.deepEqual(assertion.evidenceReferences, []);
+    assert.deepEqual(assertion.rejectedEvidence, []);
+    assert.deepEqual(assertion.missingProof, ["health_gate_failed"]);
   }
 }
 
@@ -592,6 +600,129 @@ function supportedResultForKind(claim: ScenarioClaimDefinition): ClaimResult {
     missingProof: [],
     nextActionOwner: "product_optimization",
     nextAction: "Keep the current product path.",
+  };
+}
+
+function multiAssertionClaim(): ScenarioClaimDefinition {
+  return {
+    id: "multi-assertion",
+    role: "mandatory",
+    applicability: { platforms: ["ios"] },
+    closes: {
+      phases: ["launch-app"],
+      terminalInvariants: ["ready"],
+    },
+    assertions: [
+      {
+        id: "ready",
+        kind: "eventOccurrence",
+        event: "app_ready",
+        authority: POINT_AUTHORITY,
+      },
+      {
+        id: "state",
+        kind: "terminalState",
+        path: "navigation.route",
+        expected: "home",
+        authority: POINT_AUTHORITY,
+      },
+    ],
+  };
+}
+
+function multiAssertionSupportedResult(): ClaimResult {
+  const claim = multiAssertionClaim();
+  const occurrence = claim.assertions[0];
+  const state = claim.assertions[1];
+  if (!occurrence || occurrence.kind !== "eventOccurrence" || !state || state.kind !== "terminalState") {
+    throw new Error("multi-assertion fixture is invalid");
+  }
+  return {
+    claimId: claim.id,
+    claimHash: buildScenarioClaimHash(claim),
+    role: claim.role,
+    status: "supported",
+    reasonCode: "all_assertions_supported",
+    assertionResults: [
+      {
+        assertionId: occurrence.id,
+        assertionKind: "eventOccurrence",
+        status: "supported",
+        reasonCode: "all_assertions_supported",
+        expected: { event: occurrence.event },
+        observed: { event: occurrence.event, matchedEvidence: `${occurrence.id}-event` },
+        evidenceReferences: [EVIDENCE_REF],
+        rejectedEvidence: [],
+        missingProof: [],
+      },
+      {
+        assertionId: state.id,
+        assertionKind: "terminalState",
+        status: "supported",
+        reasonCode: "all_assertions_supported",
+        expected: { path: state.path, value: state.expected },
+        observed: { path: state.path, value: state.expected },
+        evidenceReferences: [EVIDENCE_REF],
+        rejectedEvidence: [],
+        missingProof: [],
+      },
+    ],
+    evidenceReferences: [EVIDENCE_REF],
+    missingProof: [],
+    nextActionOwner: "product_optimization",
+    nextAction: "Keep the current product path.",
+  };
+}
+
+function mixedAssertionRejectedNotEvaluableResult(): ClaimResult {
+  const claim = multiAssertionClaim();
+  const occurrence = claim.assertions[0];
+  const state = claim.assertions[1];
+  if (!occurrence || occurrence.kind !== "eventOccurrence" || !state || state.kind !== "terminalState") {
+    throw new Error("multi-assertion fixture is invalid");
+  }
+  return {
+    claimId: claim.id,
+    claimHash: buildScenarioClaimHash(claim),
+    role: claim.role,
+    status: "rejected",
+    reasonCode: "authoritative_evidence_rejected",
+    assertionResults: [
+      {
+        assertionId: occurrence.id,
+        assertionKind: "eventOccurrence",
+        status: "not_evaluable",
+        reasonCode: "missing_authoritative_evidence",
+        expected: { event: occurrence.event },
+        observed: null,
+        evidenceReferences: [],
+        rejectedEvidence: [],
+        missingProof: ["authoritative-evidence"],
+      },
+      {
+        assertionId: state.id,
+        assertionKind: "terminalState",
+        status: "rejected",
+        reasonCode: "authoritative_evidence_rejected",
+        expected: { path: state.path, value: state.expected },
+        observed: { path: state.path, value: "unexpected" },
+        evidenceReferences: [STATE_EVIDENCE_REF],
+        rejectedEvidence: ["raw/state.json"],
+        missingProof: [],
+      },
+    ],
+    evidenceReferences: [STATE_EVIDENCE_REF],
+    missingProof: ["authoritative-evidence"],
+    nextActionOwner: "app_truth",
+    nextAction: "Repair app-owned truth evidence.",
+  };
+}
+
+function iosOnlySelection(claimId: string) {
+  return {
+    platform: "ios" as const,
+    applicableClaimIds: [claimId],
+    excludedClaimIds: [] as string[],
   };
 }
 
@@ -1013,14 +1144,16 @@ describe("buildClaimCompleteVerdict", () => {
   it("rejects malformed authored claim before hash reduction", () => {
     const scenario = scenarioFixture();
     (scenario.claims as unknown[])[0] = { id: "primary-journey" };
-    assert.throws(() =>
-      buildClaimCompleteVerdict({
-        scenario,
-        runId: "run-1",
-        healthStatus: "passed",
-        selection: selectionFixture(),
-        claimResults: supportedResults(),
-      }),
+    assert.throws(
+      () =>
+        buildClaimCompleteVerdict({
+          scenario,
+          runId: "run-1",
+          healthStatus: "passed",
+          selection: selectionFixture(),
+          claimResults: supportedResults(),
+        }),
+      { message: "scenario.claims[0].role must be mandatory or supplemental" },
     );
   });
 
@@ -1235,11 +1368,304 @@ describe("buildClaimCompleteVerdict", () => {
       output.claimResults.map((result) => result.claimId),
       ["primary-journey", "secondary-mandatory", "supplemental-ready"],
     );
-    const mutableInput = results[0] as { status: ClaimResult["status"] };
-    mutableInput.status = "rejected";
+    const observedPrimary = results.find((result) => result.claimId === "primary-journey");
+    assert.ok(observedPrimary);
+    (observedPrimary as { status: ClaimResult["status"] }).status = "rejected";
+    assert.equal(output.claimResults[0]?.claimId, "primary-journey");
     assert.equal(output.claimResults[0]?.status, "supported");
     assert.throws(() => {
       (output as { verdictStatus: string }).verdictStatus = "failed";
     });
+  });
+});
+
+describe("buildClaimCompleteVerdict fail-closed hardening", () => {
+  it("fails when mandatory results mix rejected and not_evaluable", () => {
+    const output = buildClaimCompleteVerdict({
+      scenario: rejectedMandatoryScenario(),
+      runId: "run-1",
+      healthStatus: "passed",
+      selection: selectionFixture(),
+      claimResults: [
+        claimResultFor(primaryClaim(), "not_evaluable"),
+        claimResultFor(rejectedSecondaryClaim(), "rejected"),
+        claimResultFor(supplementalClaim(), "supported"),
+      ],
+    });
+    assert.equal(output.verdictStatus, "failed");
+  });
+
+  it("reduces mixed assertion rejected and not_evaluable to a rejected claim", () => {
+    const claim = multiAssertionClaim();
+    const output = buildClaimCompleteVerdict({
+      scenario: scenarioFixture([claim]),
+      runId: "run-1",
+      healthStatus: "passed",
+      selection: iosOnlySelection(claim.id),
+      claimResults: [mixedAssertionRejectedNotEvaluableResult()],
+    });
+    assert.equal(output.verdictStatus, "failed");
+    assert.equal(output.claimResults[0]?.status, "rejected");
+  });
+
+  it("rejects claim status that is not justified by reconciled assertion statuses", () => {
+    const unjustified: ClaimResult = {
+      ...mixedAssertionRejectedNotEvaluableResult(),
+      status: "not_evaluable",
+      reasonCode: "missing_authoritative_evidence",
+      nextActionOwner: "unresolved",
+      nextAction: "Supply missing authoritative evidence.",
+    };
+    assert.throws(
+      () =>
+        buildClaimCompleteVerdict({
+          scenario: scenarioFixture([multiAssertionClaim()]),
+          runId: "run-1",
+          healthStatus: "passed",
+          selection: iosOnlySelection("multi-assertion"),
+          claimResults: [unjustified],
+        }),
+      { message: "claim multi-assertion status is not justified by assertion reduction" },
+    );
+  });
+
+  it("health-gates multi-assertion claims with unique missingProof and cleared evidence", () => {
+    const claim = multiAssertionClaim();
+    const output = buildClaimCompleteVerdict({
+      scenario: scenarioFixture([claim]),
+      runId: "run-1",
+      healthStatus: "failed",
+      selection: iosOnlySelection(claim.id),
+      claimResults: [multiAssertionSupportedResult()],
+    });
+    assert.equal(output.verdictStatus, "inconclusive");
+    assert.equal(output.claimResults[0]?.assertionResults.length, 2);
+    assertHealthGated(output.claimResults[0]!);
+    assert.deepEqual(output.claimResults[0]?.missingProof, ["health_gate_failed"]);
+    assert.equal(output.claimResults[0]?.nextActionOwner, "unresolved");
+  });
+
+  it("rejects malformed authored variants instead of treating them as omitted", () => {
+    const claims = [variantClaim("variant-a", "beta"), androidOnlyClaim()];
+    const selection = {
+      platform: "ios" as const,
+      variant: "beta",
+      applicableClaimIds: ["variant-a"],
+      excludedClaimIds: ["android-only"],
+    };
+    const results = [claimResultFor(claims[0]!, "supported")];
+
+    const emptyVariants = scenarioFixture(claims);
+    ((emptyVariants.claims as Record<string, unknown>[])[0]!.applicability as Record<string, unknown>).variants = [];
+    assert.throws(
+      () =>
+        buildClaimCompleteVerdict({
+          scenario: emptyVariants,
+          runId: "run-1",
+          healthStatus: "passed",
+          selection,
+          claimResults: results,
+        }),
+      { message: "scenario.claims[0].applicability.variants must not be empty" },
+    );
+
+    const duplicateVariants = scenarioFixture(claims);
+    ((duplicateVariants.claims as Record<string, unknown>[])[0]!.applicability as Record<string, unknown>).variants = [
+      "beta",
+      "beta",
+    ];
+    assert.throws(
+      () =>
+        buildClaimCompleteVerdict({
+          scenario: duplicateVariants,
+          runId: "run-1",
+          healthStatus: "passed",
+          selection,
+          claimResults: results,
+        }),
+      { message: "scenario.claims[0].applicability.variants must not contain duplicate values" },
+    );
+
+    const blankVariants = scenarioFixture(claims);
+    ((blankVariants.claims as Record<string, unknown>[])[0]!.applicability as Record<string, unknown>).variants = [" "];
+    assert.throws(
+      () =>
+        buildClaimCompleteVerdict({
+          scenario: blankVariants,
+          runId: "run-1",
+          healthStatus: "passed",
+          selection,
+          claimResults: results,
+        }),
+      { message: "scenario.claims[0].applicability.variants[0] must be a nonblank string" },
+    );
+
+    const nonArrayVariants = scenarioFixture(claims);
+    ((nonArrayVariants.claims as Record<string, unknown>[])[0]!.applicability as Record<string, unknown>).variants =
+      "beta";
+    assert.throws(
+      () =>
+        buildClaimCompleteVerdict({
+          scenario: nonArrayVariants,
+          runId: "run-1",
+          healthStatus: "passed",
+          selection,
+          claimResults: results,
+        }),
+      { message: "scenario.claims[0].applicability.variants must be a plain array" },
+    );
+
+    const coercedVariants = scenarioFixture(claims);
+    ((coercedVariants.claims as Record<string, unknown>[])[0]!.applicability as Record<string, unknown>).variants = [1];
+    assert.throws(
+      () =>
+        buildClaimCompleteVerdict({
+          scenario: coercedVariants,
+          runId: "run-1",
+          healthStatus: "passed",
+          selection,
+          claimResults: results,
+        }),
+      { message: "scenario.claims[0].applicability.variants[0] must be a nonempty string" },
+    );
+  });
+
+  it("rejects coerced platform inventory strings", () => {
+    const scenario = scenarioFixture();
+    ((scenario.claims as Record<string, unknown>[])[0]!.applicability as Record<string, unknown>).platforms = [
+      "ios",
+      1,
+    ];
+    assert.throws(
+      () =>
+        buildClaimCompleteVerdict({
+          scenario,
+          runId: "run-1",
+          healthStatus: "passed",
+          selection: selectionFixture(),
+          claimResults: supportedResults(),
+        }),
+      { message: "scenario.claims[0].applicability.platforms[1] must be a nonempty string" },
+    );
+  });
+
+  it("rejects unexpected claim status and reason vocabulary before reduction", () => {
+    const supported = claimResultFor(primaryClaim(), "supported");
+    assert.throws(
+      () =>
+        buildClaimCompleteVerdict({
+          scenario: scenarioFixture(),
+          runId: "run-1",
+          healthStatus: "passed",
+          selection: selectionFixture(),
+          claimResults: [
+            { ...supported, status: "bogus" } as unknown as ClaimResult,
+            claimResultFor(secondaryClaim(), "supported"),
+            claimResultFor(supplementalClaim(), "supported"),
+          ],
+        }),
+      { message: "claimResults[0].status must be supported, rejected, or not_evaluable" },
+    );
+    assert.throws(
+      () =>
+        buildClaimCompleteVerdict({
+          scenario: scenarioFixture(),
+          runId: "run-1",
+          healthStatus: "passed",
+          selection: selectionFixture(),
+          claimResults: [
+            { ...supported, reasonCode: "nope" } as unknown as ClaimResult,
+            claimResultFor(secondaryClaim(), "supported"),
+            claimResultFor(supplementalClaim(), "supported"),
+          ],
+        }),
+      { message: "claimResults[0].reasonCode has unexpected reasonCode: nope" },
+    );
+  });
+
+  it("reconciles assertion ids, kinds, order, cardinality, and validation contract", () => {
+    const claim = multiAssertionClaim();
+    const supported = multiAssertionSupportedResult();
+    const first = supported.assertionResults[0]!;
+    const second = supported.assertionResults[1]!;
+
+    assert.throws(
+      () =>
+        buildClaimCompleteVerdict({
+          scenario: scenarioFixture([claim]),
+          runId: "run-1",
+          healthStatus: "passed",
+          selection: iosOnlySelection(claim.id),
+          claimResults: [{ ...supported, assertionResults: [first] }],
+        }),
+      { message: "claim multi-assertion assertion inventory does not match authored cardinality" },
+    );
+
+    assert.throws(
+      () =>
+        buildClaimCompleteVerdict({
+          scenario: scenarioFixture([claim]),
+          runId: "run-1",
+          healthStatus: "passed",
+          selection: iosOnlySelection(claim.id),
+          claimResults: [{ ...supported, assertionResults: [second, first] }],
+        }),
+      {
+        message:
+          "claim multi-assertion assertionResults[0].assertionId does not match authored assertion id",
+      },
+    );
+
+    assert.throws(
+      () =>
+        buildClaimCompleteVerdict({
+          scenario: scenarioFixture([claim]),
+          runId: "run-1",
+          healthStatus: "passed",
+          selection: iosOnlySelection(claim.id),
+          claimResults: [
+            {
+              ...supported,
+              assertionResults: [
+                { ...first, assertionKind: "terminalState" } as unknown as ClaimAssertionResult,
+                second,
+              ],
+            },
+          ],
+        }),
+      {
+        message:
+          "claim multi-assertion assertionResults[0].assertionKind does not match authored assertion kind",
+      },
+    );
+
+    const validatedClaim = kindClaim("validatedEvidence");
+    const validatedResult = supportedResultForKind(validatedClaim);
+    const validatedAssertion = validatedResult.assertionResults[0]!;
+    const mutatedExpected = {
+      ...(validatedAssertion.expected as { artifactKind: "screenshot"; validationContract: string }),
+      validationContract: "screenshot/other-v1",
+    };
+    assert.throws(
+      () =>
+        buildClaimCompleteVerdict({
+          scenario: scenarioFixture([validatedClaim]),
+          runId: "run-1",
+          healthStatus: "passed",
+          selection: iosOnlySelection(validatedClaim.id),
+          claimResults: [
+            {
+              ...validatedResult,
+              assertionResults: [
+                { ...validatedAssertion, expected: mutatedExpected } as unknown as ClaimAssertionResult,
+              ],
+            },
+          ],
+        }),
+      {
+        message:
+          "claim validated-evidence assertionResults[0].expected.validationContract does not match authored assertion",
+      },
+    );
   });
 });

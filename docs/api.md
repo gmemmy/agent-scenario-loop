@@ -279,32 +279,43 @@ admittedInput)` as a pure post-admission assertion interpreter for
 `eventOccurrence`, `eventOrder`, and `terminalState`. The input must be a
 matching admitted raw-observation result plus the exact assertion. The
 interpreter does not discover files, write artifacts, or accept an artifact
-path as proof of support. Outputs are `outside_contract` or `interpreted`
-with one `ClaimAssertionResult`. On `interpreted`, `supported`, `rejected`,
-and `not_evaluable` are assertion-level semantics only; they are not health,
-claim result, journey verdict, baseline, certification, publication, or
-runtime acceptance. Trust is `admitted_observation_interpretation_only`:
-admitted bytes may be interpreted, but artifact presence alone is not
-semantic support. Duplicate, missing, conflicting, or ambiguous point
-evidence remains `rejected` or `not_evaluable`. This surface does not emit
-`not_applicable` at runtime and does not enable scenario 1.1.0 execution.
+path as proof of support. The inspector returns `outside_contract` or
+`interpreted`. Only `interpreted` contains one `ClaimAssertionResult`;
+`outside_contract` contains `reasonCodes` and no result. On `interpreted`,
+`supported`, `rejected`, and `not_evaluable` are assertion-level semantics
+only; they are not health, claim result, journey verdict, baseline,
+certification, publication, or runtime acceptance. Trust is
+`admitted_observation_interpretation_only`: admitted bytes may be interpreted,
+but artifact presence alone is not semantic support. Duplicate, missing,
+conflicting, or ambiguous point evidence remains `rejected` or
+`not_evaluable`. This surface does not emit `not_applicable` at runtime and
+does not enable scenario 1.1.0 execution.
 
 Use `inspectScenarioClaimJsonNativeWindowedInterpretation(assertionInput,
 admittedInput)` as a pure post-admission assertion interpreter for
 `boundedCount` and `absence`. The input must be a matching admitted
 JSON-native raw observation plus the exact assertion. Admission is a
 prerequisite: an admitted artifact alone does not support product behavior.
-Window bounds are inclusive. Interpretation requires a complete observation
-window; incomplete authority does not prove absence, and a zero count is not
-absence proof without that complete authority. The function returns one
-`ClaimAssertionResult` only. Outputs are `outside_contract` or
-`interpreted`. On `interpreted`, `supported`, `rejected`, and
-`not_evaluable` are assertion-level semantics only. This closed taxonomy is
-not health, claim result, journey verdict, baseline, certification,
-publication, or runtime acceptance. Candidate reconciliation, health,
-`ClaimResult`, verdict, runtime, artifact writes, and publication remain
-separate. This surface does not emit `not_applicable` at runtime and does
-not enable scenario 1.1.0 execution.
+Window bounds are inclusive. Bounds, observation counts, and admitted artifact
+`byteLength` must be non-negative `Number.isSafeInteger` values; unsafe
+integers are `outside_contract`. Interpretation requires a complete
+observation window; incomplete authority does not prove absence, and a zero
+count is not absence proof without that complete authority. Candidate-identity
+admission already binds assertion authority; this interpreter does not rematch
+those fields. Unrepresentable `WindowedClaimAuthority`, including `point`
+completeness, is `input_invalid`.
+`authoritative_evidence_rejected` is closed assertion-result vocabulary when
+an admitted observation fails the inclusive bound or absence check; it does
+not recast observed strength as product authority. The inspector returns
+`outside_contract` or `interpreted`. Only `interpreted` contains one
+`ClaimAssertionResult`; `outside_contract` contains `reasonCodes` and no
+result. On `interpreted`, `supported`, `rejected`, and `not_evaluable` are
+assertion-level semantics only. This closed taxonomy is not health, claim
+result, journey verdict, baseline, certification, publication, or runtime
+acceptance. Candidate reconciliation, health, `ClaimResult`, verdict,
+runtime, artifact writes, and publication remain separate. This surface does
+not emit `not_applicable` at runtime and does not enable scenario 1.1.0
+execution.
 
 Use `inspectScenarioClaimValidatedEvidenceReportIdentity({ candidate, report,
 reportBytes })` with an eligible `validatedEvidence` projection to bind a
@@ -331,16 +342,22 @@ publication side effects.
 Use `inspectScenarioClaimValidatedEvidenceResultAdmission({
 validatedEvidence, result, resultBytes })` to bind a closed run-relative
 validator-result identity and its exact bytes after identity-admitted
-validated evidence. The reader recomputes result SHA-256 before any semantic
-interpretation and requires the result payload to match exact `resultId`
-`validator-result`, the validator producer identity
-`{ producerId, producerVersion, producerSha256 }`, the admitted assertion,
-`validationContract`, subject identity, and report identity. Results are
-`outside_contract`, `blocked`, or `admitted`. `admitted` proves only result
-identity and exact bytes plus those identity bindings. Validator `status`
-values `passed`, `failed`, and `not_evaluable` are validator vocabulary only.
-A passing validator result is not a `ClaimAssertionResult`, claim support,
-contradiction, health, verdict, baseline, comparison, or product support.
+validated evidence. The schema ships at
+`agent-scenario-loop/schemas/validated-evidence-result.schema.json` and is
+registered as `SCHEMAS.validatedEvidenceResult`. The reader recomputes result
+SHA-256 before any semantic interpretation. `resultId` is any schema-valid
+stable safe identifier; it is not required to equal the literal
+`validator-result` and is separate from the result artifact path. The
+validator tuple in exact result bytes is schema-validated and preserved. This
+slice has no independently predeclared expected validator producer to compare
+against, so the tuple is not independently authority-bound. The reader still
+requires the admitted assertion, `validationContract`, subject identity, and
+report identity. Results are `outside_contract`, `blocked`, or `admitted`.
+`admitted` proves only result identity and exact bytes plus those identity
+bindings. Validator `status` values `passed`, `failed`, and `not_evaluable`
+are validator vocabulary only. A passing validator result remains exact-byte
+identity evidence only; it is never a `ClaimAssertionResult`, claim support,
+contradiction, health, verdict, baseline, comparison, or product truth.
 This surface performs no filesystem, runtime, device, runner, provider,
 network, artifact-write, verdict, or publication side effects and does not
 enable scenario `1.1.0` execution.
