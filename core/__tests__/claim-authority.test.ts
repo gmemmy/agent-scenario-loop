@@ -76,6 +76,7 @@ function sampleScenario(): JsonRecord {
     rationale: 'The scenario observes product behavior without mutation.',
     allowedOperations: ['observe'],
   };
+  scenario.dependencies = [];
   return scenario;
 }
 
@@ -149,6 +150,218 @@ test('matches every applicable mandatory and supplemental assertion exactly', ()
       ['journey-diagnostic', 'journey-order', 'matched'],
     ],
   );
+  assert.deepEqual(result.checks.map((check: JsonRecord) => check.subjectKind), [
+    'claim_assertion',
+    'claim_assertion',
+  ]);
+});
+
+test('requires authority paths for journey-entry and claim-scoped dependency predicates', () => {
+  const scenario = sampleScenario();
+  scenario.dependencies = [
+    {
+      id: 'authenticated-entry',
+      kind: 'journey_entry',
+      applicability: { platforms: ['ios'] },
+      predicate: {
+        id: 'authenticated-event',
+        kind: 'eventOccurrence',
+        event: 'authenticated_session_ready',
+        authority: {
+          role: 'app',
+          producerId: 'app-profile-session',
+          evidenceSelector: 'profileEvents.authenticated_session_ready',
+          requiredStrength: 'observed',
+          completeness: 'point',
+        },
+      },
+    },
+    {
+      id: 'terminal-tree-ready',
+      kind: 'claim_scoped',
+      applicability: { platforms: ['ios'] },
+      claimIds: ['journey-completes'],
+      predicate: {
+        id: 'terminal-tree-contract',
+        kind: 'validatedEvidence',
+        artifactKind: 'uiTree',
+        validationContract: 'terminal-tree-v1',
+        authority: {
+          role: 'comparator',
+          producerId: 'ui-tree-comparator',
+          evidenceSelector: 'captures.terminalUiTree',
+          requiredStrength: 'verified',
+          completeness: 'bounded',
+        },
+      },
+    },
+  ];
+  const appDeclaration = sampleDeclaration();
+  appDeclaration.evidenceSelectors.push('profileEvents.authenticated_session_ready');
+  const comparatorDeclaration = {
+    ...sampleDeclaration(),
+    declarationId: 'terminal-tree-authority',
+    role: 'comparator',
+    producerId: 'ui-tree-comparator',
+    assertionKinds: ['validatedEvidence'],
+    evidenceSelectors: ['captures.terminalUiTree'],
+    artifactKinds: ['uiTree'],
+    validationContracts: ['terminal-tree-v1'],
+  };
+
+  const result = inspectScenarioClaimAuthority(
+    scenario,
+    { platform: 'ios' },
+    [appDeclaration, comparatorDeclaration],
+  );
+
+  assert.equal(result.authorityCompatibility, 'compatible');
+  assert.deepEqual(
+    result.checks.map((check: JsonRecord) => ({
+      subjectKind: check.subjectKind,
+      dependencyId: check.dependencyId,
+      dependencyKind: check.dependencyKind,
+      predicateId: check.predicateId,
+      claimIds: check.claimIds,
+      outcome: check.outcome,
+    })),
+    [
+      {
+        subjectKind: 'claim_assertion',
+        dependencyId: undefined,
+        dependencyKind: undefined,
+        predicateId: undefined,
+        claimIds: undefined,
+        outcome: 'matched',
+      },
+      {
+        subjectKind: 'dependency_predicate',
+        dependencyId: 'authenticated-entry',
+        dependencyKind: 'journey_entry',
+        predicateId: 'authenticated-event',
+        claimIds: undefined,
+        outcome: 'matched',
+      },
+      {
+        subjectKind: 'dependency_predicate',
+        dependencyId: 'terminal-tree-ready',
+        dependencyKind: 'claim_scoped',
+        predicateId: 'terminal-tree-contract',
+        claimIds: ['journey-completes'],
+        outcome: 'matched',
+      },
+    ],
+  );
+});
+
+test('reports dependency authority failures without fabricating claim identity', () => {
+  const scenario = sampleScenario();
+  scenario.dependencies = [
+    {
+      id: 'entry-ready',
+      kind: 'journey_entry',
+      applicability: { platforms: ['ios'] },
+      predicate: {
+        id: 'entry-event',
+        kind: 'eventOccurrence',
+        event: 'entry_ready',
+        authority: {
+          role: 'provider',
+          producerId: 'entry-provider',
+          evidenceSelector: 'events.entry_ready',
+          requiredStrength: 'verified',
+          completeness: 'bounded',
+        },
+      },
+    },
+  ];
+
+  const result = inspectScenarioClaimAuthority(
+    scenario,
+    { platform: 'ios' },
+    [sampleDeclaration()],
+  );
+
+  assert.equal(result.authorityCompatibility, 'incompatible');
+  assert.equal(result.checks[1].subjectKind, 'dependency_predicate');
+  assert.equal(result.checks[1].dependencyId, 'entry-ready');
+  assert.equal(result.checks[1].claimId, undefined);
+  assert.deepEqual(result.checks[1].reasonCodes, ['authority_path_missing']);
+  assert.deepEqual(result.blockingReasons[0], {
+    code: 'authority_path_missing',
+    message: 'No authority declaration names provider:entry-provider.',
+    affectedIds: ['entry-ready', 'entry-event'],
+    dependencyId: 'entry-ready',
+    predicateId: 'entry-event',
+  });
+});
+
+test('keeps selected claim-scoped dependency authority failures blocking', () => {
+  const scenario = sampleScenario();
+  scenario.dependencies = [
+    {
+      id: 'network-ready',
+      kind: 'claim_scoped',
+      applicability: { platforms: ['ios'] },
+      claimIds: ['journey-completes'],
+      predicate: {
+        id: 'network-contract',
+        kind: 'validatedEvidence',
+        artifactKind: 'network',
+        validationContract: 'har-v1',
+        authority: {
+          role: 'provider',
+          producerId: 'network-provider',
+          evidenceSelector: 'captures.network',
+          requiredStrength: 'verified',
+          completeness: 'bounded',
+        },
+      },
+    },
+  ];
+
+  const result = inspectScenarioClaimAuthority(
+    scenario,
+    { platform: 'ios' },
+    [sampleDeclaration()],
+  );
+
+  assert.equal(result.authorityCompatibility, 'incompatible');
+  assert.deepEqual(result.checks[1].claimIds, ['journey-completes']);
+  assert.deepEqual(result.checks[1].reasonCodes, ['authority_path_missing']);
+});
+
+test('omits dependency predicates that are inapplicable to the exact selection', () => {
+  const scenario = sampleScenario();
+  scenario.dependencies = [
+    {
+      id: 'compact-entry',
+      kind: 'journey_entry',
+      applicability: { platforms: ['ios'], variants: ['compact'] },
+      predicate: {
+        id: 'compact-entry-event',
+        kind: 'eventOccurrence',
+        event: 'compact_entry_ready',
+        authority: {
+          role: 'provider',
+          producerId: 'missing-provider',
+          evidenceSelector: 'events.compact_entry_ready',
+          requiredStrength: 'observed',
+          completeness: 'point',
+        },
+      },
+    },
+  ];
+
+  const expanded = inspectScenarioClaimAuthority(
+    scenario,
+    { platform: 'ios', variant: 'expanded' },
+    [sampleDeclaration()],
+  );
+
+  assert.equal(expanded.authorityCompatibility, 'compatible');
+  assert.equal(expanded.checks.length, 1);
+  assert.deepEqual(expanded.blockingReasons, []);
 });
 
 test('matches validated evidence only with its artifact kind and validation contract', () => {

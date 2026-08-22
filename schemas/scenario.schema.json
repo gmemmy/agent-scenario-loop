@@ -30,11 +30,17 @@
               "required": ["safety"],
               "description": "Legacy scenario schemaVersion 1.0.0 cannot declare claim-complete safety."
             }
+          },
+          {
+            "not": {
+              "required": ["dependencies"],
+              "description": "Legacy scenario schemaVersion 1.0.0 cannot declare claim-complete dependencies."
+            }
           }
         ]
       },
       "else": {
-        "required": ["journey", "claims", "safety"],
+        "required": ["journey", "claims", "safety", "dependencies"],
         "properties": {
           "journey": {
             "$ref": "#/$defs/claimCompleteJourney"
@@ -110,6 +116,12 @@
     },
     "safety": {
       "$ref": "#/$defs/scenarioSafety"
+    },
+    "dependencies": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/scenarioClaimDependency"
+      }
     },
     "platforms": {
       "type": "array",
@@ -570,6 +582,40 @@
             "$ref": "#/$defs/claimAssertion"
           }
         }
+      }
+    },
+    "scenarioClaimDependency": {
+      "anyOf": [
+        { "$ref": "#/$defs/journeyEntryDependency" },
+        { "$ref": "#/$defs/claimScopedDependency" }
+      ]
+    },
+    "journeyEntryDependency": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "applicability", "predicate"],
+      "properties": {
+        "id": { "$ref": "#/$defs/stableId" },
+        "kind": { "const": "journey_entry" },
+        "applicability": { "$ref": "#/$defs/claimApplicability" },
+        "predicate": { "$ref": "#/$defs/claimAssertion" }
+      }
+    },
+    "claimScopedDependency": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "applicability", "claimIds", "predicate"],
+      "properties": {
+        "id": { "$ref": "#/$defs/stableId" },
+        "kind": { "const": "claim_scoped" },
+        "applicability": { "$ref": "#/$defs/claimApplicability" },
+        "claimIds": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/stableId" }
+        },
+        "predicate": { "$ref": "#/$defs/claimAssertion" }
       }
     },
     "claimRole": {

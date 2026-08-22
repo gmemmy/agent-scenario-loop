@@ -173,6 +173,7 @@ function scenarioFixture(): JsonRecord {
     rationale: 'The fixture inspects already supplied result inventory.',
     allowedOperations: ['observe'],
   };
+  scenario.dependencies = [];
   return scenario;
 }
 

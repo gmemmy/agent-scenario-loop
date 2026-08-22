@@ -100,6 +100,7 @@ function sampleScenario(): JsonRecord {
     rationale: 'The scenario observes product behavior without mutation.',
     allowedOperations: ['observe'],
   };
+  scenario.dependencies = [];
   return scenario;
 }
 
