@@ -123,17 +123,21 @@ function sampleClaimCompleteVerdict(): JsonRecord {
         assertionResults: [
           {
             assertionId: 'first-usable-event',
+            assertionKind: 'eventOccurrence',
             status: 'supported',
             reasonCode: 'all_assertions_supported',
-            expected: 'present',
-            observed: 'app_first_usable_screen',
-            matchedEvidence: 'profile-event-17',
+            expected: { event: 'app_first_usable_screen' },
+            observed: {
+              event: 'app_first_usable_screen',
+              matchedEvidence: 'profile-event-17',
+            },
             evidenceReferences: [
               {
                 path: 'raw/profile-events.json',
                 sha256: 'b'.repeat(64),
               },
             ],
+            rejectedEvidence: [],
             missingProof: [],
           },
         ],
@@ -149,6 +153,100 @@ function sampleClaimCompleteVerdict(): JsonRecord {
       },
     ],
   };
+}
+
+function sampleClaimAssertionResult(
+  assertionKind: string,
+  status: 'supported' | 'rejected' | 'not_evaluable',
+): JsonRecord {
+  const evidenceReferences = [{ path: 'raw/profile-events.json', sha256: 'b'.repeat(64) }];
+  const statusFields =
+    status === 'supported'
+      ? {
+          status,
+          reasonCode: 'all_assertions_supported',
+          evidenceReferences,
+          rejectedEvidence: [],
+          missingProof: [],
+        }
+      : status === 'rejected'
+        ? {
+            status,
+            reasonCode: 'authoritative_evidence_rejected',
+            evidenceReferences,
+            rejectedEvidence: ['authoritative contradiction'],
+            missingProof: [],
+          }
+        : {
+            status,
+            reasonCode: 'missing_authoritative_evidence',
+            evidenceReferences: [],
+            rejectedEvidence: [],
+            missingProof: ['authoritative evidence'],
+          };
+
+  const observationWindow = {
+    from: 'active-window-start',
+    to: 'active-window-end',
+    completeSourceRequired: true,
+  };
+  const shapes: Record<string, { expected: JsonRecord; observed: JsonRecord | null }> = {
+    eventOccurrence: {
+      expected: { event: 'journey_completed' },
+      observed: { event: 'journey_completed', matchedEvidence: 'profile-event-17' },
+    },
+    eventOrder: {
+      expected: { beforeEvent: 'journey_started', afterEvent: 'journey_completed' },
+      observed: {
+        beforeEvidence: 'profile-event-1',
+        afterEvidence: 'profile-event-17',
+        relation: status === 'rejected' ? 'after' : 'before',
+      },
+    },
+    terminalState: {
+      expected: { path: 'screen.name', value: 'home' },
+      observed: { path: 'screen.name', value: status === 'rejected' ? 'login' : 'home' },
+    },
+    boundedCount: {
+      expected: { selector: 'events.retry', observationWindow, maximum: 1 },
+      observed: { selector: 'events.retry', count: status === 'rejected' ? 2 : 0 },
+    },
+    absence: {
+      expected: { selector: 'events.crash', observationWindow },
+      observed: { selector: 'events.crash', count: status === 'rejected' ? 1 : 0 },
+    },
+    validatedEvidence: {
+      expected: { artifactKind: 'video', validationContract: 'media-container-v1' },
+      observed: {
+        artifactKind: 'video',
+        validationContract: 'media-container-v1',
+        matchedEvidence: 'captures/recording.mp4',
+        validationStatus: status === 'rejected' ? 'failed' : 'passed',
+      },
+    },
+  };
+  const shape = shapes[assertionKind];
+  if (!shape) {
+    throw new Error(`unsupported test assertion kind ${assertionKind}`);
+  }
+
+  return {
+    assertionId: `${assertionKind.replace(/[A-Z]/gu, (match) => `-${match.toLowerCase()}`)}-assertion`,
+    assertionKind,
+    ...statusFields,
+    expected: shape.expected,
+    observed: status === 'not_evaluable' ? null : shape.observed,
+  };
+}
+
+function verdictWithAssertionResult(assertionResult: JsonRecord): JsonRecord {
+  const verdict = sampleClaimCompleteVerdict();
+  verdict.claimResults[0].assertionResults = [assertionResult];
+  verdict.claimResults[0].status = assertionResult.status;
+  verdict.claimResults[0].reasonCode = assertionResult.reasonCode;
+  verdict.claimResults[0].missingProof = [...assertionResult.missingProof];
+  verdict.verdictStatus = assertionResult.status === 'supported' ? 'passed' : 'inconclusive';
+  return verdict;
 }
 
 function unknownLifecycleAssertion() {
@@ -480,6 +578,193 @@ test('accepts compact scenario 1.1.0 claim results', () => {
   assert.equal(result.valid, true, result.message);
 });
 
+test('accepts every structurally legal claim assertion-result kind and status', () => {
+  const statusesByKind = {
+    eventOccurrence: ['supported', 'not_evaluable'],
+    eventOrder: ['supported', 'rejected', 'not_evaluable'],
+    terminalState: ['supported', 'rejected', 'not_evaluable'],
+    boundedCount: ['supported', 'rejected', 'not_evaluable'],
+    absence: ['supported', 'rejected', 'not_evaluable'],
+    validatedEvidence: ['supported', 'rejected', 'not_evaluable'],
+  } as const;
+
+  for (const [assertionKind, statuses] of Object.entries(statusesByKind)) {
+    for (const status of statuses) {
+      const verdict = verdictWithAssertionResult(sampleClaimAssertionResult(assertionKind, status));
+      const result = validateJson(verdict, SCHEMAS.verdict, `${assertionKind} ${status}`);
+      assert.equal(result.valid, true, result.message);
+    }
+  }
+
+  const notEvaluableWithRejectedCandidate = verdictWithAssertionResult(
+    sampleClaimAssertionResult('validatedEvidence', 'not_evaluable'),
+  );
+  notEvaluableWithRejectedCandidate.claimResults[0].assertionResults[0].rejectedEvidence = [
+    'candidate evidence failed identity validation',
+  ];
+  assert.equal(
+    validateJson(
+      notEvaluableWithRejectedCandidate,
+      SCHEMAS.verdict,
+      'not evaluable with rejected candidate inventory',
+    ).valid,
+    true,
+  );
+});
+
+test('rejects legacy scalar and mismatched claim assertion-result shapes', () => {
+  const cases: Array<[string, JsonRecord]> = [];
+
+  const scalar = sampleClaimCompleteVerdict();
+  scalar.claimResults[0].assertionResults[0].expected = 'present';
+  scalar.claimResults[0].assertionResults[0].observed = 'journey_completed';
+  cases.push(['legacy scalar result', scalar]);
+
+  const wrongExpectation = verdictWithAssertionResult(
+    sampleClaimAssertionResult('eventOccurrence', 'supported'),
+  );
+  wrongExpectation.claimResults[0].assertionResults[0].expected = {
+    beforeEvent: 'journey_started',
+    afterEvent: 'journey_completed',
+  };
+  cases.push(['wrong expectation shape', wrongExpectation]);
+
+  const rejectedOccurrence = verdictWithAssertionResult(
+    sampleClaimAssertionResult('eventOccurrence', 'supported'),
+  );
+  Object.assign(rejectedOccurrence.claimResults[0].assertionResults[0], {
+    status: 'rejected',
+    reasonCode: 'authoritative_evidence_rejected',
+    rejectedEvidence: ['missing event'],
+  });
+  cases.push(['rejected point event occurrence', rejectedOccurrence]);
+
+  const unsupportedWithoutEvidence = verdictWithAssertionResult(
+    sampleClaimAssertionResult('eventOrder', 'supported'),
+  );
+  unsupportedWithoutEvidence.claimResults[0].assertionResults[0].evidenceReferences = [];
+  cases.push(['supported without evidence', unsupportedWithoutEvidence]);
+
+  const supportedWithMissingProof = verdictWithAssertionResult(
+    sampleClaimAssertionResult('terminalState', 'supported'),
+  );
+  supportedWithMissingProof.claimResults[0].assertionResults[0].missingProof = [
+    'unexpected missing proof',
+  ];
+  cases.push(['supported with missing proof', supportedWithMissingProof]);
+
+  const supportedWithRejectedEvidence = verdictWithAssertionResult(
+    sampleClaimAssertionResult('validatedEvidence', 'supported'),
+  );
+  supportedWithRejectedEvidence.claimResults[0].assertionResults[0].rejectedEvidence = [
+    'unexpected rejected evidence',
+  ];
+  cases.push(['supported with rejected evidence', supportedWithRejectedEvidence]);
+
+  const rejectedWithoutContradiction = verdictWithAssertionResult(
+    sampleClaimAssertionResult('terminalState', 'rejected'),
+  );
+  rejectedWithoutContradiction.claimResults[0].assertionResults[0].rejectedEvidence = [];
+  cases.push(['rejected without contradiction inventory', rejectedWithoutContradiction]);
+
+  const rejectedWithMissingProof = verdictWithAssertionResult(
+    sampleClaimAssertionResult('boundedCount', 'rejected'),
+  );
+  rejectedWithMissingProof.claimResults[0].assertionResults[0].missingProof = [
+    'unexpected missing proof',
+  ];
+  cases.push(['rejected with missing proof', rejectedWithMissingProof]);
+
+  const notEvaluableWithoutMissingProof = verdictWithAssertionResult(
+    sampleClaimAssertionResult('absence', 'not_evaluable'),
+  );
+  notEvaluableWithoutMissingProof.claimResults[0].assertionResults[0].missingProof = [];
+  cases.push(['not evaluable without missing proof', notEvaluableWithoutMissingProof]);
+
+  const notEvaluableWithObservation = verdictWithAssertionResult(
+    sampleClaimAssertionResult('boundedCount', 'not_evaluable'),
+  );
+  notEvaluableWithObservation.claimResults[0].assertionResults[0].observed = {
+    selector: 'events.retry',
+    count: 0,
+  };
+  cases.push(['not evaluable with observation', notEvaluableWithObservation]);
+
+  const leftoverMatchedEvidence = sampleClaimCompleteVerdict();
+  leftoverMatchedEvidence.claimResults[0].assertionResults[0].matchedEvidence = 'event-1';
+  cases.push(['leftover top-level matched evidence', leftoverMatchedEvidence]);
+
+  const leftoverCountedEvidence = sampleClaimCompleteVerdict();
+  leftoverCountedEvidence.claimResults[0].assertionResults[0].countedEvidence = 1;
+  cases.push(['leftover top-level counted evidence', leftoverCountedEvidence]);
+
+  for (const [label, verdict] of cases) {
+    assert.equal(validateJson(verdict, SCHEMAS.verdict, label).valid, false, label);
+  }
+});
+
+test('enforces kind-specific claim assertion-result observation semantics', () => {
+  const cases: Array<[string, JsonRecord]> = [];
+
+  const supportedOrderAfter = verdictWithAssertionResult(
+    sampleClaimAssertionResult('eventOrder', 'supported'),
+  );
+  supportedOrderAfter.claimResults[0].assertionResults[0].observed.relation = 'after';
+  cases.push(['supported order with after relation', supportedOrderAfter]);
+
+  const rejectedOrderBefore = verdictWithAssertionResult(
+    sampleClaimAssertionResult('eventOrder', 'rejected'),
+  );
+  rejectedOrderBefore.claimResults[0].assertionResults[0].observed.relation = 'before';
+  cases.push(['rejected order with before relation', rejectedOrderBefore]);
+
+  const timestampedOrder = verdictWithAssertionResult(
+    sampleClaimAssertionResult('eventOrder', 'supported'),
+  );
+  timestampedOrder.claimResults[0].assertionResults[0].observed.beforeAt = 10;
+  cases.push(['order with undeclared timestamp', timestampedOrder]);
+
+  const supportedAbsencePositive = verdictWithAssertionResult(
+    sampleClaimAssertionResult('absence', 'supported'),
+  );
+  supportedAbsencePositive.claimResults[0].assertionResults[0].observed.count = 1;
+  cases.push(['supported absence with positive count', supportedAbsencePositive]);
+
+  const rejectedAbsenceZero = verdictWithAssertionResult(
+    sampleClaimAssertionResult('absence', 'rejected'),
+  );
+  rejectedAbsenceZero.claimResults[0].assertionResults[0].observed.count = 0;
+  cases.push(['rejected absence with zero count', rejectedAbsenceZero]);
+
+  const fractionalCount = verdictWithAssertionResult(
+    sampleClaimAssertionResult('boundedCount', 'supported'),
+  );
+  fractionalCount.claimResults[0].assertionResults[0].observed.count = 0.5;
+  cases.push(['fractional bounded count', fractionalCount]);
+
+  const negativeCount = verdictWithAssertionResult(
+    sampleClaimAssertionResult('boundedCount', 'rejected'),
+  );
+  negativeCount.claimResults[0].assertionResults[0].observed.count = -1;
+  cases.push(['negative bounded count', negativeCount]);
+
+  const passedRejectedEvidence = verdictWithAssertionResult(
+    sampleClaimAssertionResult('validatedEvidence', 'rejected'),
+  );
+  passedRejectedEvidence.claimResults[0].assertionResults[0].observed.validationStatus = 'passed';
+  cases.push(['rejected evidence with passed validation', passedRejectedEvidence]);
+
+  const semanticEvidence = verdictWithAssertionResult(
+    sampleClaimAssertionResult('validatedEvidence', 'supported'),
+  );
+  semanticEvidence.claimResults[0].assertionResults[0].observed.depictedBehavior = 'passed';
+  cases.push(['artifact result with semantic product field', semanticEvidence]);
+
+  for (const [label, verdict] of cases) {
+    assert.equal(validateJson(verdict, SCHEMAS.verdict, label).valid, false, label);
+  }
+});
+
 test('keeps not_evaluated and absent claim results as legacy verdict behavior only', () => {
   const claimComplete = sampleClaimCompleteVerdict();
   claimComplete.verdictStatus = 'not_evaluated';
@@ -528,6 +813,8 @@ test('enforces terminal claim reason codes and run-relative evidence references'
   notEvaluable.claimResults[0].assertionResults[0].status = 'not_evaluable';
   notEvaluable.claimResults[0].assertionResults[0].reasonCode = 'health_gate_failed';
   notEvaluable.claimResults[0].assertionResults[0].observed = null;
+  notEvaluable.claimResults[0].assertionResults[0].evidenceReferences = [];
+  notEvaluable.claimResults[0].assertionResults[0].missingProof = ['trusted health'];
   notEvaluable.claimResults[0].missingProof = ['trusted health'];
   assert.equal(validateJson(notEvaluable, SCHEMAS.verdict, 'Not evaluable claim').valid, true);
 });

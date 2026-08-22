@@ -217,16 +217,145 @@ type ClaimEvidenceReference = {
   sha256?: string;
 };
 
-type ClaimAssertionResult = ClaimOutcome & {
+type ClaimAssertionResultBase<K extends ScenarioClaimAssertion['kind'], E> = {
   assertionId: string;
-  expected: ClaimScalar;
-  observed: ClaimScalar;
-  matchedEvidence?: string;
-  countedEvidence?: number;
-  rejectedEvidence?: string[];
-  evidenceReferences?: ClaimEvidenceReference[];
-  missingProof?: string[];
+  assertionKind: K;
+  expected: E;
+  evidenceReferences: ClaimEvidenceReference[];
+  rejectedEvidence: string[];
 };
+
+type SupportedAssertionResult<K extends ScenarioClaimAssertion['kind'], E, O> =
+  ClaimAssertionResultBase<K, E> & {
+    status: 'supported';
+    reasonCode: 'all_assertions_supported';
+    observed: O;
+    evidenceReferences: NonEmptyArray<ClaimEvidenceReference>;
+    rejectedEvidence: [];
+    missingProof: [];
+  };
+
+type RejectedAssertionResult<K extends ScenarioClaimAssertion['kind'], E, O> =
+  ClaimAssertionResultBase<K, E> & {
+    status: 'rejected';
+    reasonCode: 'authoritative_evidence_rejected';
+    observed: O;
+    evidenceReferences: NonEmptyArray<ClaimEvidenceReference>;
+    rejectedEvidence: NonEmptyArray<string>;
+    missingProof: [];
+  };
+
+type NotEvaluableAssertionResult<K extends ScenarioClaimAssertion['kind'], E> =
+  ClaimAssertionResultBase<K, E> & {
+    status: 'not_evaluable';
+    reasonCode: NotEvaluableReasonCode;
+    observed: null;
+    missingProof: NonEmptyArray<string>;
+  };
+
+type EventOccurrenceExpectation = {
+  event: string;
+};
+
+type EventOccurrenceObservation = EventOccurrenceExpectation & {
+  matchedEvidence: string;
+};
+
+type EventOccurrenceResult =
+  | SupportedAssertionResult<'eventOccurrence', EventOccurrenceExpectation, EventOccurrenceObservation>
+  | NotEvaluableAssertionResult<'eventOccurrence', EventOccurrenceExpectation>;
+
+type EventOrderExpectation = {
+  beforeEvent: string;
+  afterEvent: string;
+};
+
+type EventOrderObservation = {
+  beforeEvidence: string;
+  afterEvidence: string;
+  relation: 'before' | 'after';
+};
+
+type EventOrderResult =
+  | SupportedAssertionResult<
+      'eventOrder',
+      EventOrderExpectation,
+      EventOrderObservation & { relation: 'before' }
+    >
+  | RejectedAssertionResult<
+      'eventOrder',
+      EventOrderExpectation,
+      EventOrderObservation & { relation: 'after' }
+    >
+  | NotEvaluableAssertionResult<'eventOrder', EventOrderExpectation>;
+
+type TerminalStateExpectation = {
+  path: string;
+  value: ClaimScalar;
+};
+
+type TerminalStateObservation = TerminalStateExpectation;
+
+type TerminalStateResult =
+  | SupportedAssertionResult<'terminalState', TerminalStateExpectation, TerminalStateObservation>
+  | RejectedAssertionResult<'terminalState', TerminalStateExpectation, TerminalStateObservation>
+  | NotEvaluableAssertionResult<'terminalState', TerminalStateExpectation>;
+
+type BoundedCountExpectation = BoundedCountBounds & {
+  selector: string;
+  observationWindow: ClaimObservationWindow;
+};
+
+type BoundedCountObservation = {
+  selector: string;
+  count: number;
+};
+
+type BoundedCountResult =
+  | SupportedAssertionResult<'boundedCount', BoundedCountExpectation, BoundedCountObservation>
+  | RejectedAssertionResult<'boundedCount', BoundedCountExpectation, BoundedCountObservation>
+  | NotEvaluableAssertionResult<'boundedCount', BoundedCountExpectation>;
+
+type AbsenceExpectation = {
+  selector: string;
+  observationWindow: ClaimObservationWindow;
+};
+
+type AbsenceResult =
+  | SupportedAssertionResult<'absence', AbsenceExpectation, { selector: string; count: 0 }>
+  | RejectedAssertionResult<'absence', AbsenceExpectation, { selector: string; count: number }>
+  | NotEvaluableAssertionResult<'absence', AbsenceExpectation>;
+
+type ValidatedEvidenceExpectation = {
+  artifactKind: ArtifactKind;
+  validationContract: string;
+};
+
+type ValidatedEvidenceObservation = ValidatedEvidenceExpectation & {
+  matchedEvidence: string;
+  validationStatus: 'passed' | 'failed';
+};
+
+type ValidatedEvidenceResult =
+  | SupportedAssertionResult<
+      'validatedEvidence',
+      ValidatedEvidenceExpectation,
+      ValidatedEvidenceObservation & { validationStatus: 'passed' }
+    >
+  | RejectedAssertionResult<
+      'validatedEvidence',
+      ValidatedEvidenceExpectation,
+      ValidatedEvidenceObservation & { validationStatus: 'failed' }
+    >
+  | NotEvaluableAssertionResult<'validatedEvidence', ValidatedEvidenceExpectation>;
+
+type ClaimAssertionResult =
+  | EventOccurrenceResult
+  | EventOrderResult
+  | TerminalStateResult
+  | BoundedCountResult
+  | AbsenceResult
+  | ValidatedEvidenceResult;
 
 type ClaimResult = ClaimOutcome & {
   claimId: string;
@@ -339,8 +468,13 @@ export {
 
 export type {
   AbsenceAssertion,
+  AbsenceExpectation,
+  AbsenceResult,
   ArtifactKind,
   BoundedCountAssertion,
+  BoundedCountExpectation,
+  BoundedCountObservation,
+  BoundedCountResult,
   ClaimAssertionResult,
   ClaimAuthority,
   ClaimAuthorityRole,
@@ -357,7 +491,13 @@ export type {
   ClaimScalar,
   ClaimStatus,
   EventOccurrenceAssertion,
+  EventOccurrenceExpectation,
+  EventOccurrenceObservation,
+  EventOccurrenceResult,
   EventOrderAssertion,
+  EventOrderExpectation,
+  EventOrderObservation,
+  EventOrderResult,
   DestructiveScenarioSafety,
   LocalMutationScenarioSafety,
   NotRequiredSafetyAction,
@@ -372,6 +512,12 @@ export type {
   ScenarioClaimAssertion,
   ScenarioClaimDefinition,
   TerminalStateAssertion,
+  TerminalStateExpectation,
+  TerminalStateObservation,
+  TerminalStateResult,
   ValidatedEvidenceAssertion,
+  ValidatedEvidenceExpectation,
+  ValidatedEvidenceObservation,
+  ValidatedEvidenceResult,
   WindowedClaimAuthority,
 };
