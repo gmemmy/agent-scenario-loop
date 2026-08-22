@@ -51,16 +51,19 @@ function sampleClaimCompleteScenario(): JsonRecord {
       {
         id: 'launch-app',
         description: 'Launch the selected app on the selected target.',
+        coverageKind: 'product',
       },
       {
         id: 'reach-usable-surface',
         description: 'Reach the first usable product surface.',
+        coverageKind: 'product',
       },
     ],
     terminalInvariants: [
       {
         id: 'usable-surface-ready',
         description: 'The app remains on the first usable product surface.',
+        coverageKind: 'product',
       },
     ],
     recovery: {
@@ -348,6 +351,34 @@ test('requires a mandatory claim and complete journey shape for scenario 1.1.0',
   const incompleteJourney = sampleClaimCompleteScenario();
   delete incompleteJourney.journey.terminalInvariants;
   assert.equal(validateJson(incompleteJourney, SCHEMAS.scenario, 'Incomplete journey').valid, false);
+});
+
+test('requires the closed journey coverage-kind vocabulary for scenario 1.1.0', () => {
+  for (const field of ['phases', 'terminalInvariants']) {
+    const missingCoverageKind = sampleClaimCompleteScenario();
+    delete missingCoverageKind.journey[field][0].coverageKind;
+    assert.equal(
+      validateJson(missingCoverageKind, SCHEMAS.scenario, `Missing ${field} coverage kind`).valid,
+      false,
+    );
+
+    const invalidCoverageKind = sampleClaimCompleteScenario();
+    invalidCoverageKind.journey[field][0].coverageKind = 'setup';
+    assert.equal(
+      validateJson(invalidCoverageKind, SCHEMAS.scenario, `Invalid ${field} coverage kind`).valid,
+      false,
+    );
+  }
+
+  const recoveryVariant = sampleClaimCompleteScenario();
+  recoveryVariant.journey.recovery = {
+    status: 'required',
+    rationale: 'The journey includes a bounded interruption.',
+    variants: [
+      { id: 'reverse', description: 'Reverse the interruption.', coverageKind: 'recovery' },
+    ],
+  };
+  assert.equal(validateJson(recoveryVariant, SCHEMAS.scenario, 'Recovery coverage kind').valid, true);
 });
 
 test('requires flat claim assertions with explicit authority', () => {

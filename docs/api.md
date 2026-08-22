@@ -56,6 +56,15 @@ current runners reject scenario `1.1.0` before runtime, do not evaluate these
 claims or emit verdict `1.1.0`, and a
 schema-valid claim result is not proof that ASL produced or trusted it.
 
+Use `inspectScenarioClaimClosure(scenario, { platform, variant? })` to inspect
+the authored closure graph for one exact selection. The returned
+`ScenarioClaimClosureInspection` reports `closed`, `not_closed`, or
+`outside_contract` with deterministic check IDs and blocking reasons. It does
+not inspect runtime authority, adapter capabilities, safety, authorization,
+human approval, evidence, or verdict truth, and it has no filesystem or runner
+side effects. A `closed` result must never be presented as admission or product
+success.
+
 Use `coordinateQuickProof()` when an owning runner needs to bound setup before
 starting a product scenario. Callers provide adapter paths, operation and
 argument requirements, identities that preflight must observe, a credential-free
