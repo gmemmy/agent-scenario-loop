@@ -441,6 +441,33 @@ contract only; `boundedCount` and `absence` may carry the observation window
 only; event-occurrence, event-order, and terminal-state projections carry
 neither. Blocked and `outside_contract` results omit the projection.
 
+Neither candidate eligibility nor raw-observation admission is semantic
+support or rejection. These readers do not compare observed product values,
+count events, prove absence, validate the
+artifact, or emit an assertion result.
+
+`inspectScenarioClaimRawObservationAdmission(input)` is the next pure
+evidence-plane boundary for JSON-native observations. It accepts only the
+eligible projection from the candidate-identity reader plus exact artifact
+bytes. SHA-256 is recomputed over those bytes and must match before fatal UTF-8
+decoding or JSON parsing. ASL does not reinterpret that hash as a canonical
+JavaScript-object hash. The five admitted observation kinds are event
+occurrence, event order, terminal state, bounded count, and absence. Their
+objects and nested records are closed; occurrence order is preserved; empty
+arrays remain observable input rather than being converted into a conclusion.
+Bounded-count and absence windows must exactly match the eligible candidate.
+
+The reader returns `outside_contract` for malformed input or a non-eligible
+candidate projection, `blocked` for byte, decoding, JSON, shape, kind, or
+window failures, `unsupported` for `validatedEvidence`, and `admitted` only
+for an exact byte-bound closed observation. `validatedEvidence` remains
+unsupported because a validator or comparator report needs a separate derived
+evidence identity decision; artifact presence cannot stand in for that report.
+`not_applicable` is not a runtime result here. An admitted observation is an
+in-process reader view, never health, semantic support or rejection, a product
+verdict, or a persisted proof artifact. This slice performs no file I/O,
+runtime execution, result evaluation, verdict reduction, or publication.
+
 Candidate eligibility is not semantic support or rejection. This reader does
 not compare observed product values, count events, prove absence, validate the
 depicted behavior in media, reconcile sibling candidates, emit assertion
