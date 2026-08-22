@@ -101,6 +101,7 @@ const SCHEMAS = {
   projectValidation: loadSchema('project-validation.schema.json'),
   quickProof: loadSchema('quick-proof.schema.json'),
   scenario: loadSchema('scenario.schema.json'),
+  scenarioClaimApproval: loadSchema('scenario-claim-approval.schema.json'),
   runnerCapabilities: loadSchema('runner-capabilities.schema.json'),
   verdict: loadSchema('verdict.schema.json'),
 };

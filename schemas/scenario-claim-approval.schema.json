@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-scenario-loop.dev/schemas/scenario-claim-approval.schema.json",
+  "title": "Agent Scenario Loop Scenario Claim Approval",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "approvalId",
+    "scenarioId",
+    "scenarioHash",
+    "selection",
+    "decision",
+    "approvedAt",
+    "approverRef"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "1.0.0"
+    },
+    "approvalId": {
+      "$ref": "#/$defs/stableId"
+    },
+    "scenarioId": {
+      "$ref": "#/$defs/stableId"
+    },
+    "scenarioHash": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "selection": {
+      "$ref": "#/$defs/selection"
+    },
+    "decision": {
+      "const": "approved"
+    },
+    "approvedAt": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$"
+    },
+    "approverRef": {
+      "type": "string",
+      "minLength": 1
+    },
+    "note": {
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "$defs": {
+    "stableId": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*$"
+    },
+    "platform": {
+      "type": "string",
+      "enum": ["ios", "android"]
+    },
+    "selection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["platform"],
+      "properties": {
+        "platform": {
+          "$ref": "#/$defs/platform"
+        },
+        "variant": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  }
+}
