@@ -502,6 +502,22 @@ Candidate reconciliation, health, `ClaimResult`, verdict, runtime, artifact
 writes, and publication remain separate. `not_applicable` is not a runtime
 result here. This slice does not enable scenario 1.1.0 execution.
 
+`buildClaimCompleteVerdict(input)` is the public claim-complete verdict
+builder for scenario `1.1.0`. Input is one scenario, a pre-runtime
+platform/optional variant selection with applicable and excluded claim IDs,
+`healthStatus`, a run ID, and one reconciled `ClaimResult` per applicable
+claim. Applicability is pre-runtime only: runtime never retroactively emits
+`not_applicable`. Supplemental results remain visible and do not gate
+mandatory journey status. Failed or partial health does not throw: it produces
+an inconclusive candidate and projects every claim/assertion to
+`health_gate_failed`. Artifact presence is not semantic support. Malformed,
+incoherent, sparse, or foreign input, no applicable mandatory claim, an
+unsupported assertion kind, invalid output schema, or a rejected reduction
+inspection throw and fail closed. The builder returns a frozen candidate or
+throws; it does not return a structured fail-closed result. It does not admit
+evidence, execute scenarios, write artifacts, publish verdicts, establish
+product truth, or enable current runners to execute `1.1.0`.
+
 `inspectScenarioClaimValidatedEvidenceReportIdentity(input)` is the pure
 evidence-plane boundary for a distinct closed validator or comparator report
 identity. It accepts only an eligible `validatedEvidence` candidate

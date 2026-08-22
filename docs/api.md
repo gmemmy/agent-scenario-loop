@@ -130,6 +130,22 @@ candidate verdict object, or establish that any supported or rejected result
 is true. Current runners still reject scenario `1.1.0` before runtime and do
 not emit verdict `1.1.0`.
 
+Use `buildClaimCompleteVerdict(input)` to construct one frozen verdict `1.1.0`
+artifact from a schema-valid scenario `1.1.0`, a pre-runtime selection of
+platform and optional variant plus applicable and excluded claim IDs, a
+`healthStatus`, a run ID, and exactly one reconciled `ClaimResult` per
+applicable claim. The builder returns a deep-frozen candidate whose reduction
+matches the claim-complete inventory: passed, failed, or inconclusive journey
+status with the corresponding health projection. Failed or partial health does
+not throw: it produces an inconclusive candidate and projects every
+claim/assertion to `health_gate_failed`. Malformed, incoherent, sparse, or
+foreign input, no applicable mandatory claim, an unsupported assertion kind,
+invalid output schema, or a rejected reduction inspection throw and fail
+closed. The builder returns a frozen candidate or throws; it does not return a
+structured fail-closed result. It does not admit evidence, execute scenarios,
+write artifacts, publish verdicts, establish product truth, or enable current
+runners to execute scenario `1.1.0`.
+
 Use `buildScenarioClaimCompleteContractHash(scenario)` to derive the canonical
 SHA-256 identity of one complete, schema-valid scenario `1.1.0` document. The
 hash covers the entire closed scenario object, including descriptive,
