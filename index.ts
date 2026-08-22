@@ -30,3 +30,4 @@ export * from './core/ports';
 export * from './core/quick-proof';
 export * from './core/run-index';
 export * from './core/schema-validator';
+export * from './core/ci-evidence-pack';
