@@ -7,6 +7,10 @@ const {
   buildScenarioClaimHash,
   inspectScenarioClaimVerdictReduction,
 } = require('../../index');
+const {
+  reduceClaimStatus,
+  reduceMandatoryJourneyStatus,
+} = require('../claim-reduction-policy');
 
 const ROOT = path.join(__dirname, '..', '..', '..');
 const EVIDENCE = [{ path: 'raw/profile-events.json', sha256: 'b'.repeat(64) }];
@@ -665,6 +669,95 @@ test('claim verdict reduction rejects incorrect claim and journey arithmetic', a
     const inspection = inspectScenarioClaimVerdictReduction(scenario, { platform: 'ios' }, verdict);
     assert.equal(inspection.reductionStatus, 'incoherent');
     assert.ok(reasonCodes(inspection).includes('journey_reduction_mismatch'));
+  });
+});
+
+test('claim verdict reduction follows shared policy for health, precedence, journey, and supplemental', async (t: any) => {
+  await t.test('passed health claim reduction matches shared policy rejected over not_evaluable', () => {
+    const scenario = scenarioFixture();
+    const verdict = verdictFixture(scenario);
+    const claim = findClaim(scenario, 'primary-journey');
+    const results = claim.assertions.map(supportedAssertion);
+    results[1] = rejectedAssertion(claim.assertions[1]);
+    results[2] = notEvaluableAssertion(claim.assertions[2]);
+    const replacement = claimResult(claim, results);
+    Object.assign(resultFor(verdict, claim.id), replacement);
+    verdict.verdictStatus = 'failed';
+
+    const inspection = inspectScenarioClaimVerdictReduction(scenario, { platform: 'ios' }, verdict);
+    const assertionStatuses = replacement.assertionResults.map((entry: JsonRecord) => entry.status);
+    assert.equal(reduceClaimStatus('passed', assertionStatuses), 'rejected');
+    assert.equal(inspection.reductionStatus, 'reduced');
+    assert.equal(inspection.reducedVerdictStatus, 'failed');
+    assert.equal(
+      reduceMandatoryJourneyStatus(['rejected', 'supported']),
+      'failed',
+    );
+  });
+
+  await t.test('failed and partial health keep claims not_evaluable with the shared policy', () => {
+    for (const healthStatus of ['failed', 'partial'] as const) {
+      const scenario = scenarioFixture();
+      const verdict = verdictFixture(scenario);
+      verdict.healthStatus = healthStatus;
+      verdict.verdictStatus = 'inconclusive';
+      verdict.claimResults = verdict.claimResults.map((result: JsonRecord) => {
+        const claim = findClaim(scenario, result.claimId);
+        const assertions = claim.assertions.map((assertion: JsonRecord) =>
+          notEvaluableAssertion(assertion, 'health_gate_failed'),
+        );
+        const replacement = claimResult(claim, assertions);
+        replacement.reasonCode = 'health_gate_failed';
+        return replacement;
+      });
+
+      const inspection = inspectScenarioClaimVerdictReduction(scenario, { platform: 'ios' }, verdict);
+      const assertionStatuses = resultFor(verdict, 'primary-journey').assertionResults.map(
+        (entry: JsonRecord) => entry.status,
+      );
+      assert.equal(reduceClaimStatus(healthStatus, assertionStatuses), 'not_evaluable');
+      assert.equal(inspection.reductionStatus, 'reduced');
+      assert.equal(inspection.reducedVerdictStatus, 'inconclusive');
+      assert.equal(
+        reduceMandatoryJourneyStatus(['not_evaluable', 'not_evaluable']),
+        'inconclusive',
+      );
+    }
+  });
+
+  await t.test('mandatory not_evaluable follows shared journey reduction to inconclusive', () => {
+    const scenario = scenarioFixture();
+    const verdict = verdictFixture(scenario);
+    const claim = findClaim(scenario, 'primary-journey');
+    const results = claim.assertions.map(supportedAssertion);
+    results[0] = notEvaluableAssertion(claim.assertions[0]);
+    Object.assign(resultFor(verdict, claim.id), claimResult(claim, results));
+    verdict.verdictStatus = 'inconclusive';
+
+    const inspection = inspectScenarioClaimVerdictReduction(scenario, { platform: 'ios' }, verdict);
+    assert.equal(reduceClaimStatus('passed', ['not_evaluable']), 'not_evaluable');
+    assert.equal(
+      reduceMandatoryJourneyStatus(['not_evaluable', 'supported']),
+      'inconclusive',
+    );
+    assert.equal(inspection.reductionStatus, 'reduced');
+    assert.equal(inspection.reducedVerdictStatus, 'inconclusive');
+  });
+
+  await t.test('supplemental rejection does not enter mandatory journey reduction', () => {
+    const scenario = scenarioFixture();
+    const verdict = verdictFixture(scenario);
+    const claim = findClaim(scenario, 'supplemental-order');
+    Object.assign(
+      resultFor(verdict, claim.id),
+      claimResult(claim, [rejectedAssertion(claim.assertions[0])]),
+    );
+
+    const inspection = inspectScenarioClaimVerdictReduction(scenario, { platform: 'ios' }, verdict);
+    assert.equal(reduceMandatoryJourneyStatus(['supported', 'supported']), 'passed');
+    assert.equal(inspection.reductionStatus, 'reduced');
+    assert.equal(inspection.reducedVerdictStatus, 'passed');
+    assert.equal(resultFor(verdict, 'supplemental-order').status, 'rejected');
   });
 });
 
