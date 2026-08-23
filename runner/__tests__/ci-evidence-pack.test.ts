@@ -24,6 +24,7 @@ import {
   type CiEvidencePublicationReceipt,
   type CiEvidencePublicationReceiptFacts,
 } from '../../core/ci-evidence-publication-receipt';
+import { buildCiEvidenceGithubPublicationReport } from '../../core/ci-evidence-github-publication-report';
 
 const SOURCE_SHA = '3530469c658db8182a5dca6ae933e66ce67bd8c8';
 const tempRoots: string[] = [];
@@ -300,6 +301,9 @@ function testFileSystemPort(overrides: Partial<FileSystemPort> = {}): FileSystem
     },
     unlinkSync: (filePath) => {
       fs.unlinkSync(filePath);
+    },
+    rmdirSync: (dirPath) => {
+      fs.rmdirSync(dirPath);
     },
     ...overrides,
   };
@@ -1411,9 +1415,19 @@ test('help and usage contain no upload GitHub PR release deployment runtime prod
   const help = await runCli(['--help']);
   assert.equal(help.code, 0);
   const text = `${help.stdout}\n${usage.join('\n')}`.toLowerCase();
-  for (const banned of ['upload', 'github', 'pull request', 'release', 'deployment', 'runtime acceptance', 'product acceptance']) {
+  for (const banned of [
+    'pull request',
+    'runtime acceptance',
+    'product acceptance',
+    'product accepted',
+    'runtime accepted',
+    'release accepted',
+    'deployment accepted',
+    'merge accepted',
+  ]) {
     assert.equal(text.includes(banned), false, banned);
   }
+  assert.match(text, /does not upload/);
   const missing = await runCli([]);
   assert.equal(missing.code, 2);
   assert.match(missing.stderr, /Usage:/);
@@ -1427,6 +1441,7 @@ test('atomic writer failure never replaces existing canonical file', () => {
     readFileSync: fs.readFileSync,
     mkdirSync: fs.mkdirSync,
     unlinkSync: fs.unlinkSync,
+    rmdirSync: fs.rmdirSync,
     writeFileSync: fs.writeFileSync,
     renameSync: () => {
       throw new Error('rename failed');
@@ -1477,4 +1492,674 @@ test('readCiEvidencePackAssembleRequest rejects extra keys', () => {
   const requestPath = path.join(root, 'request.json');
   writeJson(requestPath, { artifactRoot: root, outDir: root, input: {}, extra: 1 });
   assert.throws(() => readCiEvidencePackAssembleRequest(requestPath));
+});
+
+const GITHUB_REPORT_RECEIPT = 'ci-evidence-publication-receipt.json';
+const GITHUB_REPORT_MARKDOWN = 'ci-evidence-github-report.md';
+const GITHUB_REPORT_INCOMPLETE_MARKER = '.ci-evidence-github-report.incomplete';
+
+function githubPublicationFacts(
+  pack: CiEvidencePack,
+  overrides: Record<string, unknown> = {},
+): Record<string, unknown> {
+  const local = publishedFacts(pack);
+  const outcomes = local.outcomes.map((outcome) => ({
+    ...outcome,
+    visibility: 'restricted' as const,
+  }));
+  return {
+    schemaVersion: '1.0.0',
+    receiptId: local.receiptId,
+    createdAt: local.createdAt,
+    packRelativePath: local.packRelativePath,
+    context: {
+      repository: { owner: 'acme', repo: 'widgets' },
+      eventName: 'pull_request',
+      headSha: SOURCE_SHA,
+      pullRequestNumber: 42,
+    },
+    publisher: {
+      providerKind: 'ci_workflow',
+      providerId: 'github-actions',
+      runId: 'pub-run-1',
+      attemptNumber: 1,
+    },
+    requestedItems: local.requestedItems,
+    outcomes,
+    ...overrides,
+  };
+}
+
+function writeGithubInput(dir: string, value: unknown): { path: string; bytes: Buffer } {
+  const inputPath = path.join(dir, 'github-publication-input.json');
+  const bytes = writeJson(inputPath, value);
+  return { path: inputPath, bytes };
+}
+
+function assertNoGithubReportDir(outDir: string): void {
+  assert.equal(fs.existsSync(outDir), false);
+}
+
+function assertNoStagingResidue(parent: string): void {
+  const leftovers = fs.readdirSync(parent).filter((name) => name.startsWith('.ci-evidence-github-report.'));
+  assert.deepEqual(leftovers, []);
+}
+
+function assertCanonicalGithubReport(outDir: string) {
+  const receiptPath = path.join(outDir, GITHUB_REPORT_RECEIPT);
+  const reportPath = path.join(outDir, GITHUB_REPORT_MARKDOWN);
+  assert.equal(fs.existsSync(receiptPath), true);
+  assert.equal(fs.existsSync(reportPath), true);
+  return { receiptPath, reportPath };
+}
+
+test('parseCiEvidencePackCliArgs github-report success and flag negatives', () => {
+  const parsed = parseCiEvidencePackCliArgs([
+    'node',
+    'bin',
+    'github-report',
+    '--pack',
+    'p.json',
+    '--input',
+    'i.json',
+    '--out',
+    'out-dir',
+  ]);
+  assert.equal(parsed.command, 'github-report');
+  if (parsed.command === 'github-report') {
+    assert.equal(parsed.packPath, 'p.json');
+    assert.equal(parsed.inputPath, 'i.json');
+    assert.equal(parsed.outPath, 'out-dir');
+  }
+
+  assert.throws(() => parseCiEvidencePackCliArgs(['node', 'bin', 'github-report']));
+  assert.throws(() => parseCiEvidencePackCliArgs(['node', 'bin', 'github-report', '--pack', 'p.json']));
+  assert.throws(() =>
+    parseCiEvidencePackCliArgs(['node', 'bin', 'github-report', '--pack', 'p.json', '--input', 'i.json']),
+  );
+  assert.throws(() =>
+    parseCiEvidencePackCliArgs([
+      'node',
+      'bin',
+      'github-report',
+      '--pack',
+      'p.json',
+      '--input',
+      'i.json',
+      '--out',
+      'o',
+      '--out',
+      'o2',
+    ]),
+  );
+  assert.throws(() =>
+    parseCiEvidencePackCliArgs([
+      'node',
+      'bin',
+      'github-report',
+      '--pack',
+      'p.json',
+      '--pack',
+      'p2.json',
+      '--input',
+      'i.json',
+      '--out',
+      'o',
+    ]),
+  );
+  assert.throws(() =>
+    parseCiEvidencePackCliArgs([
+      'node',
+      'bin',
+      'github-report',
+      '--pack',
+      'p.json',
+      '--input',
+      'i.json',
+      '--out',
+      'o',
+      '--unknown',
+      'x',
+    ]),
+  );
+  assert.throws(() =>
+    parseCiEvidencePackCliArgs([
+      'node',
+      'bin',
+      'github-report',
+      '--pack',
+      'p.json',
+      '--input',
+      'i.json',
+      '--out',
+      'o',
+      'positional',
+    ]),
+  );
+  assert.throws(() =>
+    parseCiEvidencePackCliArgs(['node', 'bin', 'github-report', '--pack', '', '--input', 'i.json', '--out', 'o']),
+  );
+});
+
+test('github-report passed restricted-link fixture writes both files and exits 0', async () => {
+  const { root, packPath, packBytes, pack } = await assemblePassedPack();
+  const facts = githubPublicationFacts(pack);
+  const input = writeGithubInput(root, facts);
+  const outDir = path.join(root, 'github-report-out');
+  let packReads = 0;
+  const countingPort = testFileSystemPort({
+    readFileSync: (filePath) => {
+      if (path.resolve(filePath) === path.resolve(packPath)) {
+        packReads += 1;
+      }
+      return fs.readFileSync(filePath);
+    },
+  });
+  const result = await runCli(['github-report', '--pack', packPath, '--input', input.path, '--out', outDir], {
+    fs: countingPort,
+  });
+  assert.equal(result.code, 0);
+  assert.equal(packReads, 1);
+  const stdout = parseStdout(result.stdout);
+  assert.equal(stdout.phase, 'github-report');
+  assert.equal(stdout.gateStatus, 'passed');
+  assert.equal(stdout.artifactDirectory, outDir);
+  const files = assertCanonicalGithubReport(outDir);
+  assert.equal(stdout.receiptArtifact, files.receiptPath);
+  assert.equal(stdout.reportArtifact, files.reportPath);
+  assert.deepEqual(fs.readdirSync(outDir).sort(), [GITHUB_REPORT_MARKDOWN, GITHUB_REPORT_RECEIPT].sort());
+  const built = buildCiEvidenceGithubPublicationReport(packBytes, facts);
+  const receiptOnDisk = JSON.parse(fs.readFileSync(files.receiptPath, 'utf8')) as CiEvidencePublicationReceipt;
+  assert.deepEqual(receiptOnDisk, built.gate.receipt);
+  assert.equal(fs.readFileSync(files.receiptPath, 'utf8'), `${JSON.stringify(built.gate.receipt, null, 2)}\n`);
+  assert.equal(fs.readFileSync(files.reportPath, 'utf8'), built.markdown);
+  assert.match(built.markdown, /https:\/\//);
+  assert.deepEqual(fs.readFileSync(packPath), packBytes);
+  assert.deepEqual(fs.readFileSync(input.path), input.bytes);
+});
+
+test('github-report failed product verdict plus comparison not_available remains exit 0 when publication gate passes', async () => {
+  const root = makeTempDir();
+  const artifactRoot = path.join(root, 'artifacts');
+  const assembleOut = path.join(root, 'out');
+  fs.mkdirSync(artifactRoot, { recursive: true });
+  const live = buildLiveProofSet(artifactRoot);
+  const requestPath = writeRequest(
+    root,
+    artifactRoot,
+    assembleOut,
+    buildInput(live, { comparisonStatus: 'not_available' }),
+  );
+  const assembled = await runCli(['assemble', '--request', requestPath]);
+  assert.equal(assembled.code, 0);
+  const packPath = path.join(assembleOut, 'ci-evidence-pack.json');
+  const packBytes = fs.readFileSync(packPath);
+  const pack = readCiEvidencePack(packPath);
+  assert.equal(pack.comparisonStatus, 'not_available');
+  assert.equal(
+    pack.verdicts.every((verdict) => verdict.status === 'failed'),
+    true,
+  );
+  const input = writeGithubInput(root, githubPublicationFacts(pack));
+  const outDir = path.join(root, 'github-report-product-failed');
+  const result = await runCli(['github-report', '--pack', packPath, '--input', input.path, '--out', outDir]);
+  assert.equal(result.code, 0);
+  const stdout = parseStdout(result.stdout);
+  assert.equal(stdout.gateStatus, 'passed');
+  const files = assertCanonicalGithubReport(outDir);
+  const markdown = fs.readFileSync(files.reportPath, 'utf8');
+  assert.match(markdown, /failed/);
+  assert.match(markdown, /not\\_available/);
+  assert.deepEqual(fs.readFileSync(packPath), packBytes);
+});
+
+test('github-report valid failed publication/source gate writes both files, gateStatus failed, exit 1', async () => {
+  const { root, packPath, packBytes, pack } = await assemblePassedPack();
+  const mismatchedFacts = githubPublicationFacts(pack, {
+    context: {
+      repository: { owner: 'acme', repo: 'widgets' },
+      eventName: 'pull_request',
+      headSha: '0'.repeat(40),
+      pullRequestNumber: 42,
+    },
+  });
+  const input = writeGithubInput(root, mismatchedFacts);
+  const outDir = path.join(root, 'github-report-failed-gate');
+  const result = await runCli(['github-report', '--pack', packPath, '--input', input.path, '--out', outDir]);
+  assert.equal(result.code, 1);
+  const stdout = parseStdout(result.stdout);
+  assert.equal(stdout.phase, 'github-report');
+  assert.equal(stdout.gateStatus, 'failed');
+  const files = assertCanonicalGithubReport(outDir);
+  const built = buildCiEvidenceGithubPublicationReport(packBytes, mismatchedFacts);
+  assert.equal(built.gate.evaluation.status, 'failed');
+  assert.ok(built.gate.evaluation.reasons.length > 0);
+  assert.equal(fs.readFileSync(files.reportPath, 'utf8'), built.markdown);
+  assert.deepEqual(JSON.parse(fs.readFileSync(files.receiptPath, 'utf8')), built.gate.receipt);
+  assert.deepEqual(fs.readdirSync(outDir).sort(), [GITHUB_REPORT_MARKDOWN, GITHUB_REPORT_RECEIPT].sort());
+});
+
+test('github-report fail-closed cases leave no final directory or stdout', async () => {
+  const { root, packPath, packBytes, pack } = await assemblePassedPack();
+  const validFacts = githubPublicationFacts(pack);
+  const validInput = writeGithubInput(root, validFacts);
+
+  const tamperedPack = path.join(root, 'tampered-pack.json');
+  fs.writeFileSync(tamperedPack, Buffer.from('{not-json', 'utf8'));
+  const tamperedOut = path.join(root, 'tampered-out');
+  const tampered = await runCli(['github-report', '--pack', tamperedPack, '--input', validInput.path, '--out', tamperedOut]);
+  assert.equal(tampered.code, 1);
+  assert.equal(tampered.stdout, '');
+  assertNoGithubReportDir(tamperedOut);
+
+  const malformedOut = path.join(root, 'malformed-out');
+  const malformedPath = path.join(root, 'malformed-input.json');
+  fs.writeFileSync(malformedPath, '{');
+  const malformed = await runCli(['github-report', '--pack', packPath, '--input', malformedPath, '--out', malformedOut]);
+  assert.equal(malformed.code, 2);
+  assert.equal(malformed.stdout, '');
+  assertNoGithubReportDir(malformedOut);
+
+  const invalidUtf8Out = path.join(root, 'invalid-utf8-out');
+  const invalidUtf8Path = path.join(root, 'invalid-utf8.json');
+  fs.writeFileSync(invalidUtf8Path, Buffer.from([0xff, 0xfe, 0xfd]));
+  const invalidUtf8 = await runCli(['github-report', '--pack', packPath, '--input', invalidUtf8Path, '--out', invalidUtf8Out]);
+  assert.equal(invalidUtf8.code, 2);
+  assert.equal(invalidUtf8.stdout, '');
+  assertNoGithubReportDir(invalidUtf8Out);
+
+  const missingOut = path.join(root, 'missing-out');
+  const missing = await runCli([
+    'github-report',
+    '--pack',
+    packPath,
+    '--input',
+    path.join(root, 'does-not-exist.json'),
+    '--out',
+    missingOut,
+  ]);
+  assert.equal(missing.code, 1);
+  assert.equal(missing.stdout, '');
+  assertNoGithubReportDir(missingOut);
+
+  const unsafeOut = path.join(root, 'unsafe-out');
+  const unsafeFacts = githubPublicationFacts(pack);
+  const unsafeOutcomes = (unsafeFacts.outcomes as Array<Record<string, unknown>>).map((outcome, index) =>
+    index === 0 ? { ...outcome, url: 'javascript:alert(1)' } : outcome,
+  );
+  const unsafeInput = writeGithubInput(path.join(root, 'unsafe'), { ...unsafeFacts, outcomes: unsafeOutcomes });
+  const unsafe = await runCli(['github-report', '--pack', packPath, '--input', unsafeInput.path, '--out', unsafeOut]);
+  assert.equal(unsafe.code, 1);
+  assert.equal(unsafe.stdout, '');
+  assertNoGithubReportDir(unsafeOut);
+
+  const privateOut = path.join(root, 'private-out');
+  const privateFacts = githubPublicationFacts(pack);
+  const privateOutcomes = (privateFacts.outcomes as Array<Record<string, unknown>>).map((outcome) => ({
+    ...outcome,
+    visibility: 'private',
+  }));
+  const privateInput = writeGithubInput(path.join(root, 'private'), { ...privateFacts, outcomes: privateOutcomes });
+  const privateResult = await runCli([
+    'github-report',
+    '--pack',
+    packPath,
+    '--input',
+    privateInput.path,
+    '--out',
+    privateOut,
+  ]);
+  assert.equal(privateResult.code, 1);
+  assert.equal(privateResult.stdout, '');
+  assertNoGithubReportDir(privateOut);
+
+  assert.deepEqual(fs.readFileSync(packPath), packBytes);
+  assert.deepEqual(fs.readFileSync(validInput.path), validInput.bytes);
+});
+
+test('github-report never replaces occupied --out without existsSync', async () => {
+  const { root, packPath, packBytes, pack } = await assemblePassedPack();
+  const input = writeGithubInput(root, githubPublicationFacts(pack));
+  const omitExists = testFileSystemPort();
+  assert.equal('existsSync' in omitExists, false);
+
+  const existingFile = path.join(root, 'existing-file-out');
+  fs.writeFileSync(existingFile, 'keep-file\n');
+  const fileResult = await runCli(
+    ['github-report', '--pack', packPath, '--input', input.path, '--out', existingFile],
+    { fs: omitExists },
+  );
+  assert.equal(fileResult.code, 2);
+  assert.equal(fileResult.stdout, '');
+  assert.equal(fs.readFileSync(existingFile, 'utf8'), 'keep-file\n');
+
+  const emptyDir = path.join(root, 'existing-empty-dir');
+  fs.mkdirSync(emptyDir);
+  const dirResult = await runCli(['github-report', '--pack', packPath, '--input', input.path, '--out', emptyDir], {
+    fs: omitExists,
+  });
+  assert.equal(dirResult.code, 2);
+  assert.equal(dirResult.stdout, '');
+  assert.equal(fs.statSync(emptyDir).isDirectory(), true);
+  assert.deepEqual(fs.readdirSync(emptyDir), []);
+
+  const dangling = path.join(root, 'dangling-symlink-out');
+  fs.symlinkSync(path.join(root, 'missing-symlink-target'), dangling);
+  const danglingResult = await runCli(['github-report', '--pack', packPath, '--input', input.path, '--out', dangling], {
+    fs: omitExists,
+  });
+  assert.equal(danglingResult.code, 2);
+  assert.equal(danglingResult.stdout, '');
+  assert.equal(fs.lstatSync(dangling).isSymbolicLink(), true);
+  assert.equal(fs.readlinkSync(dangling), path.join(root, 'missing-symlink-target'));
+
+  const aliasTarget = path.join(root, 'alias-target');
+  fs.mkdirSync(aliasTarget, { recursive: true });
+  const aliasOut = path.join(root, 'alias-out');
+  fs.symlinkSync(aliasTarget, aliasOut);
+  const aliased = await runCli(['github-report', '--pack', packPath, '--input', input.path, '--out', aliasOut], {
+    fs: omitExists,
+  });
+  assert.equal(aliased.code, 2);
+  assert.equal(aliased.stdout, '');
+  assert.equal(fs.readlinkSync(aliasOut), aliasTarget);
+
+  const collidePack = await runCli(['github-report', '--pack', packPath, '--input', input.path, '--out', packPath], {
+    fs: omitExists,
+  });
+  assert.equal(collidePack.code, 2);
+  assert.equal(collidePack.stdout, '');
+  assert.deepEqual(fs.readFileSync(packPath), packBytes);
+
+  const collideInput = await runCli(['github-report', '--pack', packPath, '--input', input.path, '--out', input.path], {
+    fs: omitExists,
+  });
+  assert.equal(collideInput.code, 2);
+  assert.equal(collideInput.stdout, '');
+  assert.deepEqual(fs.readFileSync(input.path), input.bytes);
+});
+
+test('github-report inject write failure on first file, second file, and rename leaves no residue; cleanup failure after final publication leaves marked incomplete residue', async () => {
+  const { root, packPath, packBytes, pack } = await assemblePassedPack();
+  const input = writeGithubInput(root, githubPublicationFacts(pack));
+
+  const firstOut = path.join(root, 'fail-first');
+  let writes = 0;
+  const failFirst = testFileSystemPort({
+    writeFileSync: (filePath, contents) => {
+      writes += 1;
+      if (writes === 1) {
+        throw new Error('first write failed');
+      }
+      fs.writeFileSync(filePath, contents);
+    },
+  });
+  const first = await runCli(['github-report', '--pack', packPath, '--input', input.path, '--out', firstOut], {
+    fs: failFirst,
+  });
+  assert.equal(first.code, 1);
+  assert.equal(first.stdout, '');
+  assertNoGithubReportDir(firstOut);
+  assertNoStagingResidue(root);
+
+  const secondOut = path.join(root, 'fail-second');
+  writes = 0;
+  const failSecond = testFileSystemPort({
+    writeFileSync: (filePath, contents) => {
+      writes += 1;
+      if (writes === 2) {
+        throw new Error('second write failed');
+      }
+      fs.writeFileSync(filePath, contents);
+    },
+  });
+  const second = await runCli(['github-report', '--pack', packPath, '--input', input.path, '--out', secondOut], {
+    fs: failSecond,
+  });
+  assert.equal(second.code, 1);
+  assert.equal(second.stdout, '');
+  assertNoGithubReportDir(secondOut);
+  assertNoStagingResidue(root);
+
+  const renameOut = path.join(root, 'fail-rename');
+  const failRename = testFileSystemPort({
+    renameSync: (from, to) => {
+      if (path.resolve(path.dirname(to)) === path.resolve(renameOut)) {
+        throw new Error('rename failed');
+      }
+      fs.renameSync(from, to);
+    },
+  });
+  const renamed = await runCli(['github-report', '--pack', packPath, '--input', input.path, '--out', renameOut], {
+    fs: failRename,
+  });
+  assert.equal(renamed.code, 1);
+  assert.equal(renamed.stdout, '');
+  assertNoGithubReportDir(renameOut);
+  assertNoStagingResidue(root);
+
+  const raceOut = path.join(root, 'fail-mkdir-race');
+  const raceSentinel = path.join(raceOut, 'preexisting-sentinel.txt');
+  const raceSentinelBytes = Buffer.from('keep-raced-destination\n', 'utf8');
+  const failRace = testFileSystemPort({
+    mkdirSync: (dirPath, mkdirOptions) => {
+      if (path.resolve(dirPath) === path.resolve(raceOut)) {
+        fs.mkdirSync(raceOut, { recursive: true });
+        fs.writeFileSync(raceSentinel, raceSentinelBytes);
+        const err = new Error('EEXIST: directory already exists') as NodeJS.ErrnoException;
+        err.code = 'EEXIST';
+        throw err;
+      }
+      fs.mkdirSync(dirPath, mkdirOptions);
+    },
+  });
+  const raced = await runCli(['github-report', '--pack', packPath, '--input', input.path, '--out', raceOut], {
+    fs: failRace,
+  });
+  assert.equal(raced.code, 2);
+  assert.equal(raced.stdout, '');
+  assert.equal(fs.statSync(raceOut).isDirectory(), true);
+  assert.deepEqual(fs.readFileSync(raceSentinel), raceSentinelBytes);
+  assert.deepEqual(fs.readdirSync(raceOut), ['preexisting-sentinel.txt']);
+  assertNoStagingResidue(root);
+
+  const cleanupOut = path.join(root, 'fail-cleanup');
+  let renamedIntoCleanupFinal = 0;
+  const failCleanup = testFileSystemPort({
+    renameSync: (from, to) => {
+      if (path.resolve(path.dirname(to)) === path.resolve(cleanupOut)) {
+        renamedIntoCleanupFinal += 1;
+        if (renamedIntoCleanupFinal >= 2) {
+          throw new Error('second final rename failed after incomplete marker');
+        }
+      }
+      fs.renameSync(from, to);
+    },
+    unlinkSync: (filePath) => {
+      if (
+        path.resolve(path.dirname(filePath)) === path.resolve(cleanupOut) ||
+        path.basename(filePath) === GITHUB_REPORT_INCOMPLETE_MARKER
+      ) {
+        throw new Error('cleanup unlink failed');
+      }
+      fs.unlinkSync(filePath);
+    },
+    rmdirSync: (dirPath) => {
+      if (path.resolve(dirPath) === path.resolve(cleanupOut)) {
+        throw new Error('cleanup rmdir failed');
+      }
+      fs.rmdirSync(dirPath);
+    },
+  });
+  const cleaned = await runCli(['github-report', '--pack', packPath, '--input', input.path, '--out', cleanupOut], {
+    fs: failCleanup,
+  });
+  assert.equal(cleaned.code, 1);
+  assert.equal(cleaned.stdout, '');
+  assert.equal(fs.existsSync(cleanupOut), true);
+  assert.equal(fs.existsSync(path.join(cleanupOut, GITHUB_REPORT_INCOMPLETE_MARKER)), true);
+  assert.equal(fs.existsSync(path.join(cleanupOut, GITHUB_REPORT_MARKDOWN)), false);
+  assert.equal(fs.existsSync(path.join(cleanupOut, GITHUB_REPORT_RECEIPT)), false);
+  const cleanupNames = fs.readdirSync(cleanupOut);
+  assert.equal(cleanupNames.includes(GITHUB_REPORT_INCOMPLETE_MARKER), true);
+  assert.equal(cleanupNames.includes(GITHUB_REPORT_MARKDOWN), false);
+  assert.equal(cleanupNames.includes(GITHUB_REPORT_RECEIPT), false);
+
+  assert.deepEqual(fs.readFileSync(packPath), packBytes);
+  assert.deepEqual(fs.readFileSync(input.path), input.bytes);
+});
+
+test('github-report FileSystemPort without existsSync still rejects occupied destination', async () => {
+  const { root, packPath, packBytes, pack } = await assemblePassedPack();
+  const input = writeGithubInput(root, githubPublicationFacts(pack));
+  const omitExists = testFileSystemPort();
+  assert.equal('existsSync' in omitExists, false);
+  const collide = await runCli(['github-report', '--pack', packPath, '--input', input.path, '--out', packPath], {
+    fs: omitExists,
+  });
+  assert.equal(collide.code, 2);
+  assert.equal(collide.stdout, '');
+  assert.deepEqual(fs.readFileSync(packPath), packBytes);
+});
+
+test('github-report FileSystemPort without existsSync and rmdirSync still publishes both canonical files', async () => {
+  const { root, packPath, packBytes, pack } = await assemblePassedPack();
+  const input = writeGithubInput(root, githubPublicationFacts(pack));
+  const outDir = path.join(root, 'github-report-omit-rmdir');
+  const omitExistsAndRmdir: FileSystemPort = {
+    readFileSync: (filePath) => fs.readFileSync(filePath),
+    writeFileSync: (filePath, contents) => {
+      fs.writeFileSync(filePath, contents);
+    },
+    mkdirSync: (dirPath, mkdirOptions) => {
+      fs.mkdirSync(dirPath, mkdirOptions);
+    },
+    renameSync: (from, to) => {
+      fs.renameSync(from, to);
+    },
+    unlinkSync: (filePath) => {
+      fs.unlinkSync(filePath);
+    },
+  };
+  assert.equal('existsSync' in omitExistsAndRmdir, false);
+  assert.equal('rmdirSync' in omitExistsAndRmdir, false);
+  const result = await runCli(['github-report', '--pack', packPath, '--input', input.path, '--out', outDir], {
+    fs: omitExistsAndRmdir,
+  });
+  assert.equal(result.code, 0);
+  const stdout = parseStdout(result.stdout);
+  assert.equal(stdout.phase, 'github-report');
+  assert.equal(stdout.gateStatus, 'passed');
+  const files = assertCanonicalGithubReport(outDir);
+  assert.equal(stdout.receiptArtifact, files.receiptPath);
+  assert.equal(stdout.reportArtifact, files.reportPath);
+  const outNames = fs.readdirSync(outDir).sort();
+  assert.equal(outNames.includes(GITHUB_REPORT_MARKDOWN), true);
+  assert.equal(outNames.includes(GITHUB_REPORT_RECEIPT), true);
+  assert.equal(
+    outNames.some((name) => name.toLowerCase().includes('incomplete')),
+    false,
+  );
+  const stagingLeftovers = fs
+    .readdirSync(root)
+    .filter((name) => name.startsWith('.ci-evidence-github-report.'))
+    .map((name) => path.join(root, name));
+  assert.equal(stagingLeftovers.length, 1);
+  const leftover = stagingLeftovers[0]!;
+  assert.equal(fs.statSync(leftover).isDirectory(), true);
+  assert.deepEqual(fs.readdirSync(leftover), []);
+  assert.deepEqual(fs.readFileSync(packPath), packBytes);
+  assert.deepEqual(fs.readFileSync(input.path), input.bytes);
+});
+
+test('github-report crash-marker publication order is incomplete, receipt, report, then unlink', async () => {
+  const { root, packPath, packBytes, pack } = await assemblePassedPack();
+  const input = writeGithubInput(root, githubPublicationFacts(pack));
+  const outDir = path.join(root, 'github-report-order');
+  const operations: Array<{ op: string; fromBase?: string; toBase?: string; targetBase?: string; toDir?: string }> = [];
+  const loggingPort = testFileSystemPort({
+    renameSync: (from, to) => {
+      operations.push({
+        op: 'rename',
+        fromBase: path.basename(from),
+        toBase: path.basename(to),
+        toDir: path.resolve(path.dirname(to)),
+      });
+      fs.renameSync(from, to);
+    },
+    unlinkSync: (filePath) => {
+      operations.push({
+        op: 'unlink',
+        targetBase: path.basename(filePath),
+        toDir: path.resolve(path.dirname(filePath)),
+      });
+      fs.unlinkSync(filePath);
+    },
+  });
+  const result = await runCli(['github-report', '--pack', packPath, '--input', input.path, '--out', outDir], {
+    fs: loggingPort,
+  });
+  assert.equal(result.code, 0);
+  const stdout = parseStdout(result.stdout);
+  assert.equal(stdout.gateStatus, 'passed');
+  const files = assertCanonicalGithubReport(outDir);
+  const finalRenamesAndUnlink = operations.filter(
+    (entry) => entry.toDir === path.resolve(outDir) && (entry.op === 'rename' || entry.op === 'unlink'),
+  );
+  const resolvedOutDir = path.resolve(outDir);
+  assert.equal(finalRenamesAndUnlink.length, 4);
+  assert.equal(finalRenamesAndUnlink[0]?.op, 'rename');
+  assert.equal(finalRenamesAndUnlink[0]?.fromBase, GITHUB_REPORT_INCOMPLETE_MARKER);
+  assert.equal(finalRenamesAndUnlink[0]?.toBase, GITHUB_REPORT_INCOMPLETE_MARKER);
+  assert.equal(finalRenamesAndUnlink[0]?.toDir, resolvedOutDir);
+  assert.equal(finalRenamesAndUnlink[1]?.op, 'rename');
+  assert.equal(finalRenamesAndUnlink[1]?.fromBase, GITHUB_REPORT_RECEIPT);
+  assert.equal(finalRenamesAndUnlink[1]?.toBase, GITHUB_REPORT_RECEIPT);
+  assert.equal(finalRenamesAndUnlink[1]?.toDir, resolvedOutDir);
+  assert.equal(finalRenamesAndUnlink[2]?.op, 'rename');
+  assert.equal(finalRenamesAndUnlink[2]?.fromBase, GITHUB_REPORT_MARKDOWN);
+  assert.equal(finalRenamesAndUnlink[2]?.toBase, GITHUB_REPORT_MARKDOWN);
+  assert.equal(finalRenamesAndUnlink[2]?.toDir, resolvedOutDir);
+  assert.equal(finalRenamesAndUnlink[3]?.op, 'unlink');
+  assert.equal(finalRenamesAndUnlink[3]?.targetBase, GITHUB_REPORT_INCOMPLETE_MARKER);
+  assert.equal(finalRenamesAndUnlink[3]?.toDir, resolvedOutDir);
+  assert.equal(fs.existsSync(path.join(outDir, GITHUB_REPORT_INCOMPLETE_MARKER)), false);
+  assert.deepEqual(fs.readdirSync(outDir).sort(), [GITHUB_REPORT_MARKDOWN, GITHUB_REPORT_RECEIPT].sort());
+  assert.equal(stdout.receiptArtifact, files.receiptPath);
+  assert.equal(stdout.reportArtifact, files.reportPath);
+  assert.deepEqual(fs.readFileSync(packPath), packBytes);
+  assert.deepEqual(fs.readFileSync(input.path), input.bytes);
+});
+
+test('github-report partial publication after first final rename then failure leaves no success stdout', async () => {
+  const { root, packPath, packBytes, pack } = await assemblePassedPack();
+  const input = writeGithubInput(root, githubPublicationFacts(pack));
+  const outDir = path.join(root, 'github-report-partial');
+  let renamedIntoFinal = 0;
+  let firstFinalBasename: string | undefined;
+  const failAfterFirstFinalMoveLogged = testFileSystemPort({
+    renameSync: (from, to) => {
+      if (path.resolve(path.dirname(to)) === path.resolve(outDir)) {
+        renamedIntoFinal += 1;
+        if (renamedIntoFinal === 1) {
+          firstFinalBasename = path.basename(from);
+        }
+        if (renamedIntoFinal >= 2) {
+          throw new Error('second final rename failed');
+        }
+      }
+      fs.renameSync(from, to);
+    },
+  });
+  const result = await runCli(['github-report', '--pack', packPath, '--input', input.path, '--out', outDir], {
+    fs: failAfterFirstFinalMoveLogged,
+  });
+  assert.equal(result.code, 1);
+  assert.equal(result.stdout, '');
+  assert.equal(renamedIntoFinal >= 1, true);
+  assert.equal(firstFinalBasename, GITHUB_REPORT_INCOMPLETE_MARKER);
+  assert.equal(fs.existsSync(outDir), false);
+  assertNoStagingResidue(root);
+  assert.deepEqual(fs.readFileSync(packPath), packBytes);
+  assert.deepEqual(fs.readFileSync(input.path), input.bytes);
 });
