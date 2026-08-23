@@ -31,3 +31,12 @@ export * from './core/quick-proof';
 export * from './core/run-index';
 export * from './core/schema-validator';
 export * from './core/ci-evidence-pack';
+export {
+  assembleCiEvidencePack,
+  verifyCiEvidencePackLiveProofSet,
+} from './core/ci-evidence-pack-assembler';
+export type {
+  CiEvidencePackAssemblyOptions,
+  VerifiedCiEvidencePackLiveProofPointer,
+  VerifiedCiEvidencePackLiveProofSet,
+} from './core/ci-evidence-pack-assembler';
