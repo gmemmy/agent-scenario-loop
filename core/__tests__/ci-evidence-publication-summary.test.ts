@@ -13,9 +13,11 @@ const {
 import type { CiEvidencePack, CiEvidencePackBuildInput } from '../ci-evidence-pack';
 import type {
   CiEvidencePublicationItemOutcome,
+  CiEvidencePublicationReceipt,
   CiEvidencePublicationReceiptFacts,
   CiEvidencePublicationRequestedItem,
 } from '../ci-evidence-publication-receipt';
+import type { CiEvidencePublicationSummaryEvaluationOptions } from '../ci-evidence-publication-summary';
 
 const SHA = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 const SHA256 = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
@@ -196,7 +198,11 @@ function renderFrom(input: CiEvidencePackBuildInput, facts: CiEvidencePublicatio
   return { pack, receipt, exactBytes, markdown: renderCiEvidencePublicationSummary(pack, receipt, exactBytes) };
 }
 
-function evaluateFrom(input: CiEvidencePackBuildInput, facts: CiEvidencePublicationReceiptFacts) {
+function evaluateFrom(
+  input: CiEvidencePackBuildInput,
+  facts: CiEvidencePublicationReceiptFacts,
+  options?: CiEvidencePublicationSummaryEvaluationOptions,
+) {
   const pack = buildCiEvidencePack(input);
   const exactBytes = packBytes(pack);
   const receipt = buildCiEvidencePublicationReceipt({ packBytes: exactBytes, facts });
@@ -204,7 +210,7 @@ function evaluateFrom(input: CiEvidencePackBuildInput, facts: CiEvidencePublicat
     pack,
     receipt,
     exactBytes,
-    result: evaluateCiEvidencePublicationSummary(pack, receipt, exactBytes),
+    result: evaluateCiEvidencePublicationSummary(pack, receipt, exactBytes, options),
   };
 }
 
@@ -1361,5 +1367,184 @@ describe('ci evidence publication summary evaluation', () => {
     assert.equal(secondReasonIndex > firstReasonIndex, true);
     assert.match(markdown, /\| publication evidence gate \| failed \|/);
     assert.doesNotMatch(markdown, /\|\s*publication evidence gate \| (?:product|runtime|release|deployment)/i);
+  });
+
+  it('passes authenticated_reviewer for an otherwise-complete all-restricted receipt while public evaluation and generic rendering stay failed', () => {
+    const facts = cloneFacts();
+    facts.outcomes = facts.outcomes.map((outcome) =>
+      publishedOutcome(outcome.requestId, `https://example.test/${outcome.requestId}.json`, 'restricted'),
+    );
+    const pack = buildCiEvidencePack(validPackInput());
+    const exactBytes = packBytes(pack);
+    const receipt = buildCiEvidencePublicationReceipt({ packBytes: exactBytes, facts });
+    const authenticated = evaluateCiEvidencePublicationSummary(pack, receipt, exactBytes, {
+      audience: 'authenticated_reviewer',
+    });
+    const explicitPublic = evaluateCiEvidencePublicationSummary(pack, receipt, exactBytes, {
+      audience: 'public',
+    });
+    const omittedOptions = evaluateCiEvidencePublicationSummary(pack, receipt, exactBytes);
+    const markdown = renderCiEvidencePublicationSummary(pack, receipt, exactBytes);
+
+    assert.equal(receipt.publicationStatus, 'published');
+    for (const outcome of receipt.outcomes) {
+      assert.equal(outcome.visibility, 'restricted');
+    }
+    assert.deepEqual(authenticated, { status: 'passed', reasons: [] });
+    assert.equal(explicitPublic.status, 'failed');
+    assert.deepEqual(explicitPublic, omittedOptions);
+    assert.match(markdown, /\| publication evidence gate \| failed \|/);
+    assert.doesNotMatch(markdown, /https:\/\/example\.test\/req-/);
+    assert.doesNotMatch(markdown, /\[https:\/\/example\.test\/[^\]]+\]\(https:\/\/example\.test\/[^)]+\)/);
+    assert.doesNotMatch(markdown, /\|\s*publication evidence gate \| (?:product|runtime|release|deployment)/i);
+  });
+
+  it('rejects malformed private visibility at receipt admission before policy evaluation', () => {
+    const facts = cloneFacts();
+    const pack = buildCiEvidencePack(validPackInput());
+    const exactBytes = packBytes(pack);
+    const receipt: CiEvidencePublicationReceipt = buildCiEvidencePublicationReceipt({ packBytes: exactBytes, facts });
+    const malformedReceipt = {
+      ...receipt,
+      outcomes: receipt.outcomes.map((outcome, index) =>
+        index === 2 ? { ...outcome, visibility: 'private' } : outcome,
+      ),
+    } as CiEvidencePublicationReceipt;
+    assert.throws(
+      () =>
+        evaluateCiEvidencePublicationSummary(pack, malformedReceipt, exactBytes, {
+          audience: 'authenticated_reviewer',
+        }),
+      CiEvidencePublicationReceiptError,
+    );
+  });
+
+  it('fails authenticated_reviewer for rejected outcomes and unrequested required evidence', () => {
+    const facts = cloneFacts();
+    facts.outcomes[2] = {
+      requestId: 'req-android-recording',
+      status: 'rejected',
+      reason: 'publisher rejected the artifact',
+    };
+    const rejectedEval = evaluateFrom(validPackInput(), facts, {
+      audience: 'authenticated_reviewer',
+    });
+    assert.equal(rejectedEval.receipt.publicationStatus, 'partial');
+    assert.equal(rejectedEval.result.status, 'failed');
+    assert.match(
+      rejectedEval.result.reasons.join('\n'),
+      /usable authenticated-reviewer link/,
+    );
+
+    const omittedFacts = cloneFacts();
+    omittedFacts.requestedItems = omittedFacts.requestedItems.filter(
+      (item) => item.requestId !== 'req-android-recording',
+    );
+    omittedFacts.outcomes = omittedFacts.outcomes.filter(
+      (outcome) => outcome.requestId !== 'req-android-recording',
+    );
+    const omittedEval = evaluateFrom(validPackInput(), omittedFacts, {
+      audience: 'authenticated_reviewer',
+    });
+    assert.equal(omittedEval.result.status, 'failed');
+    assert.match(
+      omittedEval.result.reasons.join('\n'),
+      /usable authenticated-reviewer link/,
+    );
+  });
+
+  it('fails authenticated_reviewer when a mandatory pack artifact is rejected or unrequested', () => {
+    const cases: { requestId: 'req-pack' | 'req-lps'; label: string }[] = [
+      { requestId: 'req-pack', label: 'ci_evidence_pack' },
+      { requestId: 'req-lps', label: 'live_proof_set' },
+    ];
+
+    for (const { requestId, label } of cases) {
+      const rejectedFacts = cloneFacts();
+      rejectedFacts.outcomes = rejectedFacts.outcomes.map((outcome) =>
+        outcome.requestId === requestId
+          ? {
+              requestId,
+              status: 'rejected' as const,
+              reason: `${label} rejected`,
+            }
+          : outcome,
+      );
+      const rejectedEval = evaluateFrom(validPackInput(), rejectedFacts, {
+        audience: 'authenticated_reviewer',
+      });
+      assert.equal(rejectedEval.receipt.publicationStatus, 'partial');
+      assert.equal(rejectedEval.result.status, 'failed');
+      assert.match(
+        rejectedEval.result.reasons.join('\n'),
+        /usable authenticated-reviewer link/,
+      );
+
+      const omittedFacts = cloneFacts();
+      omittedFacts.requestedItems = omittedFacts.requestedItems.filter(
+        (item) => item.requestId !== requestId,
+      );
+      omittedFacts.outcomes = omittedFacts.outcomes.filter(
+        (outcome) => outcome.requestId !== requestId,
+      );
+      const omittedEval = evaluateFrom(validPackInput(), omittedFacts, {
+        audience: 'authenticated_reviewer',
+      });
+      assert.equal(omittedEval.receipt.publicationStatus, 'published');
+      assert.equal(omittedEval.result.status, 'failed');
+      assert.match(
+        omittedEval.result.reasons.join('\n'),
+        /usable authenticated-reviewer link/,
+      );
+    }
+  });
+
+  it('keeps authenticated_reviewer exact-byte admission and does not mutate caller inputs', () => {
+    const pack = buildCiEvidencePack(validPackInput());
+    const compactBytes = packBytes(pack);
+    const receipt = buildCiEvidencePublicationReceipt({
+      packBytes: compactBytes,
+      facts: cloneFacts(),
+    });
+    const spacedBytes = Buffer.from(`${JSON.stringify(pack)}\n`, 'utf8');
+    assert.throws(
+      () =>
+        evaluateCiEvidencePublicationSummary(pack, receipt, spacedBytes, {
+          audience: 'authenticated_reviewer',
+        }),
+      CiEvidencePublicationReceiptError,
+    );
+
+    const packBefore = JSON.stringify(pack);
+    const receiptBefore = JSON.stringify(receipt);
+    const bytesBefore = Array.from(compactBytes);
+    const evaluation = evaluateCiEvidencePublicationSummary(pack, receipt, compactBytes, {
+      audience: 'authenticated_reviewer',
+    });
+    assert.equal(JSON.stringify(pack), packBefore);
+    assert.equal(JSON.stringify(receipt), receiptBefore);
+    assert.deepEqual(Array.from(compactBytes), bytesBefore);
+    assert.deepEqual(evaluation, { status: 'passed', reasons: [] });
+  });
+
+  it('is deterministic under reversed ordering for authenticated_reviewer', () => {
+    const facts = cloneFacts();
+    facts.outcomes[0] = publishedOutcome('req-pack', 'https://example.test/pack.json', 'restricted');
+    facts.outcomes[2] = publishedOutcome(
+      'req-android-recording',
+      'https://example.test/android-recording.bin',
+      'restricted',
+    );
+    const reversedFacts = cloneFacts();
+    reversedFacts.requestedItems = [...facts.requestedItems].reverse();
+    reversedFacts.outcomes = [...facts.outcomes].reverse();
+    const forward = evaluateFrom(validPackInput(), facts, {
+      audience: 'authenticated_reviewer',
+    }).result;
+    const reversed = evaluateFrom(validPackInput(), reversedFacts, {
+      audience: 'authenticated_reviewer',
+    }).result;
+    assert.deepEqual(forward, { status: 'passed', reasons: [] });
+    assert.deepEqual(reversed, forward);
   });
 });
