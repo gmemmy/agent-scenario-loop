@@ -516,6 +516,33 @@ function unpublishedRows(
       ]);
     }
   }
+  const mandatoryPackArtifacts = ['ci_evidence_pack', 'live_proof_set'] as const;
+  for (const packArtifact of mandatoryPackArtifacts) {
+    const item = receipt.requestedItems.find(
+      (requested) =>
+        requested.targetKind === 'pack_artifact' && requested.packArtifact === packArtifact,
+    );
+    if (item !== undefined) {
+      const outcome = receipt.outcomes.find((entry) => entry.requestId === item.requestId);
+      if (outcome !== undefined) {
+        continue;
+      }
+      obligationRows.push([
+        escapeMarkdownCell(packArtifact),
+        escapeMarkdownCell(packArtifact),
+        escapeMarkdownCell('requested; no publication outcome'),
+        escapeMarkdownCell('mandatory artifact lacks a published public link'),
+      ]);
+      continue;
+    }
+    obligationRows.push([
+      escapeMarkdownCell(packArtifact),
+      escapeMarkdownCell(packArtifact),
+      escapeMarkdownCell('unrequested'),
+      escapeMarkdownCell('mandatory artifact lacks a published public link'),
+    ]);
+  }
+
   obligationRows.sort((left, right) => {
     const itemCmp = compareUtf16(left[0] ?? '', right[0] ?? '');
     if (itemCmp !== 0) {
@@ -545,6 +572,9 @@ function packArtifactPublication(
     return escapeMarkdownCell('unrequested');
   }
   const outcome = receipt.outcomes.find((entry) => entry.requestId === item.requestId);
+  if (outcome === undefined) {
+    return escapeMarkdownCell('requested; no publication outcome');
+  }
   return renderPublicationStatus(outcome, packArtifact);
 }
 
@@ -556,16 +586,80 @@ function cloneExactPackBytes(exactPackBytes: Uint8Array): Uint8Array {
   return Uint8Array.from(exactPackBytes);
 }
 
-function renderCiEvidencePublicationSummary(
+export type CiEvidencePublicationSummaryEvaluation =
+  | {
+      status: 'passed';
+      reasons: [];
+    }
+  | {
+      status: 'failed';
+      reasons: string[];
+    };
+
+function prepareCiEvidencePublicationSummaryInputs(
   packInput: CiEvidencePack,
   receiptInput: CiEvidencePublicationReceipt,
   exactPackBytesInput: Uint8Array,
-): string {
+): {
+  pack: CiEvidencePack;
+  receipt: CiEvidencePublicationReceipt;
+} {
   const pack = cloneJsonValue(packInput);
   const receipt = cloneJsonValue(receiptInput);
   const exactPackBytes = cloneExactPackBytes(exactPackBytesInput);
   assertCiEvidencePublicationReceiptForExactPackBytes(receipt, pack, exactPackBytes);
   assertRendererSafePublishedUrls(receipt);
+  return { pack, receipt };
+}
+
+function evaluatePreparedPublicationSummary(
+  pack: CiEvidencePack,
+  receipt: CiEvidencePublicationReceipt,
+): CiEvidencePublicationSummaryEvaluation {
+  const unpublishedCount = unpublishedRows(pack, receipt).length;
+  const reasons: string[] = [];
+  if (receipt.publicationStatus !== 'published') {
+    reasons.push(`publicationStatus is ${receipt.publicationStatus}`);
+  }
+  if (unpublishedCount > 0) {
+    reasons.push(
+      `${unpublishedCount} publication or required-evidence obligation(s) lack a usable public link`,
+    );
+  }
+  if (reasons.length === 0) {
+    return { status: 'passed', reasons: [] };
+  }
+  return { status: 'failed', reasons };
+}
+
+function evaluateCiEvidencePublicationSummary(
+  packInput: CiEvidencePack,
+  receiptInput: CiEvidencePublicationReceipt,
+  exactPackBytesInput: Uint8Array,
+): CiEvidencePublicationSummaryEvaluation {
+  const { pack, receipt } = prepareCiEvidencePublicationSummaryInputs(
+    packInput,
+    receiptInput,
+    exactPackBytesInput,
+  );
+  return evaluatePreparedPublicationSummary(pack, receipt);
+}
+
+function renderCiEvidencePublicationSummary(
+  packInput: CiEvidencePack,
+  receiptInput: CiEvidencePublicationReceipt,
+  exactPackBytesInput: Uint8Array,
+): string {
+  const { pack, receipt } = prepareCiEvidencePublicationSummaryInputs(
+    packInput,
+    receiptInput,
+    exactPackBytesInput,
+  );
+  const evaluation = evaluatePreparedPublicationSummary(pack, receipt);
+  const evidenceGateReasonsSection =
+    evaluation.reasons.length === 0
+      ? escapeMarkdownPlain('none')
+      : evaluation.reasons.map((reason) => `- ${escapeMarkdownPlain(reason)}`).join('\n');
 
   const androidVerdict = selectedProductVerdict(pack, 'android');
   const iosVerdict = selectedProductVerdict(pack, 'ios');
@@ -580,6 +674,7 @@ function renderCiEvidencePublicationSummary(
       ['Android selected product verdict', escapeMarkdownCell(androidVerdict)],
       ['iOS selected product verdict', escapeMarkdownCell(iosVerdict)],
       ['publication', escapeMarkdownCell(receipt.publicationStatus)],
+      ['publication evidence gate', escapeMarkdownCell(evaluation.status)],
     ],
   );
 
@@ -657,6 +752,10 @@ function renderCiEvidencePublicationSummary(
     '',
     unpublishedSection,
     '',
+    '## Publication evidence gate',
+    '',
+    evidenceGateReasonsSection,
+    '',
     '## Guardrails',
     '',
     guardrails,
@@ -670,4 +769,4 @@ function renderCiEvidencePublicationSummary(
   return trimmed.endsWith('\n') ? trimmed : `${trimmed}\n`;
 }
 
-export { renderCiEvidencePublicationSummary };
+export { evaluateCiEvidencePublicationSummary, renderCiEvidencePublicationSummary };

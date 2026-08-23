@@ -10,6 +10,7 @@ const {
   buildCiEvidencePack,
   CiEvidencePackError,
   deriveCiEvidencePackTwoPlatformClaim,
+  parseCiEvidencePackBytes,
   readCiEvidencePack,
 } = require('../ci-evidence-pack');
 const { SCHEMAS, assertValidJson } = require('../schema-validator');
@@ -749,5 +750,57 @@ describe('ci evidence pack', () => {
     const pack = buildCiEvidencePack(input);
     assert.equal(pack.comparisonStatus, 'not_available');
     assert.equal(pack.twoPlatformClaim.status, 'passed');
+  });
+
+  it('parses schema-valid UTF-8 pack bytes without mutating caller bytes', () => {
+    const pack = buildCiEvidencePack(cloneInput());
+    const bytes = new TextEncoder().encode(JSON.stringify(pack));
+    const original = Uint8Array.from(bytes);
+    const parsed = parseCiEvidencePackBytes(bytes);
+    assert.deepEqual(parsed, pack);
+    assert.deepEqual(bytes, original);
+  });
+
+  it('rejects invalid UTF-8 pack bytes', () => {
+    assert.throws(() => parseCiEvidencePackBytes(new Uint8Array([0xff, 0xfe, 0xfd])), CiEvidencePackError);
+  });
+
+  it('rejects malformed JSON pack bytes', () => {
+    assert.throws(() => parseCiEvidencePackBytes(new TextEncoder().encode('{not-json')), CiEvidencePackError);
+  });
+
+  it('rejects schema-invalid JSON pack bytes', () => {
+    assert.throws(
+      () => parseCiEvidencePackBytes(new TextEncoder().encode(JSON.stringify({ schemaVersion: '1.0.0' }))),
+      (error: unknown) => error instanceof CiEvidencePackError,
+    );
+  });
+
+  it('rejects tampered derived mechanismStatus or twoPlatformClaim through existing semantics', () => {
+    const pack = buildCiEvidencePack(cloneInput());
+    assert.throws(
+      () =>
+        parseCiEvidencePackBytes(
+          new TextEncoder().encode(JSON.stringify({ ...pack, mechanismStatus: 'failed' })),
+        ),
+      CiEvidencePackError,
+    );
+    assert.throws(
+      () =>
+        parseCiEvidencePackBytes(
+          new TextEncoder().encode(
+            JSON.stringify({
+              ...pack,
+              twoPlatformClaim: { status: 'failed', reasons: ['tampered'] },
+            }),
+          ),
+        ),
+      CiEvidencePackError,
+    );
+  });
+
+  it('rejects non-Uint8Array input supplied through an unknown boundary', () => {
+    const unknown: unknown = [123];
+    assert.throws(() => parseCiEvidencePackBytes(unknown as Uint8Array), CiEvidencePackError);
   });
 });

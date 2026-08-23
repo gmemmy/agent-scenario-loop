@@ -2,12 +2,13 @@
 
 The runner owns host execution. It is the boundary between scenario contracts and whichever tool actually drives the device or captures evidence.
 
-The package ships nineteen public runner entrypoints. Package scripts build them into `dist/` before execution:
+The package ships twenty public runner entrypoints. Package scripts build them into `dist/` before execution:
 
 - `agent-device.ts`: executes scenario-declared portable driver actions through the external `agent-device` CLI, then writes ASL health, verdict, raw command transcripts, and capture artifacts.
 - `android-adb.ts`: checks adb availability, connected Android device readiness, optional package installation, optional React Native debug-host setup, optional package launch, ordered adb driver actions, bounded logcat output, and raw adb evidence.
 - `argent.ts`: executes scenario-declared launch and Argent-compatible portable driver actions through the external Argent CLI, then writes ASL health, verdict, raw command transcripts, and any screenshot captures Argent produced.
 - `check-plan.ts`: validates a scenario manifest, primary runner capability manifest, and optional evidence-provider manifests, then writes schema-checked `health.json`, `verdict.json`, `agent-summary.md`, and `planner-compatibility.json` before execution.
+- `ci-evidence-pack.ts`: runner-independent CI evidence-pack assembly and publication-summary CLI. Parse input is `process.argv`-shaped (`argv[0]`/`argv[1]` plus flags). Successful assemble writes emit one JSON stdout record with `phase`, `artifact`, `publicationAttempted=false`, `gateStatus` (`passed` or `failed`), `mechanismStatus`, and `twoPlatformClaimStatus`; successful summarize writes emit `phase`, `artifact`, and `gateStatus` equal to the publication evaluation. Exit 0 only when the current assemble or publication gate passes; a schema-valid nonpassing pack or failed evaluation remains written and exits 1. Usage wording is command-specific evidence-pack/publication-gate language and does not imply product, runtime, comparison, release, deployment, upload, or GitHub success. `--out` is protected against pack/receipt aliases (exact resolved-string equality plus realpath of an existing output, including symlink or case aliases); unresolved existing outputs fail closed as usage exit 2 before read or write. The CLI consumes existing artifacts from a closed request envelope, writes `ci-evidence-pack.json` and deterministic Markdown bound to those exact pack bytes plus a matching publication receipt, and performs no device, runtime, upload, or GitHub action. Runner kind on packed attempts is configuration and input provenance, not scenario semantics. Proof is the written pack, receipt, and stdout gate fields for that command only.
 - `compare.ts`: reads two completed run directories, validates `health.json` and `verdict.json`, then writes or prints a schema-checked `comparison.json`, including trusted native-performance comparison truth when the same-condition contract is proven.
 - `compare-latest.ts`: scans an artifact root for the newest trusted prior run for a scenario, rejects unhealthy current runs, then writes or prints a schema-checked `comparison.json`, including trusted native-performance comparison truth when available.
 - `demo-loop.ts`: runs the fixture preflight, profile history, and latest-trusted comparison without requiring a simulator.
@@ -53,6 +54,7 @@ Use runner entrypoints by responsibility:
 | Baseline comparison | `compare.ts`, `compare-latest.ts` |
 | Packaged example proof | `example-android-live.ts`, `example-ios-live.ts` |
 | Host readiness | `host-doctor.ts` |
+| CI evidence pack assembly and summary | `ci-evidence-pack.ts` |
 
 Use adapter modules by tool surface:
 
