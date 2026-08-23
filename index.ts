@@ -33,6 +33,9 @@ export * from './core/schema-validator';
 export * from './core/ci-evidence-pack';
 export * from './core/ci-evidence-publication-receipt';
 export * from './core/ci-evidence-publication-summary';
+export * from './core/ci-evidence-github-publication-input';
+export * from './core/ci-evidence-github-publication-gate';
+export * from './core/ci-evidence-github-publication-report';
 export {
   assembleCiEvidencePack,
   verifyCiEvidencePackLiveProofSet,
