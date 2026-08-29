@@ -771,6 +771,19 @@ function main(): void {
     });
 
     const packageRoot = path.join(installDir, 'node_modules', 'agent-scenario-loop');
+    const installedPackageManifest = JSON.parse(
+      fs.readFileSync(path.join(packageRoot, 'package.json'), 'utf8'),
+    ) as { dependencies?: Record<string, string> };
+    assert.equal(
+      Object.prototype.hasOwnProperty.call(installedPackageManifest.dependencies ?? {}, '@types/node'),
+      false,
+      'packed agent-scenario-loop must not declare a runtime dependency on @types/node',
+    );
+    assert.equal(
+      fs.existsSync(path.join(installDir, 'node_modules', '@types', 'node')),
+      false,
+      'packed-consumer install must not contain node_modules/@types/node',
+    );
     const commonJsSmokeScript = [
       "const assert = require('node:assert/strict');",
       "const asl = require('agent-scenario-loop');",
