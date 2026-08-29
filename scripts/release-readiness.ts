@@ -42,6 +42,11 @@ const REQUIRED_EXPORTS: Record<string, string | Record<string, string>> = {
     import: './app/profile-session.ts',
     default: './app/profile-session.ts',
   },
+  './app/profile-session-helper.json': {
+    import: './app/profile-session-helper.json',
+    require: './app/profile-session-helper.json',
+    default: './app/profile-session-helper.json',
+  },
   './examples/*': './examples/*',
   './package.json': './package.json',
   './runner/agent-device': {
@@ -200,6 +205,7 @@ const REQUIRED_PACKAGE_FILES = [
   'app/profile-session-authoritative-storage.ts',
   'app/profile-session.ts',
   'app/profile-session.d.ts',
+  'app/profile-session-helper.json',
   'app/profile-session-storage.d.ts',
   'app/profile-session-storage.ts',
   'core/config-template.json',
