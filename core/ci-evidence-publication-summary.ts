@@ -416,9 +416,23 @@ function renderAttempts(pack: CiEvidencePack): string {
   ].join('\n');
 }
 
+function publicationOutcomeSuppliesUsableLinkForAudience(
+  outcome: CiEvidencePublicationItemOutcome | undefined,
+  audience: CiEvidencePublicationAudience,
+): boolean {
+  if (outcome === undefined || outcome.status !== 'published' || !isSafeHttpsUrl(outcome.url)) {
+    return false;
+  }
+  if (audience === 'authenticated_reviewer') {
+    return outcome.visibility === 'public' || outcome.visibility === 'restricted';
+  }
+  return outcome.visibility === 'public';
+}
+
 function unpublishedRows(
   pack: CiEvidencePack,
   receipt: CiEvidencePublicationReceipt,
+  audience: CiEvidencePublicationAudience,
 ): string[][] {
   const rows: string[][] = [];
   const itemsById = new Map(receipt.requestedItems.map((item) => [item.requestId, item]));
@@ -444,11 +458,8 @@ function unpublishedRows(
       evidenceRecord !== undefined &&
       evidenceRecord.status !== 'present' &&
       outcome.status === 'published';
-    const lacksPublicLink =
-      outcome.status !== 'published' ||
-      outcome.visibility !== 'public' ||
-      !isSafeHttpsUrl(outcome.url);
-    if (!lacksPublicLink && !nonPresentPublished) {
+    const lacksUsableLink = !publicationOutcomeSuppliesUsableLinkForAudience(outcome, audience);
+    if (!lacksUsableLink && !nonPresentPublished) {
       continue;
     }
     let statusLabel: string = outcome.status;
@@ -491,11 +502,7 @@ function unpublishedRows(
           return false;
         }
         const { outcome } = outcomeForEvidence(receipt, evidence.evidenceId);
-        return (
-          outcome?.status === 'published' &&
-          outcome.visibility === 'public' &&
-          isSafeHttpsUrl(outcome.url)
-        );
+        return publicationOutcomeSuppliesUsableLinkForAudience(outcome, audience);
       });
       if (publishedPresent) {
         continue;
@@ -586,6 +593,12 @@ function cloneExactPackBytes(exactPackBytes: Uint8Array): Uint8Array {
   return Uint8Array.from(exactPackBytes);
 }
 
+export type CiEvidencePublicationAudience = 'public' | 'authenticated_reviewer';
+
+export interface CiEvidencePublicationSummaryEvaluationOptions {
+  audience?: CiEvidencePublicationAudience;
+}
+
 export type CiEvidencePublicationSummaryEvaluation =
   | {
       status: 'passed';
@@ -615,15 +628,20 @@ function prepareCiEvidencePublicationSummaryInputs(
 function evaluatePreparedPublicationSummary(
   pack: CiEvidencePack,
   receipt: CiEvidencePublicationReceipt,
+  audience: CiEvidencePublicationAudience,
 ): CiEvidencePublicationSummaryEvaluation {
-  const unpublishedCount = unpublishedRows(pack, receipt).length;
+  const unpublishedCount = unpublishedRows(pack, receipt, audience).length;
   const reasons: string[] = [];
   if (receipt.publicationStatus !== 'published') {
     reasons.push(`publicationStatus is ${receipt.publicationStatus}`);
   }
   if (unpublishedCount > 0) {
+    const linkKind =
+      audience === 'authenticated_reviewer'
+        ? 'usable authenticated-reviewer link'
+        : 'usable public link';
     reasons.push(
-      `${unpublishedCount} publication or required-evidence obligation(s) lack a usable public link`,
+      `${unpublishedCount} publication or required-evidence obligation(s) lack a ${linkKind}`,
     );
   }
   if (reasons.length === 0) {
@@ -636,13 +654,15 @@ function evaluateCiEvidencePublicationSummary(
   packInput: CiEvidencePack,
   receiptInput: CiEvidencePublicationReceipt,
   exactPackBytesInput: Uint8Array,
+  options?: CiEvidencePublicationSummaryEvaluationOptions,
 ): CiEvidencePublicationSummaryEvaluation {
+  const audience = options?.audience ?? 'public';
   const { pack, receipt } = prepareCiEvidencePublicationSummaryInputs(
     packInput,
     receiptInput,
     exactPackBytesInput,
   );
-  return evaluatePreparedPublicationSummary(pack, receipt);
+  return evaluatePreparedPublicationSummary(pack, receipt, audience);
 }
 
 function renderCiEvidencePublicationSummary(
@@ -655,7 +675,7 @@ function renderCiEvidencePublicationSummary(
     receiptInput,
     exactPackBytesInput,
   );
-  const evaluation = evaluatePreparedPublicationSummary(pack, receipt);
+  const evaluation = evaluatePreparedPublicationSummary(pack, receipt, 'public');
   const evidenceGateReasonsSection =
     evaluation.reasons.length === 0
       ? escapeMarkdownPlain('none')
@@ -706,7 +726,7 @@ function renderCiEvidencePublicationSummary(
     ],
   );
 
-  const unpublished = unpublishedRows(pack, receipt);
+  const unpublished = unpublishedRows(pack, receipt, 'public');
   const unpublishedSection =
     unpublished.length === 0
       ? table(
