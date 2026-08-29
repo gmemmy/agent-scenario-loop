@@ -67,6 +67,11 @@
       "require": "./app/profile-session.ts",
       "default": "./app/profile-session.ts"
     },
+    "./app/profile-session-helper.json": {
+      "import": "./app/profile-session-helper.json",
+      "require": "./app/profile-session-helper.json",
+      "default": "./app/profile-session-helper.json"
+    },
     "./runner/android-adb": {
       "types": "./dist/runner/android-adb.d.ts",
       "import": "./dist/runner/android-adb.js",
@@ -221,6 +226,7 @@
     "app/profile-session-command-ordering.ts",
     "app/profile-session-authoritative-storage.ts",
     "app/profile-session-dependency-controller.ts",
+    "app/profile-session-helper.json",
     "app/profile-session.d.ts",
     "app/profile-session-storage.d.ts",
     "app/profile-session-storage.ts",

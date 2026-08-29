@@ -39,6 +39,7 @@ import {
   resolveProfileSessionAuthorityStartedAt,
 } from './profile-session-authoritative-storage';
 import { PROFILE_SESSION_STORAGE_KEYS as PROFILE_SESSION_STORAGE_KEY_VALUES } from './profile-session-storage';
+import profileSessionHelperIdentity from './profile-session-helper.json';
 
 export type ProfileSessionState = {
   active: boolean;
@@ -207,9 +208,9 @@ function isStoredProfileSessionEntry(
   return true;
 }
 
-export const PROFILE_SESSION_HELPER_VERSION = '1.1.0';
-export const PROFILE_SESSION_HELPER_PAYLOAD_ID = 'agent-scenario-loop/profile-session-helper@1.1.0+setup-unscoped-milestones';
-export const PROFILE_SESSION_HELPER_PAYLOAD_SHA256 = 'b7421a84e8e39346702af2e7017a99ba492ced00de47446780e42a93146db275';
+export const PROFILE_SESSION_HELPER_VERSION = profileSessionHelperIdentity.version;
+export const PROFILE_SESSION_HELPER_PAYLOAD_ID = profileSessionHelperIdentity.payloadId;
+export const PROFILE_SESSION_HELPER_PAYLOAD_SHA256 = profileSessionHelperIdentity.payloadSha256;
 const PROFILE_SESSION_DEFAULT_STOP_ON_FAILURE = true;
 
 const INITIAL_STATE: ProfileSessionState = {
