@@ -20,6 +20,7 @@ test('profile-session helper keeps storage-backed command control safeguards', (
   const source = readSource('app/profile-session.ts');
   const declarationSource = readSource('app/profile-session.d.ts');
   const orderingSource = readSource('app/profile-session-command-ordering.ts');
+  const helperIdentitySource = readSource('app/profile-session-helper.json');
 
   assert.match(source, /const PROFILE_SESSION_MAX_AGE_MS = 2 \* 60 \* 60_000;/u);
   assert.match(source, /export function isProfileSessionFresh/u);
@@ -30,12 +31,24 @@ test('profile-session helper keeps storage-backed command control safeguards', (
   assert.match(source, /const PROFILE_SESSION_STORAGE_KEY = PROFILE_SESSION_STORAGE_KEY_VALUES\.session;/u);
   assert.match(source, /const PROFILE_SESSION_ENTRIES_STORAGE_KEY = PROFILE_SESSION_STORAGE_KEY_VALUES\.sessionEntries;/u);
   assert.match(source, /export const PROFILE_SESSION_STORAGE_KEYS = Object\.freeze/u);
-  assert.match(source, /export const PROFILE_SESSION_HELPER_VERSION = '1\.1\.0';/u);
+  assert.deepEqual(JSON.parse(helperIdentitySource), {
+    version: '1.1.0',
+    payloadId: 'agent-scenario-loop/profile-session-helper@1.1.0+setup-unscoped-milestones',
+    payloadSha256: 'b7421a84e8e39346702af2e7017a99ba492ced00de47446780e42a93146db275',
+  });
+  assert.match(source, /import profileSessionHelperIdentity from '\.\/profile-session-helper\.json';/u);
+  assert.match(source, /export const PROFILE_SESSION_HELPER_VERSION = profileSessionHelperIdentity\.version;/u);
+  assert.match(source, /export const PROFILE_SESSION_HELPER_PAYLOAD_ID = profileSessionHelperIdentity\.payloadId;/u);
   assert.match(
+    source,
+    /export const PROFILE_SESSION_HELPER_PAYLOAD_SHA256 = profileSessionHelperIdentity\.payloadSha256;/u,
+  );
+  assert.doesNotMatch(source, /export const PROFILE_SESSION_HELPER_VERSION = '1\.1\.0';/u);
+  assert.doesNotMatch(
     source,
     /export const PROFILE_SESSION_HELPER_PAYLOAD_ID = 'agent-scenario-loop\/profile-session-helper@1\.1\.0\+setup-unscoped-milestones';/u,
   );
-  assert.match(
+  assert.doesNotMatch(
     source,
     /export const PROFILE_SESSION_HELPER_PAYLOAD_SHA256 = 'b7421a84e8e39346702af2e7017a99ba492ced00de47446780e42a93146db275';/u,
   );

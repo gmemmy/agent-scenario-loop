@@ -785,20 +785,25 @@ When a provider command fails after writing some declared outputs, ASL keeps the
 Profile runs that ingest adb or simctl sidecar artifacts verify runtime identity when the profile command supplies an expected package, bundle, serial, or concrete simulator UDID, or when project config supplies a non-placeholder app id. A proven sidecar package, bundle, or target mismatch fails health with `runtime_identity_mismatch` before timing evidence is trusted. If the selected sidecar lacks metadata that can prove identity, health fails with `runtime_identity_unverified` instead of letting agents optimize from a run whose app or target cannot be proven.
 
 Profile-session helper evidence carries `helperVersion` and, for command-bearing
-session evidence, helper payload identity fields. The cadence state, fail-fast
-queue policy, and observed settle telemetry require helper version `1.1.0` plus
-the expected payload id/hash for the command behavior the runner released. When
-profile events or session entries prove a missing or mismatched helper version,
-profile health fails with `profile_session_helper_version_missing` or
+session evidence, helper payload identity fields. Installed-package identity is
+the machine-readable file `agent-scenario-loop/app/profile-session-helper.json`.
+Package gates may resolve and read that JSON without evaluating React Native
+helper source. The runtime helper derives the identity it emits from the same
+JSON. Copying helper source must also copy the identity JSON; package-subpath
+users receive both from the package. The cadence state, fail-fast queue policy,
+and observed settle telemetry require helper version `1.1.0` plus the expected
+payload id/hash for the command behavior the runner released. When profile
+events or session entries prove a missing or mismatched helper version, profile
+health fails with `profile_session_helper_version_missing` or
 `profile_session_helper_version_mismatch`. When command-bearing session evidence
 proves a same-version stale payload id/hash, profile health fails with
 `profile_session_helper_identity_mismatch` so agents do not optimize from stale
 app-helper behavior that merely shares the same version string. Command-bearing
 session evidence that lacks helper payload identity fails health with
 `profile_session_helper_identity_missing`; command, cadence, and truth evidence
-are not accepted from an unverifiable helper payload. The helper payload hash is
-a helper-emitted semantic contract digest, not a host-side byte attestation of
-the Metro bundle.
+are not accepted from an unverifiable helper payload. Mismatches fail closed.
+The helper payload hash is a helper-emitted semantic contract digest, not a
+host-side byte attestation of the Metro bundle.
 
 The current profile runner writes health, verdict, agent summary, metrics, causal-run, and budget-verdict artifacts.
 

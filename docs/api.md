@@ -519,17 +519,13 @@ For concrete runner and evidence-provider integration steps, see [Adapter Onboar
 
 ## App Helper
 
-`agent-scenario-loop/app/profile-session` is shipped as React Native source with a package-owned declaration file. Apps can copy `app/profile-session.ts` into their own codebase or re-export the package subpath from an app-local helper module. The `react-native` runtime condition points at `app/profile-session.ts` because the helper depends on app-side React Native modules, app bundling, and platform storage behavior; the `types` condition points at `app/profile-session.d.ts` so consumer TypeScript does not need to parse the implementation file from `node_modules`.
+The shipped helper comprises `app/profile-session.ts`, the package-owned declaration `app/profile-session.d.ts`, and the identity JSON `app/profile-session-helper.json`. Copying requires the source plus identity JSON; using the package subpaths supplies both. The `react-native` runtime condition points at `app/profile-session.ts` because the helper depends on app-side React Native modules, app bundling, and platform storage behavior; the `types` condition points at `app/profile-session.d.ts` so consumer TypeScript does not need to parse the implementation file from `node_modules`.
 
-The helper emits both `PROFILE_SESSION_HELPER_VERSION` and payload identity
-constants in app-owned profile evidence. Version equality alone is not a
-payload match: command-backed live proof requires the app bundle to emit the
-payload id/hash expected by the runner, otherwise ASL fails health before
-trusting command timing or milestone behavior.
+`agent-scenario-loop/app/profile-session-helper.json` is the machine-readable installed-package helper identity. Package gates can resolve and read that JSON without evaluating React Native source. The runtime helper derives `PROFILE_SESSION_HELPER_VERSION`, `PROFILE_SESSION_HELPER_PAYLOAD_ID`, and `PROFILE_SESSION_HELPER_PAYLOAD_SHA256` from the same JSON and emits those values in app-owned profile evidence. Version equality alone is not a payload match: command-backed live proof requires the app bundle to emit the payload id/hash expected by the runner, otherwise ASL fails health before trusting command timing or milestone behavior.
 
 The intended integration is:
 
-1. Copy `app/profile-session.ts` into the app, or re-export `agent-scenario-loop/app/profile-session` from an app-local helper.
+1. Copy `app/profile-session.ts` and `app/profile-session-helper.json` into the app, or re-export the package subpaths so both the helper source and identity JSON come from the installed package.
 2. Wire `useProfileSessionBootstrap()` once near the app root.
 3. Emit app-owned truth events with `emitProfileEvent()`.
 4. Register optional command targets with `registerProfileCommandTargetHandler()`.

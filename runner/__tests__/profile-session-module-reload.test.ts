@@ -93,6 +93,10 @@ function loadProfileSessionModule(storage: Map<string, string>): LoadedProfileSe
         return mocks[specifier];
       }
       if (specifier.startsWith('.')) {
+        if (specifier.endsWith('.json')) {
+          const jsonPath = path.resolve(path.dirname(normalizedPath), specifier);
+          return JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
+        }
         return load(path.resolve(path.dirname(normalizedPath), `${specifier}.ts`)).exports;
       }
       return require(specifier);
