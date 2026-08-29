@@ -439,6 +439,10 @@ describe('ci evidence publication receipt', () => {
       "https://example.test/pack.json'ignored",
       'https://example.test/pack.json`ignored',
       'https://example.test/pack.json|ignored',
+      'https://example.test/pack.json@ignored',
+      'https://example.test/pack.json{ignored',
+      'https://example.test/pack.json}ignored',
+      'https://example.test/pack.json\\ignored',
     ];
     const schemaValidReceipt = buildCiEvidencePublicationReceipt({
       packBytes: bytes,

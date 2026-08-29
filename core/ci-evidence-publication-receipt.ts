@@ -174,7 +174,7 @@ const FACTS_OWN_KEYS = [
 const PUBLISHER_REQUIRED_KEYS = ['providerId', 'providerKind', 'runId', 'attemptNumber'] as const;
 const PUBLISHER_OPTIONAL_KEYS = ['workflowId', 'jobId'] as const;
 const UNSAFE_URL_CHAR_PATTERN = /[\u0000-\u0020\u007F\u202A-\u202E\u2066-\u2069\uFEFF]/;
-const MARKDOWN_UNSAFE_URL_CHAR_PATTERN = /[()[\]<>"'`|]/;
+const MARKDOWN_UNSAFE_URL_CHAR_PATTERN = /[()[\]<>"'`|\\{}@]/;
 
 function jsonValuesEqual(left: unknown, right: unknown): boolean {
   if (Object.is(left, right)) {
