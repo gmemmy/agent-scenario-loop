@@ -1,0 +1,324 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-scenario-loop.dev/schemas/ci-evidence-publication-receipt.schema.json",
+  "title": "CI evidence publication receipt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "receiptId",
+    "createdAt",
+    "publisher",
+    "pack",
+    "requestedItems",
+    "outcomes",
+    "publicationStatus",
+    "reasons",
+    "summary",
+    "nextAction"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "1.0.0" },
+    "receiptId": { "type": "string", "minLength": 1 },
+    "createdAt": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{3}Z$"
+    },
+    "publisher": { "$ref": "#/$defs/publisher" },
+    "pack": { "$ref": "#/$defs/packBinding" },
+    "requestedItems": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/requestedItem" }
+    },
+    "outcomes": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/outcome" }
+    },
+    "publicationStatus": {
+      "enum": ["published", "partial", "failed", "not_published"]
+    },
+    "reasons": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "summary": { "type": "string", "minLength": 1 },
+    "nextAction": { "type": "string", "minLength": 1 }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "publicationStatus": { "const": "published" } },
+        "required": ["publicationStatus"]
+      },
+      "then": {
+        "properties": {
+          "reasons": { "maxItems": 0 }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "publicationStatus": { "enum": ["partial", "failed", "not_published"] }
+        },
+        "required": ["publicationStatus"]
+      },
+      "then": {
+        "properties": {
+          "reasons": { "minItems": 1 }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "publisher": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["providerId", "providerKind", "runId", "attemptNumber"],
+      "properties": {
+        "providerId": { "type": "string", "minLength": 1 },
+        "providerKind": { "enum": ["ci_workflow", "local", "unspecified"] },
+        "runId": { "type": "string", "minLength": 1 },
+        "workflowId": { "type": "string", "minLength": 1 },
+        "jobId": { "type": "string", "minLength": 1 },
+        "attemptNumber": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "packBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "packId",
+        "schemaVersion",
+        "sha256",
+        "byteSize",
+        "packRelativePath",
+        "source",
+        "liveProofSet",
+        "requiredPlatforms",
+        "requiredEvidenceKinds",
+        "mechanismStatus",
+        "twoPlatformClaim",
+        "comparisonStatus",
+        "completeness",
+        "assembly"
+      ],
+      "properties": {
+        "packId": { "type": "string", "minLength": 1 },
+        "schemaVersion": { "const": "1.0.0" },
+        "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "byteSize": { "type": "integer", "minimum": 1 },
+        "packRelativePath": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^(?!/)(?![A-Za-z]:)(?!\\\\)(?!.*\\\\)(?!.*//)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*(?:^|/)\\.(?:/|$))[^\\\\]+$"
+        },
+        "source": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["expectedSha", "status"],
+          "properties": {
+            "expectedSha": { "type": "string", "pattern": "^[a-f0-9]{40}$|^[a-f0-9]{64}$" },
+            "observedSha": { "type": "string", "pattern": "^[a-f0-9]{40}$|^[a-f0-9]{64}$" },
+            "status": { "enum": ["current", "stale", "missing", "mismatch"] }
+          }
+        },
+        "liveProofSet": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["relativePath", "sha256", "byteSize", "runId", "status"],
+          "properties": {
+            "relativePath": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^(?!/)(?![A-Za-z]:)(?!\\\\)(?!.*\\\\)(?!.*//)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*(?:^|/)\\.(?:/|$))[^\\\\]+$"
+            },
+            "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+            "byteSize": { "type": "integer", "minimum": 1 },
+            "runId": { "type": "string", "minLength": 1 },
+            "status": { "enum": ["passed", "failed"] }
+          }
+        },
+        "requiredPlatforms": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "uniqueItems": true,
+          "items": { "enum": ["android", "ios"] }
+        },
+        "requiredEvidenceKinds": {
+          "type": "array",
+          "minItems": 2,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "recording",
+              "screenshot",
+              "log",
+              "metrics",
+              "health",
+              "verdict",
+              "comparison",
+              "summary",
+              "other"
+            ]
+          }
+        },
+        "mechanismStatus": { "enum": ["succeeded", "failed"] },
+        "twoPlatformClaim": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "reasons"],
+          "properties": {
+            "status": { "enum": ["passed", "failed", "not_evaluable"] },
+            "reasons": {
+              "type": "array",
+              "items": { "type": "string", "minLength": 1 }
+            }
+          }
+        },
+        "comparisonStatus": {
+          "enum": ["comparable", "not_evaluable", "not_available"]
+        },
+        "completeness": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "reasons"],
+          "properties": {
+            "status": { "enum": ["complete", "incomplete"] },
+            "reasons": {
+              "type": "array",
+              "items": { "type": "string", "minLength": 1 }
+            }
+          }
+        },
+        "assembly": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "reasons"],
+          "properties": {
+            "status": { "enum": ["succeeded", "failed"] },
+            "reasons": {
+              "type": "array",
+              "items": { "type": "string", "minLength": 1 }
+            }
+          }
+        }
+      }
+    },
+    "requestedItem": {
+      "allOf": [
+        {
+          "type": "object",
+          "required": ["requestId", "targetKind"],
+          "properties": {
+            "requestId": { "type": "string", "minLength": 1 },
+            "targetKind": { "enum": ["pack_artifact", "evidence"] }
+          }
+        },
+        {
+          "if": {
+            "properties": { "targetKind": { "const": "pack_artifact" } },
+            "required": ["targetKind"]
+          },
+          "then": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["requestId", "targetKind", "packArtifact"],
+            "properties": {
+              "requestId": { "type": "string", "minLength": 1 },
+              "targetKind": { "const": "pack_artifact" },
+              "packArtifact": { "enum": ["ci_evidence_pack", "live_proof_set"] }
+            }
+          },
+          "else": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["requestId", "targetKind", "evidenceId"],
+            "properties": {
+              "requestId": { "type": "string", "minLength": 1 },
+              "targetKind": { "const": "evidence" },
+              "evidenceId": { "type": "string", "minLength": 1 }
+            }
+          }
+        }
+      ]
+    },
+    "outcome": {
+      "allOf": [
+        {
+          "type": "object",
+          "required": ["requestId", "status"],
+          "properties": {
+            "requestId": { "type": "string", "minLength": 1 },
+            "status": {
+              "enum": [
+                "published",
+                "omitted",
+                "rejected",
+                "private",
+                "not_available",
+                "failed",
+                "invalid"
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "status": { "const": "published" } },
+            "required": ["status"]
+          },
+          "then": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["requestId", "status", "url", "visibility", "publishedAt"],
+            "not": { "required": ["reason"] },
+            "properties": {
+              "requestId": { "type": "string", "minLength": 1 },
+              "status": { "const": "published" },
+              "url": {
+                "type": "string",
+                "minLength": 12,
+                "pattern": "^https://[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?(?::[0-9]{1,5})?(?:/[!#$%&*+,\\-./0-9:;=?@A-Z^_a-z{}~]*)?$"
+              },
+              "visibility": { "enum": ["public", "restricted"] },
+              "publishedAt": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{3}Z$"
+              }
+            }
+          },
+          "else": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["requestId", "status", "reason"],
+            "not": {
+              "anyOf": [
+                { "required": ["url"] },
+                { "required": ["visibility"] },
+                { "required": ["publishedAt"] }
+              ]
+            },
+            "properties": {
+              "requestId": { "type": "string", "minLength": 1 },
+              "status": {
+                "enum": [
+                  "omitted",
+                  "rejected",
+                  "private",
+                  "not_available",
+                  "failed",
+                  "invalid"
+                ]
+              },
+              "reason": { "type": "string", "minLength": 1 }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

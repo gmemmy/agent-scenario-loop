@@ -31,6 +31,8 @@ export * from './core/quick-proof';
 export * from './core/run-index';
 export * from './core/schema-validator';
 export * from './core/ci-evidence-pack';
+export * from './core/ci-evidence-publication-receipt';
+export * from './core/ci-evidence-publication-summary';
 export {
   assembleCiEvidencePack,
   verifyCiEvidencePackLiveProofSet,

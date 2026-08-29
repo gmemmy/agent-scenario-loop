@@ -88,6 +88,7 @@ const SCHEMAS = {
   budgetVerdict: loadSchema('budget-verdict.schema.json'),
   causalRun: loadSchema('causal-run.schema.json'),
   ciEvidencePack: loadSchema('ci-evidence-pack.schema.json'),
+  ciEvidencePublicationReceipt: loadSchema('ci-evidence-publication-receipt.schema.json'),
   comparison: loadSchema('comparison.schema.json'),
   externalAdapterMessage: loadSchema('external-adapter-message.schema.json'),
   health: loadSchema('health.schema.json'),
