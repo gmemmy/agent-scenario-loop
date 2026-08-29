@@ -39,6 +39,7 @@
     "asl-compare": "dist/runner/compare.js",
     "asl-compare-latest": "dist/runner/compare-latest.js",
     "asl-check-plan": "dist/runner/check-plan.js",
+    "asl-ci-evidence-pack": "dist/runner/ci-evidence-pack.js",
     "asl-demo-loop": "dist/runner/demo-loop.js",
     "asl-example-android-live": "dist/runner/example-android-live.js",
     "asl-example-ios-live": "dist/runner/example-ios-live.js",
@@ -107,6 +108,12 @@
       "import": "./dist/runner/check-plan.js",
       "require": "./dist/runner/check-plan.js",
       "default": "./dist/runner/check-plan.js"
+    },
+    "./runner/ci-evidence-pack": {
+      "types": "./dist/runner/ci-evidence-pack.d.ts",
+      "import": "./dist/runner/ci-evidence-pack.js",
+      "require": "./dist/runner/ci-evidence-pack.js",
+      "default": "./dist/runner/ci-evidence-pack.js"
     },
     "./runner/compare": {
       "types": "./dist/runner/compare.d.ts",

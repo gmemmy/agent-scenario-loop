@@ -6,7 +6,10 @@ const {
   buildCiEvidencePublicationReceipt,
   CiEvidencePublicationReceiptError,
 } = require('../ci-evidence-publication-receipt');
-const { renderCiEvidencePublicationSummary } = require('../ci-evidence-publication-summary');
+const {
+  evaluateCiEvidencePublicationSummary,
+  renderCiEvidencePublicationSummary,
+} = require('../ci-evidence-publication-summary');
 import type { CiEvidencePack, CiEvidencePackBuildInput } from '../ci-evidence-pack';
 import type {
   CiEvidencePublicationItemOutcome,
@@ -193,6 +196,18 @@ function renderFrom(input: CiEvidencePackBuildInput, facts: CiEvidencePublicatio
   return { pack, receipt, exactBytes, markdown: renderCiEvidencePublicationSummary(pack, receipt, exactBytes) };
 }
 
+function evaluateFrom(input: CiEvidencePackBuildInput, facts: CiEvidencePublicationReceiptFacts) {
+  const pack = buildCiEvidencePack(input);
+  const exactBytes = packBytes(pack);
+  const receipt = buildCiEvidencePublicationReceipt({ packBytes: exactBytes, facts });
+  return {
+    pack,
+    receipt,
+    exactBytes,
+    result: evaluateCiEvidencePublicationSummary(pack, receipt, exactBytes),
+  };
+}
+
 describe('ci evidence publication summary', () => {
   it('emits deterministic golden output with exactly one trailing newline', () => {
     const { markdown, receipt } = renderFrom(validPackInput(), cloneFacts());
@@ -214,6 +229,7 @@ describe('ci evidence publication summary', () => {
       '## iOS evidence',
       '## Attempts',
       '## Unpublished and missing evidence',
+      '## Publication evidence gate',
       '## Guardrails',
     ];
     let lastIndex = -1;
@@ -1006,5 +1022,344 @@ describe('ci evidence publication summary', () => {
     assert.equal(identity.includes('&rlm;'), false);
     assert.equal(identity.includes('&nbsp;'), false);
     assert.equal(identity.includes('&lt;script&gt;'), false);
+  });
+});
+
+describe('ci evidence publication summary evaluation', () => {
+  it('passes for the fully public complete fixture', () => {
+    const { result, receipt } = evaluateFrom(validPackInput(), cloneFacts());
+    assert.equal(receipt.publicationStatus, 'published');
+    assert.deepEqual(result, { status: 'passed', reasons: [] });
+  });
+
+  it('fails a partial receipt with both ordered reasons when an obligation is also missing', () => {
+    const facts = cloneFacts();
+    facts.outcomes[2] = {
+      requestId: 'req-android-recording',
+      status: 'rejected',
+      reason: 'policy rejected',
+    };
+    const { result, receipt } = evaluateFrom(validPackInput(), facts);
+    const { markdown } = renderFrom(validPackInput(), facts);
+    assert.equal(receipt.publicationStatus, 'partial');
+    assert.deepEqual(result, {
+      status: 'failed',
+      reasons: [
+        'publicationStatus is partial',
+        '2 publication or required-evidence obligation(s) lack a usable public link',
+      ],
+    });
+    const unpublished = markdown.slice(markdown.indexOf('## Unpublished and missing evidence'));
+    assert.match(unpublished, /android:recording/);
+    assert.match(unpublished, /rejected/);
+  });
+
+  it('fails a published receipt when a required selected-attempt kind is unrequested', () => {
+    const facts = cloneFacts();
+    facts.requestedItems = facts.requestedItems.filter(
+      (item) => item.requestId !== 'req-android-recording',
+    );
+    facts.outcomes = facts.outcomes.filter((outcome) => outcome.requestId !== 'req-android-recording');
+    const { result, receipt } = evaluateFrom(validPackInput(), facts);
+    const { markdown } = renderFrom(validPackInput(), facts);
+    assert.equal(receipt.publicationStatus, 'published');
+    assert.deepEqual(result, {
+      status: 'failed',
+      reasons: ['1 publication or required-evidence obligation(s) lack a usable public link'],
+    });
+    const unpublished = markdown.slice(markdown.indexOf('## Unpublished and missing evidence'));
+    assert.match(
+      unpublished,
+      /\| android:recording \| android \| present \| required platform\+kind obligation lacks a published link \|/,
+    );
+  });
+
+  it('fails when required selected-attempt evidence is restricted-only', () => {
+    const facts = cloneFacts();
+    facts.outcomes[2] = publishedOutcome(
+      'req-android-recording',
+      'https://example.test/android-recording.bin',
+      'restricted',
+    );
+    const { result, receipt } = evaluateFrom(validPackInput(), facts);
+    const { markdown } = renderFrom(validPackInput(), facts);
+    assert.equal(receipt.publicationStatus, 'published');
+    assert.deepEqual(result, {
+      status: 'failed',
+      reasons: ['2 publication or required-evidence obligation(s) lack a usable public link'],
+    });
+    const unpublished = markdown.slice(markdown.indexOf('## Unpublished and missing evidence'));
+    const unpublishedRows = unpublished.split('\n').filter((line: string) => line.startsWith('| '));
+    const obligationRow = unpublishedRows.find((line: string) =>
+      line.includes('| android:recording |'),
+    );
+    const restrictedRow = unpublishedRows.find((line: string) =>
+      /published \\\(restricted\\\)/.test(line),
+    );
+    assert.match(
+      obligationRow ?? '',
+      /\| android:recording \| android \| present \| required platform\+kind obligation lacks a published link \|/,
+    );
+    assert.match(restrictedRow ?? '', /restricted; no public review link/);
+  });
+
+  it('throws for exact-byte mismatch and unsafe published URLs exactly as the renderer does', () => {
+    const pack = buildCiEvidencePack(validPackInput());
+    const compactBytes = packBytes(pack);
+    const receipt = buildCiEvidencePublicationReceipt({
+      packBytes: compactBytes,
+      facts: cloneFacts(),
+    });
+    const spacedBytes = Buffer.from(`${JSON.stringify(pack)}\n`, 'utf8');
+    assert.throws(
+      () => evaluateCiEvidencePublicationSummary(pack, receipt, spacedBytes),
+      CiEvidencePublicationReceiptError,
+    );
+    assert.throws(
+      () => renderCiEvidencePublicationSummary(pack, receipt, spacedBytes),
+      CiEvidencePublicationReceiptError,
+    );
+
+    const withUnsafeUrl = {
+      ...receipt,
+      outcomes: receipt.outcomes.map((outcome: CiEvidencePublicationItemOutcome, index: number) =>
+        index === 0
+          ? {
+              ...outcome,
+              status: 'published' as const,
+              url: 'javascript:alert(1)',
+            }
+          : outcome,
+      ),
+    };
+    assert.throws(
+      () => evaluateCiEvidencePublicationSummary(pack, withUnsafeUrl, compactBytes),
+      CiEvidencePublicationReceiptError,
+    );
+    assert.throws(
+      () => renderCiEvidencePublicationSummary(pack, withUnsafeUrl, compactBytes),
+      CiEvidencePublicationReceiptError,
+    );
+  });
+
+  it('fails a published receipt when ci_evidence_pack was never requested', () => {
+    const facts = cloneFacts();
+    facts.requestedItems = facts.requestedItems.filter((item) => item.requestId !== 'req-pack');
+    facts.outcomes = facts.outcomes.filter((outcome) => outcome.requestId !== 'req-pack');
+    const { result, receipt, markdown } = {
+      ...evaluateFrom(validPackInput(), facts),
+      markdown: renderFrom(validPackInput(), facts).markdown,
+    };
+    assert.equal(receipt.publicationStatus, 'published');
+    assert.deepEqual(result, {
+      status: 'failed',
+      reasons: ['1 publication or required-evidence obligation(s) lack a usable public link'],
+    });
+    const unpublished = markdown.slice(markdown.indexOf('## Unpublished and missing evidence'));
+    assert.match(unpublished, /ci\\_evidence\\_pack/);
+    assert.match(unpublished, /mandatory artifact lacks a published public link/);
+  });
+
+  it('fails a published receipt when live_proof_set was never requested', () => {
+    const facts = cloneFacts();
+    facts.requestedItems = facts.requestedItems.filter((item) => item.requestId !== 'req-lps');
+    facts.outcomes = facts.outcomes.filter((outcome) => outcome.requestId !== 'req-lps');
+    const { result, receipt } = evaluateFrom(validPackInput(), facts);
+    const { markdown } = renderFrom(validPackInput(), facts);
+    assert.equal(receipt.publicationStatus, 'published');
+    assert.deepEqual(result, {
+      status: 'failed',
+      reasons: ['1 publication or required-evidence obligation(s) lack a usable public link'],
+    });
+    const unpublished = markdown.slice(markdown.indexOf('## Unpublished and missing evidence'));
+    assert.match(unpublished, /live\\_proof\\_set/);
+    assert.match(unpublished, /mandatory artifact lacks a published public link/);
+  });
+
+  it('fails when ci_evidence_pack is restricted while other outcomes remain public', () => {
+    const facts = cloneFacts();
+    facts.outcomes[0] = publishedOutcome(
+      'req-pack',
+      'https://example.test/pack.json',
+      'restricted',
+    );
+    const { result, receipt } = evaluateFrom(validPackInput(), facts);
+    const { markdown } = renderFrom(validPackInput(), facts);
+    assert.equal(receipt.publicationStatus, 'published');
+    assert.deepEqual(result, {
+      status: 'failed',
+      reasons: ['1 publication or required-evidence obligation(s) lack a usable public link'],
+    });
+    const unpublished = markdown.slice(markdown.indexOf('## Unpublished and missing evidence'));
+    const packRows = unpublished
+      .split('\n')
+      .filter((line: string) => line.includes('ci\\_evidence\\_pack'));
+    assert.equal(packRows.length, 1);
+    assert.match(packRows[0] ?? '', /published \\\(restricted\\\)/);
+  });
+
+  it('fails when live_proof_set is restricted while other outcomes remain public', () => {
+    const facts = cloneFacts();
+    facts.outcomes[1] = publishedOutcome(
+      'req-lps',
+      'https://example.test/lps.json',
+      'restricted',
+    );
+    const { result, receipt } = evaluateFrom(validPackInput(), facts);
+    const { markdown } = renderFrom(validPackInput(), facts);
+    assert.equal(receipt.publicationStatus, 'published');
+    assert.deepEqual(result, {
+      status: 'failed',
+      reasons: ['1 publication or required-evidence obligation(s) lack a usable public link'],
+    });
+    const unpublished = markdown.slice(markdown.indexOf('## Unpublished and missing evidence'));
+    const lpsRows = unpublished.split('\n').filter((line: string) => line.includes('live\\_proof\\_set'));
+    assert.equal(lpsRows.length, 1);
+    assert.match(lpsRows[0] ?? '', /published \\\(restricted\\\)/);
+  });
+
+  it('keeps missing pack-artifact obligation ordering identical when requests and outcomes are reversed', () => {
+    const facts = cloneFacts();
+    facts.requestedItems = facts.requestedItems.filter((item) => item.requestId !== 'req-pack');
+    facts.outcomes = facts.outcomes.filter((outcome) => outcome.requestId !== 'req-pack');
+    const reversedFacts = cloneFacts();
+    reversedFacts.requestedItems = [...facts.requestedItems].reverse();
+    reversedFacts.outcomes = [...facts.outcomes].reverse();
+    const forwardEval = evaluateFrom(validPackInput(), facts).result;
+    const reversedEval = evaluateFrom(validPackInput(), reversedFacts).result;
+    assert.deepEqual(forwardEval, reversedEval);
+    const forwardMarkdown = renderFrom(validPackInput(), facts).markdown;
+    const reversedMarkdown = renderFrom(validPackInput(), reversedFacts).markdown;
+    const unpublishedForward = forwardMarkdown.slice(
+      forwardMarkdown.indexOf('## Unpublished and missing evidence'),
+      forwardMarkdown.indexOf('## Guardrails'),
+    );
+    const unpublishedReversed = reversedMarkdown.slice(
+      reversedMarkdown.indexOf('## Unpublished and missing evidence'),
+      reversedMarkdown.indexOf('## Guardrails'),
+    );
+    assert.equal(unpublishedForward, unpublishedReversed);
+  });
+
+  it('is deterministic under reversed ordering and does not mutate caller inputs', () => {
+    const pack = buildCiEvidencePack(validPackInput());
+    const exactBytes = packBytes(pack);
+    const receipt = buildCiEvidencePublicationReceipt({
+      packBytes: exactBytes,
+      facts: cloneFacts(),
+    });
+    const packBefore = JSON.stringify(pack);
+    const receiptBefore = JSON.stringify(receipt);
+    const bytesBefore = Array.from(exactBytes);
+    const first = evaluateCiEvidencePublicationSummary(pack, receipt, exactBytes);
+    assert.equal(JSON.stringify(pack), packBefore);
+    assert.equal(JSON.stringify(receipt), receiptBefore);
+    assert.deepEqual(Array.from(exactBytes), bytesBefore);
+
+    const reversedInput = validPackInput();
+    reversedInput.attempts = [...reversedInput.attempts].reverse();
+    reversedInput.evidence = [...reversedInput.evidence].reverse();
+    reversedInput.requiredPlatforms = ['ios', 'android'];
+    reversedInput.requiredEvidenceKinds = ['verdict', 'recording'];
+    const reversedFacts = cloneFacts();
+    reversedFacts.requestedItems = [...reversedFacts.requestedItems].reverse();
+    reversedFacts.outcomes = [...reversedFacts.outcomes].reverse();
+    const reversed = evaluateFrom(reversedInput, reversedFacts).result;
+    assert.deepEqual(first, { status: 'passed', reasons: [] });
+    assert.deepEqual(reversed, first);
+  });
+
+  it('renders the same publication evidence gate evaluation as evaluateCiEvidencePublicationSummary', () => {
+    const passed = evaluateFrom(validPackInput(), cloneFacts());
+    const passedMarkdown = renderCiEvidencePublicationSummary(
+      passed.pack,
+      passed.receipt,
+      passed.exactBytes,
+    );
+    assert.deepEqual(passed.result, { status: 'passed', reasons: [] });
+    assert.match(passedMarkdown, /\| publication evidence gate \| passed \|/);
+    assert.match(passedMarkdown, /## Publication evidence gate\n\nnone\n/);
+    assert.doesNotMatch(passedMarkdown, /\|\s*publication evidence gate \| (?:product|runtime|release|deployment)/i);
+    const passedGate = passedMarkdown.slice(
+      passedMarkdown.indexOf('## Publication evidence gate'),
+      passedMarkdown.indexOf('## Guardrails'),
+    );
+    assert.equal(passedGate.includes('product acceptance'), false);
+    assert.equal(passedGate.includes('runtime acceptance'), false);
+    assert.equal(passedGate.includes('release acceptance'), false);
+    assert.equal(passedGate.includes('deployment acceptance'), false);
+
+    const facts = cloneFacts();
+    facts.requestedItems = facts.requestedItems.filter(
+      (item) => item.requestId !== 'req-android-recording',
+    );
+    facts.outcomes = facts.outcomes.filter((outcome) => outcome.requestId !== 'req-android-recording');
+    const failed = evaluateFrom(validPackInput(), facts);
+    const failedMarkdown = renderCiEvidencePublicationSummary(
+      failed.pack,
+      failed.receipt,
+      failed.exactBytes,
+    );
+    assert.deepEqual(failed.result, {
+      status: 'failed',
+      reasons: ['1 publication or required-evidence obligation(s) lack a usable public link'],
+    });
+    assert.match(failedMarkdown, /\| publication evidence gate \| failed \|/);
+    const failedGate = failedMarkdown.slice(
+      failedMarkdown.indexOf('## Publication evidence gate'),
+      failedMarkdown.indexOf('## Guardrails'),
+    );
+    assert.equal(
+      failedGate.includes(`- ${failed.result.reasons[0]!.replaceAll('(', '\\(').replaceAll(')', '\\)')}`),
+      true,
+    );
+    assert.equal(failedGate.includes('none'), false);
+    assert.equal(failedGate.includes('http://'), false);
+    assert.equal(failedGate.includes('https://'), false);
+    assert.doesNotMatch(failedMarkdown, /\|\s*publication evidence gate \| (?:product|runtime|release|deployment)/i);
+    assert.equal(failedGate.includes('product acceptance'), false);
+    assert.equal(failedGate.includes('runtime acceptance'), false);
+    assert.equal(failedGate.includes('release acceptance'), false);
+    assert.equal(failedGate.includes('deployment acceptance'), false);
+  });
+
+  it('renders publication evidence gate reasons in canonical evaluate order without mutating inputs', () => {
+    const facts = cloneFacts();
+    facts.outcomes[2] = {
+      requestId: 'req-android-recording',
+      status: 'rejected',
+      reason: 'publisher rejected the artifact',
+    };
+    const pack = buildCiEvidencePack(validPackInput());
+    const exactBytes = packBytes(pack);
+    const receipt = buildCiEvidencePublicationReceipt({ packBytes: exactBytes, facts });
+    const packBefore = JSON.stringify(pack);
+    const receiptBefore = JSON.stringify(receipt);
+    const bytesBefore = Array.from(exactBytes);
+    const evaluation = evaluateCiEvidencePublicationSummary(pack, receipt, exactBytes);
+    const markdown = renderCiEvidencePublicationSummary(pack, receipt, exactBytes);
+    assert.equal(JSON.stringify(pack), packBefore);
+    assert.equal(JSON.stringify(receipt), receiptBefore);
+    assert.deepEqual(Array.from(exactBytes), bytesBefore);
+    assert.equal(evaluation.status, 'failed');
+    assert.equal(evaluation.reasons.length > 1, true);
+    const gateBody = markdown.slice(
+      markdown.indexOf('## Publication evidence gate\n') + '## Publication evidence gate\n'.length,
+      markdown.indexOf('## Guardrails'),
+    );
+    const listed = evaluation.reasons
+      .map((reason: string) => `- ${reason.replaceAll('(', '\\(').replaceAll(')', '\\)')}`)
+      .join('\n');
+    assert.equal(gateBody.includes(listed), true);
+    const firstReasonIndex = gateBody.indexOf(
+      `- ${evaluation.reasons[0]!.replaceAll('(', '\\(').replaceAll(')', '\\)')}`,
+    );
+    const secondReasonIndex = gateBody.indexOf(
+      `- ${evaluation.reasons[1]!.replaceAll('(', '\\(').replaceAll(')', '\\)')}`,
+    );
+    assert.equal(firstReasonIndex >= 0, true);
+    assert.equal(secondReasonIndex > firstReasonIndex, true);
+    assert.match(markdown, /\| publication evidence gate \| failed \|/);
+    assert.doesNotMatch(markdown, /\|\s*publication evidence gate \| (?:product|runtime|release|deployment)/i);
   });
 });

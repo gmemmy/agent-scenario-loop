@@ -838,11 +838,38 @@ function buildCiEvidencePack(input: CiEvidencePackBuildInput): CiEvidencePack {
   return artifact;
 }
 
+function parseCiEvidencePackBytes(bytes: Uint8Array): CiEvidencePack {
+  if (!(bytes instanceof Uint8Array)) {
+    throw new CiEvidencePackError('ci-evidence-pack bytes must be a Uint8Array');
+  }
+  let text: string;
+  try {
+    text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  } catch {
+    throw new CiEvidencePackError('ci-evidence-pack is not valid UTF-8');
+  }
+  let raw: unknown;
+  try {
+    raw = JSON.parse(text);
+  } catch {
+    throw new CiEvidencePackError('ci-evidence-pack is not valid JSON');
+  }
+  try {
+    const artifact = assertValidJson(raw, SCHEMAS.ciEvidencePack, 'ci-evidence-pack') as CiEvidencePack;
+    assertCiEvidencePackSemantics(artifact);
+    return artifact;
+  } catch (error) {
+    if (error instanceof CiEvidencePackError) {
+      throw error;
+    }
+    const message =
+      error instanceof Error ? error.message : 'ci-evidence-pack failed schema or semantic validation';
+    throw new CiEvidencePackError(message);
+  }
+}
+
 function readCiEvidencePack(filePath: string): CiEvidencePack {
-  const raw: unknown = JSON.parse(readFileSync(filePath, 'utf8'));
-  const artifact = assertValidJson(raw, SCHEMAS.ciEvidencePack, 'ci-evidence-pack') as CiEvidencePack;
-  assertCiEvidencePackSemantics(artifact);
-  return artifact;
+  return parseCiEvidencePackBytes(readFileSync(filePath));
 }
 
 export {
@@ -853,5 +880,6 @@ export {
   buildCiEvidencePack,
   deriveCiEvidencePackMechanismStatus,
   deriveCiEvidencePackTwoPlatformClaim,
+  parseCiEvidencePackBytes,
   readCiEvidencePack,
 };

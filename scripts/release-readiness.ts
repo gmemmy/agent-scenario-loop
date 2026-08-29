@@ -11,6 +11,7 @@ const REQUIRED_BIN_TARGETS: Record<string, string> = {
   'asl-android-adb': 'dist/runner/android-adb.js',
   'asl-argent': 'dist/runner/argent.js',
   'asl-check-plan': 'dist/runner/check-plan.js',
+  'asl-ci-evidence-pack': 'dist/runner/ci-evidence-pack.js',
   'asl-compare': 'dist/runner/compare.js',
   'asl-compare-latest': 'dist/runner/compare-latest.js',
   'asl-demo-loop': 'dist/runner/demo-loop.js',
@@ -84,6 +85,12 @@ const REQUIRED_EXPORTS: Record<string, string | Record<string, string>> = {
     types: './dist/runner/check-plan.d.ts',
     import: './dist/runner/check-plan.js',
     default: './dist/runner/check-plan.js',
+  },
+  './runner/ci-evidence-pack': {
+    require: './dist/runner/ci-evidence-pack.js',
+    types: './dist/runner/ci-evidence-pack.d.ts',
+    import: './dist/runner/ci-evidence-pack.js',
+    default: './dist/runner/ci-evidence-pack.js',
   },
   './runner/compare': {
     require: './dist/runner/compare.js',
