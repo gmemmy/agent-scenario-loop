@@ -39,6 +39,10 @@ The root package is for stable, runner-neutral behavior:
 - comparison artifacts, including `comparison.json` schemaVersion `1.1.0` with optional native-performance comparison truth
 - local historical evaluation structural types and semantic validation for consumer-produced `historical-evaluation.json`
 - aggregate live-proof artifacts
+- CI evidence-pack types and helpers (`CiEvidencePack`, `buildCiEvidencePack`,
+  `readCiEvidencePack`, `deriveCiEvidencePackMechanismStatus`,
+  `deriveCiEvidencePackTwoPlatformClaim`, `assertCiEvidencePackSemantics`,
+  `assertCiEvidencePackRunRelativePath`) plus `SCHEMAS.ciEvidencePack`
 - quick-proof coordination for bounded setup, operation-specific capability
   discovery, scoped authorization and lease propagation, one retry per adapter
   path, deterministic pre-product fallback, and setup-only friction evidence
@@ -46,6 +50,8 @@ The root package is for stable, runner-neutral behavior:
 - Android native-performance evidence normalization from provider-captured `gfxinfo`, framestats, `meminfo`, and trace-processor summaries
 - iOS native-performance evidence normalization from provider-captured Instruments, xctrace, MetricKit, simctl, or native-trace summaries, including parser helpers for common xctrace and MetricKit text summaries
 - shared Android/iOS native-performance comparison-readiness classification from captured source, bounded window, observed target, completeness, comparability, and claim evidence
+
+TypeScript consumers can import `CiEvidencePack` types and the named builder, reader, and derivation helpers from the package root. `buildCiEvidencePack` and `readCiEvidencePack` validate the pack schema and cross-record semantics. `liveProofSet` is one hash-bearing reference to a caller-validated live-proof-set; this slice does not read or verify linked live-proof-set bytes. Linked byte, hash, and inventory verification belong to a later assembler. Emitted packs are not rewritten; retries remain distinct retained attempts. That immutability is artifact lifecycle, not a JavaScript deep-freeze. Mechanism status, the derived Android+iOS evidence claim, product verdict, comparison, publication, release, and deployment remain distinct. The schema is shipped at `agent-scenario-loop/schemas/ci-evidence-pack.schema.json` and registered as `SCHEMAS.ciEvidencePack`. This slice is contract, types, reader, builder, and schema only: it does not add a runner, CLI, upload field, or PR publication behavior.
 
 TypeScript consumers can import `HistoricalEvaluationArtifact`, the explicitly named `UnvalidatedHistoricalEvaluationArtifact`, and the branded `ValidatedHistoricalEvaluationArtifact` from the package root. `HistoricalEvaluationArtifact` is an unvalidated structural alias; TypeScript cannot prove schema refinements or cross-record integrity. Call `validateHistoricalEvaluationArtifact(unknown)` to run both the strict schema and semantic integrity checks before accepting the branded result. The schema is shipped at `agent-scenario-loop/schemas/historical-evaluation.schema.json` and registered as `SCHEMAS.historicalEvaluation`. This V1 surface remains consumer-produced and local-only; it does not export an evaluator, selector, reader, writer, or CLI command, and it does not alter `comparison.json` or process exit behavior.
 
