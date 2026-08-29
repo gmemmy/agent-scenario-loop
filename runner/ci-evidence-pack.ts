@@ -6,6 +6,7 @@ const path = require('node:path');
 
 const { assembleCiEvidencePack } = require('../core/ci-evidence-pack-assembler');
 const { parseCiEvidencePackBytes } = require('../core/ci-evidence-pack');
+const { buildCiEvidenceGithubPublicationReport } = require('../core/ci-evidence-github-publication-report');
 const { readCiEvidencePublicationReceipt } = require('../core/ci-evidence-publication-receipt');
 const {
   evaluateCiEvidencePublicationSummary,
@@ -23,11 +24,13 @@ export const usage = [
   'Subcommands:',
   '  assemble --request <request.json>',
   '  summarize --pack <ci-evidence-pack.json> --receipt <ci-evidence-publication-receipt.json> [--out <ci-evidence-publication-summary.md>]',
+  '  github-report --pack <ci-evidence-pack.json> --input <github-publication-input.json> --out <new-directory>',
   '',
-  'Consumes existing artifacts and writes a CI evidence pack or publication summary.',
+  'Consumes existing artifacts and writes a CI evidence pack, publication summary, or local GitHub reviewer report directory.',
+  'github-report materializes a pack-bound publication receipt and Markdown report locally. It does not upload, call GitHub, or claim product, runtime, release, or deployment success.',
   '',
   'Exit codes:',
-  '  0  current assemble gate passed, or publication evidence evaluation passed',
+  '  0  current assemble gate passed, publication evidence evaluation passed, or github-report gate passed',
   '  1  evidence, publication, or I/O failure',
   '  2  usage or request shape failure',
 ];
@@ -54,11 +57,18 @@ export type SummarizeCliArgs = {
   readonly outPath?: string;
 };
 
+export type GithubReportCliArgs = {
+  readonly command: 'github-report';
+  readonly packPath: string;
+  readonly inputPath: string;
+  readonly outPath: string;
+};
+
 export type HelpCliArgs = {
   readonly command: 'help';
 };
 
-export type CiEvidencePackCliArgs = AssembleCliArgs | SummarizeCliArgs | HelpCliArgs;
+export type CiEvidencePackCliArgs = AssembleCliArgs | SummarizeCliArgs | GithubReportCliArgs | HelpCliArgs;
 
 export type CiEvidencePackAssembleRequest = {
   readonly artifactRoot: string;
@@ -77,6 +87,7 @@ export type FileSystemPort = {
   mkdirSync: (dirPath: string, options?: { recursive: boolean }) => void;
   renameSync: (from: string, to: string) => void;
   unlinkSync: (filePath: string) => void;
+  rmdirSync?: (dirPath: string) => void;
   existsSync?: (filePath: string) => boolean;
   realpathSync?: (filePath: string) => string;
 };
@@ -94,6 +105,9 @@ const defaultFs: FileSystemPort = {
   },
   unlinkSync: (filePath) => {
     fs.unlinkSync(filePath);
+  },
+  rmdirSync: (dirPath) => {
+    fs.rmdirSync(dirPath);
   },
   existsSync: (filePath) => fs.existsSync(filePath),
   realpathSync: (filePath) => fs.realpathSync(filePath),
@@ -127,7 +141,7 @@ export function parseCiEvidencePackCliArgs(argv: string[]): CiEvidencePackCliArg
   if (subcommand === '--help' || subcommand === '-h') {
     return { command: 'help' };
   }
-  if (subcommand !== 'assemble' && subcommand !== 'summarize') {
+  if (subcommand !== 'assemble' && subcommand !== 'summarize' && subcommand !== 'github-report') {
     if (subcommand.startsWith('-')) {
       throw new CiEvidencePackCliError(`Unknown flag ${subcommand}`, 2);
     }
@@ -143,6 +157,7 @@ export function parseCiEvidencePackCliArgs(argv: string[]): CiEvidencePackCliArg
   let requestPath: string | undefined;
   let packPath: string | undefined;
   let receiptPath: string | undefined;
+  let inputPath: string | undefined;
   let outPath: string | undefined;
 
   for (let index = 1; index < args.length; ) {
@@ -166,6 +181,28 @@ export function parseCiEvidencePackCliArgs(argv: string[]): CiEvidencePackCliArg
       requestPath = parsed.value;
       index = parsed.nextIndex;
       continue;
+    }
+
+    if (subcommand === 'github-report') {
+      if (token === '--pack') {
+        const parsed = requireFlagValue(args, index, token);
+        packPath = parsed.value;
+        index = parsed.nextIndex;
+        continue;
+      }
+      if (token === '--input') {
+        const parsed = requireFlagValue(args, index, token);
+        inputPath = parsed.value;
+        index = parsed.nextIndex;
+        continue;
+      }
+      if (token === '--out') {
+        const parsed = requireFlagValue(args, index, token);
+        outPath = parsed.value;
+        index = parsed.nextIndex;
+        continue;
+      }
+      throw new CiEvidencePackCliError(`Unknown flag ${token}`, 2);
     }
 
     if (token === '--pack') {
@@ -194,6 +231,18 @@ export function parseCiEvidencePackCliArgs(argv: string[]): CiEvidencePackCliArg
       throw new CiEvidencePackCliError('Missing --request', 2);
     }
     return { command: 'assemble', requestPath };
+  }
+  if (subcommand === 'github-report') {
+    if (packPath === undefined) {
+      throw new CiEvidencePackCliError('Missing --pack', 2);
+    }
+    if (inputPath === undefined) {
+      throw new CiEvidencePackCliError('Missing --input', 2);
+    }
+    if (outPath === undefined) {
+      throw new CiEvidencePackCliError('Missing --out', 2);
+    }
+    return { command: 'github-report', packPath, inputPath, outPath };
   }
   if (packPath === undefined) {
     throw new CiEvidencePackCliError('Missing --pack', 2);
@@ -645,6 +694,232 @@ export async function runCiEvidencePackSummarize(
   return evaluation.status === 'passed' ? 0 : 1;
 }
 
+const GITHUB_REPORT_RECEIPT_NAME = 'ci-evidence-publication-receipt.json';
+const GITHUB_REPORT_MARKDOWN_NAME = 'ci-evidence-github-report.md';
+const GITHUB_REPORT_INCOMPLETE_MARKER_NAME = '.ci-evidence-github-report.incomplete';
+
+function isNodePathExistsError(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null) {
+    return false;
+  }
+  return (error as { code?: unknown }).code === 'EEXIST';
+}
+
+function removeGithubReportDirectoryContents(
+  directory: string,
+  fileSystem: FileSystemPort,
+  names: readonly string[],
+): void {
+  for (const name of names) {
+    try {
+      fileSystem.unlinkSync(path.join(directory, name));
+    } catch {
+      // best-effort file cleanup of paths created by this invocation
+    }
+  }
+  if (fileSystem.rmdirSync === undefined) {
+    return;
+  }
+  try {
+    fileSystem.rmdirSync(directory);
+  } catch {
+    // best-effort directory cleanup of paths created by this invocation
+  }
+}
+
+function removeStagedGithubReportDirectory(
+  stagingDirectory: string,
+  fileSystem: FileSystemPort,
+): void {
+  removeGithubReportDirectoryContents(stagingDirectory, fileSystem, [
+    GITHUB_REPORT_RECEIPT_NAME,
+    GITHUB_REPORT_MARKDOWN_NAME,
+    GITHUB_REPORT_INCOMPLETE_MARKER_NAME,
+  ]);
+}
+
+function removeCreatedGithubReportOutDirectory(
+  outPath: string,
+  fileSystem: FileSystemPort,
+): void {
+  removeGithubReportDirectoryContents(outPath, fileSystem, [
+    GITHUB_REPORT_RECEIPT_NAME,
+    GITHUB_REPORT_MARKDOWN_NAME,
+    GITHUB_REPORT_INCOMPLETE_MARKER_NAME,
+  ]);
+}
+
+function hasGithubReportSafePublicationCapabilities(fileSystem: FileSystemPort): boolean {
+  return (
+    typeof fileSystem.mkdirSync === 'function' &&
+    typeof fileSystem.renameSync === 'function' &&
+    typeof fileSystem.unlinkSync === 'function' &&
+    typeof fileSystem.writeFileSync === 'function' &&
+    typeof fileSystem.readFileSync === 'function'
+  );
+}
+
+function readGithubPublicationInputJson(
+  inputPath: string,
+  fileSystem: FileSystemPort,
+): unknown {
+  let bytes: Buffer;
+  try {
+    bytes = fileSystem.readFileSync(inputPath);
+  } catch (error) {
+    throw error instanceof CiEvidencePackCliError
+      ? error
+      : new CiEvidencePackCliError(
+          error instanceof Error ? error.message : String(error),
+          1,
+        );
+  }
+
+  const text = decodeUtf8Fatal(bytes, inputPath);
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    throw new CiEvidencePackCliError(`Invalid JSON in ${inputPath}`, 2);
+  }
+}
+
+export async function runCiEvidencePackGithubReport(
+  args: GithubReportCliArgs,
+  io: CliIo,
+  fileSystem: FileSystemPort = defaultFs,
+): Promise<number> {
+  const packPath = path.resolve(args.packPath);
+  const inputPath = path.resolve(args.inputPath);
+  const outPath = path.resolve(args.outPath);
+
+  if (outPath === packPath) {
+    printError(
+      io,
+      new CiEvidencePackCliError(
+        `github-report --out must not alias the bound pack at ${outPath}`,
+        2,
+      ),
+    );
+    return 2;
+  }
+  if (outPath === inputPath) {
+    printError(
+      io,
+      new CiEvidencePackCliError(
+        `github-report --out must not alias the publication input at ${outPath}`,
+        2,
+      ),
+    );
+    return 2;
+  }
+
+  if (!hasGithubReportSafePublicationCapabilities(fileSystem)) {
+    printError(
+      io,
+      new CiEvidencePackCliError(
+        'github-report requires mkdirSync, renameSync, unlinkSync, readFileSync, and writeFileSync',
+        2,
+      ),
+    );
+    return 2;
+  }
+
+  let exactPackBytes: Buffer;
+  try {
+    exactPackBytes = fileSystem.readFileSync(packPath);
+  } catch (error) {
+    printError(io, error);
+    return 1;
+  }
+
+  let parsedInput: unknown;
+  try {
+    parsedInput = readGithubPublicationInputJson(inputPath, fileSystem);
+  } catch (error) {
+    printError(io, error);
+    return cliErrorCode(error, 1);
+  }
+
+  let report: ReturnType<typeof buildCiEvidenceGithubPublicationReport>;
+  try {
+    report = buildCiEvidenceGithubPublicationReport(exactPackBytes, parsedInput);
+  } catch (error) {
+    printError(io, error);
+    return 1;
+  }
+
+  const parentDirectory = path.dirname(outPath);
+  const stagingDirectory = path.join(
+    parentDirectory,
+    `.ci-evidence-github-report.${process.pid}.${randomBytes(8).toString('hex')}.tmp`,
+  );
+  const stagedReceiptPath = path.join(stagingDirectory, GITHUB_REPORT_RECEIPT_NAME);
+  const stagedReportPath = path.join(stagingDirectory, GITHUB_REPORT_MARKDOWN_NAME);
+  const stagedIncompleteMarkerPath = path.join(
+    stagingDirectory,
+    GITHUB_REPORT_INCOMPLETE_MARKER_NAME,
+  );
+  const finalIncompleteMarkerPath = path.join(outPath, GITHUB_REPORT_INCOMPLETE_MARKER_NAME);
+  const receiptSerialized = `${JSON.stringify(report.gate.receipt, null, 2)}\n`;
+
+  let createdStagingDirectory = false;
+  let createdFinalDirectory = false;
+
+  try {
+    fileSystem.mkdirSync(parentDirectory, { recursive: true });
+    fileSystem.mkdirSync(stagingDirectory);
+    createdStagingDirectory = true;
+    fileSystem.writeFileSync(stagedIncompleteMarkerPath, '');
+    fileSystem.writeFileSync(stagedReceiptPath, receiptSerialized);
+    fileSystem.writeFileSync(stagedReportPath, report.markdown);
+
+    try {
+      fileSystem.mkdirSync(outPath);
+    } catch (error) {
+      if (isNodePathExistsError(error)) {
+        throw new CiEvidencePackCliError(
+          `github-report --out must name a new directory at ${outPath}`,
+          2,
+        );
+      }
+      throw error;
+    }
+    createdFinalDirectory = true;
+
+    fileSystem.renameSync(stagedIncompleteMarkerPath, finalIncompleteMarkerPath);
+    fileSystem.renameSync(stagedReceiptPath, path.join(outPath, GITHUB_REPORT_RECEIPT_NAME));
+    fileSystem.renameSync(stagedReportPath, path.join(outPath, GITHUB_REPORT_MARKDOWN_NAME));
+    fileSystem.unlinkSync(finalIncompleteMarkerPath);
+    if (fileSystem.rmdirSync !== undefined) {
+      try {
+        fileSystem.rmdirSync(stagingDirectory);
+      } catch {
+        // best-effort empty staging directory cleanup after successful publication
+      }
+    }
+  } catch (error) {
+    if (createdStagingDirectory) {
+      removeStagedGithubReportDirectory(stagingDirectory, fileSystem);
+    }
+    if (createdFinalDirectory) {
+      removeCreatedGithubReportOutDirectory(outPath, fileSystem);
+    }
+    printError(io, error);
+    return cliErrorCode(error, 1);
+  }
+
+  const gateStatus = report.gate.evaluation.status === 'passed' ? 'passed' : 'failed';
+  writeStdoutLine(io, {
+    phase: 'github-report',
+    artifactDirectory: outPath,
+    receiptArtifact: path.join(outPath, GITHUB_REPORT_RECEIPT_NAME),
+    reportArtifact: path.join(outPath, GITHUB_REPORT_MARKDOWN_NAME),
+    gateStatus,
+  });
+
+  return gateStatus === 'passed' ? 0 : 1;
+}
+
 export async function runCiEvidencePackCli(
   argv: string[] = process.argv,
   io: CliIo = { stdout: process.stdout, stderr: process.stderr },
@@ -667,6 +942,8 @@ export async function runCiEvidencePackCli(
       return runCiEvidencePackAssemble(parsed.requestPath, io, fileSystem);
     case 'summarize':
       return runCiEvidencePackSummarize(parsed, io, fileSystem);
+    case 'github-report':
+      return runCiEvidencePackGithubReport(parsed, io, fileSystem);
     default: {
       const exhaustive: never = parsed;
       const command = String((exhaustive as { command?: unknown }).command ?? 'unknown');
