@@ -22,6 +22,7 @@ export * from './core/scenario-claim-approval';
 export * from './core/scenario-claim-authorization';
 export * from './core/comparison';
 export * from './core/evidence-interpreter';
+export * from './core/evidence-package';
 export * from './core/execution-plan';
 export * from './core/historical-evaluation';
 export * from './core/native-performance';

@@ -13,6 +13,7 @@ const { assertScenarioExecutionContractSupported } = require('../core/claim-cont
 const { buildScenarioExecutionPlan } = require('../core/execution-plan');
 const { SCHEMAS, assertValidJson } = require('../core/schema-validator');
 const { hasHelpFlag, writeUsage } = require('./cli');
+const { buildMobileTargetResourceId } = require('./resource-lease') as typeof import('./resource-lease');
 const {
   createAgentDeviceDriver,
   formatAgentDeviceRawOutput,
@@ -25,6 +26,8 @@ type CliArgs = {
   check?: string | boolean;
   'command-timeout-ms'?: string | boolean;
   device?: string | boolean;
+  'lease-evidence'?: string | boolean;
+  'lease-run-id'?: string | boolean;
   open?: string | boolean;
   out?: string | boolean;
   platform?: string | boolean;
@@ -60,9 +63,19 @@ type AgentDeviceSessionMode = 'bind' | 'reuse';
 type AgentDeviceAvailabilityOptions = {
   agentDevicePath?: string;
   commandTimeoutMs?: number;
+  device?: string;
   executor?: CommandExecutor;
+  leaseEvidencePath?: string;
+  leaseRunId?: string;
+  open?: boolean;
+  platform?: import('./agent-device-driver').AgentDevicePlatform;
   requiredCommands?: string[];
   requiredPlatforms?: import('./agent-device-driver').AgentDevicePlatform[];
+  scenario?: Record<string, unknown> | null;
+  serial?: string;
+  session?: string;
+  target?: 'desktop' | 'mobile' | 'tv';
+  udid?: string;
 };
 
 type AgentDeviceAvailabilityCheck = {
@@ -84,20 +97,33 @@ type AgentDeviceAvailabilityResult = {
   capabilityProbe: AgentDeviceCapabilityProbe;
   checks: AgentDeviceAvailabilityCheck[];
   devices: Array<Record<string, unknown>>;
+  flowId: string;
   requiredCommands: string[];
   requiredPlatforms: string[];
+  scenarioId: string;
   sessions: Array<Record<string, unknown>>;
   status: 'failed' | 'passed';
+  targetBinding: AgentDeviceAvailabilityTargetBinding;
+};
+type AgentDeviceAvailabilityTargetBinding = {
+  leaseStatus: 'not-requested' | 'trusted' | 'untrusted';
+  leaseRunId: string | null;
+  platform: string | null;
+  requestedSession: string | null;
+  requestedTarget: string | null;
+  selectedDevice: string | null;
+  selectedSession: string | null;
+  status: 'bound' | 'unbound' | 'mismatch';
 };
 type AgentDeviceCapabilityProbe = {
   args: string[];
   availableCommands: string[];
-  code: 'agent_device_capabilities_available' | 'agent_device_capabilities_unavailable';
+  code: 'agent_device_capabilities_available' | 'agent_device_capabilities_not_probed' | 'agent_device_capabilities_unavailable';
   command: string;
   device?: Record<string, unknown>;
   exitCode: number;
   failureClass?: string;
-  source: 'capabilities-command' | 'help-output-fallback';
+  source: 'capabilities-command' | 'help-output-fallback' | 'not-probed';
   stderrPreview?: string;
   stdoutPreview?: string;
 };
@@ -113,7 +139,7 @@ type AgentDeviceCapabilityInventory = {
   commandMappings: AgentDeviceCommandMapping[];
   driverActions: string[];
   source: AgentDeviceCapabilityProbe['source'];
-  status: 'available' | 'fallback';
+  status: 'available' | 'fallback' | 'not-probed';
   unknownCommands: string[];
   unsupportedCapabilities: string[];
   unsupportedDriverActions: string[];
@@ -159,6 +185,8 @@ type AgentDeviceCaptureOptions = {
   device?: string | null;
   driverSteps?: AgentDeviceDriverStep[];
   executor?: CommandExecutor;
+  leaseEvidencePath?: string;
+  leaseRunId?: string;
   open?: boolean;
   outputDir?: string;
   platform: import('./agent-device-driver').AgentDevicePlatform;
@@ -223,8 +251,7 @@ const DEFAULT_AGENT_DEVICE_REQUIRED_COMMANDS = [
   'devices',
   'session list',
 ];
-
-const AGENT_DEVICE_IOS_REQUIRED_COMMANDS = ['pinch'];
+const SCENARIO_AGENT_DEVICE_BASE_COMMANDS = ['devices', 'session list'];
 const AGENT_DEVICE_MANAGEMENT_COMMANDS = new Set(['devices', 'session list']);
 
 const AGENT_DEVICE_STATIC_CAPABILITIES = [
@@ -303,6 +330,8 @@ function usage(output: {write: (message: string) => unknown} = process.stderr): 
     'Use --open --app <bundle-or-package> to open the app before running driver actions.',
     'Use --udid <id> for iOS simulators or --serial <id> for Android devices.',
     'Use --session <name> [--session-mode reuse|bind] to reuse an existing session or bind a named session to direct target flags.',
+    'With --check, pass --platform, an exact target selector, and --scenario to validate only the selected journey command surface.',
+    'Use --lease-evidence <resource-lease.json> [--lease-run-id <id>] to bind availability or capture start to an active ASL target lease.',
     'Use --command-timeout-ms <ms> to bound each external agent-device invocation.',
     'Use --require-platforms ios,android with --check when device discovery must prove booted OS targets.',
   ], output);
@@ -648,7 +677,7 @@ function buildAgentDeviceCapabilityInventory(
       commandMappings: [],
       driverActions: [],
       source: capabilityProbe.source,
-      status: 'fallback',
+      status: capabilityProbe.source === 'not-probed' ? 'not-probed' : 'fallback',
       unknownCommands: [],
       unsupportedCapabilities: [],
       unsupportedDriverActions: [],
@@ -685,14 +714,45 @@ function buildAgentDeviceCapabilityInventory(
  * @param {string[]} requiredPlatforms
  * @returns {string[]}
  */
-function buildAgentDeviceCapabilityArgs(requiredPlatforms: string[]): string[] {
+function buildAgentDeviceCapabilityArgs({
+  device,
+  requiredPlatforms,
+  serial,
+  session,
+  target,
+  udid,
+}: {
+  device?: string;
+  requiredPlatforms: string[];
+  serial?: string;
+  session?: string;
+  target?: 'desktop' | 'mobile' | 'tv';
+  udid?: string;
+}): string[] {
+  const args = ['capabilities'];
   if (requiredPlatforms.length === 1) {
     const platform = requiredPlatforms[0];
     if (platform) {
-      return ['capabilities', '--platform', platform, '--json'];
+      args.push('--platform', platform);
     }
   }
-  return ['capabilities', '--json'];
+  if (target) {
+    args.push('--target', target);
+  }
+  if (device) {
+    args.push('--device', device);
+  }
+  if (udid) {
+    args.push('--udid', udid);
+  }
+  if (serial) {
+    args.push('--serial', serial);
+  }
+  if (session) {
+    args.push('--session', session);
+  }
+  args.push('--json');
+  return args;
 }
 
 /**
@@ -850,6 +910,108 @@ function readAgentDeviceSessionTargets(session: Record<string, unknown>): string
 }
 
 /**
+ * Returns known device identifiers attached to one discovery record.
+ *
+ * @param {Record<string, unknown>} device
+ * @returns {string[]}
+ */
+function readAgentDeviceTargetIdentifiers(device: Record<string, unknown>): string[] {
+  return [
+    device.id,
+    device.device,
+    device.deviceId,
+    device.device_id,
+    device.device_udid,
+    device.serial,
+    device.udid,
+  ].filter((value): value is string => typeof value === 'string' && value.length > 0);
+}
+
+/**
+ * Returns the exact requested device identifier from mutually exclusive CLI selectors.
+ *
+ * @param {{device?: string, serial?: string, udid?: string}} options
+ * @returns {string | null}
+ */
+function resolveAgentDeviceRequestedTarget({
+  device,
+  serial,
+  udid,
+}: {
+  device?: string;
+  serial?: string;
+  udid?: string;
+}): string | null {
+  const selectors = [device, serial, udid].filter((value): value is string => (
+    typeof value === 'string' && value.length > 0
+  ));
+  if (selectors.length > 1) {
+    throw new Error('Agent Device target selectors --device, --serial, and --udid are mutually exclusive.');
+  }
+  return selectors[0] ?? null;
+}
+
+/**
+ * Selects one exact booted discovery record for a requested platform and target.
+ *
+ * @param {{devices: Array<Record<string, unknown>>, platform: string | null, requestedTarget: string | null, target: string}} options
+ * @returns {Record<string, unknown> | null}
+ */
+function selectAgentDeviceDiscoveryTarget({
+  devices,
+  platform,
+  requestedTarget,
+  target,
+}: {
+  devices: Array<Record<string, unknown>>;
+  platform: string | null;
+  requestedTarget: string | null;
+  target: string;
+}): Record<string, unknown> | null {
+  if (!platform || !requestedTarget) {
+    return null;
+  }
+  const matches = devices.filter((device) => (
+    device.platform === platform &&
+    device.booted === true &&
+    (typeof device.target !== 'string' || device.target === target) &&
+    readAgentDeviceTargetIdentifiers(device).includes(requestedTarget)
+  ));
+  return matches.length === 1 ? matches[0] ?? null : null;
+}
+
+/**
+ * Finds one explicitly requested session bound to the selected platform and target.
+ *
+ * @param {{platform: string | null, requestedSession: string | null, requestedTarget: string | null, sessions: Array<Record<string, unknown>>, target: string}} options
+ * @returns {Record<string, unknown> | null}
+ */
+function selectRequestedAgentDeviceSession({
+  platform,
+  requestedSession,
+  requestedTarget,
+  sessions,
+  target,
+}: {
+  platform: string | null;
+  requestedSession: string | null;
+  requestedTarget: string | null;
+  sessions: Array<Record<string, unknown>>;
+  target: string;
+}): Record<string, unknown> | null {
+  if (!requestedSession) {
+    return null;
+  }
+  const matches = sessions.filter((candidate) => (
+    readAgentDeviceSessionName(candidate) === requestedSession &&
+    (!platform || candidate.platform === platform) &&
+    (typeof candidate.target !== 'string' || candidate.target === target) &&
+    (!requestedTarget || readAgentDeviceSessionTargets(candidate).includes(requestedTarget))
+  ));
+  return matches.length === 1 ? matches[0] ?? null : null;
+}
+
+/**
  * Selects a single active session for the requested platform and device target.
  *
  * @param {{platform: import('./agent-device-driver').AgentDevicePlatform, requestedTarget: string | null, sessions: Array<Record<string, unknown>>, target: string}} options
@@ -894,9 +1056,13 @@ function buildAgentDeviceAvailabilitySummary(result: AgentDeviceAvailabilityResu
     '',
     '## agent-device availability',
     '',
+    `- Scenario: ${result.scenarioId}`,
+    `- Flow: ${result.flowId}`,
     `- Devices: ${result.devices.length}`,
     `- Active sessions: ${result.sessions.length}`,
     `- Capability source: ${result.capabilityProbe.source}`,
+    `- Target binding: ${result.targetBinding.status}`,
+    `- Lease binding: ${result.targetBinding.leaseStatus}`,
     ...(result.capabilityProbe.availableCommands.length > 0
       ? [`- Available commands: ${result.capabilityProbe.availableCommands.join(', ')}`]
       : []),
@@ -909,6 +1075,31 @@ function buildAgentDeviceAvailabilitySummary(result: AgentDeviceAvailabilityResu
     ...(sessionSummary ? [`- Session hints: ${sessionSummary}`] : []),
     '',
   ].join('\n');
+}
+
+/**
+ * Reads the scenario and flow identity carried by one direct adapter capture.
+ *
+ * Programmatic capture without a scenario retains the legacy adapter-local
+ * identity. CLI execution always supplies a scenario.
+ *
+ * @param {Record<string, unknown> | null} scenario
+ * @returns {{flowId: string, scenarioId: string}}
+ */
+function readAgentDeviceScenarioIdentity(
+  scenario: Record<string, unknown> | null,
+): {flowId: string; scenarioId: string} {
+  if (!scenario) {
+    return {
+      flowId: 'agent-device-capture',
+      scenarioId: 'agent-device-capture',
+    };
+  }
+  const plan = buildScenarioExecutionPlan(scenario);
+  return {
+    flowId: plan.flowId ?? plan.scenarioId,
+    scenarioId: plan.scenarioId,
+  };
 }
 
 /**
@@ -930,19 +1121,152 @@ function hasBootedMobilePlatform(
 }
 
 function resolveRequiredAgentDeviceCommands({
+  driverSteps,
+  open,
   requiredCommands,
-  requiredPlatforms,
 }: {
+  driverSteps: AgentDeviceDriverStep[];
+  open: boolean;
   requiredCommands: string[];
-  requiredPlatforms: string[];
 }): string[] {
   const commands = new Set(requiredCommands);
-  if (requiredPlatforms.includes('ios')) {
-    for (const command of AGENT_DEVICE_IOS_REQUIRED_COMMANDS) {
-      commands.add(command);
+  if (open) {
+    commands.add('open');
+  }
+  for (const step of driverSteps) {
+    const mapping = AGENT_DEVICE_COMMAND_MAPPINGS.find((candidate) => (
+      candidate.driverActions?.includes(step.driverAction)
+    ));
+    if (!mapping) {
+      continue;
+    }
+    if (step.driverAction !== 'pressKey') {
+      commands.add(mapping.command);
+      continue;
+    }
+    if (step.key === 'systemBack') {
+      commands.add('back');
+    } else if (step.key === 'home') {
+      commands.add('home');
+    } else if (step.key === 'appSwitcher') {
+      commands.add('app-switcher');
+    } else if (step.key === 'keyboardDismiss') {
+      commands.add('keyboard');
     }
   }
-  return Array.from(commands);
+  return Array.from(commands).sort();
+}
+
+/**
+ * Reads and validates one ASL live-resource lease journal for target-bound preflight.
+ *
+ * @param {{leaseEvidencePath?: string, leaseRunId?: string, platform: 'android' | 'ios' | null, requestedTarget: string | null}} options
+ * @returns {{check: AgentDeviceAvailabilityCheck | null, status: AgentDeviceAvailabilityTargetBinding['leaseStatus']}}
+ */
+function buildAgentDeviceLeaseCheck({
+  leaseEvidencePath,
+  leaseRunId,
+  platform,
+  requestedTarget,
+}: {
+  leaseEvidencePath?: string;
+  leaseRunId?: string;
+  platform: 'android' | 'ios' | null;
+  requestedTarget: string | null;
+}): {
+  check: AgentDeviceAvailabilityCheck | null;
+  status: AgentDeviceAvailabilityTargetBinding['leaseStatus'];
+} {
+  if (!leaseEvidencePath) {
+    return { check: null, status: 'not-requested' };
+  }
+
+  const args = [path.basename(leaseEvidencePath)];
+  let journal: Record<string, unknown> | null = null;
+  let readError: string | null = null;
+  try {
+    const parsed = JSON.parse(fs.readFileSync(leaseEvidencePath, 'utf8')) as unknown;
+    journal = parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : null;
+  } catch (error: unknown) {
+    readError = error instanceof Error ? error.name : 'unknown_error';
+  }
+  const resource = journal?.resource && typeof journal.resource === 'object' && !Array.isArray(journal.resource)
+    ? journal.resource as Record<string, unknown>
+    : null;
+  const heartbeat = journal?.heartbeat && typeof journal.heartbeat === 'object' && !Array.isArray(journal.heartbeat)
+    ? journal.heartbeat as Record<string, unknown>
+    : null;
+  const heartbeatResult = heartbeat?.lastResult && typeof heartbeat.lastResult === 'object' && !Array.isArray(heartbeat.lastResult)
+    ? heartbeat.lastResult as Record<string, unknown>
+    : null;
+  const acquisition = journal?.acquisition && typeof journal.acquisition === 'object' && !Array.isArray(journal.acquisition)
+    ? journal.acquisition as Record<string, unknown>
+    : null;
+  const acquisitionLease = acquisition?.status === 'acquired' && acquisition.lease && typeof acquisition.lease === 'object' && !Array.isArray(acquisition.lease)
+    ? acquisition.lease as Record<string, unknown>
+    : null;
+  const renewedHeartbeatLease = heartbeatResult?.status === 'renewed' && heartbeatResult.lease && typeof heartbeatResult.lease === 'object' && !Array.isArray(heartbeatResult.lease)
+    ? heartbeatResult.lease as Record<string, unknown>
+    : null;
+  const heartbeatCount = typeof heartbeat?.count === 'number' ? heartbeat.count : Number.NaN;
+  let freshestLease: Record<string, unknown> | null = null;
+  if (!heartbeat || heartbeatCount === 0) {
+    freshestLease = acquisitionLease;
+  } else if (heartbeatCount > 0 && renewedHeartbeatLease) {
+    freshestLease = renewedHeartbeatLease;
+  }
+  const expectedResourceId = platform && requestedTarget
+    ? buildMobileTargetResourceId({ platform, targetId: requestedTarget })
+    : null;
+  const expiresAt = typeof freshestLease?.expiresAt === 'number' ? freshestLease.expiresAt : Number.NaN;
+  const passed = Boolean(
+    journal &&
+    journal.schemaVersion === 1 &&
+    journal.status === 'held' &&
+    leaseRunId &&
+    journal.runId === leaseRunId &&
+    typeof journal.ownerId === 'string' &&
+    journal.ownerId.length > 0 &&
+    typeof freshestLease?.ownerId === 'string' &&
+    freshestLease.ownerId.length > 0 &&
+    journal.ownerId === freshestLease?.ownerId &&
+    platform &&
+    resource?.platform === platform &&
+    requestedTarget &&
+    resource.targetId === requestedTarget &&
+    expectedResourceId &&
+    resource.resourceId === expectedResourceId &&
+    freshestLease?.schemaVersion === 1 &&
+    freshestLease.runId === leaseRunId &&
+    freshestLease.resourceId === expectedResourceId &&
+    Number.isFinite(expiresAt) &&
+    expiresAt > Date.now(),
+  );
+  return {
+    check: {
+      args,
+      code: passed ? 'agent_device_resource_lease_bound' : 'agent_device_resource_lease_untrusted',
+      command: 'asl-resource-lease-evidence',
+      exitCode: passed ? 0 : 1,
+      message: passed
+        ? 'The active ASL resource lease is bound to the requested agent-device target.'
+        : 'The supplied ASL resource lease is absent, inactive, or bound to another run or target.',
+      metadata: {
+        leaseEvidenceFile: path.basename(leaseEvidencePath),
+        leaseStatus: typeof journal?.status === 'string' ? journal.status : 'unreadable',
+        ...(readError ? { readError } : {}),
+        ...(leaseRunId ? { requestedLeaseRunId: leaseRunId } : {}),
+        ...(requestedTarget ? { requestedTarget } : {}),
+        nextAction: 'Acquire and retain the exact unexpired ASL mobile-target lease, then rerun target-bound availability before sending mutable actions.',
+        nextActionCode: 'acquire_agent_device_target_lease',
+      },
+      name: 'agent_device_resource_lease',
+      status: passed ? 'passed' : 'failed',
+    },
+    status: passed ? 'trusted' : 'untrusted',
+  };
 }
 
 /**
@@ -954,35 +1278,122 @@ function resolveRequiredAgentDeviceCommands({
 async function checkAgentDeviceAvailability({
   agentDevicePath = 'agent-device',
   commandTimeoutMs = 30_000,
+  device,
   executor,
-  requiredCommands = DEFAULT_AGENT_DEVICE_REQUIRED_COMMANDS,
+  leaseEvidencePath,
+  leaseRunId,
+  open = false,
+  platform,
+  requiredCommands,
   requiredPlatforms = [],
+  scenario = null,
+  serial,
+  session,
+  target = 'mobile',
+  udid,
 }: AgentDeviceAvailabilityOptions = {}): Promise<AgentDeviceAvailabilityResult> {
-  const run = executor ?? ((command, args) => execFileCommandWithTimeout(command, args, commandTimeoutMs));
   const checks: AgentDeviceAvailabilityCheck[] = [];
-  const capabilityArgs = buildAgentDeviceCapabilityArgs(requiredPlatforms);
+  const resolvedPlatforms = platform ? [platform] : requiredPlatforms;
+  const resolvedPlatform = resolvedPlatforms.length === 1 ? resolvedPlatforms[0] ?? null : null;
+  const requestedPlatform = resolvedPlatform === 'android' || resolvedPlatform === 'ios'
+    ? resolvedPlatform
+    : null;
+  const requestedTarget = resolveAgentDeviceRequestedTarget({
+    ...(device ? { device } : {}),
+    ...(serial ? { serial } : {}),
+    ...(udid ? { udid } : {}),
+  });
+  if (requestedTarget && resolvedPlatforms.length !== 1) {
+    throw new Error('Target-bound agent-device availability requires exactly one platform.');
+  }
+  const driverSteps = scenario ? resolveAgentDeviceDriverSteps(scenario) : [];
+  const driverStepErrors = validateAgentDeviceDriverSteps(driverSteps);
+  if (driverStepErrors.length > 0) {
+    throw new Error(`Invalid agent-device driver step metadata: ${driverStepErrors.join(' ')}`);
+  }
+  const scenarioIdentity = scenario
+    ? readAgentDeviceScenarioIdentity(scenario)
+    : { flowId: 'agent-device-availability', scenarioId: 'agent-device-availability' };
+  const resolvedRequiredCommands = resolveRequiredAgentDeviceCommands({
+    driverSteps,
+    open,
+    requiredCommands: requiredCommands ?? (
+      scenario
+        ? SCENARIO_AGENT_DEVICE_BASE_COMMANDS
+        : [
+            ...DEFAULT_AGENT_DEVICE_REQUIRED_COMMANDS,
+            ...(resolvedPlatforms.includes('ios') ? ['pinch'] : []),
+          ]
+    ),
+  });
+  const lease = buildAgentDeviceLeaseCheck({
+    ...(leaseEvidencePath ? { leaseEvidencePath } : {}),
+    ...(leaseRunId ? { leaseRunId } : {}),
+    platform: requestedPlatform,
+    requestedTarget,
+  });
+  if (lease.check && lease.status !== 'trusted') {
+    checks.push(lease.check);
+    const capabilityProbe: AgentDeviceCapabilityProbe = {
+      args: [],
+      availableCommands: [],
+      code: 'agent_device_capabilities_not_probed',
+      command: agentDevicePath,
+      exitCode: 1,
+      source: 'not-probed',
+    };
+    return {
+      agentDevicePath,
+      capabilityInventory: buildAgentDeviceCapabilityInventory(capabilityProbe),
+      capabilityProbe,
+      checks,
+      devices: [],
+      flowId: scenarioIdentity.flowId,
+      requiredCommands: resolvedRequiredCommands,
+      requiredPlatforms: resolvedPlatforms,
+      scenarioId: scenarioIdentity.scenarioId,
+      sessions: [],
+      status: 'failed',
+      targetBinding: {
+        leaseRunId: leaseRunId ?? null,
+        leaseStatus: lease.status,
+        platform: requestedPlatform,
+        requestedSession: session ?? null,
+        requestedTarget,
+        selectedDevice: null,
+        selectedSession: null,
+        status: requestedTarget ? 'mismatch' : 'unbound',
+      },
+    };
+  }
+  const run = executor ?? ((command, args) => execFileCommandWithTimeout(command, args, commandTimeoutMs));
+  const capabilityArgs = buildAgentDeviceCapabilityArgs({
+    ...(device ? { device } : {}),
+    requiredPlatforms: resolvedPlatforms,
+    ...(serial ? { serial } : {}),
+    ...(session ? { session } : {}),
+    ...(requestedTarget ? { target } : {}),
+    ...(udid ? { udid } : {}),
+  });
   const capabilityProbe = readAgentDeviceCapabilityProbe(await run(agentDevicePath, capabilityArgs));
   const capabilityInventory = buildAgentDeviceCapabilityInventory(capabilityProbe);
   const help = await run(agentDevicePath, ['--help']);
-  const resolvedRequiredCommands = resolveRequiredAgentDeviceCommands({
-    requiredCommands,
-    requiredPlatforms,
-  });
   checks.push(buildAgentDeviceAvailabilityCheck({
     code: 'agent_device_help_available',
-    expectedPattern: /CLI to control iOS and Android devices/u,
+    expectedPattern: /(?:agent[\s-]*device|CLI to control iOS and Android devices)/iu,
     name: 'agent_device_help',
     result: help,
   }));
 
   for (const commandName of resolvedRequiredCommands) {
-    if (capabilityProbe.source === 'capabilities-command' && !AGENT_DEVICE_MANAGEMENT_COMMANDS.has(commandName)) {
+    if (AGENT_DEVICE_MANAGEMENT_COMMANDS.has(commandName)) {
+      continue;
+    }
+    if (capabilityProbe.source === 'capabilities-command') {
       checks.push(buildAgentDeviceCapabilityCommandCheck({ capabilityProbe, commandName }));
     } else {
       const commandLabel = commandName.replace(/\s+/gu, '_');
-      const pattern = commandName === 'session list'
-        ? /\bsession\s+list\b/u
-        : new RegExp(`\\b${commandName.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')}\\b`, 'u');
+      const pattern = new RegExp(`\\b${commandName.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')}\\b`, 'u');
       checks.push(buildAgentDeviceAvailabilityCheck({
         code: `agent_device_command_${commandLabel}_available`,
         expectedPattern: pattern,
@@ -1019,6 +1430,59 @@ async function checkAgentDeviceAvailability({
   }
   checks.push(devicesCheck);
 
+  const selectedDevice = selectAgentDeviceDiscoveryTarget({
+    devices,
+    platform: requestedPlatform,
+    requestedTarget,
+    target,
+  });
+  if (requestedTarget) {
+    const targetPassed = selectedDevice !== null;
+    checks.push({
+      args: devicesResult.args,
+      code: targetPassed ? 'agent_device_requested_target_bound' : 'agent_device_requested_target_unavailable',
+      command: devicesResult.command,
+      exitCode: devicesResult.exitCode,
+      message: targetPassed
+        ? `agent-device discovered the exact requested ${resolvedPlatforms[0]} target.`
+        : `agent-device did not discover exactly one booted ${resolvedPlatforms[0]} target matching the requested identifier.`,
+      metadata: {
+        requestedTarget,
+        target,
+        nextAction: 'Select the exact booted target by UDID, serial, or device id and rerun availability before sending mutable actions.',
+        nextActionCode: 'select_agent_device_target',
+      },
+      name: 'agent_device_requested_target',
+      status: targetPassed ? 'passed' : 'failed',
+    });
+  }
+
+  if (requestedTarget) {
+    const capabilityTargetPassed = Boolean(
+      capabilityProbe.device &&
+      readAgentDeviceTargetIdentifiers(capabilityProbe.device).includes(requestedTarget) &&
+      (!resolvedPlatforms[0] || capabilityProbe.device.platform === resolvedPlatforms[0])
+    );
+    checks.push({
+      args: capabilityProbe.args,
+      code: capabilityTargetPassed
+        ? 'agent_device_capability_target_bound'
+        : 'agent_device_capability_target_mismatch',
+      command: capabilityProbe.command,
+      exitCode: capabilityProbe.exitCode,
+      message: capabilityTargetPassed
+        ? 'agent-device capability inventory is bound to the requested target.'
+        : 'agent-device capability inventory resolved a different target.',
+      metadata: {
+        requestedTarget,
+        nextAction: 'Rerun the capability probe with the exact requested target and do not use capability evidence from another device.',
+        nextActionCode: 'bind_agent_device_capability_target',
+      },
+      name: 'agent_device_capability_target',
+      status: capabilityTargetPassed ? 'passed' : 'failed',
+    });
+  }
+
   const sessionsResult = await run(agentDevicePath, ['session', 'list', '--json']);
   const sessions = readAgentDeviceSessions(sessionsResult);
   const sessionsPassed = sessionsResult.exitCode === 0;
@@ -1053,32 +1517,84 @@ async function checkAgentDeviceAvailability({
   }
   checks.push(sessionsCheck);
 
-  for (const platform of requiredPlatforms) {
-    const passed = hasBootedMobilePlatform(devices, platform);
+  const selectedSession = selectRequestedAgentDeviceSession({
+    platform: requestedPlatform,
+    requestedSession: session ?? null,
+    requestedTarget,
+    sessions,
+    target,
+  });
+  if (session) {
+    const sessionPassed = selectedSession !== null;
+    checks.push({
+      args: sessionsResult.args,
+      code: sessionPassed ? 'agent_device_session_target_bound' : 'agent_device_session_target_mismatch',
+      command: sessionsResult.command,
+      exitCode: sessionsResult.exitCode,
+      message: sessionPassed
+        ? 'The requested agent-device session is bound to the requested target.'
+        : 'The requested agent-device session is absent or bound to another platform or target.',
+      metadata: {
+        requestedSession: session,
+        ...(requestedTarget ? { requestedTarget } : {}),
+        nextAction: 'Select or create one agent-device session bound to the exact leased target before sending mutable actions.',
+        nextActionCode: 'bind_agent_device_session_target',
+      },
+      name: 'agent_device_session_target',
+      status: sessionPassed ? 'passed' : 'failed',
+    });
+  }
+
+  if (lease.check) {
+    checks.push(lease.check);
+  }
+
+  for (const requiredPlatform of resolvedPlatforms) {
+    const passed = hasBootedMobilePlatform(devices, requiredPlatform);
     checks.push({
       args: devicesResult.args,
-      code: `agent_device_booted_${platform}_available`,
+      code: `agent_device_booted_${requiredPlatform}_available`,
       command: devicesResult.command,
       exitCode: devicesResult.exitCode,
       message: passed
-        ? `agent-device discovered a booted ${platform} mobile target.`
-        : `agent-device did not discover a booted ${platform} mobile target.`,
-      name: `agent_device_booted_${platform}`,
+        ? `agent-device discovered a booted ${requiredPlatform} mobile target.`
+        : `agent-device did not discover a booted ${requiredPlatform} mobile target.`,
+      name: `agent_device_booted_${requiredPlatform}`,
       status: passed ? 'passed' : 'failed',
     });
   }
 
   const status = checks.every((check) => check.status === 'passed') ? 'passed' : 'failed';
+  let targetBindingStatus: AgentDeviceAvailabilityTargetBinding['status'] = 'unbound';
+  if (requestedTarget) {
+    const targetCheckFailed = checks.some((check) => (
+      ['agent_device_requested_target', 'agent_device_capability_target', 'agent_device_session_target', 'agent_device_resource_lease']
+        .includes(check.name) && check.status === 'failed'
+    ));
+    targetBindingStatus = selectedDevice && !targetCheckFailed ? 'bound' : 'mismatch';
+  }
   return {
     agentDevicePath,
     capabilityInventory,
     capabilityProbe,
     checks,
     devices,
-    requiredCommands,
-    requiredPlatforms,
+    flowId: scenarioIdentity.flowId,
+    requiredCommands: resolvedRequiredCommands,
+    requiredPlatforms: resolvedPlatforms,
+    scenarioId: scenarioIdentity.scenarioId,
     sessions,
     status,
+    targetBinding: {
+      leaseRunId: leaseRunId ?? null,
+      leaseStatus: lease.status,
+      platform: requestedPlatform,
+      requestedSession: session ?? null,
+      requestedTarget,
+      selectedDevice: selectedDevice ? requestedTarget : null,
+      selectedSession: selectedSession ? readAgentDeviceSessionName(selectedSession) : null,
+      status: targetBindingStatus,
+    },
   };
 }
 
@@ -1231,13 +1747,23 @@ function buildAgentDeviceFailureHint({
  * @param {{runId: string, checks: Record<string, unknown>[]}} options
  * @returns {Record<string, unknown>}
  */
-function buildAgentDeviceHealth({ runId, checks }: {runId: string; checks: Record<string, unknown>[]}): Record<string, unknown> {
+function buildAgentDeviceHealth({
+  checks,
+  flowId = 'agent-device-capture',
+  runId,
+  scenarioId = 'agent-device-capture',
+}: {
+  checks: Record<string, unknown>[];
+  flowId?: string;
+  runId: string;
+  scenarioId?: string;
+}): Record<string, unknown> {
   const failed = checks.some((check) => check.status === 'failed');
   return assertValidJson(
     {
       schemaVersion: '1.0.0',
-      scenarioId: 'agent-device-capture',
-      flowId: 'agent-device-capture',
+      scenarioId,
+      flowId,
       runId,
       healthStatus: failed ? 'failed' : 'passed',
       checks,
@@ -1253,13 +1779,23 @@ function buildAgentDeviceHealth({ runId, checks }: {runId: string; checks: Recor
  * @param {{runId: string, health: Record<string, unknown>}} options
  * @returns {Record<string, unknown>}
  */
-function buildAgentDeviceVerdict({ runId, health }: {runId: string; health: Record<string, unknown>}): Record<string, unknown> {
+function buildAgentDeviceVerdict({
+  flowId = 'agent-device-capture',
+  health,
+  runId,
+  scenarioId = 'agent-device-capture',
+}: {
+  flowId?: string;
+  health: Record<string, unknown>;
+  runId: string;
+  scenarioId?: string;
+}): Record<string, unknown> {
   const passed = health.healthStatus === 'passed';
   return assertValidJson(
     {
       schemaVersion: '1.0.0',
-      scenarioId: 'agent-device-capture',
-      flowId: 'agent-device-capture',
+      scenarioId,
+      flowId,
       runId,
       healthStatus: health.healthStatus,
       verdictStatus: passed ? 'not_evaluated' : 'inconclusive',
@@ -1319,8 +1855,8 @@ async function writeAgentDeviceAvailabilityArtifacts({
   const health = assertValidJson(
     {
       schemaVersion: '1.0.0',
-      scenarioId: 'agent-device-availability',
-      flowId: 'agent-device-availability',
+      scenarioId: result.scenarioId,
+      flowId: result.flowId,
       runId,
       healthStatus: result.status,
       checks,
@@ -1331,8 +1867,8 @@ async function writeAgentDeviceAvailabilityArtifacts({
   const verdict = assertValidJson(
     {
       schemaVersion: '1.0.0',
-      scenarioId: 'agent-device-availability',
-      flowId: 'agent-device-availability',
+      scenarioId: result.scenarioId,
+      flowId: result.flowId,
       runId,
       healthStatus: health.healthStatus,
       verdictStatus: result.status === 'passed' ? 'not_evaluated' : 'inconclusive',
@@ -1832,6 +2368,8 @@ async function runAgentDeviceCapture({
   device = null,
   driverSteps,
   executor,
+  leaseEvidencePath,
+  leaseRunId,
   open = false,
   outputDir = path.resolve('artifacts/agent-device-capture'),
   platform,
@@ -1847,7 +2385,67 @@ async function runAgentDeviceCapture({
   if (scenario) {
     assertScenarioExecutionContractSupported(scenario);
   }
+  const requestedTarget = resolveAgentDeviceRequestedTarget({
+    ...(device ? { device } : {}),
+    ...(serial ? { serial } : {}),
+    ...(udid ? { udid } : {}),
+  });
+  let resolvedDriverSteps = driverSteps ?? [];
+  if (!driverSteps && scenario) {
+    resolvedDriverSteps = resolveAgentDeviceDriverSteps(scenario);
+  }
+  const driverStepErrors = validateAgentDeviceDriverSteps(resolvedDriverSteps);
+  if (driverStepErrors.length > 0) {
+    throw new Error(`Invalid agent-device driver step metadata: ${driverStepErrors.join(' ')}`);
+  }
+  const captureRequiredCommands = resolveRequiredAgentDeviceCommands({
+    driverSteps: resolvedDriverSteps,
+    open,
+    requiredCommands: scenario
+      ? SCENARIO_AGENT_DEVICE_BASE_COMMANDS
+      : DEFAULT_AGENT_DEVICE_REQUIRED_COMMANDS,
+  });
+  const leasePlatform = platform === 'android' || platform === 'ios' ? platform : null;
+  const lease = buildAgentDeviceLeaseCheck({
+    ...(leaseEvidencePath ? { leaseEvidencePath } : {}),
+    ...(leaseRunId ? { leaseRunId } : {}),
+    platform: leasePlatform,
+    requestedTarget,
+  });
+  if (lease.check && lease.status !== 'trusted') {
+    throw new Error(
+      'Agent Device capture requires a trusted active ASL lease for the exact requested target.',
+    );
+  }
   const run = executor ?? ((command, args) => execFileCommandWithTimeout(command, args, commandTimeoutMs));
+  if (leaseEvidencePath) {
+    if (!session) {
+      throw new Error(
+        'Agent Device capture with lease evidence requires an explicit session bound to the exact target.',
+      );
+    }
+    const availability = await checkAgentDeviceAvailability({
+      agentDevicePath,
+      commandTimeoutMs,
+      ...(device ? { device } : {}),
+      executor: run,
+      leaseEvidencePath,
+      ...(leaseRunId ? { leaseRunId } : {}),
+      open,
+      ...(leasePlatform ? { platform: leasePlatform } : {}),
+      requiredCommands: captureRequiredCommands,
+      ...(scenario ? { scenario } : {}),
+      ...(serial ? { serial } : {}),
+      session,
+      target,
+      ...(udid ? { udid } : {}),
+    });
+    if (availability.status !== 'passed' || availability.targetBinding.status !== 'bound') {
+      throw new Error(
+        'Agent Device capture target-bound availability preflight failed before mutable work.',
+      );
+    }
+  }
   const runDir = path.resolve(outputDir);
   const layout = createArtifactLayout({ outputDir: runDir });
   const rawDir = layout.raw;
@@ -1860,15 +2458,6 @@ async function runAgentDeviceCapture({
   };
   const checks: Record<string, unknown>[] = [];
   const driverActionMetadata: Record<string, unknown>[] = [];
-  let resolvedDriverSteps = driverSteps ?? [];
-  if (!driverSteps && scenario) {
-    resolvedDriverSteps = resolveAgentDeviceDriverSteps(scenario);
-  }
-  const driverStepErrors = validateAgentDeviceDriverSteps(resolvedDriverSteps);
-  if (driverStepErrors.length > 0) {
-    throw new Error(`Invalid agent-device driver step metadata: ${driverStepErrors.join(' ')}`);
-  }
-  const requestedTarget = udid ?? serial ?? device ?? null;
   let sessionName = typeof session === 'string' && session.length > 0 ? session : null;
   let sessionSelectionMode: 'explicit' | 'auto' | 'none' = sessionName ? 'explicit' : 'none';
   if (!sessionName) {
@@ -1912,8 +2501,12 @@ async function runAgentDeviceCapture({
     app,
     device,
     driverActions: [],
+    runId,
     open,
     platform,
+    requiredCommands: captureRequiredCommands,
+    leaseRunId: leaseRunId ?? null,
+    leaseStatus: lease.status,
     ...(requestedTarget ? { requestedTarget } : {}),
     selectedTarget: sessionOwnsTarget ? sessionName : requestedTarget,
     session: sessionName,
@@ -1922,6 +2515,9 @@ async function runAgentDeviceCapture({
     target,
     targetSelectionMode: agentDeviceTargetSelectionMode({ sessionName, sessionOwnsTarget }),
   };
+  const scenarioIdentity = readAgentDeviceScenarioIdentity(scenario);
+  metadata.scenarioId = scenarioIdentity.scenarioId;
+  metadata.flowId = scenarioIdentity.flowId;
 
   if (open) {
     if (!app) {
@@ -2042,8 +2638,18 @@ async function runAgentDeviceCapture({
 
   metadata.driverActions = driverActionMetadata;
   metadata.captures = captures;
-  const health = buildAgentDeviceHealth({ runId, checks });
-  const verdict = buildAgentDeviceVerdict({ runId, health });
+  const health = buildAgentDeviceHealth({
+    checks,
+    flowId: scenarioIdentity.flowId,
+    runId,
+    scenarioId: scenarioIdentity.scenarioId,
+  });
+  const verdict = buildAgentDeviceVerdict({
+    flowId: scenarioIdentity.flowId,
+    health,
+    runId,
+    scenarioId: scenarioIdentity.scenarioId,
+  });
   const agentSummary = buildAgentSummaryMarkdown({ health, verdict });
 
   await Promise.all(
@@ -2101,14 +2707,69 @@ async function main(): Promise<void> {
   const commandTimeoutMs = readPositiveInteger(commandTimeoutMsValue, 60_000);
   const agentDevicePath = readStringArgOrEnv(args['agent-device'], ['ASL_AGENT_DEVICE_BIN']);
   if (args.check === true || args.check === 'true') {
-    const requiredPlatforms = readStringArgOrEnv(
+    const configuredRequiredPlatforms = readStringArgOrEnv(
       args['require-platforms'],
       ['ASL_AGENT_DEVICE_REQUIRED_PLATFORMS'],
     );
+    const checkPlatform = typeof args.platform === 'string' && ['android', 'ios'].includes(args.platform)
+      ? args.platform as import('./agent-device-driver').AgentDevicePlatform
+      : undefined;
+    const requiredPlatforms = parseRequiredPlatforms(configuredRequiredPlatforms);
+    if (
+      checkPlatform &&
+      requiredPlatforms.length > 0 &&
+      (requiredPlatforms.length !== 1 || requiredPlatforms[0] !== checkPlatform)
+    ) {
+      throw new Error('--platform must not conflict with --require-platforms during availability checks.');
+    }
+    let checkSerial: string | undefined;
+    if (typeof args.serial === 'string') {
+      checkSerial = args.serial;
+    } else if (checkPlatform === 'android') {
+      checkSerial = readStringArgOrEnv(undefined, ['ASL_ANDROID_SERIAL', 'ASL_EXAMPLE_ANDROID_SERIAL']);
+    }
+    let checkSession: string | undefined;
+    if (typeof args.session === 'string') {
+      checkSession = args.session;
+    } else if (checkPlatform === 'android') {
+      checkSession = readStringArgOrEnv(
+        undefined,
+        ['ASL_ANDROID_AGENT_DEVICE_SESSION', 'ASL_EXAMPLE_ANDROID_AGENT_DEVICE_SESSION'],
+      );
+    } else if (checkPlatform === 'ios') {
+      checkSession = readStringArgOrEnv(
+        undefined,
+        ['ASL_IOS_AGENT_DEVICE_SESSION', 'ASL_EXAMPLE_IOS_AGENT_DEVICE_SESSION'],
+      );
+    }
+    let checkUdid: string | undefined;
+    if (typeof args.udid === 'string') {
+      checkUdid = args.udid;
+    } else if (checkPlatform === 'ios') {
+      checkUdid = readStringArgOrEnv(undefined, ['ASL_IOS_UDID', 'ASL_EXAMPLE_IOS_UDID']);
+    }
+    const checkScenario = typeof args.scenario === 'string'
+      ? readJson(path.resolve(args.scenario))
+      : null;
+    if (checkScenario) {
+      assertScenarioExecutionContractSupported(checkScenario);
+    }
     const result = await checkAgentDeviceAvailability({
       ...(agentDevicePath ? { agentDevicePath } : {}),
       commandTimeoutMs,
-      requiredPlatforms: parseRequiredPlatforms(requiredPlatforms),
+      ...(typeof args.device === 'string' ? { device: args.device } : {}),
+      ...(typeof args['lease-evidence'] === 'string' ? { leaseEvidencePath: args['lease-evidence'] } : {}),
+      ...(typeof args['lease-run-id'] === 'string' ? { leaseRunId: args['lease-run-id'] } : {}),
+      open: isEnabled(args.open),
+      ...(checkPlatform ? { platform: checkPlatform } : {}),
+      requiredPlatforms,
+      ...(checkScenario ? { scenario: checkScenario } : {}),
+      ...(checkSerial ? { serial: checkSerial } : {}),
+      ...(checkSession ? { session: checkSession } : {}),
+      ...(typeof args.target === 'string' && ['desktop', 'mobile', 'tv'].includes(args.target)
+        ? { target: args.target as 'desktop' | 'mobile' | 'tv' }
+        : {}),
+      ...(checkUdid ? { udid: checkUdid } : {}),
     });
     if (typeof args.out === 'string') {
       await writeAgentDeviceAvailabilityArtifacts({
@@ -2151,6 +2812,8 @@ async function main(): Promise<void> {
     commandTimeoutMs,
     ...(typeof args.device === 'string' ? { device: args.device } : {}),
     ...(typeof args.out === 'string' ? { outputDir: args.out } : {}),
+    ...(typeof args['lease-evidence'] === 'string' ? { leaseEvidencePath: args['lease-evidence'] } : {}),
+    ...(typeof args['lease-run-id'] === 'string' ? { leaseRunId: args['lease-run-id'] } : {}),
     open: isEnabled(args.open),
     platform,
     ...(typeof args['run-id'] === 'string' ? { runId: args['run-id'] } : {}),
@@ -2209,6 +2872,7 @@ export type {
   AgentDeviceDriverStep,
   AgentDeviceAvailabilityOptions,
   AgentDeviceAvailabilityResult,
+  AgentDeviceAvailabilityTargetBinding,
   AgentDeviceAvailabilityCheck,
   AgentDeviceCapabilityInventory,
   AgentDeviceCapabilityProbe,

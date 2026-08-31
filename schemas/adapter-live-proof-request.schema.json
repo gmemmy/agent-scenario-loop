@@ -1,0 +1,94 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-scenario-loop.dev/schemas/adapter-live-proof-request.schema.json",
+  "title": "Agent Scenario Loop direct adapter live proof request",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "platform", "runId", "outputDir", "preflight", "interactionProof", "sidecars"],
+  "properties": {
+    "schemaVersion": { "const": "1.0.0" },
+    "platform": { "enum": ["android", "ios"] },
+    "runId": { "$ref": "#/$defs/runIdSegment" },
+    "outputDir": { "type": "string", "minLength": 1 },
+    "preflight": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["runnerId", "runDir", "runId", "target", "session", "leaseRunId", "requireLease"],
+      "properties": {
+        "runnerId": { "const": "agent-device" },
+        "runDir": { "type": "string", "minLength": 1 },
+        "runId": { "type": "string", "minLength": 1 },
+        "target": { "type": "string", "minLength": 1 },
+        "session": { "type": "string", "minLength": 1 },
+        "leaseRunId": { "type": "string", "minLength": 1 },
+        "requireLease": { "const": true }
+      }
+    },
+    "interactionProof": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["label", "runnerId", "scenarioId", "runId", "runDir"],
+      "properties": {
+        "label": { "type": "string", "minLength": 1 },
+        "runnerId": { "const": "agent-device" },
+        "scenarioId": {
+          "type": "string",
+          "minLength": 1,
+          "not": { "const": "agent-device-capture" }
+        },
+        "runId": { "type": "string", "minLength": 1 },
+        "runDir": { "type": "string", "minLength": 1 }
+      }
+    },
+    "sidecars": {
+      "type": "array",
+      "minItems": 1,
+      "contains": {
+        "type": "object",
+        "properties": { "required": { "const": true } },
+        "required": ["required"]
+      },
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "required", "status"],
+        "properties": {
+          "kind": {
+            "enum": ["recording", "screenshot", "uiTree", "actionTranscript", "log", "metrics", "health", "verdict", "summary", "other"]
+          },
+          "required": { "type": "boolean" },
+          "status": { "enum": ["present", "not_available"] },
+          "relativePath": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^(?!/)(?![A-Za-z]:)(?!\\\\)(?!.*\\\\)(?!.*//)(?!.*[\\u0000-\\u001F\\u007F])(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*(?:^|/)\\.(?:/|$))[^\\\\]+$"
+          },
+          "reason": { "type": "string", "minLength": 1 }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": { "status": { "const": "present" } },
+              "required": ["status"]
+            },
+            "then": {
+              "required": ["relativePath"],
+              "not": { "required": ["reason"] }
+            },
+            "else": {
+              "required": ["reason"],
+              "not": { "required": ["relativePath"] }
+            }
+          }
+        ]
+      }
+    }
+  },
+  "$defs": {
+    "runIdSegment": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+    }
+  }
+}

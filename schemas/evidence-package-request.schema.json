@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-scenario-loop.dev/schemas/evidence-package-request.schema.json",
+  "title": "Agent Scenario Loop evidence package request",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "packageId", "runId", "sourceRoot", "outputDir", "sensitivityPolicy", "entries"],
+  "properties": {
+    "schemaVersion": { "const": "1.0.0" },
+    "packageId": { "type": "string", "minLength": 1 },
+    "runId": { "type": "string", "minLength": 1 },
+    "sourceRoot": { "type": "string", "minLength": 1 },
+    "outputDir": { "type": "string", "minLength": 1 },
+    "sensitivityPolicy": { "const": "allowlist-and-secret-marker-v1" },
+    "entries": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "sourcePath", "artifactPath"],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": ["recording", "screenshot", "uiTree", "actionTranscript", "log", "metrics", "health", "verdict", "summary", "liveProof", "liveProofSet", "ciEvidencePack", "other"]
+          },
+          "sourcePath": { "$ref": "#/$defs/runRelativePath" },
+          "artifactPath": { "$ref": "#/$defs/artifactPath" }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "runRelativePath": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!/)(?![A-Za-z]:)(?!\\\\)(?!.*\\\\)(?!.*//)(?!.*\/$)(?!.*[\\u0000-\\u001F\\u007F])(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*(?:^|/)\\.(?:/|$))[^\\\\]+$"
+    },
+    "artifactPath": {
+      "allOf": [
+        { "$ref": "#/$defs/runRelativePath" },
+        { "pattern": "^(?!.*(?:^|/)[^/]*[. ](?:/|$))files/.+" }
+      ]
+    }
+  }
+}

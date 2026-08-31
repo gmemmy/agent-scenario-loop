@@ -41,6 +41,45 @@ function readJson(filePath: string): Record<string, any> {
   return JSON.parse(fs.readFileSync(filePath, 'utf8'));
 }
 
+function activeLeaseJournal({
+  expiresAt = Date.now() + 60_000,
+  platform,
+  runId,
+  targetId,
+}: {
+  expiresAt?: number;
+  platform: 'android' | 'ios';
+  runId: string;
+  targetId: string;
+}): Record<string, unknown> {
+  const ownerId = `${runId}-owner`;
+  const resourceId = `mobile-target:${platform}:${targetId}`;
+  return {
+    schemaVersion: 1,
+    status: 'held',
+    runId,
+    ownerId,
+    resource: { platform, resourceId, targetId },
+    heartbeat: { count: 0 },
+    acquisition: {
+      status: 'acquired',
+      lease: {
+        schemaVersion: 1,
+        leaseId: `${runId}-lease`,
+        resourceId,
+        ownerId,
+        runId,
+        pid: process.pid,
+        hostname: 'test-host',
+        createdAt: Date.now(),
+        heartbeatAt: Date.now(),
+        expiresAt,
+        ttlMs: 60_000,
+      },
+    },
+  };
+}
+
 test('agent-device required platforms parser accepts comma-separated OS targets', () => {
   assert.deepEqual(parseRequiredPlatforms('ios,android'), ['ios', 'android']);
   assert.deepEqual(parseRequiredPlatforms('ios, unknown, android'), ['ios', 'android']);
@@ -137,6 +176,7 @@ test('agent-device availability check verifies command surface and booted platfo
   assert.equal(result.status, 'passed');
   assert.equal(result.capabilityProbe.source, 'help-output-fallback');
   assert.equal(result.capabilityInventory.status, 'fallback');
+  assert.equal(result.requiredCommands.includes('pinch'), true);
   assert.deepEqual(result.requiredPlatforms, ['ios', 'android']);
   assert.equal(result.devices.length, 2);
   assert.equal(result.sessions.length, 2);
@@ -227,6 +267,7 @@ test('agent-device availability check uses capabilities inventory when available
         ].join('\n'),
       };
     },
+    requiredCommands: ['snapshot'],
     requiredPlatforms: ['android'],
   });
 
@@ -658,6 +699,343 @@ test('agent-device availability check writes ASL artifacts when requested', asyn
   assert.equal(fs.existsSync(path.join(tempDir, 'agent-summary.md')), true);
 });
 
+test('agent-device availability binds scenario commands, target, session, and active lease', async (t: TestContext) => {
+  const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-agent-device-target-bound-'));
+  t.after(async () => {
+    await fsp.rm(tempDir, { recursive: true, force: true });
+  });
+  const leaseEvidencePath = path.join(tempDir, 'resource-lease.json');
+  const leaseJournal = activeLeaseJournal({
+    expiresAt: Date.now() - 1,
+    platform: 'ios',
+    runId: 'target-bound-run',
+    targetId: 'SIM-EXACT',
+  }) as Record<string, any>;
+  leaseJournal.heartbeat = {
+    count: 1,
+    lastResult: {
+      status: 'renewed',
+      lease: {
+        ...leaseJournal.acquisition.lease,
+        expiresAt: Date.now() + 60_000,
+        heartbeatAt: Date.now(),
+      },
+    },
+  };
+  await fsp.writeFile(leaseEvidencePath, `${JSON.stringify(leaseJournal)}\n`, 'utf8');
+  const calls: string[] = [];
+  const result = await checkAgentDeviceAvailability({
+    executor: async (command: string, args: string[]): Promise<CommandResult> => {
+      calls.push(args.join(' '));
+      if (args[0] === 'capabilities') {
+        return {
+          args,
+          command,
+          exitCode: 0,
+          stderr: '',
+          stdout: JSON.stringify({
+            availableCommands: ['click', 'snapshot'],
+            device: { id: 'SIM-EXACT', platform: 'ios', target: 'mobile' },
+          }),
+        };
+      }
+      if (args.join(' ') === 'devices --json') {
+        return {
+          args,
+          command,
+          exitCode: 0,
+          stderr: '',
+          stdout: JSON.stringify({
+            data: {
+              devices: [
+                { platform: 'ios', id: 'SIM-OTHER', target: 'mobile', booted: true },
+                { platform: 'ios', id: 'SIM-EXACT', target: 'mobile', booted: true },
+              ],
+            },
+          }),
+        };
+      }
+      if (args.join(' ') === 'session list --json') {
+        return {
+          args,
+          command,
+          exitCode: 0,
+          stderr: '',
+          stdout: JSON.stringify({
+            data: {
+              sessions: [
+                { name: 'other-session', platform: 'ios', target: 'mobile', udid: 'SIM-OTHER' },
+                { name: 'exact-session', platform: 'ios', target: 'mobile', udid: 'SIM-EXACT' },
+              ],
+            },
+          }),
+        };
+      }
+      return {
+        args,
+        command,
+        exitCode: 0,
+        stderr: '',
+        stdout: 'Agent Device command line\n',
+      };
+    },
+    leaseEvidencePath,
+    leaseRunId: 'target-bound-run',
+    platform: 'ios',
+    scenario: {
+      id: 'category-discovery',
+      flowId: 'category-discovery-flow',
+      steps: [
+        {
+          id: 'open-category',
+          kind: 'gesture',
+          driverAction: 'tap',
+          selector: { kind: 'accessibilityLabel', value: 'Category' },
+        },
+        {
+          id: 'inspect-category',
+          kind: 'captureEvidence',
+          artifact: 'uiTree',
+          driverAction: 'inspectTree',
+        },
+      ],
+    },
+    session: 'exact-session',
+    udid: 'SIM-EXACT',
+  });
+
+  assert.equal(result.status, 'passed');
+  assert.equal(result.scenarioId, 'category-discovery');
+  assert.equal(result.flowId, 'category-discovery-flow');
+  assert.deepEqual(result.requiredCommands, ['click', 'devices', 'session list', 'snapshot']);
+  assert.equal(result.requiredCommands.includes('pinch'), false);
+  assert.equal(result.requiredCommands.includes('rotate'), false);
+  assert.deepEqual(result.targetBinding, {
+    leaseRunId: 'target-bound-run',
+    leaseStatus: 'trusted',
+    platform: 'ios',
+    requestedSession: 'exact-session',
+    requestedTarget: 'SIM-EXACT',
+    selectedDevice: 'SIM-EXACT',
+    selectedSession: 'exact-session',
+    status: 'bound',
+  });
+  assert.equal(calls[0], 'capabilities --platform ios --target mobile --udid SIM-EXACT --session exact-session --json');
+  assert.equal(result.checks.find((check: {name: string}) => check.name === 'agent_device_resource_lease')?.status, 'passed');
+});
+
+test('agent-device availability rejects expired lease evidence before adapter probes', async (t: TestContext) => {
+  const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-agent-device-expired-lease-'));
+  t.after(async () => {
+    await fsp.rm(tempDir, { recursive: true, force: true });
+  });
+  const leaseEvidencePath = path.join(tempDir, 'resource-lease.json');
+  await fsp.writeFile(leaseEvidencePath, `${JSON.stringify(activeLeaseJournal({
+    expiresAt: Date.now() - 1,
+    platform: 'ios',
+    runId: 'expired-lease-run',
+    targetId: 'SIM-EXPIRED',
+  }))}\n`, 'utf8');
+  let executorCalls = 0;
+  const result = await checkAgentDeviceAvailability({
+    executor: async (): Promise<CommandResult> => {
+      executorCalls += 1;
+      throw new Error('executor must not run for expired lease evidence');
+    },
+    leaseEvidencePath,
+    leaseRunId: 'expired-lease-run',
+    platform: 'ios',
+    scenario: { id: 'expired-lease-scenario', steps: [] },
+    session: 'expired-lease-session',
+    udid: 'SIM-EXPIRED',
+  });
+
+  assert.equal(result.status, 'failed');
+  assert.equal(result.targetBinding.leaseStatus, 'untrusted');
+  assert.equal(result.capabilityProbe.source, 'not-probed');
+  assert.equal(result.capabilityInventory.status, 'not-probed');
+  assert.equal(executorCalls, 0);
+});
+
+test('agent-device availability rejects lease evidence without non-empty owner identity', async (t: TestContext) => {
+  const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-agent-device-ownerless-lease-'));
+  t.after(async () => {
+    await fsp.rm(tempDir, { recursive: true, force: true });
+  });
+  const journal = activeLeaseJournal({
+    platform: 'ios',
+    runId: 'ownerless-lease-run',
+    targetId: 'SIM-OWNERLESS',
+  }) as Record<string, unknown>;
+  delete journal.ownerId;
+  const acquisition = journal.acquisition as {lease?: Record<string, unknown>};
+  delete acquisition.lease?.ownerId;
+  const leaseEvidencePath = path.join(tempDir, 'resource-lease.json');
+  await fsp.writeFile(leaseEvidencePath, `${JSON.stringify(journal)}\n`, 'utf8');
+  let executorCalls = 0;
+  const result = await checkAgentDeviceAvailability({
+    executor: async (): Promise<CommandResult> => {
+      executorCalls += 1;
+      throw new Error('executor must not run for ownerless lease evidence');
+    },
+    leaseEvidencePath,
+    leaseRunId: 'ownerless-lease-run',
+    platform: 'ios',
+    scenario: { id: 'ownerless-lease-scenario', steps: [] },
+    session: 'ownerless-lease-session',
+    udid: 'SIM-OWNERLESS',
+  });
+
+  assert.equal(result.status, 'failed');
+  assert.equal(result.targetBinding.leaseStatus, 'untrusted');
+  assert.equal(executorCalls, 0);
+});
+
+test('agent-device availability rejects a present non-renewed heartbeat before adapter probes', async (t: TestContext) => {
+  const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-agent-device-failed-heartbeat-'));
+  t.after(async () => {
+    await fsp.rm(tempDir, { recursive: true, force: true });
+  });
+  const journal = activeLeaseJournal({
+    platform: 'ios',
+    runId: 'failed-heartbeat-run',
+    targetId: 'SIM-HEARTBEAT',
+  });
+  journal.heartbeat = {
+    count: 1,
+    lastResult: { status: 'mismatch' },
+  };
+  const leaseEvidencePath = path.join(tempDir, 'resource-lease.json');
+  await fsp.writeFile(leaseEvidencePath, `${JSON.stringify(journal)}\n`, 'utf8');
+  let executorCalls = 0;
+  const result = await checkAgentDeviceAvailability({
+    executor: async (): Promise<CommandResult> => {
+      executorCalls += 1;
+      throw new Error('executor must not run after a failed heartbeat');
+    },
+    leaseEvidencePath,
+    leaseRunId: 'failed-heartbeat-run',
+    platform: 'ios',
+    scenario: { id: 'failed-heartbeat-scenario', steps: [] },
+    session: 'failed-heartbeat-session',
+    udid: 'SIM-HEARTBEAT',
+  });
+
+  assert.equal(result.status, 'failed');
+  assert.equal(result.targetBinding.leaseStatus, 'untrusted');
+  assert.equal(result.capabilityProbe.source, 'not-probed');
+  assert.equal(executorCalls, 0);
+});
+
+test('agent-device availability rejects a capability probe that omits selected-target authority', async (t: TestContext) => {
+  const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-agent-device-capability-target-missing-'));
+  t.after(async () => {
+    await fsp.rm(tempDir, { recursive: true, force: true });
+  });
+  const leaseEvidencePath = path.join(tempDir, 'resource-lease.json');
+  await fsp.writeFile(leaseEvidencePath, `${JSON.stringify(activeLeaseJournal({
+    platform: 'ios',
+    runId: 'capability-target-run',
+    targetId: 'SIM-CAPABILITY',
+  }))}\n`, 'utf8');
+  const result = await checkAgentDeviceAvailability({
+    executor: async (command: string, args: string[]): Promise<CommandResult> => {
+      if (args[0] === 'capabilities') {
+        return { args, command, exitCode: 0, stderr: '', stdout: JSON.stringify({ availableCommands: ['click'] }) };
+      }
+      if (args.join(' ') === 'devices --json') {
+        return { args, command, exitCode: 0, stderr: '', stdout: JSON.stringify({ data: { devices: [{ platform: 'ios', id: 'SIM-CAPABILITY', target: 'mobile', booted: true }] } }) };
+      }
+      if (args.join(' ') === 'session list --json') {
+        return { args, command, exitCode: 0, stderr: '', stdout: JSON.stringify({ data: { sessions: [{ name: 'capability-session', platform: 'ios', target: 'mobile', udid: 'SIM-CAPABILITY' }] } }) };
+      }
+      return { args, command, exitCode: 0, stderr: '', stdout: 'Agent Device command line\n' };
+    },
+    leaseEvidencePath,
+    leaseRunId: 'capability-target-run',
+    platform: 'ios',
+    scenario: { id: 'capability-target-scenario', steps: [] },
+    session: 'capability-session',
+    udid: 'SIM-CAPABILITY',
+  });
+
+  assert.equal(result.status, 'failed');
+  assert.equal(result.targetBinding.status, 'mismatch');
+  assert.equal(result.checks.find((check: {name: string}) => check.name === 'agent_device_capability_target')?.status, 'failed');
+});
+
+test('agent-device availability rejects an untrusted lease before adapter probes', async (t: TestContext) => {
+  const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-agent-device-target-mismatch-'));
+  t.after(async () => {
+    await fsp.rm(tempDir, { recursive: true, force: true });
+  });
+  const leaseEvidencePath = path.join(tempDir, 'resource-lease.json');
+  await fsp.writeFile(leaseEvidencePath, `${JSON.stringify({
+    schemaVersion: 1,
+    status: 'released',
+    runId: 'older-run',
+    resource: { platform: 'ios', targetId: 'SIM-OTHER' },
+  })}\n`, 'utf8');
+  let executorCalls = 0;
+  const result = await checkAgentDeviceAvailability({
+    executor: async (command: string, args: string[]): Promise<CommandResult> => {
+      executorCalls += 1;
+      if (args[0] === 'capabilities') {
+        return {
+          args,
+          command,
+          exitCode: 0,
+          stderr: '',
+          stdout: JSON.stringify({
+            availableCommands: ['click'],
+            device: { id: 'SIM-OTHER', platform: 'ios', target: 'mobile' },
+          }),
+        };
+      }
+      if (args.join(' ') === 'devices --json') {
+        return {
+          args,
+          command,
+          exitCode: 0,
+          stderr: '',
+          stdout: JSON.stringify({ data: { devices: [{ platform: 'ios', id: 'SIM-OTHER', target: 'mobile', booted: true }] } }),
+        };
+      }
+      if (args.join(' ') === 'session list --json') {
+        return {
+          args,
+          command,
+          exitCode: 0,
+          stderr: '',
+          stdout: JSON.stringify({ data: { sessions: [{ name: 'exact-session', platform: 'ios', udid: 'SIM-OTHER' }] } }),
+        };
+      }
+      return { args, command, exitCode: 0, stderr: '', stdout: 'Agent Device command line\n' };
+    },
+    leaseEvidencePath,
+    leaseRunId: 'target-bound-run',
+    platform: 'ios',
+    scenario: {
+      id: 'target-mismatch',
+      steps: [{
+        id: 'tap',
+        kind: 'gesture',
+        driverAction: 'tap',
+        selector: { kind: 'accessibilityLabel', value: 'Category' },
+      }],
+    },
+    session: 'exact-session',
+    udid: 'SIM-EXACT',
+  });
+
+  assert.equal(result.status, 'failed');
+  assert.equal(result.targetBinding.status, 'mismatch');
+  assert.equal(result.targetBinding.leaseStatus, 'untrusted');
+  assert.equal(executorCalls, 0);
+  assert.equal(result.checks.length, 1);
+  assert.equal(result.checks.find((check: {name: string}) => check.name === 'agent_device_resource_lease')?.status, 'failed');
+});
+
 test('agent-device capture executes scenario driver actions and writes artifacts', async (t: TestContext) => {
   const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-agent-device-'));
   t.after(async () => {
@@ -665,6 +1043,8 @@ test('agent-device capture executes scenario driver actions and writes artifacts
   });
   const calls: string[] = [];
   const scenario = {
+    id: 'agent-device-scenario',
+    flowId: 'agent-device-flow',
     name: 'agent-device-flow',
     steps: [
       {
@@ -741,7 +1121,12 @@ test('agent-device capture executes scenario driver actions and writes artifacts
   ]);
   assert.deepEqual(result.captures.screenshots, ['captures/final.png']);
   assert.equal(readJson(path.join(tempDir, 'health.json')).healthStatus, 'passed');
+  assert.equal(readJson(path.join(tempDir, 'health.json')).scenarioId, 'agent-device-scenario');
+  assert.equal(readJson(path.join(tempDir, 'health.json')).flowId, 'agent-device-flow');
   assert.equal(readJson(path.join(tempDir, 'verdict.json')).verdictStatus, 'not_evaluated');
+  assert.equal(readJson(path.join(tempDir, 'verdict.json')).scenarioId, 'agent-device-scenario');
+  assert.equal(readJson(path.join(tempDir, 'raw', 'agent-device-metadata.json')).scenarioId, 'agent-device-scenario');
+  assert.equal(readJson(path.join(tempDir, 'raw', 'agent-device-metadata.json')).flowId, 'agent-device-flow');
   assert.equal(fs.existsSync(path.join(tempDir, 'raw', 'agent-device-open.txt')), true);
   assert.equal(fs.existsSync(path.join(tempDir, 'raw', 'final-screenshot.txt')), true);
   assert.equal(fs.existsSync(path.join(tempDir, 'captures', 'final.png')), true);
@@ -773,6 +1158,249 @@ test('agent-device capture rejects reader-only scenarios before output or execut
       scenario: { schemaVersion: '1.1.0', id: 'reader-only' },
     }),
     /Scenario schemaVersion 1\.1\.0 is reader-only/u,
+  );
+  assert.deepEqual(calls, []);
+  assert.equal(fs.existsSync(outputDir), false);
+});
+
+test('agent-device capture records a trusted exact-target lease', async (t: TestContext) => {
+  const tempRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-agent-device-capture-lease-'));
+  t.after(async () => {
+    await fsp.rm(tempRoot, { recursive: true, force: true });
+  });
+  const outputDir = path.join(tempRoot, 'output');
+  const leaseEvidencePath = path.join(tempRoot, 'resource-lease.json');
+  await fsp.writeFile(leaseEvidencePath, `${JSON.stringify(activeLeaseJournal({
+    platform: 'ios',
+    runId: 'capture-lease-run',
+    targetId: 'SIM-CAPTURE',
+  }))}\n`, 'utf8');
+  const calls: string[] = [];
+
+  await runAgentDeviceCapture({
+    app: 'dev.example.app',
+    driverSteps: [],
+    executor: async (command: string, args: string[]): Promise<CommandResult> => {
+      calls.push(`${command} ${args.join(' ')}`);
+      if (args[0] === 'capabilities') {
+        return {
+          command,
+          args,
+          exitCode: 0,
+          stderr: '',
+          stdout: JSON.stringify({
+            availableCommands: ['open'],
+            device: { id: 'SIM-CAPTURE', platform: 'ios', target: 'mobile' },
+          }),
+        };
+      }
+      if (args.join(' ') === 'devices --json') {
+        return {
+          command,
+          args,
+          exitCode: 0,
+          stderr: '',
+          stdout: JSON.stringify({
+            data: { devices: [{ platform: 'ios', id: 'SIM-CAPTURE', target: 'mobile', booted: true }] },
+          }),
+        };
+      }
+      if (args.join(' ') === 'session list --json') {
+        return {
+          command,
+          args,
+          exitCode: 0,
+          stderr: '',
+          stdout: JSON.stringify({
+            data: { sessions: [{ name: 'capture-session', platform: 'ios', target: 'mobile', udid: 'SIM-CAPTURE' }] },
+          }),
+        };
+      }
+      return {
+        command,
+        args,
+        exitCode: 0,
+        stderr: '',
+        stdout: args[0] === '--help' ? 'Agent Device command line\n' : '',
+      };
+    },
+    leaseEvidencePath,
+    leaseRunId: 'capture-lease-run',
+    open: true,
+    outputDir,
+    platform: 'ios',
+    runId: 'capture-run',
+    scenario: { id: 'capture-lease-scenario', steps: [] },
+    session: 'capture-session',
+    sessionMode: 'bind',
+    udid: 'SIM-CAPTURE',
+  });
+
+  assert.deepEqual(calls, [
+    'agent-device capabilities --platform ios --target mobile --udid SIM-CAPTURE --session capture-session --json',
+    'agent-device --help',
+    'agent-device devices --json',
+    'agent-device session list --json',
+    'agent-device open dev.example.app --platform ios --target mobile --udid SIM-CAPTURE --session capture-session --json',
+  ]);
+  const metadata = readJson(path.join(outputDir, 'raw', 'agent-device-metadata.json'));
+  assert.equal(metadata.runId, 'capture-run');
+  assert.equal(metadata.leaseRunId, 'capture-lease-run');
+  assert.equal(metadata.leaseStatus, 'trusted');
+  assert.equal(metadata.requestedTarget, 'SIM-CAPTURE');
+  assert.deepEqual(metadata.requiredCommands, ['devices', 'open', 'session list']);
+  assert.equal(metadata.scenarioId, 'capture-lease-scenario');
+});
+
+test('agent-device capture rejects a session bound to another target before output or mutable work', async (t: TestContext) => {
+  const tempRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-agent-device-capture-session-mismatch-'));
+  t.after(async () => {
+    await fsp.rm(tempRoot, { recursive: true, force: true });
+  });
+  const outputDir = path.join(tempRoot, 'output');
+  const leaseEvidencePath = path.join(tempRoot, 'resource-lease.json');
+  await fsp.writeFile(leaseEvidencePath, `${JSON.stringify(activeLeaseJournal({
+    platform: 'ios',
+    runId: 'capture-session-mismatch-run',
+    targetId: 'SIM-EXPECTED',
+  }))}\n`, 'utf8');
+  const calls: string[] = [];
+
+  await assert.rejects(
+    () => runAgentDeviceCapture({
+      driverSteps: [],
+      executor: async (command: string, args: string[]): Promise<CommandResult> => {
+        calls.push(args.join(' '));
+        if (args[0] === 'capabilities') {
+          return {
+            command,
+            args,
+            exitCode: 0,
+            stderr: '',
+            stdout: JSON.stringify({
+              availableCommands: [],
+              device: { id: 'SIM-EXPECTED', platform: 'ios', target: 'mobile' },
+            }),
+          };
+        }
+        if (args.join(' ') === 'devices --json') {
+          return {
+            command,
+            args,
+            exitCode: 0,
+            stderr: '',
+            stdout: JSON.stringify({
+              data: { devices: [{ platform: 'ios', id: 'SIM-EXPECTED', target: 'mobile', booted: true }] },
+            }),
+          };
+        }
+        if (args.join(' ') === 'session list --json') {
+          return {
+            command,
+            args,
+            exitCode: 0,
+            stderr: '',
+            stdout: JSON.stringify({
+              data: { sessions: [{ name: 'capture-session', platform: 'ios', target: 'mobile', udid: 'SIM-OTHER' }] },
+            }),
+          };
+        }
+        return { command, args, exitCode: 0, stderr: '', stdout: 'Agent Device command line\n' };
+      },
+      leaseEvidencePath,
+      leaseRunId: 'capture-session-mismatch-run',
+      outputDir,
+      platform: 'ios',
+      scenario: { id: 'capture-session-mismatch-scenario', steps: [] },
+      session: 'capture-session',
+      sessionMode: 'bind',
+      udid: 'SIM-EXPECTED',
+    }),
+    /target-bound availability preflight failed/iu,
+  );
+
+  assert.deepEqual(calls, [
+    'capabilities --platform ios --target mobile --udid SIM-EXPECTED --session capture-session --json',
+    '--help',
+    'devices --json',
+    'session list --json',
+  ]);
+  assert.equal(fs.existsSync(outputDir), false);
+});
+
+test('agent-device rejects conflicting exact-target selectors before probes or output', async (t: TestContext) => {
+  let executorCalls = 0;
+  await assert.rejects(
+    checkAgentDeviceAvailability({
+      device: 'SIM-DEVICE',
+      executor: async (): Promise<CommandResult> => {
+        executorCalls += 1;
+        throw new Error('executor must not run for conflicting selectors');
+      },
+      platform: 'ios',
+      udid: 'SIM-UDID',
+    }),
+    /mutually exclusive/iu,
+  );
+  assert.equal(executorCalls, 0);
+
+  const tempRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-agent-device-conflicting-selectors-'));
+  t.after(async () => {
+    await fsp.rm(tempRoot, { recursive: true, force: true });
+  });
+  const outputDir = path.join(tempRoot, 'output');
+  await assert.rejects(
+    runAgentDeviceCapture({
+      device: 'SIM-DEVICE',
+      driverSteps: [],
+      executor: async (): Promise<CommandResult> => {
+        executorCalls += 1;
+        throw new Error('executor must not run for conflicting selectors');
+      },
+      outputDir,
+      platform: 'ios',
+      udid: 'SIM-UDID',
+    }),
+    /mutually exclusive/iu,
+  );
+  assert.equal(executorCalls, 0);
+  assert.equal(fs.existsSync(outputDir), false);
+});
+
+test('agent-device capture rejects an untrusted lease before output or executor calls', async (t: TestContext) => {
+  const tempRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-agent-device-capture-lease-rejected-'));
+  t.after(async () => {
+    await fsp.rm(tempRoot, { recursive: true, force: true });
+  });
+  const outputDir = path.join(tempRoot, 'output');
+  const leaseEvidencePath = path.join(tempRoot, 'resource-lease.json');
+  await fsp.writeFile(leaseEvidencePath, `${JSON.stringify({
+    schemaVersion: 1,
+    status: 'released',
+    runId: 'older-run',
+    resource: {
+      platform: 'ios',
+      resourceId: 'mobile-target:ios:SIM-OTHER',
+      targetId: 'SIM-OTHER',
+    },
+  })}\n`, 'utf8');
+  const calls: string[] = [];
+
+  await assert.rejects(
+    () => runAgentDeviceCapture({
+      driverSteps: [],
+      executor: async (command: string, args: string[]): Promise<CommandResult> => {
+        calls.push(`${command} ${args.join(' ')}`);
+        return { command, args, exitCode: 0, stderr: '', stdout: '' };
+      },
+      leaseEvidencePath,
+      leaseRunId: 'capture-lease-run',
+      outputDir,
+      platform: 'ios',
+      scenario: { id: 'capture-lease-rejected', steps: [] },
+      udid: 'SIM-CAPTURE',
+    }),
+    /trusted active ASL lease/u,
   );
   assert.deepEqual(calls, []);
   assert.equal(fs.existsSync(outputDir), false);

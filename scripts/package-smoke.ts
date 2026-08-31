@@ -2818,6 +2818,8 @@ function main(): void {
       "assert.equal(typeof asl.coordinateQuickProof, 'function');",
       "assert.equal(typeof asl.createQuickProofAuthorizationPort, 'function');",
       "assert.equal(typeof asl.writeQuickProofArtifacts, 'function');",
+      "assert.equal(typeof asl.materializeEvidencePackage, 'function');",
+      "assert.equal(typeof asl.EvidencePackageError, 'function');",
       "assert.equal(typeof asl.assertValidJson, 'function');",
       "assert.deepEqual(asl.PRIMARY_RUNNER_PORT, ['prepare', 'launch', 'startSession', 'executeStep', 'waitForTruthEvent', 'captureEvidence', 'stopSession', 'finalize']);",
       "assert.deepEqual(asl.EVIDENCE_PROVIDER_PORT, ['prepare', 'startWindow', 'capture', 'stopWindow', 'finalize']);",
@@ -2857,6 +2859,9 @@ function main(): void {
       "require.resolve('agent-scenario-loop/schemas/authority-capabilities.schema.json');",
       "require.resolve('agent-scenario-loop/schemas/causal-run.schema.json');",
       "require.resolve('agent-scenario-loop/schemas/comparison.schema.json');",
+      "require.resolve('agent-scenario-loop/schemas/adapter-live-proof-request.schema.json');",
+      "require.resolve('agent-scenario-loop/schemas/evidence-package.schema.json');",
+      "require.resolve('agent-scenario-loop/schemas/evidence-package-request.schema.json');",
       "require.resolve('agent-scenario-loop/schemas/external-adapter-message.schema.json');",
       "require.resolve('agent-scenario-loop/schemas/health.schema.json');",
       "require.resolve('agent-scenario-loop/schemas/historical-evaluation.schema.json');",
@@ -3440,9 +3445,16 @@ function main(): void {
       "assert.equal(fs.existsSync('node_modules/agent-scenario-loop/docs/authoring.md'), true);",
       "require.resolve('agent-scenario-loop/runner/agent-device');",
       "require.resolve('agent-scenario-loop/runner/agent-device-driver');",
+      "const adapterLiveProofRunner = require('agent-scenario-loop/runner/adapter-live-proof');",
+      "assert.equal(typeof adapterLiveProofRunner.AdapterLiveProofError, 'function');",
+      "assert.equal(typeof adapterLiveProofRunner.buildAdapterLiveProof, 'function');",
+      "assert.equal(typeof adapterLiveProofRunner.main, 'function');",
+      "require.resolve('agent-scenario-loop/schemas/adapter-live-proof-request.schema.json');",
       "require.resolve('agent-scenario-loop/runner/argent');",
       "require.resolve('agent-scenario-loop/runner/argent-driver');",
       "require.resolve('agent-scenario-loop/runner/ios-simctl-driver');",
+      "const evidencePackageRunner = require('agent-scenario-loop/runner/evidence-package');",
+      "assert.equal(typeof evidencePackageRunner.main, 'function');",
       "require.resolve('agent-scenario-loop/runner/live-proof');",
       "const resourceLease = require('agent-scenario-loop/runner/resource-lease');",
       "assert.equal(resourceLease.buildMobileTargetResourceId({ platform: 'android', targetId: 'emulator-5554' }), 'mobile-target:android:emulator-5554');",
@@ -3454,6 +3466,254 @@ function main(): void {
       cwd: installDir,
       env,
     });
+
+    const evidencePackageSource = path.join(tempRoot, 'evidence-package-source');
+    const evidencePackageOutput = path.join(tempRoot, 'evidence-package-output');
+    const evidencePackageRequestPath = path.join(tempRoot, 'evidence-package-request.json');
+    fs.mkdirSync(path.join(evidencePackageSource, 'raw'), { recursive: true });
+    fs.writeFileSync(path.join(evidencePackageSource, 'raw', 'health.json'), '{"healthStatus":"passed"}\n', 'utf8');
+    fs.writeFileSync(path.join(evidencePackageSource, '.env'), 'SECRET=not-packed\n', 'utf8');
+    fs.writeFileSync(evidencePackageRequestPath, `${JSON.stringify({
+      schemaVersion: '1.0.0',
+      packageId: 'package-smoke-evidence',
+      runId: 'package-smoke-run',
+      sourceRoot: evidencePackageSource,
+      outputDir: evidencePackageOutput,
+      sensitivityPolicy: 'allowlist-and-secret-marker-v1',
+      entries: [{
+        kind: 'health',
+        sourcePath: 'raw/health.json',
+        artifactPath: 'files/health.json',
+      }],
+    }, null, 2)}\n`, 'utf8');
+    const evidencePackageOutputRecord = JSON.parse(run(
+      packageBinPath(installDir, 'asl-evidence-package'),
+      ['--request', evidencePackageRequestPath],
+      { cwd: installDir, env },
+    )) as Record<string, unknown>;
+    assert.equal(evidencePackageOutputRecord.status, 'complete');
+    assert.equal(fs.existsSync(path.join(evidencePackageOutput, 'files', 'health.json')), true);
+    assert.equal(fs.existsSync(path.join(evidencePackageOutput, '.env')), false);
+    const evidencePackageManifest = JSON.parse(
+      fs.readFileSync(path.join(evidencePackageOutput, 'evidence-package.json'), 'utf8'),
+    ) as Record<string, unknown>;
+    assert.equal(evidencePackageManifest.status, 'complete');
+    assert.equal(evidencePackageManifest.fileCount, 1);
+    const evidencePackageChecksums = fs.readFileSync(path.join(evidencePackageOutput, 'SHA256SUMS'), 'utf8');
+    assert.match(evidencePackageChecksums, /evidence-package\.json/u);
+    assert.match(evidencePackageChecksums, /files\/health\.json/u);
+    for (const line of evidencePackageChecksums.trim().split('\n')) {
+      const [expectedSha256, relativePath] = line.split('  ');
+      assert.equal(
+        crypto.createHash('sha256').update(fs.readFileSync(path.join(evidencePackageOutput, relativePath ?? ''))).digest('hex'),
+        expectedSha256,
+      );
+    }
+    const rejectedEvidenceOutput = path.join(tempRoot, 'evidence-package-rejected-output');
+    const rejectedEvidenceRequestPath = path.join(tempRoot, 'evidence-package-rejected-request.json');
+    fs.writeFileSync(rejectedEvidenceRequestPath, `${JSON.stringify({
+      schemaVersion: '1.0.0',
+      packageId: 'package-smoke-rejected-evidence',
+      runId: 'package-smoke-rejected-run',
+      sourceRoot: evidencePackageSource,
+      outputDir: rejectedEvidenceOutput,
+      sensitivityPolicy: 'allowlist-and-secret-marker-v1',
+      entries: [{
+        kind: 'other',
+        sourcePath: '.env',
+        artifactPath: 'files/environment.txt',
+      }],
+    }, null, 2)}\n`, 'utf8');
+    const rejectedEvidenceRun = runExpectFailure(
+      packageBinPath(installDir, 'asl-evidence-package'),
+      ['--request', rejectedEvidenceRequestPath],
+      { cwd: installDir, env },
+    );
+    assert.equal(rejectedEvidenceRun.status, 1);
+    assert.equal(JSON.parse(rejectedEvidenceRun.stdout).status, 'rejected');
+    assert.equal(fs.existsSync(rejectedEvidenceOutput), false);
+
+    const adapterPreflightDir = path.join(tempRoot, 'adapter-preflight');
+    const adapterCaptureDir = path.join(tempRoot, 'adapter-capture');
+    const adapterOutputDir = adapterCaptureDir;
+    const writeHarnessRun = (
+      runDir: string,
+      runId: string,
+      scenarioId: string,
+    ): void => {
+      fs.mkdirSync(path.join(runDir, 'raw'), { recursive: true });
+      fs.writeFileSync(path.join(runDir, 'health.json'), `${JSON.stringify({
+        schemaVersion: '1.0.0',
+        flowId: scenarioId,
+        scenarioId,
+        runId,
+        healthStatus: 'passed',
+        checks: [{ name: 'package-smoke', status: 'passed', source: 'runner' }],
+      }, null, 2)}\n`, 'utf8');
+      fs.writeFileSync(path.join(runDir, 'verdict.json'), `${JSON.stringify({
+        schemaVersion: '1.0.0',
+        flowId: scenarioId,
+        scenarioId,
+        runId,
+        healthStatus: 'passed',
+        verdictStatus: 'not_evaluated',
+        budgetChecks: [],
+        summary: 'Package smoke direct adapter verdict.',
+      }, null, 2)}\n`, 'utf8');
+      fs.writeFileSync(path.join(runDir, 'agent-summary.md'), '# package smoke run\n', 'utf8');
+    };
+    writeHarnessRun(adapterPreflightDir, 'adapter-preflight-run', 'adapter-package-smoke');
+    writeHarnessRun(adapterCaptureDir, 'adapter-capture-run', 'adapter-package-smoke');
+    fs.writeFileSync(
+      path.join(adapterPreflightDir, 'raw', 'agent-device-availability.json'),
+      `${JSON.stringify({
+        flowId: 'adapter-package-smoke',
+        requiredCommands: ['devices', 'session list', 'snapshot'],
+        scenarioId: 'adapter-package-smoke',
+        status: 'passed',
+        targetBinding: {
+          leaseRunId: 'package-smoke-lease-run',
+          leaseStatus: 'trusted',
+          platform: 'ios',
+          requestedSession: 'package-smoke-session',
+          requestedTarget: 'SIM-PACKAGE-SMOKE',
+          selectedDevice: 'SIM-PACKAGE-SMOKE',
+          selectedSession: 'package-smoke-session',
+          status: 'bound',
+        },
+      }, null, 2)}\n`,
+      'utf8',
+    );
+    fs.writeFileSync(
+      path.join(adapterCaptureDir, 'raw', 'agent-device-metadata.json'),
+      `${JSON.stringify({
+        runId: 'adapter-capture-run',
+        leaseRunId: 'package-smoke-lease-run',
+        leaseStatus: 'trusted',
+        platform: 'ios',
+        flowId: 'adapter-package-smoke',
+        requiredCommands: ['devices', 'session list', 'snapshot'],
+        requestedTarget: 'SIM-PACKAGE-SMOKE',
+        scenarioId: 'adapter-package-smoke',
+        session: 'package-smoke-session',
+      }, null, 2)}\n`,
+      'utf8',
+    );
+    fs.mkdirSync(path.join(adapterCaptureDir, 'captures'), { recursive: true });
+    fs.writeFileSync(path.join(adapterCaptureDir, 'captures', 'journey.mov'), 'package-smoke-video', 'utf8');
+    fs.writeFileSync(path.join(adapterCaptureDir, '.env'), 'SECRET=not-packed\n', 'utf8');
+    const adapterRequestPath = path.join(tempRoot, 'adapter-live-proof-request.json');
+    fs.writeFileSync(adapterRequestPath, `${JSON.stringify({
+      schemaVersion: '1.0.0',
+      platform: 'ios',
+      runId: 'adapter-aggregate-run',
+      outputDir: adapterOutputDir,
+      preflight: {
+        runnerId: 'agent-device',
+        runDir: adapterPreflightDir,
+        runId: 'adapter-preflight-run',
+        leaseRunId: 'package-smoke-lease-run',
+        target: 'SIM-PACKAGE-SMOKE',
+        session: 'package-smoke-session',
+        requireLease: true,
+      },
+      interactionProof: {
+        label: 'package smoke direct adapter',
+        runnerId: 'agent-device',
+        scenarioId: 'adapter-package-smoke',
+        runId: 'adapter-capture-run',
+        runDir: adapterCaptureDir,
+      },
+      sidecars: [{
+        kind: 'recording',
+        required: true,
+        status: 'present',
+        relativePath: 'captures/journey.mov',
+      }, {
+        kind: 'log',
+        required: false,
+        status: 'not_available',
+        reason: 'No scoped device log was requested for package smoke.',
+      }],
+    }, null, 2)}\n`, 'utf8');
+    const adapterOutputRecord = JSON.parse(run(
+      packageBinPath(installDir, 'asl-adapter-live-proof'),
+      ['--request', adapterRequestPath],
+      { cwd: installDir, env },
+    )) as Record<string, unknown>;
+    assert.equal(adapterOutputRecord.status, 'passed');
+    const adapterLiveProofPath = path.join(
+      adapterOutputDir,
+      '_live-proof',
+      'adapter-aggregate-run',
+      'live-proof.json',
+    );
+    const adapterLiveProof = JSON.parse(fs.readFileSync(adapterLiveProofPath, 'utf8')) as {
+      interactionProofs: Array<{ sidecars: Array<{ status: string }>; verdictStatus: string }>;
+      status: string;
+    };
+    assert.equal(adapterLiveProof.status, 'passed');
+    assert.equal(adapterLiveProof.interactionProofs[0]?.verdictStatus, 'not_evaluated');
+    assert.deepEqual(
+      adapterLiveProof.interactionProofs[0]?.sidecars.map((sidecar) => sidecar.status),
+      ['present', 'not_available'],
+    );
+    const failedAdapterRequestPath = path.join(tempRoot, 'adapter-live-proof-required-missing-request.json');
+    const failedAdapterRequest = JSON.parse(fs.readFileSync(adapterRequestPath, 'utf8')) as {
+      runId: string;
+      sidecars: Array<Record<string, unknown>>;
+    };
+    failedAdapterRequest.runId = 'adapter-required-missing-run';
+    failedAdapterRequest.sidecars[0] = {
+      kind: 'recording',
+      required: true,
+      status: 'not_available',
+      reason: 'Required recording was deliberately unavailable in the negative package rehearsal.',
+    };
+    fs.writeFileSync(failedAdapterRequestPath, `${JSON.stringify(failedAdapterRequest, null, 2)}\n`, 'utf8');
+    const failedAdapterRun = runExpectFailure(
+      packageBinPath(installDir, 'asl-adapter-live-proof'),
+      ['--request', failedAdapterRequestPath],
+      { cwd: installDir, env },
+    );
+    assert.equal(failedAdapterRun.status, 1);
+    assert.equal(JSON.parse(failedAdapterRun.stdout).status, 'failed');
+    const failedAdapterProof = JSON.parse(fs.readFileSync(path.join(
+      adapterOutputDir,
+      '_live-proof',
+      'adapter-required-missing-run',
+      'live-proof.json',
+    ), 'utf8')) as Record<string, unknown>;
+    assert.equal(failedAdapterProof.status, 'failed');
+
+    const sanitizedHarnessOutput = path.join(tempRoot, 'sanitized-harness-evidence');
+    const sanitizedHarnessRequestPath = path.join(tempRoot, 'sanitized-harness-request.json');
+    fs.writeFileSync(sanitizedHarnessRequestPath, `${JSON.stringify({
+      schemaVersion: '1.0.0',
+      packageId: 'sanitized-harness-package',
+      runId: 'adapter-aggregate-run',
+      sourceRoot: adapterCaptureDir,
+      outputDir: sanitizedHarnessOutput,
+      sensitivityPolicy: 'allowlist-and-secret-marker-v1',
+      entries: [{
+        kind: 'recording',
+        sourcePath: 'captures/journey.mov',
+        artifactPath: 'files/journey.mov',
+      }, {
+        kind: 'liveProof',
+        sourcePath: '_live-proof/adapter-aggregate-run/live-proof.json',
+        artifactPath: 'files/live-proof.json',
+      }],
+    }, null, 2)}\n`, 'utf8');
+    const sanitizedHarnessRecord = JSON.parse(run(
+      packageBinPath(installDir, 'asl-evidence-package'),
+      ['--request', sanitizedHarnessRequestPath],
+      { cwd: installDir, env },
+    )) as Record<string, unknown>;
+    assert.equal(sanitizedHarnessRecord.status, 'complete');
+    assert.equal(fs.existsSync(path.join(sanitizedHarnessOutput, 'files', 'journey.mov')), true);
+    assert.equal(fs.existsSync(path.join(sanitizedHarnessOutput, 'files', 'live-proof.json')), true);
+    assert.equal(fs.existsSync(path.join(sanitizedHarnessOutput, '.env')), false);
 
     const typeSmokeSource = [
       "import {",
