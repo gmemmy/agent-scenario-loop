@@ -7,6 +7,7 @@ const { execFileSync } = require('node:child_process');
 
 const REQUIRED_BIN_TARGETS: Record<string, string> = {
   'agent-scenario-loop': 'dist/runner/check-plan.js',
+  'asl-adapter-live-proof': 'dist/runner/adapter-live-proof.js',
   'asl-agent-device': 'dist/runner/agent-device.js',
   'asl-android-adb': 'dist/runner/android-adb.js',
   'asl-argent': 'dist/runner/argent.js',
@@ -15,6 +16,7 @@ const REQUIRED_BIN_TARGETS: Record<string, string> = {
   'asl-compare': 'dist/runner/compare.js',
   'asl-compare-latest': 'dist/runner/compare-latest.js',
   'asl-demo-loop': 'dist/runner/demo-loop.js',
+  'asl-evidence-package': 'dist/runner/evidence-package.js',
   'asl-example-android-live': 'dist/runner/example-android-live.js',
   'asl-example-ios-live': 'dist/runner/example-ios-live.js',
   'asl-host-doctor': 'dist/runner/host-doctor.js',
@@ -49,6 +51,12 @@ const REQUIRED_EXPORTS: Record<string, string | Record<string, string>> = {
   },
   './examples/*': './examples/*',
   './package.json': './package.json',
+  './runner/adapter-live-proof': {
+    require: './dist/runner/adapter-live-proof.js',
+    types: './dist/runner/adapter-live-proof.d.ts',
+    import: './dist/runner/adapter-live-proof.js',
+    default: './dist/runner/adapter-live-proof.js',
+  },
   './runner/agent-device': {
     require: './dist/runner/agent-device.js',
     types: './dist/runner/agent-device.d.ts',
@@ -114,6 +122,12 @@ const REQUIRED_EXPORTS: Record<string, string | Record<string, string>> = {
     types: './dist/runner/demo-loop.d.ts',
     import: './dist/runner/demo-loop.js',
     default: './dist/runner/demo-loop.js',
+  },
+  './runner/evidence-package': {
+    require: './dist/runner/evidence-package.js',
+    types: './dist/runner/evidence-package.d.ts',
+    import: './dist/runner/evidence-package.js',
+    default: './dist/runner/evidence-package.js',
   },
   './runner/example-android-live': {
     require: './dist/runner/example-android-live.js',

@@ -32,6 +32,7 @@
     "access": "public"
   },
   "bin": {
+    "asl-adapter-live-proof": "dist/runner/adapter-live-proof.js",
     "asl-agent-device": "dist/runner/agent-device.js",
     "asl-android-adb": "dist/runner/android-adb.js",
     "asl-argent": "dist/runner/argent.js",
@@ -41,6 +42,7 @@
     "asl-check-plan": "dist/runner/check-plan.js",
     "asl-ci-evidence-pack": "dist/runner/ci-evidence-pack.js",
     "asl-demo-loop": "dist/runner/demo-loop.js",
+    "asl-evidence-package": "dist/runner/evidence-package.js",
     "asl-example-android-live": "dist/runner/example-android-live.js",
     "asl-example-ios-live": "dist/runner/example-ios-live.js",
     "asl-host-doctor": "dist/runner/host-doctor.js",
@@ -83,6 +85,12 @@
       "import": "./dist/runner/android-adb-driver.js",
       "require": "./dist/runner/android-adb-driver.js",
       "default": "./dist/runner/android-adb-driver.js"
+    },
+    "./runner/adapter-live-proof": {
+      "types": "./dist/runner/adapter-live-proof.d.ts",
+      "import": "./dist/runner/adapter-live-proof.js",
+      "require": "./dist/runner/adapter-live-proof.js",
+      "default": "./dist/runner/adapter-live-proof.js"
     },
     "./runner/agent-device-driver": {
       "types": "./dist/runner/agent-device-driver.d.ts",
@@ -137,6 +145,12 @@
       "import": "./dist/runner/demo-loop.js",
       "require": "./dist/runner/demo-loop.js",
       "default": "./dist/runner/demo-loop.js"
+    },
+    "./runner/evidence-package": {
+      "types": "./dist/runner/evidence-package.d.ts",
+      "import": "./dist/runner/evidence-package.js",
+      "require": "./dist/runner/evidence-package.js",
+      "default": "./dist/runner/evidence-package.js"
     },
     "./runner/example-android-live": {
       "types": "./dist/runner/example-android-live.d.ts",

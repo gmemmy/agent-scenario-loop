@@ -84,6 +84,7 @@ function loadSchema(relativePath: string): JsonSchema {
 }
 
 const SCHEMAS = {
+  adapterLiveProofRequest: loadSchema('adapter-live-proof-request.schema.json'),
   authorityCapabilities: loadSchema('authority-capabilities.schema.json'),
   budgetVerdict: loadSchema('budget-verdict.schema.json'),
   causalRun: loadSchema('causal-run.schema.json'),
@@ -91,6 +92,8 @@ const SCHEMAS = {
   ciEvidenceGithubPublicationInput: loadSchema('ci-evidence-github-publication-input.schema.json'),
   ciEvidencePublicationReceipt: loadSchema('ci-evidence-publication-receipt.schema.json'),
   comparison: loadSchema('comparison.schema.json'),
+  evidencePackage: loadSchema('evidence-package.schema.json'),
+  evidencePackageRequest: loadSchema('evidence-package-request.schema.json'),
   externalAdapterMessage: loadSchema('external-adapter-message.schema.json'),
   health: loadSchema('health.schema.json'),
   historicalEvaluation: loadSchema('historical-evaluation.schema.json'),

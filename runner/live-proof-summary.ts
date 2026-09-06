@@ -24,8 +24,19 @@ type LiveProofInteractionProofPointer = {
   runId: string;
   runnerId: string;
   scenarioId: string;
+  sidecars?: LiveProofInteractionProofSidecar[];
   warnings?: LiveProofInteractionProofWarnings;
   verdictStatus?: string;
+};
+
+type LiveProofInteractionProofSidecar = {
+  byteSize?: number;
+  kind: 'recording' | 'screenshot' | 'uiTree' | 'actionTranscript' | 'log' | 'metrics' | 'health' | 'verdict' | 'summary' | 'other';
+  reason?: string;
+  relativePath?: string;
+  required: boolean;
+  sha256?: string;
+  status: 'present' | 'missing' | 'invalid' | 'not_available' | 'rejected';
 };
 
 type LiveProofSkippedInteractionProofPointer = {
@@ -328,6 +339,7 @@ type LiveProofSummaryResult = {
 type LiveProofRunStatus = {
   healthStatus?: string;
   nextActionOwner?: LiveProofNextActionOwner;
+  requiredSidecarStatus?: 'failed' | 'passed';
   verdictStatus?: string;
 };
 
@@ -338,6 +350,7 @@ type WriteLiveProofSummaryOptions = {
   platform: LiveProofPlatform;
   preflightDir: string;
   preflightRunId: string;
+  preflightStatus?: LiveProofRunStatus;
   profiles: LiveProofProfilePointer[];
   runId: string;
   skippedInteractionProofs?: LiveProofSkippedInteractionProofPointer[];
@@ -1921,7 +1934,29 @@ function selectLiveProofFailureOwner({
  * @returns {boolean}
  */
 function isTrustedLiveRunStatus(status: LiveProofRunStatus): boolean {
-  return status.healthStatus === 'passed' && (status.verdictStatus === 'passed' || status.verdictStatus === 'not_evaluated');
+  return status.healthStatus === 'passed' &&
+    status.requiredSidecarStatus !== 'failed' &&
+    (status.verdictStatus === 'passed' || status.verdictStatus === 'not_evaluated');
+}
+
+/**
+ * Reports whether an interaction proof is missing any required declared sidecar.
+ *
+ * @param {LiveProofInteractionProofPointer} proof
+ * @returns {boolean}
+ */
+function hasFailedRequiredInteractionSidecar(proof: LiveProofInteractionProofPointer): boolean {
+  return proof.sidecars?.some((sidecar) => sidecar.required && sidecar.status !== 'present') ?? false;
+}
+
+/**
+ * Reports whether an interaction proof has trusted runner status and all required sidecars.
+ *
+ * @param {LiveProofInteractionProofPointer} proof
+ * @returns {boolean}
+ */
+function isTrustedInteractionProofPointer(proof: LiveProofInteractionProofPointer): boolean {
+  return isTrustedLiveRunStatus(proof) && !hasFailedRequiredInteractionSidecar(proof);
 }
 
 /**
@@ -2035,6 +2070,23 @@ function formatInteractionProofWarningDetails(proof: LiveProofInteractionProofPo
       : '';
     return `  - warning ${warning.name}: ${warning.code} - ${warning.message}${nextAction}`;
   });
+}
+
+/**
+ * Formats declared interaction sidecars without implying that presence proves product behavior.
+ *
+ * @param {LiveProofInteractionProofPointer} proof
+ * @returns {string}
+ */
+function formatInteractionProofSidecars(proof: LiveProofInteractionProofPointer): string {
+  if (!proof.sidecars || proof.sidecars.length === 0) {
+    return '';
+  }
+
+  const details = proof.sidecars.map((sidecar) => (
+    `${sidecar.kind}=${sidecar.status}${sidecar.required ? '/required' : '/optional'}`
+  ));
+  return ` sidecars=[${details.join(', ')}]`;
 }
 
 function formatLiveProofNextAction(action: {
@@ -2562,7 +2614,7 @@ function buildLiveProofMarkdown(artifact: LiveProofArtifact): string {
       '## Interaction Proofs',
       '',
       ...artifact.interactionProofs.flatMap((proof) => [
-        `- ${proof.label} (${proof.runnerId}/${proof.scenarioId}): health=${proof.healthStatus} verdict=${proof.verdictStatus}${formatInteractionProofCaptures(proof)}${formatInteractionProofWarnings(proof)} - ${proof.summaryPath}`,
+        `- ${proof.label} (${proof.runnerId}/${proof.scenarioId}): health=${proof.healthStatus} verdict=${proof.verdictStatus}${formatInteractionProofCaptures(proof)}${formatInteractionProofWarnings(proof)}${formatInteractionProofSidecars(proof)} - ${proof.summaryPath}`,
         ...formatInteractionProofWarningDetails(proof),
       ]),
     );
@@ -2608,6 +2660,7 @@ async function writeLiveProofSummary({
   platform,
   preflightDir,
   preflightRunId,
+  preflightStatus: providedPreflightStatus,
   profiles,
   runId,
   skippedInteractionProofs = [],
@@ -2616,7 +2669,7 @@ async function writeLiveProofSummary({
   const layout = createArtifactLayout({ outputDir: liveProofDir });
   const comparisonStatus = buildLiveProofComparisonStatus(comparisons);
   const comparisonCounts = buildLiveProofComparisonCounts(comparisons);
-  const preflightStatus = readProfileRunStatus(preflightDir);
+  const preflightStatus = providedPreflightStatus ?? readProfileRunStatus(preflightDir);
   const profileStatuses = profiles.map((profile) => ({
     profile,
     status: readProfileRunStatus(profile.runDir),
@@ -2638,10 +2691,21 @@ async function writeLiveProofSummary({
     buildProfileGateReadinessNextActionsRollup(skippedInteractionProofs);
   const profileGateRequestedDiagnostics =
     buildProfileGateRequestedDiagnosticsRollup(skippedInteractionProofs);
-  const interactionProofStatuses = interactionProofs.map((proof) => ({
-    proof,
-    status: readProfileRunStatus(proof.runDir),
-  }));
+  const interactionProofStatuses = interactionProofs.map((proof) => {
+    const runStatus = proof.healthStatus && proof.verdictStatus
+      ? { healthStatus: proof.healthStatus, verdictStatus: proof.verdictStatus }
+      : readProfileRunStatus(proof.runDir);
+    const requiredSidecarStatus: LiveProofRunStatus['requiredSidecarStatus'] =
+      hasFailedRequiredInteractionSidecar(proof) ? 'failed' : 'passed';
+    return {
+      proof,
+      status: {
+        ...runStatus,
+        ...(requiredSidecarStatus === 'failed' ? { nextActionOwner: 'asl_runner' as const } : {}),
+        requiredSidecarStatus,
+      },
+    };
+  });
   const interactionProofPointers = interactionProofStatuses.map(({ proof, status }) => {
     const captures = readInteractionProofCaptures(proof.runDir);
     const warnings = readInteractionProofWarnings(proof.runDir);
@@ -2653,6 +2717,7 @@ async function writeLiveProofSummary({
       runId: proof.runId,
       runnerId: proof.runnerId,
       scenarioId: proof.scenarioId,
+      ...(proof.sidecars && proof.sidecars.length > 0 ? { sidecars: proof.sidecars } : {}),
       summaryPath: path.join(proof.runDir, 'agent-summary.md'),
       verdictStatus: String(status.verdictStatus ?? 'unknown'),
       ...(warnings ? { warnings } : {}),
@@ -2660,7 +2725,7 @@ async function writeLiveProofSummary({
   });
   const interactionWarningCount = interactionProofPointers.reduce((sum, proof) => sum + (proof.warnings?.count ?? 0), 0);
   const status = buildLiveProofStatus({
-    interactionProofs: interactionProofPointers,
+    interactionProofs: interactionProofStatuses.map(({ status: proofStatus }) => proofStatus),
     preflight: preflightStatus,
     profiles: profilePointers,
     skippedInteractionProofCount: skippedInteractionProofs.length,
@@ -2701,7 +2766,7 @@ async function writeLiveProofSummary({
     summary: buildLiveProofSummary({
       comparisonCount: comparisons.length,
       comparisonStatus,
-      failedInteractionProofCount: interactionProofPointers.filter((proof) => !isTrustedLiveRunStatus(proof)).length,
+      failedInteractionProofCount: interactionProofPointers.filter((proof) => !isTrustedInteractionProofPointer(proof)).length,
       failedProfileCount: profilePointers.filter((profile) => profile.healthStatus !== 'passed' || profile.verdictStatus !== 'passed').length,
       interactionProofCount: interactionProofs.length,
       interactionWarningCount,

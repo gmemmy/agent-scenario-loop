@@ -195,8 +195,72 @@
         },
         "warnings": {
           "$ref": "#/$defs/interactionProofWarnings"
+        },
+        "sidecars": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/interactionProofSidecar"
+          }
         }
       }
+    },
+    "interactionProofSidecar": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "required", "status"],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": ["recording", "screenshot", "uiTree", "actionTranscript", "log", "metrics", "health", "verdict", "summary", "other"]
+        },
+        "required": {
+          "type": "boolean"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["present", "missing", "invalid", "not_available", "rejected"]
+        },
+        "relativePath": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^(?!/)(?![A-Za-z]:)(?!\\\\)(?!.*\\\\)(?!.*//)(?!.*[\\u0000-\\u001F\\u007F])(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*(?:^|/)\\.(?:/|$))[^\\\\]+$"
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "byteSize": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "status": { "const": "present" } },
+            "required": ["status"]
+          },
+          "then": {
+            "required": ["relativePath", "sha256", "byteSize"],
+            "not": { "required": ["reason"] }
+          },
+          "else": {
+            "required": ["reason"],
+            "not": {
+              "anyOf": [
+                { "required": ["relativePath"] },
+                { "required": ["sha256"] },
+                { "required": ["byteSize"] }
+              ]
+            }
+          }
+        }
+      ]
     },
     "interactionProofWarnings": {
       "type": "object",
