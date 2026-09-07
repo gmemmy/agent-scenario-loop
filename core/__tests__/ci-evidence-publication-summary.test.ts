@@ -410,6 +410,100 @@ describe('ci evidence publication summary', () => {
     assert.match(markdown, /## iOS evidence/);
     assert.doesNotMatch(markdown, /## Android evidence/);
     assert.equal(markdown.includes('android-retry'), false);
+    assert.doesNotMatch(markdown, /req-android-/);
+    assert.doesNotMatch(markdown, /android-unsupported/);
+    assert.doesNotMatch(markdown, /not_evaluable/);
+    assert.doesNotMatch(markdown, /not_applicable/);
+    const unpublished = markdown.slice(markdown.indexOf('## Unpublished and missing evidence'));
+    assert.doesNotMatch(unpublished, /android/i);
+    assert.doesNotMatch(unpublished, /missing from pack/);
+  });
+
+  it('passes an iOS-only report when all declared iOS obligations publish', () => {
+    const input = validPackInput();
+    input.platformScope = 'single-platform';
+    input.requiredPlatforms = ['ios'];
+    input.platforms = [
+      {
+        platform: 'ios',
+        authorityStatus: 'supported',
+        evaluationStatus: 'passed',
+        selectedAttemptId: 'ios-pass',
+      },
+    ];
+    input.attempts = input.attempts.filter((attempt) => attempt.platform === 'ios');
+    input.evidence = input.evidence.filter((item) => item.platform === 'ios');
+    input.verdicts = input.verdicts.filter((verdict) => verdict.platform === 'ios');
+    const facts = cloneFacts();
+    facts.requestedItems = facts.requestedItems.filter(
+      (item) =>
+        item.targetKind !== 'evidence' ||
+        item.evidenceId.startsWith('ios-'),
+    );
+    facts.outcomes = facts.outcomes.filter((outcome) =>
+      facts.requestedItems.some((item) => item.requestId === outcome.requestId),
+    );
+    const { markdown, pack, receipt, exactBytes } = renderFrom(input, facts);
+    const summary = evaluateCiEvidencePublicationSummary(pack, receipt, exactBytes);
+    assert.equal(summary.status, 'passed');
+    assert.match(markdown, /## iOS evidence/);
+    assert.doesNotMatch(markdown, /## Android evidence/);
+    assert.doesNotMatch(markdown, /req-android-/);
+    const unpublished = markdown.slice(markdown.indexOf('## Unpublished and missing evidence'));
+    assert.doesNotMatch(unpublished, /android/i);
+    assert.doesNotMatch(unpublished, /unsupported/);
+    assert.doesNotMatch(unpublished, /not_evaluable/);
+    assert.doesNotMatch(unpublished, /not_applicable/);
+    assert.doesNotMatch(unpublished, /missing from pack/);
+  });
+
+  it('retains missing declared iOS obligations as failures on an iOS-only report', () => {
+    const input = validPackInput();
+    input.platformScope = 'single-platform';
+    input.requiredPlatforms = ['ios'];
+    input.platforms = [
+      {
+        platform: 'ios',
+        authorityStatus: 'supported',
+        evaluationStatus: 'passed',
+        selectedAttemptId: 'ios-pass',
+      },
+    ];
+    input.attempts = input.attempts.filter((attempt) => attempt.platform === 'ios');
+    input.evidence = input.evidence.filter((item) => item.platform === 'ios');
+    input.verdicts = input.verdicts.filter((verdict) => verdict.platform === 'ios');
+    const facts = cloneFacts();
+    facts.requestedItems = facts.requestedItems.filter(
+      (item) =>
+        item.targetKind !== 'evidence' ||
+        item.evidenceId.startsWith('ios-'),
+    );
+    facts.outcomes = facts.outcomes
+      .filter((outcome) =>
+        facts.requestedItems.some((item) => item.requestId === outcome.requestId),
+      )
+      .map((outcome) =>
+        outcome.requestId === 'req-ios-recording'
+          ? {
+              requestId: outcome.requestId,
+              status: 'omitted' as const,
+              reason: 'required selected recording missing from pack',
+            }
+          : outcome,
+      );
+    const { markdown, pack, receipt, exactBytes } = renderFrom(input, facts);
+    const summary = evaluateCiEvidencePublicationSummary(pack, receipt, exactBytes);
+    assert.equal(summary.status, 'failed');
+    assert.match(markdown, /req-ios-recording/);
+    assert.match(markdown, /missing from pack/);
+    assert.doesNotMatch(markdown, /req-android-/);
+    assert.doesNotMatch(markdown, /## Android evidence/);
+    const unpublished = markdown.slice(markdown.indexOf('## Unpublished and missing evidence'));
+    assert.match(unpublished, /req-ios-recording/);
+    assert.doesNotMatch(unpublished, /android/i);
+    assert.doesNotMatch(unpublished, /unsupported/);
+    assert.doesNotMatch(unpublished, /not_evaluable/);
+    assert.doesNotMatch(unpublished, /not_applicable/);
   });
 
   it('does not create an iOS evidence obligation for an Android-only report', () => {

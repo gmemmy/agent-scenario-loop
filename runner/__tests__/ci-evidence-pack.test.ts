@@ -120,7 +120,10 @@ function buildLiveProofSet(
 ) {
   const includeAndroid = options.includeAndroid !== false;
   const includeIos = options.includeIos !== false;
-  const requiredPlatforms = options.requiredPlatforms ?? (['android', 'ios'] as Array<'android' | 'ios'>);
+  const requiredPlatforms = options.requiredPlatforms ?? ([
+    ...(includeAndroid ? (['android'] as const) : []),
+    ...(includeIos ? (['ios'] as const) : []),
+  ] as Array<'android' | 'ios'>);
   const status = options.status ?? 'passed';
   const androidRecording = includeAndroid
     ? writeContainedFile(artifactRoot, 'runs/run-android/recording.json', '{"kind":"recording","platform":"android"}\n')
@@ -456,7 +459,10 @@ test('unsupported selected platform produces not_evaluable and never not_applica
   const artifactRoot = path.join(root, 'artifacts');
   const outDir = path.join(root, 'out');
   fs.mkdirSync(artifactRoot, { recursive: true });
-  const live = buildLiveProofSet(artifactRoot, { includeAndroid: false });
+  const live = buildLiveProofSet(artifactRoot, {
+    includeAndroid: false,
+    requiredPlatforms: ['android', 'ios'],
+  });
   assert.equal(fs.existsSync(path.join(artifactRoot, 'proofs/android.json')), false);
   assert.equal(fs.existsSync(path.join(artifactRoot, 'summaries/android.json')), false);
   assert.equal(fs.existsSync(path.join(artifactRoot, 'runs/run-android/recording.json')), false);

@@ -287,7 +287,7 @@ function renderGateTable(gate: CiEvidenceGithubPublicationGateResult): string {
       ['platform scope', escapeMarkdownCell(platformBinding.platformScope)],
       [
         'required platforms',
-        escapeMarkdownCell(declaredRequiredPlatforms(pack).join(',')),
+        escapeMarkdownCell(declaredRequiredPlatforms(pack).join(', ')),
       ],
       ['platform evidence claim', escapeMarkdownCell(platformBinding.claimStatus)],
       ['completeness', escapeMarkdownCell(pack.completeness.status)],
