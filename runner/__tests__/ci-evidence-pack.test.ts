@@ -153,11 +153,10 @@ function buildLiveProofSet(
   ];
   const missingPlatforms = requiredPlatforms.filter((platform) => !presentPlatforms.includes(platform));
   const liveProofSet = {
-    schemaVersion: '1.1.0',
+    schemaVersion: '1.0.0',
     runId: 'run-1',
     status,
     proofCount: proofs.length,
-    platformScope: requiredPlatforms.length === 2 ? 'cross-platform' : 'single-platform',
     requiredPlatforms,
     presentPlatforms,
     missingPlatforms,

@@ -295,7 +295,7 @@ describe('ci evidence publication summary', () => {
       markdown.indexOf('## Pack identity'),
       markdown.indexOf('## Publication identity'),
     );
-    assert.match(identity, /platformScope \| cross-platform/);
+    assert.match(identity, /platform scope \| cross-platform/);
     assert.match(identity, /requiredPlatforms \| android, ios/);
     assert.match(identity, /requiredEvidenceKinds \| log, recording, verdict/);
   });
@@ -357,7 +357,7 @@ describe('ci evidence publication summary', () => {
     assert.equal(pack.platformClaim.status, 'failed');
     assert.match(markdown, /\| platform evidence claim \| failed \|/);
     assert.match(markdown, /\| publication \| published \|/);
-    assert.match(markdown, /platformScope \| cross-platform/);
+    assert.match(markdown, /platform scope \| cross-platform/);
   });
 
   it('renders only declared required platform sections', () => {
@@ -405,7 +405,7 @@ describe('ci evidence publication summary', () => {
       facts.requestedItems.some((item) => item.requestId === outcome.requestId),
     );
     const { markdown } = renderFrom(input, facts);
-    assert.match(markdown, /platformScope \| single-platform/);
+    assert.match(markdown, /platform scope \| single-platform/);
     assert.match(markdown, /requiredPlatforms \| ios/);
     assert.match(markdown, /## iOS evidence/);
     assert.doesNotMatch(markdown, /## Android evidence/);
@@ -435,7 +435,7 @@ describe('ci evidence publication summary', () => {
       facts.requestedItems.some((item) => item.requestId === outcome.requestId),
     );
     const { markdown } = renderFrom(input, facts);
-    assert.match(markdown, /platformScope \| single-platform/);
+    assert.match(markdown, /platform scope \| single-platform/);
     assert.match(markdown, /requiredPlatforms \| android/);
     assert.match(markdown, /## Android evidence/);
     assert.doesNotMatch(markdown, /## iOS evidence/);

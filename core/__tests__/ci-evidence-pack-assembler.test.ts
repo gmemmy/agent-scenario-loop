@@ -89,11 +89,10 @@ function proofPointer(
 
 function liveProofSetPayload(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
-    schemaVersion: '1.1.0',
+    schemaVersion: '1.0.0',
     runId: 'run-1',
     status: 'passed',
     proofCount: 2,
-    platformScope: 'cross-platform',
     requiredPlatforms: ['android', 'ios'],
     presentPlatforms: ['android', 'ios'],
     missingPlatforms: [],
@@ -214,7 +213,7 @@ test('valid Android+iOS live-proof-set verifies and assembles even when product 
   const verified = verifyCiEvidencePackLiveProofSet(input, { artifactRoot: root });
   assert.equal(verified.runId, 'run-1');
   assert.equal(verified.proofCount, 2);
-  assert.equal(verified.schemaVersion, '1.1.0');
+  assert.equal(verified.schemaVersion, '1.0.0');
   const pack = assembleCiEvidencePack(input, { artifactRoot: root });
   assert.equal(pack.liveProofSet.runId, 'run-1');
   assert.equal(pack.verdicts[0]?.status, 'failed');
@@ -259,13 +258,12 @@ test('Android/iOS requiredPlatforms order is irrelevant', () => {
   assert.deepEqual(verified.requiredPlatforms, ['ios', 'android']);
 });
 
-test('assembler accepts iOS-only 1.1.0 live-proof-set input', () => {
+test('assembler accepts iOS-only live-proof-set input with CI-pack 1.1.0 single-platform scope', () => {
   const root = mkdtempSync(path.join(tmpdir(), 'ci-pack-assembler-'));
   const live = writeLiveProofSet(
     root,
     liveProofSetPayload({
       proofCount: 1,
-      platformScope: 'single-platform',
       requiredPlatforms: ['ios'],
       presentPlatforms: ['ios'],
       missingPlatforms: [],
@@ -302,13 +300,12 @@ test('assembler accepts iOS-only 1.1.0 live-proof-set input', () => {
   assert.deepEqual(pack.requiredPlatforms, ['ios']);
 });
 
-test('assembler accepts Android-only 1.1.0 live-proof-set input', () => {
+test('assembler accepts Android-only live-proof-set input with CI-pack 1.1.0 single-platform scope', () => {
   const root = mkdtempSync(path.join(tmpdir(), 'ci-pack-assembler-'));
   const live = writeLiveProofSet(
     root,
     liveProofSetPayload({
       proofCount: 1,
-      platformScope: 'single-platform',
       requiredPlatforms: ['android'],
       presentPlatforms: ['android'],
       missingPlatforms: [],
@@ -344,9 +341,9 @@ test('assembler accepts Android-only 1.1.0 live-proof-set input', () => {
   assert.deepEqual(pack.requiredPlatforms, ['android']);
 });
 
-test('assembler rejects omitted platformScope on 1.1.0 live-proof-set input', () => {
+test('assembler rejects omitted platformScope on 1.1.0 CI evidence build input', () => {
   const root = mkdtempSync(path.join(tmpdir(), 'ci-pack-assembler-'));
-  const live = writeLiveProofSet(root, liveProofSetPayload({ platformScope: undefined }));
+  const live = writeLiveProofSet(root, liveProofSetPayload());
   const input = baseInput(live);
   delete (input as { platformScope?: unknown }).platformScope;
   assert.throws(
@@ -360,7 +357,6 @@ test('assembler rejects live-proof-set scope/platform/present/missing mismatches
   const live = writeLiveProofSet(
     root,
     liveProofSetPayload({
-      platformScope: 'single-platform',
       requiredPlatforms: ['android', 'ios'],
     }),
   );
