@@ -168,7 +168,7 @@ function buildLiveProofSet(
       ? 'Android and iOS live proofs assembled.'
       : includeAndroid
         ? 'Android live proof assembled.'
-        : 'iOS live proof assembled; Android is unsupported.',
+        : 'iOS live proof assembled.',
     nextAction: NONE_ACTION,
     proofs,
   };
@@ -405,7 +405,7 @@ test('assemble success writes pack, returns 0, and leaves product verdicts faile
   assert.equal(pack.verdicts.every((verdict) => verdict.status === 'failed'), true);
 });
 
-test('missing selected Android recording writes valid pack with twoPlatformClaim failed and product verdicts failed', async () => {
+test('missing selected Android recording writes valid pack with platformClaim failed and product verdicts failed', async () => {
   const root = makeTempDir();
   const artifactRoot = path.join(root, 'artifacts');
   const outDir = path.join(root, 'out');

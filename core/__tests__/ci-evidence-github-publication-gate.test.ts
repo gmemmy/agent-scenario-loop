@@ -572,6 +572,35 @@ describe('ci evidence github publication gate', () => {
     assertNoForbiddenVocabulary(result);
   });
 
+  it('rejects publication facts that claim evidence outside the declared platform scope', () => {
+    const pack = buildCiEvidencePack(validIosSinglePlatformInput());
+    const facts = iosSinglePlatformFacts();
+    const requestedItems = facts.requestedItems as Array<Record<string, unknown>>;
+    const outcomes = facts.outcomes as Array<Record<string, unknown>>;
+    requestedItems.push({
+      requestId: 'req-android-recording',
+      targetKind: 'evidence',
+      evidenceId: 'android-retry-recording',
+    });
+    outcomes.push(
+      publishedOutcome(
+        'req-android-recording',
+        'https://github.com/acme/asl/actions/runs/1/android-recording.bin',
+      ),
+    );
+    assert.throws(
+      () => evaluateCiEvidenceGithubPublicationGate(packBytes(pack), facts),
+      (error: unknown) => {
+        if (!(error instanceof Error)) {
+          return false;
+        }
+        assert.ok(error instanceof CiEvidenceGithubPublicationGateError);
+        assert.match(error.message, /unknown evidenceId android-retry-recording/);
+        return true;
+      },
+    );
+  });
+
   it('failed iOS single-platform platformClaim fails without an Android obligation', () => {
     const input = validIosSinglePlatformInput();
     const ios = requiredItem(

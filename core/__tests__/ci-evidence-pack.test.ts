@@ -154,6 +154,19 @@ function cloneInput(): PackInput {
   return JSON.parse(JSON.stringify(validInput())) as PackInput;
 }
 
+function validIosSinglePlatformInput(): PackInput {
+  const input = cloneInput();
+  input.platformScope = 'single-platform';
+  input.requiredPlatforms = ['ios'];
+  input.platforms = input.platforms.filter((record) => record.platform === 'ios');
+  input.attempts = input.attempts.filter((attempt) => attempt.platform === 'ios');
+  input.evidence = input.evidence.filter((record) => record.platform === 'ios');
+  input.verdicts = input.verdicts.filter((verdict) => verdict.platform === 'ios');
+  input.comparisonStatus = 'not_available';
+  input.summary = 'ios evidence assembled';
+  return input;
+}
+
 function requiredItem<T>(value: T | undefined, label: string): T {
   if (value === undefined) {
     throw new Error(`expected ${label}`);
@@ -170,6 +183,31 @@ describe('ci evidence pack', () => {
     assert.equal(pack.platformClaim.status, 'passed');
     assert.equal('twoPlatformClaim' in pack, false);
     assertValidJson(pack, SCHEMAS.ciEvidencePack, 'ci-evidence-pack');
+  });
+
+  it('builds and reads a current iOS single-platform pack without legacy vocabulary', () => {
+    const pack = buildCiEvidencePack(validIosSinglePlatformInput());
+    const parsed = parseCiEvidencePackBytes(new TextEncoder().encode(JSON.stringify(pack)));
+    assert.equal(parsed.schemaVersion, '1.1.0');
+    assert.equal(parsed.platformScope, 'single-platform');
+    assert.deepEqual(parsed.requiredPlatforms, ['ios']);
+    assert.deepEqual(
+      parsed.platforms.map((record: { platform: CiEvidencePackPlatform }) => record.platform),
+      ['ios'],
+    );
+    assert.equal(parsed.platformClaim.status, 'passed');
+    assert.equal('twoPlatformClaim' in parsed, false);
+    assert.equal(JSON.stringify(parsed).includes('not_applicable'), false);
+  });
+
+  it('rejects platform-scope cardinality mismatches', () => {
+    const singleWithBoth = cloneInput();
+    singleWithBoth.platformScope = 'single-platform';
+    assert.throws(() => buildCiEvidencePack(singleWithBoth), CiEvidencePackError);
+
+    const crossWithIos = validIosSinglePlatformInput();
+    crossWithIos.platformScope = 'cross-platform';
+    assert.throws(() => buildCiEvidencePack(crossWithIos), CiEvidencePackError);
   });
 
   it('keeps mechanism succeeded when source is stale and fails the platform claim', () => {
@@ -372,6 +410,49 @@ describe('ci evidence pack', () => {
       'utf8',
     );
     assert.throws(() => readCiEvidencePack(filePath), CiEvidencePackError);
+  });
+
+  it('keeps legacy and current claim vocabulary isolated', () => {
+    const current = buildCiEvidencePack(cloneInput());
+    assert.throws(
+      () =>
+        parseCiEvidencePackBytes(
+          new TextEncoder().encode(
+            JSON.stringify({
+              ...current,
+              twoPlatformClaim: current.platformClaim,
+            }),
+          ),
+        ),
+      CiEvidencePackError,
+    );
+
+    const legacy = JSON.parse(JSON.stringify(current)) as Record<string, unknown>;
+    legacy.schemaVersion = '1.0.0';
+    legacy.twoPlatformClaim = legacy.platformClaim;
+    delete legacy.platformScope;
+    delete legacy.platformClaim;
+    assert.doesNotThrow(() =>
+      parseCiEvidencePackBytes(new TextEncoder().encode(JSON.stringify(legacy))),
+    );
+    assert.throws(
+      () =>
+        parseCiEvidencePackBytes(
+          new TextEncoder().encode(
+            JSON.stringify({ ...legacy, platformScope: 'cross-platform' }),
+          ),
+        ),
+      CiEvidencePackError,
+    );
+    assert.throws(
+      () =>
+        parseCiEvidencePackBytes(
+          new TextEncoder().encode(
+            JSON.stringify({ ...legacy, platformClaim: legacy.twoPlatformClaim }),
+          ),
+        ),
+      CiEvidencePackError,
+    );
   });
 
   it('rejects malformed and noncanonical timestamps', () => {
