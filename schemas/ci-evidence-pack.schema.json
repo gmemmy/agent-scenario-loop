@@ -20,12 +20,104 @@
     "completeness",
     "assembly",
     "mechanismStatus",
-    "twoPlatformClaim",
     "summary",
     "nextAction"
   ],
+  "allOf": [
+    {
+      "if": {
+        "properties": { "schemaVersion": { "const": "1.0.0" } },
+        "required": ["schemaVersion"]
+      },
+      "then": {
+        "required": ["twoPlatformClaim"],
+        "not": { "required": ["platformScope"] },
+        "properties": {
+          "platformScope": false,
+          "platformClaim": false,
+          "requiredPlatforms": {
+            "type": "array",
+            "minItems": 2,
+            "maxItems": 2,
+            "uniqueItems": true,
+            "allOf": [
+              { "contains": { "const": "android" } },
+              { "contains": { "const": "ios" } }
+            ],
+            "items": { "enum": ["android", "ios"] }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "schemaVersion": { "const": "1.1.0" } },
+        "required": ["schemaVersion"]
+      },
+      "then": {
+        "required": ["platformScope", "platformClaim"],
+        "not": { "required": ["twoPlatformClaim"] },
+        "properties": {
+          "twoPlatformClaim": false
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": { "platformScope": { "const": "single-platform" } },
+              "required": ["platformScope"]
+            },
+            "then": {
+              "properties": {
+                "requiredPlatforms": {
+                  "type": "array",
+                  "minItems": 1,
+                  "maxItems": 1,
+                  "uniqueItems": true,
+                  "items": { "enum": ["android", "ios"] }
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": { "platformScope": { "const": "cross-platform" } },
+              "required": ["platformScope"]
+            },
+            "then": {
+              "properties": {
+                "requiredPlatforms": {
+                  "type": "array",
+                  "minItems": 2,
+                  "maxItems": 2,
+                  "uniqueItems": true,
+                  "allOf": [
+                    { "contains": { "const": "android" } },
+                    { "contains": { "const": "ios" } }
+                  ],
+                  "items": { "enum": ["android", "ios"] }
+                }
+              }
+            }
+          }
+        ]
+      }
+    }
+  ],
   "properties": {
-    "schemaVersion": { "const": "1.0.0" },
+    "schemaVersion": { "enum": ["1.0.0", "1.1.0"] },
+    "platformScope": { "enum": ["single-platform", "cross-platform"] },
+    "platformClaim": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "reasons"],
+      "properties": {
+        "status": { "enum": ["passed", "failed", "not_evaluable"] },
+        "reasons": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
     "packId": { "type": "string", "minLength": 1 },
     "createdAt": {
       "type": "string",
@@ -90,13 +182,9 @@
     },
     "requiredPlatforms": {
       "type": "array",
-      "minItems": 2,
+      "minItems": 1,
       "maxItems": 2,
       "uniqueItems": true,
-      "allOf": [
-        { "contains": { "const": "android" } },
-        { "contains": { "const": "ios" } }
-      ],
       "items": { "enum": ["android", "ios"] }
     },
     "requiredEvidenceKinds": {
