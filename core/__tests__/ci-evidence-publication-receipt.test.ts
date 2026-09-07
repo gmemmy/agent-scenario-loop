@@ -14,7 +14,12 @@ const {
   readCiEvidencePublicationReceipt,
 } = require('../ci-evidence-publication-receipt');
 const { SCHEMAS, assertValidJson, SchemaValidationError } = require('../schema-validator');
-import type { CiEvidencePack, CiEvidencePackBuildInput } from '../ci-evidence-pack';
+import type {
+  CiEvidencePack,
+  CiEvidencePackArtifact,
+  CiEvidencePackBuildInput,
+  CiEvidencePackLegacy,
+} from '../ci-evidence-pack';
 import type {
   CiEvidencePublicationItemOutcome,
   CiEvidencePublicationReceipt,
@@ -143,7 +148,7 @@ function validPackInput(): CiEvidencePackBuildInput {
   };
 }
 
-function packBytes(pack: CiEvidencePack): Uint8Array {
+function packBytes(pack: CiEvidencePackArtifact): Uint8Array {
   return Buffer.from(JSON.stringify(pack), 'utf8');
 }
 
@@ -1276,6 +1281,190 @@ describe('ci evidence publication receipt', () => {
     assert.throws(
       () =>
         readCiEvidencePublicationReceipt(writeReceipt(publishedNonPresent), nonPresentBytes),
+      CiEvidencePublicationReceiptError,
+    );
+  });
+
+  function validLegacyPack(): CiEvidencePackLegacy {
+    const current = buildCiEvidencePack(validPackInput());
+    const legacy = JSON.parse(JSON.stringify(current)) as Record<string, unknown>;
+    legacy.schemaVersion = '1.0.0';
+    legacy.twoPlatformClaim = legacy.platformClaim;
+    delete legacy.platformScope;
+    delete legacy.platformClaim;
+    return legacy as unknown as CiEvidencePackLegacy;
+  }
+
+  it('builds a legacy 1.0.0 receipt, reads exact bytes, and retains twoPlatformClaim without rewrite', () => {
+    const pack = validLegacyPack();
+    const bytes = packBytes(pack);
+    const receipt = buildCiEvidencePublicationReceipt({ packBytes: bytes, facts: cloneFacts() });
+    assert.equal(receipt.schemaVersion, '1.0.0');
+    assert.equal(receipt.pack.schemaVersion, '1.0.0');
+    assert.equal(receipt.pack.packId, pack.packId);
+    assert.deepEqual(receipt.pack.requiredPlatforms, ['android', 'ios']);
+    assert.deepEqual(receipt.pack.twoPlatformClaim, pack.twoPlatformClaim);
+    assert.equal('platformScope' in receipt.pack, false);
+    assert.equal('platformClaim' in receipt.pack, false);
+    assertValidJson(receipt, SCHEMAS.ciEvidencePublicationReceipt, 'ci-evidence-publication-receipt');
+    const roundTrip = readCiEvidencePublicationReceipt(writeReceipt(receipt), bytes);
+    assert.deepEqual(roundTrip, receipt);
+    assertCiEvidencePublicationReceiptForPack(roundTrip, pack);
+    assertCiEvidencePublicationReceiptForExactPackBytes(roundTrip, pack, bytes);
+  });
+
+  it('rejects current and legacy receipt/pack version mismatches', () => {
+    const currentPack = buildCiEvidencePack(validPackInput());
+    const currentBytes = packBytes(currentPack);
+    const currentReceipt = buildCiEvidencePublicationReceipt({
+      packBytes: currentBytes,
+      facts: cloneFacts(),
+    });
+    const legacyPack = validLegacyPack();
+    const legacyBytes = packBytes(legacyPack);
+    const legacyReceipt = buildCiEvidencePublicationReceipt({
+      packBytes: legacyBytes,
+      facts: cloneFacts(),
+    });
+
+    assert.throws(
+      () => readCiEvidencePublicationReceipt(writeReceipt(currentReceipt), legacyBytes),
+      CiEvidencePublicationReceiptError,
+    );
+    assert.throws(
+      () => readCiEvidencePublicationReceipt(writeReceipt(legacyReceipt), currentBytes),
+      CiEvidencePublicationReceiptError,
+    );
+    assert.throws(
+      () => assertCiEvidencePublicationReceiptForPack(currentReceipt, legacyPack),
+      CiEvidencePublicationReceiptError,
+    );
+    assert.throws(
+      () => assertCiEvidencePublicationReceiptForPack(legacyReceipt, currentPack),
+      CiEvidencePublicationReceiptError,
+    );
+
+    const mixedRoot = {
+      ...currentReceipt,
+      schemaVersion: '1.0.0' as const,
+    };
+    assert.throws(
+      () =>
+        readCiEvidencePublicationReceipt(
+          writeReceipt(mixedRoot as CiEvidencePublicationReceipt),
+          currentBytes,
+        ),
+      CiEvidencePublicationReceiptError,
+    );
+    assert.throws(
+      () => assertValidJson(mixedRoot, SCHEMAS.ciEvidencePublicationReceipt, 'ci-evidence-publication-receipt'),
+      Error,
+    );
+
+    const mixedNested = {
+      ...legacyReceipt,
+      pack: { ...legacyReceipt.pack, schemaVersion: '1.1.0' as const },
+    };
+    assert.throws(
+      () =>
+        readCiEvidencePublicationReceipt(
+          writeReceipt(mixedNested as CiEvidencePublicationReceipt),
+          legacyBytes,
+        ),
+      CiEvidencePublicationReceiptError,
+    );
+    assert.throws(
+      () =>
+        assertValidJson(mixedNested, SCHEMAS.ciEvidencePublicationReceipt, 'ci-evidence-publication-receipt'),
+      Error,
+    );
+  });
+
+  it('rejects schema-invalid platform cardinality and mixed receipt/pack schema versions', () => {
+    const currentPack = buildCiEvidencePack(validPackInput());
+    const currentBytes = packBytes(currentPack);
+    const currentReceipt = buildCiEvidencePublicationReceipt({
+      packBytes: currentBytes,
+      facts: cloneFacts(),
+    });
+    const legacyPack = validLegacyPack();
+    const legacyBytes = packBytes(legacyPack);
+    const legacyReceipt = buildCiEvidencePublicationReceipt({
+      packBytes: legacyBytes,
+      facts: cloneFacts(),
+    });
+
+    const legacyOnePlatform = {
+      ...legacyReceipt,
+      pack: { ...legacyReceipt.pack, requiredPlatforms: ['android'] },
+    };
+    assert.throws(
+      () =>
+        assertValidJson(
+          legacyOnePlatform,
+          SCHEMAS.ciEvidencePublicationReceipt,
+          'ci-evidence-publication-receipt',
+        ),
+      Error,
+    );
+    assert.throws(
+      () =>
+        readCiEvidencePublicationReceipt(
+          writeReceipt(legacyOnePlatform as CiEvidencePublicationReceipt),
+          legacyBytes,
+        ),
+      CiEvidencePublicationReceiptError,
+    );
+
+    const singlePlatformTwoRequired = {
+      ...currentReceipt,
+      pack: {
+        ...currentReceipt.pack,
+        platformScope: 'single-platform' as const,
+        requiredPlatforms: ['android', 'ios'],
+      },
+    };
+    assert.throws(
+      () =>
+        assertValidJson(
+          singlePlatformTwoRequired,
+          SCHEMAS.ciEvidencePublicationReceipt,
+          'ci-evidence-publication-receipt',
+        ),
+      Error,
+    );
+    assert.throws(
+      () =>
+        readCiEvidencePublicationReceipt(
+          writeReceipt(singlePlatformTwoRequired as CiEvidencePublicationReceipt),
+          currentBytes,
+        ),
+      CiEvidencePublicationReceiptError,
+    );
+
+    const crossPlatformOneRequired = {
+      ...currentReceipt,
+      pack: {
+        ...currentReceipt.pack,
+        platformScope: 'cross-platform' as const,
+        requiredPlatforms: ['ios'],
+      },
+    };
+    assert.throws(
+      () =>
+        assertValidJson(
+          crossPlatformOneRequired,
+          SCHEMAS.ciEvidencePublicationReceipt,
+          'ci-evidence-publication-receipt',
+        ),
+      Error,
+    );
+    assert.throws(
+      () =>
+        readCiEvidencePublicationReceipt(
+          writeReceipt(crossPlatformOneRequired as CiEvidencePublicationReceipt),
+          currentBytes,
+        ),
       CiEvidencePublicationReceiptError,
     );
   });

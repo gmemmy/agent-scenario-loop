@@ -134,7 +134,13 @@ function collectGateReasons(
     'pack.platformClaim.status':
       platformClaim.claimStatus === 'passed'
         ? undefined
-        : unexpectedStatus('pack.platformClaim.status', platformClaim.claimStatus, 'passed'),
+        : unexpectedStatus(
+            pack.schemaVersion === '1.0.0'
+              ? 'pack.twoPlatformClaim.status'
+              : 'pack.platformClaim.status',
+            platformClaim.claimStatus,
+            'passed',
+          ),
     'publication.evaluation.status':
       publicationEvaluation.status === 'passed'
         ? undefined

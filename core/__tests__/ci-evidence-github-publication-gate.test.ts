@@ -6,7 +6,12 @@ const {
   CiEvidenceGithubPublicationGateError,
   evaluateCiEvidenceGithubPublicationGate,
 } = require('../ci-evidence-github-publication-gate');
-import type { CiEvidencePack, CiEvidencePackBuildInput } from '../ci-evidence-pack';
+import type {
+  CiEvidencePack,
+  CiEvidencePackArtifact,
+  CiEvidencePackBuildInput,
+  CiEvidencePackLegacy,
+} from '../ci-evidence-pack';
 
 const HEAD_SHA = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 const OTHER_SHA = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
@@ -144,6 +149,79 @@ function cloneInput(): CiEvidencePackBuildInput {
   return JSON.parse(JSON.stringify(validPackInput())) as CiEvidencePackBuildInput;
 }
 
+function validIosSinglePlatformInput(): CiEvidencePackBuildInput {
+  const input = cloneInput();
+  const iosPass = attemptEvidence('ios', 'ios-pass');
+  input.platformScope = 'single-platform';
+  input.requiredPlatforms = ['ios'];
+  input.platforms = [
+    {
+      platform: 'ios',
+      authorityStatus: 'supported',
+      evaluationStatus: 'passed',
+      selectedAttemptId: 'ios-pass',
+    },
+  ];
+  input.attempts = [
+    {
+      attemptId: 'ios-pass',
+      platform: 'ios',
+      scenarioId: 'scenario-a',
+      runId: 'run-1',
+      status: 'passed',
+      attemptNumber: 1,
+      maxAttempts: 1,
+      startedAt: '2026-08-22T00:02:00.000Z',
+      evidenceIds: iosPass.evidenceIds,
+    },
+  ];
+  input.evidence = [...iosPass.evidence];
+  input.verdicts = [
+    {
+      scenarioId: 'scenario-a',
+      runId: 'run-1',
+      platform: 'ios',
+      status: 'failed',
+      evidenceId: 'ios-pass-verdict',
+    },
+  ];
+  input.summary = 'ios evidence assembled';
+  return input;
+}
+
+function legacyDualPlatformPack(input: CiEvidencePackBuildInput): CiEvidencePackLegacy {
+  const current = buildCiEvidencePack(input);
+  const legacy = JSON.parse(JSON.stringify(current)) as Record<string, unknown>;
+  legacy.schemaVersion = '1.0.0';
+  legacy.twoPlatformClaim = legacy.platformClaim;
+  delete legacy.platformScope;
+  delete legacy.platformClaim;
+  return legacy as unknown as CiEvidencePackLegacy;
+}
+
+function iosSinglePlatformFacts(): Record<string, unknown> {
+  const facts = validFacts();
+  facts.requestedItems = [
+    { requestId: 'req-pack', targetKind: 'pack_artifact', packArtifact: 'ci_evidence_pack' },
+    { requestId: 'req-lps', targetKind: 'pack_artifact', packArtifact: 'live_proof_set' },
+    { requestId: 'req-ios-recording', targetKind: 'evidence', evidenceId: 'ios-pass-recording' },
+    { requestId: 'req-ios-verdict', targetKind: 'evidence', evidenceId: 'ios-pass-verdict' },
+  ];
+  facts.outcomes = [
+    publishedOutcome('req-pack', 'https://github.com/acme/asl/actions/runs/1/pack.json'),
+    publishedOutcome('req-lps', 'https://github.com/acme/asl/actions/runs/1/lps.json'),
+    publishedOutcome('req-ios-recording', 'https://github.com/acme/asl/actions/runs/1/ios-recording.bin'),
+    publishedOutcome('req-ios-verdict', 'https://github.com/acme/asl/actions/runs/1/ios-verdict.json'),
+  ];
+  return facts;
+}
+
+function legacyDualPlatformFacts(): Record<string, unknown> {
+  const facts = validFacts();
+  facts.schemaVersion = '1.0.0';
+  return facts;
+}
+
 function requiredItem<T>(value: T | undefined, label: string): T {
   if (value === undefined) {
     throw new Error(`expected ${label}`);
@@ -151,7 +229,7 @@ function requiredItem<T>(value: T | undefined, label: string): T {
   return value;
 }
 
-function packBytes(pack: CiEvidencePack): Uint8Array {
+function packBytes(pack: CiEvidencePackArtifact): Uint8Array {
   return Buffer.from(JSON.stringify(pack), 'utf8');
 }
 
@@ -220,10 +298,10 @@ function cloneJson<T>(value: T): T {
 }
 
 function evaluateGate(
-  input: CiEvidencePackBuildInput = cloneInput(),
+  input: CiEvidencePackBuildInput | CiEvidencePackArtifact = cloneInput(),
   facts: unknown = validFacts(),
 ) {
-  const pack = buildCiEvidencePack(input);
+  const pack = 'mechanismStatus' in input ? input : buildCiEvidencePack(input);
   const bytes = packBytes(pack);
   return {
     pack,
@@ -481,5 +559,57 @@ describe('ci evidence github publication gate', () => {
     evaluateCiEvidenceGithubPublicationGate(bytes, facts);
     assert.deepEqual(Array.from(bytes), Array.from(originalBytes));
     assert.deepEqual(facts, snapshot);
+  });
+
+  it('valid iOS single-platform pack plus restricted publication passes', () => {
+    const input = validIosSinglePlatformInput();
+    const { result } = evaluateGate(input, iosSinglePlatformFacts());
+    assert.equal(result.evaluation.status, 'passed');
+    assert.deepEqual(result.evaluation.reasons, []);
+    assert.equal(result.pack.platformScope, 'single-platform');
+    assert.deepEqual(result.pack.requiredPlatforms, ['ios']);
+    assert.ok(!result.evaluation.reasons.some((reason: string) => reason.toLowerCase().includes('android')));
+    assertNoForbiddenVocabulary(result);
+  });
+
+  it('failed iOS single-platform platformClaim fails without an Android obligation', () => {
+    const input = validIosSinglePlatformInput();
+    const ios = requiredItem(
+      input.platforms.find((record) => record.platform === 'ios'),
+      'ios platform',
+    );
+    ios.authorityStatus = 'unsupported';
+    ios.evaluationStatus = 'not_evaluable';
+    const { result } = evaluateGate(input, iosSinglePlatformFacts());
+    assertFailedWithReason(result, 'pack.platformClaim.status is not_evaluable, expected passed');
+    assert.ok(
+      !result.evaluation.reasons.some((reason: string) => reason.includes('twoPlatformClaim')),
+      result.evaluation.reasons.join(' | '),
+    );
+    assert.ok(
+      !result.evaluation.reasons.some((reason: string) => /android/i.test(reason)),
+      result.evaluation.reasons.join(' | '),
+    );
+  });
+
+  it('valid legacy 1.0.0 dual-platform pair passes and names twoPlatformClaim on failure', () => {
+    const passing = evaluateGate(legacyDualPlatformPack(cloneInput()), legacyDualPlatformFacts());
+    assert.equal(passing.result.evaluation.status, 'passed');
+    assert.deepEqual(passing.result.evaluation.reasons, []);
+    assert.equal(passing.result.pack.schemaVersion, '1.0.0');
+    assert.ok(!('platformScope' in passing.result.pack));
+
+    const failedInput = cloneInput();
+    const android = requiredItem(
+      failedInput.platforms.find((record) => record.platform === 'android'),
+      'android platform',
+    );
+    android.selectedAttemptId = 'android-fail';
+    const failed = evaluateGate(legacyDualPlatformPack(failedInput), legacyDualPlatformFacts());
+    assertFailedWithReason(failed.result, 'pack.twoPlatformClaim.status is failed, expected passed');
+    assert.ok(
+      !failed.result.evaluation.reasons.some((reason: string) => reason.includes('platformClaim')),
+      failed.result.evaluation.reasons.join(' | '),
+    );
   });
 });
