@@ -244,17 +244,17 @@ describe('ci evidence pack', () => {
       reason: 'recording not produced',
     };
     const pack = buildCiEvidencePack(input);
-    assert.equal(pack.twoPlatformClaim.status, 'failed');
+    assert.equal(pack.platformClaim.status, 'failed');
   });
 
-  it('keeps twoPlatformClaim passed when product verdicts are failed, inconclusive, or not_evaluated', () => {
+  it('keeps platformClaim passed when product verdicts are failed, inconclusive, or not_evaluated', () => {
     const failed = cloneInput();
     const androidVerdict = requiredItem(
       failed.verdicts.find((item) => item.platform === 'android'),
       'android verdict',
     );
     androidVerdict.status = 'failed';
-    assert.equal(buildCiEvidencePack(failed).twoPlatformClaim.status, 'passed');
+    assert.equal(buildCiEvidencePack(failed).platformClaim.status, 'passed');
 
     const inconclusive = cloneInput();
     const androidInconclusive = requiredItem(
@@ -262,7 +262,7 @@ describe('ci evidence pack', () => {
       'android verdict',
     );
     androidInconclusive.status = 'inconclusive';
-    assert.equal(buildCiEvidencePack(inconclusive).twoPlatformClaim.status, 'passed');
+    assert.equal(buildCiEvidencePack(inconclusive).platformClaim.status, 'passed');
 
     const notEvaluated = cloneInput();
     const iosVerdict = requiredItem(
@@ -270,7 +270,7 @@ describe('ci evidence pack', () => {
       'ios verdict',
     );
     iosVerdict.status = 'not_evaluated';
-    assert.equal(buildCiEvidencePack(notEvaluated).twoPlatformClaim.status, 'passed');
+    assert.equal(buildCiEvidencePack(notEvaluated).platformClaim.status, 'passed');
   });
 
   it('rejects absolute POSIX, drive, backslash, and parent traversal paths', () => {
@@ -515,7 +515,7 @@ describe('ci evidence pack', () => {
       'ios-pass attempt',
     );
     extraIds.evidenceIds = [...extraIds.evidenceIds, 'ios-pass-recording-extra-missing'];
-    assert.equal(buildCiEvidencePack(presentThenMissing).twoPlatformClaim.status, 'passed');
+    assert.equal(buildCiEvidencePack(presentThenMissing).platformClaim.status, 'passed');
 
     const missingThenPresent = cloneInput();
     missingThenPresent.evidence.unshift({
@@ -531,7 +531,7 @@ describe('ci evidence pack', () => {
       'ios-pass attempt',
     );
     iosAttempt.evidenceIds = ['ios-pass-recording-extra-missing-first', ...iosAttempt.evidenceIds];
-    assert.equal(buildCiEvidencePack(missingThenPresent).twoPlatformClaim.status, 'passed');
+    assert.equal(buildCiEvidencePack(missingThenPresent).platformClaim.status, 'passed');
 
     const onlyUnavailable = cloneInput();
     const recordingIndex = onlyUnavailable.evidence.findIndex((item) => item.evidenceId === 'ios-pass-recording');
@@ -557,7 +557,7 @@ describe('ci evidence pack', () => {
       'ios-pass attempt',
     );
     onlyAttempt.evidenceIds = [...onlyAttempt.evidenceIds, 'ios-pass-recording-alt'];
-    assert.equal(buildCiEvidencePack(onlyUnavailable).twoPlatformClaim.status, 'not_evaluable');
+    assert.equal(buildCiEvidencePack(onlyUnavailable).platformClaim.status, 'not_evaluable');
   });
 
   it('keeps unsupported authority not_evaluable even when a retained attempt failed', () => {
@@ -574,13 +574,13 @@ describe('ci evidence pack', () => {
       'ios-pass attempt',
     );
     iosAttempt.status = 'failed';
-    assert.equal(buildCiEvidencePack(input).twoPlatformClaim.status, 'not_evaluable');
+    assert.equal(buildCiEvidencePack(input).platformClaim.status, 'not_evaluable');
   });
 
   it('throws when derive receives an incoherent inventory', () => {
     const input = cloneInput();
     input.attempts = [];
-    assert.throws(() => deriveCiEvidencePackTwoPlatformClaim(input), CiEvidencePackError);
+    assert.throws(() => deriveCiEvidencePackPlatformClaim(input), CiEvidencePackError);
   });
 
   it('rejects duplicate present paths and dot path segments', () => {

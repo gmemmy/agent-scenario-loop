@@ -50,7 +50,7 @@ function validPackInput(): CiEvidencePackBuildInput {
   const androidFail = attemptEvidence('android', 'android-fail');
   const iosPass = attemptEvidence('ios', 'ios-pass');
   return {
-    schemaVersion: '1.0.0',
+    schemaVersion: '1.1.0',
     packId: 'pack-1',
     createdAt: '2026-08-22T00:00:00.000Z',
     source: { expectedSha: HEAD_SHA, observedSha: HEAD_SHA, status: 'current' },
@@ -61,6 +61,7 @@ function validPackInput(): CiEvidencePackBuildInput {
       runId: 'run-1',
       status: 'passed',
     },
+    platformScope: 'cross-platform',
     requiredPlatforms: ['android', 'ios'],
     requiredEvidenceKinds: ['recording', 'verdict'],
     platforms: [
@@ -367,7 +368,7 @@ describe('ci evidence github publication gate', () => {
     assertFailedWithReason(result, 'pack.mechanismStatus is failed, expected succeeded');
   });
 
-  it('twoPlatformClaim failed fails without conflation', () => {
+  it('platformClaim failed fails without conflation', () => {
     const input = cloneInput();
     const android = requiredItem(
       input.platforms.find((record) => record.platform === 'android'),
@@ -375,10 +376,10 @@ describe('ci evidence github publication gate', () => {
     );
     android.selectedAttemptId = 'android-fail';
     const { result } = evaluateGate(input);
-    assertFailedWithReason(result, 'pack.twoPlatformClaim.status is failed, expected passed');
+    assertFailedWithReason(result, 'pack.platformClaim.status is failed, expected passed');
   });
 
-  it('twoPlatformClaim not_evaluable fails without conflation', () => {
+  it('platformClaim not_evaluable fails without conflation', () => {
     const input = cloneInput();
     const ios = requiredItem(
       input.platforms.find((record) => record.platform === 'ios'),
@@ -387,7 +388,7 @@ describe('ci evidence github publication gate', () => {
     ios.authorityStatus = 'unsupported';
     ios.evaluationStatus = 'not_evaluable';
     const { result } = evaluateGate(input);
-    assertFailedWithReason(result, 'pack.twoPlatformClaim.status is not_evaluable, expected passed');
+    assertFailedWithReason(result, 'pack.platformClaim.status is not_evaluable, expected passed');
   });
 
   it('rejected publication fails', () => {

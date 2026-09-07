@@ -53,7 +53,7 @@ function validPackInput(): CiEvidencePackBuildInput {
   const androidFail = attemptEvidence('android', 'android-fail');
   const iosPass = attemptEvidence('ios', 'ios-pass');
   return {
-    schemaVersion: '1.0.0' as const,
+    schemaVersion: '1.1.0' as const,
     packId: 'pack-1',
     createdAt: '2026-08-22T00:00:00.000Z',
     source: { expectedSha: SHA, observedSha: SHA, status: 'current' as const },
@@ -64,6 +64,7 @@ function validPackInput(): CiEvidencePackBuildInput {
       runId: 'run-1',
       status: 'passed' as const,
     },
+    platformScope: 'cross-platform' as const,
     requiredPlatforms: ['android', 'ios'],
     requiredEvidenceKinds: ['recording', 'verdict'],
     platforms: [
@@ -206,7 +207,7 @@ describe('ci evidence publication receipt', () => {
     assert.equal(receipt.publicationStatus, 'published');
     assert.deepEqual(receipt.reasons, []);
     assert.equal(receipt.pack.mechanismStatus, pack.mechanismStatus);
-    assert.equal(receipt.pack.twoPlatformClaim.status, pack.twoPlatformClaim.status);
+    assert.equal(receipt.pack.platformClaim.status, pack.platformClaim.status);
     assert.equal(receipt.pack.sha256, createHash('sha256').update(bytes).digest('hex'));
     assert.equal(receipt.pack.byteSize, bytes.byteLength);
     assertValidJson(receipt, SCHEMAS.ciEvidencePublicationReceipt, 'ci-evidence-publication-receipt');
@@ -266,17 +267,17 @@ describe('ci evidence publication receipt', () => {
       status: 'stale',
     };
     const pack = buildCiEvidencePack(input);
-    assert.equal(pack.twoPlatformClaim.status, 'failed');
+    assert.equal(pack.platformClaim.status, 'failed');
     const receipt = buildCiEvidencePublicationReceipt({
       packBytes: packBytes(pack),
       facts: cloneFacts(),
     });
     assert.equal(receipt.publicationStatus, 'published');
     assert.equal(receipt.pack.source.status, 'stale');
-    assert.equal(receipt.pack.twoPlatformClaim.status, 'failed');
+    assert.equal(receipt.pack.platformClaim.status, 'failed');
     assert.equal(receipt.pack.mechanismStatus, pack.mechanismStatus);
     assert.match(receipt.summary, /publication published/);
-    assert.match(receipt.summary, /twoPlatformClaim failed/);
+    assert.match(receipt.summary, /platformClaim failed/);
   });
 
   it('leaves rejected and failed pack attempts untouched', () => {
@@ -640,7 +641,7 @@ describe('ci evidence publication receipt', () => {
     assert.deepEqual(receipt.pack.requiredPlatforms, pack.requiredPlatforms);
     assert.deepEqual(receipt.pack.requiredEvidenceKinds, pack.requiredEvidenceKinds);
     assert.equal(receipt.pack.mechanismStatus, pack.mechanismStatus);
-    assert.deepEqual(receipt.pack.twoPlatformClaim, pack.twoPlatformClaim);
+    assert.deepEqual(receipt.pack.platformClaim, pack.platformClaim);
     assert.equal(receipt.pack.comparisonStatus, pack.comparisonStatus);
     assert.deepEqual(receipt.pack.completeness, pack.completeness);
     assert.deepEqual(receipt.pack.assembly, pack.assembly);
@@ -717,15 +718,15 @@ describe('ci evidence publication receipt', () => {
       CiEvidencePublicationReceiptError,
     );
 
-    const mismatchedTwoPlatform = {
+    const mismatchedPlatformClaim = {
       ...receipt,
       pack: {
         ...receipt.pack,
-        twoPlatformClaim: { status: 'failed' as const, reasons: ['tampered'] },
+        platformClaim: { status: 'failed' as const, reasons: ['tampered'] },
       },
     };
     assert.throws(
-      () => assertCiEvidencePublicationReceiptForPack(mismatchedTwoPlatform, pack),
+      () => assertCiEvidencePublicationReceiptForPack(mismatchedPlatformClaim, pack),
       CiEvidencePublicationReceiptError,
     );
 
@@ -762,7 +763,8 @@ describe('ci evidence publication receipt', () => {
     const reordered = JSON.parse(JSON.stringify(pack)) as CiEvidencePack;
     const bytes = Buffer.from(
       JSON.stringify({
-        twoPlatformClaim: reordered.twoPlatformClaim,
+        platformClaim: reordered.platformClaim,
+        platformScope: reordered.platformScope,
         source: reordered.source,
         packId: reordered.packId,
         schemaVersion: reordered.schemaVersion,
@@ -876,7 +878,7 @@ describe('ci evidence publication receipt', () => {
     const mixed = buildCiEvidencePublicationReceipt({ packBytes: bytes, facts: mixedFacts });
     assert.equal(mixed.publicationStatus, 'partial');
     assert.equal(mixed.pack.mechanismStatus, pack.mechanismStatus);
-    assert.equal(mixed.pack.twoPlatformClaim.status, pack.twoPlatformClaim.status);
+    assert.equal(mixed.pack.platformClaim.status, pack.platformClaim.status);
     assert.equal(mixed.pack.source.status, pack.source.status);
     assertCiEvidencePublicationReceiptForExactPackBytes(mixed, pack, bytes);
 
@@ -891,7 +893,7 @@ describe('ci evidence publication receipt', () => {
       facts: mixedInvalidFacts,
     });
     assert.equal(mixedInvalid.publicationStatus, 'partial');
-    assert.equal(mixedInvalid.pack.twoPlatformClaim.status, pack.twoPlatformClaim.status);
+    assert.equal(mixedInvalid.pack.platformClaim.status, pack.platformClaim.status);
     assertCiEvidencePublicationReceiptForExactPackBytes(mixedInvalid, pack, bytes);
     const failedAttempt = requiredItem(
       pack.attempts.find((attempt: { attemptId: string }) => attempt.attemptId === 'android-fail'),

@@ -54,7 +54,8 @@ function validPackInput(): CiEvidencePackBuildInput {
   const androidFail = attemptEvidence('android', 'android-fail');
   const iosPass = attemptEvidence('ios', 'ios-pass');
   return {
-    schemaVersion: '1.0.0' as const,
+    schemaVersion: '1.1.0' as const,
+    platformScope: 'cross-platform' as const,
     packId: 'pack-1',
     createdAt: '2026-08-22T00:00:00.000Z',
     source: { expectedSha: SHA, observedSha: SHA, status: 'current' as const },
@@ -294,6 +295,7 @@ describe('ci evidence publication summary', () => {
       markdown.indexOf('## Pack identity'),
       markdown.indexOf('## Publication identity'),
     );
+    assert.match(identity, /platformScope \| cross-platform/);
     assert.match(identity, /requiredPlatforms \| android, ios/);
     assert.match(identity, /requiredEvidenceKinds \| log, recording, verdict/);
   });
@@ -344,7 +346,7 @@ describe('ci evidence publication summary', () => {
     assert.match(markdown, /android-fail-verdict/);
   });
 
-  it('keeps failed twoPlatformClaim visible when uploads are published', () => {
+  it('keeps failed platformClaim visible when uploads are published', () => {
     const input = validPackInput();
     input.source = {
       expectedSha: SHA,
@@ -352,12 +354,13 @@ describe('ci evidence publication summary', () => {
       status: 'stale',
     };
     const { pack, markdown } = renderFrom(input, cloneFacts());
-    assert.equal(pack.twoPlatformClaim.status, 'failed');
-    assert.match(markdown, /\| two-platform evidence claim \| failed \|/);
+    assert.equal(pack.platformClaim.status, 'failed');
+    assert.match(markdown, /\| platform evidence claim \| failed \|/);
     assert.match(markdown, /\| publication \| published \|/);
+    assert.match(markdown, /platformScope \| cross-platform/);
   });
 
-  it('always emits both platform sections', () => {
+  it('renders only declared required platform sections', () => {
     const input = validPackInput();
     input.platforms[1] = {
       platform: 'ios',
@@ -377,6 +380,66 @@ describe('ci evidence publication summary', () => {
     assert.match(markdown, /authorityStatus/);
     assert.match(markdown, /no selected attempt/);
     assert.equal(markdown.includes('missing from pack'), false);
+  });
+
+  it('does not create an Android evidence obligation for an iOS-only report', () => {
+    const input = validPackInput();
+    input.platformScope = 'ios-only';
+    input.requiredPlatforms = ['ios'];
+    input.platforms = [
+      {
+        platform: 'ios',
+        authorityStatus: 'supported',
+        evaluationStatus: 'passed',
+        selectedAttemptId: 'ios-pass',
+      },
+    ];
+    input.attempts = input.attempts.filter((attempt) => attempt.platform === 'ios');
+    input.evidence = input.evidence.filter((item) => item.platform === 'ios');
+    input.verdicts = input.verdicts.filter((verdict) => verdict.platform === 'ios');
+    const facts = cloneFacts();
+    facts.requestedItems = facts.requestedItems.filter(
+      (item) => item.targetKind !== 'evidence' || item.evidenceId.startsWith('ios-'),
+    );
+    facts.outcomes = facts.outcomes.filter((outcome) =>
+      facts.requestedItems.some((item) => item.requestId === outcome.requestId),
+    );
+    const { markdown } = renderFrom(input, facts);
+    assert.match(markdown, /platformScope \| ios-only/);
+    assert.match(markdown, /requiredPlatforms \| ios/);
+    assert.match(markdown, /## iOS evidence/);
+    assert.doesNotMatch(markdown, /## Android evidence/);
+    assert.equal(markdown.includes('android-retry'), false);
+  });
+
+  it('does not create an iOS evidence obligation for an Android-only report', () => {
+    const input = validPackInput();
+    input.platformScope = 'android-only';
+    input.requiredPlatforms = ['android'];
+    input.platforms = [
+      {
+        platform: 'android',
+        authorityStatus: 'supported',
+        evaluationStatus: 'passed',
+        selectedAttemptId: 'android-retry',
+      },
+    ];
+    input.attempts = input.attempts.filter((attempt) => attempt.platform === 'android');
+    input.evidence = input.evidence.filter((item) => item.platform === 'android');
+    input.verdicts = input.verdicts.filter((verdict) => verdict.platform === 'android');
+    const facts = cloneFacts();
+    facts.requestedItems = facts.requestedItems.filter(
+      (item) => item.targetKind !== 'evidence' || item.evidenceId.startsWith('android-'),
+    );
+    facts.outcomes = facts.outcomes.filter((outcome) =>
+      facts.requestedItems.some((item) => item.requestId === outcome.requestId),
+    );
+    const { markdown } = renderFrom(input, facts);
+    assert.match(markdown, /platformScope \| android-only/);
+    assert.match(markdown, /requiredPlatforms \| android/);
+    assert.match(markdown, /## Android evidence/);
+    assert.doesNotMatch(markdown, /## iOS evidence/);
+    assert.equal(markdown.includes('ios-pass'), false);
   });
 
   it('labels restricted outcomes without a clickable link or raw URL', () => {

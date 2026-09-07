@@ -52,7 +52,7 @@ function validPackInput(): CiEvidencePackBuildInput {
   const androidFail = attemptEvidence('android', 'android-fail');
   const iosPass = attemptEvidence('ios', 'ios-pass');
   return {
-    schemaVersion: '1.0.0',
+    schemaVersion: '1.1.0',
     packId: 'pack-1',
     createdAt: '2026-08-22T00:00:00.000Z',
     source: { expectedSha: HEAD_SHA, observedSha: HEAD_SHA, status: 'current' },
@@ -63,6 +63,8 @@ function validPackInput(): CiEvidencePackBuildInput {
       runId: 'run-1',
       status: 'passed',
     },
+    platformScope: 'cross-platform',
+    platformClaim: { status: 'passed' },
     requiredPlatforms: ['android', 'ios'],
     requiredEvidenceKinds: ['recording', 'verdict'],
     platforms: [
@@ -253,6 +255,9 @@ describe('ci evidence github publication report', () => {
     assert.deepEqual(report.gate.evaluation.reasons, []);
     assert.equal(report.markdown.includes('# CI evidence review'), true);
     assert.equal(report.markdown.includes('| publication evidence gate | passed |'), true);
+    assert.equal(report.markdown.includes('| platform scope | cross-platform |'), true);
+    assert.equal(report.gate.pack.platformScope, 'cross-platform');
+    assert.equal(report.gate.pack.platformClaim.status, 'passed');
     assert.equal(
       report.markdown.includes(`| comparison status | ${escapeFixtureCell('not_available')} |`),
       true,
@@ -608,5 +613,10 @@ describe('ci evidence github publication report', () => {
       ),
       true,
     );
+    assert.equal(report.markdown.includes('| platform scope | cross-platform |'), true);
+    assert.equal(report.gate.pack.schemaVersion, '1.1.0');
+    assert.equal(report.gate.pack.platformScope, 'cross-platform');
+    assert.deepEqual(report.gate.pack.requiredPlatforms, ['android', 'ios']);
+    assert.equal(report.gate.pack.platformClaim.status, 'passed');
   });
 });

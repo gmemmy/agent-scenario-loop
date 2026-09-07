@@ -219,7 +219,7 @@ test('valid Android+iOS live-proof-set verifies and assembles even when product 
   assert.equal(pack.liveProofSet.runId, 'run-1');
   assert.equal(pack.verdicts[0]?.status, 'failed');
   assert.equal(pack.platformScope, 'cross-platform');
-  assert.equal(pack.platformClaim.status, 'complete');
+  assert.equal(pack.platformClaim.status, 'passed');
 });
 
 test('failed and retried attempts remain visible beside the unique selected platform+runId match', () => {
