@@ -9,6 +9,7 @@ const test = require('node:test');
 const {
   EvidencePackageError,
   materializeEvidencePackage,
+  verifyEvidencePackage,
 } = require('../evidence-package') as typeof import('../evidence-package');
 const { SCHEMAS, assertValidJson } = require('../schema-validator');
 
@@ -489,5 +490,391 @@ test('rejects non-files artifact paths, control characters, empty files, and dir
   await assert.rejects(
     materializeEvidencePackage(directoryRequest),
     (error: unknown) => error instanceof EvidencePackageError && error.rejections[0]?.code === 'not-regular',
+  );
+});
+
+test('materializes classified JSON references and verifies them after relocation', async (t: TestContext) => {
+  const fixture = await setup(t);
+  const targetPath = path.join(fixture.sourceRoot, 'raw', 'ui-tree.json');
+  const reportPath = path.join(fixture.sourceRoot, 'raw', 'report.json');
+  const producerRoot = path.join(fixture.tempDir, 'producer-root');
+  await fsp.mkdir(producerRoot);
+  const report = {
+    artifact: targetPath,
+    producerRoot,
+  };
+  await fsp.writeFile(reportPath, JSON.stringify(report), 'utf8');
+  const originalReport = await fsp.readFile(reportPath);
+  const request = fixture.request as Record<string, unknown> & {entries: Array<Record<string, unknown>>};
+  request.schemaVersion = '1.1.0';
+  request.entries.push({
+    kind: 'summary',
+    sourcePath: 'raw/report.json',
+    artifactPath: 'files/report.json',
+  });
+  request.jsonPointers = [
+    {
+      sourcePath: 'raw/report.json',
+      jsonPointer: '/artifact',
+      role: 'artifact-reference',
+      referencedSourcePath: 'raw/ui-tree.json',
+    },
+    {
+      sourcePath: 'raw/report.json',
+      jsonPointer: '/producerRoot',
+      role: 'host-local-provenance',
+    },
+  ];
+
+  const result = await materializeEvidencePackage(request);
+  assert.deepEqual(await fsp.readFile(reportPath), originalReport);
+  const artifact = result.artifact;
+  assert.equal(artifact.schemaVersion, '1.1.0');
+  if (artifact.schemaVersion !== '1.1.0') {
+    throw new Error('expected evidence package schema 1.1.0');
+  }
+  assert.deepEqual(artifact.jsonPointers, [
+    {
+      artifactPath: 'files/report.json',
+      dereferenceable: true,
+      jsonPointer: '/artifact',
+      referencedArtifactPath: 'files/ui-tree.json',
+      role: 'artifact-reference',
+      value: 'files/ui-tree.json',
+    },
+    {
+      artifactPath: 'files/report.json',
+      dereferenceable: false,
+      jsonPointer: '/producerRoot',
+      role: 'host-local-provenance',
+      value: producerRoot,
+    },
+  ]);
+  const packagedReport = JSON.parse(await fsp.readFile(
+    path.join(result.outputDir, 'files', 'report.json'),
+    'utf8',
+  )) as Record<string, unknown>;
+  assert.equal(packagedReport.artifact, 'files/ui-tree.json');
+  assert.equal(packagedReport.producerRoot, producerRoot);
+
+  const relocated = path.join(fixture.tempDir, 'relocated-package');
+  await fsp.rm(fixture.sourceRoot, { recursive: true, force: true });
+  await fsp.rm(producerRoot, { recursive: true, force: true });
+  await fsp.rename(result.outputDir, relocated);
+  const verification = verifyEvidencePackage(relocated);
+  assert.equal(verification.status, 'complete');
+  assert.equal(verification.outputDir, fs.realpathSync(relocated));
+  const relocatedReport = JSON.parse(
+    await fsp.readFile(path.join(relocated, 'files', 'report.json'), 'utf8'),
+  ) as Record<string, unknown>;
+  assert.equal(relocatedReport.artifact, 'files/ui-tree.json');
+  assert.equal(relocatedReport.producerRoot, producerRoot);
+  assert.equal((await fsp.stat(path.join(relocated, 'files', 'ui-tree.json'))).isFile(), true);
+  if (verification.artifact.schemaVersion !== '1.1.0') {
+    throw new Error('expected relocated evidence package schema 1.1.0');
+  }
+  assert.deepEqual(verification.artifact.jsonPointers[0], {
+    artifactPath: 'files/report.json',
+    dereferenceable: true,
+    jsonPointer: '/artifact',
+    referencedArtifactPath: 'files/ui-tree.json',
+    role: 'artifact-reference',
+    value: 'files/ui-tree.json',
+  });
+});
+
+test('rejects unclassified absolute JSON paths across path families', async (t: TestContext) => {
+  for (const [index, absolutePath] of [
+    '/private/tmp/evidence.json',
+    'C:\\temp\\evidence.json',
+    '\\\\server\\share\\evidence.json',
+  ].entries()) {
+    const fixture = await setup(t);
+    fixture.request.outputDir = path.join(fixture.tempDir, `package-${index}`);
+    await fsp.writeFile(
+      path.join(fixture.sourceRoot, 'raw', 'ui-tree.json'),
+      JSON.stringify({ absolutePath }),
+      'utf8',
+    );
+    await assert.rejects(
+      materializeEvidencePackage(fixture.request),
+      (error: unknown) => (
+        error instanceof EvidencePackageError &&
+        error.rejections.some((rejection) => rejection.code === 'unclassified-absolute-path')
+      ),
+    );
+    assert.equal(fs.existsSync(fixture.request.outputDir as string), false);
+  }
+});
+
+test('keeps JSON pointer declarations isolated to schema version 1.1.0', async (t: TestContext) => {
+  const legacy = await setup(t);
+  (legacy.request as Record<string, unknown>).jsonPointers = [{
+    sourcePath: 'raw/ui-tree.json',
+    jsonPointer: '/path',
+    role: 'host-local-provenance',
+  }];
+  await assert.rejects(materializeEvidencePackage(legacy.request), /schema validation/iu);
+
+  const current = await setup(t);
+  current.request.schemaVersion = '1.1.0';
+  await assert.rejects(materializeEvidencePackage(current.request), /schema validation/iu);
+
+  assert.throws(() => assertValidJson({
+    schemaVersion: '1.1.0',
+    packageId: 'package-1',
+    runId: 'run-1',
+    status: 'complete',
+    sensitivityPolicy: 'allowlist-and-secret-marker-v1',
+    fileCount: 1,
+    totalByteSize: 1,
+    checksumsPath: 'SHA256SUMS',
+    entries: [{
+      kind: 'summary',
+      sourcePath: 'raw/report.json',
+      artifactPath: 'files/report.json',
+      byteSize: 1,
+      sha256: '0'.repeat(64),
+    }],
+    jsonPointers: [{
+      artifactPath: 'files/report.json',
+      dereferenceable: false,
+      jsonPointer: '/producerRoot',
+      role: 'host-local-provenance',
+      value: 'relative/path',
+    }],
+  }, SCHEMAS.evidencePackage, 'Evidence package artifact'), /schema validation/iu);
+});
+
+test('scans BOM-prefixed JSON and rejects classified invalid JSON', async (t: TestContext) => {
+  const bom = await setup(t);
+  await fsp.writeFile(
+    path.join(bom.sourceRoot, 'raw', 'ui-tree.json'),
+    `\uFEFF${JSON.stringify({ path: '/private/tmp/hidden.json' })}`,
+    'utf8',
+  );
+  await assert.rejects(
+    materializeEvidencePackage(bom.request),
+    (error: unknown) => (
+      error instanceof EvidencePackageError &&
+      error.rejections[0]?.code === 'unclassified-absolute-path'
+    ),
+  );
+
+  const invalid = await setup(t);
+  await fsp.writeFile(path.join(invalid.sourceRoot, 'raw', 'ui-tree.json'), '{not-json', 'utf8');
+  invalid.request.schemaVersion = '1.1.0';
+  (invalid.request as Record<string, unknown>).jsonPointers = [{
+    sourcePath: 'raw/ui-tree.json',
+    jsonPointer: '/path',
+    role: 'host-local-provenance',
+  }];
+  await assert.rejects(
+    materializeEvidencePackage(invalid.request),
+    (error: unknown) => (
+      error instanceof EvidencePackageError &&
+      error.rejections[0]?.code === 'invalid-json'
+    ),
+  );
+});
+
+test('rejects invalid classified pointer targets without publishing', async (t: TestContext) => {
+  const cases = [
+    {
+      report: { value: '/private/tmp/value' },
+      pointer: { sourcePath: 'raw/report.json', jsonPointer: '/missing', role: 'host-local-provenance' },
+      code: 'missing-pointer',
+    },
+    {
+      report: { value: 42 },
+      pointer: { sourcePath: 'raw/report.json', jsonPointer: '/value', role: 'host-local-provenance' },
+      code: 'non-string-pointer',
+    },
+    {
+      report: { value: '/private/tmp/not-requested' },
+      pointer: {
+        sourcePath: 'raw/report.json',
+        jsonPointer: '/value',
+        role: 'artifact-reference',
+        referencedSourcePath: 'raw/not-requested.json',
+      },
+      code: 'missing-reference',
+    },
+    {
+      report: { value: '\\Windows\\root-relative' },
+      pointer: {
+        sourcePath: 'raw/report.json',
+        jsonPointer: '/value',
+        role: 'host-local-provenance',
+      },
+      code: 'invalid-path',
+    },
+  ] as const;
+
+  for (const [index, fixtureCase] of cases.entries()) {
+    const fixture = await setup(t);
+    fixture.request.outputDir = path.join(fixture.tempDir, `package-${index}`);
+    await fsp.writeFile(
+      path.join(fixture.sourceRoot, 'raw', 'report.json'),
+      JSON.stringify(fixtureCase.report),
+      'utf8',
+    );
+    const request = fixture.request as Record<string, unknown> & {entries: Array<Record<string, unknown>>};
+    request.schemaVersion = '1.1.0';
+    request.entries.push({ kind: 'summary', sourcePath: 'raw/report.json', artifactPath: 'files/report.json' });
+    request.jsonPointers = [fixtureCase.pointer];
+    await assert.rejects(
+      materializeEvidencePackage(request),
+      (error: unknown) => (
+        error instanceof EvidencePackageError &&
+        error.rejections.some((rejection) => rejection.code === fixtureCase.code)
+      ),
+    );
+    assert.equal(fs.existsSync(fixture.request.outputDir as string), false);
+  }
+
+  const outsideRoot = await setup(t);
+  const outsidePath = path.join(outsideRoot.tempDir, 'outside-reference.json');
+  await fsp.writeFile(outsidePath, '{}', 'utf8');
+  await fsp.writeFile(
+    path.join(outsideRoot.sourceRoot, 'raw', 'report.json'),
+    JSON.stringify({ value: outsidePath }),
+    'utf8',
+  );
+  const outsideRequest = outsideRoot.request as Record<string, unknown> & {entries: Array<Record<string, unknown>>};
+  outsideRequest.schemaVersion = '1.1.0';
+  outsideRequest.entries.push({ kind: 'summary', sourcePath: 'raw/report.json', artifactPath: 'files/report.json' });
+  outsideRequest.jsonPointers = [{
+    sourcePath: 'raw/report.json',
+    jsonPointer: '/value',
+    role: 'artifact-reference',
+    referencedSourcePath: 'raw/ui-tree.json',
+  }];
+  await assert.rejects(
+    materializeEvidencePackage(outsideRequest),
+    (error: unknown) => (
+      error instanceof EvidencePackageError &&
+      error.rejections.some((rejection) => rejection.code === 'invalid-path')
+    ),
+  );
+});
+
+test('rejects duplicate and unbound JSON pointer declarations', async (t: TestContext) => {
+  const duplicate = await setup(t);
+  duplicate.request.schemaVersion = '1.1.0';
+  (duplicate.request as Record<string, unknown>).jsonPointers = [
+    { sourcePath: 'raw/ui-tree.json', jsonPointer: '/path', role: 'host-local-provenance' },
+    { sourcePath: 'raw/ui-tree.json', jsonPointer: '/path', role: 'host-local-provenance' },
+  ];
+  await assert.rejects(
+    materializeEvidencePackage(duplicate.request),
+    (error: unknown) => (
+      error instanceof EvidencePackageError &&
+      error.rejections.some((rejection) => rejection.code === 'invalid-pointer')
+    ),
+  );
+  assert.equal(fs.existsSync(duplicate.outputDir), false);
+
+  const unbound = await setup(t);
+  unbound.request.schemaVersion = '1.1.0';
+  (unbound.request as Record<string, unknown>).jsonPointers = [{
+    sourcePath: 'raw/not-requested.json',
+    jsonPointer: '/path',
+    role: 'host-local-provenance',
+  }];
+  await assert.rejects(
+    materializeEvidencePackage(unbound.request),
+    (error: unknown) => (
+      error instanceof EvidencePackageError &&
+      error.rejections.some((rejection) => rejection.code === 'missing-reference')
+    ),
+  );
+  assert.equal(fs.existsSync(unbound.outputDir), false);
+});
+
+test('verifier rejects missing seals and post-copy drift', async (t: TestContext) => {
+  const missingManifest = await setup(t);
+  const first = await materializeEvidencePackage(missingManifest.request);
+  await fsp.unlink(first.manifestPath);
+  assert.throws(
+    () => verifyEvidencePackage(first.outputDir),
+    (error: unknown) => (
+      error instanceof EvidencePackageError &&
+      error.rejections[0]?.code === 'missing-manifest'
+    ),
+  );
+
+  const missingChecksums = await setup(t);
+  missingChecksums.request.outputDir = path.join(missingChecksums.tempDir, 'package-checksums');
+  const second = await materializeEvidencePackage(missingChecksums.request);
+  await fsp.unlink(second.checksumsPath);
+  assert.throws(
+    () => verifyEvidencePackage(second.outputDir),
+    (error: unknown) => (
+      error instanceof EvidencePackageError &&
+      error.rejections[0]?.code === 'checksum-mismatch'
+    ),
+  );
+
+  const drift = await setup(t);
+  drift.request.outputDir = path.join(drift.tempDir, 'package-drift');
+  const third = await materializeEvidencePackage(drift.request);
+  await fsp.writeFile(path.join(third.outputDir, 'files', 'ui-tree.json'), '{"nodes":["changed"]}', 'utf8');
+  assert.throws(
+    () => verifyEvidencePackage(third.outputDir),
+    (error: unknown) => (
+      error instanceof EvidencePackageError &&
+      error.rejections[0]?.code === 'checksum-mismatch'
+    ),
+  );
+
+  const extra = await setup(t);
+  extra.request.outputDir = path.join(extra.tempDir, 'package-extra');
+  const fourth = await materializeEvidencePackage(extra.request);
+  await fsp.writeFile(path.join(fourth.outputDir, 'unsealed.txt'), 'unsealed', 'utf8');
+  assert.throws(
+    () => verifyEvidencePackage(fourth.outputDir),
+    (error: unknown) => (
+      error instanceof EvidencePackageError &&
+      error.rejections[0]?.code === 'checksum-mismatch'
+    ),
+  );
+});
+
+test('rejects staged digest drift and removes incomplete output transactionally', async (t: TestContext) => {
+  const fixture = await setup(t);
+  const originalWriteFileSync = fs.writeFileSync;
+  let injected = false;
+  fs.writeFileSync = ((
+    filePath: Parameters<typeof fs.writeFileSync>[0],
+    data: Parameters<typeof fs.writeFileSync>[1],
+    options?: Parameters<typeof fs.writeFileSync>[2],
+  ) => {
+    originalWriteFileSync(filePath, data, options as never);
+    if (
+      !injected &&
+      String(filePath).includes('.incomplete-') &&
+      String(filePath).endsWith('files/ui-tree.json')
+    ) {
+      injected = true;
+      originalWriteFileSync(filePath, '{"nodes":["drift"]}', { mode: 0o600 });
+    }
+  }) as typeof fs.writeFileSync;
+  try {
+    await assert.rejects(
+      materializeEvidencePackage(fixture.request),
+      (error: unknown) => (
+        error instanceof EvidencePackageError &&
+        error.rejections[0]?.code === 'changed-during-read'
+      ),
+    );
+  } finally {
+    fs.writeFileSync = originalWriteFileSync;
+  }
+  assert.equal(injected, true);
+  assert.equal(fs.existsSync(fixture.outputDir), false);
+  assert.equal(
+    (await fsp.readdir(fixture.tempDir)).some((entry: string) => entry.includes('.incomplete-')),
+    false,
   );
 });

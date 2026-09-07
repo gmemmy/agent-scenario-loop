@@ -13,42 +13,80 @@ const {
 
 type EvidencePackageKind = 'recording' | 'screenshot' | 'uiTree' | 'actionTranscript' | 'log' | 'metrics' | 'health' | 'verdict' | 'summary' | 'liveProof' | 'liveProofSet' | 'ciEvidencePack' | 'other';
 
-type EvidencePackageRequestEntry = {
+export type EvidencePackageRequestEntry = {
   artifactPath: `files/${string}`;
   kind: EvidencePackageKind;
   sourcePath: string;
 };
 
-export type EvidencePackageRequest = {
+export type EvidencePackageJsonPointerRequest = {
+  jsonPointer: string;
+  role: 'artifact-reference';
+  sourcePath: string;
+  referencedSourcePath: string;
+} | {
+  jsonPointer: string;
+  role: 'host-local-provenance';
+  sourcePath: string;
+};
+
+export type EvidencePackageJsonPointer = {
+  artifactPath: `files/${string}`;
+  dereferenceable: false;
+  jsonPointer: string;
+  role: 'host-local-provenance';
+  value: string;
+} | {
+  artifactPath: `files/${string}`;
+  dereferenceable: true;
+  jsonPointer: string;
+  referencedArtifactPath: `files/${string}`;
+  role: 'artifact-reference';
+  value: `files/${string}`;
+};
+
+type EvidencePackageRequestBase = {
   entries: EvidencePackageRequestEntry[];
   outputDir: string;
   packageId: string;
   runId: string;
-  schemaVersion: '1.0.0';
   sensitivityPolicy: 'allowlist-and-secret-marker-v1';
   sourceRoot: string;
 };
+
+export type EvidencePackageRequest = EvidencePackageRequestBase & ({
+  schemaVersion: '1.0.0';
+} | {
+  jsonPointers: [EvidencePackageJsonPointerRequest, ...EvidencePackageJsonPointerRequest[]];
+  schemaVersion: '1.1.0';
+});
 
 type EvidencePackageEntry = EvidencePackageRequestEntry & {
   byteSize: number;
   sha256: string;
 };
 
-export type EvidencePackageArtifact = {
+type EvidencePackageArtifactBase = {
   checksumsPath: 'SHA256SUMS';
   entries: EvidencePackageEntry[];
   fileCount: number;
   packageId: string;
   runId: string;
-  schemaVersion: '1.0.0';
   sensitivityPolicy: 'allowlist-and-secret-marker-v1';
   status: 'complete';
   totalByteSize: number;
 };
 
+export type EvidencePackageArtifact = EvidencePackageArtifactBase & ({
+  schemaVersion: '1.0.0';
+} | {
+  jsonPointers: EvidencePackageJsonPointer[];
+  schemaVersion: '1.1.0';
+});
+
 export type EvidencePackageRejection = {
   artifactPath?: string;
-  code: 'changed-during-read' | 'duplicate-artifact' | 'duplicate-source' | 'empty' | 'invalid-path' | 'missing' | 'not-regular' | 'output-conflict' | 'secret-marker' | 'sensitive-path' | 'symlink';
+  code: 'changed-during-read' | 'checksum-mismatch' | 'duplicate-artifact' | 'duplicate-source' | 'empty' | 'invalid-json' | 'invalid-path' | 'invalid-pointer' | 'missing' | 'missing-manifest' | 'missing-pointer' | 'missing-reference' | 'non-string-pointer' | 'not-regular' | 'output-conflict' | 'secret-marker' | 'sensitive-path' | 'symlink' | 'unclassified-absolute-path';
   reason: string;
   sourcePath?: string;
 };
@@ -58,6 +96,14 @@ export type EvidencePackageResult = {
   checksumsPath: string;
   manifestPath: string;
   outputDir: string;
+};
+
+export type EvidencePackageVerification = {
+  artifact: EvidencePackageArtifact;
+  checksumsPath: string;
+  manifestPath: string;
+  outputDir: string;
+  status: 'complete';
 };
 
 export class EvidencePackageError extends Error {
@@ -78,6 +124,12 @@ export class EvidencePackageError extends Error {
 
 type PreparedEvidencePackageEntry = EvidencePackageEntry & {
   bytes: Uint8Array;
+};
+
+type JsonPointerLocation = {
+  parent: unknown[] | Record<string, unknown> | null;
+  key: number | string | null;
+  value: unknown;
 };
 
 const SENSITIVE_FILE_NAMES = new Set([
@@ -209,6 +261,354 @@ function containsSecretMarker(bytes: Uint8Array): boolean {
     }
     return buffer.includes(marker) || buffer.includes(utf16Le) || buffer.includes(utf16Be);
   });
+}
+
+function decodeJsonPointer(pointer: string): string[] {
+  if (pointer === '') {
+    return [];
+  }
+  if (!pointer.startsWith('/')) {
+    throw new Error('JSON Pointer must be empty or begin with /.');
+  }
+  return pointer.slice(1).split('/').map((segment) => {
+    if (/~(?:[^01]|$)/u.test(segment)) {
+      throw new Error('JSON Pointer contains an invalid escape.');
+    }
+    return segment.replace(/~1/gu, '/').replace(/~0/gu, '~');
+  });
+}
+
+function escapeJsonPointerSegment(segment: string): string {
+  return segment.replace(/~/gu, '~0').replace(/\//gu, '~1');
+}
+
+function locateJsonPointer(root: unknown, pointer: string): JsonPointerLocation | null {
+  const segments = decodeJsonPointer(pointer);
+  if (segments.length === 0) {
+    return { parent: null, key: null, value: root };
+  }
+  let current: unknown = root;
+  for (const [index, segment] of segments.entries()) {
+    const terminal = index === segments.length - 1;
+    if (Array.isArray(current)) {
+      if (!/^(0|[1-9][0-9]*)$/u.test(segment)) {
+        return null;
+      }
+      const key = Number(segment);
+      if (key >= current.length) {
+        return null;
+      }
+      if (terminal) {
+        return { parent: current, key, value: current[key] };
+      }
+      current = current[key];
+      continue;
+    }
+    if (current === null || typeof current !== 'object') {
+      return null;
+    }
+    const record = current as Record<string, unknown>;
+    if (!Object.prototype.hasOwnProperty.call(record, segment)) {
+      return null;
+    }
+    if (terminal) {
+      return { parent: record, key: segment, value: record[segment] };
+    }
+    current = record[segment];
+  }
+  return null;
+}
+
+function walkJsonStrings(
+  value: unknown,
+  pointer = '',
+): Array<{jsonPointer: string; value: string}> {
+  if (typeof value === 'string') {
+    return [{ jsonPointer: pointer, value }];
+  }
+  if (Array.isArray(value)) {
+    return value.flatMap((child, index) => walkJsonStrings(child, `${pointer}/${index}`));
+  }
+  if (value !== null && typeof value === 'object') {
+    return Object.entries(value).flatMap(([key, child]) => (
+      walkJsonStrings(child, `${pointer}/${escapeJsonPointerSegment(key)}`)
+    ));
+  }
+  return [];
+}
+
+function isAbsoluteHostPath(value: string): boolean {
+  return /^(?:\/.*|[A-Za-z]:[\\/].*|\\\\.+)$/u.test(value);
+}
+
+function requestJsonPointers(request: EvidencePackageRequest): EvidencePackageJsonPointerRequest[] {
+  if (request.schemaVersion === '1.0.0') {
+    return [];
+  }
+  if (!Array.isArray(request.jsonPointers) || request.jsonPointers.length === 0) {
+    throw new EvidencePackageError(
+      'invalid-request',
+      'Evidence package request schema 1.1.0 requires at least one classified JSON pointer.',
+    );
+  }
+  return request.jsonPointers;
+}
+
+function parseJsonBytes(bytes: Uint8Array): {status: 'parsed'; value: unknown} | {status: 'not-json'} {
+  const text = Buffer.from(bytes).toString('utf8').replace(/^\uFEFF/u, '');
+  try {
+    return { status: 'parsed', value: JSON.parse(text) };
+  } catch {
+    return { status: 'not-json' };
+  }
+}
+
+function referencedEntryForValue(
+  value: string,
+  referencedSourcePath: string,
+  sourceRoot: string,
+  entries: readonly EvidencePackageRequestEntry[],
+): {entry: EvidencePackageRequestEntry; status: 'matched'} | {status: 'missing'} | {status: 'outside-root'} {
+  const referenced = entries.find((entry) => entry.sourcePath === referencedSourcePath);
+  if (!referenced) {
+    return { status: 'missing' };
+  }
+  if (!path.isAbsolute(value)) {
+    return { status: 'missing' };
+  }
+  let resolvedValue: string;
+  try {
+    resolvedValue = fs.realpathSync(value);
+  } catch {
+    return { status: 'missing' };
+  }
+  const relative = path.relative(sourceRoot, resolvedValue).split(path.sep).join('/');
+  if (relative === '..' || relative.startsWith('../') || path.isAbsolute(relative)) {
+    return { status: 'outside-root' };
+  }
+  return relative === referenced.sourcePath
+    ? { entry: referenced, status: 'matched' }
+    : { status: 'missing' };
+}
+
+function transformJsonEntries(
+  request: EvidencePackageRequest,
+  sourceRoot: string,
+  prepared: PreparedEvidencePackageEntry[],
+): {entries: PreparedEvidencePackageEntry[]; pointers: EvidencePackageJsonPointer[]} {
+  const declarations = requestJsonPointers(request);
+  const declarationsBySource = new Map<string, EvidencePackageJsonPointerRequest[]>();
+  const declarationKeys = new Set<string>();
+  const rejections: EvidencePackageRejection[] = [];
+  for (const declaration of declarations) {
+    try {
+      decodeJsonPointer(declaration.jsonPointer);
+      assertRunRelativeFilePath(declaration.sourcePath, 'jsonPointers.sourcePath');
+      if (declaration.role === 'artifact-reference') {
+        assertRunRelativeFilePath(declaration.referencedSourcePath, 'jsonPointers.referencedSourcePath');
+      }
+    } catch {
+      rejections.push({
+        code: 'invalid-pointer',
+        reason: 'JSON pointer declarations must use valid JSON Pointer and run-relative source paths.',
+        sourcePath: declaration.sourcePath,
+      });
+      continue;
+    }
+    const key = `${declaration.sourcePath}\n${declaration.jsonPointer}`;
+    if (declarationKeys.has(key)) {
+      rejections.push({
+        code: 'invalid-pointer',
+        reason: 'Each JSON pointer may be classified only once per source entry.',
+        sourcePath: declaration.sourcePath,
+      });
+      continue;
+    }
+    declarationKeys.add(key);
+    const list = declarationsBySource.get(declaration.sourcePath) ?? [];
+    list.push(declaration);
+    declarationsBySource.set(declaration.sourcePath, list);
+  }
+
+  const pointers: EvidencePackageJsonPointer[] = [];
+  const entries = prepared.map((entry) => {
+    const entryDeclarations = declarationsBySource.get(entry.sourcePath) ?? [];
+    const decoded = parseJsonBytes(entry.bytes);
+    if (decoded.status === 'not-json') {
+      if (entryDeclarations.length > 0 || entry.artifactPath.toLowerCase().endsWith('.json')) {
+        rejections.push({
+          artifactPath: entry.artifactPath,
+          code: 'invalid-json',
+          reason: 'A classified JSON pointer source is not valid JSON.',
+          sourcePath: entry.sourcePath,
+        });
+      }
+      return entry;
+    }
+    let parsed = decoded.value;
+
+    for (const declaration of entryDeclarations) {
+      let located: JsonPointerLocation | null;
+      try {
+        located = locateJsonPointer(parsed, declaration.jsonPointer);
+      } catch {
+        located = null;
+      }
+      if (!located) {
+        rejections.push({
+          artifactPath: entry.artifactPath,
+          code: 'missing-pointer',
+          reason: `Classified JSON pointer ${declaration.jsonPointer} is missing.`,
+          sourcePath: entry.sourcePath,
+        });
+        continue;
+      }
+      if (typeof located.value !== 'string') {
+        rejections.push({
+          artifactPath: entry.artifactPath,
+          code: 'non-string-pointer',
+          reason: `Classified JSON pointer ${declaration.jsonPointer} does not identify a string.`,
+          sourcePath: entry.sourcePath,
+        });
+        continue;
+      }
+      if (!isAbsoluteHostPath(located.value)) {
+        rejections.push({
+          artifactPath: entry.artifactPath,
+          code: 'invalid-path',
+          reason: `Classified JSON pointer ${declaration.jsonPointer} does not contain an absolute path.`,
+          sourcePath: entry.sourcePath,
+        });
+        continue;
+      }
+
+      if (declaration.role === 'host-local-provenance') {
+        pointers.push({
+          artifactPath: entry.artifactPath,
+          dereferenceable: false,
+          jsonPointer: declaration.jsonPointer,
+          role: declaration.role,
+          value: located.value,
+        });
+        continue;
+      }
+
+      const reference = referencedEntryForValue(
+        located.value,
+        declaration.referencedSourcePath,
+        sourceRoot,
+        request.entries,
+      );
+      if (reference.status === 'outside-root') {
+        rejections.push({
+          artifactPath: entry.artifactPath,
+          code: 'invalid-path',
+          reason: `Artifact reference ${declaration.jsonPointer} escapes the evidence source root.`,
+          sourcePath: entry.sourcePath,
+        });
+        continue;
+      }
+      if (reference.status === 'missing') {
+        rejections.push({
+          artifactPath: entry.artifactPath,
+          code: 'missing-reference',
+          reason: `Artifact reference ${declaration.jsonPointer} does not identify its declared requested entry.`,
+          sourcePath: entry.sourcePath,
+        });
+        continue;
+      }
+      const referenced = reference.entry;
+      if (located.parent === null) {
+        parsed = referenced.artifactPath;
+      } else if (Array.isArray(located.parent) && typeof located.key === 'number') {
+        located.parent[located.key] = referenced.artifactPath;
+      } else if (!Array.isArray(located.parent) && typeof located.key === 'string') {
+        located.parent[located.key] = referenced.artifactPath;
+      } else {
+        rejections.push({
+          artifactPath: entry.artifactPath,
+          code: 'invalid-pointer',
+          reason: `Artifact reference ${declaration.jsonPointer} could not be rewritten.`,
+          sourcePath: entry.sourcePath,
+        });
+        continue;
+      }
+      const rewritten = locateJsonPointer(parsed, declaration.jsonPointer);
+      if (!rewritten || rewritten.value !== referenced.artifactPath) {
+        rejections.push({
+          artifactPath: entry.artifactPath,
+          code: 'invalid-pointer',
+          reason: `Artifact reference ${declaration.jsonPointer} was not rewritten deterministically.`,
+          sourcePath: entry.sourcePath,
+        });
+        continue;
+      }
+      pointers.push({
+        artifactPath: entry.artifactPath,
+        dereferenceable: true,
+        jsonPointer: declaration.jsonPointer,
+        referencedArtifactPath: referenced.artifactPath,
+        role: declaration.role,
+        value: referenced.artifactPath,
+      });
+    }
+
+    for (const candidate of walkJsonStrings(parsed)) {
+      if (!isAbsoluteHostPath(candidate.value)) {
+        continue;
+      }
+      if (!declarationKeys.has(`${entry.sourcePath}\n${candidate.jsonPointer}`)) {
+        rejections.push({
+          artifactPath: entry.artifactPath,
+          code: 'unclassified-absolute-path',
+          reason: `Packaged JSON contains an unclassified absolute path at ${candidate.jsonPointer || '<root>'}.`,
+          sourcePath: entry.sourcePath,
+        });
+      }
+    }
+
+    if (entryDeclarations.some((declaration) => declaration.role === 'artifact-reference')) {
+      const bytes = Buffer.from(`${JSON.stringify(parsed, null, 2)}\n`, 'utf8');
+      return {
+        ...entry,
+        byteSize: bytes.byteLength,
+        bytes,
+        sha256: crypto.createHash('sha256').update(bytes).digest('hex'),
+      };
+    }
+    return entry;
+  });
+
+  for (const sourcePath of declarationsBySource.keys()) {
+    if (!prepared.some((entry) => entry.sourcePath === sourcePath)) {
+      rejections.push({
+        code: 'missing-reference',
+        reason: 'A JSON pointer declaration does not identify a requested source entry.',
+        sourcePath,
+      });
+    }
+  }
+  if (rejections.length > 0) {
+    throw new EvidencePackageError(
+      'rejected',
+      'One or more packaged JSON references were rejected; no package was written.',
+      rejections,
+    );
+  }
+  return {
+    entries,
+    pointers: pointers.sort((left, right) => {
+      const leftKey = `${left.artifactPath}\n${left.jsonPointer}`;
+      const rightKey = `${right.artifactPath}\n${right.jsonPointer}`;
+      if (leftKey < rightKey) {
+        return -1;
+      }
+      if (leftKey > rightKey) {
+        return 1;
+      }
+      return 0;
+    }),
+  };
 }
 
 function stableFileRejection(
@@ -374,6 +774,31 @@ function prepareEvidenceEntries(
   return prepared;
 }
 
+function buildEvidencePackageArtifact(
+  request: EvidencePackageRequest,
+  prepared: PreparedEvidencePackageEntry[],
+  pointers: EvidencePackageJsonPointer[],
+): EvidencePackageArtifact {
+  const common = {
+    packageId: request.packageId,
+    runId: request.runId,
+    status: 'complete' as const,
+    sensitivityPolicy: request.sensitivityPolicy,
+    fileCount: prepared.length,
+    totalByteSize: prepared.reduce((sum, entry) => sum + entry.byteSize, 0),
+    checksumsPath: 'SHA256SUMS' as const,
+    entries: prepared.map(({ bytes: _bytes, ...entry }) => entry),
+  };
+  const value = request.schemaVersion === '1.1.0'
+    ? { ...common, schemaVersion: '1.1.0' as const, jsonPointers: pointers }
+    : { ...common, schemaVersion: '1.0.0' as const };
+  return assertValidJson(
+    value,
+    SCHEMAS.evidencePackage,
+    'Evidence package artifact',
+  ) as EvidencePackageArtifact;
+}
+
 function writePrivateFile(filePath: string, bytes: Uint8Array | string): void {
   fs.mkdirSync(path.dirname(filePath), { recursive: true, mode: 0o700 });
   fs.writeFileSync(filePath, bytes, { mode: 0o600 });
@@ -490,22 +915,10 @@ export async function materializeEvidencePackage(
     );
   }
 
-  const prepared = prepareEvidenceEntries(request, sourceRoot);
-  const artifact: EvidencePackageArtifact = assertValidJson(
-    {
-      schemaVersion: '1.0.0',
-      packageId: request.packageId,
-      runId: request.runId,
-      status: 'complete',
-      sensitivityPolicy: request.sensitivityPolicy,
-      fileCount: prepared.length,
-      totalByteSize: prepared.reduce((sum, entry) => sum + entry.byteSize, 0),
-      checksumsPath: 'SHA256SUMS',
-      entries: prepared.map(({ bytes: _bytes, ...entry }) => entry),
-    },
-    SCHEMAS.evidencePackage,
-    'Evidence package artifact',
-  ) as EvidencePackageArtifact;
+  const admitted = prepareEvidenceEntries(request, sourceRoot);
+  const transformed = transformJsonEntries(request, sourceRoot, admitted);
+  const prepared = transformed.entries;
+  const artifact = buildEvidencePackageArtifact(request, prepared, transformed.pointers);
 
   const requestedOutputParent = path.dirname(outputDir);
   const preparedParent = prepareOutputParent(requestedOutputParent, sourceRoot);
@@ -614,7 +1027,236 @@ export async function materializeEvidencePackage(
   }
 }
 
+function verificationError(
+  code: EvidencePackageRejection['code'],
+  reason: string,
+  artifactPath?: string,
+): EvidencePackageError {
+  return new EvidencePackageError(
+    'rejected',
+    'Evidence package verification failed.',
+    [{
+      ...(artifactPath === undefined ? {} : { artifactPath }),
+      code,
+      reason,
+    }],
+  );
+}
+
+function readPackageFile(
+  packageDir: string,
+  relativePath: string,
+  code: EvidencePackageRejection['code'],
+): ReturnType<typeof readStableContainedFile> {
+  try {
+    return readStableContainedFile(packageDir, relativePath, `evidence package ${relativePath}`);
+  } catch (cause) {
+    if (cause instanceof StableContainedFileError) {
+      throw verificationError(code, `Required package file ${relativePath} is unavailable (${cause.code}).`, relativePath);
+    }
+    throw cause;
+  }
+}
+
+function parseChecksums(bytes: Uint8Array): Map<string, string> {
+  const text = Buffer.from(bytes).toString('utf8');
+  if (!text.endsWith('\n')) {
+    throw verificationError('checksum-mismatch', 'SHA256SUMS must end with one newline.');
+  }
+  const checksums = new Map<string, string>();
+  for (const line of text.slice(0, -1).split('\n')) {
+    const match = /^([a-f0-9]{64})  (.+)$/u.exec(line);
+    if (!match?.[1] || !match[2]) {
+      throw verificationError('checksum-mismatch', 'SHA256SUMS contains a malformed record.');
+    }
+    const [, sha256, relativePath] = match;
+    try {
+      assertRunRelativeFilePath(relativePath, 'SHA256SUMS path');
+    } catch {
+      throw verificationError('checksum-mismatch', 'SHA256SUMS contains an unsafe path.', relativePath);
+    }
+    if (checksums.has(relativePath)) {
+      throw verificationError('checksum-mismatch', 'SHA256SUMS contains a duplicate path.', relativePath);
+    }
+    checksums.set(relativePath, sha256);
+  }
+  return checksums;
+}
+
+function listPackagedFiles(packageDir: string, relativeDirectory = ''): string[] {
+  const directory = relativeDirectory === ''
+    ? packageDir
+    : path.join(packageDir, relativeDirectory);
+  const files: string[] = [];
+  const children = fs.readdirSync(directory, { withFileTypes: true })
+    .sort((left: import('node:fs').Dirent, right: import('node:fs').Dirent) => (
+      left.name.localeCompare(right.name, 'en')
+    ));
+  for (const child of children) {
+    const relativePath = relativeDirectory === ''
+      ? child.name
+      : `${relativeDirectory}/${child.name}`;
+    if (child.isSymbolicLink()) {
+      throw verificationError('symlink', 'Evidence packages cannot contain symbolic links.', relativePath);
+    }
+    if (child.isDirectory()) {
+      files.push(...listPackagedFiles(packageDir, relativePath));
+      continue;
+    }
+    if (!child.isFile()) {
+      throw verificationError('not-regular', 'Evidence packages can contain only regular files.', relativePath);
+    }
+    files.push(relativePath);
+  }
+  return files;
+}
+
+export function verifyEvidencePackage(packageDirInput: string): EvidencePackageVerification {
+  let outputDir: string;
+  try {
+    outputDir = resolveStableDirectory(packageDirInput, 'evidence package directory');
+  } catch {
+    throw verificationError('missing-manifest', 'Evidence package directory is unavailable or unstable.');
+  }
+  const manifestSnapshot = readPackageFile(
+    outputDir,
+    'evidence-package.json',
+    'missing-manifest',
+  );
+  let manifestValue: unknown;
+  try {
+    manifestValue = JSON.parse(Buffer.from(manifestSnapshot.bytes).toString('utf8'));
+  } catch {
+    throw verificationError('missing-manifest', 'evidence-package.json is not valid JSON.');
+  }
+  let artifact: EvidencePackageArtifact;
+  try {
+    artifact = assertValidJson(
+      manifestValue,
+      SCHEMAS.evidencePackage,
+      'Evidence package artifact',
+    ) as EvidencePackageArtifact;
+  } catch {
+    throw verificationError('missing-manifest', 'evidence-package.json does not satisfy the public schema.');
+  }
+
+  const checksumSnapshot = readPackageFile(outputDir, artifact.checksumsPath, 'checksum-mismatch');
+  const checksums = parseChecksums(checksumSnapshot.bytes);
+  const expectedPaths = new Set(['evidence-package.json', ...artifact.entries.map((entry) => entry.artifactPath)]);
+  if (checksums.size !== expectedPaths.size || [...checksums.keys()].some((entry) => !expectedPaths.has(entry))) {
+    throw verificationError('checksum-mismatch', 'SHA256SUMS does not exactly inventory the manifest and declared entries.');
+  }
+  const expectedPackageFiles = new Set([artifact.checksumsPath, ...expectedPaths]);
+  const actualPackageFiles = listPackagedFiles(outputDir);
+  if (
+    actualPackageFiles.length !== expectedPackageFiles.size ||
+    actualPackageFiles.some((entry) => !expectedPackageFiles.has(entry))
+  ) {
+    throw verificationError('checksum-mismatch', 'The package directory contains files outside its sealed inventory.');
+  }
+  if (checksums.get('evidence-package.json') !== manifestSnapshot.sha256) {
+    throw verificationError('checksum-mismatch', 'The evidence-package.json digest does not match SHA256SUMS.');
+  }
+
+  const entriesByArtifactPath = new Map<string, EvidencePackageEntry>();
+  const snapshotsByArtifactPath = new Map<string, ReturnType<typeof readStableContainedFile>>();
+  for (const entry of artifact.entries) {
+    if (entriesByArtifactPath.has(entry.artifactPath)) {
+      throw verificationError('duplicate-artifact', 'The manifest repeats an artifact path.', entry.artifactPath);
+    }
+    const snapshot = readPackageFile(outputDir, entry.artifactPath, 'checksum-mismatch');
+    if (
+      snapshot.byteSize !== entry.byteSize ||
+      snapshot.sha256 !== entry.sha256 ||
+      checksums.get(entry.artifactPath) !== entry.sha256
+    ) {
+      throw verificationError(
+        'checksum-mismatch',
+        'A packaged artifact changed after materialization.',
+        entry.artifactPath,
+      );
+    }
+    entriesByArtifactPath.set(entry.artifactPath, entry);
+    snapshotsByArtifactPath.set(entry.artifactPath, snapshot);
+  }
+  if (
+    artifact.fileCount !== artifact.entries.length ||
+    artifact.totalByteSize !== artifact.entries.reduce((sum, entry) => sum + entry.byteSize, 0)
+  ) {
+    throw verificationError('checksum-mismatch', 'Manifest file count or total byte size does not match its entries.');
+  }
+
+  const pointers = artifact.schemaVersion === '1.1.0' ? artifact.jsonPointers : [];
+  const pointerKeys = new Set(pointers.map((pointer) => `${pointer.artifactPath}\n${pointer.jsonPointer}`));
+  for (const entry of artifact.entries) {
+    const snapshot = snapshotsByArtifactPath.get(entry.artifactPath);
+    if (!snapshot) {
+      throw verificationError('checksum-mismatch', 'A declared artifact snapshot is unavailable.', entry.artifactPath);
+    }
+    const decoded = parseJsonBytes(snapshot.bytes);
+    if (decoded.status === 'not-json') {
+      if (entry.artifactPath.toLowerCase().endsWith('.json')) {
+        throw verificationError('invalid-json', 'A packaged JSON artifact cannot be parsed.', entry.artifactPath);
+      }
+      continue;
+    }
+    for (const candidate of walkJsonStrings(decoded.value)) {
+      if (
+        isAbsoluteHostPath(candidate.value) &&
+        !pointerKeys.has(`${entry.artifactPath}\n${candidate.jsonPointer}`)
+      ) {
+        throw verificationError(
+          'unclassified-absolute-path',
+          `Packaged JSON contains an unclassified absolute path at ${candidate.jsonPointer || '<root>'}.`,
+          entry.artifactPath,
+        );
+      }
+    }
+  }
+
+  for (const pointer of pointers) {
+    const snapshot = snapshotsByArtifactPath.get(pointer.artifactPath);
+    if (!snapshot) {
+      throw verificationError('missing-reference', 'A pointer record names an absent packaged JSON artifact.', pointer.artifactPath);
+    }
+    const decoded = parseJsonBytes(snapshot.bytes);
+    if (decoded.status === 'not-json') {
+      throw verificationError('invalid-json', 'A pointer record names an invalid JSON artifact.', pointer.artifactPath);
+    }
+    let located: JsonPointerLocation | null;
+    try {
+      located = locateJsonPointer(decoded.value, pointer.jsonPointer);
+    } catch {
+      located = null;
+    }
+    if (!located || typeof located.value !== 'string') {
+      throw verificationError('missing-pointer', 'A manifest pointer cannot be resolved to a packaged string.', pointer.artifactPath);
+    }
+    if (located.value !== pointer.value) {
+      throw verificationError('checksum-mismatch', 'A classified JSON pointer no longer matches its manifest record.', pointer.artifactPath);
+    }
+    if (pointer.role === 'artifact-reference') {
+      if (
+        pointer.value !== pointer.referencedArtifactPath ||
+        !entriesByArtifactPath.has(pointer.referencedArtifactPath)
+      ) {
+        throw verificationError('missing-reference', 'An artifact reference does not resolve to a declared packaged entry.', pointer.artifactPath);
+      }
+      readPackageFile(outputDir, pointer.referencedArtifactPath, 'missing-reference');
+    }
+  }
+
+  return {
+    artifact,
+    checksumsPath: path.join(outputDir, artifact.checksumsPath),
+    manifestPath: path.join(outputDir, 'evidence-package.json'),
+    outputDir,
+    status: 'complete',
+  };
+}
+
 module.exports = {
   EvidencePackageError,
   materializeEvidencePackage,
+  verifyEvidencePackage,
 };
