@@ -20,7 +20,6 @@ import {
 import type {
   CiEvidencePack,
   CiEvidencePackBuildInput,
-  CurrentCiEvidencePack,
 } from '../../core/ci-evidence-pack';
 import {
   buildCiEvidencePublicationReceipt,
@@ -158,7 +157,7 @@ function buildLiveProofSet(
     runId: 'run-1',
     status,
     proofCount: proofs.length,
-    platformScope: requiredPlatforms.length === 2 ? 'cross_platform' : 'single_platform',
+    platformScope: requiredPlatforms.length === 2 ? 'cross-platform' : 'single-platform',
     requiredPlatforms,
     presentPlatforms,
     missingPlatforms,
@@ -251,7 +250,7 @@ function buildInput(
       runId: live.runId,
       status: live.status,
     },
-    platformScope: 'cross_platform',
+    platformScope: 'cross-platform',
     requiredPlatforms: ['android', 'ios'],
     requiredEvidenceKinds: ['recording', 'verdict'],
     platforms: [
@@ -342,14 +341,17 @@ function assertNoCanonicalPack(outDir: string): void {
   assert.equal(fs.existsSync(path.join(outDir, 'ci-evidence-pack.json')), false);
 }
 
-function assertCurrentPack(pack: CiEvidencePack): CurrentCiEvidencePack {
+function assertCurrentPack(pack: ReturnType<typeof readCiEvidencePack>): CiEvidencePack {
   assert.equal(pack.schemaVersion, '1.1.0');
+  if (pack.schemaVersion !== '1.1.0') {
+    throw new Error(`expected current CI evidence pack schema 1.1.0, received ${pack.schemaVersion}`);
+  }
   assert.equal('platformClaim' in pack, true);
   assert.equal('twoPlatformClaim' in pack, false);
-  return pack as CurrentCiEvidencePack;
+  return pack;
 }
 
-function assertCanonicalPackReadable(outDir: string): CurrentCiEvidencePack {
+function assertCanonicalPackReadable(outDir: string): CiEvidencePack {
   const packPath = path.join(outDir, 'ci-evidence-pack.json');
   assert.equal(fs.existsSync(packPath), true);
   return assertCurrentPack(readCiEvidencePack(packPath));
@@ -358,7 +360,7 @@ function assertCanonicalPackReadable(outDir: string): CurrentCiEvidencePack {
 function assertAssembleStdoutClaim(
   stdout: Record<string, unknown>,
   expected: {
-    platformScope: 'cross_platform' | 'single_platform';
+    platformScope: 'cross-platform' | 'single-platform';
     requiredPlatforms: Array<'android' | 'ios'>;
     platformClaimStatus: string;
   },
@@ -384,7 +386,7 @@ test('assemble success writes pack, returns 0, and leaves product verdicts faile
   assert.equal(stdout.gateStatus, 'passed');
   assert.equal(stdout.mechanismStatus, 'succeeded');
   assertAssembleStdoutClaim(stdout, {
-    platformScope: 'cross_platform',
+    platformScope: 'cross-platform',
     requiredPlatforms: ['android', 'ios'],
     platformClaimStatus: 'passed',
   });
@@ -436,7 +438,7 @@ test('missing selected Android recording writes valid pack with twoPlatformClaim
   assert.equal(stdout.gateStatus, 'failed');
   assert.equal(stdout.mechanismStatus, 'succeeded');
   assertAssembleStdoutClaim(stdout, {
-    platformScope: 'cross_platform',
+    platformScope: 'cross-platform',
     requiredPlatforms: ['android', 'ios'],
     platformClaimStatus: 'failed',
   });
@@ -496,7 +498,7 @@ test('unsupported selected platform produces not_evaluable and never not_applica
   assert.equal(stdout.publicationAttempted, false);
   assert.equal(stdout.gateStatus, 'failed');
   assertAssembleStdoutClaim(stdout, {
-    platformScope: 'cross_platform',
+    platformScope: 'cross-platform',
     requiredPlatforms: ['android', 'ios'],
     platformClaimStatus: 'not_evaluable',
   });
@@ -535,7 +537,7 @@ test('stale source writes canonical pack and returns 1', async () => {
   assert.equal(stdout.gateStatus, 'failed');
   assert.equal(stdout.mechanismStatus, 'succeeded');
   assertAssembleStdoutClaim(stdout, {
-    platformScope: 'cross_platform',
+    platformScope: 'cross-platform',
     requiredPlatforms: ['android', 'ios'],
     platformClaimStatus: 'failed',
   });
@@ -568,7 +570,7 @@ test('failed liveProofSet writes canonical pack and returns 1', async () => {
   assert.equal(stdout.gateStatus, 'failed');
   assert.equal(stdout.mechanismStatus, 'succeeded');
   assertAssembleStdoutClaim(stdout, {
-    platformScope: 'cross_platform',
+    platformScope: 'cross-platform',
     requiredPlatforms: ['android', 'ios'],
     platformClaimStatus: 'failed',
   });
@@ -595,7 +597,7 @@ test('incomplete completeness writes canonical pack and returns 1', async () => 
   assert.equal(stdout.gateStatus, 'failed');
   assert.equal(stdout.mechanismStatus, 'succeeded');
   assertAssembleStdoutClaim(stdout, {
-    platformScope: 'cross_platform',
+    platformScope: 'cross-platform',
     requiredPlatforms: ['android', 'ios'],
     platformClaimStatus: 'failed',
   });
@@ -622,7 +624,7 @@ test('failed assembly writes canonical pack and returns 1', async () => {
   assert.equal(stdout.gateStatus, 'failed');
   assert.equal(stdout.mechanismStatus, 'failed');
   assertAssembleStdoutClaim(stdout, {
-    platformScope: 'cross_platform',
+    platformScope: 'cross-platform',
     requiredPlatforms: ['android', 'ios'],
     platformClaimStatus: 'failed',
   });
@@ -649,7 +651,7 @@ test('comparisonStatus not_available does not prevent assemble exit 0', async ()
   assert.equal(stdout.gateStatus, 'passed');
   assert.equal(stdout.mechanismStatus, 'succeeded');
   assertAssembleStdoutClaim(stdout, {
-    platformScope: 'cross_platform',
+    platformScope: 'cross-platform',
     requiredPlatforms: ['android', 'ios'],
     platformClaimStatus: 'passed',
   });
@@ -1012,7 +1014,7 @@ async function assemblePassedPack(): Promise<{
   live: ReturnType<typeof buildLiveProofSet>;
   packPath: string;
   packBytes: Buffer;
-  pack: ReturnType<typeof readCiEvidencePack>;
+  pack: CiEvidencePack;
 }> {
   const root = makeTempDir();
   const artifactRoot = path.join(root, 'artifacts');
@@ -1023,7 +1025,7 @@ async function assemblePassedPack(): Promise<{
   assert.equal(assembled.code, 0);
   const packPath = path.join(outDir, 'ci-evidence-pack.json');
   const packBytes = fs.readFileSync(packPath);
-  const pack = readCiEvidencePack(packPath);
+  const pack = assertCurrentPack(readCiEvidencePack(packPath));
   return { root, artifactRoot, outDir, live, packPath, packBytes, pack };
 }
 
@@ -1772,7 +1774,7 @@ test('github-report failed product verdict plus comparison not_available remains
   assert.equal(assembled.code, 0);
   const packPath = path.join(assembleOut, 'ci-evidence-pack.json');
   const packBytes = fs.readFileSync(packPath);
-  const pack = readCiEvidencePack(packPath);
+  const pack = assertCurrentPack(readCiEvidencePack(packPath));
   assert.equal(pack.comparisonStatus, 'not_available');
   assert.equal(
     pack.verdicts.every((verdict) => verdict.status === 'failed'),
