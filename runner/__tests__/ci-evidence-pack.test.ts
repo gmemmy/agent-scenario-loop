@@ -342,10 +342,11 @@ function assertNoCanonicalPack(outDir: string): void {
 }
 
 function assertCurrentPack(pack: ReturnType<typeof readCiEvidencePack>): CiEvidencePack {
-  assert.equal(pack.schemaVersion, '1.1.0');
   if (pack.schemaVersion !== '1.1.0') {
-    throw new Error(`expected current CI evidence pack schema 1.1.0, received ${pack.schemaVersion}`);
+    const receivedSchemaVersion = pack.schemaVersion;
+    throw new Error(`expected current CI evidence pack schema 1.1.0, received ${receivedSchemaVersion}`);
   }
+  assert.equal(pack.schemaVersion, '1.1.0');
   assert.equal('platformClaim' in pack, true);
   assert.equal('twoPlatformClaim' in pack, false);
   return pack;
