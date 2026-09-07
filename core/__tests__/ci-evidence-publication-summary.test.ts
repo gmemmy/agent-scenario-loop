@@ -384,7 +384,7 @@ describe('ci evidence publication summary', () => {
 
   it('does not create an Android evidence obligation for an iOS-only report', () => {
     const input = validPackInput();
-    input.platformScope = 'ios-only';
+    input.platformScope = 'single-platform';
     input.requiredPlatforms = ['ios'];
     input.platforms = [
       {
@@ -405,7 +405,7 @@ describe('ci evidence publication summary', () => {
       facts.requestedItems.some((item) => item.requestId === outcome.requestId),
     );
     const { markdown } = renderFrom(input, facts);
-    assert.match(markdown, /platformScope \| ios-only/);
+    assert.match(markdown, /platformScope \| single-platform/);
     assert.match(markdown, /requiredPlatforms \| ios/);
     assert.match(markdown, /## iOS evidence/);
     assert.doesNotMatch(markdown, /## Android evidence/);
@@ -414,7 +414,7 @@ describe('ci evidence publication summary', () => {
 
   it('does not create an iOS evidence obligation for an Android-only report', () => {
     const input = validPackInput();
-    input.platformScope = 'android-only';
+    input.platformScope = 'single-platform';
     input.requiredPlatforms = ['android'];
     input.platforms = [
       {
@@ -435,7 +435,7 @@ describe('ci evidence publication summary', () => {
       facts.requestedItems.some((item) => item.requestId === outcome.requestId),
     );
     const { markdown } = renderFrom(input, facts);
-    assert.match(markdown, /platformScope \| android-only/);
+    assert.match(markdown, /platformScope \| single-platform/);
     assert.match(markdown, /requiredPlatforms \| android/);
     assert.match(markdown, /## Android evidence/);
     assert.doesNotMatch(markdown, /## iOS evidence/);

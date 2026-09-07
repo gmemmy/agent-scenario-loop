@@ -64,7 +64,6 @@ function validPackInput(): CiEvidencePackBuildInput {
       status: 'passed',
     },
     platformScope: 'cross-platform',
-    platformClaim: { status: 'passed' },
     requiredPlatforms: ['android', 'ios'],
     requiredEvidenceKinds: ['recording', 'verdict'],
     platforms: [
