@@ -531,9 +531,9 @@ const PROVIDER_EVIDENCE_KINDS = new Set(['accessibility', 'logs', 'nativePerform
 const SIGNAL_EVIDENCE_KINDS = new Set(['js', 'memory', 'network']);
 const DEFAULT_PROVIDER_COMMAND_TIMEOUT_MS = 180_000;
 const PLACEHOLDER_APP_IDS = new Set(['com.example.app']);
-const EXPECTED_PROFILE_SESSION_HELPER_VERSION = '1.1.0';
-const EXPECTED_PROFILE_SESSION_HELPER_PAYLOAD_ID = 'agent-scenario-loop/profile-session-helper@1.1.0+setup-unscoped-milestones';
-const EXPECTED_PROFILE_SESSION_HELPER_PAYLOAD_SHA256 = 'b7421a84e8e39346702af2e7017a99ba492ced00de47446780e42a93146db275';
+const EXPECTED_PROFILE_SESSION_HELPER_VERSION = '1.2.0';
+const EXPECTED_PROFILE_SESSION_HELPER_PAYLOAD_ID = 'agent-scenario-loop/profile-session-helper@1.2.0+idempotent-owned-stop';
+const EXPECTED_PROFILE_SESSION_HELPER_PAYLOAD_SHA256 = '2ba19944de0d94271a27a99c4188e8567dce0d67b3e0df5ddb5f311108ce8178';
 
 /**
  * Prints CLI usage to stderr.

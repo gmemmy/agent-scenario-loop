@@ -1062,12 +1062,12 @@ test('profile-android profiles public scenario ids and milestone budgets', async
   await fsp.writeFile(
     eventLogPath,
     [
-      '2026-01-01T00:10:00.000Z public-android [profile-event] {"event":"first_journey_started","scenario":"public-journey","runId":"public-journey-android","iteration":1,"atMs":0,"helperVersion":"1.1.0"}',
-      '2026-01-01T00:10:00.820Z public-android [profile-event] {"event":"first_journey_completed","scenario":"public-journey","runId":"public-journey-android","iteration":1,"atMs":820,"helperVersion":"1.1.0"}',
-      '2026-01-01T00:10:01.000Z public-android [profile-event] {"event":"first_journey_started","scenario":"public-journey","runId":"public-journey-android","iteration":2,"atMs":1000,"helperVersion":"1.1.0"}',
-      '2026-01-01T00:10:01.870Z public-android [profile-event] {"event":"first_journey_completed","scenario":"public-journey","runId":"public-journey-android","iteration":2,"atMs":1870,"helperVersion":"1.1.0"}',
-      '2026-01-01T00:10:02.000Z public-android [profile-event] {"event":"first_journey_started","scenario":"public-journey","runId":"public-journey-android","iteration":3,"atMs":2000,"helperVersion":"1.1.0"}',
-      '2026-01-01T00:10:02.940Z public-android [profile-event] {"event":"first_journey_completed","scenario":"public-journey","runId":"public-journey-android","iteration":3,"atMs":2940,"helperVersion":"1.1.0"}',
+      '2026-01-01T00:10:00.000Z public-android [profile-event] {"event":"first_journey_started","scenario":"public-journey","runId":"public-journey-android","iteration":1,"atMs":0,"helperVersion":"1.2.0"}',
+      '2026-01-01T00:10:00.820Z public-android [profile-event] {"event":"first_journey_completed","scenario":"public-journey","runId":"public-journey-android","iteration":1,"atMs":820,"helperVersion":"1.2.0"}',
+      '2026-01-01T00:10:01.000Z public-android [profile-event] {"event":"first_journey_started","scenario":"public-journey","runId":"public-journey-android","iteration":2,"atMs":1000,"helperVersion":"1.2.0"}',
+      '2026-01-01T00:10:01.870Z public-android [profile-event] {"event":"first_journey_completed","scenario":"public-journey","runId":"public-journey-android","iteration":2,"atMs":1870,"helperVersion":"1.2.0"}',
+      '2026-01-01T00:10:02.000Z public-android [profile-event] {"event":"first_journey_started","scenario":"public-journey","runId":"public-journey-android","iteration":3,"atMs":2000,"helperVersion":"1.2.0"}',
+      '2026-01-01T00:10:02.940Z public-android [profile-event] {"event":"first_journey_completed","scenario":"public-journey","runId":"public-journey-android","iteration":3,"atMs":2940,"helperVersion":"1.2.0"}',
       '',
     ].join('\n'),
     'utf8',
@@ -1169,10 +1169,10 @@ test('profile-android treats readiness-to-completion budgets as repeated milesto
   await fsp.writeFile(
     eventLogPath,
     [
-      '2026-01-01T00:10:00.000Z public-android [profile-event] {"event":"surface_ready","scenario":"ready-scroll-cycle","runId":"ready-scroll-cycle-android","atMs":1000,"helperVersion":"1.1.0"}',
-      '2026-01-01T00:10:00.200Z public-android [profile-event] {"event":"surface_settled","scenario":"ready-scroll-cycle","runId":"ready-scroll-cycle-android","atMs":1200,"helperVersion":"1.1.0"}',
-      '2026-01-01T00:10:00.500Z public-android [profile-event] {"event":"surface_settled","scenario":"ready-scroll-cycle","runId":"ready-scroll-cycle-android","atMs":1500,"helperVersion":"1.1.0"}',
-      '2026-01-01T00:10:00.900Z public-android [profile-event] {"event":"surface_settled","scenario":"ready-scroll-cycle","runId":"ready-scroll-cycle-android","atMs":1900,"helperVersion":"1.1.0"}',
+      '2026-01-01T00:10:00.000Z public-android [profile-event] {"event":"surface_ready","scenario":"ready-scroll-cycle","runId":"ready-scroll-cycle-android","atMs":1000,"helperVersion":"1.2.0"}',
+      '2026-01-01T00:10:00.200Z public-android [profile-event] {"event":"surface_settled","scenario":"ready-scroll-cycle","runId":"ready-scroll-cycle-android","atMs":1200,"helperVersion":"1.2.0"}',
+      '2026-01-01T00:10:00.500Z public-android [profile-event] {"event":"surface_settled","scenario":"ready-scroll-cycle","runId":"ready-scroll-cycle-android","atMs":1500,"helperVersion":"1.2.0"}',
+      '2026-01-01T00:10:00.900Z public-android [profile-event] {"event":"surface_settled","scenario":"ready-scroll-cycle","runId":"ready-scroll-cycle-android","atMs":1900,"helperVersion":"1.2.0"}',
       '',
     ].join('\n'),
     'utf8',
@@ -1275,13 +1275,13 @@ test('profile-android associates repeated interval milestones without iteration 
   await fsp.writeFile(
     eventLogPath,
     [
-      '2026-01-01T00:10:00.000Z public-android [profile-event] {"event":"surface_ready","scenario":"scroll-interval-cycle","runId":"scroll-interval-cycle-android","atMs":1000,"helperVersion":"1.1.0"}',
-      '2026-01-01T00:10:00.200Z public-android [profile-event] {"event":"surface_scroll_requested","scenario":"scroll-interval-cycle","runId":"scroll-interval-cycle-android","atMs":1200,"helperVersion":"1.1.0"}',
-      '2026-01-01T00:10:00.520Z public-android [profile-event] {"event":"surface_scroll_settled","scenario":"scroll-interval-cycle","runId":"scroll-interval-cycle-android","atMs":1520,"helperVersion":"1.1.0"}',
-      '2026-01-01T00:10:01.000Z public-android [profile-event] {"event":"surface_scroll_requested","scenario":"scroll-interval-cycle","runId":"scroll-interval-cycle-android","atMs":2000,"helperVersion":"1.1.0"}',
-      '2026-01-01T00:10:01.410Z public-android [profile-event] {"event":"surface_scroll_settled","scenario":"scroll-interval-cycle","runId":"scroll-interval-cycle-android","atMs":2410,"helperVersion":"1.1.0"}',
-      '2026-01-01T00:10:02.000Z public-android [profile-event] {"event":"surface_scroll_requested","scenario":"scroll-interval-cycle","runId":"scroll-interval-cycle-android","atMs":3000,"helperVersion":"1.1.0"}',
-      '2026-01-01T00:10:02.360Z public-android [profile-event] {"event":"surface_scroll_settled","scenario":"scroll-interval-cycle","runId":"scroll-interval-cycle-android","atMs":3360,"helperVersion":"1.1.0"}',
+      '2026-01-01T00:10:00.000Z public-android [profile-event] {"event":"surface_ready","scenario":"scroll-interval-cycle","runId":"scroll-interval-cycle-android","atMs":1000,"helperVersion":"1.2.0"}',
+      '2026-01-01T00:10:00.200Z public-android [profile-event] {"event":"surface_scroll_requested","scenario":"scroll-interval-cycle","runId":"scroll-interval-cycle-android","atMs":1200,"helperVersion":"1.2.0"}',
+      '2026-01-01T00:10:00.520Z public-android [profile-event] {"event":"surface_scroll_settled","scenario":"scroll-interval-cycle","runId":"scroll-interval-cycle-android","atMs":1520,"helperVersion":"1.2.0"}',
+      '2026-01-01T00:10:01.000Z public-android [profile-event] {"event":"surface_scroll_requested","scenario":"scroll-interval-cycle","runId":"scroll-interval-cycle-android","atMs":2000,"helperVersion":"1.2.0"}',
+      '2026-01-01T00:10:01.410Z public-android [profile-event] {"event":"surface_scroll_settled","scenario":"scroll-interval-cycle","runId":"scroll-interval-cycle-android","atMs":2410,"helperVersion":"1.2.0"}',
+      '2026-01-01T00:10:02.000Z public-android [profile-event] {"event":"surface_scroll_requested","scenario":"scroll-interval-cycle","runId":"scroll-interval-cycle-android","atMs":3000,"helperVersion":"1.2.0"}',
+      '2026-01-01T00:10:02.360Z public-android [profile-event] {"event":"surface_scroll_settled","scenario":"scroll-interval-cycle","runId":"scroll-interval-cycle-android","atMs":3360,"helperVersion":"1.2.0"}',
       '',
     ].join('\n'),
     'utf8',
@@ -1362,9 +1362,9 @@ test('profile-android treats unmeasurable milestone latency budgets as partial e
   await fsp.writeFile(
     eventLogPath,
     [
-      '2026-01-01T00:10:00.200Z public-android [profile-event] {"event":"surface_settled","scenario":"completion-only-budget","runId":"completion-only-budget-android","atMs":1200,"helperVersion":"1.1.0"}',
-      '2026-01-01T00:10:00.900Z public-android [profile-event] {"event":"surface_settled","scenario":"completion-only-budget","runId":"completion-only-budget-android","atMs":1900,"helperVersion":"1.1.0"}',
-      '2026-01-01T00:10:01.600Z public-android [profile-event] {"event":"surface_settled","scenario":"completion-only-budget","runId":"completion-only-budget-android","atMs":2600,"helperVersion":"1.1.0"}',
+      '2026-01-01T00:10:00.200Z public-android [profile-event] {"event":"surface_settled","scenario":"completion-only-budget","runId":"completion-only-budget-android","atMs":1200,"helperVersion":"1.2.0"}',
+      '2026-01-01T00:10:00.900Z public-android [profile-event] {"event":"surface_settled","scenario":"completion-only-budget","runId":"completion-only-budget-android","atMs":1900,"helperVersion":"1.2.0"}',
+      '2026-01-01T00:10:01.600Z public-android [profile-event] {"event":"surface_settled","scenario":"completion-only-budget","runId":"completion-only-budget-android","atMs":2600,"helperVersion":"1.2.0"}',
       '',
     ].join('\n'),
     'utf8',
@@ -1482,13 +1482,13 @@ test('profile-android accounts for multi-command repeated milestone cycle bodies
   await fsp.writeFile(
     eventLogPath,
     [
-      '2026-01-01T00:10:00.000Z public-android [profile-event] {"event":"surface_ready","scenario":"scope-switch-cycle","runId":"scope-switch-cycle-android","atMs":1000,"helperVersion":"1.1.0"}',
-      '2026-01-01T00:10:00.200Z public-android [profile-event] {"event":"surface_settled","scenario":"scope-switch-cycle","runId":"scope-switch-cycle-android","atMs":1200,"helperVersion":"1.1.0"}',
-      '2026-01-01T00:10:00.900Z public-android [profile-event] {"event":"surface_settled","scenario":"scope-switch-cycle","runId":"scope-switch-cycle-android","atMs":1900,"helperVersion":"1.1.0"}',
-      '2026-01-01T00:10:01.600Z public-android [profile-event] {"event":"surface_settled","scenario":"scope-switch-cycle","runId":"scope-switch-cycle-android","atMs":2600,"helperVersion":"1.1.0"}',
-      '2026-01-01T00:10:02.300Z public-android [profile-event] {"event":"surface_settled","scenario":"scope-switch-cycle","runId":"scope-switch-cycle-android","atMs":3300,"helperVersion":"1.1.0"}',
-      '2026-01-01T00:10:03.000Z public-android [profile-event] {"event":"surface_settled","scenario":"scope-switch-cycle","runId":"scope-switch-cycle-android","atMs":4000,"helperVersion":"1.1.0"}',
-      '2026-01-01T00:10:03.700Z public-android [profile-event] {"event":"surface_settled","scenario":"scope-switch-cycle","runId":"scope-switch-cycle-android","atMs":4700,"helperVersion":"1.1.0"}',
+      '2026-01-01T00:10:00.000Z public-android [profile-event] {"event":"surface_ready","scenario":"scope-switch-cycle","runId":"scope-switch-cycle-android","atMs":1000,"helperVersion":"1.2.0"}',
+      '2026-01-01T00:10:00.200Z public-android [profile-event] {"event":"surface_settled","scenario":"scope-switch-cycle","runId":"scope-switch-cycle-android","atMs":1200,"helperVersion":"1.2.0"}',
+      '2026-01-01T00:10:00.900Z public-android [profile-event] {"event":"surface_settled","scenario":"scope-switch-cycle","runId":"scope-switch-cycle-android","atMs":1900,"helperVersion":"1.2.0"}',
+      '2026-01-01T00:10:01.600Z public-android [profile-event] {"event":"surface_settled","scenario":"scope-switch-cycle","runId":"scope-switch-cycle-android","atMs":2600,"helperVersion":"1.2.0"}',
+      '2026-01-01T00:10:02.300Z public-android [profile-event] {"event":"surface_settled","scenario":"scope-switch-cycle","runId":"scope-switch-cycle-android","atMs":3300,"helperVersion":"1.2.0"}',
+      '2026-01-01T00:10:03.000Z public-android [profile-event] {"event":"surface_settled","scenario":"scope-switch-cycle","runId":"scope-switch-cycle-android","atMs":4000,"helperVersion":"1.2.0"}',
+      '2026-01-01T00:10:03.700Z public-android [profile-event] {"event":"surface_settled","scenario":"scope-switch-cycle","runId":"scope-switch-cycle-android","atMs":4700,"helperVersion":"1.2.0"}',
       '',
     ].join('\n'),
     'utf8',
@@ -1538,8 +1538,8 @@ test('profile-android preserves app timeline vocabulary without breaking causal-
   await fsp.writeFile(
     eventLogPath,
     [
-      '2026-01-01T00:10:00.000Z public-android [profile-event] {"event":"first_journey_started","scenario":"first-journey","runId":"invalid-vocabulary-android","iteration":1,"atMs":0,"phase":"capture","status":"passed","helperVersion":"1.1.0"}',
-      '2026-01-01T00:10:00.820Z public-android [profile-event] {"event":"first_journey_completed","scenario":"first-journey","runId":"invalid-vocabulary-android","iteration":1,"atMs":820,"helperVersion":"1.1.0"}',
+      '2026-01-01T00:10:00.000Z public-android [profile-event] {"event":"first_journey_started","scenario":"first-journey","runId":"invalid-vocabulary-android","iteration":1,"atMs":0,"phase":"capture","status":"passed","helperVersion":"1.2.0"}',
+      '2026-01-01T00:10:00.820Z public-android [profile-event] {"event":"first_journey_completed","scenario":"first-journey","runId":"invalid-vocabulary-android","iteration":1,"atMs":820,"helperVersion":"1.2.0"}',
       '',
     ].join('\n'),
     'utf8',
@@ -1607,16 +1607,16 @@ test('profile-android writes partial iteration accounting for incomplete repeate
   await fsp.writeFile(
     eventLogPath,
     [
-      '2026-01-01T00:10:00.000Z public-android [profile-event] {"event":"surface_open_requested","scenario":"portable-open-close-partial","runId":"partial-iterations-android","iteration":1,"atMs":0,"sequence":1,"queueId":"portable-open-close-partial","helperVersion":"1.1.0"}',
-      '2026-01-01T00:10:00.120Z public-android [profile-event] {"event":"surface_opened","scenario":"portable-open-close-partial","runId":"partial-iterations-android","iteration":1,"atMs":120,"sequence":1,"queueId":"portable-open-close-partial","helperVersion":"1.1.0"}',
-      '2026-01-01T00:10:00.220Z public-android [profile-event] {"event":"surface_close_requested","scenario":"portable-open-close-partial","runId":"partial-iterations-android","iteration":1,"atMs":220,"sequence":2,"queueId":"portable-open-close-partial","helperVersion":"1.1.0"}',
-      '2026-01-01T00:10:00.340Z public-android [profile-event] {"event":"surface_dismissed","scenario":"portable-open-close-partial","runId":"partial-iterations-android","iteration":1,"atMs":340,"sequence":2,"queueId":"portable-open-close-partial","helperVersion":"1.1.0"}',
-      '2026-01-01T00:10:01.000Z public-android [profile-event] {"event":"surface_open_requested","scenario":"portable-open-close-partial","runId":"partial-iterations-android","iteration":2,"atMs":1000,"sequence":3,"queueId":"portable-open-close-partial","helperVersion":"1.1.0"}',
-      '2026-01-01T00:10:01.140Z public-android [profile-event] {"event":"surface_opened","scenario":"portable-open-close-partial","runId":"partial-iterations-android","iteration":2,"atMs":1140,"sequence":3,"queueId":"portable-open-close-partial","helperVersion":"1.1.0"}',
-      '2026-01-01T00:10:02.000Z public-android [profile-event] {"event":"surface_open_requested","scenario":"portable-open-close-partial","runId":"partial-iterations-android","iteration":3,"atMs":2000,"sequence":5,"queueId":"portable-open-close-partial","helperVersion":"1.1.0"}',
-      '2026-01-01T00:10:02.130Z public-android [profile-event] {"event":"surface_opened","scenario":"portable-open-close-partial","runId":"partial-iterations-android","iteration":3,"atMs":2130,"sequence":5,"queueId":"portable-open-close-partial","helperVersion":"1.1.0"}',
-      '2026-01-01T00:10:02.260Z public-android [profile-event] {"event":"surface_close_requested","scenario":"portable-open-close-partial","runId":"partial-iterations-android","iteration":3,"atMs":2260,"sequence":6,"queueId":"portable-open-close-partial","helperVersion":"1.1.0"}',
-      '2026-01-01T00:10:02.390Z public-android [profile-event] {"event":"surface_dismissed","scenario":"portable-open-close-partial","runId":"partial-iterations-android","iteration":3,"atMs":2390,"sequence":6,"queueId":"portable-open-close-partial","helperVersion":"1.1.0"}',
+      '2026-01-01T00:10:00.000Z public-android [profile-event] {"event":"surface_open_requested","scenario":"portable-open-close-partial","runId":"partial-iterations-android","iteration":1,"atMs":0,"sequence":1,"queueId":"portable-open-close-partial","helperVersion":"1.2.0"}',
+      '2026-01-01T00:10:00.120Z public-android [profile-event] {"event":"surface_opened","scenario":"portable-open-close-partial","runId":"partial-iterations-android","iteration":1,"atMs":120,"sequence":1,"queueId":"portable-open-close-partial","helperVersion":"1.2.0"}',
+      '2026-01-01T00:10:00.220Z public-android [profile-event] {"event":"surface_close_requested","scenario":"portable-open-close-partial","runId":"partial-iterations-android","iteration":1,"atMs":220,"sequence":2,"queueId":"portable-open-close-partial","helperVersion":"1.2.0"}',
+      '2026-01-01T00:10:00.340Z public-android [profile-event] {"event":"surface_dismissed","scenario":"portable-open-close-partial","runId":"partial-iterations-android","iteration":1,"atMs":340,"sequence":2,"queueId":"portable-open-close-partial","helperVersion":"1.2.0"}',
+      '2026-01-01T00:10:01.000Z public-android [profile-event] {"event":"surface_open_requested","scenario":"portable-open-close-partial","runId":"partial-iterations-android","iteration":2,"atMs":1000,"sequence":3,"queueId":"portable-open-close-partial","helperVersion":"1.2.0"}',
+      '2026-01-01T00:10:01.140Z public-android [profile-event] {"event":"surface_opened","scenario":"portable-open-close-partial","runId":"partial-iterations-android","iteration":2,"atMs":1140,"sequence":3,"queueId":"portable-open-close-partial","helperVersion":"1.2.0"}',
+      '2026-01-01T00:10:02.000Z public-android [profile-event] {"event":"surface_open_requested","scenario":"portable-open-close-partial","runId":"partial-iterations-android","iteration":3,"atMs":2000,"sequence":5,"queueId":"portable-open-close-partial","helperVersion":"1.2.0"}',
+      '2026-01-01T00:10:02.130Z public-android [profile-event] {"event":"surface_opened","scenario":"portable-open-close-partial","runId":"partial-iterations-android","iteration":3,"atMs":2130,"sequence":5,"queueId":"portable-open-close-partial","helperVersion":"1.2.0"}',
+      '2026-01-01T00:10:02.260Z public-android [profile-event] {"event":"surface_close_requested","scenario":"portable-open-close-partial","runId":"partial-iterations-android","iteration":3,"atMs":2260,"sequence":6,"queueId":"portable-open-close-partial","helperVersion":"1.2.0"}',
+      '2026-01-01T00:10:02.390Z public-android [profile-event] {"event":"surface_dismissed","scenario":"portable-open-close-partial","runId":"partial-iterations-android","iteration":3,"atMs":2390,"sequence":6,"queueId":"portable-open-close-partial","helperVersion":"1.2.0"}',
       '',
     ].join('\n'),
     'utf8',
@@ -1715,14 +1715,14 @@ test('profile-android reports schema-era open and close interval budgets', async
   await fsp.writeFile(
     eventLogPath,
     [
-      '2026-01-01T00:10:00.000Z public-android [profile-event] {"event":"card_open_requested","scenario":"portable-open-close","runId":"portable-open-close-android","iteration":1,"atMs":0,"helperVersion":"1.1.0"}',
-      '2026-01-01T00:10:00.120Z public-android [profile-event] {"event":"card_opened","scenario":"portable-open-close","runId":"portable-open-close-android","iteration":1,"atMs":120,"helperVersion":"1.1.0"}',
-      '2026-01-01T00:10:00.420Z public-android [profile-event] {"event":"card_close_requested","scenario":"portable-open-close","runId":"portable-open-close-android","iteration":1,"atMs":420,"helperVersion":"1.1.0"}',
-      '2026-01-01T00:10:00.500Z public-android [profile-event] {"event":"card_dismissed","scenario":"portable-open-close","runId":"portable-open-close-android","iteration":1,"atMs":500,"helperVersion":"1.1.0"}',
-      '2026-01-01T00:10:01.000Z public-android [profile-event] {"event":"card_open_requested","scenario":"portable-open-close","runId":"portable-open-close-android","iteration":2,"atMs":1000,"helperVersion":"1.1.0"}',
-      '2026-01-01T00:10:01.130Z public-android [profile-event] {"event":"card_opened","scenario":"portable-open-close","runId":"portable-open-close-android","iteration":2,"atMs":1130,"helperVersion":"1.1.0"}',
-      '2026-01-01T00:10:01.430Z public-android [profile-event] {"event":"card_close_requested","scenario":"portable-open-close","runId":"portable-open-close-android","iteration":2,"atMs":1430,"helperVersion":"1.1.0"}',
-      '2026-01-01T00:10:01.520Z public-android [profile-event] {"event":"card_dismissed","scenario":"portable-open-close","runId":"portable-open-close-android","iteration":2,"atMs":1520,"helperVersion":"1.1.0"}',
+      '2026-01-01T00:10:00.000Z public-android [profile-event] {"event":"card_open_requested","scenario":"portable-open-close","runId":"portable-open-close-android","iteration":1,"atMs":0,"helperVersion":"1.2.0"}',
+      '2026-01-01T00:10:00.120Z public-android [profile-event] {"event":"card_opened","scenario":"portable-open-close","runId":"portable-open-close-android","iteration":1,"atMs":120,"helperVersion":"1.2.0"}',
+      '2026-01-01T00:10:00.420Z public-android [profile-event] {"event":"card_close_requested","scenario":"portable-open-close","runId":"portable-open-close-android","iteration":1,"atMs":420,"helperVersion":"1.2.0"}',
+      '2026-01-01T00:10:00.500Z public-android [profile-event] {"event":"card_dismissed","scenario":"portable-open-close","runId":"portable-open-close-android","iteration":1,"atMs":500,"helperVersion":"1.2.0"}',
+      '2026-01-01T00:10:01.000Z public-android [profile-event] {"event":"card_open_requested","scenario":"portable-open-close","runId":"portable-open-close-android","iteration":2,"atMs":1000,"helperVersion":"1.2.0"}',
+      '2026-01-01T00:10:01.130Z public-android [profile-event] {"event":"card_opened","scenario":"portable-open-close","runId":"portable-open-close-android","iteration":2,"atMs":1130,"helperVersion":"1.2.0"}',
+      '2026-01-01T00:10:01.430Z public-android [profile-event] {"event":"card_close_requested","scenario":"portable-open-close","runId":"portable-open-close-android","iteration":2,"atMs":1430,"helperVersion":"1.2.0"}',
+      '2026-01-01T00:10:01.520Z public-android [profile-event] {"event":"card_dismissed","scenario":"portable-open-close","runId":"portable-open-close-android","iteration":2,"atMs":1520,"helperVersion":"1.2.0"}',
       '',
     ].join('\n'),
     'utf8',
@@ -1810,10 +1810,10 @@ test('profile-android keeps intent interval anchors separate from completion hea
   await fsp.writeFile(
     eventLogPath,
     [
-      '2026-01-01T00:10:01.200Z public-android [profile-event] {"event":"surface_request_completed","scenario":"intent-anchor-cycle","runId":"intent-anchor-cycle-android","atMs":1200,"helperVersion":"1.1.0"}',
-      '2026-01-01T00:10:01.440Z public-android [profile-event] {"event":"surface_settled","scenario":"intent-anchor-cycle","runId":"intent-anchor-cycle-android","atMs":1440,"helperVersion":"1.1.0"}',
-      '2026-01-01T00:10:02.600Z public-android [profile-event] {"event":"surface_request_completed","scenario":"intent-anchor-cycle","runId":"intent-anchor-cycle-android","atMs":2600,"helperVersion":"1.1.0"}',
-      '2026-01-01T00:10:02.870Z public-android [profile-event] {"event":"surface_settled","scenario":"intent-anchor-cycle","runId":"intent-anchor-cycle-android","atMs":2870,"helperVersion":"1.1.0"}',
+      '2026-01-01T00:10:01.200Z public-android [profile-event] {"event":"surface_request_completed","scenario":"intent-anchor-cycle","runId":"intent-anchor-cycle-android","atMs":1200,"helperVersion":"1.2.0"}',
+      '2026-01-01T00:10:01.440Z public-android [profile-event] {"event":"surface_settled","scenario":"intent-anchor-cycle","runId":"intent-anchor-cycle-android","atMs":1440,"helperVersion":"1.2.0"}',
+      '2026-01-01T00:10:02.600Z public-android [profile-event] {"event":"surface_request_completed","scenario":"intent-anchor-cycle","runId":"intent-anchor-cycle-android","atMs":2600,"helperVersion":"1.2.0"}',
+      '2026-01-01T00:10:02.870Z public-android [profile-event] {"event":"surface_settled","scenario":"intent-anchor-cycle","runId":"intent-anchor-cycle-android","atMs":2870,"helperVersion":"1.2.0"}',
       '',
     ].join('\n'),
     'utf8',
@@ -1919,12 +1919,12 @@ test('profile-android reports required named interval budgets without collapsing
   await fsp.writeFile(
     eventLogPath,
     [
-      '2026-01-01T00:10:10.000Z public-android [profile-event] {"event":"media_target_ready","scenario":"required-interval-cycle","runId":"required-interval-cycle-android","atMs":10000,"helperVersion":"1.1.0"}',
-      '2026-01-01T00:10:10.180Z public-android [profile-event] {"event":"media_viewer_opened","scenario":"required-interval-cycle","runId":"required-interval-cycle-android","atMs":10180,"helperVersion":"1.1.0"}',
-      '2026-01-01T00:10:10.300Z public-android [profile-event] {"event":"media_viewer_dismissed","scenario":"required-interval-cycle","runId":"required-interval-cycle-android","atMs":10300,"helperVersion":"1.1.0"}',
-      '2026-01-01T00:10:20.000Z public-android [profile-event] {"event":"media_target_ready","scenario":"required-interval-cycle","runId":"required-interval-cycle-android","atMs":20000,"helperVersion":"1.1.0"}',
-      '2026-01-01T00:10:20.240Z public-android [profile-event] {"event":"media_viewer_opened","scenario":"required-interval-cycle","runId":"required-interval-cycle-android","atMs":20240,"helperVersion":"1.1.0"}',
-      '2026-01-01T00:10:20.390Z public-android [profile-event] {"event":"media_viewer_dismissed","scenario":"required-interval-cycle","runId":"required-interval-cycle-android","atMs":20390,"helperVersion":"1.1.0"}',
+      '2026-01-01T00:10:10.000Z public-android [profile-event] {"event":"media_target_ready","scenario":"required-interval-cycle","runId":"required-interval-cycle-android","atMs":10000,"helperVersion":"1.2.0"}',
+      '2026-01-01T00:10:10.180Z public-android [profile-event] {"event":"media_viewer_opened","scenario":"required-interval-cycle","runId":"required-interval-cycle-android","atMs":10180,"helperVersion":"1.2.0"}',
+      '2026-01-01T00:10:10.300Z public-android [profile-event] {"event":"media_viewer_dismissed","scenario":"required-interval-cycle","runId":"required-interval-cycle-android","atMs":10300,"helperVersion":"1.2.0"}',
+      '2026-01-01T00:10:20.000Z public-android [profile-event] {"event":"media_target_ready","scenario":"required-interval-cycle","runId":"required-interval-cycle-android","atMs":20000,"helperVersion":"1.2.0"}',
+      '2026-01-01T00:10:20.240Z public-android [profile-event] {"event":"media_viewer_opened","scenario":"required-interval-cycle","runId":"required-interval-cycle-android","atMs":20240,"helperVersion":"1.2.0"}',
+      '2026-01-01T00:10:20.390Z public-android [profile-event] {"event":"media_viewer_dismissed","scenario":"required-interval-cycle","runId":"required-interval-cycle-android","atMs":20390,"helperVersion":"1.2.0"}',
       '',
     ].join('\n'),
     'utf8',
@@ -5179,7 +5179,7 @@ test('profile-android fails health when storage session seed is newer than app s
     path.join(rawDir, 'adb-logcat.txt'),
     [
       '06-21 18:51:24.886 I/ReactNativeJS(123): [profile-session] {"kind":"start","scenario":"stale-session","runId":"stale-run","startedAt":1000,"timestamp":1000,"atMs":0}',
-      '06-21 18:51:25.000 I/ReactNativeJS(123): [profile-event] {"event":"profile_done","scenario":"stale-session","runId":"stale-run","atMs":100,"helperVersion":"1.1.0"}',
+      '06-21 18:51:25.000 I/ReactNativeJS(123): [profile-event] {"event":"profile_done","scenario":"stale-session","runId":"stale-run","atMs":100,"helperVersion":"1.2.0"}',
       '',
     ].join('\n'),
     'utf8',
@@ -5269,7 +5269,7 @@ test('profile-android fails health when storage session seed has no matching app
   await fsp.writeFile(
     path.join(rawDir, 'adb-logcat.txt'),
     [
-      '06-21 18:51:25.000 I/ReactNativeJS(123): [profile-event] {"event":"profile_done","scenario":"missing-session-start","runId":"missing-start-run","atMs":100,"helperVersion":"1.1.0"}',
+      '06-21 18:51:25.000 I/ReactNativeJS(123): [profile-event] {"event":"profile_done","scenario":"missing-session-start","runId":"missing-start-run","atMs":100,"helperVersion":"1.2.0"}',
       '',
     ].join('\n'),
     'utf8',
@@ -6144,7 +6144,7 @@ test('profile-android seeds Android scenario commands as one ordered storage que
   const profileRoot = path.join(tempRoot, 'profile');
   const calls: string[] = [];
   const storageWrites: string[] = [];
-  const helperPayloadLogFields = 'helperPayloadId=agent-scenario-loop/profile-session-helper@1.1.0+setup-unscoped-milestones helperPayloadSha256=b7421a84e8e39346702af2e7017a99ba492ced00de47446780e42a93146db275';
+  const helperPayloadLogFields = 'helperPayloadId=agent-scenario-loop/profile-session-helper@1.2.0+idempotent-owned-stop helperPayloadSha256=2ba19944de0d94271a27a99c4188e8567dce0d67b3e0df5ddb5f311108ce8178';
   const executor = async (command: string, args: string[]): Promise<CommandResult> => {
     const key = args.join(' ');
     calls.push(key);
@@ -6181,19 +6181,19 @@ test('profile-android seeds Android scenario commands as one ordered storage que
       },
       '-s emulator-5554 logcat -d -v time -t 10000': {
         stdout: [
-          `2026-01-01T00:00:00.000Z public-android [profile-session] kind=start scenario=open-close-cycle runId=android-storage-open-close startedAt=1800000000000 timestamp=1800000000000 atMs=0 helperVersion=1.1.0 ${helperPayloadLogFields}`,
-          `2026-01-01T00:00:00.050Z public-android [profile-session] kind=command scenario=open-close-cycle runId=android-storage-open-close command=activate-target:example-card-1 commandId=open-card queueId=open-close-cycle sequence=1 source=storage status=received atMs=50 waitForMilestone=card_opened waitMs=300 waitTimeoutMs=1500 helperVersion=1.1.0 ${helperPayloadLogFields}`,
-          `2026-01-01T00:00:00.420Z public-android [profile-session] kind=command scenario=open-close-cycle runId=android-storage-open-close command=activate-target:example-card-1 commandId=open-card queueId=open-close-cycle sequence=1 source=storage status=completed result=cadence-settled continuationReason=readiness-and-settle-satisfied atMs=420 minimumSettleMs=300 plannedSettleMs=300 maxReadinessWaitMs=1500 readinessWaitMs=370 actualWaitMs=370 settleOverlapSavedMs=300 timeoutAvoided=true waitForMilestone=card_opened waitMs=300 waitTimeoutMs=1500 helperVersion=1.1.0 ${helperPayloadLogFields}`,
-          `2026-01-01T00:00:00.820Z public-android [profile-session] kind=command scenario=open-close-cycle runId=android-storage-open-close command=activate-target:close-card commandId=close-card queueId=open-close-cycle sequence=2 source=storage status=received atMs=820 waitForMilestone=card_dismissed waitMs=300 waitTimeoutMs=1200 helperVersion=1.1.0 ${helperPayloadLogFields}`,
-          `2026-01-01T00:00:01.120Z public-android [profile-session] kind=command scenario=open-close-cycle runId=android-storage-open-close command=activate-target:close-card commandId=close-card queueId=open-close-cycle sequence=2 source=storage status=completed result=cadence-settled continuationReason=readiness-and-settle-satisfied atMs=1120 minimumSettleMs=300 plannedSettleMs=300 maxReadinessWaitMs=1200 readinessWaitMs=300 actualWaitMs=300 settleOverlapSavedMs=300 timeoutAvoided=true waitForMilestone=card_dismissed waitMs=300 waitTimeoutMs=1200 helperVersion=1.1.0 ${helperPayloadLogFields}`,
-          `2026-01-01T00:00:02.020Z public-android [profile-session] kind=command scenario=open-close-cycle runId=android-storage-open-close command=activate-target:example-card-1 commandId=open-card queueId=open-close-cycle sequence=3 source=storage status=received atMs=2020 waitForMilestone=card_opened waitMs=300 waitTimeoutMs=1500 helperVersion=1.1.0 ${helperPayloadLogFields}`,
-          `2026-01-01T00:00:02.450Z public-android [profile-session] kind=command scenario=open-close-cycle runId=android-storage-open-close command=activate-target:example-card-1 commandId=open-card queueId=open-close-cycle sequence=3 source=storage status=completed result=cadence-settled continuationReason=readiness-and-settle-satisfied atMs=2450 minimumSettleMs=300 plannedSettleMs=300 maxReadinessWaitMs=1500 readinessWaitMs=430 actualWaitMs=430 settleOverlapSavedMs=300 timeoutAvoided=true waitForMilestone=card_opened waitMs=300 waitTimeoutMs=1500 helperVersion=1.1.0 ${helperPayloadLogFields}`,
-          `2026-01-01T00:00:02.900Z public-android [profile-session] kind=command scenario=open-close-cycle runId=android-storage-open-close command=activate-target:close-card commandId=close-card queueId=open-close-cycle sequence=4 source=storage status=received atMs=2900 waitForMilestone=card_dismissed waitMs=300 waitTimeoutMs=1200 helperVersion=1.1.0 ${helperPayloadLogFields}`,
-          `2026-01-01T00:00:03.200Z public-android [profile-session] kind=command scenario=open-close-cycle runId=android-storage-open-close command=activate-target:close-card commandId=close-card queueId=open-close-cycle sequence=4 source=storage status=completed result=cadence-settled continuationReason=readiness-released-before-settle-complete atMs=3200 minimumSettleMs=300 plannedSettleMs=300 maxReadinessWaitMs=1200 readinessWaitMs=270 actualWaitMs=300 settleOverlapSavedMs=270 timeoutAvoided=true waitForMilestone=card_dismissed waitMs=300 waitTimeoutMs=1200 helperVersion=1.1.0 ${helperPayloadLogFields}`,
-          `2026-01-01T00:00:04.020Z public-android [profile-session] kind=command scenario=open-close-cycle runId=android-storage-open-close command=activate-target:example-card-1 commandId=open-card queueId=open-close-cycle sequence=5 source=storage status=received atMs=4020 waitForMilestone=card_opened waitMs=300 waitTimeoutMs=1500 helperVersion=1.1.0 ${helperPayloadLogFields}`,
-          `2026-01-01T00:00:04.480Z public-android [profile-session] kind=command scenario=open-close-cycle runId=android-storage-open-close command=activate-target:example-card-1 commandId=open-card queueId=open-close-cycle sequence=5 source=storage status=completed result=cadence-settled continuationReason=readiness-and-settle-satisfied atMs=4480 minimumSettleMs=300 plannedSettleMs=300 maxReadinessWaitMs=1500 readinessWaitMs=460 actualWaitMs=460 settleOverlapSavedMs=300 timeoutAvoided=true waitForMilestone=card_opened waitMs=300 waitTimeoutMs=1500 helperVersion=1.1.0 ${helperPayloadLogFields}`,
-          `2026-01-01T00:00:04.900Z public-android [profile-session] kind=command scenario=open-close-cycle runId=android-storage-open-close command=activate-target:close-card commandId=close-card queueId=open-close-cycle sequence=6 source=storage status=received atMs=4900 waitForMilestone=card_dismissed waitMs=300 waitTimeoutMs=1200 helperVersion=1.1.0 ${helperPayloadLogFields}`,
-          `2026-01-01T00:00:05.230Z public-android [profile-session] kind=command scenario=open-close-cycle runId=android-storage-open-close command=activate-target:close-card commandId=close-card queueId=open-close-cycle sequence=6 source=storage status=completed result=cadence-settled continuationReason=readiness-and-settle-satisfied atMs=5230 minimumSettleMs=300 plannedSettleMs=300 maxReadinessWaitMs=1200 readinessWaitMs=330 actualWaitMs=330 settleOverlapSavedMs=300 timeoutAvoided=true waitForMilestone=card_dismissed waitMs=300 waitTimeoutMs=1200 helperVersion=1.1.0 ${helperPayloadLogFields}`,
+          `2026-01-01T00:00:00.000Z public-android [profile-session] kind=start scenario=open-close-cycle runId=android-storage-open-close startedAt=1800000000000 timestamp=1800000000000 atMs=0 helperVersion=1.2.0 ${helperPayloadLogFields}`,
+          `2026-01-01T00:00:00.050Z public-android [profile-session] kind=command scenario=open-close-cycle runId=android-storage-open-close command=activate-target:example-card-1 commandId=open-card queueId=open-close-cycle sequence=1 source=storage status=received atMs=50 waitForMilestone=card_opened waitMs=300 waitTimeoutMs=1500 helperVersion=1.2.0 ${helperPayloadLogFields}`,
+          `2026-01-01T00:00:00.420Z public-android [profile-session] kind=command scenario=open-close-cycle runId=android-storage-open-close command=activate-target:example-card-1 commandId=open-card queueId=open-close-cycle sequence=1 source=storage status=completed result=cadence-settled continuationReason=readiness-and-settle-satisfied atMs=420 minimumSettleMs=300 plannedSettleMs=300 maxReadinessWaitMs=1500 readinessWaitMs=370 actualWaitMs=370 settleOverlapSavedMs=300 timeoutAvoided=true waitForMilestone=card_opened waitMs=300 waitTimeoutMs=1500 helperVersion=1.2.0 ${helperPayloadLogFields}`,
+          `2026-01-01T00:00:00.820Z public-android [profile-session] kind=command scenario=open-close-cycle runId=android-storage-open-close command=activate-target:close-card commandId=close-card queueId=open-close-cycle sequence=2 source=storage status=received atMs=820 waitForMilestone=card_dismissed waitMs=300 waitTimeoutMs=1200 helperVersion=1.2.0 ${helperPayloadLogFields}`,
+          `2026-01-01T00:00:01.120Z public-android [profile-session] kind=command scenario=open-close-cycle runId=android-storage-open-close command=activate-target:close-card commandId=close-card queueId=open-close-cycle sequence=2 source=storage status=completed result=cadence-settled continuationReason=readiness-and-settle-satisfied atMs=1120 minimumSettleMs=300 plannedSettleMs=300 maxReadinessWaitMs=1200 readinessWaitMs=300 actualWaitMs=300 settleOverlapSavedMs=300 timeoutAvoided=true waitForMilestone=card_dismissed waitMs=300 waitTimeoutMs=1200 helperVersion=1.2.0 ${helperPayloadLogFields}`,
+          `2026-01-01T00:00:02.020Z public-android [profile-session] kind=command scenario=open-close-cycle runId=android-storage-open-close command=activate-target:example-card-1 commandId=open-card queueId=open-close-cycle sequence=3 source=storage status=received atMs=2020 waitForMilestone=card_opened waitMs=300 waitTimeoutMs=1500 helperVersion=1.2.0 ${helperPayloadLogFields}`,
+          `2026-01-01T00:00:02.450Z public-android [profile-session] kind=command scenario=open-close-cycle runId=android-storage-open-close command=activate-target:example-card-1 commandId=open-card queueId=open-close-cycle sequence=3 source=storage status=completed result=cadence-settled continuationReason=readiness-and-settle-satisfied atMs=2450 minimumSettleMs=300 plannedSettleMs=300 maxReadinessWaitMs=1500 readinessWaitMs=430 actualWaitMs=430 settleOverlapSavedMs=300 timeoutAvoided=true waitForMilestone=card_opened waitMs=300 waitTimeoutMs=1500 helperVersion=1.2.0 ${helperPayloadLogFields}`,
+          `2026-01-01T00:00:02.900Z public-android [profile-session] kind=command scenario=open-close-cycle runId=android-storage-open-close command=activate-target:close-card commandId=close-card queueId=open-close-cycle sequence=4 source=storage status=received atMs=2900 waitForMilestone=card_dismissed waitMs=300 waitTimeoutMs=1200 helperVersion=1.2.0 ${helperPayloadLogFields}`,
+          `2026-01-01T00:00:03.200Z public-android [profile-session] kind=command scenario=open-close-cycle runId=android-storage-open-close command=activate-target:close-card commandId=close-card queueId=open-close-cycle sequence=4 source=storage status=completed result=cadence-settled continuationReason=readiness-released-before-settle-complete atMs=3200 minimumSettleMs=300 plannedSettleMs=300 maxReadinessWaitMs=1200 readinessWaitMs=270 actualWaitMs=300 settleOverlapSavedMs=270 timeoutAvoided=true waitForMilestone=card_dismissed waitMs=300 waitTimeoutMs=1200 helperVersion=1.2.0 ${helperPayloadLogFields}`,
+          `2026-01-01T00:00:04.020Z public-android [profile-session] kind=command scenario=open-close-cycle runId=android-storage-open-close command=activate-target:example-card-1 commandId=open-card queueId=open-close-cycle sequence=5 source=storage status=received atMs=4020 waitForMilestone=card_opened waitMs=300 waitTimeoutMs=1500 helperVersion=1.2.0 ${helperPayloadLogFields}`,
+          `2026-01-01T00:00:04.480Z public-android [profile-session] kind=command scenario=open-close-cycle runId=android-storage-open-close command=activate-target:example-card-1 commandId=open-card queueId=open-close-cycle sequence=5 source=storage status=completed result=cadence-settled continuationReason=readiness-and-settle-satisfied atMs=4480 minimumSettleMs=300 plannedSettleMs=300 maxReadinessWaitMs=1500 readinessWaitMs=460 actualWaitMs=460 settleOverlapSavedMs=300 timeoutAvoided=true waitForMilestone=card_opened waitMs=300 waitTimeoutMs=1500 helperVersion=1.2.0 ${helperPayloadLogFields}`,
+          `2026-01-01T00:00:04.900Z public-android [profile-session] kind=command scenario=open-close-cycle runId=android-storage-open-close command=activate-target:close-card commandId=close-card queueId=open-close-cycle sequence=6 source=storage status=received atMs=4900 waitForMilestone=card_dismissed waitMs=300 waitTimeoutMs=1200 helperVersion=1.2.0 ${helperPayloadLogFields}`,
+          `2026-01-01T00:00:05.230Z public-android [profile-session] kind=command scenario=open-close-cycle runId=android-storage-open-close command=activate-target:close-card commandId=close-card queueId=open-close-cycle sequence=6 source=storage status=completed result=cadence-settled continuationReason=readiness-and-settle-satisfied atMs=5230 minimumSettleMs=300 plannedSettleMs=300 maxReadinessWaitMs=1200 readinessWaitMs=330 actualWaitMs=330 settleOverlapSavedMs=300 timeoutAvoided=true waitForMilestone=card_dismissed waitMs=300 waitTimeoutMs=1200 helperVersion=1.2.0 ${helperPayloadLogFields}`,
           fs
             .readFileSync(fixturePath('examples/mobile-app/event-logs/android-open-close-cycle.log'), 'utf8')
             .replace(/android-example-open-close/gu, 'android-storage-open-close'),

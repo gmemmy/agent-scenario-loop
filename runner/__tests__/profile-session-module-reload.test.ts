@@ -8,6 +8,11 @@ type LoadedProfileSession = {
   cleanupEffects: () => void;
   exports: {
     applyProfileSessionUrl: (url: string) => boolean;
+    startProfileSession: (params: { scenario: string; runId: string; startedAt?: number }) => void;
+    stopProfileSession: (expectedOwner?: { scenario: string; runId: string }) =>
+      | { kind: 'already-stopped' }
+      | { kind: 'rejected'; reason: 'owner-mismatch' }
+      | { kind: 'stop-requested'; scenario: string; runId: string };
     subscribeToProfileCommands: (listener: (command: {
       commandId?: string;
       id: string;
@@ -18,6 +23,24 @@ type LoadedProfileSession = {
     useProfileSessionBootstrap: () => void;
   };
 };
+
+const sessionKey = 'agent-scenario-loop.profile-session.1';
+const commandKey = 'agent-scenario-loop.profile-commands.1';
+const sessionEntriesKey = 'agent-scenario-loop.profile-session-entries.1';
+const authorityKey = `${sessionKey}.authority.1`;
+
+function snapshotStorage(storage: Map<string, string>) {
+  return [...storage.entries()].sort(([left], [right]) => left.localeCompare(right));
+}
+
+function readAuthoritySessionEntries(storage: Map<string, string>): Array<Record<string, unknown>> {
+  const manifest = JSON.parse(storage.get(authorityKey) ?? 'null') as {
+    sessionEntryChunkKeys?: string[];
+  } | null;
+  return (manifest?.sessionEntryChunkKeys ?? []).flatMap((key) => (
+    JSON.parse(storage.get(key) ?? '[]') as Array<Record<string, unknown>>
+  ));
+}
 
 async function waitFor(predicate: () => boolean): Promise<void> {
   const deadline = Date.now() + 2000;
@@ -148,6 +171,157 @@ test('profile-session command deep links preserve explicit runner command ids', 
   } finally {
     unsubscribe();
     loaded.cleanupEffects();
+  }
+});
+
+test('profile-session stop is idempotent and records one terminal transition', async () => {
+  const storage = new Map<string, string>();
+  const loaded = loadProfileSessionModule(storage);
+
+  try {
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    loaded.exports.startProfileSession({
+      scenario: 'gallery',
+      runId: 'stop-once',
+      startedAt: 1000,
+    });
+    const first = loaded.exports.stopProfileSession();
+    assert.deepEqual(first, {
+      kind: 'stop-requested',
+      scenario: 'gallery',
+      runId: 'stop-once',
+    });
+    await waitFor(() => (
+      JSON.parse(storage.get(authorityKey) ?? 'null') as { status?: string } | null
+    )?.status === 'stopped');
+    await waitFor(() => readAuthoritySessionEntries(storage).some((entry) => entry.kind === 'stop'));
+
+    const entries = readAuthoritySessionEntries(storage);
+    assert.deepEqual(entries.filter((entry) => entry.kind === 'start').map((entry) => entry.runId), ['stop-once']);
+    assert.deepEqual(entries.filter((entry) => entry.kind === 'stop').map((entry) => entry.runId), ['stop-once']);
+    const frozen = snapshotStorage(storage);
+
+    assert.deepEqual(loaded.exports.stopProfileSession(), { kind: 'already-stopped' });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.deepEqual(snapshotStorage(storage), frozen);
+  } finally {
+    loaded.cleanupEffects();
+  }
+});
+
+test('stale owner stop cannot terminate or mutate a newer active run', async () => {
+  const storage = new Map<string, string>();
+  const loaded = loadProfileSessionModule(storage);
+
+  try {
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    loaded.exports.startProfileSession({ scenario: 'gallery', runId: 'older', startedAt: 1000 });
+    loaded.exports.startProfileSession({ scenario: 'gallery', runId: 'newer', startedAt: 2000 });
+    await waitFor(() => (
+      JSON.parse(storage.get(authorityKey) ?? 'null') as { session?: { runId?: string } } | null
+    )?.session?.runId === 'newer');
+    const frozen = snapshotStorage(storage);
+
+    assert.deepEqual(
+      loaded.exports.stopProfileSession({ scenario: 'gallery', runId: 'older' }),
+      { kind: 'rejected', reason: 'owner-mismatch' },
+    );
+    assert.equal(loaded.exports.useProfileSession().runId, 'newer');
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.deepEqual(snapshotStorage(storage), frozen);
+  } finally {
+    loaded.cleanupEffects();
+  }
+});
+
+test('stop deep links require exact owner identity and replay without mutation', async () => {
+  const storage = new Map<string, string>();
+  const loaded = loadProfileSessionModule(storage);
+
+  try {
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    loaded.exports.startProfileSession({ scenario: 'gallery', runId: 'url-stop', startedAt: 1000 });
+    await waitFor(() => storage.has(authorityKey));
+    const active = snapshotStorage(storage);
+
+    assert.equal(loaded.exports.applyProfileSessionUrl('asl-example://profile-session/stop'), false);
+    assert.equal(loaded.exports.applyProfileSessionUrl(
+      'asl-example://profile-session/stop?scenario=gallery',
+    ), false);
+    assert.equal(loaded.exports.applyProfileSessionUrl(
+      'asl-example://profile-session/stop?scenario=gallery&runId=stale',
+    ), false);
+    assert.deepEqual(snapshotStorage(storage), active);
+
+    const exactUrl = 'asl-example://profile-session/stop?scenario=gallery&runId=url-stop';
+    assert.equal(loaded.exports.applyProfileSessionUrl(exactUrl), true);
+    await waitFor(() => (
+      JSON.parse(storage.get(authorityKey) ?? 'null') as { status?: string } | null
+    )?.status === 'stopped');
+    const stopped = snapshotStorage(storage);
+    assert.equal(loaded.exports.applyProfileSessionUrl(exactUrl), true);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.deepEqual(snapshotStorage(storage), stopped);
+  } finally {
+    loaded.cleanupEffects();
+  }
+});
+
+test('bootstrap preserves stopped authority bytes and cleans expired owned authority', async () => {
+  const stoppedSession = { active: true, scenario: 'gallery', runId: 'stopped-run', startedAt: 1000 };
+  const stoppedStorage = new Map<string, string>([
+    [authorityKey, JSON.stringify({
+      schemaVersion: 1,
+      generation: 1,
+      status: 'stopped',
+      session: { scenario: stoppedSession.scenario, runId: stoppedSession.runId, startedAt: stoppedSession.startedAt },
+      eventChunkKeys: [],
+      sessionEntryChunkKeys: [],
+    })],
+    [sessionKey, JSON.stringify(stoppedSession)],
+  ]);
+  const stoppedBefore = snapshotStorage(stoppedStorage);
+  const stoppedModule = loadProfileSessionModule(stoppedStorage);
+  try {
+    await waitFor(() => stoppedModule.exports.useProfileSession().active === false);
+    assert.deepEqual(snapshotStorage(stoppedStorage), stoppedBefore);
+  } finally {
+    stoppedModule.cleanupEffects();
+  }
+
+  const expiredSession = {
+    active: true,
+    scenario: 'gallery',
+    runId: 'expired-run',
+    startedAt: Date.now() - 3 * 60 * 60 * 1000,
+  };
+  const expiredStorage = new Map<string, string>([
+    [authorityKey, JSON.stringify({
+      schemaVersion: 1,
+      generation: 1,
+      status: 'active',
+      session: {
+        scenario: expiredSession.scenario,
+        runId: expiredSession.runId,
+        startedAt: expiredSession.startedAt,
+      },
+      eventChunkKeys: [],
+      sessionEntryChunkKeys: [],
+    })],
+    [sessionKey, JSON.stringify(expiredSession)],
+    [commandKey, JSON.stringify([{ id: 'expired-command' }])],
+    [sessionEntriesKey, JSON.stringify([])],
+  ]);
+  const expiredModule = loadProfileSessionModule(expiredStorage);
+  try {
+    await waitFor(() => (
+      JSON.parse(expiredStorage.get(authorityKey) ?? 'null') as { status?: string } | null
+    )?.status === 'stopped');
+    assert.equal(expiredStorage.has(sessionKey), false);
+    assert.equal(expiredStorage.has(commandKey), false);
+    assert.deepEqual(readAuthoritySessionEntries(expiredStorage), []);
+  } finally {
+    expiredModule.cleanupEffects();
   }
 });
 

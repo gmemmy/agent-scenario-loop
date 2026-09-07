@@ -24,8 +24,8 @@ const {
   classifyNativePerformanceComparisonReadiness,
 } = require('../../core/native-performance');
 
-const EXPECTED_PROFILE_SESSION_HELPER_PAYLOAD_ID = 'agent-scenario-loop/profile-session-helper@1.1.0+setup-unscoped-milestones';
-const EXPECTED_PROFILE_SESSION_HELPER_PAYLOAD_SHA256 = 'b7421a84e8e39346702af2e7017a99ba492ced00de47446780e42a93146db275';
+const EXPECTED_PROFILE_SESSION_HELPER_PAYLOAD_ID = 'agent-scenario-loop/profile-session-helper@1.2.0+idempotent-owned-stop';
+const EXPECTED_PROFILE_SESSION_HELPER_PAYLOAD_SHA256 = '2ba19944de0d94271a27a99c4188e8567dce0d67b3e0df5ddb5f311108ce8178';
 const EXPECTED_PROFILE_SESSION_HELPER_PAYLOAD_FIELDS = {
   helperPayloadId: EXPECTED_PROFILE_SESSION_HELPER_PAYLOAD_ID,
   helperPayloadSha256: EXPECTED_PROFILE_SESSION_HELPER_PAYLOAD_SHA256,
@@ -691,12 +691,12 @@ test('profile-ios profiles public scenario ids and milestone budgets', async (t:
   await fsp.writeFile(
     eventLogPath,
     [
-      '2026-01-01T00:00:00.000Z public-ios [profile-event] {"event":"first_journey_started","scenario":"public-journey","runId":"public-journey-ios","iteration":1,"atMs":0,"helperVersion":"1.1.0"}',
-      '2026-01-01T00:00:00.700Z public-ios [profile-event] {"event":"first_journey_completed","scenario":"public-journey","runId":"public-journey-ios","iteration":1,"atMs":700,"helperVersion":"1.1.0"}',
-      '2026-01-01T00:00:01.000Z public-ios [profile-event] {"event":"first_journey_started","scenario":"public-journey","runId":"public-journey-ios","iteration":2,"atMs":1000,"helperVersion":"1.1.0"}',
-      '2026-01-01T00:00:01.760Z public-ios [profile-event] {"event":"first_journey_completed","scenario":"public-journey","runId":"public-journey-ios","iteration":2,"atMs":1760,"helperVersion":"1.1.0"}',
-      '2026-01-01T00:00:02.000Z public-ios [profile-event] {"event":"first_journey_started","scenario":"public-journey","runId":"public-journey-ios","iteration":3,"atMs":2000,"helperVersion":"1.1.0"}',
-      '2026-01-01T00:00:02.830Z public-ios [profile-event] {"event":"first_journey_completed","scenario":"public-journey","runId":"public-journey-ios","iteration":3,"atMs":2830,"helperVersion":"1.1.0"}',
+      '2026-01-01T00:00:00.000Z public-ios [profile-event] {"event":"first_journey_started","scenario":"public-journey","runId":"public-journey-ios","iteration":1,"atMs":0,"helperVersion":"1.2.0"}',
+      '2026-01-01T00:00:00.700Z public-ios [profile-event] {"event":"first_journey_completed","scenario":"public-journey","runId":"public-journey-ios","iteration":1,"atMs":700,"helperVersion":"1.2.0"}',
+      '2026-01-01T00:00:01.000Z public-ios [profile-event] {"event":"first_journey_started","scenario":"public-journey","runId":"public-journey-ios","iteration":2,"atMs":1000,"helperVersion":"1.2.0"}',
+      '2026-01-01T00:00:01.760Z public-ios [profile-event] {"event":"first_journey_completed","scenario":"public-journey","runId":"public-journey-ios","iteration":2,"atMs":1760,"helperVersion":"1.2.0"}',
+      '2026-01-01T00:00:02.000Z public-ios [profile-event] {"event":"first_journey_started","scenario":"public-journey","runId":"public-journey-ios","iteration":3,"atMs":2000,"helperVersion":"1.2.0"}',
+      '2026-01-01T00:00:02.830Z public-ios [profile-event] {"event":"first_journey_completed","scenario":"public-journey","runId":"public-journey-ios","iteration":3,"atMs":2830,"helperVersion":"1.2.0"}',
       '',
     ].join('\n'),
     'utf8',
@@ -779,16 +779,16 @@ test('profile-ios writes partial iteration accounting for incomplete repeated cy
   await fsp.writeFile(
     eventLogPath,
     [
-      '2026-01-01T00:10:00.000Z public-ios [profile-event] {"event":"surface_open_requested","scenario":"portable-open-close-partial","runId":"partial-iterations-ios","iteration":1,"atMs":0,"sequence":1,"queueId":"portable-open-close-partial","helperVersion":"1.1.0"}',
-      '2026-01-01T00:10:00.120Z public-ios [profile-event] {"event":"surface_opened","scenario":"portable-open-close-partial","runId":"partial-iterations-ios","iteration":1,"atMs":120,"sequence":1,"queueId":"portable-open-close-partial","helperVersion":"1.1.0"}',
-      '2026-01-01T00:10:00.220Z public-ios [profile-event] {"event":"surface_close_requested","scenario":"portable-open-close-partial","runId":"partial-iterations-ios","iteration":1,"atMs":220,"sequence":2,"queueId":"portable-open-close-partial","helperVersion":"1.1.0"}',
-      '2026-01-01T00:10:00.340Z public-ios [profile-event] {"event":"surface_dismissed","scenario":"portable-open-close-partial","runId":"partial-iterations-ios","iteration":1,"atMs":340,"sequence":2,"queueId":"portable-open-close-partial","helperVersion":"1.1.0"}',
-      '2026-01-01T00:10:01.000Z public-ios [profile-event] {"event":"surface_open_requested","scenario":"portable-open-close-partial","runId":"partial-iterations-ios","iteration":2,"atMs":1000,"sequence":3,"queueId":"portable-open-close-partial","helperVersion":"1.1.0"}',
-      '2026-01-01T00:10:01.140Z public-ios [profile-event] {"event":"surface_opened","scenario":"portable-open-close-partial","runId":"partial-iterations-ios","iteration":2,"atMs":1140,"sequence":3,"queueId":"portable-open-close-partial","helperVersion":"1.1.0"}',
-      '2026-01-01T00:10:02.000Z public-ios [profile-event] {"event":"surface_open_requested","scenario":"portable-open-close-partial","runId":"partial-iterations-ios","iteration":3,"atMs":2000,"sequence":5,"queueId":"portable-open-close-partial","helperVersion":"1.1.0"}',
-      '2026-01-01T00:10:02.130Z public-ios [profile-event] {"event":"surface_opened","scenario":"portable-open-close-partial","runId":"partial-iterations-ios","iteration":3,"atMs":2130,"sequence":5,"queueId":"portable-open-close-partial","helperVersion":"1.1.0"}',
-      '2026-01-01T00:10:02.260Z public-ios [profile-event] {"event":"surface_close_requested","scenario":"portable-open-close-partial","runId":"partial-iterations-ios","iteration":3,"atMs":2260,"sequence":6,"queueId":"portable-open-close-partial","helperVersion":"1.1.0"}',
-      '2026-01-01T00:10:02.390Z public-ios [profile-event] {"event":"surface_dismissed","scenario":"portable-open-close-partial","runId":"partial-iterations-ios","iteration":3,"atMs":2390,"sequence":6,"queueId":"portable-open-close-partial","helperVersion":"1.1.0"}',
+      '2026-01-01T00:10:00.000Z public-ios [profile-event] {"event":"surface_open_requested","scenario":"portable-open-close-partial","runId":"partial-iterations-ios","iteration":1,"atMs":0,"sequence":1,"queueId":"portable-open-close-partial","helperVersion":"1.2.0"}',
+      '2026-01-01T00:10:00.120Z public-ios [profile-event] {"event":"surface_opened","scenario":"portable-open-close-partial","runId":"partial-iterations-ios","iteration":1,"atMs":120,"sequence":1,"queueId":"portable-open-close-partial","helperVersion":"1.2.0"}',
+      '2026-01-01T00:10:00.220Z public-ios [profile-event] {"event":"surface_close_requested","scenario":"portable-open-close-partial","runId":"partial-iterations-ios","iteration":1,"atMs":220,"sequence":2,"queueId":"portable-open-close-partial","helperVersion":"1.2.0"}',
+      '2026-01-01T00:10:00.340Z public-ios [profile-event] {"event":"surface_dismissed","scenario":"portable-open-close-partial","runId":"partial-iterations-ios","iteration":1,"atMs":340,"sequence":2,"queueId":"portable-open-close-partial","helperVersion":"1.2.0"}',
+      '2026-01-01T00:10:01.000Z public-ios [profile-event] {"event":"surface_open_requested","scenario":"portable-open-close-partial","runId":"partial-iterations-ios","iteration":2,"atMs":1000,"sequence":3,"queueId":"portable-open-close-partial","helperVersion":"1.2.0"}',
+      '2026-01-01T00:10:01.140Z public-ios [profile-event] {"event":"surface_opened","scenario":"portable-open-close-partial","runId":"partial-iterations-ios","iteration":2,"atMs":1140,"sequence":3,"queueId":"portable-open-close-partial","helperVersion":"1.2.0"}',
+      '2026-01-01T00:10:02.000Z public-ios [profile-event] {"event":"surface_open_requested","scenario":"portable-open-close-partial","runId":"partial-iterations-ios","iteration":3,"atMs":2000,"sequence":5,"queueId":"portable-open-close-partial","helperVersion":"1.2.0"}',
+      '2026-01-01T00:10:02.130Z public-ios [profile-event] {"event":"surface_opened","scenario":"portable-open-close-partial","runId":"partial-iterations-ios","iteration":3,"atMs":2130,"sequence":5,"queueId":"portable-open-close-partial","helperVersion":"1.2.0"}',
+      '2026-01-01T00:10:02.260Z public-ios [profile-event] {"event":"surface_close_requested","scenario":"portable-open-close-partial","runId":"partial-iterations-ios","iteration":3,"atMs":2260,"sequence":6,"queueId":"portable-open-close-partial","helperVersion":"1.2.0"}',
+      '2026-01-01T00:10:02.390Z public-ios [profile-event] {"event":"surface_dismissed","scenario":"portable-open-close-partial","runId":"partial-iterations-ios","iteration":3,"atMs":2390,"sequence":6,"queueId":"portable-open-close-partial","helperVersion":"1.2.0"}',
       '',
     ].join('\n'),
     'utf8',
@@ -847,12 +847,12 @@ test('profile-ios rehydrates simctl sidecar events when enriched run id differs'
   await fsp.writeFile(
     path.join(sidecarRoot, 'raw', 'ios-profile-events.log'),
     [
-      '2026-01-01T00:00:00.000Z public-ios [profile-event] {"event":"first_journey_started","scenario":"public-journey","runId":"source-public-journey-ios","iteration":1,"atMs":0,"helperVersion":"1.1.0"}',
-      '2026-01-01T00:00:00.700Z public-ios [profile-event] {"event":"first_journey_completed","scenario":"public-journey","runId":"source-public-journey-ios","iteration":1,"atMs":700,"helperVersion":"1.1.0"}',
-      '2026-01-01T00:00:01.000Z public-ios [profile-event] {"event":"first_journey_started","scenario":"public-journey","runId":"source-public-journey-ios","iteration":2,"atMs":1000,"helperVersion":"1.1.0"}',
-      '2026-01-01T00:00:01.760Z public-ios [profile-event] {"event":"first_journey_completed","scenario":"public-journey","runId":"source-public-journey-ios","iteration":2,"atMs":1760,"helperVersion":"1.1.0"}',
-      '2026-01-01T00:00:02.000Z public-ios [profile-event] {"event":"first_journey_started","scenario":"public-journey","runId":"source-public-journey-ios","iteration":3,"atMs":2000,"helperVersion":"1.1.0"}',
-      '2026-01-01T00:00:02.830Z public-ios [profile-event] {"event":"first_journey_completed","scenario":"public-journey","runId":"source-public-journey-ios","iteration":3,"atMs":2830,"helperVersion":"1.1.0"}',
+      '2026-01-01T00:00:00.000Z public-ios [profile-event] {"event":"first_journey_started","scenario":"public-journey","runId":"source-public-journey-ios","iteration":1,"atMs":0,"helperVersion":"1.2.0"}',
+      '2026-01-01T00:00:00.700Z public-ios [profile-event] {"event":"first_journey_completed","scenario":"public-journey","runId":"source-public-journey-ios","iteration":1,"atMs":700,"helperVersion":"1.2.0"}',
+      '2026-01-01T00:00:01.000Z public-ios [profile-event] {"event":"first_journey_started","scenario":"public-journey","runId":"source-public-journey-ios","iteration":2,"atMs":1000,"helperVersion":"1.2.0"}',
+      '2026-01-01T00:00:01.760Z public-ios [profile-event] {"event":"first_journey_completed","scenario":"public-journey","runId":"source-public-journey-ios","iteration":2,"atMs":1760,"helperVersion":"1.2.0"}',
+      '2026-01-01T00:00:02.000Z public-ios [profile-event] {"event":"first_journey_started","scenario":"public-journey","runId":"source-public-journey-ios","iteration":3,"atMs":2000,"helperVersion":"1.2.0"}',
+      '2026-01-01T00:00:02.830Z public-ios [profile-event] {"event":"first_journey_completed","scenario":"public-journey","runId":"source-public-journey-ios","iteration":3,"atMs":2830,"helperVersion":"1.2.0"}',
       '',
     ].join('\n'),
     'utf8',
@@ -924,8 +924,8 @@ test('profile-ios fails closed for live-window provider phases on rehydrated sim
   await fsp.writeFile(
     path.join(sidecarRoot, 'raw', 'ios-profile-events.log'),
     [
-      '2026-01-01T00:00:00.000Z public-ios [profile-event] {"event":"first_journey_started","scenario":"public-journey","runId":"source-public-journey-ios","iteration":1,"atMs":0,"helperVersion":"1.1.0"}',
-      '2026-01-01T00:00:00.700Z public-ios [profile-event] {"event":"first_journey_completed","scenario":"public-journey","runId":"source-public-journey-ios","iteration":1,"atMs":700,"helperVersion":"1.1.0"}',
+      '2026-01-01T00:00:00.000Z public-ios [profile-event] {"event":"first_journey_started","scenario":"public-journey","runId":"source-public-journey-ios","iteration":1,"atMs":0,"helperVersion":"1.2.0"}',
+      '2026-01-01T00:00:00.700Z public-ios [profile-event] {"event":"first_journey_completed","scenario":"public-journey","runId":"source-public-journey-ios","iteration":1,"atMs":700,"helperVersion":"1.2.0"}',
       '',
     ].join('\n'),
     'utf8',
@@ -1014,10 +1014,10 @@ test('profile-ios fails health when rehydrated simctl sidecar has ambiguous sour
   await fsp.writeFile(
     path.join(sidecarRoot, 'raw', 'ios-profile-events.log'),
     [
-      '2026-01-01T00:00:00.000Z public-ios [profile-event] {"event":"first_journey_started","scenario":"public-journey","runId":"source-public-journey-ios-a","iteration":1,"atMs":0,"helperVersion":"1.1.0"}',
-      '2026-01-01T00:00:00.700Z public-ios [profile-event] {"event":"first_journey_completed","scenario":"public-journey","runId":"source-public-journey-ios-a","iteration":1,"atMs":700,"helperVersion":"1.1.0"}',
-      '2026-01-01T00:01:00.000Z public-ios [profile-event] {"event":"first_journey_started","scenario":"public-journey","runId":"source-public-journey-ios-b","iteration":1,"atMs":0,"helperVersion":"1.1.0"}',
-      '2026-01-01T00:01:00.710Z public-ios [profile-event] {"event":"first_journey_completed","scenario":"public-journey","runId":"source-public-journey-ios-b","iteration":1,"atMs":710,"helperVersion":"1.1.0"}',
+      '2026-01-01T00:00:00.000Z public-ios [profile-event] {"event":"first_journey_started","scenario":"public-journey","runId":"source-public-journey-ios-a","iteration":1,"atMs":0,"helperVersion":"1.2.0"}',
+      '2026-01-01T00:00:00.700Z public-ios [profile-event] {"event":"first_journey_completed","scenario":"public-journey","runId":"source-public-journey-ios-a","iteration":1,"atMs":700,"helperVersion":"1.2.0"}',
+      '2026-01-01T00:01:00.000Z public-ios [profile-event] {"event":"first_journey_started","scenario":"public-journey","runId":"source-public-journey-ios-b","iteration":1,"atMs":0,"helperVersion":"1.2.0"}',
+      '2026-01-01T00:01:00.710Z public-ios [profile-event] {"event":"first_journey_completed","scenario":"public-journey","runId":"source-public-journey-ios-b","iteration":1,"atMs":710,"helperVersion":"1.2.0"}',
       '',
     ].join('\n'),
     'utf8',
@@ -1073,12 +1073,12 @@ test('profile-ios fails health when simctl sidecar bundle mismatches expected bu
   await fsp.writeFile(
     path.join(sidecarRoot, 'raw', 'ios-profile-events.log'),
     [
-      '2026-01-01T00:00:00.000Z public-ios [profile-event] {"event":"first_journey_started","scenario":"public-journey","runId":"source-public-journey-ios","iteration":1,"atMs":0,"helperVersion":"1.1.0"}',
-      '2026-01-01T00:00:00.700Z public-ios [profile-event] {"event":"first_journey_completed","scenario":"public-journey","runId":"source-public-journey-ios","iteration":1,"atMs":700,"helperVersion":"1.1.0"}',
-      '2026-01-01T00:00:01.000Z public-ios [profile-event] {"event":"first_journey_started","scenario":"public-journey","runId":"source-public-journey-ios","iteration":2,"atMs":1000,"helperVersion":"1.1.0"}',
-      '2026-01-01T00:00:01.760Z public-ios [profile-event] {"event":"first_journey_completed","scenario":"public-journey","runId":"source-public-journey-ios","iteration":2,"atMs":1760,"helperVersion":"1.1.0"}',
-      '2026-01-01T00:00:02.000Z public-ios [profile-event] {"event":"first_journey_started","scenario":"public-journey","runId":"source-public-journey-ios","iteration":3,"atMs":2000,"helperVersion":"1.1.0"}',
-      '2026-01-01T00:00:02.830Z public-ios [profile-event] {"event":"first_journey_completed","scenario":"public-journey","runId":"source-public-journey-ios","iteration":3,"atMs":2830,"helperVersion":"1.1.0"}',
+      '2026-01-01T00:00:00.000Z public-ios [profile-event] {"event":"first_journey_started","scenario":"public-journey","runId":"source-public-journey-ios","iteration":1,"atMs":0,"helperVersion":"1.2.0"}',
+      '2026-01-01T00:00:00.700Z public-ios [profile-event] {"event":"first_journey_completed","scenario":"public-journey","runId":"source-public-journey-ios","iteration":1,"atMs":700,"helperVersion":"1.2.0"}',
+      '2026-01-01T00:00:01.000Z public-ios [profile-event] {"event":"first_journey_started","scenario":"public-journey","runId":"source-public-journey-ios","iteration":2,"atMs":1000,"helperVersion":"1.2.0"}',
+      '2026-01-01T00:00:01.760Z public-ios [profile-event] {"event":"first_journey_completed","scenario":"public-journey","runId":"source-public-journey-ios","iteration":2,"atMs":1760,"helperVersion":"1.2.0"}',
+      '2026-01-01T00:00:02.000Z public-ios [profile-event] {"event":"first_journey_started","scenario":"public-journey","runId":"source-public-journey-ios","iteration":3,"atMs":2000,"helperVersion":"1.2.0"}',
+      '2026-01-01T00:00:02.830Z public-ios [profile-event] {"event":"first_journey_completed","scenario":"public-journey","runId":"source-public-journey-ios","iteration":3,"atMs":2830,"helperVersion":"1.2.0"}',
       '',
     ].join('\n'),
     'utf8',
@@ -1160,12 +1160,12 @@ test('profile-ios falls back to bundled simctl driver metadata when no host driv
   await fsp.writeFile(
     eventLogPath,
     [
-      '2026-01-01T00:00:00.000Z neutral-ios [profile-event] {"event":"first_journey_started","scenario":"neutral-journey","runId":"neutral-journey-ios","iteration":1,"atMs":0,"helperVersion":"1.1.0"}',
-      '2026-01-01T00:00:00.700Z neutral-ios [profile-event] {"event":"first_journey_completed","scenario":"neutral-journey","runId":"neutral-journey-ios","iteration":1,"atMs":700,"helperVersion":"1.1.0"}',
-      '2026-01-01T00:00:01.000Z neutral-ios [profile-event] {"event":"first_journey_started","scenario":"neutral-journey","runId":"neutral-journey-ios","iteration":2,"atMs":1000,"helperVersion":"1.1.0"}',
-      '2026-01-01T00:00:01.760Z neutral-ios [profile-event] {"event":"first_journey_completed","scenario":"neutral-journey","runId":"neutral-journey-ios","iteration":2,"atMs":1760,"helperVersion":"1.1.0"}',
-      '2026-01-01T00:00:02.000Z neutral-ios [profile-event] {"event":"first_journey_started","scenario":"neutral-journey","runId":"neutral-journey-ios","iteration":3,"atMs":2000,"helperVersion":"1.1.0"}',
-      '2026-01-01T00:00:02.830Z neutral-ios [profile-event] {"event":"first_journey_completed","scenario":"neutral-journey","runId":"neutral-journey-ios","iteration":3,"atMs":2830,"helperVersion":"1.1.0"}',
+      '2026-01-01T00:00:00.000Z neutral-ios [profile-event] {"event":"first_journey_started","scenario":"neutral-journey","runId":"neutral-journey-ios","iteration":1,"atMs":0,"helperVersion":"1.2.0"}',
+      '2026-01-01T00:00:00.700Z neutral-ios [profile-event] {"event":"first_journey_completed","scenario":"neutral-journey","runId":"neutral-journey-ios","iteration":1,"atMs":700,"helperVersion":"1.2.0"}',
+      '2026-01-01T00:00:01.000Z neutral-ios [profile-event] {"event":"first_journey_started","scenario":"neutral-journey","runId":"neutral-journey-ios","iteration":2,"atMs":1000,"helperVersion":"1.2.0"}',
+      '2026-01-01T00:00:01.760Z neutral-ios [profile-event] {"event":"first_journey_completed","scenario":"neutral-journey","runId":"neutral-journey-ios","iteration":2,"atMs":1760,"helperVersion":"1.2.0"}',
+      '2026-01-01T00:00:02.000Z neutral-ios [profile-event] {"event":"first_journey_started","scenario":"neutral-journey","runId":"neutral-journey-ios","iteration":3,"atMs":2000,"helperVersion":"1.2.0"}',
+      '2026-01-01T00:00:02.830Z neutral-ios [profile-event] {"event":"first_journey_completed","scenario":"neutral-journey","runId":"neutral-journey-ios","iteration":3,"atMs":2830,"helperVersion":"1.2.0"}',
       '',
     ].join('\n'),
     'utf8',
@@ -1247,14 +1247,14 @@ test('profile-ios reports schema-era open and close interval budgets', async (t:
   await fsp.writeFile(
     eventLogPath,
     [
-      '2026-01-01T00:00:00.000Z public-ios [profile-event] {"event":"card_open_requested","scenario":"portable-open-close","runId":"portable-open-close-ios","iteration":1,"atMs":0,"helperVersion":"1.1.0"}',
-      '2026-01-01T00:00:00.110Z public-ios [profile-event] {"event":"card_opened","scenario":"portable-open-close","runId":"portable-open-close-ios","iteration":1,"atMs":110,"helperVersion":"1.1.0"}',
-      '2026-01-01T00:00:00.390Z public-ios [profile-event] {"event":"card_close_requested","scenario":"portable-open-close","runId":"portable-open-close-ios","iteration":1,"atMs":390,"helperVersion":"1.1.0"}',
-      '2026-01-01T00:00:00.470Z public-ios [profile-event] {"event":"card_dismissed","scenario":"portable-open-close","runId":"portable-open-close-ios","iteration":1,"atMs":470,"helperVersion":"1.1.0"}',
-      '2026-01-01T00:00:01.000Z public-ios [profile-event] {"event":"card_open_requested","scenario":"portable-open-close","runId":"portable-open-close-ios","iteration":2,"atMs":1000,"helperVersion":"1.1.0"}',
-      '2026-01-01T00:00:01.125Z public-ios [profile-event] {"event":"card_opened","scenario":"portable-open-close","runId":"portable-open-close-ios","iteration":2,"atMs":1125,"helperVersion":"1.1.0"}',
-      '2026-01-01T00:00:01.410Z public-ios [profile-event] {"event":"card_close_requested","scenario":"portable-open-close","runId":"portable-open-close-ios","iteration":2,"atMs":1410,"helperVersion":"1.1.0"}',
-      '2026-01-01T00:00:01.500Z public-ios [profile-event] {"event":"card_dismissed","scenario":"portable-open-close","runId":"portable-open-close-ios","iteration":2,"atMs":1500,"helperVersion":"1.1.0"}',
+      '2026-01-01T00:00:00.000Z public-ios [profile-event] {"event":"card_open_requested","scenario":"portable-open-close","runId":"portable-open-close-ios","iteration":1,"atMs":0,"helperVersion":"1.2.0"}',
+      '2026-01-01T00:00:00.110Z public-ios [profile-event] {"event":"card_opened","scenario":"portable-open-close","runId":"portable-open-close-ios","iteration":1,"atMs":110,"helperVersion":"1.2.0"}',
+      '2026-01-01T00:00:00.390Z public-ios [profile-event] {"event":"card_close_requested","scenario":"portable-open-close","runId":"portable-open-close-ios","iteration":1,"atMs":390,"helperVersion":"1.2.0"}',
+      '2026-01-01T00:00:00.470Z public-ios [profile-event] {"event":"card_dismissed","scenario":"portable-open-close","runId":"portable-open-close-ios","iteration":1,"atMs":470,"helperVersion":"1.2.0"}',
+      '2026-01-01T00:00:01.000Z public-ios [profile-event] {"event":"card_open_requested","scenario":"portable-open-close","runId":"portable-open-close-ios","iteration":2,"atMs":1000,"helperVersion":"1.2.0"}',
+      '2026-01-01T00:00:01.125Z public-ios [profile-event] {"event":"card_opened","scenario":"portable-open-close","runId":"portable-open-close-ios","iteration":2,"atMs":1125,"helperVersion":"1.2.0"}',
+      '2026-01-01T00:00:01.410Z public-ios [profile-event] {"event":"card_close_requested","scenario":"portable-open-close","runId":"portable-open-close-ios","iteration":2,"atMs":1410,"helperVersion":"1.2.0"}',
+      '2026-01-01T00:00:01.500Z public-ios [profile-event] {"event":"card_dismissed","scenario":"portable-open-close","runId":"portable-open-close-ios","iteration":2,"atMs":1500,"helperVersion":"1.2.0"}',
       '',
     ].join('\n'),
     'utf8',
@@ -2308,7 +2308,7 @@ test('profile-ios can seed and profile stored iOS app truth events', async (t: T
       manifest['agent-scenario-loop.profile-events.1'] = JSON.stringify(manifest['agent-scenario-loop.profile-events.1']);
       manifest['agent-scenario-loop.profile-session-entries.1'] = JSON.stringify([
         {
-          helperVersion: '1.1.0',
+          helperVersion: '1.2.0',
           ...EXPECTED_PROFILE_SESSION_HELPER_PAYLOAD_FIELDS,
           kind: 'command',
           scenario: 'app-startup',
@@ -2438,7 +2438,7 @@ test('profile-ios seeds iOS scenario commands through app storage', async (t: Te
           atMs: 40,
           command: 'activate-target:example-card-1',
           commandId: 'open-card',
-          helperVersion: '1.1.0',
+          helperVersion: '1.2.0',
           ...EXPECTED_PROFILE_SESSION_HELPER_PAYLOAD_FIELDS,
           kind: 'command',
           queueId: 'open-close-cycle',
@@ -2457,7 +2457,7 @@ test('profile-ios seeds iOS scenario commands through app storage', async (t: Te
           command: 'activate-target:example-card-1',
           commandId: 'open-card',
           continuationReason: 'readiness-and-settle-satisfied',
-          helperVersion: '1.1.0',
+          helperVersion: '1.2.0',
           ...EXPECTED_PROFILE_SESSION_HELPER_PAYLOAD_FIELDS,
           kind: 'command',
           maxReadinessWaitMs: 1500,
@@ -2481,7 +2481,7 @@ test('profile-ios seeds iOS scenario commands through app storage', async (t: Te
           atMs: 760,
           command: 'activate-target:close-card',
           commandId: 'close-card',
-          helperVersion: '1.1.0',
+          helperVersion: '1.2.0',
           ...EXPECTED_PROFILE_SESSION_HELPER_PAYLOAD_FIELDS,
           kind: 'command',
           queueId: 'open-close-cycle',
@@ -2500,7 +2500,7 @@ test('profile-ios seeds iOS scenario commands through app storage', async (t: Te
           command: 'activate-target:close-card',
           commandId: 'close-card',
           continuationReason: 'readiness-released-before-settle-complete',
-          helperVersion: '1.1.0',
+          helperVersion: '1.2.0',
           ...EXPECTED_PROFILE_SESSION_HELPER_PAYLOAD_FIELDS,
           kind: 'command',
           maxReadinessWaitMs: 1200,
@@ -2524,7 +2524,7 @@ test('profile-ios seeds iOS scenario commands through app storage', async (t: Te
           atMs: 2020,
           command: 'activate-target:example-card-1',
           commandId: 'open-card',
-          helperVersion: '1.1.0',
+          helperVersion: '1.2.0',
           ...EXPECTED_PROFILE_SESSION_HELPER_PAYLOAD_FIELDS,
           kind: 'command',
           queueId: 'open-close-cycle',
@@ -2543,7 +2543,7 @@ test('profile-ios seeds iOS scenario commands through app storage', async (t: Te
           command: 'activate-target:example-card-1',
           commandId: 'open-card',
           continuationReason: 'readiness-and-settle-satisfied',
-          helperVersion: '1.1.0',
+          helperVersion: '1.2.0',
           ...EXPECTED_PROFILE_SESSION_HELPER_PAYLOAD_FIELDS,
           kind: 'command',
           maxReadinessWaitMs: 1500,
@@ -2567,7 +2567,7 @@ test('profile-ios seeds iOS scenario commands through app storage', async (t: Te
           atMs: 2810,
           command: 'activate-target:close-card',
           commandId: 'close-card',
-          helperVersion: '1.1.0',
+          helperVersion: '1.2.0',
           ...EXPECTED_PROFILE_SESSION_HELPER_PAYLOAD_FIELDS,
           kind: 'command',
           queueId: 'open-close-cycle',
@@ -2586,7 +2586,7 @@ test('profile-ios seeds iOS scenario commands through app storage', async (t: Te
           command: 'activate-target:close-card',
           commandId: 'close-card',
           continuationReason: 'readiness-and-settle-satisfied',
-          helperVersion: '1.1.0',
+          helperVersion: '1.2.0',
           ...EXPECTED_PROFILE_SESSION_HELPER_PAYLOAD_FIELDS,
           kind: 'command',
           maxReadinessWaitMs: 1200,
@@ -2862,7 +2862,7 @@ test('profile-ios starts live-window providers after dev-client readiness before
     const startedAt = Number(session.startedAt);
     manifest['agent-scenario-loop.profile-session-entries.1'] = JSON.stringify([
       {
-        helperVersion: '1.1.0',
+        helperVersion: '1.2.0',
         kind: 'start',
         runId: 'ios-live-window-provider',
         scenario: 'open-close-cycle',
@@ -2928,7 +2928,7 @@ test('profile-ios starts live-window providers after dev-client readiness before
     manifest['agent-scenario-loop.profile-events.1'] = JSON.stringify(manifest['agent-scenario-loop.profile-events.1']);
     manifest['agent-scenario-loop.profile-session-entries.1'] = JSON.stringify([
       {
-        helperVersion: '1.1.0',
+        helperVersion: '1.2.0',
         kind: 'start',
         runId: 'ios-live-window-provider',
         scenario: 'open-close-cycle',
@@ -2938,7 +2938,7 @@ test('profile-ios starts live-window providers after dev-client readiness before
       ...commands.flatMap((command) => ([
         {
           ...command,
-          helperVersion: '1.1.0',
+          helperVersion: '1.2.0',
           ...EXPECTED_PROFILE_SESSION_HELPER_PAYLOAD_FIELDS,
           kind: 'command',
           runId: 'ios-live-window-provider',
@@ -2949,7 +2949,7 @@ test('profile-ios starts live-window providers after dev-client readiness before
         },
         {
           ...command,
-          helperVersion: '1.1.0',
+          helperVersion: '1.2.0',
           ...EXPECTED_PROFILE_SESSION_HELPER_PAYLOAD_FIELDS,
           kind: 'command',
           runId: 'ios-live-window-provider',
