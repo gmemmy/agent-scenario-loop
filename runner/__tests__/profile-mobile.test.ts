@@ -665,13 +665,13 @@ test('profile health fails when app helper version mismatches the runner contrac
       timeouts: 0,
     },
     helperVersion: {
-      expectedPayloadId: 'agent-scenario-loop/profile-session-helper@1.1.0+setup-unscoped-milestones',
-      expectedPayloadSha256: 'b7421a84e8e39346702af2e7017a99ba492ced00de47446780e42a93146db275',
-      expectedVersion: '1.1.0',
+      expectedPayloadId: 'agent-scenario-loop/profile-session-helper@1.2.0+idempotent-owned-stop',
+      expectedPayloadSha256: '2ba19944de0d94271a27a99c4188e8567dce0d67b3e0df5ddb5f311108ce8178',
+      expectedVersion: '1.2.0',
       observedPayloadIds: [],
       observedPayloadSha256s: [],
       observedVersions: ['0.9.0'],
-      reason: 'Profile evidence was emitted by app helper version 0.9.0, but this runner expects 1.1.0.',
+      reason: 'Profile evidence was emitted by app helper version 0.9.0, but this runner expects 1.2.0.',
       status: 'version-mismatched',
     },
   });
@@ -682,11 +682,11 @@ test('profile health fails when app helper version mismatches the runner contrac
     status: 'failed',
     source: 'runner',
     code: 'profile_session_helper_version_mismatch',
-    message: 'Profile evidence was emitted by app helper version 0.9.0, but this runner expects 1.1.0.',
+    message: 'Profile evidence was emitted by app helper version 0.9.0, but this runner expects 1.2.0.',
     metadata: {
-      expectedPayloadId: 'agent-scenario-loop/profile-session-helper@1.1.0+setup-unscoped-milestones',
-      expectedPayloadSha256: 'b7421a84e8e39346702af2e7017a99ba492ced00de47446780e42a93146db275',
-      expectedVersion: '1.1.0',
+      expectedPayloadId: 'agent-scenario-loop/profile-session-helper@1.2.0+idempotent-owned-stop',
+      expectedPayloadSha256: '2ba19944de0d94271a27a99c4188e8567dce0d67b3e0df5ddb5f311108ce8178',
+      expectedVersion: '1.2.0',
       observedPayloadIds: '',
       observedPayloadIdCount: 0,
       observedPayloadSha256s: '',
@@ -712,9 +712,9 @@ test('profile health fails when app helper version is missing from profile evide
       timeouts: 0,
     },
     helperVersion: {
-      expectedPayloadId: 'agent-scenario-loop/profile-session-helper@1.1.0+setup-unscoped-milestones',
-      expectedPayloadSha256: 'b7421a84e8e39346702af2e7017a99ba492ced00de47446780e42a93146db275',
-      expectedVersion: '1.1.0',
+      expectedPayloadId: 'agent-scenario-loop/profile-session-helper@1.2.0+idempotent-owned-stop',
+      expectedPayloadSha256: '2ba19944de0d94271a27a99c4188e8567dce0d67b3e0df5ddb5f311108ce8178',
+      expectedVersion: '1.2.0',
       observedPayloadIds: [],
       observedPayloadSha256s: [],
       observedVersions: [],
@@ -731,9 +731,9 @@ test('profile health fails when app helper version is missing from profile evide
     code: 'profile_session_helper_version_missing',
     message: 'Profile evidence did not include app helper version metadata.',
     metadata: {
-      expectedPayloadId: 'agent-scenario-loop/profile-session-helper@1.1.0+setup-unscoped-milestones',
-      expectedPayloadSha256: 'b7421a84e8e39346702af2e7017a99ba492ced00de47446780e42a93146db275',
-      expectedVersion: '1.1.0',
+      expectedPayloadId: 'agent-scenario-loop/profile-session-helper@1.2.0+idempotent-owned-stop',
+      expectedPayloadSha256: '2ba19944de0d94271a27a99c4188e8567dce0d67b3e0df5ddb5f311108ce8178',
+      expectedVersion: '1.2.0',
       observedPayloadIds: '',
       observedPayloadIdCount: 0,
       observedPayloadSha256s: '',
@@ -749,19 +749,19 @@ test('profile health fails when app helper version is missing from profile evide
 test('profile helper version evidence rejects mixed versioned and unversioned records', () => {
   assert.deepEqual(resolveProfileHelperVersionCheck({
     events: [
-      { event: 'surface_opened', helperVersion: '1.1.0' },
+      { event: 'surface_opened', helperVersion: '1.2.0' },
       { event: 'surface_closed' },
     ],
     sessionEntries: [
-      { helperVersion: '1.1.0', kind: 'start' },
+      { helperVersion: '1.2.0', kind: 'start' },
     ],
   }), {
-    expectedPayloadId: 'agent-scenario-loop/profile-session-helper@1.1.0+setup-unscoped-milestones',
-    expectedPayloadSha256: 'b7421a84e8e39346702af2e7017a99ba492ced00de47446780e42a93146db275',
-    expectedVersion: '1.1.0',
+    expectedPayloadId: 'agent-scenario-loop/profile-session-helper@1.2.0+idempotent-owned-stop',
+    expectedPayloadSha256: '2ba19944de0d94271a27a99c4188e8567dce0d67b3e0df5ddb5f311108ce8178',
+    expectedVersion: '1.2.0',
     observedPayloadIds: [],
     observedPayloadSha256s: [],
-    observedVersions: ['1.1.0'],
+    observedVersions: ['1.2.0'],
     reason: 'Profile evidence did not include app helper version metadata.',
     status: 'version-missing',
   });
@@ -772,33 +772,33 @@ test('profile helper identity rejects same-version stale command helpers', () =>
     events: [
       {
         event: 'app_first_usable_screen',
-        helperPayloadId: 'agent-scenario-loop/profile-session-helper@1.1.0+setup-unscoped-milestones',
-        helperPayloadSha256: 'b7421a84e8e39346702af2e7017a99ba492ced00de47446780e42a93146db275',
-        helperVersion: '1.1.0',
+        helperPayloadId: 'agent-scenario-loop/profile-session-helper@1.2.0+idempotent-owned-stop',
+        helperPayloadSha256: '2ba19944de0d94271a27a99c4188e8567dce0d67b3e0df5ddb5f311108ce8178',
+        helperVersion: '1.2.0',
       },
     ],
     sessionEntries: [
       {
-        helperPayloadId: 'agent-scenario-loop/profile-session-helper@1.1.0',
+        helperPayloadId: 'agent-scenario-loop/profile-session-helper@1.2.0',
         helperPayloadSha256: 'a6a7cc489e000000000000000000000000000000000000000000000000000000',
-        helperVersion: '1.1.0',
+        helperVersion: '1.2.0',
         kind: 'command',
       },
     ],
   }), {
-    expectedPayloadId: 'agent-scenario-loop/profile-session-helper@1.1.0+setup-unscoped-milestones',
-    expectedPayloadSha256: 'b7421a84e8e39346702af2e7017a99ba492ced00de47446780e42a93146db275',
-    expectedVersion: '1.1.0',
+    expectedPayloadId: 'agent-scenario-loop/profile-session-helper@1.2.0+idempotent-owned-stop',
+    expectedPayloadSha256: '2ba19944de0d94271a27a99c4188e8567dce0d67b3e0df5ddb5f311108ce8178',
+    expectedVersion: '1.2.0',
     observedPayloadIds: [
-      'agent-scenario-loop/profile-session-helper@1.1.0+setup-unscoped-milestones',
-      'agent-scenario-loop/profile-session-helper@1.1.0',
+      'agent-scenario-loop/profile-session-helper@1.2.0+idempotent-owned-stop',
+      'agent-scenario-loop/profile-session-helper@1.2.0',
     ],
     observedPayloadSha256s: [
-      'b7421a84e8e39346702af2e7017a99ba492ced00de47446780e42a93146db275',
+      '2ba19944de0d94271a27a99c4188e8567dce0d67b3e0df5ddb5f311108ce8178',
       'a6a7cc489e000000000000000000000000000000000000000000000000000000',
     ],
-    observedVersions: ['1.1.0'],
-    reason: 'Profile evidence was emitted by app helper payload agent-scenario-loop/profile-session-helper@1.1.0, but this runner expects agent-scenario-loop/profile-session-helper@1.1.0+setup-unscoped-milestones.',
+    observedVersions: ['1.2.0'],
+    reason: 'Profile evidence was emitted by app helper payload agent-scenario-loop/profile-session-helper@1.2.0, but this runner expects agent-scenario-loop/profile-session-helper@1.2.0+idempotent-owned-stop.',
     status: 'payload-mismatched',
   });
 });
@@ -808,22 +808,22 @@ test('profile helper identity requires payload metadata for command evidence', (
     events: [
       {
         event: 'app_first_usable_screen',
-        helperVersion: '1.1.0',
+        helperVersion: '1.2.0',
       },
     ],
     sessionEntries: [
       {
-        helperVersion: '1.1.0',
+        helperVersion: '1.2.0',
         kind: 'command',
       },
     ],
   }), {
-    expectedPayloadId: 'agent-scenario-loop/profile-session-helper@1.1.0+setup-unscoped-milestones',
-    expectedPayloadSha256: 'b7421a84e8e39346702af2e7017a99ba492ced00de47446780e42a93146db275',
-    expectedVersion: '1.1.0',
+    expectedPayloadId: 'agent-scenario-loop/profile-session-helper@1.2.0+idempotent-owned-stop',
+    expectedPayloadSha256: '2ba19944de0d94271a27a99c4188e8567dce0d67b3e0df5ddb5f311108ce8178',
+    expectedVersion: '1.2.0',
     observedPayloadIds: [],
     observedPayloadSha256s: [],
-    observedVersions: ['1.1.0'],
+    observedVersions: ['1.2.0'],
     reason: 'Command-bearing profile-session evidence did not include app helper payload identity metadata.',
     status: 'payload-missing',
   });
@@ -834,17 +834,17 @@ test('profile helper identity accepts legacy non-command event evidence with ver
     events: [
       {
         event: 'app_first_usable_screen',
-        helperVersion: '1.1.0',
+        helperVersion: '1.2.0',
       },
     ],
     sessionEntries: [],
   }), {
-    expectedPayloadId: 'agent-scenario-loop/profile-session-helper@1.1.0+setup-unscoped-milestones',
-    expectedPayloadSha256: 'b7421a84e8e39346702af2e7017a99ba492ced00de47446780e42a93146db275',
-    expectedVersion: '1.1.0',
+    expectedPayloadId: 'agent-scenario-loop/profile-session-helper@1.2.0+idempotent-owned-stop',
+    expectedPayloadSha256: '2ba19944de0d94271a27a99c4188e8567dce0d67b3e0df5ddb5f311108ce8178',
+    expectedVersion: '1.2.0',
     observedPayloadIds: [],
     observedPayloadSha256s: [],
-    observedVersions: ['1.1.0'],
+    observedVersions: ['1.2.0'],
     reason: 'Profile evidence helper version matched the runner contract.',
     status: 'matched',
   });

@@ -32,9 +32,9 @@ test('profile-session helper keeps storage-backed command control safeguards', (
   assert.match(source, /const PROFILE_SESSION_ENTRIES_STORAGE_KEY = PROFILE_SESSION_STORAGE_KEY_VALUES\.sessionEntries;/u);
   assert.match(source, /export const PROFILE_SESSION_STORAGE_KEYS = Object\.freeze/u);
   assert.deepEqual(JSON.parse(helperIdentitySource), {
-    version: '1.1.0',
-    payloadId: 'agent-scenario-loop/profile-session-helper@1.1.0+setup-unscoped-milestones',
-    payloadSha256: 'b7421a84e8e39346702af2e7017a99ba492ced00de47446780e42a93146db275',
+    version: '1.2.0',
+    payloadId: 'agent-scenario-loop/profile-session-helper@1.2.0+idempotent-owned-stop',
+    payloadSha256: '2ba19944de0d94271a27a99c4188e8567dce0d67b3e0df5ddb5f311108ce8178',
   });
   assert.match(source, /import profileSessionHelperIdentity from '\.\/profile-session-helper\.json';/u);
   assert.match(source, /export const PROFILE_SESSION_HELPER_VERSION = profileSessionHelperIdentity\.version;/u);
@@ -43,14 +43,14 @@ test('profile-session helper keeps storage-backed command control safeguards', (
     source,
     /export const PROFILE_SESSION_HELPER_PAYLOAD_SHA256 = profileSessionHelperIdentity\.payloadSha256;/u,
   );
-  assert.doesNotMatch(source, /export const PROFILE_SESSION_HELPER_VERSION = '1\.1\.0';/u);
+  assert.doesNotMatch(source, /export const PROFILE_SESSION_HELPER_VERSION = '1\.2\.0';/u);
   assert.doesNotMatch(
     source,
-    /export const PROFILE_SESSION_HELPER_PAYLOAD_ID = 'agent-scenario-loop\/profile-session-helper@1\.1\.0\+setup-unscoped-milestones';/u,
+    /export const PROFILE_SESSION_HELPER_PAYLOAD_ID = 'agent-scenario-loop\/profile-session-helper@1\.2\.0\+idempotent-owned-stop';/u,
   );
   assert.doesNotMatch(
     source,
-    /export const PROFILE_SESSION_HELPER_PAYLOAD_SHA256 = 'b7421a84e8e39346702af2e7017a99ba492ced00de47446780e42a93146db275';/u,
+    /export const PROFILE_SESSION_HELPER_PAYLOAD_SHA256 = '2ba19944de0d94271a27a99c4188e8567dce0d67b3e0df5ddb5f311108ce8178';/u,
   );
   assert.match(source, /const PROFILE_COMMAND_DUPLICATE_WINDOW_MS = 750;/u);
   assert.match(source, /reason: 'duplicate-command-window'/u);
@@ -144,14 +144,14 @@ test('profile-session helper keeps storage-backed command control safeguards', (
   assert.match(source, /profileSessionDependencyMilestoneFacts\.observe\(eventPayload\);/u);
   assert.match(source, /hasObservedProfileCommandMilestone\(\s+command,\s+profileSessionDependencyMilestoneFacts\.snapshot\(\),\s+\)/u);
   assert.match(source, /hasObservedDeliveredProfileCommandMilestone\(\s+command,\s+profileSessionDependencyMilestoneFacts\.snapshot\(\),\s+\)/u);
-  assert.match(declarationSource, /export const PROFILE_SESSION_HELPER_VERSION: '1\.1\.0';/u);
+  assert.match(declarationSource, /export const PROFILE_SESSION_HELPER_VERSION: '1\.2\.0';/u);
   assert.match(
     declarationSource,
-    /export const PROFILE_SESSION_HELPER_PAYLOAD_ID: 'agent-scenario-loop\/profile-session-helper@1\.1\.0\+setup-unscoped-milestones';/u,
+    /export const PROFILE_SESSION_HELPER_PAYLOAD_ID: 'agent-scenario-loop\/profile-session-helper@1\.2\.0\+idempotent-owned-stop';/u,
   );
   assert.match(
     declarationSource,
-    /export const PROFILE_SESSION_HELPER_PAYLOAD_SHA256: 'b7421a84e8e39346702af2e7017a99ba492ced00de47446780e42a93146db275';/u,
+    /export const PROFILE_SESSION_HELPER_PAYLOAD_SHA256: '2ba19944de0d94271a27a99c4188e8567dce0d67b3e0df5ddb5f311108ce8178';/u,
   );
   assert.match(declarationSource, /dependsOnMilestones\?: string\[\];/u);
   assert.match(declarationSource, /unscopedMilestones\?: string\[\];/u);

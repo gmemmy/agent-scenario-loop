@@ -58,6 +58,10 @@ App-side, your app exposes:
 - signal attachments: `storeProfileSignal`
 
 The app integration is intentionally thin. The application emits truth; runners and providers collect evidence around it.
+Session stops may be bound to `{ scenario, runId }`. A mismatched owner cannot
+stop a newer session, and repeated exact-owner stops cannot append another
+terminal event or rewrite authoritative storage. Stop deep links require both
+identity fields so a stale or ambiguous request fails closed.
 
 ## Public scenario contract
 
@@ -800,8 +804,9 @@ Package gates may resolve and read that JSON without evaluating React Native
 helper source. The runtime helper derives the identity it emits from the same
 JSON. Copying helper source must also copy the identity JSON; package-subpath
 users receive both from the package. The cadence state, fail-fast queue policy,
-and observed settle telemetry require helper version `1.1.0` plus the expected
-payload id/hash for the command behavior the runner released. When profile
+observed settle telemetry, and idempotent owner-bound stop handling require
+helper version `1.2.0` plus the expected payload id/hash for the command
+behavior the runner released. When profile
 events or session entries prove a missing or mismatched helper version, profile
 health fails with `profile_session_helper_version_missing` or
 `profile_session_helper_version_mismatch`. When command-bearing session evidence

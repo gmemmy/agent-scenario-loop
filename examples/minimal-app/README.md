@@ -53,7 +53,7 @@ Deep links are the control plane: the runner starts, commands, and stops profile
 
 - `example-app://profile-session/start?scenario=open-close-cycle&runId=run-123`
 - `example-app://profile-session/command?scenario=open-close-cycle&runId=run-123&command=activate-target:composer-open-button`
-- `example-app://profile-session/stop`
+- `example-app://profile-session/stop?scenario=open-close-cycle&runId=run-123`
 
 ## Command targets
 

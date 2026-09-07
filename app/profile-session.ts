@@ -48,6 +48,11 @@ export type ProfileSessionState = {
   startedAt: number | null;
 };
 
+export type ProfileSessionStopResult =
+  | { kind: 'already-stopped' }
+  | { kind: 'rejected'; reason: 'owner-mismatch' }
+  | { kind: 'stop-requested'; runId: string; scenario: string };
+
 export type ProfileSessionCommand = {
   id: string;
   commandId?: string;
@@ -1502,30 +1507,63 @@ function recoverProfileSessionInternal(
   notifyListeners();
 }
 
-function stopProfileSessionInternal() {
+function clearProfileSessionRuntimeState() {
   profileSessionLifecycleController.invalidate();
-  const previousState = profileSessionState;
   clearPendingProfileCommands('preserve-storage');
-  logProfileSession('stop', {
-    scenario: previousState.scenario ?? 'unknown',
-    runId: previousState.runId ?? 'unknown',
-    stoppedAt: Date.now(),
-  });
-  const authoritySession = getProfileSessionAuthoritySession(previousState);
-  if (authoritySession) {
-    profileSessionAuthoritativeStorage.stop(authoritySession);
-  } else {
-    queueProfileStorageMutation(async () => {
-      await Promise.all([
-        AsyncStorage.removeItem(PROFILE_COMMAND_STORAGE_KEY),
-        AsyncStorage.removeItem(PROFILE_SESSION_STORAGE_KEY),
-      ]);
-    });
-  }
   clearProfileCommandDedupe();
   profileSessionDependencyMilestoneFacts.reset();
   profileSessionState = INITIAL_STATE;
   notifyListeners();
+}
+
+function observeProfileSessionAuthorityStop(
+  operation: ReturnType<typeof profileSessionAuthoritativeStorage.stop>,
+) {
+  void operation.catch(() => {
+    // Authoritative storage reports and persists actual failures itself.
+  });
+}
+
+function stopStoredProfileSessionInternal(storedState: ProfileSessionState) {
+  const authoritySession = getProfileSessionAuthoritySession(storedState);
+  if (!authoritySession) {
+    return;
+  }
+  observeProfileSessionAuthorityStop(profileSessionAuthoritativeStorage.stop(authoritySession));
+}
+
+function stopProfileSessionInternal(
+  expectedOwner?: { runId: string; scenario: string },
+): ProfileSessionStopResult {
+  const previousState = profileSessionState;
+  const authoritySession = getProfileSessionAuthoritySession(previousState);
+  if (!authoritySession) {
+    return { kind: 'already-stopped' };
+  }
+  if (
+    expectedOwner &&
+    (expectedOwner.scenario !== authoritySession.scenario || expectedOwner.runId !== authoritySession.runId)
+  ) {
+    return { kind: 'rejected', reason: 'owner-mismatch' };
+  }
+
+  profileSessionLifecycleController.invalidate();
+  clearPendingProfileCommands('preserve-storage');
+  logProfileSession('stop', {
+    scenario: authoritySession.scenario,
+    runId: authoritySession.runId,
+    stoppedAt: Date.now(),
+  });
+  observeProfileSessionAuthorityStop(profileSessionAuthoritativeStorage.stop(authoritySession));
+  clearProfileCommandDedupe();
+  profileSessionDependencyMilestoneFacts.reset();
+  profileSessionState = INITIAL_STATE;
+  notifyListeners();
+  return {
+    kind: 'stop-requested',
+    runId: authoritySession.runId,
+    scenario: authoritySession.scenario,
+  };
 }
 
 /**
@@ -1543,8 +1581,10 @@ export function startProfileSession(params: { scenario: string; runId: string; s
 /**
  * Stops the active profile session and clears pending runner commands.
  */
-export function stopProfileSession(): void {
-  stopProfileSessionInternal();
+export function stopProfileSession(
+  expectedOwner?: { runId: string; scenario: string },
+): ProfileSessionStopResult {
+  return stopProfileSessionInternal(expectedOwner);
 }
 
 /**
@@ -1610,8 +1650,14 @@ export function applyProfileSessionUrl(url: string | null | undefined): boolean 
     return true;
   }
 
-  stopProfileSession();
-  return true;
+  if (!route.scenario || !route.runId) {
+    return false;
+  }
+  const stopResult = stopProfileSession({
+    scenario: route.scenario,
+    runId: route.runId,
+  });
+  return stopResult.kind !== 'rejected';
 }
 
 /**
@@ -1794,7 +1840,12 @@ export function useProfileSessionBootstrap(): void {
           }
         }
         if (!isProfileSessionFresh(storedSession)) {
-          stopProfileSessionInternal();
+          stopStoredProfileSessionInternal({
+            active: true,
+            scenario: storedSession.scenario,
+            runId: storedSession.runId,
+            startedAt: normalizedStartedAt,
+          });
           return;
         }
 
@@ -1813,12 +1864,11 @@ export function useProfileSessionBootstrap(): void {
           };
           const authoritySession = getProfileSessionAuthoritySession(recoveredState);
           if (!authoritySession) {
-            stopProfileSessionInternal();
+            stopStoredProfileSessionInternal(recoveredState);
             return;
           }
           const recovery = await profileSessionAuthoritativeStorage.recover(authoritySession);
           if (recovery.kind === 'stopped-session') {
-            profileSessionAuthoritativeStorage.stop(authoritySession);
             profileSessionState = INITIAL_STATE;
             notifyListeners();
             return;
@@ -1835,7 +1885,7 @@ export function useProfileSessionBootstrap(): void {
           lifecycleGeneration = profileSessionLifecycleController.capture();
         }
       } else if (profileSessionState.active) {
-        stopProfileSessionInternal();
+        clearProfileSessionRuntimeState();
         return;
       }
 
