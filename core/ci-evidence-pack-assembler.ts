@@ -125,6 +125,14 @@ function requireLiveProofPlatform(value: unknown, label: string): CiEvidencePack
   return platform as CiEvidencePackPlatform;
 }
 
+function requireCiEvidencePackPlatformScope(value: unknown): CiEvidencePackPlatformScope {
+  const platformScope = requireString(value, 'platformScope');
+  if (platformScope !== 'single-platform' && platformScope !== 'cross-platform') {
+    fail("platformScope must be 'single-platform' or 'cross-platform'.");
+  }
+  return platformScope;
+}
+
 function requireLiveProofStatus(value: unknown, label: string): CiEvidencePackLiveProofSetStatus {
   const status = requireString(value, label);
   if (!LIVE_PROOF_STATUSES.has(status)) {
@@ -628,7 +636,8 @@ export function verifyCiEvidencePackLiveProofSet(
   if (input.schemaVersion !== '1.1.0') {
     fail("build input schemaVersion must be '1.1.0'.");
   }
-  verifyRequiredPlatformScope(input.platformScope, input.requiredPlatforms);
+  const platformScope = requireCiEvidencePackPlatformScope(input.platformScope);
+  verifyRequiredPlatformScope(platformScope, input.requiredPlatforms);
   if (typeof record.proofCount !== 'number' || !Number.isInteger(record.proofCount)) {
     fail('proofCount must be an integer.');
   }
@@ -648,7 +657,7 @@ export function verifyCiEvidencePackLiveProofSet(
   if (!sameStringSet(requiredPlatforms, input.requiredPlatforms)) {
     fail('live-proof-set requiredPlatforms does not match build input requiredPlatforms.');
   }
-  verifyPlatformSets(input.platformScope, requiredPlatforms, presentPlatforms, missingPlatforms, proofs);
+  verifyPlatformSets(platformScope, requiredPlatforms, presentPlatforms, missingPlatforms, proofs);
   verifyAuthorityBindings(input, proofs);
   return {
     schemaVersion,

@@ -277,7 +277,7 @@ describe('ci evidence publication receipt', () => {
     assert.equal(receipt.pack.platformClaim.status, 'failed');
     assert.equal(receipt.pack.mechanismStatus, pack.mechanismStatus);
     assert.match(receipt.summary, /publication published/);
-    assert.match(receipt.summary, /platformClaim failed/);
+    assert.match(receipt.summary, /platform evidence claim failed/);
   });
 
   it('leaves rejected and failed pack attempts untouched', () => {

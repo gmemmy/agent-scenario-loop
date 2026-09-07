@@ -295,7 +295,7 @@ describe('ci evidence publication summary', () => {
       markdown.indexOf('## Pack identity'),
       markdown.indexOf('## Publication identity'),
     );
-    assert.match(identity, /platform scope \| cross-platform/);
+    assert.match(markdown, /\| platform scope \| cross-platform \|/);
     assert.match(identity, /requiredPlatforms \| android, ios/);
     assert.match(identity, /requiredEvidenceKinds \| log, recording, verdict/);
   });
