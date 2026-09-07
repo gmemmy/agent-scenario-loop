@@ -1,8 +1,9 @@
 const {
   CiEvidencePublicationReceiptError,
   assertCiEvidencePublicationReceiptForExactPackBytes,
+  normalizeCiEvidencePublicationPlatformClaim,
 } = require('./ci-evidence-publication-receipt');
-import type { CiEvidencePack, CiEvidencePackPlatform } from './ci-evidence-pack';
+import type { CiEvidencePackArtifact, CiEvidencePackPlatform } from './ci-evidence-pack';
 import type {
   CiEvidencePublicationItemOutcome,
   CiEvidencePublicationReceipt,
@@ -191,51 +192,12 @@ function table(headers: string[], rows: string[][]): string {
   return [header, divider, ...body].join('\n');
 }
 
-type NormalizedPublicationPlatformClaim = {
-  status: string;
-  reasons: readonly string[];
-  platformScope: string;
-  requiredPlatforms: readonly CiEvidencePackPlatform[];
-};
-
-function normalizePublicationPlatformClaim(
-  pack: CiEvidencePack,
-): NormalizedPublicationPlatformClaim {
-  const packRecord = pack as CiEvidencePack & {
-    platformScope?: string;
-    platformClaim?: { status: string; reasons?: readonly string[] };
-    twoPlatformClaim?: { status: string; reasons?: readonly string[] };
-  };
-  if (packRecord.schemaVersion === '1.1.0' && packRecord.platformClaim !== undefined) {
-    return {
-      status: packRecord.platformClaim.status,
-      reasons: packRecord.platformClaim.reasons ?? [],
-      platformScope: packRecord.platformScope ?? 'declared_platforms',
-      requiredPlatforms: pack.requiredPlatforms,
-    };
-  }
-  if (packRecord.twoPlatformClaim !== undefined) {
-    return {
-      status: packRecord.twoPlatformClaim.status,
-      reasons: packRecord.twoPlatformClaim.reasons ?? [],
-      platformScope: 'cross_platform',
-      requiredPlatforms: pack.requiredPlatforms,
-    };
-  }
-  return {
-    status: 'unknown',
-    reasons: [],
-    platformScope: packRecord.platformScope ?? 'declared_platforms',
-    requiredPlatforms: pack.requiredPlatforms,
-  };
-}
-
-function declaredRequiredPlatforms(pack: CiEvidencePack): CiEvidencePackPlatform[] {
-  return [...normalizePublicationPlatformClaim(pack).requiredPlatforms].sort(compareUtf16);
+function declaredRequiredPlatforms(pack: CiEvidencePackArtifact): CiEvidencePackPlatform[] {
+  return [...normalizeCiEvidencePublicationPlatformClaim(pack).requiredPlatforms].sort(compareUtf16);
 }
 
 function selectedProductVerdict(
-  pack: CiEvidencePack,
+  pack: CiEvidencePackArtifact,
   platform: CiEvidencePackPlatform,
 ): string {
   const platformRecord = pack.platforms.find((item) => item.platform === platform);
@@ -271,7 +233,7 @@ function selectedProductVerdict(
   return matchingVerdicts[0]?.status ?? 'not_evaluated';
 }
 
-function sortEvidence(pack: CiEvidencePack, platform: CiEvidencePackPlatform) {
+function sortEvidence(pack: CiEvidencePackArtifact, platform: CiEvidencePackPlatform) {
   const requiredOrder = new Map(
     [...pack.requiredEvidenceKinds].sort(compareUtf16).map((kind, index) => [kind, index]),
   );
@@ -365,7 +327,7 @@ function renderEvidenceCell(
 }
 
 function attemptIdentityLabel(
-  pack: CiEvidencePack,
+  pack: CiEvidencePackArtifact,
   attemptId: string,
   selectedId: string | undefined,
 ): string {
@@ -378,7 +340,7 @@ function attemptIdentityLabel(
 }
 
 function renderPlatformSection(
-  pack: CiEvidencePack,
+  pack: CiEvidencePackArtifact,
   receipt: CiEvidencePublicationReceipt,
   platform: CiEvidencePackPlatform,
 ): string {
@@ -422,7 +384,7 @@ function renderPlatformSection(
   return [heading, '', identityTable, '', evidenceTable].join('\n');
 }
 
-function renderAttempts(pack: CiEvidencePack): string {
+function renderAttempts(pack: CiEvidencePackArtifact): string {
   const sorted = [...pack.attempts].sort((left, right) => {
     if (left.platform !== right.platform) {
       return left.platform === 'android' ? -1 : 1;
@@ -473,7 +435,7 @@ function publicationOutcomeSuppliesUsableLinkForAudience(
 }
 
 function unpublishedRows(
-  pack: CiEvidencePack,
+  pack: CiEvidencePackArtifact,
   receipt: CiEvidencePublicationReceipt,
   audience: CiEvidencePublicationAudience,
 ): string[][] {
@@ -653,11 +615,11 @@ export type CiEvidencePublicationSummaryEvaluation =
     };
 
 function prepareCiEvidencePublicationSummaryInputs(
-  packInput: CiEvidencePack,
+  packInput: CiEvidencePackArtifact,
   receiptInput: CiEvidencePublicationReceipt,
   exactPackBytesInput: Uint8Array,
 ): {
-  pack: CiEvidencePack;
+  pack: CiEvidencePackArtifact;
   receipt: CiEvidencePublicationReceipt;
 } {
   const pack = cloneJsonValue(packInput);
@@ -669,7 +631,7 @@ function prepareCiEvidencePublicationSummaryInputs(
 }
 
 function evaluatePreparedPublicationSummary(
-  pack: CiEvidencePack,
+  pack: CiEvidencePackArtifact,
   receipt: CiEvidencePublicationReceipt,
   audience: CiEvidencePublicationAudience,
 ): CiEvidencePublicationSummaryEvaluation {
@@ -694,7 +656,7 @@ function evaluatePreparedPublicationSummary(
 }
 
 function evaluateCiEvidencePublicationSummary(
-  packInput: CiEvidencePack,
+  packInput: CiEvidencePackArtifact,
   receiptInput: CiEvidencePublicationReceipt,
   exactPackBytesInput: Uint8Array,
   options?: CiEvidencePublicationSummaryEvaluationOptions,
@@ -709,7 +671,7 @@ function evaluateCiEvidencePublicationSummary(
 }
 
 function renderCiEvidencePublicationSummary(
-  packInput: CiEvidencePack,
+  packInput: CiEvidencePackArtifact,
   receiptInput: CiEvidencePublicationReceipt,
   exactPackBytesInput: Uint8Array,
 ): string {
@@ -724,7 +686,7 @@ function renderCiEvidencePublicationSummary(
       ? escapeMarkdownPlain('none')
       : evaluation.reasons.map((reason) => `- ${escapeMarkdownPlain(reason)}`).join('\n');
 
-  const platformClaim = normalizePublicationPlatformClaim(pack);
+  const platformClaim = normalizeCiEvidencePublicationPlatformClaim(pack);
   const declaredPlatforms = declaredRequiredPlatforms(pack);
   const productVerdictRows = declaredPlatforms.map((platform) => [
     `${platform === 'android' ? 'Android' : 'iOS'} selected product verdict`,
@@ -735,7 +697,7 @@ function renderCiEvidencePublicationSummary(
     [
       ['pack mechanism', escapeMarkdownCell(pack.mechanismStatus)],
       ['platform scope', escapeMarkdownCell(platformClaim.platformScope)],
-      ['platform evidence claim', escapeMarkdownCell(platformClaim.status)],
+      ['platform evidence claim', escapeMarkdownCell(platformClaim.claimStatus)],
       ['comparison', escapeMarkdownCell(pack.comparisonStatus)],
       ['completeness', escapeMarkdownCell(pack.completeness.status)],
       ['assembly', escapeMarkdownCell(pack.assembly.status)],

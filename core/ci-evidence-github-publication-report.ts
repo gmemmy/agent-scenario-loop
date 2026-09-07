@@ -3,7 +3,7 @@ import {
   type CiEvidenceGithubPublicationGateResult,
 } from './ci-evidence-github-publication-gate';
 import type {
-  CiEvidencePack,
+  CiEvidencePackArtifact,
   CiEvidencePackAttemptRecord,
   CiEvidencePackPlatform,
 } from './ci-evidence-pack';
@@ -12,6 +12,7 @@ import type {
   CiEvidencePublicationReceipt,
   CiEvidencePublicationRequestedItem,
 } from './ci-evidence-publication-receipt';
+import { normalizeCiEvidencePublicationPlatformClaim } from './ci-evidence-publication-receipt';
 
 export interface CiEvidenceGithubPublicationReport {
   readonly gate: CiEvidenceGithubPublicationGateResult;
@@ -28,8 +29,10 @@ function compareUtf16(left: string, right: string): number {
   return 0;
 }
 
-function declaredRequiredPlatforms(pack: CiEvidencePack): CiEvidencePackPlatform[] {
-  return [...pack.requiredPlatforms].sort((left, right) => compareUtf16(left, right));
+function declaredRequiredPlatforms(pack: CiEvidencePackArtifact): CiEvidencePackPlatform[] {
+  return [...normalizeCiEvidencePublicationPlatformClaim(pack).requiredPlatforms].sort(
+    (left, right) => compareUtf16(left, right),
+  );
 }
 
 function isUntrustedControlOrFormatChar(code: number): boolean {
@@ -169,7 +172,7 @@ function table(headers: string[], rows: string[][]): string {
   return [header, divider, ...body].join('\n');
 }
 
-function selectedProductVerdict(pack: CiEvidencePack, platform: CiEvidencePackPlatform): string {
+function selectedProductVerdict(pack: CiEvidencePackArtifact, platform: CiEvidencePackPlatform): string {
   const platformRecord = pack.platforms.find((item) => item.platform === platform);
   if (platformRecord?.selectedAttemptId === undefined) {
     return 'not_evaluated';
@@ -242,7 +245,7 @@ function renderAuthenticatedOutcome(
 }
 
 function selectedAttemptIdFor(
-  pack: CiEvidencePack,
+  pack: CiEvidencePackArtifact,
   platform: CiEvidencePackPlatform,
 ): string | undefined {
   return pack.platforms.find((item) => item.platform === platform)?.selectedAttemptId;
@@ -273,6 +276,7 @@ function sortRequestedItems(
 
 function renderGateTable(gate: CiEvidenceGithubPublicationGateResult): string {
   const { pack, receipt, evaluation } = gate;
+  const platformBinding = normalizeCiEvidencePublicationPlatformClaim(pack);
   return table(
     ['Field', 'Value'],
     [
@@ -280,12 +284,12 @@ function renderGateTable(gate: CiEvidenceGithubPublicationGateResult): string {
       ['source status', escapeMarkdownCell(pack.source.status)],
       ['live-proof-set status', escapeMarkdownCell(pack.liveProofSet.status)],
       ['pack mechanism', escapeMarkdownCell(pack.mechanismStatus)],
-      ['platform scope', escapeMarkdownCell(pack.platformScope)],
+      ['platform scope', escapeMarkdownCell(platformBinding.platformScope)],
       [
         'required platforms',
         escapeMarkdownCell(declaredRequiredPlatforms(pack).join(',')),
       ],
-      ['platform evidence claim', escapeMarkdownCell(pack.platformClaim.status)],
+      ['platform evidence claim', escapeMarkdownCell(platformBinding.claimStatus)],
       ['completeness', escapeMarkdownCell(pack.completeness.status)],
       ['assembly', escapeMarkdownCell(pack.assembly.status)],
       ['publication status', escapeMarkdownCell(receipt.publicationStatus)],
@@ -305,7 +309,7 @@ function renderGateReasons(gate: CiEvidenceGithubPublicationGateResult): string 
   return lines.join('\n');
 }
 
-function renderPlatformTable(pack: CiEvidencePack): string {
+function renderPlatformTable(pack: CiEvidencePackArtifact): string {
   const rows = declaredRequiredPlatforms(pack).map((platform) => {
     const record = pack.platforms.find((item) => item.platform === platform);
     const selectedAttemptId = record?.selectedAttemptId;
@@ -323,7 +327,7 @@ function renderPlatformTable(pack: CiEvidencePack): string {
   );
 }
 
-function renderAttemptsTable(pack: CiEvidencePack): string {
+function renderAttemptsTable(pack: CiEvidencePackArtifact): string {
   const rows = sortAttempts(pack.attempts).map((attempt) => {
     const selectedId = selectedAttemptIdFor(pack, attempt.platform);
     const selected = selectedId !== undefined && selectedId === attempt.attemptId ? 'selected' : '';

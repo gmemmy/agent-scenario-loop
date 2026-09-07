@@ -18,7 +18,7 @@
     "nextAction"
   ],
   "properties": {
-    "schemaVersion": { "const": "1.1.0" },
+    "schemaVersion": { "enum": ["1.0.0", "1.1.0"] },
     "receiptId": { "type": "string", "minLength": 1 },
     "createdAt": {
       "type": "string",
@@ -121,7 +121,12 @@
           },
           "then": {
             "required": ["twoPlatformClaim"],
-            "not": { "required": ["platformScope", "platformClaim"] }
+            "not": {
+              "anyOf": [
+                { "required": ["platformScope"] },
+                { "required": ["platformClaim"] }
+              ]
+            }
           }
         }
       ],
@@ -163,10 +168,25 @@
         },
         "requiredPlatforms": {
           "type": "array",
-          "minItems": 2,
+          "minItems": 1,
           "maxItems": 2,
           "uniqueItems": true,
           "items": { "enum": ["android", "ios"] }
+        },
+        "platformScope": {
+          "enum": ["single-platform", "cross-platform"]
+        },
+        "platformClaim": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "reasons"],
+          "properties": {
+            "status": { "enum": ["passed", "failed", "not_evaluable"] },
+            "reasons": {
+              "type": "array",
+              "items": { "type": "string", "minLength": 1 }
+            }
+          }
         },
         "requiredEvidenceKinds": {
           "type": "array",

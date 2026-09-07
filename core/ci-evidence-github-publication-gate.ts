@@ -1,6 +1,9 @@
 import { admitCiEvidenceGithubPublicationFacts } from './ci-evidence-github-publication-input';
 import { parseCiEvidencePackBytes } from './ci-evidence-pack';
-import { buildCiEvidencePublicationReceipt } from './ci-evidence-publication-receipt';
+import {
+  buildCiEvidencePublicationReceipt,
+  normalizeCiEvidencePublicationPlatformClaim,
+} from './ci-evidence-publication-receipt';
 import { evaluateCiEvidencePublicationSummary } from './ci-evidence-publication-summary';
 import type { CiEvidencePublicationReceiptFacts } from './ci-evidence-publication-receipt';
 import type { CiEvidencePublicationSummaryEvaluation } from './ci-evidence-publication-summary';
@@ -37,24 +40,6 @@ const GATE_REASON_ORDER = [
   'pack.platformClaim.status',
   'publication.evaluation.status',
 ] as const;
-
-type DeclaredPlatformClaim = {
-  readonly status: string;
-};
-
-function declaredPlatformClaim(
-  pack: ReturnType<typeof parseCiEvidencePackBytes>,
-): DeclaredPlatformClaim {
-  if ('platformClaim' in pack) {
-    return pack.platformClaim;
-  }
-  if ('twoPlatformClaim' in pack) {
-    return pack.twoPlatformClaim;
-  }
-  throw new CiEvidenceGithubPublicationGateError(
-    'CI evidence pack is missing a declared platform evidence claim',
-  );
-}
 
 type GateReasonKey = (typeof GATE_REASON_ORDER)[number];
 
@@ -114,7 +99,7 @@ function collectGateReasons(
   publicationEvaluation: CiEvidencePublicationSummaryEvaluation,
 ): string[] {
   const headSha = publicationFacts.context.headSha;
-  const platformClaim = declaredPlatformClaim(pack);
+  const platformClaim = normalizeCiEvidencePublicationPlatformClaim(pack);
   const candidates: Record<GateReasonKey, string | undefined> = {
     'pack.source.status':
       pack.source.status === 'current'
@@ -147,9 +132,9 @@ function collectGateReasons(
         ? undefined
         : unexpectedStatus('pack.mechanismStatus', pack.mechanismStatus, 'succeeded'),
     'pack.platformClaim.status':
-      platformClaim.status === 'passed'
+      platformClaim.claimStatus === 'passed'
         ? undefined
-        : unexpectedStatus('pack.platformClaim.status', platformClaim.status, 'passed'),
+        : unexpectedStatus('pack.platformClaim.status', platformClaim.claimStatus, 'passed'),
     'publication.evaluation.status':
       publicationEvaluation.status === 'passed'
         ? undefined
