@@ -191,6 +191,49 @@ function table(headers: string[], rows: string[][]): string {
   return [header, divider, ...body].join('\n');
 }
 
+type NormalizedPublicationPlatformClaim = {
+  status: string;
+  reasons: readonly string[];
+  platformScope: string;
+  requiredPlatforms: readonly CiEvidencePackPlatform[];
+};
+
+function normalizePublicationPlatformClaim(
+  pack: CiEvidencePack,
+): NormalizedPublicationPlatformClaim {
+  const packRecord = pack as CiEvidencePack & {
+    platformScope?: string;
+    platformClaim?: { status: string; reasons?: readonly string[] };
+    twoPlatformClaim?: { status: string; reasons?: readonly string[] };
+  };
+  if (packRecord.schemaVersion === '1.1.0' && packRecord.platformClaim !== undefined) {
+    return {
+      status: packRecord.platformClaim.status,
+      reasons: packRecord.platformClaim.reasons ?? [],
+      platformScope: packRecord.platformScope ?? 'declared_platforms',
+      requiredPlatforms: pack.requiredPlatforms,
+    };
+  }
+  if (packRecord.twoPlatformClaim !== undefined) {
+    return {
+      status: packRecord.twoPlatformClaim.status,
+      reasons: packRecord.twoPlatformClaim.reasons ?? [],
+      platformScope: 'cross_platform',
+      requiredPlatforms: pack.requiredPlatforms,
+    };
+  }
+  return {
+    status: 'unknown',
+    reasons: [],
+    platformScope: packRecord.platformScope ?? 'declared_platforms',
+    requiredPlatforms: pack.requiredPlatforms,
+  };
+}
+
+function declaredRequiredPlatforms(pack: CiEvidencePack): CiEvidencePackPlatform[] {
+  return [...normalizePublicationPlatformClaim(pack).requiredPlatforms].sort(compareUtf16);
+}
+
 function selectedProductVerdict(
   pack: CiEvidencePack,
   platform: CiEvidencePackPlatform,
@@ -485,7 +528,7 @@ function unpublishedRows(
   }
 
   const obligationRows: string[][] = [];
-  for (const platform of ['android', 'ios'] as const) {
+  for (const platform of declaredRequiredPlatforms(pack)) {
     const requiredKinds = [...pack.requiredEvidenceKinds].sort(compareUtf16);
     for (const kind of requiredKinds) {
       const selectedAttemptId = pack.platforms.find((item) => item.platform === platform)
@@ -681,18 +724,22 @@ function renderCiEvidencePublicationSummary(
       ? escapeMarkdownPlain('none')
       : evaluation.reasons.map((reason) => `- ${escapeMarkdownPlain(reason)}`).join('\n');
 
-  const androidVerdict = selectedProductVerdict(pack, 'android');
-  const iosVerdict = selectedProductVerdict(pack, 'ios');
+  const platformClaim = normalizePublicationPlatformClaim(pack);
+  const declaredPlatforms = declaredRequiredPlatforms(pack);
+  const productVerdictRows = declaredPlatforms.map((platform) => [
+    `${platform === 'android' ? 'Android' : 'iOS'} selected product verdict`,
+    escapeMarkdownCell(selectedProductVerdict(pack, platform)),
+  ]);
   const distinct = table(
     ['Plane', 'Status'],
     [
       ['pack mechanism', escapeMarkdownCell(pack.mechanismStatus)],
-      ['two-platform evidence claim', escapeMarkdownCell(pack.twoPlatformClaim.status)],
+      ['platform scope', escapeMarkdownCell(platformClaim.platformScope)],
+      ['platform evidence claim', escapeMarkdownCell(platformClaim.status)],
       ['comparison', escapeMarkdownCell(pack.comparisonStatus)],
       ['completeness', escapeMarkdownCell(pack.completeness.status)],
       ['assembly', escapeMarkdownCell(pack.assembly.status)],
-      ['Android selected product verdict', escapeMarkdownCell(androidVerdict)],
-      ['iOS selected product verdict', escapeMarkdownCell(iosVerdict)],
+      ...productVerdictRows,
       ['publication', escapeMarkdownCell(receipt.publicationStatus)],
       ['publication evidence gate', escapeMarkdownCell(evaluation.status)],
     ],
@@ -737,7 +784,7 @@ function renderCiEvidencePublicationSummary(
 
   const guardrails = [
     'Publication success does not prove mechanism success.',
-    'Publication success does not prove two-platform evidence success.',
+    'Publication success does not prove platform evidence success.',
     'Publication success does not prove product behavior.',
     'Publication success does not prove comparison.',
     'Publication success does not prove completeness.',
@@ -762,10 +809,10 @@ function renderCiEvidencePublicationSummary(
     '',
     publicationIdentity,
     '',
-    renderPlatformSection(pack, receipt, 'android'),
-    '',
-    renderPlatformSection(pack, receipt, 'ios'),
-    '',
+    ...declaredPlatforms.flatMap((platform) => [
+      renderPlatformSection(pack, receipt, platform),
+      '',
+    ]),
     renderAttempts(pack),
     '',
     '## Unpublished and missing evidence',

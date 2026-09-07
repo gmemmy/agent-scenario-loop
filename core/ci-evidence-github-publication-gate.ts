@@ -34,9 +34,27 @@ const GATE_REASON_ORDER = [
   'pack.completeness.status',
   'pack.assembly.status',
   'pack.mechanismStatus',
-  'pack.twoPlatformClaim.status',
+  'pack.platformClaim.status',
   'publication.evaluation.status',
 ] as const;
+
+type DeclaredPlatformClaim = {
+  readonly status: string;
+};
+
+function declaredPlatformClaim(
+  pack: ReturnType<typeof parseCiEvidencePackBytes>,
+): DeclaredPlatformClaim {
+  if ('platformClaim' in pack) {
+    return pack.platformClaim;
+  }
+  if ('twoPlatformClaim' in pack) {
+    return pack.twoPlatformClaim;
+  }
+  throw new CiEvidenceGithubPublicationGateError(
+    'CI evidence pack is missing a declared platform evidence claim',
+  );
+}
 
 type GateReasonKey = (typeof GATE_REASON_ORDER)[number];
 
@@ -96,6 +114,7 @@ function collectGateReasons(
   publicationEvaluation: CiEvidencePublicationSummaryEvaluation,
 ): string[] {
   const headSha = publicationFacts.context.headSha;
+  const platformClaim = declaredPlatformClaim(pack);
   const candidates: Record<GateReasonKey, string | undefined> = {
     'pack.source.status':
       pack.source.status === 'current'
@@ -127,10 +146,10 @@ function collectGateReasons(
       pack.mechanismStatus === 'succeeded'
         ? undefined
         : unexpectedStatus('pack.mechanismStatus', pack.mechanismStatus, 'succeeded'),
-    'pack.twoPlatformClaim.status':
-      pack.twoPlatformClaim.status === 'passed'
+    'pack.platformClaim.status':
+      platformClaim.status === 'passed'
         ? undefined
-        : unexpectedStatus('pack.twoPlatformClaim.status', pack.twoPlatformClaim.status, 'passed'),
+        : unexpectedStatus('pack.platformClaim.status', platformClaim.status, 'passed'),
     'publication.evaluation.status':
       publicationEvaluation.status === 'passed'
         ? undefined

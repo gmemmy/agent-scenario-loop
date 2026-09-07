@@ -18,8 +18,6 @@ export interface CiEvidenceGithubPublicationReport {
   readonly markdown: string;
 }
 
-const PLATFORMS: readonly CiEvidencePackPlatform[] = ['android', 'ios'];
-
 function compareUtf16(left: string, right: string): number {
   if (left < right) {
     return -1;
@@ -28,6 +26,10 @@ function compareUtf16(left: string, right: string): number {
     return 1;
   }
   return 0;
+}
+
+function declaredRequiredPlatforms(pack: CiEvidencePack): CiEvidencePackPlatform[] {
+  return [...pack.requiredPlatforms].sort((left, right) => compareUtf16(left, right));
 }
 
 function isUntrustedControlOrFormatChar(code: number): boolean {
@@ -278,7 +280,12 @@ function renderGateTable(gate: CiEvidenceGithubPublicationGateResult): string {
       ['source status', escapeMarkdownCell(pack.source.status)],
       ['live-proof-set status', escapeMarkdownCell(pack.liveProofSet.status)],
       ['pack mechanism', escapeMarkdownCell(pack.mechanismStatus)],
-      ['two-platform evidence claim', escapeMarkdownCell(pack.twoPlatformClaim.status)],
+      ['platform scope', escapeMarkdownCell(pack.platformScope)],
+      [
+        'required platforms',
+        escapeMarkdownCell(declaredRequiredPlatforms(pack).join(',')),
+      ],
+      ['platform evidence claim', escapeMarkdownCell(pack.platformClaim.status)],
       ['completeness', escapeMarkdownCell(pack.completeness.status)],
       ['assembly', escapeMarkdownCell(pack.assembly.status)],
       ['publication status', escapeMarkdownCell(receipt.publicationStatus)],
@@ -299,7 +306,7 @@ function renderGateReasons(gate: CiEvidenceGithubPublicationGateResult): string 
 }
 
 function renderPlatformTable(pack: CiEvidencePack): string {
-  const rows = PLATFORMS.map((platform) => {
+  const rows = declaredRequiredPlatforms(pack).map((platform) => {
     const record = pack.platforms.find((item) => item.platform === platform);
     const selectedAttemptId = record?.selectedAttemptId;
     return [
