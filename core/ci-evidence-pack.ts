@@ -1041,6 +1041,7 @@ export {
   CI_EVIDENCE_PACK_SCHEMA_VERSION,
   CI_EVIDENCE_PACK_LEGACY_SCHEMA_VERSION,
   CiEvidencePackError,
+  assertCiEvidencePackLegacySemantics,
   assertCiEvidencePackRunRelativePath,
   assertCiEvidencePackSemantics,
   buildCiEvidencePack,
