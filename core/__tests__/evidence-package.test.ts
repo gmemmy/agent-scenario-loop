@@ -64,6 +64,49 @@ function mode(filePath: string): number {
   return fs.statSync(filePath).mode & 0o777;
 }
 
+async function usePortableRequest(fixture: Awaited<ReturnType<typeof setup>>): Promise<void> {
+  await fsp.writeFile(
+    path.join(fixture.sourceRoot, 'raw', 'ui-tree.json'),
+    JSON.stringify({ producerRoot: fixture.sourceRoot }),
+    'utf8',
+  );
+  fixture.request.schemaVersion = '1.1.0';
+  fixture.request.jsonPointers = [{
+    sourcePath: 'raw/ui-tree.json',
+    jsonPointer: '/producerRoot',
+    role: 'host-local-provenance',
+  }];
+}
+
+function resealEvidencePackageControlFiles(outputDir: string): void {
+  const manifestPath = path.join(outputDir, 'evidence-package.json');
+  const checksumsPath = path.join(outputDir, 'SHA256SUMS');
+  const markerPath = path.join(outputDir, 'evidence-package.complete');
+  const artifact = JSON.parse(fs.readFileSync(manifestPath, 'utf8')) as Record<string, unknown>;
+  const manifestText = `${JSON.stringify(artifact, null, 2)}\n`;
+  fs.writeFileSync(manifestPath, manifestText);
+  fs.chmodSync(manifestPath, 0o600);
+  const manifestDigest = crypto.createHash('sha256').update(manifestText).digest('hex');
+  const markerText = `${manifestDigest}\n`;
+  fs.writeFileSync(markerPath, markerText);
+  fs.chmodSync(markerPath, 0o600);
+  const checksumLines = fs.readFileSync(checksumsPath, 'utf8').trimEnd().split('\n');
+  const nextLines = checksumLines.map((line: string) => {
+    const separator = line.indexOf('  ');
+    const relativePath = separator === -1 ? undefined : line.slice(separator + 2);
+    if (relativePath === 'evidence-package.json') {
+      return `${manifestDigest}  evidence-package.json`;
+    }
+    if (relativePath === 'evidence-package.complete') {
+      const markerDigest = crypto.createHash('sha256').update(markerText).digest('hex');
+      return `${markerDigest}  evidence-package.complete`;
+    }
+    return line;
+  });
+  fs.writeFileSync(checksumsPath, `${nextLines.join('\n')}\n`);
+  fs.chmodSync(checksumsPath, 0o600);
+}
+
 test('materializes only allowlisted stable bytes with deterministic inventory and private modes', async (t: TestContext) => {
   const fixture = await setup(t);
   const result = await materializeEvidencePackage(fixture.request);
@@ -101,6 +144,9 @@ test('materializes only allowlisted stable bytes with deterministic inventory an
       expected,
     );
   }
+  assert.equal('completionMarkerPath' in result.artifact, false);
+  assert.equal(fs.existsSync(path.join(fixture.outputDir, 'evidence-package.complete')), false);
+  assert.equal(verifyEvidencePackage(fixture.outputDir).status, 'complete');
 });
 
 test('public artifact schema rejects destinations outside files and control characters', () => {
@@ -533,6 +579,12 @@ test('materializes classified JSON references and verifies them after relocation
   if (artifact.schemaVersion !== '1.1.0') {
     throw new Error('expected evidence package schema 1.1.0');
   }
+  assert.equal(artifact.completionMarkerPath, 'evidence-package.complete');
+  assert.equal(mode(path.join(result.outputDir, artifact.completionMarkerPath)), 0o600);
+  assert.equal(
+    fs.readFileSync(path.join(result.outputDir, artifact.completionMarkerPath), 'utf8'),
+    `${crypto.createHash('sha256').update(fs.readFileSync(result.manifestPath)).digest('hex')}\n`,
+  );
   assert.deepEqual(artifact.jsonPointers, [
     {
       artifactPath: 'files/report.json',
@@ -563,6 +615,11 @@ test('materializes classified JSON references and verifies them after relocation
   await fsp.rename(result.outputDir, relocated);
   const verification = verifyEvidencePackage(relocated);
   assert.equal(verification.status, 'complete');
+  assert.equal(mode(path.join(relocated, 'evidence-package.complete')), 0o600);
+  assert.equal(
+    fs.readFileSync(path.join(relocated, 'evidence-package.complete'), 'utf8'),
+    `${crypto.createHash('sha256').update(fs.readFileSync(path.join(relocated, 'evidence-package.json'))).digest('hex')}\n`,
+  );
   assert.equal(verification.outputDir, fs.realpathSync(relocated));
   const relocatedReport = JSON.parse(
     await fsp.readFile(path.join(relocated, 'files', 'report.json'), 'utf8'),
@@ -759,6 +816,213 @@ test('rejects invalid classified pointer targets without publishing', async (t: 
   );
 });
 
+type TrackedFsEvent = {
+  flags?: string;
+  op: 'open' | 'fsync';
+  path: string;
+};
+
+function canonicalOutputPath(outputDir: string): string {
+  return path.join(fs.realpathSync(path.dirname(outputDir)), path.basename(outputDir));
+}
+
+function installTrackedFsync(failurePath: string, failure: Error): {
+  events: TrackedFsEvent[];
+  restore: () => void;
+} {
+  const originalOpenSync = fs.openSync;
+  const originalCloseSync = fs.closeSync;
+  const originalFsyncSync = fs.fsyncSync;
+  const fdToPath = new Map<number, string>();
+  const events: TrackedFsEvent[] = [];
+  let failed = false;
+
+  fs.openSync = ((target: string, flags: string, mode?: number): number => {
+    const fd = originalOpenSync(target, flags, mode);
+    const resolved = path.resolve(target);
+    fdToPath.set(fd, resolved);
+    events.push({ op: 'open', path: resolved, flags });
+    return fd;
+  }) as typeof fs.openSync;
+  fs.closeSync = ((fileDescriptor: number): void => {
+    try {
+      originalCloseSync(fileDescriptor);
+    } finally {
+      fdToPath.delete(fileDescriptor);
+    }
+  }) as typeof fs.closeSync;
+  fs.fsyncSync = ((fileDescriptor: number): void => {
+    const event = {
+      op: 'fsync' as const,
+      path: fdToPath.get(fileDescriptor) ?? `<fd:${fileDescriptor}>`,
+    };
+    events.push(event);
+    if (!failed && event.path === failurePath) {
+      failed = true;
+      throw failure;
+    }
+    originalFsyncSync(fileDescriptor);
+  }) as typeof fs.fsyncSync;
+
+  return {
+    events,
+    restore: () => {
+      fs.openSync = originalOpenSync;
+      fs.closeSync = originalCloseSync;
+      fs.fsyncSync = originalFsyncSync;
+    },
+  };
+}
+
+function publicationEventIndexes(events: TrackedFsEvent[], outputDir: string): {
+  markerFsync: number;
+  markerOpen: number;
+  outputDirectoryFsync: number;
+} {
+  const canonicalOutput = canonicalOutputPath(outputDir);
+  const markerPath = path.join(canonicalOutput, 'evidence-package.complete');
+  return {
+    markerFsync: events.findIndex((event) => event.op === 'fsync' && event.path === markerPath),
+    markerOpen: events.findIndex((event) => (
+      event.op === 'open' && event.path === markerPath && event.flags === 'wx'
+    )),
+    outputDirectoryFsync: events.findIndex((event) => (
+      event.op === 'fsync' && event.path === canonicalOutput
+    )),
+  };
+}
+
+function assertSealedContentsFsyncBeforeMarker(events: TrackedFsEvent[], outputDir: string): void {
+  const indexes = publicationEventIndexes(events, outputDir);
+  const canonicalOutput = canonicalOutputPath(outputDir);
+  assert.notEqual(indexes.markerOpen, -1);
+  for (const relativePath of [
+    'files/journey.mov',
+    'files/nested/ui-tree.json',
+    'evidence-package.json',
+    'SHA256SUMS',
+    'files/nested',
+    'files',
+  ]) {
+    const fsyncIndex = events.findIndex((event) => (
+      event.op === 'fsync' && event.path === path.join(canonicalOutput, relativePath)
+    ));
+    assert.notEqual(fsyncIndex, -1, `expected fsync for ${relativePath}`);
+    assert.equal(fsyncIndex < indexes.markerOpen, true, `expected ${relativePath} fsync before marker create`);
+  }
+}
+
+async function prepareNestedPortableRequest(
+  fixture: Awaited<ReturnType<typeof setup>>,
+): Promise<void> {
+  await usePortableRequest(fixture);
+  const entries = fixture.request.entries;
+  if (!Array.isArray(entries) || typeof entries[0] !== 'object' || entries[0] === null) {
+    throw new Error('expected evidence package entries');
+  }
+  (entries[0] as Record<string, unknown>).artifactPath = 'files/nested/ui-tree.json';
+}
+
+test('completion-marker fsync failure preserves ordering, removes output, and permits retry', async (t: TestContext) => {
+  const fixture = await setup(t);
+  await prepareNestedPortableRequest(fixture);
+  const failure = new Error('simulated completion-marker fsync interruption');
+  const tracked = installTrackedFsync(
+    path.join(canonicalOutputPath(fixture.outputDir), 'evidence-package.complete'),
+    failure,
+  );
+  try {
+    await assert.rejects(
+      materializeEvidencePackage(fixture.request),
+      (error: unknown) => error === failure,
+    );
+    assertSealedContentsFsyncBeforeMarker(tracked.events, fixture.outputDir);
+    const indexes = publicationEventIndexes(tracked.events, fixture.outputDir);
+    assert.notEqual(indexes.markerFsync, -1);
+    assert.equal(indexes.markerOpen < indexes.markerFsync, true);
+    assert.equal(indexes.outputDirectoryFsync, -1);
+    assert.equal(fs.existsSync(fixture.outputDir), false);
+  } finally {
+    tracked.restore();
+  }
+
+  const result = await materializeEvidencePackage(fixture.request);
+  assert.equal(verifyEvidencePackage(result.outputDir).status, 'complete');
+});
+
+test('final directory fsync failure removes output and permits a clean retry', async (t: TestContext) => {
+  const fixture = await setup(t);
+  await prepareNestedPortableRequest(fixture);
+  const failure = new Error('simulated output-directory fsync interruption');
+  const tracked = installTrackedFsync(canonicalOutputPath(fixture.outputDir), failure);
+  try {
+    await assert.rejects(
+      materializeEvidencePackage(fixture.request),
+      (error: unknown) => error === failure,
+    );
+    assertSealedContentsFsyncBeforeMarker(tracked.events, fixture.outputDir);
+    const indexes = publicationEventIndexes(tracked.events, fixture.outputDir);
+    assert.notEqual(indexes.markerFsync, -1);
+    assert.notEqual(indexes.outputDirectoryFsync, -1);
+    assert.equal(indexes.markerOpen < indexes.markerFsync, true);
+    assert.equal(indexes.markerFsync < indexes.outputDirectoryFsync, true);
+    assert.equal(fs.existsSync(fixture.outputDir), false);
+  } finally {
+    tracked.restore();
+  }
+
+  const result = await materializeEvidencePackage(fixture.request);
+  assert.equal(verifyEvidencePackage(result.outputDir).status, 'complete');
+});
+
+test('verifier rejects crash-shaped output without its completion marker', async (t: TestContext) => {
+  const fixture = await setup(t);
+  await usePortableRequest(fixture);
+  const result = await materializeEvidencePackage(fixture.request);
+  const markerPath = path.join(result.outputDir, 'evidence-package.complete');
+  const preserved = {
+    checksums: fs.readFileSync(result.checksumsPath),
+    manifest: fs.readFileSync(result.manifestPath),
+    recording: fs.readFileSync(path.join(result.outputDir, 'files', 'journey.mov')),
+    uiTree: fs.readFileSync(path.join(result.outputDir, 'files', 'ui-tree.json')),
+  };
+  await fsp.unlink(markerPath);
+
+  assert.throws(
+    () => verifyEvidencePackage(result.outputDir),
+    (error: unknown) => (
+      error instanceof EvidencePackageError &&
+      error.rejections.some((rejection) => (
+        rejection.code === 'checksum-mismatch' &&
+        rejection.artifactPath === 'evidence-package.complete'
+      ))
+    ),
+  );
+  assert.equal(fs.existsSync(markerPath), false);
+  assert.deepEqual(fs.readFileSync(result.checksumsPath), preserved.checksums);
+  assert.deepEqual(fs.readFileSync(result.manifestPath), preserved.manifest);
+  assert.deepEqual(fs.readFileSync(path.join(result.outputDir, 'files', 'journey.mov')), preserved.recording);
+  assert.deepEqual(fs.readFileSync(path.join(result.outputDir, 'files', 'ui-tree.json')), preserved.uiTree);
+});
+
+test('verifier rejects completion-marker content drift', async (t: TestContext) => {
+  const fixture = await setup(t);
+  await usePortableRequest(fixture);
+  const result = await materializeEvidencePackage(fixture.request);
+  await fsp.writeFile(
+    path.join(result.outputDir, 'evidence-package.complete'),
+    `${'0'.repeat(64)}\n`,
+    'utf8',
+  );
+  assert.throws(
+    () => verifyEvidencePackage(result.outputDir),
+    (error: unknown) => (
+      error instanceof EvidencePackageError &&
+      error.rejections.some((rejection) => rejection.code === 'checksum-mismatch')
+    ),
+  );
+});
+
 test('rejects duplicate and unbound JSON pointer declarations', async (t: TestContext) => {
   const duplicate = await setup(t);
   duplicate.request.schemaVersion = '1.1.0';
@@ -790,6 +1054,49 @@ test('rejects duplicate and unbound JSON pointer declarations', async (t: TestCo
     ),
   );
   assert.equal(fs.existsSync(unbound.outputDir), false);
+});
+
+test('verifier rejects resealed duplicate JSON pointer records', async (t: TestContext) => {
+  const fixture = await setup(t);
+  const targetPath = path.join(fixture.sourceRoot, 'raw', 'ui-tree.json');
+  const reportPath = path.join(fixture.sourceRoot, 'raw', 'report.json');
+  const producerRoot = path.join(fixture.tempDir, 'producer-root');
+  await fsp.mkdir(producerRoot);
+  await fsp.writeFile(reportPath, JSON.stringify({ artifact: targetPath, producerRoot }), 'utf8');
+  const request = fixture.request as Record<string, unknown> & {entries: Array<Record<string, unknown>>};
+  request.schemaVersion = '1.1.0';
+  request.entries.push({
+    kind: 'summary',
+    sourcePath: 'raw/report.json',
+    artifactPath: 'files/report.json',
+  });
+  request.jsonPointers = [{
+    sourcePath: 'raw/report.json',
+    jsonPointer: '/artifact',
+    role: 'artifact-reference',
+    referencedSourcePath: 'raw/ui-tree.json',
+  }, {
+    sourcePath: 'raw/report.json',
+    jsonPointer: '/producerRoot',
+    role: 'host-local-provenance',
+  }];
+  const result = await materializeEvidencePackage(request);
+  const artifact = JSON.parse(fs.readFileSync(result.manifestPath, 'utf8')) as Record<string, unknown>;
+  const pointers = artifact.jsonPointers;
+  if (!Array.isArray(pointers) || pointers[0] === undefined) {
+    throw new Error('expected jsonPointers on 1.1.0 evidence package');
+  }
+  artifact.jsonPointers = [...pointers, pointers[0]];
+  fs.writeFileSync(result.manifestPath, `${JSON.stringify(artifact, null, 2)}\n`);
+  resealEvidencePackageControlFiles(result.outputDir);
+
+  assert.throws(
+    () => verifyEvidencePackage(result.outputDir),
+    (error: unknown) => (
+      error instanceof EvidencePackageError &&
+      error.rejections.some((rejection) => rejection.code === 'invalid-pointer')
+    ),
+  );
 });
 
 test('verifier rejects missing seals and post-copy drift', async (t: TestContext) => {

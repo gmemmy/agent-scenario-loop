@@ -3827,18 +3827,32 @@ function main(): void {
     assert.equal(evidencePackageOutputRecord.status, 'complete');
     assert.equal(fs.existsSync(path.join(evidencePackageOutput, 'files', 'health.json')), true);
     assert.equal(fs.existsSync(path.join(evidencePackageOutput, '.env')), false);
+    const evidencePackageManifestPath = path.join(evidencePackageOutput, 'evidence-package.json');
+    const evidencePackageChecksumsPath = path.join(evidencePackageOutput, 'SHA256SUMS');
+    const evidencePackageArtifactPath = path.join(evidencePackageOutput, 'files', 'health.json');
+    const evidencePackageManifestBytes = fs.readFileSync(evidencePackageManifestPath);
+    const evidencePackageChecksumsBytes = fs.readFileSync(evidencePackageChecksumsPath);
+    const evidencePackageArtifactBytes = fs.readFileSync(evidencePackageArtifactPath);
     const evidencePackageManifest = JSON.parse(
-      fs.readFileSync(path.join(evidencePackageOutput, 'evidence-package.json'), 'utf8'),
+      evidencePackageManifestBytes.toString('utf8'),
     ) as Record<string, unknown>;
     assert.equal(evidencePackageManifest.status, 'complete');
     assert.equal(evidencePackageManifest.fileCount, 1);
+    assert.equal('completionMarkerPath' in evidencePackageManifest, false);
+    assert.equal(fs.existsSync(path.join(evidencePackageOutput, 'evidence-package.complete')), false);
     const verifiedEvidencePackage = require(path.join(packageRoot, 'dist', 'index.js')).verifyEvidencePackage(
       evidencePackageOutput,
     ) as Record<string, unknown>;
     assert.equal(verifiedEvidencePackage.status, 'complete');
-    const evidencePackageChecksums = fs.readFileSync(path.join(evidencePackageOutput, 'SHA256SUMS'), 'utf8');
+    assert.equal('completionMarkerPath' in evidencePackageManifest, false);
+    assert.equal(fs.existsSync(path.join(evidencePackageOutput, 'evidence-package.complete')), false);
+    assert.deepEqual(fs.readFileSync(evidencePackageManifestPath), evidencePackageManifestBytes);
+    assert.deepEqual(fs.readFileSync(evidencePackageChecksumsPath), evidencePackageChecksumsBytes);
+    assert.deepEqual(fs.readFileSync(evidencePackageArtifactPath), evidencePackageArtifactBytes);
+    const evidencePackageChecksums = evidencePackageChecksumsBytes.toString('utf8');
     assert.match(evidencePackageChecksums, /evidence-package\.json/u);
     assert.match(evidencePackageChecksums, /files\/health\.json/u);
+    assert.doesNotMatch(evidencePackageChecksums, /evidence-package\.complete/u);
     for (const line of evidencePackageChecksums.trim().split('\n')) {
       const [expectedSha256, relativePath] = line.split('  ');
       assert.equal(
@@ -3890,8 +3904,88 @@ function main(): void {
     );
     fs.renameSync(portableOutput, relocatedPortableOutput);
     fs.rmSync(portableSource, { recursive: true, force: true });
+    const relocatedManifestPath = path.join(relocatedPortableOutput, 'evidence-package.json');
+    const relocatedManifestBytes = fs.readFileSync(relocatedManifestPath);
+    const relocatedManifest = JSON.parse(relocatedManifestBytes.toString('utf8')) as {
+      completionMarkerPath: string;
+    };
+    assert.equal(relocatedManifest.completionMarkerPath, 'evidence-package.complete');
+    const relocatedMarkerPath = path.join(relocatedPortableOutput, relocatedManifest.completionMarkerPath);
+    assert.equal(fs.statSync(relocatedMarkerPath).mode & 0o777, 0o600);
+    const relocatedMarkerBytes = fs.readFileSync(relocatedMarkerPath);
+    assert.equal(
+      relocatedMarkerBytes.toString('utf8'),
+      `${crypto.createHash('sha256').update(relocatedManifestBytes).digest('hex')}\n`,
+    );
+    const relocatedMarkerDigest = crypto.createHash('sha256').update(relocatedMarkerBytes).digest('hex');
+    const relocatedChecksumLines = fs
+      .readFileSync(path.join(relocatedPortableOutput, 'SHA256SUMS'), 'utf8')
+      .trimEnd()
+      .split('\n');
+    assert.equal(
+      relocatedChecksumLines.includes(`${relocatedMarkerDigest}  evidence-package.complete`),
+      true,
+    );
     const installedAsl = require(path.join(packageRoot, 'dist', 'index.js')) as typeof import('../index');
     assert.equal(installedAsl.verifyEvidencePackage(relocatedPortableOutput).status, 'complete');
+    const crashShapedOutput = `${relocatedPortableOutput}.missing-marker`;
+    fs.cpSync(relocatedPortableOutput, crashShapedOutput, { recursive: true });
+    const crashManifestPath = path.join(crashShapedOutput, 'evidence-package.json');
+    const crashChecksumsPath = path.join(crashShapedOutput, 'SHA256SUMS');
+    const crashMarkerPath = path.join(crashShapedOutput, 'evidence-package.complete');
+    const crashArtifactPaths = ['files/index.json', 'files/payload.json'];
+    const preservedCrashBytes = {
+      checksums: fs.readFileSync(crashChecksumsPath),
+      manifest: fs.readFileSync(crashManifestPath),
+      artifacts: crashArtifactPaths.map((artifactPath) => ({
+        artifactPath,
+        bytes: fs.readFileSync(path.join(crashShapedOutput, artifactPath)),
+      })),
+    };
+    fs.unlinkSync(crashMarkerPath);
+    assert.throws(
+      () => installedAsl.verifyEvidencePackage(crashShapedOutput),
+      (error: unknown) => (
+        error instanceof installedAsl.EvidencePackageError &&
+        error.rejections.some((rejection) => (
+          rejection.code === 'checksum-mismatch' &&
+          rejection.artifactPath === 'evidence-package.complete'
+        ))
+      ),
+    );
+    assert.equal(fs.existsSync(crashMarkerPath), false);
+    assert.deepEqual(fs.readFileSync(crashChecksumsPath), preservedCrashBytes.checksums);
+    assert.deepEqual(fs.readFileSync(crashManifestPath), preservedCrashBytes.manifest);
+    for (const artifact of preservedCrashBytes.artifacts) {
+      assert.deepEqual(
+        fs.readFileSync(path.join(crashShapedOutput, artifact.artifactPath)),
+        artifact.bytes,
+      );
+    }
+    const driftedMarkerOutput = `${relocatedPortableOutput}.drifted-marker`;
+    fs.cpSync(relocatedPortableOutput, driftedMarkerOutput, { recursive: true });
+    const driftedMarkerPath = path.join(driftedMarkerOutput, 'evidence-package.complete');
+    const driftedChecksumsPath = path.join(driftedMarkerOutput, 'SHA256SUMS');
+    const driftedMarkerBytes = Buffer.from(`${'0'.repeat(64)}\n`, 'utf8');
+    fs.writeFileSync(driftedMarkerPath, driftedMarkerBytes);
+    const driftedMarkerDigest = crypto.createHash('sha256').update(driftedMarkerBytes).digest('hex');
+    const driftedChecksums = fs.readFileSync(driftedChecksumsPath, 'utf8').replace(
+      /^([a-f0-9]{64})(  evidence-package\.complete)$/mu,
+      `${driftedMarkerDigest}$2`,
+    );
+    fs.writeFileSync(driftedChecksumsPath, driftedChecksums, 'utf8');
+    assert.throws(
+      () => installedAsl.verifyEvidencePackage(driftedMarkerOutput),
+      (error: unknown) => (
+        error instanceof installedAsl.EvidencePackageError &&
+        error.rejections.some((rejection) => (
+          rejection.code === 'checksum-mismatch' &&
+          rejection.reason.includes('completion marker bytes or digest')
+        ))
+      ),
+    );
+    assert.deepEqual(fs.readFileSync(driftedMarkerPath), driftedMarkerBytes);
+    assert.equal(fs.readFileSync(driftedChecksumsPath, 'utf8'), driftedChecksums);
     const relocatedIndex = JSON.parse(
       fs.readFileSync(path.join(relocatedPortableOutput, 'files', 'index.json'), 'utf8'),
     ) as Record<string, unknown>;
