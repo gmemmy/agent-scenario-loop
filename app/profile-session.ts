@@ -1589,6 +1589,11 @@ export function startProfileSession(params: { scenario: string; runId: string; s
 
 /**
  * Stops the active profile session and clears pending runner commands.
+ * The no-argument form is compatibility-only: it stops the current active
+ * in-process session and is not caller identity, so it can stop a newer
+ * current session. Delayed, asynchronous, or out-of-band callers must retain
+ * and pass `{ scenario, runId }`. Mismatched owners are rejected without
+ * mutation; terminal replay is already-stopped.
  */
 export function stopProfileSession(
   expectedOwner?: { runId: string; scenario: string },

@@ -536,10 +536,12 @@ The intended integration is:
 4. Register optional command targets with `registerProfileCommandTargetHandler()`.
 
 `stopProfileSession()` remains callable without arguments for the current
-in-process session. Callers that retain session identity should pass
-`{ scenario, runId }`; a mismatched owner is rejected without mutating the
-active session. Stop deep links require both `scenario` and `runId`. Replaying
-an exact stop after the session is terminal is an idempotent no-op.
+active in-process session. Delayed, asynchronous, or out-of-band callers must
+retain and pass `{ scenario, runId }`. The no-argument form is not caller
+identity and can stop a newer current session. A mismatched owner is rejected
+without mutating the active session. Stop deep links require both `scenario`
+and `runId` as exact identity. Replaying an exact stop after the session is
+terminal is already-stopped (an idempotent no-op).
 
 ## Stability Rule
 

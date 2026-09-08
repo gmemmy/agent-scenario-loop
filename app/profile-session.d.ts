@@ -79,6 +79,14 @@ export function isProfileSessionFresh(
 
 export function startProfileSession(params: { scenario: string; runId: string; startedAt?: number }): void;
 
+/**
+ * Stops a profile session.
+ * The no-argument form is compatibility-only and stops the current active
+ * in-process session; it does not identify the caller and can stop a newer
+ * current session. Delayed, asynchronous, or out-of-band callers must retain
+ * and pass `{ scenario, runId }`. Mismatched owners are rejected without
+ * mutation; terminal replay is already-stopped.
+ */
 export function stopProfileSession(
   expectedOwner?: { runId: string; scenario: string },
 ): ProfileSessionStopResult;
