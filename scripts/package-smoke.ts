@@ -2984,6 +2984,7 @@ function main(): void {
       "assert.equal(typeof asl.assembleCiEvidencePack, 'function');",
       "assert.equal(typeof asl.deriveCiEvidencePackMechanismStatus, 'function');",
       "assert.equal(typeof asl.deriveCiEvidencePackPlatformClaim, 'function');",
+      "assert.equal(typeof asl.assertCiEvidencePackLegacySemantics, 'function');",
       "assert.equal(typeof asl.assertCiEvidencePackSemantics, 'function');",
       "assert.equal(typeof asl.assertCiEvidencePackRunRelativePath, 'function');",
       "assert.equal(Boolean(asl.SCHEMAS.ciEvidencePack), true);",

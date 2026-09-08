@@ -1313,6 +1313,115 @@ describe('ci evidence publication receipt', () => {
     assertCiEvidencePublicationReceiptForExactPackBytes(roundTrip, pack, bytes);
   });
 
+  it('accepts a historical 1.0.0 receipt with its original derived wording', () => {
+    const pack = validLegacyPack();
+    const bytes = packBytes(pack);
+    const receipt = buildCiEvidencePublicationReceipt({ packBytes: bytes, facts: cloneFacts() });
+    const historical = {
+      ...receipt,
+      summary: `publication ${receipt.publicationStatus}; pack mechanismStatus ${pack.mechanismStatus}; twoPlatformClaim ${pack.twoPlatformClaim.status}`,
+      nextAction:
+        receipt.publicationStatus === 'published'
+          ? 'retain the receipt as the local publication binding; do not reinterpret pack mechanismStatus or twoPlatformClaim from publication success'
+          : receipt.nextAction,
+    };
+
+    assertCiEvidencePublicationReceiptForPack(historical, pack);
+    assertCiEvidencePublicationReceiptForExactPackBytes(historical, pack, bytes);
+    const roundTrip = readCiEvidencePublicationReceipt(writeReceipt(historical), bytes);
+    assert.deepEqual(roundTrip, historical);
+  });
+
+  it('separates current and legacy receipt derived wording', () => {
+    const currentPack = buildCiEvidencePack(validPackInput());
+    const currentReceipt = buildCiEvidencePublicationReceipt({
+      packBytes: packBytes(currentPack),
+      facts: cloneFacts(),
+    });
+    assert.equal(currentReceipt.schemaVersion, '1.1.0');
+    assert.equal(
+      currentReceipt.summary,
+      `publication ${currentReceipt.publicationStatus}; pack mechanismStatus ${currentPack.mechanismStatus}; platform evidence claim ${currentPack.platformClaim.status}; platformScope ${currentPack.platformScope}`,
+    );
+    assert.equal(currentReceipt.summary.includes('twoPlatformClaim'), false);
+    assert.equal(currentReceipt.nextAction.includes('twoPlatformClaim'), false);
+
+    const legacyPack = validLegacyPack();
+    const legacyReceipt = buildCiEvidencePublicationReceipt({
+      packBytes: packBytes(legacyPack),
+      facts: cloneFacts(),
+    });
+    assert.equal(legacyReceipt.schemaVersion, '1.0.0');
+    assert.equal(
+      legacyReceipt.summary,
+      `publication ${legacyReceipt.publicationStatus}; pack mechanismStatus ${legacyPack.mechanismStatus}; twoPlatformClaim ${legacyPack.twoPlatformClaim.status}`,
+    );
+    assert.equal(legacyReceipt.summary.includes('platform evidence claim'), false);
+    assert.equal(legacyReceipt.summary.includes('platformScope'), false);
+    assert.equal(
+      legacyReceipt.nextAction,
+      'retain the receipt as the local publication binding; do not reinterpret pack mechanismStatus or twoPlatformClaim from publication success',
+    );
+  });
+
+  it('rejects receipt wording from the other schema version', () => {
+    const currentPack = buildCiEvidencePack(validPackInput());
+    const currentReceipt = buildCiEvidencePublicationReceipt({
+      packBytes: packBytes(currentPack),
+      facts: cloneFacts(),
+    });
+    const legacyPack = validLegacyPack();
+    const legacyReceipt = buildCiEvidencePublicationReceipt({
+      packBytes: packBytes(legacyPack),
+      facts: cloneFacts(),
+    });
+
+    assert.throws(
+      () =>
+        assertCiEvidencePublicationReceiptForPack(
+          { ...legacyReceipt, summary: currentReceipt.summary },
+          legacyPack,
+        ),
+      /summary does not match derivation/,
+    );
+    assert.throws(
+      () =>
+        assertCiEvidencePublicationReceiptForPack(
+          { ...legacyReceipt, nextAction: currentReceipt.nextAction },
+          legacyPack,
+        ),
+      /nextAction does not match derivation/,
+    );
+    assert.throws(
+      () =>
+        assertCiEvidencePublicationReceiptForPack(
+          { ...currentReceipt, summary: legacyReceipt.summary },
+          currentPack,
+        ),
+      /summary does not match derivation/,
+    );
+    assert.throws(
+      () =>
+        assertCiEvidencePublicationReceiptForPack(
+          { ...currentReceipt, nextAction: legacyReceipt.nextAction },
+          currentPack,
+        ),
+      /nextAction does not match derivation/,
+    );
+  });
+
+  it('schema-validates a legacy pack object before direct semantic validation', () => {
+    const pack = validLegacyPack();
+    const bytes = packBytes(pack);
+    const receipt = buildCiEvidencePublicationReceipt({ packBytes: bytes, facts: cloneFacts() });
+    const malformed = { ...pack, unexpected: true } as unknown as CiEvidencePackLegacy;
+
+    assert.throws(
+      () => assertCiEvidencePublicationReceiptForPack(receipt, malformed),
+      CiEvidencePublicationReceiptError,
+    );
+  });
+
   it('rejects current and legacy receipt/pack version mismatches', () => {
     const currentPack = buildCiEvidencePack(validPackInput());
     const currentBytes = packBytes(currentPack);

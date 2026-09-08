@@ -480,6 +480,8 @@ Use `classifyNativePerformanceComparisonReadiness(evidence, context)` before tre
 
 Every platform-bearing CI evidence-pack inventory row (platform records, attempts, evidence records, and verdict pointers) must name a platform in `requiredPlatforms`. An undeclared platform must not appear as present, missing, proof, attempt, evidence, or verdict data. Builders, readers, and the assembler enforce this sibling-array relationship as cross-record semantic validation because JSON Schema cannot express equality or subset constraints across those arrays. A single-platform pack must use `comparisonStatus` `not_available`. Cross-platform comparison may still be `not_available`, `not_evaluable`, or `comparable` according to existing rules. For semantically coherent input, the exported legacy helper `deriveCiEvidencePackTwoPlatformClaim` never returns `passed` for a single-platform input; it returns `not_evaluable` unless scope is cross-platform with exactly `android` and `ios`. Malformed or incoherent input throws `CiEvidencePackError` before derivation.
 
+Legacy `schemaVersion` `1.0.0` publication receipt derived wording is preserved for readability, including the published next action. Current `1.1.0` receipts use `platform evidence claim` and `platformScope` wording. `assertCiEvidencePackLegacySemantics` validates the derived semantics of an already schema-admitted legacy pack object; it does not prove pack-byte identity.
+
 ## Runner Subpaths
 
 Runner subpaths are public when a consuming project needs to compose a workflow without shelling out to the installed binaries:

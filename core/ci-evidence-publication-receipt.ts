@@ -2,6 +2,7 @@ const { createHash } = require('node:crypto');
 const { readFileSync } = require('node:fs');
 
 const {
+  assertCiEvidencePackLegacySemantics,
   assertCiEvidencePackRunRelativePath,
   assertCiEvidencePackSemantics,
   parseCiEvidencePackBytes,
@@ -721,14 +722,41 @@ function deriveSummary(
   status: CiEvidencePublicationStatus,
   pack: CiEvidencePublicationPackBinding,
 ): string {
-  const claim = normalizeCiEvidencePublicationPlatformClaim(pack);
-  return `publication ${status}; pack mechanismStatus ${pack.mechanismStatus}; platform evidence claim ${claim.claimStatus}; platformScope ${claim.platformScope}`;
+  switch (pack.schemaVersion) {
+    case '1.0.0':
+      return `publication ${status}; pack mechanismStatus ${pack.mechanismStatus}; twoPlatformClaim ${pack.twoPlatformClaim.status}`;
+    case '1.1.0': {
+      const claim = normalizeCiEvidencePublicationPlatformClaim(pack);
+      return `publication ${status}; pack mechanismStatus ${pack.mechanismStatus}; platform evidence claim ${claim.claimStatus}; platformScope ${claim.platformScope}`;
+    }
+    default: {
+      const exhaustive: never = pack;
+      throw new CiEvidencePublicationReceiptError(
+        `unsupported pack schemaVersion ${String(exhaustive)}`,
+      );
+    }
+  }
 }
 
-function deriveNextAction(status: CiEvidencePublicationStatus): string {
+function deriveNextAction(
+  status: CiEvidencePublicationStatus,
+  pack: CiEvidencePublicationPackBinding,
+): string {
   switch (status) {
-    case 'published':
-      return 'retain the receipt as the local publication binding; do not reinterpret pack mechanismStatus or platform evidence claim from publication success';
+    case 'published': {
+      switch (pack.schemaVersion) {
+        case '1.0.0':
+          return 'retain the receipt as the local publication binding; do not reinterpret pack mechanismStatus or twoPlatformClaim from publication success';
+        case '1.1.0':
+          return 'retain the receipt as the local publication binding; do not reinterpret pack mechanismStatus or platform evidence claim from publication success';
+        default: {
+          const exhaustive: never = pack;
+          throw new CiEvidencePublicationReceiptError(
+            `unsupported pack schemaVersion ${String(exhaustive)}`,
+          );
+        }
+      }
+    }
     case 'partial':
       return 'inspect nonpublished item reasons and republish only remaining requested items';
     case 'failed':
@@ -874,7 +902,7 @@ function assertCiEvidencePublicationReceiptForPack(
     if (pack.schemaVersion === '1.1.0') {
       assertCiEvidencePackSemantics(pack);
     } else if (pack.schemaVersion === '1.0.0') {
-      parseCiEvidencePackBytes(new TextEncoder().encode(JSON.stringify(pack)));
+      assertCiEvidencePackLegacySemantics(pack);
     } else {
       const exhaustive: never = pack;
       throw new CiEvidencePublicationReceiptError(
@@ -959,7 +987,7 @@ function assertReceiptSemantics(
   if (artifact.summary !== expectedSummary) {
     throw new CiEvidencePublicationReceiptError('summary does not match derivation');
   }
-  if (artifact.nextAction !== deriveNextAction(derived.status)) {
+  if (artifact.nextAction !== deriveNextAction(derived.status, artifact.pack)) {
     throw new CiEvidencePublicationReceiptError('nextAction does not match derivation');
   }
   assertCopiedPackBinding(artifact, pack);
@@ -990,7 +1018,7 @@ function buildCiEvidencePublicationReceipt(
     publicationStatus: derived.status,
     reasons: derived.reasons,
     summary: deriveSummary(derived.status, packBinding),
-    nextAction: deriveNextAction(derived.status),
+    nextAction: deriveNextAction(derived.status, packBinding),
   };
   wrapSchemaValidation(artifact, SCHEMAS.ciEvidencePublicationReceipt, 'ci-evidence-publication-receipt');
   assertReceiptSemantics(artifact, pack);
@@ -1113,7 +1141,7 @@ function readCiEvidencePublicationReceipt(
   if (artifact.summary !== expectedSummary) {
     throw new CiEvidencePublicationReceiptError('summary does not match derivation');
   }
-  if (artifact.nextAction !== deriveNextAction(derived.status)) {
+  if (artifact.nextAction !== deriveNextAction(derived.status, artifact.pack)) {
     throw new CiEvidencePublicationReceiptError('nextAction does not match derivation');
   }
   if (!(packBytes instanceof Uint8Array)) {
