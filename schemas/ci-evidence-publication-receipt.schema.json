@@ -18,7 +18,7 @@
     "nextAction"
   ],
   "properties": {
-    "schemaVersion": { "const": "1.0.0" },
+    "schemaVersion": { "enum": ["1.0.0", "1.1.0"] },
     "receiptId": { "type": "string", "minLength": 1 },
     "createdAt": {
       "type": "string",
@@ -69,6 +69,34 @@
           "reasons": { "minItems": 1 }
         }
       }
+    },
+    {
+      "if": {
+        "properties": { "schemaVersion": { "const": "1.1.0" } },
+        "required": ["schemaVersion"]
+      },
+      "then": {
+        "properties": {
+          "pack": {
+            "properties": { "schemaVersion": { "const": "1.1.0" } },
+            "required": ["schemaVersion"]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "schemaVersion": { "const": "1.0.0" } },
+        "required": ["schemaVersion"]
+      },
+      "then": {
+        "properties": {
+          "pack": {
+            "properties": { "schemaVersion": { "const": "1.0.0" } },
+            "required": ["schemaVersion"]
+          }
+        }
+      }
     }
   ],
   "$defs": {
@@ -99,14 +127,71 @@
         "requiredPlatforms",
         "requiredEvidenceKinds",
         "mechanismStatus",
-        "twoPlatformClaim",
         "comparisonStatus",
         "completeness",
         "assembly"
       ],
+      "allOf": [
+        {
+          "if": {
+            "properties": { "schemaVersion": { "const": "1.1.0" } },
+            "required": ["schemaVersion"]
+          },
+          "then": {
+            "required": ["platformScope", "platformClaim"],
+            "not": { "required": ["twoPlatformClaim"] }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "schemaVersion": { "const": "1.1.0" },
+              "platformScope": { "const": "single-platform" }
+            },
+            "required": ["schemaVersion", "platformScope"]
+          },
+          "then": {
+            "properties": {
+              "requiredPlatforms": { "minItems": 1, "maxItems": 1 }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "schemaVersion": { "const": "1.1.0" },
+              "platformScope": { "const": "cross-platform" }
+            },
+            "required": ["schemaVersion", "platformScope"]
+          },
+          "then": {
+            "properties": {
+              "requiredPlatforms": { "minItems": 2, "maxItems": 2 }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "schemaVersion": { "const": "1.0.0" } },
+            "required": ["schemaVersion"]
+          },
+          "then": {
+            "required": ["twoPlatformClaim"],
+            "not": {
+              "anyOf": [
+                { "required": ["platformScope"] },
+                { "required": ["platformClaim"] }
+              ]
+            },
+            "properties": {
+              "requiredPlatforms": { "minItems": 2, "maxItems": 2 }
+            }
+          }
+        }
+      ],
       "properties": {
         "packId": { "type": "string", "minLength": 1 },
-        "schemaVersion": { "const": "1.0.0" },
+        "schemaVersion": { "enum": ["1.0.0", "1.1.0"] },
         "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
         "byteSize": { "type": "integer", "minimum": 1 },
         "packRelativePath": {
@@ -142,10 +227,25 @@
         },
         "requiredPlatforms": {
           "type": "array",
-          "minItems": 2,
+          "minItems": 1,
           "maxItems": 2,
           "uniqueItems": true,
           "items": { "enum": ["android", "ios"] }
+        },
+        "platformScope": {
+          "enum": ["single-platform", "cross-platform"]
+        },
+        "platformClaim": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "reasons"],
+          "properties": {
+            "status": { "enum": ["passed", "failed", "not_evaluable"] },
+            "reasons": {
+              "type": "array",
+              "items": { "type": "string", "minLength": 1 }
+            }
+          }
         },
         "requiredEvidenceKinds": {
           "type": "array",

@@ -14,7 +14,7 @@ const {
 } = require('../core/ci-evidence-publication-summary');
 const { hasHelpFlag, writeUsage } = require('./cli');
 
-import type { CiEvidencePack, CiEvidencePackBuildInput } from '../core/ci-evidence-pack';
+import type { CiEvidencePack, CiEvidencePackArtifact, CiEvidencePackBuildInput } from '../core/ci-evidence-pack';
 import type { CiEvidencePublicationReceipt } from '../core/ci-evidence-publication-receipt';
 import type { CiEvidencePublicationSummaryEvaluation } from '../core/ci-evidence-publication-summary';
 
@@ -312,6 +312,7 @@ export function readCiEvidencePackAssembleRequest(
     'createdAt',
     'source',
     'liveProofSet',
+    'platformScope',
     'requiredPlatforms',
     'requiredEvidenceKinds',
     'platforms',
@@ -328,7 +329,7 @@ export function readCiEvidencePackAssembleRequest(
   const expectedKeySet = new Set(requiredInputKeys);
   if (inputKeys.length !== requiredInputKeys.length || inputKeys.some((key) => !expectedKeySet.has(key))) {
     throw new CiEvidencePackCliError(
-      'input must have exactly schemaVersion, packId, createdAt, source, liveProofSet, requiredPlatforms, requiredEvidenceKinds, platforms, attempts, evidence, verdicts, comparisonStatus, completeness, assembly, summary, nextAction',
+      'input must have exactly schemaVersion, packId, createdAt, source, liveProofSet, platformScope, requiredPlatforms, requiredEvidenceKinds, platforms, attempts, evidence, verdicts, comparisonStatus, completeness, assembly, summary, nextAction',
       2,
     );
   }
@@ -438,7 +439,7 @@ function isCiEvidencePackAssembleSuccess(pack: CiEvidencePack): boolean {
     pack.completeness.status === 'complete' &&
     pack.assembly.status === 'succeeded' &&
     pack.mechanismStatus === 'succeeded' &&
-    pack.twoPlatformClaim.status === 'passed'
+    pack.platformClaim.status === 'passed'
   );
 }
 
@@ -522,7 +523,9 @@ export async function runCiEvidencePackAssemble(
     publicationAttempted: false,
     gateStatus: assemblePassed ? 'passed' : 'failed',
     mechanismStatus: pack.mechanismStatus,
-    twoPlatformClaimStatus: pack.twoPlatformClaim.status,
+    platformScope: pack.platformScope,
+    requiredPlatforms: pack.requiredPlatforms,
+    platformClaimStatus: pack.platformClaim.status,
   });
 
   return assemblePassed ? 0 : 1;
@@ -652,7 +655,7 @@ export async function runCiEvidencePackSummarize(
     return 1;
   }
 
-  let pack: CiEvidencePack;
+  let pack: CiEvidencePackArtifact;
   try {
     pack = parseCiEvidencePackBytes(exactPackBytes);
   } catch (error) {

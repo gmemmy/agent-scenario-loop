@@ -9,6 +9,7 @@ const {
   assertCiEvidencePackRunRelativePath,
   buildCiEvidencePack,
   CiEvidencePackError,
+  deriveCiEvidencePackPlatformClaim,
   deriveCiEvidencePackTwoPlatformClaim,
   parseCiEvidencePackBytes,
   readCiEvidencePack,
@@ -59,7 +60,7 @@ function validInput(): PackInput {
   const androidFail = attemptEvidence('android', 'android-fail');
   const iosPass = attemptEvidence('ios', 'ios-pass');
   return {
-    schemaVersion: '1.0.0' as const,
+    schemaVersion: '1.1.0' as const,
     packId: 'pack-1',
     createdAt: '2026-08-22T00:00:00.000Z',
     source: { expectedSha: SHA, observedSha: SHA, status: 'current' as const },
@@ -70,6 +71,7 @@ function validInput(): PackInput {
       runId: 'run-1',
       status: 'passed' as const,
     },
+    platformScope: 'cross-platform' as const,
     requiredPlatforms: ['android', 'ios'] as Array<'android' | 'ios'>,
     requiredEvidenceKinds: ['recording', 'verdict'] as Array<'recording' | 'verdict'>,
     platforms: [
@@ -152,6 +154,19 @@ function cloneInput(): PackInput {
   return JSON.parse(JSON.stringify(validInput())) as PackInput;
 }
 
+function validIosSinglePlatformInput(): PackInput {
+  const input = cloneInput();
+  input.platformScope = 'single-platform';
+  input.requiredPlatforms = ['ios'];
+  input.platforms = input.platforms.filter((record) => record.platform === 'ios');
+  input.attempts = input.attempts.filter((attempt) => attempt.platform === 'ios');
+  input.evidence = input.evidence.filter((record) => record.platform === 'ios');
+  input.verdicts = input.verdicts.filter((verdict) => verdict.platform === 'ios');
+  input.comparisonStatus = 'not_available';
+  input.summary = 'ios evidence assembled';
+  return input;
+}
+
 function requiredItem<T>(value: T | undefined, label: string): T {
   if (value === undefined) {
     throw new Error(`expected ${label}`);
@@ -160,14 +175,42 @@ function requiredItem<T>(value: T | undefined, label: string): T {
 }
 
 describe('ci evidence pack', () => {
-  it('derives mechanism succeeded and two-platform passed for a complete pack', () => {
+  it('derives mechanism succeeded and platform claim passed for a complete pack', () => {
     const pack = buildCiEvidencePack(cloneInput());
     assert.equal(pack.mechanismStatus, 'succeeded');
-    assert.equal(pack.twoPlatformClaim.status, 'passed');
+    assert.equal(pack.schemaVersion, '1.1.0');
+    assert.equal(pack.platformScope, 'cross-platform');
+    assert.equal(pack.platformClaim.status, 'passed');
+    assert.equal('twoPlatformClaim' in pack, false);
     assertValidJson(pack, SCHEMAS.ciEvidencePack, 'ci-evidence-pack');
   });
 
-  it('keeps mechanism succeeded when source is stale and fails the two-platform claim', () => {
+  it('builds and reads a current iOS single-platform pack without legacy vocabulary', () => {
+    const pack = buildCiEvidencePack(validIosSinglePlatformInput());
+    const parsed = parseCiEvidencePackBytes(new TextEncoder().encode(JSON.stringify(pack)));
+    assert.equal(parsed.schemaVersion, '1.1.0');
+    assert.equal(parsed.platformScope, 'single-platform');
+    assert.deepEqual(parsed.requiredPlatforms, ['ios']);
+    assert.deepEqual(
+      parsed.platforms.map((record: { platform: CiEvidencePackPlatform }) => record.platform),
+      ['ios'],
+    );
+    assert.equal(parsed.platformClaim.status, 'passed');
+    assert.equal('twoPlatformClaim' in parsed, false);
+    assert.equal(JSON.stringify(parsed).includes('not_applicable'), false);
+  });
+
+  it('rejects platform-scope cardinality mismatches', () => {
+    const singleWithBoth = cloneInput();
+    singleWithBoth.platformScope = 'single-platform';
+    assert.throws(() => buildCiEvidencePack(singleWithBoth), CiEvidencePackError);
+
+    const crossWithIos = validIosSinglePlatformInput();
+    crossWithIos.platformScope = 'cross-platform';
+    assert.throws(() => buildCiEvidencePack(crossWithIos), CiEvidencePackError);
+  });
+
+  it('keeps mechanism succeeded when source is stale and fails the platform claim', () => {
     const input = cloneInput();
     input.source = {
       expectedSha: SHA,
@@ -176,14 +219,14 @@ describe('ci evidence pack', () => {
     };
     const pack = buildCiEvidencePack(input);
     assert.equal(pack.mechanismStatus, 'succeeded');
-    assert.equal(pack.twoPlatformClaim.status, 'failed');
+    assert.equal(pack.platformClaim.status, 'failed');
   });
 
   it('fails when the iOS platform record is missing and never uses not_applicable', () => {
     const input = cloneInput();
     input.platforms = input.platforms.filter((record) => record.platform !== 'ios');
     const pack = buildCiEvidencePack(input);
-    assert.equal(pack.twoPlatformClaim.status, 'failed');
+    assert.equal(pack.platformClaim.status, 'failed');
     assert.equal(JSON.stringify(pack).includes('not_applicable'), false);
   });
 
@@ -196,7 +239,7 @@ describe('ci evidence pack', () => {
     ios.authorityStatus = 'unsupported';
     ios.evaluationStatus = 'not_evaluable';
     const pack = buildCiEvidencePack(input);
-    assert.equal(pack.twoPlatformClaim.status, 'not_evaluable');
+    assert.equal(pack.platformClaim.status, 'not_evaluable');
   });
 
   it('lets a selected retry pass while the prior failed attempt remains', () => {
@@ -211,7 +254,7 @@ describe('ci evidence pack', () => {
     );
     assert.equal(failed.status, 'failed');
     assert.equal(retry.predecessorAttemptId, 'android-fail');
-    assert.equal(pack.twoPlatformClaim.status, 'passed');
+    assert.equal(pack.platformClaim.status, 'passed');
   });
 
   it('fails when the selected attempt failed', () => {
@@ -222,7 +265,7 @@ describe('ci evidence pack', () => {
     );
     android.selectedAttemptId = 'android-fail';
     const pack = buildCiEvidencePack(input);
-    assert.equal(pack.twoPlatformClaim.status, 'failed');
+    assert.equal(pack.platformClaim.status, 'failed');
   });
 
   it('fails when required recording evidence is missing', () => {
@@ -239,17 +282,17 @@ describe('ci evidence pack', () => {
       reason: 'recording not produced',
     };
     const pack = buildCiEvidencePack(input);
-    assert.equal(pack.twoPlatformClaim.status, 'failed');
+    assert.equal(pack.platformClaim.status, 'failed');
   });
 
-  it('keeps twoPlatformClaim passed when product verdicts are failed, inconclusive, or not_evaluated', () => {
+  it('keeps platformClaim passed when product verdicts are failed, inconclusive, or not_evaluated', () => {
     const failed = cloneInput();
     const androidVerdict = requiredItem(
       failed.verdicts.find((item) => item.platform === 'android'),
       'android verdict',
     );
     androidVerdict.status = 'failed';
-    assert.equal(buildCiEvidencePack(failed).twoPlatformClaim.status, 'passed');
+    assert.equal(buildCiEvidencePack(failed).platformClaim.status, 'passed');
 
     const inconclusive = cloneInput();
     const androidInconclusive = requiredItem(
@@ -257,7 +300,7 @@ describe('ci evidence pack', () => {
       'android verdict',
     );
     androidInconclusive.status = 'inconclusive';
-    assert.equal(buildCiEvidencePack(inconclusive).twoPlatformClaim.status, 'passed');
+    assert.equal(buildCiEvidencePack(inconclusive).platformClaim.status, 'passed');
 
     const notEvaluated = cloneInput();
     const iosVerdict = requiredItem(
@@ -265,7 +308,7 @@ describe('ci evidence pack', () => {
       'ios verdict',
     );
     iosVerdict.status = 'not_evaluated';
-    assert.equal(buildCiEvidencePack(notEvaluated).twoPlatformClaim.status, 'passed');
+    assert.equal(buildCiEvidencePack(notEvaluated).platformClaim.status, 'passed');
   });
 
   it('rejects absolute POSIX, drive, backslash, and parent traversal paths', () => {
@@ -352,7 +395,7 @@ describe('ci evidence pack', () => {
     });
   });
 
-  it('reader rejects tampered mechanism or two-platform derived results', () => {
+  it('reader rejects tampered mechanism or platform-claim derived results', () => {
     const pack = buildCiEvidencePack(cloneInput());
     const dir = mkdtempSync(path.join(tmpdir(), 'ci-pack-'));
     const filePath = path.join(dir, 'ci-evidence-pack.json');
@@ -362,11 +405,54 @@ describe('ci evidence pack', () => {
       filePath,
       JSON.stringify({
         ...pack,
-        twoPlatformClaim: { status: 'failed', reasons: ['tampered'] },
+        platformClaim: { status: 'failed', reasons: ['tampered'] },
       }),
       'utf8',
     );
     assert.throws(() => readCiEvidencePack(filePath), CiEvidencePackError);
+  });
+
+  it('keeps legacy and current claim vocabulary isolated', () => {
+    const current = buildCiEvidencePack(cloneInput());
+    assert.throws(
+      () =>
+        parseCiEvidencePackBytes(
+          new TextEncoder().encode(
+            JSON.stringify({
+              ...current,
+              twoPlatformClaim: current.platformClaim,
+            }),
+          ),
+        ),
+      CiEvidencePackError,
+    );
+
+    const legacy = JSON.parse(JSON.stringify(current)) as Record<string, unknown>;
+    legacy.schemaVersion = '1.0.0';
+    legacy.twoPlatformClaim = legacy.platformClaim;
+    delete legacy.platformScope;
+    delete legacy.platformClaim;
+    assert.doesNotThrow(() =>
+      parseCiEvidencePackBytes(new TextEncoder().encode(JSON.stringify(legacy))),
+    );
+    assert.throws(
+      () =>
+        parseCiEvidencePackBytes(
+          new TextEncoder().encode(
+            JSON.stringify({ ...legacy, platformScope: 'cross-platform' }),
+          ),
+        ),
+      CiEvidencePackError,
+    );
+    assert.throws(
+      () =>
+        parseCiEvidencePackBytes(
+          new TextEncoder().encode(
+            JSON.stringify({ ...legacy, platformClaim: legacy.twoPlatformClaim }),
+          ),
+        ),
+      CiEvidencePackError,
+    );
   });
 
   it('rejects malformed and noncanonical timestamps', () => {
@@ -392,11 +478,7 @@ describe('ci evidence pack', () => {
     assert.equal(layout.ciEvidencePack, path.join('/tmp/run', 'ci-evidence-pack.json'));
   });
 
-  it('requires exactly android and ios plus recording and verdict kinds', () => {
-    const platforms = cloneInput();
-    platforms.requiredPlatforms = ['android'] as PackInput['requiredPlatforms'];
-    assert.throws(() => buildCiEvidencePack(platforms));
-
+  it('requires recording and verdict kinds', () => {
     const kinds = cloneInput();
     kinds.requiredEvidenceKinds = ['recording'] as PackInput['requiredEvidenceKinds'];
     assert.throws(() => buildCiEvidencePack(kinds));
@@ -433,7 +515,7 @@ describe('ci evidence pack', () => {
       'android-retry attempt',
     );
     extraAndroid.evidenceIds = [...extraAndroid.evidenceIds, 'android-retry-log'];
-    assert.equal(buildCiEvidencePack(extraKinds).twoPlatformClaim.status, 'passed');
+    assert.equal(buildCiEvidencePack(extraKinds).platformClaim.status, 'passed');
   });
 
   it('accepts reversed requiredPlatforms order in schema and build', () => {
@@ -514,7 +596,7 @@ describe('ci evidence pack', () => {
       'ios-pass attempt',
     );
     extraIds.evidenceIds = [...extraIds.evidenceIds, 'ios-pass-recording-extra-missing'];
-    assert.equal(buildCiEvidencePack(presentThenMissing).twoPlatformClaim.status, 'passed');
+    assert.equal(buildCiEvidencePack(presentThenMissing).platformClaim.status, 'passed');
 
     const missingThenPresent = cloneInput();
     missingThenPresent.evidence.unshift({
@@ -530,7 +612,7 @@ describe('ci evidence pack', () => {
       'ios-pass attempt',
     );
     iosAttempt.evidenceIds = ['ios-pass-recording-extra-missing-first', ...iosAttempt.evidenceIds];
-    assert.equal(buildCiEvidencePack(missingThenPresent).twoPlatformClaim.status, 'passed');
+    assert.equal(buildCiEvidencePack(missingThenPresent).platformClaim.status, 'passed');
 
     const onlyUnavailable = cloneInput();
     const recordingIndex = onlyUnavailable.evidence.findIndex((item) => item.evidenceId === 'ios-pass-recording');
@@ -556,7 +638,7 @@ describe('ci evidence pack', () => {
       'ios-pass attempt',
     );
     onlyAttempt.evidenceIds = [...onlyAttempt.evidenceIds, 'ios-pass-recording-alt'];
-    assert.equal(buildCiEvidencePack(onlyUnavailable).twoPlatformClaim.status, 'not_evaluable');
+    assert.equal(buildCiEvidencePack(onlyUnavailable).platformClaim.status, 'not_evaluable');
   });
 
   it('keeps unsupported authority not_evaluable even when a retained attempt failed', () => {
@@ -573,13 +655,13 @@ describe('ci evidence pack', () => {
       'ios-pass attempt',
     );
     iosAttempt.status = 'failed';
-    assert.equal(buildCiEvidencePack(input).twoPlatformClaim.status, 'not_evaluable');
+    assert.equal(buildCiEvidencePack(input).platformClaim.status, 'not_evaluable');
   });
 
   it('throws when derive receives an incoherent inventory', () => {
     const input = cloneInput();
     input.attempts = [];
-    assert.throws(() => deriveCiEvidencePackTwoPlatformClaim(input), CiEvidencePackError);
+    assert.throws(() => deriveCiEvidencePackPlatformClaim(input), CiEvidencePackError);
   });
 
   it('rejects duplicate present paths and dot path segments', () => {
@@ -744,12 +826,12 @@ describe('ci evidence pack', () => {
     assert.throws(() => buildCiEvidencePack(unsupportedPassed));
   });
 
-  it('keeps comparisonStatus not_available separate from a passed two-platform claim', () => {
+  it('keeps comparisonStatus not_available separate from a passed platform claim', () => {
     const input = cloneInput();
     input.comparisonStatus = 'not_available';
     const pack = buildCiEvidencePack(input);
     assert.equal(pack.comparisonStatus, 'not_available');
-    assert.equal(pack.twoPlatformClaim.status, 'passed');
+    assert.equal(pack.platformClaim.status, 'passed');
   });
 
   it('parses schema-valid UTF-8 pack bytes without mutating caller bytes', () => {
@@ -776,7 +858,7 @@ describe('ci evidence pack', () => {
     );
   });
 
-  it('rejects tampered derived mechanismStatus or twoPlatformClaim through existing semantics', () => {
+  it('rejects tampered derived mechanismStatus or platformClaim through existing semantics', () => {
     const pack = buildCiEvidencePack(cloneInput());
     assert.throws(
       () =>
@@ -791,7 +873,7 @@ describe('ci evidence pack', () => {
           new TextEncoder().encode(
             JSON.stringify({
               ...pack,
-              twoPlatformClaim: { status: 'failed', reasons: ['tampered'] },
+              platformClaim: { status: 'failed', reasons: ['tampered'] },
             }),
           ),
         ),

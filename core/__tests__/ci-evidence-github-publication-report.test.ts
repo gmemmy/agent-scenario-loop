@@ -9,6 +9,7 @@ const {
 } = require('../ci-evidence-github-publication-gate');
 const { buildCiEvidenceGithubPublicationReport } = require('../ci-evidence-github-publication-report');
 import type { CiEvidencePack, CiEvidencePackBuildInput } from '../ci-evidence-pack';
+import type { CiEvidencePublicationReceiptFacts } from '../ci-evidence-publication-receipt';
 
 const HEAD_SHA = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 const OTHER_SHA = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
@@ -52,7 +53,7 @@ function validPackInput(): CiEvidencePackBuildInput {
   const androidFail = attemptEvidence('android', 'android-fail');
   const iosPass = attemptEvidence('ios', 'ios-pass');
   return {
-    schemaVersion: '1.0.0',
+    schemaVersion: '1.1.0',
     packId: 'pack-1',
     createdAt: '2026-08-22T00:00:00.000Z',
     source: { expectedSha: HEAD_SHA, observedSha: HEAD_SHA, status: 'current' },
@@ -63,6 +64,7 @@ function validPackInput(): CiEvidencePackBuildInput {
       runId: 'run-1',
       status: 'passed',
     },
+    platformScope: 'cross-platform',
     requiredPlatforms: ['android', 'ios'],
     requiredEvidenceKinds: ['recording', 'verdict'],
     platforms: [
@@ -253,6 +255,9 @@ describe('ci evidence github publication report', () => {
     assert.deepEqual(report.gate.evaluation.reasons, []);
     assert.equal(report.markdown.includes('# CI evidence review'), true);
     assert.equal(report.markdown.includes('| publication evidence gate | passed |'), true);
+    assert.equal(report.markdown.includes('| platform scope | cross-platform |'), true);
+    assert.equal(report.gate.pack.platformScope, 'cross-platform');
+    assert.equal(report.gate.pack.platformClaim.status, 'passed');
     assert.equal(
       report.markdown.includes(`| comparison status | ${escapeFixtureCell('not_available')} |`),
       true,
@@ -608,5 +613,57 @@ describe('ci evidence github publication report', () => {
       ),
       true,
     );
+    assert.equal(report.markdown.includes('| platform scope | cross-platform |'), true);
+    assert.equal(report.gate.pack.schemaVersion, '1.1.0');
+    assert.equal(report.gate.pack.platformScope, 'cross-platform');
+    assert.deepEqual(report.gate.pack.requiredPlatforms, ['android', 'ios']);
+    assert.equal(report.gate.pack.platformClaim.status, 'passed');
+    assert.equal(report.markdown.includes('| required platforms | android, ios |'), true);
+  });
+
+  it('ios single-platform pack binds receipts and omits android verdict and evidence obligations', () => {
+    const input = cloneInput();
+    input.platformScope = 'single-platform';
+    input.requiredPlatforms = ['ios'];
+    input.platforms = input.platforms.filter((item) => item.platform === 'ios');
+    input.attempts = input.attempts.filter((item) => item.platform === 'ios');
+    input.evidence = input.evidence.filter((item) => item.platform === 'ios');
+    input.verdicts = input.verdicts.filter((item) => item.platform === 'ios');
+    const pack = buildCiEvidencePack(input);
+    const bytes = packBytes(pack);
+    const facts = validFacts() as unknown as CiEvidencePublicationReceiptFacts;
+    facts.requestedItems = facts.requestedItems.filter(
+      (item) => item.targetKind !== 'evidence' || item.evidenceId.startsWith('ios-'),
+    );
+    facts.outcomes = facts.outcomes.filter((outcome) =>
+      facts.requestedItems.some((item) => item.requestId === outcome.requestId),
+    );
+    const report = buildCiEvidenceGithubPublicationReport(bytes, facts);
+    assert.equal(report.gate.evaluation.status, 'passed');
+    assert.deepEqual(report.gate.evaluation.reasons, []);
+    assert.equal(report.gate.pack.platformScope, 'single-platform');
+    assert.deepEqual(report.gate.pack.requiredPlatforms, ['ios']);
+    assert.equal(report.markdown.includes('| platform scope | single-platform |'), true);
+    assert.equal(report.markdown.includes('| required platforms | ios |'), true);
+    assert.match(report.markdown, /\| ios \| supported \| passed \| ios-pass \| failed \|/);
+    assert.doesNotMatch(report.markdown, /\| android \|/);
+    assert.equal(report.markdown.toLowerCase().includes('mobile-complete'), false);
+    assert.equal(report.markdown.toLowerCase().includes('cross-platform'), false);
+    assert.equal(report.markdown.toLowerCase().includes('two-platform'), false);
+    assert.equal(report.markdown.toLowerCase().includes('two platform'), false);
+    assert.equal(
+      report.markdown.includes(
+        linkFor('ci_evidence_pack', 'https://github.com/acme/asl/actions/runs/1/pack.json', 'restricted'),
+      ),
+      true,
+    );
+    assert.equal(
+      report.markdown.includes(
+        linkFor('live_proof_set', 'https://github.com/acme/asl/actions/runs/1/lps.json', 'restricted'),
+      ),
+      true,
+    );
+    assert.equal(report.gate.pack.packId, pack.packId);
+    assertNoForbiddenVocabulary(report.markdown);
   });
 });

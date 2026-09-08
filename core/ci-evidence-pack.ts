@@ -2,12 +2,18 @@ const { readFileSync } = require('node:fs');
 
 const { SCHEMAS, assertValidJson } = require('./schema-validator');
 
-const CI_EVIDENCE_PACK_SCHEMA_VERSION = '1.0.0' as const;
+const CI_EVIDENCE_PACK_SCHEMA_VERSION = '1.1.0' as const;
+const CI_EVIDENCE_PACK_LEGACY_SCHEMA_VERSION = '1.0.0' as const;
 const SOURCE_SHA_PATTERN = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/;
 const SHA256_PATTERN = /^[a-f0-9]{64}$/;
 
 export type CiEvidencePackSchemaVersion = typeof CI_EVIDENCE_PACK_SCHEMA_VERSION;
+export type CiEvidencePackLegacySchemaVersion = typeof CI_EVIDENCE_PACK_LEGACY_SCHEMA_VERSION;
+export type CiEvidencePackReadableSchemaVersion =
+  | CiEvidencePackSchemaVersion
+  | CiEvidencePackLegacySchemaVersion;
 export type CiEvidencePackPlatform = 'android' | 'ios';
+export type CiEvidencePackPlatformScope = 'single-platform' | 'cross-platform';
 export type CiEvidencePackSourceStatus = 'current' | 'stale' | 'missing' | 'mismatch';
 export type CiEvidencePackAuthorityStatus = 'supported' | 'unsupported';
 export type CiEvidencePackEvaluationStatus = 'passed' | 'failed' | 'not_evaluable';
@@ -45,7 +51,8 @@ export type CiEvidencePackProductVerdictStatus =
   | 'failed'
   | 'inconclusive'
   | 'not_evaluated';
-export type CiEvidencePackTwoPlatformClaimStatus = 'passed' | 'failed' | 'not_evaluable';
+export type CiEvidencePackPlatformClaimStatus = 'passed' | 'failed' | 'not_evaluable';
+export type CiEvidencePackTwoPlatformClaimStatus = CiEvidencePackPlatformClaimStatus;
 export type CiEvidencePackLiveProofSetStatus = 'passed' | 'failed';
 
 class CiEvidencePackError extends Error {
@@ -127,8 +134,7 @@ export interface CiEvidencePackStatusReasons<TStatus extends string> {
   reasons: string[];
 }
 
-export interface CiEvidencePack {
-  schemaVersion: CiEvidencePackSchemaVersion;
+interface CiEvidencePackSharedFields {
   packId: string;
   createdAt: string;
   source: CiEvidencePackSource;
@@ -143,12 +149,24 @@ export interface CiEvidencePack {
   completeness: CiEvidencePackStatusReasons<CiEvidencePackCompletenessStatus>;
   assembly: CiEvidencePackStatusReasons<CiEvidencePackAssemblyStatus>;
   mechanismStatus: CiEvidencePackMechanismStatus;
-  twoPlatformClaim: CiEvidencePackStatusReasons<CiEvidencePackTwoPlatformClaimStatus>;
   summary: string;
   nextAction: string;
 }
 
-export type CiEvidencePackBuildInput = Omit<CiEvidencePack, 'mechanismStatus' | 'twoPlatformClaim'>;
+export interface CiEvidencePack extends CiEvidencePackSharedFields {
+  schemaVersion: CiEvidencePackSchemaVersion;
+  platformScope: CiEvidencePackPlatformScope;
+  platformClaim: CiEvidencePackStatusReasons<CiEvidencePackPlatformClaimStatus>;
+}
+
+export interface CiEvidencePackLegacy extends CiEvidencePackSharedFields {
+  schemaVersion: CiEvidencePackLegacySchemaVersion;
+  twoPlatformClaim: CiEvidencePackStatusReasons<CiEvidencePackTwoPlatformClaimStatus>;
+}
+
+export type CiEvidencePackArtifact = CiEvidencePack | CiEvidencePackLegacy;
+
+export type CiEvidencePackBuildInput = Omit<CiEvidencePack, 'mechanismStatus' | 'platformClaim'>;
 
 type InventoryMaps = {
   platformsById: Map<CiEvidencePackPlatform, CiEvidencePackPlatformRecord>;
@@ -217,6 +235,29 @@ function hasRequiredPlatformPair(platforms: readonly CiEvidencePackPlatform[]): 
   return (
     platforms.length === 2 && platforms.includes('android') && platforms.includes('ios')
   );
+}
+
+function hasSingleRequiredPlatform(platforms: readonly CiEvidencePackPlatform[]): boolean {
+  return platforms.length === 1 && (platforms[0] === 'android' || platforms[0] === 'ios');
+}
+
+function assertRequiredPlatformsMatchScope(
+  platformScope: CiEvidencePackPlatformScope,
+  platforms: readonly CiEvidencePackPlatform[],
+): void {
+  if (platformScope === 'single-platform') {
+    if (!hasSingleRequiredPlatform(platforms)) {
+      throw new CiEvidencePackError(
+        'single-platform requiredPlatforms must contain exactly one of android or ios',
+      );
+    }
+    return;
+  }
+  if (!hasRequiredPlatformPair(platforms)) {
+    throw new CiEvidencePackError(
+      'cross-platform requiredPlatforms must be exactly android and ios',
+    );
+  }
 }
 
 function hasMandatoryEvidenceKinds(kinds: readonly CiEvidencePackArtifactKind[]): boolean {
@@ -303,6 +344,7 @@ function toBuildInput(artifact: CiEvidencePackBuildInput): CiEvidencePackBuildIn
     createdAt: artifact.createdAt,
     source: cloneSource(artifact.source),
     liveProofSet: { ...artifact.liveProofSet },
+    platformScope: artifact.platformScope,
     requiredPlatforms: [...artifact.requiredPlatforms],
     requiredEvidenceKinds: [...artifact.requiredEvidenceKinds],
     platforms: artifact.platforms.map(clonePlatformRecord),
@@ -390,9 +432,13 @@ function assertInventoryCoherence(artifact: CiEvidencePackBuildInput): void {
   if (artifact.schemaVersion !== CI_EVIDENCE_PACK_SCHEMA_VERSION) {
     throw new CiEvidencePackError('unsupported schemaVersion');
   }
-  if (!hasRequiredPlatformPair(artifact.requiredPlatforms)) {
-    throw new CiEvidencePackError('requiredPlatforms must be exactly android and ios');
+  if (artifact.platformScope !== 'single-platform' && artifact.platformScope !== 'cross-platform') {
+    throw new CiEvidencePackError('platformScope must be single-platform or cross-platform');
   }
+  if (artifact.requiredPlatforms.length === 0) {
+    throw new CiEvidencePackError('requiredPlatforms must not be empty');
+  }
+  assertRequiredPlatformsMatchScope(artifact.platformScope, artifact.requiredPlatforms);
   if (!hasMandatoryEvidenceKinds(artifact.requiredEvidenceKinds)) {
     throw new CiEvidencePackError('requiredEvidenceKinds must include recording and verdict');
   }
@@ -761,20 +807,11 @@ function deriveCiEvidencePackMechanismStatus(
   return 'succeeded';
 }
 
-function deriveCiEvidencePackTwoPlatformClaim(
+function deriveCiEvidencePackPlatformClaim(
   input: CiEvidencePackBuildInput,
-): CiEvidencePackStatusReasons<CiEvidencePackTwoPlatformClaimStatus> {
+): CiEvidencePackStatusReasons<CiEvidencePackPlatformClaimStatus> {
   assertInventoryCoherence(input);
   const contributions: PlatformClaimContribution[] = [];
-  const requiredSet = new Set(input.requiredPlatforms);
-  const hasAndroidAndIos =
-    requiredSet.has('android') && requiredSet.has('ios') && requiredSet.size === 2;
-  if (!hasAndroidAndIos) {
-    contributions.push({
-      kind: 'not_evaluable',
-      reasons: ['requiredPlatforms must be exactly android and ios'],
-    });
-  }
 
   if (input.source.status !== 'current') {
     contributions.push({ kind: 'failed', reasons: [`source is ${input.source.status}`] });
@@ -809,11 +846,84 @@ function deriveCiEvidencePackTwoPlatformClaim(
   return { status: 'passed', reasons: [] };
 }
 
+function deriveCiEvidencePackTwoPlatformClaim(
+  input: CiEvidencePackBuildInput,
+): CiEvidencePackStatusReasons<CiEvidencePackTwoPlatformClaimStatus> {
+  return deriveCiEvidencePackPlatformClaim(input);
+}
+
+function toLegacyBuildInput(artifact: CiEvidencePackLegacy): CiEvidencePackBuildInput {
+  return toBuildInput({
+    schemaVersion: CI_EVIDENCE_PACK_SCHEMA_VERSION,
+    packId: artifact.packId,
+    createdAt: artifact.createdAt,
+    source: artifact.source,
+    liveProofSet: artifact.liveProofSet,
+    platformScope: 'cross-platform',
+    requiredPlatforms: artifact.requiredPlatforms,
+    requiredEvidenceKinds: artifact.requiredEvidenceKinds,
+    platforms: artifact.platforms,
+    attempts: artifact.attempts,
+    evidence: artifact.evidence,
+    verdicts: artifact.verdicts,
+    comparisonStatus: artifact.comparisonStatus,
+    completeness: artifact.completeness,
+    assembly: artifact.assembly,
+    summary: artifact.summary,
+    nextAction: artifact.nextAction,
+  });
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function assertNoCrossVersionFieldLeakage(raw: Record<string, unknown>, schemaVersion: string): void {
+  if (schemaVersion === CI_EVIDENCE_PACK_LEGACY_SCHEMA_VERSION) {
+    if ('platformScope' in raw || 'platformClaim' in raw) {
+      throw new CiEvidencePackError('legacy 1.0.0 artifact must not contain platformScope or platformClaim');
+    }
+    if (!('twoPlatformClaim' in raw)) {
+      throw new CiEvidencePackError('legacy 1.0.0 artifact requires twoPlatformClaim');
+    }
+    return;
+  }
+  if (schemaVersion === CI_EVIDENCE_PACK_SCHEMA_VERSION) {
+    if ('twoPlatformClaim' in raw) {
+      throw new CiEvidencePackError('1.1.0 artifact must not contain twoPlatformClaim');
+    }
+    if (!('platformScope' in raw) || !('platformClaim' in raw)) {
+      throw new CiEvidencePackError('1.1.0 artifact requires platformScope and platformClaim');
+    }
+  }
+}
+
 function assertCiEvidencePackSemantics(artifact: CiEvidencePack): void {
   const input = toBuildInput(artifact);
   assertInventoryCoherence(input);
   const mechanismStatus = deriveCiEvidencePackMechanismStatus(input);
-  const twoPlatformClaim = deriveCiEvidencePackTwoPlatformClaim(input);
+  const platformClaim = deriveCiEvidencePackPlatformClaim(input);
+  if (artifact.mechanismStatus !== mechanismStatus) {
+    throw new CiEvidencePackError('mechanismStatus does not match derivation');
+  }
+  if (
+    artifact.platformClaim.status !== platformClaim.status ||
+    JSON.stringify(artifact.platformClaim.reasons) !== JSON.stringify(platformClaim.reasons)
+  ) {
+    throw new CiEvidencePackError('platformClaim does not match derivation');
+  }
+}
+
+function assertCiEvidencePackLegacySemantics(artifact: CiEvidencePackLegacy): void {
+  if (artifact.schemaVersion !== CI_EVIDENCE_PACK_LEGACY_SCHEMA_VERSION) {
+    throw new CiEvidencePackError('unsupported schemaVersion');
+  }
+  if (!hasRequiredPlatformPair(artifact.requiredPlatforms)) {
+    throw new CiEvidencePackError('requiredPlatforms must be exactly android and ios');
+  }
+  const input = toLegacyBuildInput(artifact);
+  const mechanismStatus = deriveCiEvidencePackMechanismStatus(input);
+  const twoPlatformClaim = deriveCiEvidencePackPlatformClaim(input);
   if (artifact.mechanismStatus !== mechanismStatus) {
     throw new CiEvidencePackError('mechanismStatus does not match derivation');
   }
@@ -831,14 +941,14 @@ function buildCiEvidencePack(input: CiEvidencePackBuildInput): CiEvidencePack {
   const artifact: CiEvidencePack = {
     ...normalized,
     mechanismStatus: deriveCiEvidencePackMechanismStatus(normalized),
-    twoPlatformClaim: deriveCiEvidencePackTwoPlatformClaim(normalized),
+    platformClaim: deriveCiEvidencePackPlatformClaim(normalized),
   };
   assertValidJson(artifact, SCHEMAS.ciEvidencePack, 'ci-evidence-pack');
   assertCiEvidencePackSemantics(artifact);
   return artifact;
 }
 
-function parseCiEvidencePackBytes(bytes: Uint8Array): CiEvidencePack {
+function parseCiEvidencePackBytes(bytes: Uint8Array): CiEvidencePackArtifact {
   if (!(bytes instanceof Uint8Array)) {
     throw new CiEvidencePackError('ci-evidence-pack bytes must be a Uint8Array');
   }
@@ -855,7 +965,15 @@ function parseCiEvidencePackBytes(bytes: Uint8Array): CiEvidencePack {
     throw new CiEvidencePackError('ci-evidence-pack is not valid JSON');
   }
   try {
-    const artifact = assertValidJson(raw, SCHEMAS.ciEvidencePack, 'ci-evidence-pack') as CiEvidencePack;
+    if (!isRecord(raw) || typeof raw.schemaVersion !== 'string') {
+      throw new CiEvidencePackError('ci-evidence-pack requires schemaVersion');
+    }
+    assertNoCrossVersionFieldLeakage(raw, raw.schemaVersion);
+    const artifact = assertValidJson(raw, SCHEMAS.ciEvidencePack, 'ci-evidence-pack') as CiEvidencePackArtifact;
+    if (artifact.schemaVersion === CI_EVIDENCE_PACK_LEGACY_SCHEMA_VERSION) {
+      assertCiEvidencePackLegacySemantics(artifact);
+      return artifact;
+    }
     assertCiEvidencePackSemantics(artifact);
     return artifact;
   } catch (error) {
@@ -868,17 +986,19 @@ function parseCiEvidencePackBytes(bytes: Uint8Array): CiEvidencePack {
   }
 }
 
-function readCiEvidencePack(filePath: string): CiEvidencePack {
+function readCiEvidencePack(filePath: string): CiEvidencePackArtifact {
   return parseCiEvidencePackBytes(readFileSync(filePath));
 }
 
 export {
   CI_EVIDENCE_PACK_SCHEMA_VERSION,
+  CI_EVIDENCE_PACK_LEGACY_SCHEMA_VERSION,
   CiEvidencePackError,
   assertCiEvidencePackRunRelativePath,
   assertCiEvidencePackSemantics,
   buildCiEvidencePack,
   deriveCiEvidencePackMechanismStatus,
+  deriveCiEvidencePackPlatformClaim,
   deriveCiEvidencePackTwoPlatformClaim,
   parseCiEvidencePackBytes,
   readCiEvidencePack,

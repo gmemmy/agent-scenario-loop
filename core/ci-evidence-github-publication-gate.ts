@@ -1,6 +1,9 @@
 import { admitCiEvidenceGithubPublicationFacts } from './ci-evidence-github-publication-input';
 import { parseCiEvidencePackBytes } from './ci-evidence-pack';
-import { buildCiEvidencePublicationReceipt } from './ci-evidence-publication-receipt';
+import {
+  buildCiEvidencePublicationReceipt,
+  normalizeCiEvidencePublicationPlatformClaim,
+} from './ci-evidence-publication-receipt';
 import { evaluateCiEvidencePublicationSummary } from './ci-evidence-publication-summary';
 import type { CiEvidencePublicationReceiptFacts } from './ci-evidence-publication-receipt';
 import type { CiEvidencePublicationSummaryEvaluation } from './ci-evidence-publication-summary';
@@ -34,7 +37,7 @@ const GATE_REASON_ORDER = [
   'pack.completeness.status',
   'pack.assembly.status',
   'pack.mechanismStatus',
-  'pack.twoPlatformClaim.status',
+  'pack.platformClaim.status',
   'publication.evaluation.status',
 ] as const;
 
@@ -96,6 +99,7 @@ function collectGateReasons(
   publicationEvaluation: CiEvidencePublicationSummaryEvaluation,
 ): string[] {
   const headSha = publicationFacts.context.headSha;
+  const platformClaim = normalizeCiEvidencePublicationPlatformClaim(pack);
   const candidates: Record<GateReasonKey, string | undefined> = {
     'pack.source.status':
       pack.source.status === 'current'
@@ -127,10 +131,16 @@ function collectGateReasons(
       pack.mechanismStatus === 'succeeded'
         ? undefined
         : unexpectedStatus('pack.mechanismStatus', pack.mechanismStatus, 'succeeded'),
-    'pack.twoPlatformClaim.status':
-      pack.twoPlatformClaim.status === 'passed'
+    'pack.platformClaim.status':
+      platformClaim.claimStatus === 'passed'
         ? undefined
-        : unexpectedStatus('pack.twoPlatformClaim.status', pack.twoPlatformClaim.status, 'passed'),
+        : unexpectedStatus(
+            pack.schemaVersion === '1.0.0'
+              ? 'pack.twoPlatformClaim.status'
+              : 'pack.platformClaim.status',
+            platformClaim.claimStatus,
+            'passed',
+          ),
     'publication.evaluation.status':
       publicationEvaluation.status === 'passed'
         ? undefined

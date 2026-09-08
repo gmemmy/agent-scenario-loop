@@ -180,7 +180,7 @@ function baseInput(
   verdicts: CiEvidencePackVerdictPointer[] = defaultVerdicts('failed'),
 ): CiEvidencePackBuildInput {
   return {
-    schemaVersion: '1.0.0',
+    schemaVersion: '1.1.0',
     packId: 'pack-1',
     createdAt: '2026-08-22T00:03:00.000Z',
     source: { expectedSha: SHA, observedSha: SHA, status: 'current' },
@@ -191,6 +191,7 @@ function baseInput(
       runId: 'run-1',
       status: 'passed',
     },
+    platformScope: 'cross-platform',
     requiredPlatforms: ['android', 'ios'],
     requiredEvidenceKinds: ['recording', 'verdict'],
     platforms,
@@ -216,6 +217,8 @@ test('valid Android+iOS live-proof-set verifies and assembles even when product 
   const pack = assembleCiEvidencePack(input, { artifactRoot: root });
   assert.equal(pack.liveProofSet.runId, 'run-1');
   assert.equal(pack.verdicts[0]?.status, 'failed');
+  assert.equal(pack.platformScope, 'cross-platform');
+  assert.equal(pack.platformClaim.status, 'passed');
 });
 
 test('failed and retried attempts remain visible beside the unique selected platform+runId match', () => {
@@ -253,6 +256,156 @@ test('Android/iOS requiredPlatforms order is irrelevant', () => {
   const input = baseInput(live);
   const verified = verifyCiEvidencePackLiveProofSet(input, { artifactRoot: root });
   assert.deepEqual(verified.requiredPlatforms, ['ios', 'android']);
+});
+
+test('assembler accepts iOS-only live-proof-set input with CI-pack 1.1.0 single-platform scope', () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'ci-pack-assembler-'));
+  const live = writeLiveProofSet(
+    root,
+    liveProofSetPayload({
+      proofCount: 1,
+      requiredPlatforms: ['ios'],
+      presentPlatforms: ['ios'],
+      missingPlatforms: [],
+      proofs: [proofPointer('ios')],
+      summary: 'iOS live proof assembled.',
+    }),
+  );
+  const platforms: CiEvidencePackPlatformRecord[] = [
+    {
+      platform: 'ios',
+      authorityStatus: 'supported',
+      evaluationStatus: 'passed',
+      selectedAttemptId: 'attempt-ios',
+    },
+  ];
+  const attempts = [attemptRecord('ios', 'attempt-ios', 'run-ios')];
+  const verdicts: CiEvidencePackVerdictPointer[] = [
+    {
+      scenarioId: 'scenario-a',
+      runId: 'run-ios',
+      platform: 'ios',
+      status: 'failed',
+      evidenceId: 'attempt-ios-verdict',
+    },
+  ];
+  const input = baseInput(live, platforms, attempts, verdicts);
+  input.platformScope = 'single-platform';
+  input.requiredPlatforms = ['ios'];
+  const verified = verifyCiEvidencePackLiveProofSet(input, { artifactRoot: root });
+  assert.equal(verified.proofCount, 1);
+  assert.deepEqual(verified.requiredPlatforms, ['ios']);
+  const pack = assembleCiEvidencePack(input, { artifactRoot: root });
+  assert.equal(pack.platformScope, 'single-platform');
+  assert.deepEqual(pack.requiredPlatforms, ['ios']);
+});
+
+test('assembler accepts Android-only live-proof-set input with CI-pack 1.1.0 single-platform scope', () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'ci-pack-assembler-'));
+  const live = writeLiveProofSet(
+    root,
+    liveProofSetPayload({
+      proofCount: 1,
+      requiredPlatforms: ['android'],
+      presentPlatforms: ['android'],
+      missingPlatforms: [],
+      proofs: [proofPointer('android')],
+      summary: 'Android live proof assembled.',
+    }),
+  );
+  const platforms: CiEvidencePackPlatformRecord[] = [
+    {
+      platform: 'android',
+      authorityStatus: 'supported',
+      evaluationStatus: 'passed',
+      selectedAttemptId: 'attempt-android',
+    },
+  ];
+  const attempts = [attemptRecord('android', 'attempt-android', 'run-android')];
+  const verdicts: CiEvidencePackVerdictPointer[] = [
+    {
+      scenarioId: 'scenario-a',
+      runId: 'run-android',
+      platform: 'android',
+      status: 'failed',
+      evidenceId: 'attempt-android-verdict',
+    },
+  ];
+  const input = baseInput(live, platforms, attempts, verdicts);
+  input.platformScope = 'single-platform';
+  input.requiredPlatforms = ['android'];
+  const verified = verifyCiEvidencePackLiveProofSet(input, { artifactRoot: root });
+  assert.equal(verified.proofCount, 1);
+  const pack = assembleCiEvidencePack(input, { artifactRoot: root });
+  assert.equal(pack.platformScope, 'single-platform');
+  assert.deepEqual(pack.requiredPlatforms, ['android']);
+});
+
+test('assembler rejects omitted platformScope on 1.1.0 CI evidence build input', () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'ci-pack-assembler-'));
+  const live = writeLiveProofSet(root, liveProofSetPayload());
+  const input = baseInput(live);
+  delete (input as { platformScope?: unknown }).platformScope;
+  assert.throws(
+    () => verifyCiEvidencePackLiveProofSet(input, { artifactRoot: root }),
+    CiEvidencePackError,
+  );
+});
+
+test('assembler rejects live-proof-set scope/platform/present/missing mismatches', () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'ci-pack-assembler-'));
+  const live = writeLiveProofSet(
+    root,
+    liveProofSetPayload({
+      requiredPlatforms: ['android', 'ios'],
+    }),
+  );
+  const input = baseInput(live);
+  input.platformScope = 'single-platform';
+  assert.throws(
+    () => verifyCiEvidencePackLiveProofSet(input, { artifactRoot: root }),
+    CiEvidencePackError,
+  );
+});
+
+test('assembler does not fabricate missing platform proof for undeclared platforms', () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'ci-pack-assembler-'));
+  const live = writeLiveProofSet(
+    root,
+    liveProofSetPayload({
+      proofCount: 1,
+      platformScope: 'single-platform',
+      requiredPlatforms: ['ios'],
+      presentPlatforms: ['ios'],
+      missingPlatforms: ['android'],
+      proofs: [proofPointer('ios')],
+    }),
+  );
+  const platforms: CiEvidencePackPlatformRecord[] = [
+    {
+      platform: 'ios',
+      authorityStatus: 'supported',
+      evaluationStatus: 'passed',
+      selectedAttemptId: 'attempt-ios',
+    },
+  ];
+  const attempts = [attemptRecord('ios', 'attempt-ios', 'run-ios')];
+  const verdicts: CiEvidencePackVerdictPointer[] = [
+    {
+      scenarioId: 'scenario-a',
+      runId: 'run-ios',
+      platform: 'ios',
+      status: 'failed',
+      evidenceId: 'attempt-ios-verdict',
+    },
+  ];
+  const input = baseInput(live, platforms, attempts, verdicts);
+  input.platformScope = 'single-platform';
+  input.requiredPlatforms = ['ios'];
+  assert.throws(
+    () => verifyCiEvidencePackLiveProofSet(input, { artifactRoot: root }),
+    CiEvidencePackError,
+  );
 });
 
 test('byte-size and SHA checks catch tampering including whitespace-only byte changes', () => {
