@@ -57,7 +57,7 @@ type EvidencePackageRequestBase = {
 export type EvidencePackageRequest = EvidencePackageRequestBase & ({
   schemaVersion: '1.0.0';
 } | {
-  jsonPointers: [EvidencePackageJsonPointerRequest, ...EvidencePackageJsonPointerRequest[]];
+  jsonPointers: EvidencePackageJsonPointerRequest[];
   schemaVersion: '1.1.0';
 });
 
@@ -346,12 +346,6 @@ function requestJsonPointers(request: EvidencePackageRequest): EvidencePackageJs
   if (request.schemaVersion === '1.0.0') {
     return [];
   }
-  if (!Array.isArray(request.jsonPointers) || request.jsonPointers.length === 0) {
-    throw new EvidencePackageError(
-      'invalid-request',
-      'Evidence package request schema 1.1.0 requires at least one classified JSON pointer.',
-    );
-  }
   return request.jsonPointers;
 }
 
@@ -397,6 +391,12 @@ function transformJsonEntries(
   sourceRoot: string,
   prepared: PreparedEvidencePackageEntry[],
 ): {entries: PreparedEvidencePackageEntry[]; pointers: EvidencePackageJsonPointer[]} {
+  if (request.schemaVersion === '1.0.0') {
+    return {
+      entries: prepared,
+      pointers: [],
+    };
+  }
   const declarations = requestJsonPointers(request);
   const declarationsBySource = new Map<string, EvidencePackageJsonPointerRequest[]>();
   const declarationKeys = new Set<string>();
@@ -1302,6 +1302,16 @@ export function verifyEvidencePackage(packageDirInput: string): EvidencePackageV
     artifact.totalByteSize !== artifact.entries.reduce((sum, entry) => sum + entry.byteSize, 0)
   ) {
     throw verificationError('checksum-mismatch', 'Manifest file count or total byte size does not match its entries.');
+  }
+
+  if (artifact.schemaVersion === '1.0.0') {
+    return {
+      artifact,
+      checksumsPath: path.join(outputDir, artifact.checksumsPath),
+      manifestPath: path.join(outputDir, 'evidence-package.json'),
+      outputDir,
+      status: 'complete',
+    };
   }
 
   const pointers = artifact.schemaVersion === '1.1.0' ? artifact.jsonPointers : [];
