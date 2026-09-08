@@ -1175,6 +1175,113 @@ function main(): void {
     assert.equal(fs.existsSync(path.join(initOutputDir, 'src', 'devtools', 'profile-session-storage.ts')), true);
     assert.equal(fs.existsSync(path.join(initOutputDir, 'src', 'devtools', 'profile-session-command-ordering.ts')), true);
     assert.equal(fs.existsSync(path.join(initOutputDir, 'src', 'devtools', 'profile-session-dependency-controller.ts')), true);
+    assert.equal(fs.existsSync(path.join(initOutputDir, 'src', 'devtools', 'profile-session-authoritative-storage.ts')), true);
+    assert.equal(fs.existsSync(path.join(initOutputDir, 'src', 'devtools', 'profile-session-helper.json')), true);
+
+    const generatedHelperFiles = [
+      'profile-session.ts',
+      'profile-session-storage.ts',
+      'profile-session-command-ordering.ts',
+      'profile-session-dependency-controller.ts',
+      'profile-session-authoritative-storage.ts',
+      'profile-session-helper.json',
+    ];
+    for (const helperFile of generatedHelperFiles) {
+      assert.equal(fs.existsSync(path.join(initOutputDir, 'src', 'devtools', helperFile)), true);
+    }
+
+    const ambientDeclarationsPath = path.join(initOutputDir, 'asl-init-ambient-peers.d.ts');
+    fs.writeFileSync(ambientDeclarationsPath, [
+      'declare module "@react-native-async-storage/async-storage" {',
+      '  const AsyncStorage: {',
+      '    getItem(key: string): Promise<string | null>;',
+      '    setItem(key: string, value: string): Promise<void>;',
+      '    removeItem(key: string): Promise<void>;',
+      '  };',
+      '  export default AsyncStorage;',
+      '}',
+      'declare module "react" {',
+      '  export function useEffect(effect: () => void | (() => void), deps?: unknown[]): void;',
+      '  export function useSyncExternalStore<T>(',
+      '    subscribe: (listener: () => void) => () => void,',
+      '    getSnapshot: () => T,',
+      '    getServerSnapshot?: () => T,',
+      '  ): T;',
+      '}',
+      'declare module "react-native" {',
+      '  export const Platform: { OS: string };',
+      '  export const NativeModules: Record<string, unknown>;',
+      '  export const Linking: {',
+      '    getInitialURL(): Promise<string | null>;',
+      '    addEventListener(type: "url", listener: (event: { url: string }) => void): { remove(): void };',
+      '  };',
+      '}',
+      'declare module "expo-linking" {',
+      '  export function parse(url: string): {',
+      '    hostname: string | null;',
+      '    path: string | null;',
+      '    queryParams?: Record<string, string | string[] | undefined>;',
+      '  };',
+      '}',
+      '',
+    ].join('\n'));
+
+    const generatedTsconfigPath = path.join(initOutputDir, 'asl-init-generated-helpers.tsconfig.json');
+    fs.writeFileSync(generatedTsconfigPath, `${JSON.stringify({
+      compilerOptions: {
+        strict: true,
+        exactOptionalPropertyTypes: true,
+        noUncheckedIndexedAccess: true,
+        noImplicitOverride: true,
+        forceConsistentCasingInFileNames: true,
+        noEmit: true,
+        target: 'ES2022',
+        module: 'Node16',
+        moduleResolution: 'Node16',
+        esModuleInterop: true,
+        allowSyntheticDefaultImports: true,
+        resolveJsonModule: true,
+        skipLibCheck: true,
+      },
+      include: [
+        'asl-init-ambient-peers.d.ts',
+        'src/devtools/**/*.ts',
+        'src/devtools/profile-session-helper.json',
+      ],
+    }, null, 2)}\n`);
+
+    run(typescriptBinPath(repoRoot), ['-p', generatedTsconfigPath], {
+      cwd: initOutputDir,
+      env,
+    });
+
+    const requiredRelativeSourcePath = path.join(
+      initOutputDir,
+      'src',
+      'devtools',
+      'profile-session-authoritative-storage.ts',
+    );
+    const hiddenRelativeSourcePath = `${requiredRelativeSourcePath}.missing`;
+    fs.renameSync(requiredRelativeSourcePath, hiddenRelativeSourcePath);
+    try {
+      const missingRelativeSource = runExpectFailure(
+        typescriptBinPath(repoRoot),
+        ['-p', generatedTsconfigPath],
+        { cwd: initOutputDir, env },
+      );
+      assert.notEqual(missingRelativeSource.status, 0);
+      assert.match(
+        `${missingRelativeSource.stdout}\n${missingRelativeSource.stderr}`,
+        /Cannot find module ['"]\.\/profile-session-authoritative-storage['"]/u,
+      );
+    } finally {
+      fs.renameSync(hiddenRelativeSourcePath, requiredRelativeSourcePath);
+    }
+    run(typescriptBinPath(repoRoot), ['-p', generatedTsconfigPath], {
+      cwd: initOutputDir,
+      env,
+    });
+
     const initWithSkillOutputDir = path.join(tempRoot, 'initialized-app-with-skill');
     const initWithSkillOutput = run(packageBinPath(installDir, 'asl-init'), [
       '--out',

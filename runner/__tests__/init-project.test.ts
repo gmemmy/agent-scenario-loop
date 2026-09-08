@@ -64,8 +64,10 @@ test('init-project scaffolds templates into a consuming app layout', async (t: T
     'scripts/asl-capture-accessibility-provider.mjs',
     'scripts/asl-capture-native-performance-provider.mjs',
     'scripts/asl-capture-profiler-provider.mjs',
+    'src/devtools/profile-session-authoritative-storage.ts',
     'src/devtools/profile-session-command-ordering.ts',
     'src/devtools/profile-session-dependency-controller.ts',
+    'src/devtools/profile-session-helper.json',
     'src/devtools/profile-session-storage.ts',
     'src/devtools/profile-session.ts',
   ]);
@@ -210,6 +212,31 @@ test('init-project scaffolds templates into a consuming app layout', async (t: T
     fs.readFileSync(path.join(targetDir, 'src', 'devtools', 'profile-session-storage.ts'), 'utf8'),
     /PROFILE_SESSION_STORAGE_KEYS/u,
   );
+  assert.match(
+    fs.readFileSync(path.join(targetDir, 'src', 'devtools', 'profile-session-authoritative-storage.ts'), 'utf8'),
+    /createProfileSessionAuthoritativeStorage|ProfileSessionAuthoritativeStorage/u,
+  );
+  assert.equal(
+    fs.readFileSync(path.join(targetDir, 'src', 'devtools', 'profile-session-authoritative-storage.ts'), 'utf8'),
+    fs.readFileSync(path.join(ROOT, 'app', 'profile-session-authoritative-storage.ts'), 'utf8'),
+  );
+  assert.equal(
+    fs.readFileSync(path.join(targetDir, 'src', 'devtools', 'profile-session-helper.json'), 'utf8'),
+    fs.readFileSync(path.join(ROOT, 'app', 'profile-session-helper.json'), 'utf8'),
+  );
+  const helperIdentity = JSON.parse(
+    fs.readFileSync(path.join(targetDir, 'src', 'devtools', 'profile-session-helper.json'), 'utf8'),
+  ) as {
+    payloadId?: unknown;
+    payloadSha256?: unknown;
+    version?: unknown;
+  };
+  assert.equal(typeof helperIdentity.payloadId, 'string');
+  assert.ok(helperIdentity.payloadId);
+  assert.equal(typeof helperIdentity.payloadSha256, 'string');
+  assert.match(helperIdentity.payloadSha256, /^[a-f0-9]{64}$/u);
+  assert.equal(typeof helperIdentity.version, 'string');
+  assert.ok(helperIdentity.version);
   assert.match(formatResult(result), /created:/u);
 });
 
@@ -264,12 +291,70 @@ test('init-project skips existing files unless force is enabled', async (t: Test
     'src/devtools/profile-session-storage.ts',
     'src/devtools/profile-session-command-ordering.ts',
     'src/devtools/profile-session-dependency-controller.ts',
+    'src/devtools/profile-session-authoritative-storage.ts',
+    'src/devtools/profile-session-helper.json',
   ]);
   assert.equal(readJson(path.join(targetDir, 'asl.config.json')).projectName, 'custom');
 
   const forced = await initProject({ force: true, outDir: targetDir, packageRoot: ROOT });
   assert.equal(forced.skipped.length, 0);
   assert.equal(readJson(path.join(targetDir, 'asl.config.json')).projectName, 'replace-me');
+});
+
+test('init-project rejects a partial helper source set before writing', async (t: TestContext) => {
+  const targetDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'asl-init-project-partial-helper-'));
+  t.after(async () => {
+    await fsp.rm(targetDir, { recursive: true, force: true });
+  });
+
+  const legacyHelperFiles = [
+    'profile-session.ts',
+    'profile-session-storage.ts',
+    'profile-session-command-ordering.ts',
+    'profile-session-dependency-controller.ts',
+  ];
+  const legacyBytes = new Map<string, string>();
+  for (const fileName of legacyHelperFiles) {
+    const contents = `legacy:${fileName}\n`;
+    const destination = path.join(targetDir, 'src', 'devtools', fileName);
+    await fsp.mkdir(path.dirname(destination), { recursive: true });
+    await fsp.writeFile(destination, contents, 'utf8');
+    legacyBytes.set(fileName, contents);
+  }
+
+  const preview = await initProject({ dryRun: true, outDir: targetDir, packageRoot: ROOT });
+  assert.equal(preview.created.includes('src/devtools/profile-session-authoritative-storage.ts'), true);
+  assert.equal(preview.created.includes('src/devtools/profile-session-helper.json'), true);
+  assert.equal(fs.existsSync(path.join(targetDir, 'asl.config.json')), false);
+  assert.equal(fs.existsSync(path.join(targetDir, 'src', 'devtools', 'profile-session-authoritative-storage.ts')), false);
+  assert.equal(fs.existsSync(path.join(targetDir, 'src', 'devtools', 'profile-session-helper.json')), false);
+  for (const [fileName, contents] of legacyBytes) {
+    assert.equal(fs.readFileSync(path.join(targetDir, 'src', 'devtools', fileName), 'utf8'), contents);
+  }
+
+  await assert.rejects(
+    initProject({ outDir: targetDir, packageRoot: ROOT }),
+    /Incomplete profile-session helper source set; missing: profile-session-authoritative-storage\.ts, profile-session-helper\.json/u,
+  );
+  assert.equal(fs.existsSync(path.join(targetDir, 'asl.config.json')), false);
+  assert.equal(fs.existsSync(path.join(targetDir, 'src', 'devtools', 'profile-session-authoritative-storage.ts')), false);
+  assert.equal(fs.existsSync(path.join(targetDir, 'src', 'devtools', 'profile-session-helper.json')), false);
+  for (const [fileName, contents] of legacyBytes) {
+    assert.equal(fs.readFileSync(path.join(targetDir, 'src', 'devtools', fileName), 'utf8'), contents);
+  }
+
+  const forced = await initProject({ force: true, outDir: targetDir, packageRoot: ROOT });
+  assert.equal(forced.skipped.length, 0);
+  for (const fileName of [
+    ...legacyHelperFiles,
+    'profile-session-authoritative-storage.ts',
+    'profile-session-helper.json',
+  ]) {
+    assert.equal(
+      fs.readFileSync(path.join(targetDir, 'src', 'devtools', fileName), 'utf8'),
+      fs.readFileSync(path.join(ROOT, 'app', fileName), 'utf8'),
+    );
+  }
 });
 
 test('init-project dry run reports files without writing them', async (t: TestContext) => {
@@ -284,6 +369,16 @@ test('init-project dry run reports files without writing them', async (t: TestCo
     packageRoot: ROOT,
   });
 
-  assert.equal(result.created.length, 14);
+  assert.equal(result.created.length, 16);
   assert.equal(fs.existsSync(path.join(targetDir, 'asl.config.json')), false);
+  for (const fileName of [
+    'profile-session.ts',
+    'profile-session-storage.ts',
+    'profile-session-command-ordering.ts',
+    'profile-session-dependency-controller.ts',
+    'profile-session-authoritative-storage.ts',
+    'profile-session-helper.json',
+  ]) {
+    assert.equal(fs.existsSync(path.join(targetDir, 'src', 'devtools', fileName)), false);
+  }
 });

@@ -786,19 +786,19 @@ function getProfileSessionRoute(url: string): {
 
   return {
     action,
-    scenario,
-    runId,
-    id,
-    command,
-    commandId,
+    ...(typeof scenario === 'string' ? { scenario } : {}),
+    ...(typeof runId === 'string' ? { runId } : {}),
+    ...(typeof id === 'string' ? { id } : {}),
+    ...(typeof command === 'string' ? { command } : {}),
+    ...(typeof commandId === 'string' ? { commandId } : {}),
     ...(dependsOnMilestones.length > 0 ? { dependsOnMilestones } : {}),
-    queueId,
-    sequence,
-    stopOnFailure,
+    ...(typeof queueId === 'string' ? { queueId } : {}),
+    ...(typeof sequence === 'number' ? { sequence } : {}),
+    ...(typeof stopOnFailure === 'boolean' ? { stopOnFailure } : {}),
     ...(unscopedMilestones.length > 0 ? { unscopedMilestones } : {}),
-    waitForMilestone,
-    waitMs,
-    waitTimeoutMs,
+    ...(typeof waitForMilestone === 'string' ? { waitForMilestone } : {}),
+    ...(typeof waitMs === 'number' ? { waitMs } : {}),
+    ...(typeof waitTimeoutMs === 'number' ? { waitTimeoutMs } : {}),
   };
 }
 
@@ -1019,7 +1019,9 @@ function logProfileCommandCadenceObservation(
         commandReleasedAtMs: observation.commandReleasedAtMs,
         readinessObservedAtMs: observation.readinessObservedAtMs,
         continuationObservedAtMs,
-        maxReadinessWaitMs: observation.command.waitTimeoutMs,
+        ...(typeof observation.command.waitTimeoutMs === 'number'
+          ? { maxReadinessWaitMs: observation.command.waitTimeoutMs }
+          : {}),
       })
     : resolveProfileCommandSettleOutcome({
         minimumSettleMs: observation.command.waitMs,
@@ -1071,7 +1073,9 @@ function startProfileCommandMilestoneTimeout(command: ProfileSessionCommand) {
       commandReleasedAtMs: profileCommandMilestoneGate.commandReleasedAtMs,
       timeoutObservedAtMs: timeoutAtMs,
       minimumSettleMs: profileCommandMilestoneGate.waitMs,
-      maxReadinessWaitMs: profileCommandMilestoneGate.waitTimeoutMs,
+      ...(typeof profileCommandMilestoneGate.waitTimeoutMs === 'number'
+        ? { maxReadinessWaitMs: profileCommandMilestoneGate.waitTimeoutMs }
+        : {}),
       stopOnFailure: resolveProfileCommandStopOnFailure(profileCommandMilestoneGate.stopOnFailure),
     });
 
@@ -1346,10 +1350,15 @@ function processSequencedProfileCommands() {
     )
       ? null
       : buildProfileCommandMilestoneGate(command);
-    const resolvedCommand = nextGate && (
+    const resolvedCommand: ProfileSessionCommand = nextGate && (
       typeof command.waitTimeoutMs !== 'number' || command.waitTimeoutMs <= 0
     )
-      ? { ...command, waitTimeoutMs: nextGate.waitTimeoutMs }
+      ? {
+          ...command,
+          ...(typeof nextGate.waitTimeoutMs === 'number'
+            ? { waitTimeoutMs: nextGate.waitTimeoutMs }
+            : {}),
+        }
       : command;
     logProfileSession('command', {
       ...resolvedCommand,
@@ -1617,10 +1626,10 @@ export function applyProfileSessionUrl(url: string | null | undefined): boolean 
       });
     }
 
-    const command = {
+    const command: ProfileSessionCommand = {
       id: route.id ?? `${timestamp}-${route.scenario ?? 'profile'}-${route.command}`,
-      scenario: route.scenario,
-      runId: route.runId,
+      ...(typeof route.scenario === 'string' ? { scenario: route.scenario } : {}),
+      ...(typeof route.runId === 'string' ? { runId: route.runId } : {}),
       command: route.command,
       ...(route.commandId ? { commandId: route.commandId } : {}),
       ...(Array.isArray(route.dependsOnMilestones) && route.dependsOnMilestones.length > 0
@@ -1822,7 +1831,7 @@ export function useProfileSessionBootstrap(): void {
         let normalizedStartedAt = resolveProfileSessionAuthorityStartedAt(storedStartedAt, Date.now());
         if (storedStartedAt === null) {
           try {
-            storedSession = await normalizeProfileSessionAuthorityIdentity(
+            const normalizedStoredSession = await normalizeProfileSessionAuthorityIdentity(
               storedSession,
               normalizedStartedAt,
               async (normalizedSession) => {
@@ -1831,7 +1840,8 @@ export function useProfileSessionBootstrap(): void {
                 });
               },
             );
-            normalizedStartedAt = storedSession.startedAt;
+            storedSession = normalizedStoredSession;
+            normalizedStartedAt = normalizedStoredSession.startedAt;
           } catch {
             return;
           }
