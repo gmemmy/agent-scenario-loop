@@ -2819,6 +2819,7 @@ function main(): void {
       "assert.equal(typeof asl.createQuickProofAuthorizationPort, 'function');",
       "assert.equal(typeof asl.writeQuickProofArtifacts, 'function');",
       "assert.equal(typeof asl.materializeEvidencePackage, 'function');",
+      "assert.equal(typeof asl.verifyEvidencePackage, 'function');",
       "assert.equal(typeof asl.EvidencePackageError, 'function');",
       "assert.equal(typeof asl.assertValidJson, 'function');",
       "assert.deepEqual(asl.PRIMARY_RUNNER_PORT, ['prepare', 'launch', 'startSession', 'executeStep', 'waitForTruthEvent', 'captureEvidence', 'stopSession', 'finalize']);",
@@ -3499,6 +3500,10 @@ function main(): void {
     ) as Record<string, unknown>;
     assert.equal(evidencePackageManifest.status, 'complete');
     assert.equal(evidencePackageManifest.fileCount, 1);
+    const verifiedEvidencePackage = require(path.join(packageRoot, 'dist', 'index.js')).verifyEvidencePackage(
+      evidencePackageOutput,
+    ) as Record<string, unknown>;
+    assert.equal(verifiedEvidencePackage.status, 'complete');
     const evidencePackageChecksums = fs.readFileSync(path.join(evidencePackageOutput, 'SHA256SUMS'), 'utf8');
     assert.match(evidencePackageChecksums, /evidence-package\.json/u);
     assert.match(evidencePackageChecksums, /files\/health\.json/u);
@@ -3509,6 +3514,57 @@ function main(): void {
         expectedSha256,
       );
     }
+    const portableSource = path.join(tempRoot, 'portable-evidence-source');
+    const portableOutput = path.join(tempRoot, 'portable-evidence-output');
+    const relocatedPortableOutput = path.join(tempRoot, 'portable-evidence-relocated');
+    const portableRequestPath = path.join(tempRoot, 'portable-evidence-request.json');
+    fs.mkdirSync(path.join(portableSource, 'raw'), { recursive: true });
+    const portablePayloadPath = path.join(portableSource, 'raw', 'payload.json');
+    fs.writeFileSync(portablePayloadPath, '{"value":"portable"}\n', 'utf8');
+    fs.writeFileSync(
+      path.join(portableSource, 'raw', 'index.json'),
+      `${JSON.stringify({ artifact: portablePayloadPath, producerRoot: portableSource })}\n`,
+      'utf8',
+    );
+    fs.writeFileSync(portableRequestPath, `${JSON.stringify({
+      schemaVersion: '1.1.0',
+      packageId: 'package-smoke-portable-evidence',
+      runId: 'package-smoke-portable-run',
+      sourceRoot: portableSource,
+      outputDir: portableOutput,
+      sensitivityPolicy: 'allowlist-and-secret-marker-v1',
+      entries: [
+        { kind: 'other', sourcePath: 'raw/payload.json', artifactPath: 'files/payload.json' },
+        { kind: 'summary', sourcePath: 'raw/index.json', artifactPath: 'files/index.json' },
+      ],
+      jsonPointers: [
+        {
+          sourcePath: 'raw/index.json',
+          jsonPointer: '/artifact',
+          role: 'artifact-reference',
+          referencedSourcePath: 'raw/payload.json',
+        },
+        {
+          sourcePath: 'raw/index.json',
+          jsonPointer: '/producerRoot',
+          role: 'host-local-provenance',
+        },
+      ],
+    }, null, 2)}\n`, 'utf8');
+    run(
+      packageBinPath(installDir, 'asl-evidence-package'),
+      ['--request', portableRequestPath],
+      { cwd: installDir, env },
+    );
+    fs.renameSync(portableOutput, relocatedPortableOutput);
+    fs.rmSync(portableSource, { recursive: true, force: true });
+    const installedAsl = require(path.join(packageRoot, 'dist', 'index.js')) as typeof import('../index');
+    assert.equal(installedAsl.verifyEvidencePackage(relocatedPortableOutput).status, 'complete');
+    const relocatedIndex = JSON.parse(
+      fs.readFileSync(path.join(relocatedPortableOutput, 'files', 'index.json'), 'utf8'),
+    ) as Record<string, unknown>;
+    assert.equal(relocatedIndex.artifact, 'files/payload.json');
+    assert.equal(relocatedIndex.producerRoot, portableSource);
     const rejectedEvidenceOutput = path.join(tempRoot, 'evidence-package-rejected-output');
     const rejectedEvidenceRequestPath = path.join(tempRoot, 'evidence-package-rejected-request.json');
     fs.writeFileSync(rejectedEvidenceRequestPath, `${JSON.stringify({
@@ -3686,23 +3742,81 @@ function main(): void {
     ), 'utf8')) as Record<string, unknown>;
     assert.equal(failedAdapterProof.status, 'failed');
 
+    const sanitizedHarnessSource = path.join(tempRoot, 'sanitized-harness-source');
     const sanitizedHarnessOutput = path.join(tempRoot, 'sanitized-harness-evidence');
     const sanitizedHarnessRequestPath = path.join(tempRoot, 'sanitized-harness-request.json');
+    fs.mkdirSync(sanitizedHarnessSource, { recursive: true });
+    fs.cpSync(adapterCaptureDir, path.join(sanitizedHarnessSource, 'adapter-capture'), { recursive: true });
+    fs.cpSync(adapterPreflightDir, path.join(sanitizedHarnessSource, 'adapter-preflight'), { recursive: true });
+    const stagedLiveProofPath = path.join(
+      sanitizedHarnessSource,
+      'adapter-capture',
+      '_live-proof',
+      'adapter-aggregate-run',
+      'live-proof.json',
+    );
+    const stagedLiveProof = JSON.parse(fs.readFileSync(stagedLiveProofPath, 'utf8')) as {
+      interactionProofs: Array<{ runDir: string; summaryPath: string }>;
+      outputDir: string;
+      preflight: { runDir: string; summaryPath: string };
+    };
+    const stagedCaptureDir = path.join(sanitizedHarnessSource, 'adapter-capture');
+    const stagedPreflightDir = path.join(sanitizedHarnessSource, 'adapter-preflight');
+    stagedLiveProof.outputDir = stagedCaptureDir;
+    stagedLiveProof.preflight.runDir = stagedPreflightDir;
+    stagedLiveProof.preflight.summaryPath = path.join(stagedPreflightDir, 'agent-summary.md');
+    if (stagedLiveProof.interactionProofs[0] === undefined) {
+      throw new Error('Package smoke live proof must include an interaction proof.');
+    }
+    stagedLiveProof.interactionProofs[0].runDir = stagedCaptureDir;
+    stagedLiveProof.interactionProofs[0].summaryPath = path.join(stagedCaptureDir, 'agent-summary.md');
+    fs.writeFileSync(stagedLiveProofPath, `${JSON.stringify(stagedLiveProof, null, 2)}\n`, 'utf8');
     fs.writeFileSync(sanitizedHarnessRequestPath, `${JSON.stringify({
-      schemaVersion: '1.0.0',
+      schemaVersion: '1.1.0',
       packageId: 'sanitized-harness-package',
       runId: 'adapter-aggregate-run',
-      sourceRoot: adapterCaptureDir,
+      sourceRoot: sanitizedHarnessSource,
       outputDir: sanitizedHarnessOutput,
       sensitivityPolicy: 'allowlist-and-secret-marker-v1',
       entries: [{
         kind: 'recording',
-        sourcePath: 'captures/journey.mov',
+        sourcePath: 'adapter-capture/captures/journey.mov',
         artifactPath: 'files/journey.mov',
       }, {
         kind: 'liveProof',
-        sourcePath: '_live-proof/adapter-aggregate-run/live-proof.json',
+        sourcePath: 'adapter-capture/_live-proof/adapter-aggregate-run/live-proof.json',
         artifactPath: 'files/live-proof.json',
+      }, {
+        kind: 'summary',
+        sourcePath: 'adapter-preflight/agent-summary.md',
+        artifactPath: 'files/preflight-summary.md',
+      }, {
+        kind: 'summary',
+        sourcePath: 'adapter-capture/agent-summary.md',
+        artifactPath: 'files/interaction-summary.md',
+      }],
+      jsonPointers: [{
+        role: 'host-local-provenance',
+        sourcePath: 'adapter-capture/_live-proof/adapter-aggregate-run/live-proof.json',
+        jsonPointer: '/outputDir',
+      }, {
+        role: 'host-local-provenance',
+        sourcePath: 'adapter-capture/_live-proof/adapter-aggregate-run/live-proof.json',
+        jsonPointer: '/preflight/runDir',
+      }, {
+        role: 'artifact-reference',
+        sourcePath: 'adapter-capture/_live-proof/adapter-aggregate-run/live-proof.json',
+        jsonPointer: '/preflight/summaryPath',
+        referencedSourcePath: 'adapter-preflight/agent-summary.md',
+      }, {
+        role: 'host-local-provenance',
+        sourcePath: 'adapter-capture/_live-proof/adapter-aggregate-run/live-proof.json',
+        jsonPointer: '/interactionProofs/0/runDir',
+      }, {
+        role: 'artifact-reference',
+        sourcePath: 'adapter-capture/_live-proof/adapter-aggregate-run/live-proof.json',
+        jsonPointer: '/interactionProofs/0/summaryPath',
+        referencedSourcePath: 'adapter-capture/agent-summary.md',
       }],
     }, null, 2)}\n`, 'utf8');
     const sanitizedHarnessRecord = JSON.parse(run(
