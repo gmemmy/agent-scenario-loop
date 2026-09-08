@@ -74,7 +74,8 @@
                   "maxItems": 1,
                   "uniqueItems": true,
                   "items": { "enum": ["android", "ios"] }
-                }
+                },
+                "comparisonStatus": { "const": "not_available" }
               }
             }
           },

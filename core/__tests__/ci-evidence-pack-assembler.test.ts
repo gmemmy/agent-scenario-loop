@@ -292,6 +292,7 @@ test('assembler accepts iOS-only live-proof-set input with CI-pack 1.1.0 single-
   const input = baseInput(live, platforms, attempts, verdicts);
   input.platformScope = 'single-platform';
   input.requiredPlatforms = ['ios'];
+  input.comparisonStatus = 'not_available';
   const verified = verifyCiEvidencePackLiveProofSet(input, { artifactRoot: root });
   assert.equal(verified.proofCount, 1);
   assert.deepEqual(verified.requiredPlatforms, ['ios']);
@@ -334,6 +335,7 @@ test('assembler accepts Android-only live-proof-set input with CI-pack 1.1.0 sin
   const input = baseInput(live, platforms, attempts, verdicts);
   input.platformScope = 'single-platform';
   input.requiredPlatforms = ['android'];
+  input.comparisonStatus = 'not_available';
   const verified = verifyCiEvidencePackLiveProofSet(input, { artifactRoot: root });
   assert.equal(verified.proofCount, 1);
   const pack = assembleCiEvidencePack(input, { artifactRoot: root });
@@ -405,6 +407,88 @@ test('assembler does not fabricate missing platform proof for undeclared platfor
   assert.throws(
     () => verifyCiEvidencePackLiveProofSet(input, { artifactRoot: root }),
     CiEvidencePackError,
+  );
+});
+
+test('assembler rejects an extra out-of-scope proof/present platform', () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'ci-pack-assembler-'));
+  const live = writeLiveProofSet(
+    root,
+    liveProofSetPayload({
+      proofCount: 2,
+      requiredPlatforms: ['ios'],
+      presentPlatforms: ['ios', 'android'],
+      missingPlatforms: [],
+      proofs: [proofPointer('ios'), proofPointer('android')],
+      summary: 'iOS live proof assembled.',
+    }),
+  );
+  const platforms: CiEvidencePackPlatformRecord[] = [
+    {
+      platform: 'ios',
+      authorityStatus: 'supported',
+      evaluationStatus: 'passed',
+      selectedAttemptId: 'attempt-ios',
+    },
+  ];
+  const attempts = [attemptRecord('ios', 'attempt-ios', 'run-ios')];
+  const verdicts: CiEvidencePackVerdictPointer[] = [
+    {
+      scenarioId: 'scenario-a',
+      runId: 'run-ios',
+      platform: 'ios',
+      status: 'failed',
+      evidenceId: 'attempt-ios-verdict',
+    },
+  ];
+  const input = baseInput(live, platforms, attempts, verdicts);
+  input.platformScope = 'single-platform';
+  input.requiredPlatforms = ['ios'];
+  input.comparisonStatus = 'not_available';
+  assert.throws(
+    () => verifyCiEvidencePackLiveProofSet(input, { artifactRoot: root }),
+    /presentPlatforms contains platform outside requiredPlatforms: android/,
+  );
+});
+
+test('assembler rejects a wrong-only present/proof platform when the required platform is missing', () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'ci-pack-assembler-'));
+  const live = writeLiveProofSet(
+    root,
+    liveProofSetPayload({
+      proofCount: 1,
+      requiredPlatforms: ['ios'],
+      presentPlatforms: ['android'],
+      missingPlatforms: ['ios'],
+      proofs: [proofPointer('android')],
+      summary: 'Android live proof assembled.',
+    }),
+  );
+  const platforms: CiEvidencePackPlatformRecord[] = [
+    {
+      platform: 'ios',
+      authorityStatus: 'supported',
+      evaluationStatus: 'passed',
+      selectedAttemptId: 'attempt-ios',
+    },
+  ];
+  const attempts = [attemptRecord('ios', 'attempt-ios', 'run-ios')];
+  const verdicts: CiEvidencePackVerdictPointer[] = [
+    {
+      scenarioId: 'scenario-a',
+      runId: 'run-ios',
+      platform: 'ios',
+      status: 'failed',
+      evidenceId: 'attempt-ios-verdict',
+    },
+  ];
+  const input = baseInput(live, platforms, attempts, verdicts);
+  input.platformScope = 'single-platform';
+  input.requiredPlatforms = ['ios'];
+  input.comparisonStatus = 'not_available';
+  assert.throws(
+    () => verifyCiEvidencePackLiveProofSet(input, { artifactRoot: root }),
+    /presentPlatforms contains platform outside requiredPlatforms: android/,
   );
 });
 

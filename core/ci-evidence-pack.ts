@@ -260,6 +260,39 @@ function assertRequiredPlatformsMatchScope(
   }
 }
 
+function assertComparisonStatusMatchesScope(
+  platformScope: CiEvidencePackPlatformScope,
+  comparisonStatus: CiEvidencePackComparisonStatus,
+): void {
+  if (platformScope === 'single-platform' && comparisonStatus !== 'not_available') {
+    throw new CiEvidencePackError('single-platform comparisonStatus must be not_available');
+  }
+  if (comparisonStatus === 'comparable' && platformScope !== 'cross-platform') {
+    throw new CiEvidencePackError('comparable is only valid for cross-platform');
+  }
+}
+
+function assertInventoryPlatformsWithinRequired(artifact: CiEvidencePackBuildInput): void {
+  const required = new Set(artifact.requiredPlatforms);
+  const rejectOutside = (platform: CiEvidencePackPlatform, label: string): void => {
+    if (!required.has(platform)) {
+      throw new CiEvidencePackError(`${label} platform ${platform} is outside requiredPlatforms`);
+    }
+  };
+  for (const record of artifact.platforms) {
+    rejectOutside(record.platform, 'platform record');
+  }
+  for (const attempt of artifact.attempts) {
+    rejectOutside(attempt.platform, 'attempt');
+  }
+  for (const record of artifact.evidence) {
+    rejectOutside(record.platform, 'evidence record');
+  }
+  for (const verdict of artifact.verdicts) {
+    rejectOutside(verdict.platform, 'verdict');
+  }
+}
+
 function hasMandatoryEvidenceKinds(kinds: readonly CiEvidencePackArtifactKind[]): boolean {
   return kinds.includes('recording') && kinds.includes('verdict');
 }
@@ -439,6 +472,8 @@ function assertInventoryCoherence(artifact: CiEvidencePackBuildInput): void {
     throw new CiEvidencePackError('requiredPlatforms must not be empty');
   }
   assertRequiredPlatformsMatchScope(artifact.platformScope, artifact.requiredPlatforms);
+  assertComparisonStatusMatchesScope(artifact.platformScope, artifact.comparisonStatus);
+  assertInventoryPlatformsWithinRequired(artifact);
   if (!hasMandatoryEvidenceKinds(artifact.requiredEvidenceKinds)) {
     throw new CiEvidencePackError('requiredEvidenceKinds must include recording and verdict');
   }
@@ -849,6 +884,18 @@ function deriveCiEvidencePackPlatformClaim(
 function deriveCiEvidencePackTwoPlatformClaim(
   input: CiEvidencePackBuildInput,
 ): CiEvidencePackStatusReasons<CiEvidencePackTwoPlatformClaimStatus> {
+  assertInventoryCoherence(input);
+  if (
+    input.platformScope !== 'cross-platform' ||
+    !hasRequiredPlatformPair(input.requiredPlatforms)
+  ) {
+    return {
+      status: 'not_evaluable',
+      reasons: [
+        'two-platform claim requires platformScope cross-platform and requiredPlatforms exactly android and ios',
+      ],
+    };
+  }
   return deriveCiEvidencePackPlatformClaim(input);
 }
 
@@ -923,7 +970,7 @@ function assertCiEvidencePackLegacySemantics(artifact: CiEvidencePackLegacy): vo
   }
   const input = toLegacyBuildInput(artifact);
   const mechanismStatus = deriveCiEvidencePackMechanismStatus(input);
-  const twoPlatformClaim = deriveCiEvidencePackPlatformClaim(input);
+  const twoPlatformClaim = deriveCiEvidencePackTwoPlatformClaim(input);
   if (artifact.mechanismStatus !== mechanismStatus) {
     throw new CiEvidencePackError('mechanismStatus does not match derivation');
   }

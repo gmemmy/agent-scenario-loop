@@ -210,6 +210,76 @@ describe('ci evidence pack', () => {
     assert.throws(() => buildCiEvidencePack(crossWithIos), CiEvidencePackError);
   });
 
+  it('rejects single-platform comparisonStatus comparable and not_evaluable, requiring not_available', () => {
+    const comparable = validIosSinglePlatformInput();
+    comparable.comparisonStatus = 'comparable';
+    assert.throws(() => buildCiEvidencePack(comparable), CiEvidencePackError);
+
+    const notEvaluable = validIosSinglePlatformInput();
+    notEvaluable.comparisonStatus = 'not_evaluable';
+    assert.throws(() => buildCiEvidencePack(notEvaluable), CiEvidencePackError);
+
+    const notAvailable = validIosSinglePlatformInput();
+    notAvailable.comparisonStatus = 'not_available';
+    const pack = buildCiEvidencePack(notAvailable);
+    assert.equal(pack.comparisonStatus, 'not_available');
+    assert.equal(pack.platformClaim.status, 'passed');
+    assert.throws(() =>
+      assertValidJson(
+        { ...pack, comparisonStatus: 'comparable' },
+        SCHEMAS.ciEvidencePack,
+        'single-platform comparable',
+      ),
+    );
+    assert.throws(() =>
+      assertValidJson(
+        { ...pack, comparisonStatus: 'not_evaluable' },
+        SCHEMAS.ciEvidencePack,
+        'single-platform not_evaluable',
+      ),
+    );
+  });
+
+  it('rejects out-of-scope platform records, attempts, evidence records, and verdicts independently', () => {
+    const cross = cloneInput();
+
+    const withPlatform = validIosSinglePlatformInput();
+    withPlatform.platforms.push(
+      requiredItem(
+        cross.platforms.find((record) => record.platform === 'android'),
+        'android platform',
+      ),
+    );
+    assert.throws(() => buildCiEvidencePack(withPlatform), CiEvidencePackError);
+
+    const withAttempt = validIosSinglePlatformInput();
+    withAttempt.attempts.push(
+      requiredItem(
+        cross.attempts.find((attempt) => attempt.attemptId === 'android-fail'),
+        'android-fail attempt',
+      ),
+    );
+    assert.throws(() => buildCiEvidencePack(withAttempt), CiEvidencePackError);
+
+    const withEvidence = validIosSinglePlatformInput();
+    withEvidence.evidence.push(
+      requiredItem(
+        cross.evidence.find((record) => record.platform === 'android'),
+        'android evidence',
+      ),
+    );
+    assert.throws(() => buildCiEvidencePack(withEvidence), CiEvidencePackError);
+
+    const withVerdict = validIosSinglePlatformInput();
+    withVerdict.verdicts.push(
+      requiredItem(
+        cross.verdicts.find((verdict) => verdict.platform === 'android'),
+        'android verdict',
+      ),
+    );
+    assert.throws(() => buildCiEvidencePack(withVerdict), CiEvidencePackError);
+  });
+
   it('keeps mechanism succeeded when source is stale and fails the platform claim', () => {
     const input = cloneInput();
     input.source = {
@@ -662,6 +732,17 @@ describe('ci evidence pack', () => {
     const input = cloneInput();
     input.attempts = [];
     assert.throws(() => deriveCiEvidencePackPlatformClaim(input), CiEvidencePackError);
+  });
+
+  it('deriveCiEvidencePackTwoPlatformClaim returns not_evaluable for a coherent passed single-platform input', () => {
+    const input = validIosSinglePlatformInput();
+    const claim = deriveCiEvidencePackTwoPlatformClaim(input);
+    assert.equal(claim.status, 'not_evaluable');
+    assert.equal(buildCiEvidencePack(input).platformClaim.status, 'passed');
+
+    const incoherent = validIosSinglePlatformInput();
+    incoherent.comparisonStatus = 'comparable';
+    assert.throws(() => deriveCiEvidencePackTwoPlatformClaim(incoherent), CiEvidencePackError);
   });
 
   it('rejects duplicate present paths and dot path segments', () => {
