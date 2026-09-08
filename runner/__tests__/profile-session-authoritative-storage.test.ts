@@ -80,19 +80,30 @@ test('legacy session identity persists its normalized start before reuse', async
 function createMemoryStorage() {
   const values = new Map<string, string>();
   const writes = new Map<string, number>();
+  const removals = new Map<string, number>();
   return {
     values,
     writes,
+    removals,
     storage: {
       getItem: async (key: string) => values.get(key) ?? null,
       removeItem: async (key: string) => {
         values.delete(key);
+        removals.set(key, (removals.get(key) ?? 0) + 1);
       },
       setItem: async (key: string, value: string) => {
         values.set(key, value);
         writes.set(key, (writes.get(key) ?? 0) + 1);
       },
     },
+  };
+}
+
+function snapshotMemory(memory: ReturnType<typeof createMemoryStorage>) {
+  return {
+    removals: [...memory.removals.entries()],
+    values: [...memory.values.entries()],
+    writes: [...memory.writes.entries()],
   };
 }
 
@@ -299,7 +310,7 @@ test('durable stop marker prevents stale session revival while deletion is delay
     await storage.setItem(keys.session, JSON.stringify({ active: true, ...session }));
     await storage.setItem(keys.command, JSON.stringify([{ id: 'command-1' }]));
   });
-  authority.stop(session);
+  const stopping = authority.stop(session);
 
   while (
     JSON.parse(memory.values.get(`${keys.session}.authority.1`) ?? 'null')?.status !== 'stopped'
@@ -318,6 +329,7 @@ test('durable stop marker prevents stale session revival while deletion is delay
   assert.equal(memory.values.has(keys.session), true);
 
   releaseSessionRemoval();
+  assert.equal((await stopping).kind, 'stopped');
   await authority.barrier();
   assert.equal(memory.values.has(keys.session), false);
   assert.equal(memory.values.has(keys.command), false);
@@ -516,4 +528,307 @@ test('invalid authority chunk keys and contents fail closed', async () => {
     await reloaded.barrier();
     assert.equal(reloaded.isAvailable(), false, testCase.name);
   }
+});
+
+test('first stop returns stopped and writes the terminal manifest once', async () => {
+  const memory = createMemoryStorage();
+  const authority = createProfileSessionAuthoritativeStorage<
+    { event: string },
+    { id: string }
+  >({
+    chunkSize: 8,
+    keys,
+    onFailure: (error: unknown) => assert.fail(String(error)),
+    storage: memory.storage,
+    validateEvent: validateRecord,
+    validateSessionEntry: validateRecord,
+  });
+
+  authority.start(session);
+  authority.appendEvent({ event: 'terminal-event' });
+  authority.appendSessionEntry({ id: 'terminal-entry' }, true);
+  await authority.flush();
+  await authority.enqueue(async () => {
+    await memory.storage.setItem(keys.session, JSON.stringify({ active: true, ...session }));
+    await memory.storage.setItem(keys.command, JSON.stringify([{ id: 'terminal-entry' }]));
+  });
+
+  const authorityKey = `${keys.session}.authority.1`;
+  const manifestBefore = JSON.parse(memory.values.get(authorityKey) ?? 'null') as {
+    eventChunkKeys: string[];
+    generation: number;
+    sessionEntryChunkKeys: string[];
+  };
+  const eventChunkValues = manifestBefore.eventChunkKeys.map((key) => memory.values.get(key));
+  const sessionEntryChunkValues = manifestBefore.sessionEntryChunkKeys.map((key) => memory.values.get(key));
+  const compatibilityEvents = memory.values.get(keys.event);
+  const compatibilitySessionEntries = memory.values.get(keys.sessionEntries);
+  const authorityWritesBefore = memory.writes.get(authorityKey) ?? 0;
+  const commandRemovalsBefore = memory.removals.get(keys.command) ?? 0;
+  const sessionRemovalsBefore = memory.removals.get(keys.session) ?? 0;
+
+  const result = await authority.stop(session);
+  assert.equal(result.kind, 'stopped');
+
+  const manifestAfter = JSON.parse(memory.values.get(authorityKey) ?? 'null');
+  assert.equal(manifestAfter.status, 'stopped');
+  assert.equal(manifestAfter.generation, manifestBefore.generation);
+  assert.deepEqual(manifestAfter.eventChunkKeys, manifestBefore.eventChunkKeys);
+  assert.deepEqual(manifestAfter.sessionEntryChunkKeys, manifestBefore.sessionEntryChunkKeys);
+  assert.deepEqual(
+    manifestBefore.eventChunkKeys.map((key) => memory.values.get(key)),
+    eventChunkValues,
+  );
+  assert.deepEqual(
+    manifestBefore.sessionEntryChunkKeys.map((key) => memory.values.get(key)),
+    sessionEntryChunkValues,
+  );
+  assert.equal(memory.values.get(keys.event), compatibilityEvents);
+  assert.equal(memory.values.get(keys.sessionEntries), compatibilitySessionEntries);
+  assert.equal(memory.writes.get(authorityKey), authorityWritesBefore + 1);
+  assert.equal(memory.removals.get(keys.command), commandRemovalsBefore + 1);
+  assert.equal(memory.removals.get(keys.session), sessionRemovalsBefore + 1);
+  assert.equal(memory.values.has(keys.command), false);
+  assert.equal(memory.values.has(keys.session), false);
+});
+
+test('repeated same-run stop is already-stopped and byte-identical', async () => {
+  const memory = createMemoryStorage();
+  const authority = createProfileSessionAuthoritativeStorage<
+    { event: string },
+    { id: string }
+  >({
+    keys,
+    onFailure: (error: unknown) => assert.fail(String(error)),
+    storage: memory.storage,
+    validateEvent: validateRecord,
+    validateSessionEntry: validateRecord,
+  });
+
+  authority.start(session);
+  authority.appendEvent({ event: 'keep' });
+  authority.appendSessionEntry({ id: 'keep' }, true);
+  await authority.flush();
+  await authority.enqueue(async () => {
+    await memory.storage.setItem(keys.session, JSON.stringify({ active: true, ...session }));
+    await memory.storage.setItem(keys.command, JSON.stringify([{ id: 'keep' }]));
+  });
+
+  const first = await authority.stop(session);
+  assert.equal(first.kind, 'stopped');
+  const frozen = snapshotMemory(memory);
+
+  const second = await authority.stop(session);
+  assert.equal(second.kind, 'already-stopped');
+  assert.deepEqual(snapshotMemory(memory), frozen);
+});
+
+test('delayed same-run stop after reload of stopped authority is byte-identical', async () => {
+  const memory = createMemoryStorage();
+  const createAuthority = () => createProfileSessionAuthoritativeStorage<
+    { event: string },
+    { id: string }
+  >({
+    keys,
+    onFailure: (error: unknown) => assert.fail(String(error)),
+    storage: memory.storage,
+    validateEvent: validateRecord,
+    validateSessionEntry: validateRecord,
+  });
+
+  const authority = createAuthority();
+  authority.start(session);
+  authority.appendEvent({ event: 'keep' });
+  authority.appendSessionEntry({ id: 'keep' }, true);
+  await authority.flush();
+  const first = await authority.stop(session);
+  assert.equal(first.kind, 'stopped');
+  await authority.barrier();
+
+  const reloaded = createAuthority();
+  const recovery = await reloaded.recover(session);
+  assert.equal(recovery.kind, 'stopped-session');
+  const frozen = snapshotMemory(memory);
+
+  const delayed = await reloaded.stop(session);
+  assert.equal(delayed.kind, 'already-stopped');
+  assert.deepEqual(snapshotMemory(memory), frozen);
+});
+
+test('stale stop cannot mutate a newer active session or compatibility pointers', async () => {
+  const memory = createMemoryStorage();
+  const authority = createProfileSessionAuthoritativeStorage<
+    { event: string },
+    { id: string }
+  >({
+    keys,
+    onFailure: (error: unknown) => assert.fail(String(error)),
+    storage: memory.storage,
+    validateEvent: validateRecord,
+    validateSessionEntry: validateRecord,
+  });
+  const newer = { scenario: 'gallery', runId: 'run-2', startedAt: 2000 };
+
+  authority.start(session);
+  authority.appendEvent({ event: 'old' });
+  await authority.barrier();
+  authority.start(newer);
+  authority.appendEvent({ event: 'new' });
+  authority.appendSessionEntry({ id: 'new' }, true);
+  await authority.flush();
+  await authority.enqueue(async () => {
+    await memory.storage.setItem(keys.session, JSON.stringify({ active: true, ...newer }));
+    await memory.storage.setItem(keys.command, JSON.stringify([{ id: 'new' }]));
+  });
+
+  const frozen = snapshotMemory(memory);
+  const result = await authority.stop(session);
+  assert.equal(result.kind, 'rejected');
+  if (result.kind !== 'rejected') {
+    return;
+  }
+  assert.equal(result.reason, 'session-mismatch');
+  assert.deepEqual(snapshotMemory(memory), frozen);
+
+  const manifest = JSON.parse(memory.values.get(`${keys.session}.authority.1`) ?? 'null');
+  assert.equal(manifest.status, 'active');
+  assert.equal(manifest.session.runId, newer.runId);
+  assert.equal(memory.values.get(keys.session), JSON.stringify({ active: true, ...newer }));
+  assert.equal(memory.values.get(keys.command), JSON.stringify([{ id: 'new' }]));
+});
+
+test('missing authority rejects stop without mutation', async () => {
+  const memory = createMemoryStorage();
+  const failures: unknown[] = [];
+  await memory.storage.setItem(keys.session, JSON.stringify({ active: true, ...session }));
+  await memory.storage.setItem(keys.command, JSON.stringify([{ id: 'command-1' }]));
+  const authority = createProfileSessionAuthoritativeStorage<unknown, unknown>({
+    keys,
+    onFailure: (error: unknown) => failures.push(error),
+    storage: memory.storage,
+    validateEvent: validateRecord,
+    validateSessionEntry: validateRecord,
+  });
+  const frozen = snapshotMemory(memory);
+
+  const result = await authority.stop(session);
+  assert.equal(result.kind, 'rejected');
+  if (result.kind !== 'rejected') {
+    return;
+  }
+  assert.equal(result.reason, 'missing-authority');
+  assert.equal(authority.isAvailable(), true);
+  assert.equal(failures.length, 0);
+  assert.deepEqual(snapshotMemory(memory), frozen);
+});
+
+test('failed authority rejects stop without mutation', async () => {
+  const memory = createMemoryStorage();
+  const failures: unknown[] = [];
+  const poisoned = createProfileSessionAuthoritativeStorage<Record<string, unknown>, Record<string, unknown>>({
+    keys,
+    onFailure: (error: unknown) => failures.push(error),
+    storage: {
+      ...memory.storage,
+      setItem: async (key: string, value: string) => {
+        if (key.includes('.event.')) {
+          throw new Error('quota exceeded');
+        }
+        await memory.storage.setItem(key, value);
+      },
+    },
+    validateEvent: validateRecord,
+    validateSessionEntry: validateRecord,
+  });
+  poisoned.start(session);
+  poisoned.appendEvent({ event: 'poison' });
+  await poisoned.barrier();
+  assert.equal(poisoned.isAvailable(), false);
+  const unavailableFrozen = snapshotMemory(memory);
+  const unavailable = await poisoned.stop(session);
+  assert.equal(unavailable.kind, 'rejected');
+  if (unavailable.kind !== 'rejected') {
+    return;
+  }
+  assert.equal(unavailable.reason, 'unavailable');
+  assert.equal(failures.length, 1);
+  assert.deepEqual(snapshotMemory(memory), unavailableFrozen);
+
+  const reloaded = createProfileSessionAuthoritativeStorage<unknown, unknown>({
+    keys,
+    onFailure: (error: unknown) => failures.push(error),
+    storage: memory.storage,
+    validateEvent: validateRecord,
+    validateSessionEntry: validateRecord,
+  });
+  const ambiguousFrozen = snapshotMemory(memory);
+  const ambiguous = await reloaded.stop(session);
+  assert.equal(ambiguous.kind, 'rejected');
+  if (ambiguous.kind !== 'rejected') {
+    return;
+  }
+  assert.equal(ambiguous.reason, 'ambiguous');
+  assert.equal(reloaded.isAvailable(), true);
+  assert.equal(failures.length, 1);
+  assert.deepEqual(snapshotMemory(memory), ambiguousFrozen);
+});
+
+test('concurrent exact-session stops serialize to one stopped transition', async () => {
+  const memory = createMemoryStorage();
+  const authority = createProfileSessionAuthoritativeStorage<
+    { event: string },
+    { id: string }
+  >({
+    keys,
+    onFailure: (error: unknown) => assert.fail(String(error)),
+    storage: memory.storage,
+    validateEvent: validateRecord,
+    validateSessionEntry: validateRecord,
+  });
+
+  authority.start(session);
+  authority.appendEvent({ event: 'live' });
+  authority.appendSessionEntry({ id: 'live' }, true);
+  await authority.flush();
+  await authority.enqueue(async () => {
+    await memory.storage.setItem(keys.session, JSON.stringify({ active: true, ...session }));
+    await memory.storage.setItem(keys.command, JSON.stringify([{ id: 'live' }]));
+  });
+
+  const authorityKey = `${keys.session}.authority.1`;
+  const manifestBefore = JSON.parse(memory.values.get(authorityKey) ?? 'null');
+  const eventChunkValues = (manifestBefore.eventChunkKeys as string[]).map((key) => memory.values.get(key));
+  const sessionEntryChunkValues = (manifestBefore.sessionEntryChunkKeys as string[]).map((key) => (
+    memory.values.get(key)
+  ));
+  const authorityWritesBefore = memory.writes.get(authorityKey) ?? 0;
+  const commandRemovalsBefore = memory.removals.get(keys.command) ?? 0;
+  const sessionRemovalsBefore = memory.removals.get(keys.session) ?? 0;
+
+  const results = await Promise.all([
+    authority.stop(session),
+    authority.stop(session),
+    authority.stop(session),
+  ]);
+  assert.equal(results.filter((result) => result.kind === 'stopped').length, 1);
+  assert.equal(results.filter((result) => result.kind === 'already-stopped').length, 2);
+
+  const manifestAfter = JSON.parse(memory.values.get(authorityKey) ?? 'null');
+  assert.equal(manifestAfter.status, 'stopped');
+  assert.equal(manifestAfter.generation, manifestBefore.generation);
+  assert.deepEqual(manifestAfter.eventChunkKeys, manifestBefore.eventChunkKeys);
+  assert.deepEqual(manifestAfter.sessionEntryChunkKeys, manifestBefore.sessionEntryChunkKeys);
+  assert.deepEqual(
+    (manifestBefore.eventChunkKeys as string[]).map((key) => memory.values.get(key)),
+    eventChunkValues,
+  );
+  assert.deepEqual(
+    (manifestBefore.sessionEntryChunkKeys as string[]).map((key) => memory.values.get(key)),
+    sessionEntryChunkValues,
+  );
+  assert.equal(memory.writes.get(authorityKey), authorityWritesBefore + 1);
+  assert.equal(memory.removals.get(keys.command), commandRemovalsBefore + 1);
+  assert.equal(memory.removals.get(keys.session), sessionRemovalsBefore + 1);
+  assert.equal(memory.values.has(keys.command), false);
+  assert.equal(memory.values.has(keys.session), false);
 });

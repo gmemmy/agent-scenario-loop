@@ -31,6 +31,17 @@ export type ProfileSessionAuthorityRecovery<Event, Entry> =
   | { kind: 'stopped-session' }
   | { kind: 'recovered'; events: Event[]; sessionEntries: Entry[] };
 
+export type ProfileSessionAuthorityStopRejectionReason =
+  | 'ambiguous'
+  | 'missing-authority'
+  | 'session-mismatch'
+  | 'unavailable';
+
+export type ProfileSessionAuthorityStopResult =
+  | { kind: 'already-stopped' }
+  | { kind: 'rejected'; reason: ProfileSessionAuthorityStopRejectionReason }
+  | { kind: 'stopped' };
+
 export type ProfileSessionAuthoritativeStorage<Event, Entry> = {
   appendEvent: (event: Event) => void;
   appendSessionEntry: (entry: Entry, forceMaterialize?: boolean) => void;
@@ -40,7 +51,7 @@ export type ProfileSessionAuthoritativeStorage<Event, Entry> = {
   isAvailable: () => boolean;
   recover: (session: ProfileSessionAuthoritySession) => Promise<ProfileSessionAuthorityRecovery<Event, Entry>>;
   start: (session: ProfileSessionAuthoritySession) => void;
-  stop: (session: ProfileSessionAuthoritySession) => void;
+  stop: (session: ProfileSessionAuthoritySession) => Promise<ProfileSessionAuthorityStopResult>;
 };
 
 const AUTHORITY_SCHEMA_VERSION = 1;
@@ -82,6 +93,46 @@ function sameSession(
   return left.scenario === right.scenario &&
     left.runId === right.runId &&
     left.startedAt === right.startedAt;
+}
+
+type ProfileSessionAuthorityStopPlan =
+  | { action: 'return'; result: ProfileSessionAuthorityStopResult }
+  | { action: 'write-stop'; manifest: ProfileSessionAuthorityManifest };
+
+function planProfileSessionAuthorityStop(
+  currentManifest: ProfileSessionAuthorityManifest | null,
+  session: ProfileSessionAuthoritySession,
+): ProfileSessionAuthorityStopPlan {
+  if (!currentManifest) {
+    return {
+      action: 'return',
+      result: { kind: 'rejected', reason: 'missing-authority' },
+    };
+  }
+  if (currentManifest.status === 'failed') {
+    return {
+      action: 'return',
+      result: { kind: 'rejected', reason: 'ambiguous' },
+    };
+  }
+  if (!sameSession(currentManifest.session, session)) {
+    return {
+      action: 'return',
+      result: { kind: 'rejected', reason: 'session-mismatch' },
+    };
+  }
+  switch (currentManifest.status) {
+    case 'stopped':
+      return {
+        action: 'return',
+        result: { kind: 'already-stopped' },
+      };
+    case 'active':
+      return {
+        action: 'write-stop',
+        manifest: currentManifest,
+      };
+  }
 }
 
 function parseJson<Value>(value: string | null, fallback: Value): Value {
@@ -397,17 +448,37 @@ export function createProfileSessionAuthoritativeStorage<Event, Entry>({
       });
     },
     stop: (session) => {
-      void enqueue(async () => {
-        const currentManifest = manifest ?? await readManifest();
-        if (currentManifest && sameSession(currentManifest.session, session)) {
-          manifest = { ...currentManifest, status: 'stopped' };
-          await writeManifest();
+      const operation = chain.then(async (): Promise<ProfileSessionAuthorityStopResult> => {
+        if (failed) {
+          return { kind: 'rejected', reason: 'unavailable' };
         }
-        await Promise.all([
-          storage.removeItem(keys.command),
-          storage.removeItem(keys.session),
-        ]);
+        const plan = planProfileSessionAuthorityStop(
+          manifest ?? await readManifest(),
+          session,
+        );
+        switch (plan.action) {
+          case 'return':
+            return plan.result;
+          case 'write-stop':
+            manifest = {
+              ...plan.manifest,
+              status: 'stopped',
+            };
+            await writeManifest();
+            await Promise.all([
+              storage.removeItem(keys.command),
+              storage.removeItem(keys.session),
+            ]);
+            return { kind: 'stopped' };
+        }
       });
+      chain = operation.then(
+        (): void => undefined,
+        (error: unknown) => {
+          reportFailure(error);
+        },
+      );
+      return operation;
     },
   };
 }

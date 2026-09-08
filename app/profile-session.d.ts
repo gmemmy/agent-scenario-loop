@@ -5,6 +5,11 @@ export type ProfileSessionState = {
   startedAt: number | null;
 };
 
+export type ProfileSessionStopResult =
+  | { kind: 'already-stopped' }
+  | { kind: 'rejected'; reason: 'owner-mismatch' }
+  | { kind: 'stop-requested'; runId: string; scenario: string };
+
 export type ProfileSessionCommand = {
   id: string;
   commandId?: string;
@@ -63,9 +68,9 @@ export declare const PROFILE_SESSION_STORAGE_KEYS: Readonly<{
   signal: string;
 }>;
 
-export const PROFILE_SESSION_HELPER_VERSION: '1.1.0';
-export const PROFILE_SESSION_HELPER_PAYLOAD_ID: 'agent-scenario-loop/profile-session-helper@1.1.0+setup-unscoped-milestones';
-export const PROFILE_SESSION_HELPER_PAYLOAD_SHA256: 'b7421a84e8e39346702af2e7017a99ba492ced00de47446780e42a93146db275';
+export const PROFILE_SESSION_HELPER_VERSION: '1.2.0';
+export const PROFILE_SESSION_HELPER_PAYLOAD_ID: 'agent-scenario-loop/profile-session-helper@1.2.0+idempotent-owned-stop';
+export const PROFILE_SESSION_HELPER_PAYLOAD_SHA256: '2ba19944de0d94271a27a99c4188e8567dce0d67b3e0df5ddb5f311108ce8178';
 
 export function isProfileSessionFresh(
   session: Pick<ProfileSessionState, 'active' | 'startedAt'>,
@@ -74,7 +79,9 @@ export function isProfileSessionFresh(
 
 export function startProfileSession(params: { scenario: string; runId: string; startedAt?: number }): void;
 
-export function stopProfileSession(): void;
+export function stopProfileSession(
+  expectedOwner?: { runId: string; scenario: string },
+): ProfileSessionStopResult;
 
 export function applyProfileSessionUrl(url: string | null | undefined): boolean;
 

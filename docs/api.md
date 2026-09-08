@@ -535,6 +535,12 @@ The intended integration is:
 3. Emit app-owned truth events with `emitProfileEvent()`.
 4. Register optional command targets with `registerProfileCommandTargetHandler()`.
 
+`stopProfileSession()` remains callable without arguments for the current
+in-process session. Callers that retain session identity should pass
+`{ scenario, runId }`; a mismatched owner is rejected without mutating the
+active session. Stop deep links require both `scenario` and `runId`. Replaying
+an exact stop after the session is terminal is an idempotent no-op.
+
 ## Stability Rule
 
 If a function, binary, schema, or example path is listed here, package smoke should verify that it is present in the packed tarball. If a new public entrypoint is added, update this document and the smoke expectations in the same change.
