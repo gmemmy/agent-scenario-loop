@@ -53,6 +53,15 @@ const TEMPLATE_FILES = {
   scenario: 'mobile-scenario.json',
 };
 
+const PROFILE_SESSION_HELPER_FILES = [
+  'profile-session.ts',
+  'profile-session-storage.ts',
+  'profile-session-command-ordering.ts',
+  'profile-session-dependency-controller.ts',
+  'profile-session-authoritative-storage.ts',
+  'profile-session-helper.json',
+] as const;
+
 /**
  * Prints CLI usage.
  *
@@ -198,22 +207,10 @@ function buildScaffoldFiles({
       source: path.join(templatesRoot, TEMPLATE_FILES.gitignoreSnippet),
       destination: path.join(targetDir, 'asl', 'gitignore-snippet'),
     },
-    {
-      source: path.join(packageRoot, 'app', 'profile-session.ts'),
-      destination: path.join(targetDir, 'src', 'devtools', 'profile-session.ts'),
-    },
-    {
-      source: path.join(packageRoot, 'app', 'profile-session-storage.ts'),
-      destination: path.join(targetDir, 'src', 'devtools', 'profile-session-storage.ts'),
-    },
-    {
-      source: path.join(packageRoot, 'app', 'profile-session-command-ordering.ts'),
-      destination: path.join(targetDir, 'src', 'devtools', 'profile-session-command-ordering.ts'),
-    },
-    {
-      source: path.join(packageRoot, 'app', 'profile-session-dependency-controller.ts'),
-      destination: path.join(targetDir, 'src', 'devtools', 'profile-session-dependency-controller.ts'),
-    },
+    ...PROFILE_SESSION_HELPER_FILES.map((fileName) => ({
+      source: path.join(packageRoot, 'app', fileName),
+      destination: path.join(targetDir, 'src', 'devtools', fileName),
+    })),
   ];
 
   if (withAgentSkill) {
@@ -293,6 +290,20 @@ async function initProject(options: InitProjectOptions = {}): Promise<InitProjec
   });
   const created: string[] = [];
   const skipped: string[] = [];
+
+  if (!options.force && !options.dryRun) {
+    const existingHelperFiles = PROFILE_SESSION_HELPER_FILES.filter((fileName) => (
+      fs.existsSync(path.join(targetDir, 'src', 'devtools', fileName))
+    ));
+    if (existingHelperFiles.length > 0 && existingHelperFiles.length < PROFILE_SESSION_HELPER_FILES.length) {
+      const missingHelperFiles = PROFILE_SESSION_HELPER_FILES.filter((fileName) => (
+        !existingHelperFiles.includes(fileName)
+      ));
+      throw new Error(
+        `Incomplete profile-session helper source set; missing: ${missingHelperFiles.join(', ')}. Reconcile or replace the complete src/devtools helper source set before running asl-init again.`,
+      );
+    }
+  }
 
   for (const file of files) {
     const result = await copyScaffoldFile({

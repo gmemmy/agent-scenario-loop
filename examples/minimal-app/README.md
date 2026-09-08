@@ -1,6 +1,15 @@
 # Minimal App Integration
 
-This example is intentionally documentation-only: the app integration contract is one file, `../../app/profile-session.ts`. Copy it into your app and wire it as shown below.
+This example is intentionally documentation-only. Prefer `asl-init` to copy the complete helper source set into `src/devtools/`:
+
+- `profile-session.ts`
+- `profile-session-storage.ts`
+- `profile-session-command-ordering.ts`
+- `profile-session-dependency-controller.ts`
+- `profile-session-authoritative-storage.ts`
+- `profile-session-helper.json`
+
+Manual copies must include all of those relative sources plus identity JSON. Wire the generated helper as shown below.
 
 ## Startup wiring
 

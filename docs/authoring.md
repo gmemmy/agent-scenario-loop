@@ -19,9 +19,19 @@ That creates:
 - `scripts/asl-capture-accessibility-provider.mjs`
 - `scripts/asl-capture-profiler-provider.mjs`
 - `src/devtools/profile-session.ts`
+- `src/devtools/profile-session-storage.ts`
+- `src/devtools/profile-session-command-ordering.ts`
+- `src/devtools/profile-session-dependency-controller.ts`
+- `src/devtools/profile-session-authoritative-storage.ts`
+- `src/devtools/profile-session-helper.json`
 - `asl/README.md`
 - `asl/package-scripts.json`
 - `asl/gitignore-snippet`
+
+The six generated `src/devtools/` helper files form one versioned source set.
+In write mode, `asl-init` stops before writing when only part of that set exists
+and names the missing files. Reconcile or replace the complete helper source set
+intentionally before retrying. A dry run remains a no-write preview.
 
 The command refuses to overwrite existing files unless `--force` is provided. Use `--dry-run` to preview the file list without writing. It does not edit your existing `package.json` or `.gitignore`; merge the generated script and ignore snippets intentionally. Project validation reports an error until the required generated `asl:*` scripts are present in the app `package.json`, and it flags direct installed-bin scripts that drift from `asl/package-scripts.json`.
 
