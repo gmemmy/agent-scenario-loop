@@ -4,26 +4,33 @@ const { readFileSync } = require('node:fs');
 const {
   assertCiEvidencePackRunRelativePath,
   assertCiEvidencePackSemantics,
+  parseCiEvidencePackBytes,
 } = require('./ci-evidence-pack');
 const { SCHEMAS, assertValidJson } = require('./schema-validator');
 import type { JsonSchema } from './schema-validator';
 import type {
   CiEvidencePack,
+  CiEvidencePackArtifact,
   CiEvidencePackArtifactKind,
   CiEvidencePackAssemblyStatus,
   CiEvidencePackComparisonStatus,
   CiEvidencePackCompletenessStatus,
+  CiEvidencePackLegacy,
   CiEvidencePackMechanismStatus,
   CiEvidencePackPlatform,
+  CiEvidencePackPlatformClaimStatus,
+  CiEvidencePackPlatformScope,
   CiEvidencePackSource,
   CiEvidencePackTwoPlatformClaimStatus,
 } from './ci-evidence-pack';
 
-const CI_EVIDENCE_PUBLICATION_RECEIPT_SCHEMA_VERSION = '1.0.0' as const;
+const CI_EVIDENCE_PUBLICATION_RECEIPT_SCHEMA_VERSION = '1.1.0' as const;
+const CI_EVIDENCE_PUBLICATION_RECEIPT_LEGACY_SCHEMA_VERSION = '1.0.0' as const;
 const SHA256_PATTERN = /^[a-f0-9]{64}$/;
 
 export type CiEvidencePublicationReceiptSchemaVersion =
-  typeof CI_EVIDENCE_PUBLICATION_RECEIPT_SCHEMA_VERSION;
+  | typeof CI_EVIDENCE_PUBLICATION_RECEIPT_SCHEMA_VERSION
+  | typeof CI_EVIDENCE_PUBLICATION_RECEIPT_LEGACY_SCHEMA_VERSION;
 export type CiEvidencePublicationProviderKind = 'ci_workflow' | 'local' | 'unspecified';
 export type CiEvidencePublicationPackArtifact = 'ci_evidence_pack' | 'live_proof_set';
 export type CiEvidencePublicationTargetKind = 'pack_artifact' | 'evidence';
@@ -57,9 +64,8 @@ export interface CiEvidencePublicationPublisher {
   attemptNumber: number;
 }
 
-export interface CiEvidencePublicationPackBinding {
+interface CiEvidencePublicationPackBindingBase {
   packId: string;
-  schemaVersion: '1.0.0';
   sha256: string;
   byteSize: number;
   packRelativePath: string;
@@ -74,10 +80,6 @@ export interface CiEvidencePublicationPackBinding {
   requiredPlatforms: CiEvidencePackPlatform[];
   requiredEvidenceKinds: CiEvidencePackArtifactKind[];
   mechanismStatus: CiEvidencePackMechanismStatus;
-  twoPlatformClaim: {
-    status: CiEvidencePackTwoPlatformClaimStatus;
-    reasons: string[];
-  };
   comparisonStatus: CiEvidencePackComparisonStatus;
   completeness: {
     status: CiEvidencePackCompletenessStatus;
@@ -87,6 +89,35 @@ export interface CiEvidencePublicationPackBinding {
     status: CiEvidencePackAssemblyStatus;
     reasons: string[];
   };
+}
+
+export interface CiEvidencePublicationCurrentPackBinding extends CiEvidencePublicationPackBindingBase {
+  schemaVersion: '1.1.0';
+  platformScope: CiEvidencePackPlatformScope;
+  platformClaim: {
+    status: CiEvidencePackPlatformClaimStatus;
+    reasons: string[];
+  };
+}
+
+export interface CiEvidencePublicationLegacyPackBinding extends CiEvidencePublicationPackBindingBase {
+  schemaVersion: '1.0.0';
+  twoPlatformClaim: {
+    status: CiEvidencePackTwoPlatformClaimStatus;
+    reasons: string[];
+  };
+}
+
+export type CiEvidencePublicationPackBinding =
+  | CiEvidencePublicationCurrentPackBinding
+  | CiEvidencePublicationLegacyPackBinding;
+
+export interface CiEvidencePublicationNormalizedPlatformClaim {
+  schemaVersion: CiEvidencePublicationPackBinding['schemaVersion'];
+  platformScope: CiEvidencePackPlatformScope;
+  requiredPlatforms: CiEvidencePackPlatform[];
+  claimStatus: CiEvidencePackPlatformClaimStatus | CiEvidencePackTwoPlatformClaimStatus;
+  reasons: string[];
 }
 
 export interface CiEvidencePublicationPackArtifactTarget {
@@ -415,29 +446,15 @@ function hashExactBytes(bytes: Uint8Array): { sha256: string; byteSize: number }
   };
 }
 
-function parsePackBytes(packBytes: Uint8Array): CiEvidencePack {
+function parsePackBytes(packBytes: Uint8Array): CiEvidencePackArtifact {
   if (!(packBytes instanceof Uint8Array)) {
     throw new CiEvidencePublicationReceiptError('packBytes must be a Uint8Array');
   }
   if (packBytes.byteLength < 1) {
     throw new CiEvidencePublicationReceiptError('packBytes must be nonempty');
   }
-  let text: string;
   try {
-    text = new TextDecoder('utf-8', { fatal: true }).decode(packBytes);
-  } catch {
-    throw new CiEvidencePublicationReceiptError('packBytes must be valid UTF-8');
-  }
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(text);
-  } catch {
-    throw new CiEvidencePublicationReceiptError('packBytes must be valid JSON');
-  }
-  let pack: CiEvidencePack;
-  try {
-    pack = wrapSchemaValidation<CiEvidencePack>(parsed, SCHEMAS.ciEvidencePack, 'ci-evidence-pack');
-    assertCiEvidencePackSemantics(pack);
+    return parseCiEvidencePackBytes(packBytes);
   } catch (error) {
     if (error instanceof CiEvidencePublicationReceiptError) {
       throw error;
@@ -445,7 +462,6 @@ function parsePackBytes(packBytes: Uint8Array): CiEvidencePack {
     const message = error instanceof Error ? error.message : String(error);
     throw new CiEvidencePublicationReceiptError(`packBytes failed pack validation: ${message}`);
   }
-  return pack;
 }
 
 function assertHttpsUrl(urlValue: string, label: string): void {
@@ -506,7 +522,7 @@ function assertPublisher(publisher: CiEvidencePublicationPublisher): void {
 
 function assertRequestedItems(
   items: readonly CiEvidencePublicationRequestedItem[],
-  pack: CiEvidencePack,
+  pack: CiEvidencePackArtifact,
 ): void {
   uniqueOrThrow(
     items.map((item) => item.requestId),
@@ -539,7 +555,7 @@ function assertRequestedItems(
 function assertOutcomes(
   items: readonly CiEvidencePublicationRequestedItem[],
   outcomes: readonly CiEvidencePublicationItemOutcome[],
-  pack: CiEvidencePack,
+  pack: CiEvidencePackArtifact,
 ): void {
   uniqueOrThrow(
     outcomes.map((outcome) => outcome.requestId),
@@ -654,17 +670,65 @@ function derivePublicationStatus(
   };
 }
 
+type CiEvidencePublicationPlatformClaimSource =
+  | CiEvidencePackArtifact
+  | CiEvidencePublicationPackBinding;
+
+function sortedRequiredPlatforms(
+  platforms: readonly CiEvidencePackPlatform[],
+): CiEvidencePackPlatform[] {
+  return [...platforms].sort((left, right) => {
+    if (left < right) {
+      return -1;
+    }
+    if (left > right) {
+      return 1;
+    }
+    return 0;
+  });
+}
+
+function normalizeCiEvidencePublicationPlatformClaim(
+  pack: CiEvidencePublicationPlatformClaimSource,
+): CiEvidencePublicationNormalizedPlatformClaim {
+  switch (pack.schemaVersion) {
+    case '1.1.0':
+      return {
+        schemaVersion: pack.schemaVersion,
+        platformScope: pack.platformScope,
+        requiredPlatforms: sortedRequiredPlatforms(pack.requiredPlatforms),
+        claimStatus: pack.platformClaim.status,
+        reasons: [...pack.platformClaim.reasons],
+      };
+    case '1.0.0':
+      return {
+        schemaVersion: pack.schemaVersion,
+        platformScope: 'cross-platform',
+        requiredPlatforms: sortedRequiredPlatforms(pack.requiredPlatforms),
+        claimStatus: pack.twoPlatformClaim.status,
+        reasons: [...pack.twoPlatformClaim.reasons],
+      };
+    default: {
+      const exhaustive: never = pack;
+      throw new CiEvidencePublicationReceiptError(
+        `unsupported pack schemaVersion ${String(exhaustive)}`,
+      );
+    }
+  }
+}
+
 function deriveSummary(
   status: CiEvidencePublicationStatus,
   pack: CiEvidencePublicationPackBinding,
 ): string {
-  return `publication ${status}; pack mechanismStatus ${pack.mechanismStatus}; twoPlatformClaim ${pack.twoPlatformClaim.status}`;
+  const claim = normalizeCiEvidencePublicationPlatformClaim(pack);
+  return `publication ${status}; pack mechanismStatus ${pack.mechanismStatus}; platform evidence claim ${claim.claimStatus}; platformScope ${claim.platformScope}`;
 }
 
 function deriveNextAction(status: CiEvidencePublicationStatus): string {
   switch (status) {
     case 'published':
-      return 'retain the receipt as the local publication binding; do not reinterpret pack mechanismStatus or twoPlatformClaim from publication success';
+      return 'retain the receipt as the local publication binding; do not reinterpret pack mechanismStatus or platform evidence claim from publication success';
     case 'partial':
       return 'inspect nonpublished item reasons and republish only remaining requested items';
     case 'failed':
@@ -679,13 +743,12 @@ function deriveNextAction(status: CiEvidencePublicationStatus): string {
 }
 
 function bindPack(
-  pack: CiEvidencePack,
+  pack: CiEvidencePackArtifact,
   digest: { sha256: string; byteSize: number },
   packRelativePath: string,
 ): CiEvidencePublicationPackBinding {
-  return {
+  const shared: CiEvidencePublicationPackBindingBase = {
     packId: pack.packId,
-    schemaVersion: pack.schemaVersion,
     sha256: digest.sha256,
     byteSize: digest.byteSize,
     packRelativePath,
@@ -694,10 +757,6 @@ function bindPack(
     requiredPlatforms: [...pack.requiredPlatforms],
     requiredEvidenceKinds: [...pack.requiredEvidenceKinds],
     mechanismStatus: pack.mechanismStatus,
-    twoPlatformClaim: {
-      status: pack.twoPlatformClaim.status,
-      reasons: [...pack.twoPlatformClaim.reasons],
-    },
     comparisonStatus: pack.comparisonStatus,
     completeness: {
       status: pack.completeness.status,
@@ -708,9 +767,37 @@ function bindPack(
       reasons: [...pack.assembly.reasons],
     },
   };
+  if (pack.schemaVersion === '1.1.0') {
+    return {
+      ...shared,
+      schemaVersion: '1.1.0',
+      platformScope: pack.platformScope,
+      platformClaim: {
+        status: pack.platformClaim.status,
+        reasons: [...pack.platformClaim.reasons],
+      },
+    };
+  }
+  if (pack.schemaVersion === '1.0.0') {
+    return {
+      ...shared,
+      schemaVersion: '1.0.0',
+      twoPlatformClaim: {
+        status: pack.twoPlatformClaim.status,
+        reasons: [...pack.twoPlatformClaim.reasons],
+      },
+    };
+  }
+  const exhaustive: never = pack;
+  throw new CiEvidencePublicationReceiptError(
+    `unsupported pack schemaVersion ${String(exhaustive)}`,
+  );
 }
 
-function assertCopiedPackBinding(artifact: CiEvidencePublicationReceipt, pack: CiEvidencePack): void {
+function assertCopiedPackBinding(
+  artifact: CiEvidencePublicationReceipt,
+  pack: CiEvidencePackArtifact,
+): void {
   // Copied pack fields only. sha256/byteSize are not re-hashed; this assertion has no pack bytes.
   if (artifact.pack.packId !== pack.packId) {
     throw new CiEvidencePublicationReceiptError('pack.packId must copy the bound pack');
@@ -733,8 +820,38 @@ function assertCopiedPackBinding(artifact: CiEvidencePublicationReceipt, pack: C
   if (artifact.pack.mechanismStatus !== pack.mechanismStatus) {
     throw new CiEvidencePublicationReceiptError('pack.mechanismStatus must copy the bound pack');
   }
-  if (!jsonValuesEqual(artifact.pack.twoPlatformClaim, pack.twoPlatformClaim)) {
-    throw new CiEvidencePublicationReceiptError('pack.twoPlatformClaim must copy the bound pack');
+  if (pack.schemaVersion === '1.1.0') {
+    if (artifact.pack.schemaVersion !== '1.1.0') {
+      throw new CiEvidencePublicationReceiptError('pack.schemaVersion must copy the bound pack');
+    }
+    if ('twoPlatformClaim' in artifact.pack) {
+      throw new CiEvidencePublicationReceiptError(
+        'current pack binding must not include twoPlatformClaim',
+      );
+    }
+    if (artifact.pack.platformScope !== pack.platformScope) {
+      throw new CiEvidencePublicationReceiptError('pack.platformScope must copy the bound pack');
+    }
+    if (!jsonValuesEqual(artifact.pack.platformClaim, pack.platformClaim)) {
+      throw new CiEvidencePublicationReceiptError('pack.platformClaim must copy the bound pack');
+    }
+  } else if (pack.schemaVersion === '1.0.0') {
+    if (artifact.pack.schemaVersion !== '1.0.0') {
+      throw new CiEvidencePublicationReceiptError('pack.schemaVersion must copy the bound pack');
+    }
+    if ('platformClaim' in artifact.pack || 'platformScope' in artifact.pack) {
+      throw new CiEvidencePublicationReceiptError(
+        'legacy pack binding must not include platformClaim or platformScope',
+      );
+    }
+    if (!jsonValuesEqual(artifact.pack.twoPlatformClaim, pack.twoPlatformClaim)) {
+      throw new CiEvidencePublicationReceiptError('pack.twoPlatformClaim must copy the bound pack');
+    }
+  } else {
+    const exhaustive: never = pack;
+    throw new CiEvidencePublicationReceiptError(
+      `unsupported pack schemaVersion ${String(exhaustive)}`,
+    );
   }
   if (artifact.pack.comparisonStatus !== pack.comparisonStatus) {
     throw new CiEvidencePublicationReceiptError('pack.comparisonStatus must copy the bound pack');
@@ -749,13 +866,25 @@ function assertCopiedPackBinding(artifact: CiEvidencePublicationReceipt, pack: C
 
 function assertCiEvidencePublicationReceiptForPack(
   receipt: CiEvidencePublicationReceipt,
-  pack: CiEvidencePack,
+  pack: CiEvidencePackArtifact,
 ): void {
   wrapSchemaValidation(receipt, SCHEMAS.ciEvidencePublicationReceipt, 'ci-evidence-publication-receipt');
   wrapSchemaValidation(pack, SCHEMAS.ciEvidencePack, 'ci-evidence-pack');
   try {
-    assertCiEvidencePackSemantics(pack);
+    if (pack.schemaVersion === '1.1.0') {
+      assertCiEvidencePackSemantics(pack);
+    } else if (pack.schemaVersion === '1.0.0') {
+      parseCiEvidencePackBytes(new TextEncoder().encode(JSON.stringify(pack)));
+    } else {
+      const exhaustive: never = pack;
+      throw new CiEvidencePublicationReceiptError(
+        `unsupported pack schemaVersion ${String(exhaustive)}`,
+      );
+    }
   } catch (error) {
+    if (error instanceof CiEvidencePublicationReceiptError) {
+      throw error;
+    }
     const message = error instanceof Error ? error.message : String(error);
     throw new CiEvidencePublicationReceiptError(`pack failed pack validation: ${message}`);
   }
@@ -764,7 +893,7 @@ function assertCiEvidencePublicationReceiptForPack(
 
 function assertCiEvidencePublicationReceiptForExactPackBytes(
   receipt: CiEvidencePublicationReceipt,
-  pack: CiEvidencePack,
+  pack: CiEvidencePackArtifact,
   packBytes: Uint8Array,
 ): void {
   if (!(packBytes instanceof Uint8Array)) {
@@ -784,9 +913,31 @@ function assertCiEvidencePublicationReceiptForExactPackBytes(
   assertCiEvidencePublicationReceiptForPack(receipt, pack);
 }
 
-function assertReceiptSemantics(artifact: CiEvidencePublicationReceipt, pack: CiEvidencePack): void {
-  if (artifact.schemaVersion !== CI_EVIDENCE_PUBLICATION_RECEIPT_SCHEMA_VERSION) {
+function assertSupportedReceiptSchemaVersion(
+  schemaVersion: string,
+): asserts schemaVersion is CiEvidencePublicationReceiptSchemaVersion {
+  if (
+    schemaVersion !== CI_EVIDENCE_PUBLICATION_RECEIPT_SCHEMA_VERSION &&
+    schemaVersion !== CI_EVIDENCE_PUBLICATION_RECEIPT_LEGACY_SCHEMA_VERSION
+  ) {
     throw new CiEvidencePublicationReceiptError('unsupported schemaVersion');
+  }
+}
+
+function assertReceiptSemantics(
+  artifact: CiEvidencePublicationReceipt,
+  pack: CiEvidencePackArtifact,
+): void {
+  assertSupportedReceiptSchemaVersion(artifact.schemaVersion);
+  if (artifact.schemaVersion === '1.1.0' && pack.schemaVersion !== '1.1.0') {
+    throw new CiEvidencePublicationReceiptError(
+      'current publication receipt must bind a current pack',
+    );
+  }
+  if (artifact.schemaVersion === '1.0.0' && pack.schemaVersion !== '1.0.0') {
+    throw new CiEvidencePublicationReceiptError(
+      'legacy publication receipt must bind a legacy pack',
+    );
   }
   assertNonemptyString(artifact.receiptId, 'receiptId');
   assertIsoTimestamp(artifact.createdAt, 'createdAt');
@@ -826,7 +977,10 @@ function buildCiEvidencePublicationReceipt(
   const packBinding = bindPack(pack, digest, facts.packRelativePath);
   const derived = derivePublicationStatus(facts.outcomes);
   const artifact: CiEvidencePublicationReceipt = {
-    schemaVersion: CI_EVIDENCE_PUBLICATION_RECEIPT_SCHEMA_VERSION,
+    schemaVersion:
+      pack.schemaVersion === '1.1.0'
+        ? CI_EVIDENCE_PUBLICATION_RECEIPT_SCHEMA_VERSION
+        : CI_EVIDENCE_PUBLICATION_RECEIPT_LEGACY_SCHEMA_VERSION,
     receiptId: facts.receiptId,
     createdAt: facts.createdAt,
     publisher: facts.publisher,
@@ -872,9 +1026,7 @@ function readCiEvidencePublicationReceipt(
     SCHEMAS.ciEvidencePublicationReceipt,
     'ci-evidence-publication-receipt',
   );
-  if (artifact.schemaVersion !== CI_EVIDENCE_PUBLICATION_RECEIPT_SCHEMA_VERSION) {
-    throw new CiEvidencePublicationReceiptError('unsupported schemaVersion');
-  }
+  assertSupportedReceiptSchemaVersion(artifact.schemaVersion);
   assertNonemptyString(artifact.receiptId, 'receiptId');
   assertIsoTimestamp(artifact.createdAt, 'createdAt');
   assertPublisher(artifact.publisher);
@@ -973,11 +1125,13 @@ function readCiEvidencePublicationReceipt(
 }
 
 export {
+  CI_EVIDENCE_PUBLICATION_RECEIPT_LEGACY_SCHEMA_VERSION,
   CI_EVIDENCE_PUBLICATION_RECEIPT_SCHEMA_VERSION,
   CiEvidencePublicationReceiptError,
   assertCiEvidencePublicationReceiptForExactPackBytes,
   assertCiEvidencePublicationReceiptForPack,
   buildCiEvidencePublicationReceipt,
+  normalizeCiEvidencePublicationPlatformClaim,
   readCiEvidencePublicationReceipt,
 };
 // Pack-binding assertion copies fields only and does not re-hash sha256/byteSize.

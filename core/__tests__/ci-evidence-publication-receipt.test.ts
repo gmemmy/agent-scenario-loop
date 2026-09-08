@@ -14,7 +14,12 @@ const {
   readCiEvidencePublicationReceipt,
 } = require('../ci-evidence-publication-receipt');
 const { SCHEMAS, assertValidJson, SchemaValidationError } = require('../schema-validator');
-import type { CiEvidencePack, CiEvidencePackBuildInput } from '../ci-evidence-pack';
+import type {
+  CiEvidencePack,
+  CiEvidencePackArtifact,
+  CiEvidencePackBuildInput,
+  CiEvidencePackLegacy,
+} from '../ci-evidence-pack';
 import type {
   CiEvidencePublicationItemOutcome,
   CiEvidencePublicationReceipt,
@@ -53,7 +58,7 @@ function validPackInput(): CiEvidencePackBuildInput {
   const androidFail = attemptEvidence('android', 'android-fail');
   const iosPass = attemptEvidence('ios', 'ios-pass');
   return {
-    schemaVersion: '1.0.0' as const,
+    schemaVersion: '1.1.0' as const,
     packId: 'pack-1',
     createdAt: '2026-08-22T00:00:00.000Z',
     source: { expectedSha: SHA, observedSha: SHA, status: 'current' as const },
@@ -64,6 +69,7 @@ function validPackInput(): CiEvidencePackBuildInput {
       runId: 'run-1',
       status: 'passed' as const,
     },
+    platformScope: 'cross-platform' as const,
     requiredPlatforms: ['android', 'ios'],
     requiredEvidenceKinds: ['recording', 'verdict'],
     platforms: [
@@ -142,7 +148,7 @@ function validPackInput(): CiEvidencePackBuildInput {
   };
 }
 
-function packBytes(pack: CiEvidencePack): Uint8Array {
+function packBytes(pack: CiEvidencePackArtifact): Uint8Array {
   return Buffer.from(JSON.stringify(pack), 'utf8');
 }
 
@@ -206,7 +212,7 @@ describe('ci evidence publication receipt', () => {
     assert.equal(receipt.publicationStatus, 'published');
     assert.deepEqual(receipt.reasons, []);
     assert.equal(receipt.pack.mechanismStatus, pack.mechanismStatus);
-    assert.equal(receipt.pack.twoPlatformClaim.status, pack.twoPlatformClaim.status);
+    assert.equal(receipt.pack.platformClaim.status, pack.platformClaim.status);
     assert.equal(receipt.pack.sha256, createHash('sha256').update(bytes).digest('hex'));
     assert.equal(receipt.pack.byteSize, bytes.byteLength);
     assertValidJson(receipt, SCHEMAS.ciEvidencePublicationReceipt, 'ci-evidence-publication-receipt');
@@ -266,17 +272,17 @@ describe('ci evidence publication receipt', () => {
       status: 'stale',
     };
     const pack = buildCiEvidencePack(input);
-    assert.equal(pack.twoPlatformClaim.status, 'failed');
+    assert.equal(pack.platformClaim.status, 'failed');
     const receipt = buildCiEvidencePublicationReceipt({
       packBytes: packBytes(pack),
       facts: cloneFacts(),
     });
     assert.equal(receipt.publicationStatus, 'published');
     assert.equal(receipt.pack.source.status, 'stale');
-    assert.equal(receipt.pack.twoPlatformClaim.status, 'failed');
+    assert.equal(receipt.pack.platformClaim.status, 'failed');
     assert.equal(receipt.pack.mechanismStatus, pack.mechanismStatus);
     assert.match(receipt.summary, /publication published/);
-    assert.match(receipt.summary, /twoPlatformClaim failed/);
+    assert.match(receipt.summary, /platform evidence claim failed/);
   });
 
   it('leaves rejected and failed pack attempts untouched', () => {
@@ -640,7 +646,7 @@ describe('ci evidence publication receipt', () => {
     assert.deepEqual(receipt.pack.requiredPlatforms, pack.requiredPlatforms);
     assert.deepEqual(receipt.pack.requiredEvidenceKinds, pack.requiredEvidenceKinds);
     assert.equal(receipt.pack.mechanismStatus, pack.mechanismStatus);
-    assert.deepEqual(receipt.pack.twoPlatformClaim, pack.twoPlatformClaim);
+    assert.deepEqual(receipt.pack.platformClaim, pack.platformClaim);
     assert.equal(receipt.pack.comparisonStatus, pack.comparisonStatus);
     assert.deepEqual(receipt.pack.completeness, pack.completeness);
     assert.deepEqual(receipt.pack.assembly, pack.assembly);
@@ -717,15 +723,15 @@ describe('ci evidence publication receipt', () => {
       CiEvidencePublicationReceiptError,
     );
 
-    const mismatchedTwoPlatform = {
+    const mismatchedPlatformClaim = {
       ...receipt,
       pack: {
         ...receipt.pack,
-        twoPlatformClaim: { status: 'failed' as const, reasons: ['tampered'] },
+        platformClaim: { status: 'failed' as const, reasons: ['tampered'] },
       },
     };
     assert.throws(
-      () => assertCiEvidencePublicationReceiptForPack(mismatchedTwoPlatform, pack),
+      () => assertCiEvidencePublicationReceiptForPack(mismatchedPlatformClaim, pack),
       CiEvidencePublicationReceiptError,
     );
 
@@ -762,7 +768,8 @@ describe('ci evidence publication receipt', () => {
     const reordered = JSON.parse(JSON.stringify(pack)) as CiEvidencePack;
     const bytes = Buffer.from(
       JSON.stringify({
-        twoPlatformClaim: reordered.twoPlatformClaim,
+        platformClaim: reordered.platformClaim,
+        platformScope: reordered.platformScope,
         source: reordered.source,
         packId: reordered.packId,
         schemaVersion: reordered.schemaVersion,
@@ -876,7 +883,7 @@ describe('ci evidence publication receipt', () => {
     const mixed = buildCiEvidencePublicationReceipt({ packBytes: bytes, facts: mixedFacts });
     assert.equal(mixed.publicationStatus, 'partial');
     assert.equal(mixed.pack.mechanismStatus, pack.mechanismStatus);
-    assert.equal(mixed.pack.twoPlatformClaim.status, pack.twoPlatformClaim.status);
+    assert.equal(mixed.pack.platformClaim.status, pack.platformClaim.status);
     assert.equal(mixed.pack.source.status, pack.source.status);
     assertCiEvidencePublicationReceiptForExactPackBytes(mixed, pack, bytes);
 
@@ -891,7 +898,7 @@ describe('ci evidence publication receipt', () => {
       facts: mixedInvalidFacts,
     });
     assert.equal(mixedInvalid.publicationStatus, 'partial');
-    assert.equal(mixedInvalid.pack.twoPlatformClaim.status, pack.twoPlatformClaim.status);
+    assert.equal(mixedInvalid.pack.platformClaim.status, pack.platformClaim.status);
     assertCiEvidencePublicationReceiptForExactPackBytes(mixedInvalid, pack, bytes);
     const failedAttempt = requiredItem(
       pack.attempts.find((attempt: { attemptId: string }) => attempt.attemptId === 'android-fail'),
@@ -1274,6 +1281,190 @@ describe('ci evidence publication receipt', () => {
     assert.throws(
       () =>
         readCiEvidencePublicationReceipt(writeReceipt(publishedNonPresent), nonPresentBytes),
+      CiEvidencePublicationReceiptError,
+    );
+  });
+
+  function validLegacyPack(): CiEvidencePackLegacy {
+    const current = buildCiEvidencePack(validPackInput());
+    const legacy = JSON.parse(JSON.stringify(current)) as Record<string, unknown>;
+    legacy.schemaVersion = '1.0.0';
+    legacy.twoPlatformClaim = legacy.platformClaim;
+    delete legacy.platformScope;
+    delete legacy.platformClaim;
+    return legacy as unknown as CiEvidencePackLegacy;
+  }
+
+  it('builds a legacy 1.0.0 receipt, reads exact bytes, and retains twoPlatformClaim without rewrite', () => {
+    const pack = validLegacyPack();
+    const bytes = packBytes(pack);
+    const receipt = buildCiEvidencePublicationReceipt({ packBytes: bytes, facts: cloneFacts() });
+    assert.equal(receipt.schemaVersion, '1.0.0');
+    assert.equal(receipt.pack.schemaVersion, '1.0.0');
+    assert.equal(receipt.pack.packId, pack.packId);
+    assert.deepEqual(receipt.pack.requiredPlatforms, ['android', 'ios']);
+    assert.deepEqual(receipt.pack.twoPlatformClaim, pack.twoPlatformClaim);
+    assert.equal('platformScope' in receipt.pack, false);
+    assert.equal('platformClaim' in receipt.pack, false);
+    assertValidJson(receipt, SCHEMAS.ciEvidencePublicationReceipt, 'ci-evidence-publication-receipt');
+    const roundTrip = readCiEvidencePublicationReceipt(writeReceipt(receipt), bytes);
+    assert.deepEqual(roundTrip, receipt);
+    assertCiEvidencePublicationReceiptForPack(roundTrip, pack);
+    assertCiEvidencePublicationReceiptForExactPackBytes(roundTrip, pack, bytes);
+  });
+
+  it('rejects current and legacy receipt/pack version mismatches', () => {
+    const currentPack = buildCiEvidencePack(validPackInput());
+    const currentBytes = packBytes(currentPack);
+    const currentReceipt = buildCiEvidencePublicationReceipt({
+      packBytes: currentBytes,
+      facts: cloneFacts(),
+    });
+    const legacyPack = validLegacyPack();
+    const legacyBytes = packBytes(legacyPack);
+    const legacyReceipt = buildCiEvidencePublicationReceipt({
+      packBytes: legacyBytes,
+      facts: cloneFacts(),
+    });
+
+    assert.throws(
+      () => readCiEvidencePublicationReceipt(writeReceipt(currentReceipt), legacyBytes),
+      CiEvidencePublicationReceiptError,
+    );
+    assert.throws(
+      () => readCiEvidencePublicationReceipt(writeReceipt(legacyReceipt), currentBytes),
+      CiEvidencePublicationReceiptError,
+    );
+    assert.throws(
+      () => assertCiEvidencePublicationReceiptForPack(currentReceipt, legacyPack),
+      CiEvidencePublicationReceiptError,
+    );
+    assert.throws(
+      () => assertCiEvidencePublicationReceiptForPack(legacyReceipt, currentPack),
+      CiEvidencePublicationReceiptError,
+    );
+
+    const mixedRoot = {
+      ...currentReceipt,
+      schemaVersion: '1.0.0' as const,
+    };
+    assert.throws(
+      () =>
+        readCiEvidencePublicationReceipt(
+          writeReceipt(mixedRoot as CiEvidencePublicationReceipt),
+          currentBytes,
+        ),
+      CiEvidencePublicationReceiptError,
+    );
+    assert.throws(
+      () => assertValidJson(mixedRoot, SCHEMAS.ciEvidencePublicationReceipt, 'ci-evidence-publication-receipt'),
+      Error,
+    );
+
+    const mixedNested = {
+      ...legacyReceipt,
+      pack: { ...legacyReceipt.pack, schemaVersion: '1.1.0' as const },
+    };
+    assert.throws(
+      () =>
+        readCiEvidencePublicationReceipt(
+          writeReceipt(mixedNested as CiEvidencePublicationReceipt),
+          legacyBytes,
+        ),
+      CiEvidencePublicationReceiptError,
+    );
+    assert.throws(
+      () =>
+        assertValidJson(mixedNested, SCHEMAS.ciEvidencePublicationReceipt, 'ci-evidence-publication-receipt'),
+      Error,
+    );
+  });
+
+  it('rejects schema-invalid platform cardinality and mixed receipt/pack schema versions', () => {
+    const currentPack = buildCiEvidencePack(validPackInput());
+    const currentBytes = packBytes(currentPack);
+    const currentReceipt = buildCiEvidencePublicationReceipt({
+      packBytes: currentBytes,
+      facts: cloneFacts(),
+    });
+    const legacyPack = validLegacyPack();
+    const legacyBytes = packBytes(legacyPack);
+    const legacyReceipt = buildCiEvidencePublicationReceipt({
+      packBytes: legacyBytes,
+      facts: cloneFacts(),
+    });
+
+    const legacyOnePlatform = {
+      ...legacyReceipt,
+      pack: { ...legacyReceipt.pack, requiredPlatforms: ['android'] },
+    };
+    assert.throws(
+      () =>
+        assertValidJson(
+          legacyOnePlatform,
+          SCHEMAS.ciEvidencePublicationReceipt,
+          'ci-evidence-publication-receipt',
+        ),
+      Error,
+    );
+    assert.throws(
+      () =>
+        readCiEvidencePublicationReceipt(
+          writeReceipt(legacyOnePlatform as CiEvidencePublicationReceipt),
+          legacyBytes,
+        ),
+      CiEvidencePublicationReceiptError,
+    );
+
+    const singlePlatformTwoRequired = {
+      ...currentReceipt,
+      pack: {
+        ...currentReceipt.pack,
+        platformScope: 'single-platform' as const,
+        requiredPlatforms: ['android', 'ios'],
+      },
+    };
+    assert.throws(
+      () =>
+        assertValidJson(
+          singlePlatformTwoRequired,
+          SCHEMAS.ciEvidencePublicationReceipt,
+          'ci-evidence-publication-receipt',
+        ),
+      Error,
+    );
+    assert.throws(
+      () =>
+        readCiEvidencePublicationReceipt(
+          writeReceipt(singlePlatformTwoRequired as CiEvidencePublicationReceipt),
+          currentBytes,
+        ),
+      CiEvidencePublicationReceiptError,
+    );
+
+    const crossPlatformOneRequired = {
+      ...currentReceipt,
+      pack: {
+        ...currentReceipt.pack,
+        platformScope: 'cross-platform' as const,
+        requiredPlatforms: ['ios'],
+      },
+    };
+    assert.throws(
+      () =>
+        assertValidJson(
+          crossPlatformOneRequired,
+          SCHEMAS.ciEvidencePublicationReceipt,
+          'ci-evidence-publication-receipt',
+        ),
+      Error,
+    );
+    assert.throws(
+      () =>
+        readCiEvidencePublicationReceipt(
+          writeReceipt(crossPlatformOneRequired as CiEvidencePublicationReceipt),
+          currentBytes,
+        ),
       CiEvidencePublicationReceiptError,
     );
   });
