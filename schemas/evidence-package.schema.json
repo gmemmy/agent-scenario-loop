@@ -15,11 +15,19 @@
     "totalByteSize": { "type": "integer", "minimum": 1 },
     "checksumsPath": { "const": "SHA256SUMS" },
     "entries": { "$ref": "#/$defs/entries" },
+    "completionMarkerPath": { "const": "evidence-package.complete" },
     "jsonPointers": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/jsonPointerRecord" } }
   },
   "if": { "properties": { "schemaVersion": { "const": "1.1.0" } }, "required": ["schemaVersion"] },
-  "then": { "required": ["jsonPointers"] },
-  "else": { "not": { "required": ["jsonPointers"] } },
+  "then": { "required": ["jsonPointers", "completionMarkerPath"] },
+  "else": {
+    "not": {
+      "anyOf": [
+        { "required": ["jsonPointers"] },
+        { "required": ["completionMarkerPath"] }
+      ]
+    }
+  },
   "$defs": {
     "runRelativePath": {
       "type": "string",

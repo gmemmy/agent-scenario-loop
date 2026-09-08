@@ -80,6 +80,7 @@ type EvidencePackageArtifactBase = {
 export type EvidencePackageArtifact = EvidencePackageArtifactBase & ({
   schemaVersion: '1.0.0';
 } | {
+  completionMarkerPath: 'evidence-package.complete';
   jsonPointers: EvidencePackageJsonPointer[];
   schemaVersion: '1.1.0';
 });
@@ -790,8 +791,16 @@ function buildEvidencePackageArtifact(
     entries: prepared.map(({ bytes: _bytes, ...entry }) => entry),
   };
   const value = request.schemaVersion === '1.1.0'
-    ? { ...common, schemaVersion: '1.1.0' as const, jsonPointers: pointers }
-    : { ...common, schemaVersion: '1.0.0' as const };
+    ? {
+        ...common,
+        completionMarkerPath: 'evidence-package.complete' as const,
+        jsonPointers: pointers,
+        schemaVersion: '1.1.0' as const,
+      }
+    : {
+        ...common,
+        schemaVersion: '1.0.0' as const,
+      };
   return assertValidJson(
     value,
     SCHEMAS.evidencePackage,
@@ -803,6 +812,96 @@ function writePrivateFile(filePath: string, bytes: Uint8Array | string): void {
   fs.mkdirSync(path.dirname(filePath), { recursive: true, mode: 0o700 });
   fs.writeFileSync(filePath, bytes, { mode: 0o600 });
   fs.chmodSync(filePath, 0o600);
+}
+
+function completionMarkerBytes(manifestSha256: string): Buffer {
+  return Buffer.from(`${manifestSha256}\n`, 'utf8');
+}
+
+function writeExclusivePrivateFile(filePath: string, bytes: Uint8Array | string): void {
+  const handle = fs.openSync(filePath, 'wx', 0o600);
+  try {
+    fs.writeFileSync(handle, bytes);
+    fs.fchmodSync(handle, 0o600);
+    fs.fsyncSync(handle);
+  } finally {
+    fs.closeSync(handle);
+  }
+}
+
+function fsyncPersistentPath(targetPath: string): void {
+  const handle = fs.openSync(targetPath, 'r');
+  try {
+    fs.fsyncSync(handle);
+  } finally {
+    fs.closeSync(handle);
+  }
+}
+
+function filesTreeDirectories(artifactPaths: readonly string[]): string[] {
+  const directories = new Set<string>(['files']);
+  for (const artifactPath of artifactPaths) {
+    let directory = path.posix.dirname(artifactPath);
+    while (directory !== '.' && directory !== '/') {
+      directories.add(directory);
+      const parent = path.posix.dirname(directory);
+      if (parent === directory) {
+        break;
+      }
+      directory = parent;
+    }
+  }
+  return [...directories].sort((left, right) => {
+    const depthDelta = right.split('/').length - left.split('/').length;
+    if (depthDelta !== 0) {
+      return depthDelta;
+    }
+    if (left < right) {
+      return -1;
+    }
+    if (left > right) {
+      return 1;
+    }
+    return 0;
+  });
+}
+
+function fsyncSealedPackageContents(
+  outputDir: string,
+  artifact: EvidencePackageArtifact,
+): void {
+  for (const entry of artifact.entries) {
+    fsyncPersistentPath(path.join(outputDir, entry.artifactPath));
+  }
+  fsyncPersistentPath(path.join(outputDir, artifact.checksumsPath));
+  fsyncPersistentPath(path.join(outputDir, 'evidence-package.json'));
+  for (const directory of filesTreeDirectories(
+    artifact.entries.map((entry) => entry.artifactPath),
+  )) {
+    fsyncPersistentPath(path.join(outputDir, directory));
+  }
+}
+
+function buildChecksumEntries(
+  artifact: EvidencePackageArtifact,
+  manifestSha256: string,
+): Array<{ path: string; sha256: string }> {
+  const checksumEntries = [
+    ...artifact.entries.map((entry) => ({ path: entry.artifactPath, sha256: entry.sha256 })),
+    {
+      path: 'evidence-package.json',
+      sha256: manifestSha256,
+    },
+  ];
+  if (artifact.schemaVersion === '1.1.0') {
+    checksumEntries.push({
+      path: artifact.completionMarkerPath,
+      sha256: crypto.createHash('sha256').update(completionMarkerBytes(manifestSha256)).digest('hex'),
+    });
+  }
+  return checksumEntries.sort((left, right) => (
+    left.path < right.path ? -1 : left.path > right.path ? 1 : 0
+  ));
 }
 
 function removeCreatedDirectories(createdDirectories: string[]): void {
@@ -974,15 +1073,8 @@ export async function materializeEvidencePackage(
     });
     fs.chmodSync(manifestPath, 0o600);
     const manifestBytes = fs.readFileSync(manifestPath);
-    const checksumEntries = [
-      ...artifact.entries.map((entry) => ({ path: entry.artifactPath, sha256: entry.sha256 })),
-      {
-        path: 'evidence-package.json',
-        sha256: crypto.createHash('sha256').update(manifestBytes).digest('hex'),
-      },
-    ].sort((left, right) => (
-      left.path < right.path ? -1 : left.path > right.path ? 1 : 0
-    ));
+    const manifestSha256 = crypto.createHash('sha256').update(manifestBytes).digest('hex');
+    const checksumEntries = buildChecksumEntries(artifact, manifestSha256);
     writePrivateFile(
       path.join(stage, artifact.checksumsPath),
       `${checksumEntries.map((entry) => `${entry.sha256}  ${entry.path}`).join('\n')}\n`,
@@ -1002,6 +1094,14 @@ export async function materializeEvidencePackage(
     }
     for (const child of ['files', artifact.checksumsPath, 'evidence-package.json']) {
       fs.renameSync(path.join(stage, child), path.join(outputDir, child));
+    }
+    if (artifact.schemaVersion === '1.1.0') {
+      fsyncSealedPackageContents(outputDir, artifact);
+      writeExclusivePrivateFile(
+        path.join(outputDir, artifact.completionMarkerPath),
+        completionMarkerBytes(manifestSha256),
+      );
+      fsyncPersistentPath(outputDir);
     }
     published = true;
     return {
@@ -1143,9 +1243,30 @@ export function verifyEvidencePackage(packageDirInput: string): EvidencePackageV
   const checksumSnapshot = readPackageFile(outputDir, artifact.checksumsPath, 'checksum-mismatch');
   const checksums = parseChecksums(checksumSnapshot.bytes);
   const expectedPaths = new Set(['evidence-package.json', ...artifact.entries.map((entry) => entry.artifactPath)]);
+  if (artifact.schemaVersion === '1.1.0') {
+    expectedPaths.add(artifact.completionMarkerPath);
+  }
   if (checksums.size !== expectedPaths.size || [...checksums.keys()].some((entry) => !expectedPaths.has(entry))) {
     throw verificationError('checksum-mismatch', 'SHA256SUMS does not exactly inventory the manifest and declared entries.');
   }
+  if (checksums.get('evidence-package.json') !== manifestSnapshot.sha256) {
+    throw verificationError('checksum-mismatch', 'The evidence-package.json digest does not match SHA256SUMS.');
+  }
+
+  if (artifact.schemaVersion === '1.1.0') {
+    const markerSnapshot = readPackageFile(outputDir, artifact.completionMarkerPath, 'checksum-mismatch');
+    const expectedMarkerBytes = completionMarkerBytes(manifestSnapshot.sha256);
+    if (
+      !Buffer.from(markerSnapshot.bytes).equals(expectedMarkerBytes) ||
+      checksums.get(artifact.completionMarkerPath) !== markerSnapshot.sha256
+    ) {
+      throw verificationError(
+        'checksum-mismatch',
+        'The completion marker bytes or digest do not match the sealed evidence-package.json digest.',
+      );
+    }
+  }
+
   const expectedPackageFiles = new Set([artifact.checksumsPath, ...expectedPaths]);
   const actualPackageFiles = listPackagedFiles(outputDir);
   if (
@@ -1153,9 +1274,6 @@ export function verifyEvidencePackage(packageDirInput: string): EvidencePackageV
     actualPackageFiles.some((entry) => !expectedPackageFiles.has(entry))
   ) {
     throw verificationError('checksum-mismatch', 'The package directory contains files outside its sealed inventory.');
-  }
-  if (checksums.get('evidence-package.json') !== manifestSnapshot.sha256) {
-    throw verificationError('checksum-mismatch', 'The evidence-package.json digest does not match SHA256SUMS.');
   }
 
   const entriesByArtifactPath = new Map<string, EvidencePackageEntry>();
@@ -1187,7 +1305,18 @@ export function verifyEvidencePackage(packageDirInput: string): EvidencePackageV
   }
 
   const pointers = artifact.schemaVersion === '1.1.0' ? artifact.jsonPointers : [];
-  const pointerKeys = new Set(pointers.map((pointer) => `${pointer.artifactPath}\n${pointer.jsonPointer}`));
+  const pointerKeys = new Set<string>();
+  for (const pointer of pointers) {
+    const pointerKey = `${pointer.artifactPath}\n${pointer.jsonPointer}`;
+    if (pointerKeys.has(pointerKey)) {
+      throw verificationError(
+        'invalid-pointer',
+        'The manifest repeats an artifact JSON pointer.',
+        pointer.artifactPath,
+      );
+    }
+    pointerKeys.add(pointerKey);
+  }
   for (const entry of artifact.entries) {
     const snapshot = snapshotsByArtifactPath.get(entry.artifactPath);
     if (!snapshot) {
