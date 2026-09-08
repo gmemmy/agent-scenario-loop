@@ -386,6 +386,7 @@ describe('ci evidence publication summary', () => {
     const input = validPackInput();
     input.platformScope = 'single-platform';
     input.requiredPlatforms = ['ios'];
+    input.comparisonStatus = 'not_available';
     input.platforms = [
       {
         platform: 'ios',
@@ -423,6 +424,7 @@ describe('ci evidence publication summary', () => {
     const input = validPackInput();
     input.platformScope = 'single-platform';
     input.requiredPlatforms = ['ios'];
+    input.comparisonStatus = 'not_available';
     input.platforms = [
       {
         platform: 'ios',
@@ -461,6 +463,7 @@ describe('ci evidence publication summary', () => {
     const input = validPackInput();
     input.platformScope = 'single-platform';
     input.requiredPlatforms = ['ios'];
+    input.comparisonStatus = 'not_available';
     input.platforms = [
       {
         platform: 'ios',
@@ -510,6 +513,7 @@ describe('ci evidence publication summary', () => {
     const input = validPackInput();
     input.platformScope = 'single-platform';
     input.requiredPlatforms = ['android'];
+    input.comparisonStatus = 'not_available';
     input.platforms = [
       {
         platform: 'android',

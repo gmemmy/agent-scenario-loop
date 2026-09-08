@@ -549,8 +549,16 @@ function verifyPlatformSets(
   const present = new Set(presentPlatforms);
   const missing = new Set(missingPlatforms);
   for (const platform of present) {
+    if (!required.has(platform)) {
+      fail(`presentPlatforms contains platform outside requiredPlatforms: ${platform}`);
+    }
     if (missing.has(platform)) {
       fail('presentPlatforms and missingPlatforms must be disjoint.');
+    }
+  }
+  for (const proof of proofs) {
+    if (!required.has(proof.platform)) {
+      fail(`live-proof-set proof platform is outside requiredPlatforms: ${proof.platform}`);
     }
   }
   const expectedMissing = [...required].filter((platform) => !present.has(platform));
