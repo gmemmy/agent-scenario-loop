@@ -149,6 +149,50 @@ test('materializes only allowlisted stable bytes with deterministic inventory an
   assert.equal(verifyEvidencePackage(fixture.outputDir).status, 'complete');
 });
 
+test('schema 1.0.0 byte-copies JSON with absolute host paths and stays marker-free', async (t: TestContext) => {
+  const fixture = await setup(t);
+  const sourceBytes = JSON.stringify({ absolutePath: '/private/tmp/evidence.json' });
+  await fsp.writeFile(
+    path.join(fixture.sourceRoot, 'raw', 'ui-tree.json'),
+    sourceBytes,
+    'utf8',
+  );
+
+  const result = await materializeEvidencePackage(fixture.request);
+
+  assert.equal(result.artifact.schemaVersion, '1.0.0');
+  assert.equal(
+    await fsp.readFile(path.join(fixture.outputDir, 'files', 'ui-tree.json'), 'utf8'),
+    sourceBytes,
+  );
+  assert.equal('jsonPointers' in result.artifact, false);
+  assert.equal('completionMarkerPath' in result.artifact, false);
+  assert.equal(fs.existsSync(path.join(fixture.outputDir, 'evidence-package.complete')), false);
+  assert.equal(verifyEvidencePackage(fixture.outputDir).status, 'complete');
+});
+
+test('schema 1.0.0 byte-copies non-JSON bytes at JSON artifact paths', async (t: TestContext) => {
+  const fixture = await setup(t);
+  const sourceBytes = '{not-json';
+  await fsp.writeFile(
+    path.join(fixture.sourceRoot, 'raw', 'ui-tree.json'),
+    sourceBytes,
+    'utf8',
+  );
+
+  const result = await materializeEvidencePackage(fixture.request);
+
+  assert.equal(result.artifact.schemaVersion, '1.0.0');
+  assert.equal(
+    await fsp.readFile(path.join(fixture.outputDir, 'files', 'ui-tree.json'), 'utf8'),
+    sourceBytes,
+  );
+  assert.equal('jsonPointers' in result.artifact, false);
+  assert.equal('completionMarkerPath' in result.artifact, false);
+  assert.equal(fs.existsSync(path.join(fixture.outputDir, 'evidence-package.complete')), false);
+  assert.equal(verifyEvidencePackage(fixture.outputDir).status, 'complete');
+});
+
 test('public artifact schema rejects destinations outside files and control characters', () => {
   const artifact = {
     schemaVersion: '1.0.0',
@@ -647,6 +691,8 @@ test('rejects unclassified absolute JSON paths across path families', async (t: 
     '\\\\server\\share\\evidence.json',
   ].entries()) {
     const fixture = await setup(t);
+    fixture.request.schemaVersion = '1.1.0';
+    fixture.request.jsonPointers = [];
     fixture.request.outputDir = path.join(fixture.tempDir, `package-${index}`);
     await fsp.writeFile(
       path.join(fixture.sourceRoot, 'raw', 'ui-tree.json'),
@@ -675,7 +721,23 @@ test('keeps JSON pointer declarations isolated to schema version 1.1.0', async (
 
   const current = await setup(t);
   current.request.schemaVersion = '1.1.0';
-  await assert.rejects(materializeEvidencePackage(current.request), /schema validation/iu);
+  current.request.jsonPointers = [];
+  const result = await materializeEvidencePackage(current.request);
+  assert.equal(result.artifact.schemaVersion, '1.1.0');
+  if (result.artifact.schemaVersion !== '1.1.0') {
+    throw new Error('expected evidence package schema 1.1.0');
+  }
+  assert.equal(result.artifact.completionMarkerPath, 'evidence-package.complete');
+  assert.deepEqual(result.artifact.jsonPointers, []);
+  assert.equal(mode(path.join(current.outputDir, 'evidence-package.complete')), 0o600);
+  assert.equal(verifyEvidencePackage(current.outputDir).status, 'complete');
+
+  const missingPointers = await setup(t);
+  missingPointers.request.schemaVersion = '1.1.0';
+  await assert.rejects(
+    materializeEvidencePackage(missingPointers.request),
+    /schema validation/iu,
+  );
 
   assert.throws(() => assertValidJson({
     schemaVersion: '1.1.0',
@@ -686,6 +748,7 @@ test('keeps JSON pointer declarations isolated to schema version 1.1.0', async (
     fileCount: 1,
     totalByteSize: 1,
     checksumsPath: 'SHA256SUMS',
+    completionMarkerPath: 'evidence-package.complete',
     entries: [{
       kind: 'summary',
       sourcePath: 'raw/report.json',
@@ -705,6 +768,8 @@ test('keeps JSON pointer declarations isolated to schema version 1.1.0', async (
 
 test('scans BOM-prefixed JSON and rejects classified invalid JSON', async (t: TestContext) => {
   const bom = await setup(t);
+  bom.request.schemaVersion = '1.1.0';
+  bom.request.jsonPointers = [];
   await fsp.writeFile(
     path.join(bom.sourceRoot, 'raw', 'ui-tree.json'),
     `\uFEFF${JSON.stringify({ path: '/private/tmp/hidden.json' })}`,
